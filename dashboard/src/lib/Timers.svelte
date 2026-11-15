@@ -8,7 +8,10 @@
   const s = $derived(device.status);
   const elapsed = $derived(device.now - device.receivedAt);
   const live = $derived(device.link === "live");
-  const phrase = $derived(s?.wakeWord?.phrase || "Alexa");
+  // The words are chosen now; the example addresses the first of them.
+  const phrase = $derived(
+    s?.wakeWord?.available.find((w) => w.id === s?.settings?.wakeWords[0])?.phrase ?? "Alexa",
+  );
 </script>
 
 <Group title="Timers">

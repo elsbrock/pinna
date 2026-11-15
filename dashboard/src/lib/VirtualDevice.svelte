@@ -8,6 +8,7 @@
   import Icon from "./Icon.svelte";
   import SwitchRow from "./SwitchRow.svelte";
   import { virtualDot as v, type VirtualButton } from "./virtual.svelte.ts";
+  import { spokenWakeWords } from "./view.ts";
 
   const s = $derived(device.status);
   const on = $derived(v.link === "on");
@@ -33,7 +34,7 @@
     }[v.link],
   );
 
-  const phrase = $derived(s?.wakeWord?.phrase ? `“${s.wakeWord.phrase}”` : "the wake word");
+  const phrase = $derived(s ? spokenWakeWords(s) : "the wake word");
   const micHint = $derived.by(() => {
     if (v.file) return "Off while the audio file plays.";
     if (v.mic === "on" && !on) return "Not sent while the satellite is not connected.";

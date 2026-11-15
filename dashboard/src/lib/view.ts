@@ -117,15 +117,42 @@ export function hhmm(d: Date): string {
  * no alarm), so they are facts, not guesses.
  */
 export function wakeHint(s: Status): string {
-  const phrase = s.wakeWord?.phrase ? `"${s.wakeWord.phrase}"` : "the wake word";
   if (!s.settings?.wakeWord) return "Off. Press the action button to talk.";
-  if (s.wakeWord?.enabled) return `Listening for ${phrase}`;
-  if (s.muted) return `Not listening for ${phrase} while the microphones are off`;
+  const phrase = s.wakeWord?.phrase;
+  if (!phrase) return "No wake word is chosen.";
+  const word = `"${phrase}"`;
+  if (s.wakeWord?.enabled) return `Listening for ${word}`;
+  if (s.muted) return `Not listening for ${word} while the microphones are off`;
   if (!s.haConnected || !s.voiceSubscribed)
-    return `Not listening for ${phrase} until Home Assistant has a voice pipeline for this satellite`;
-  if (s.alarmRinging) return `Not listening for ${phrase} while the alarm rings`;
-  if (s.phase !== 1 && s.phase !== 0) return `Not listening for ${phrase} during the conversation`;
-  return `Not listening for ${phrase} yet`;
+    return `Not listening for ${word} until Home Assistant has a voice pipeline for this satellite`;
+  if (s.alarmRinging) return `Not listening for ${word} while the alarm rings`;
+  if (s.phase !== 1 && s.phase !== 0) return `Not listening for ${word} during the conversation`;
+  return `Not listening for ${word} yet`;
+}
+
+/**
+ * The active wake words as they are said, each quoted: `“Alexa”` or
+ * `“Alexa” or “Hey Jarvis”`; `the wake word` when none is known. For a
+ * sentence, since Home Assistant shows the words as one phrase
+ * ("Alexa or Hey Jarvis"), which reads wrong inside one.
+ */
+export function spokenWakeWords(s: Status): string {
+  const words = (s.settings?.wakeWords ?? [])
+    .map((id) => s.wakeWord?.available.find((w) => w.id === id)?.phrase)
+    .filter((p): p is string => !!p);
+  if (words.length > 0) return words.map((p) => `“${p}”`).join(" or ");
+  return s.wakeWord?.phrase ? `“${s.wakeWord.phrase}”` : "the wake word";
+}
+
+/**
+ * The wake word pickers' hint: who chooses, or why there is nothing to choose.
+ * `undefined` when the dashboard may choose and the words are installed.
+ */
+export function wakeWordsHint(s: Status): string | undefined {
+  if ((s.wakeWord?.available.length ?? 0) === 0)
+    return "No wake word models are installed on this satellite.";
+  if (s.haConnected) return "Home Assistant chooses the wake words while it is connected.";
+  return undefined;
 }
 
 /** A near miss's suggestion sits this far above the lowest setting that catches it. */

@@ -1,7 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { Status, Timer } from "../gen/pinna/v1/device_pb.ts";
+import type { Settings, Status, Timer, WakeWord, WakeWordOption } from "../gen/pinna/v1/device_pb.ts";
+
+// node's type stripping can't run the generated module (it holds a TS enum),
+// so the tests build message shapes by hand.
+const word = (id: string, phrase: string): WakeWordOption => ({ $typeName: "pinna.v1.WakeWordOption", id, phrase });
+const wakeWord = (over: Partial<WakeWord> = {}): WakeWord => ({
+  $typeName: "pinna.v1.WakeWord",
+  phrase: "",
+  enabled: false,
+  available: [],
+  ...over,
+});
+const settings = (over: Partial<Settings> = {}): Settings => ({
+  $typeName: "pinna.v1.Settings",
+  wakeWord: true,
+  wakeSensitivity: 50,
+  ledBrightness: 100,
+  wakeWords: [],
+  ...over,
+});
 import {
   badge,
   CAL_KIND,
@@ -17,6 +36,7 @@ import {
   ringEffect,
   routeOf,
   since,
+  spokenWakeWords,
   STAGE,
   startBlocked,
   timerLeft,
@@ -25,6 +45,7 @@ import {
   thresholdFor,
   wakeAdvice,
   wakeHint,
+  wakeWordsHint,
   when,
   wifiConnected,
 } from "./view.ts";
@@ -43,7 +64,7 @@ const status = (over: Partial<Status> = {}): Status =>
     volume: 50,
     haConnected: true,
     voiceSubscribed: true,
-    wakeWord: { phrase: "Alexa", enabled: true },
+    wakeWord: wakeWord({ phrase: "Alexa", enabled: true }),
     timers: [],
     audioBackend: "none",
     ledBackend: "none",
@@ -127,13 +148,37 @@ test("clock and uptime formats", () => {
 
 test("wake word hint names pinnad's reason for pausing", () => {
   assert.equal(wakeHint(status()), 'Listening for "Alexa"');
-  const idle = { phrase: "Alexa", enabled: false } as Status["wakeWord"];
+  const idle = wakeWord({ phrase: "Alexa" });
   assert.match(wakeHint(status({ wakeWord: idle, muted: true })), /while the microphones are off/);
   assert.match(wakeHint(status({ wakeWord: idle, voiceSubscribed: false })), /voice pipeline/);
   assert.match(wakeHint(status({ wakeWord: idle, alarmRinging: true })), /alarm rings/);
   assert.match(wakeHint(status({ wakeWord: idle, phase: 3 })), /during the conversation/);
-  const off = { wakeWord: false, wakeSensitivity: 50, ledBrightness: 100 } as Status["settings"];
+  const off = settings({ wakeWord: false });
   assert.equal(wakeHint(status({ settings: off })), "Off. Press the action button to talk.");
+  // Home Assistant can set both dropdowns to no word; the hint says so then.
+  assert.equal(wakeHint(status({ wakeWord: wakeWord() })), "No wake word is chosen.");
+});
+
+test("wake word pickers say who chooses", () => {
+  const withWords = wakeWord({ phrase: "Alexa", enabled: true, available: [word("alexa_v0.1", "Alexa")] });
+  assert.equal(wakeWordsHint(status({ wakeWord: withWords, haConnected: false })), undefined);
+  assert.match(wakeWordsHint(status({ wakeWord: withWords })) ?? "", /Home Assistant chooses/);
+  // Nothing installed: the pickers say so before anything else.
+  assert.match(wakeWordsHint(status()) ?? "", /No wake word models are installed/);
+});
+
+test("spoken wake words: quoted, in the order they listen", () => {
+  const words = [word("alexa_v0.1", "Alexa"), word("hey_jarvis_v0.1", "Hey Jarvis")];
+  const st = (ids: string[]) =>
+    status({
+      wakeWord: wakeWord({ phrase: "Alexa or Hey Jarvis", enabled: true, available: words }),
+      settings: settings({ wakeWords: ids }),
+    });
+  assert.equal(spokenWakeWords(st(["alexa_v0.1"])), "“Alexa”");
+  assert.equal(spokenWakeWords(st(["alexa_v0.1", "hey_jarvis_v0.1"])), "“Alexa” or “Hey Jarvis”");
+  // A word that is no longer installed is left out.
+  assert.equal(spokenWakeWords(st(["gone", "hey_jarvis_v0.1"])), "“Hey Jarvis”");
+  assert.equal(spokenWakeWords(status({ wakeWord: wakeWord() })), "the wake word");
 });
 
 test("calibration starts only when the satellite would", () => {

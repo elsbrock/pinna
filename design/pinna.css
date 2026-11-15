@@ -168,6 +168,18 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-input.is-mono { font-family: var(--font-mono); font-size: 14px; }
 .pn-input:disabled { background: var(--surface-sunken); color: var(--ink-muted); }
 .pn-field[data-invalid] .pn-input { border-color: var(--danger); }
+.pn-select-wrap { position: relative; display: inline-flex; align-items: center; flex: none; max-width: min(100%, 22em); }
+.pn-select {
+  appearance: none; -webkit-appearance: none; max-width: 100%; height: var(--control-md);
+  padding: 0 calc(var(--space-3) + 22px) 0 var(--space-3); box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--surface-raised); color: var(--ink); font: inherit;
+  text-overflow: ellipsis; cursor: pointer;
+}
+.pn-select:focus-visible { outline: none; border-color: var(--signal); box-shadow: var(--focus-ring); }
+.pn-select:disabled { background: var(--surface-sunken); color: var(--ink-muted); cursor: not-allowed; }
+.pn-select-chev { position: absolute; right: var(--space-3); width: 16px; height: 16px; color: var(--ink-muted); pointer-events: none; }
+.pn-select-wrap:has(.pn-select:disabled) .pn-select-chev { opacity: .45; }
 .pn-field-hint, .pn-field-error { font-size: 13px; line-height: 18px; }
 .pn-field-hint { color: var(--ink-muted); }
 .pn-field-error { color: var(--danger); display: flex; align-items: flex-start; gap: 6px; }

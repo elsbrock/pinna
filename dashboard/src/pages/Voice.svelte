@@ -1,16 +1,42 @@
 <script lang="ts">
+  import { create } from "@bufbuild/protobuf";
+
   import type { Effect } from "../../../design/ring.ts";
+  import { WakeWordIdsSchema } from "../gen/pinna/v1/device_pb.ts";
   import { device } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
   import Ring from "../lib/Ring.svelte";
+  import Select from "../lib/Select.svelte";
   import Slider from "../lib/Slider.svelte";
   import SwitchRow from "../lib/SwitchRow.svelte";
-  import { micHint, wakeHint } from "../lib/view.ts";
+  import { micHint, wakeHint, wakeWordsHint } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const set = $derived(s?.settings);
   const live = $derived(device.link === "live");
+
+  // Two words at most, chosen in Home Assistant while it is connected, here
+  // otherwise (ADR 0013). `first`/`second` are positions in the active list.
+  const words = $derived(s?.wakeWord?.available ?? []);
+  const chosen = $derived(set?.wakeWords ?? []);
+  const first = $derived(chosen[0] ?? "");
+  const second = $derived(chosen[1] ?? "");
+  const locked = $derived(!live || !!s?.haConnected || words.length === 0);
+  const lockHint = $derived(s ? wakeWordsHint(s) : undefined);
+  const asOptions = (except: string) =>
+    words.filter((w) => w.id !== except).map((w) => ({ id: w.id, label: w.phrase }));
+  // The first list names the empty state; the second offers "None" outright.
+  const firstOptions = $derived([
+    ...(chosen.length === 0 ? [{ id: "", label: "No wake word" }] : []),
+    ...asOptions(second),
+  ]);
+  const secondOptions = $derived([{ id: "", label: "None" }, ...asOptions(first)]);
+
+  function chooseWords(which: "first" | "second", id: string) {
+    const ids = (which === "first" ? [id, second] : [first, id]).filter(Boolean);
+    return device.updateSettings({ wakeWords: create(WakeWordIdsSchema, { ids }) });
+  }
 
   // What the ring says, in the device's own colours and timings.
   const LEGEND: { effect: Effect; word: string; what: string }[] = [
@@ -38,6 +64,24 @@
       busy={device.busy}
       hint={wakeHint(s)}
       toggle={(on) => device.updateSettings({ wakeWord: on })}
+    />
+    <Select
+      id="wake-word"
+      label="Wake word"
+      value={first}
+      options={firstOptions}
+      hint={lockHint}
+      disabled={locked}
+      choose={(id) => chooseWords("first", id)}
+    />
+    <Select
+      id="wake-word-2"
+      label="Second wake word"
+      value={second}
+      options={secondOptions}
+      hint={lockHint ?? 'Optional. "None" leaves just the word above.'}
+      disabled={locked}
+      choose={(id) => chooseWords("second", id)}
     />
     <a class="pn-row" href="#/voice/wake-word">
       <span class="pn-row-text">
