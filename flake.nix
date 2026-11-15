@@ -24,8 +24,11 @@
           protobuf
           buf
 
-          # image build
+          # image build (apt/dpkg + Debian keyring bootstrap mkosi's Debian tools tree)
           mkosi
+          apt
+          gnupg
+          debian-archive-keyring
           erofs-utils
           e2fsprogs
           dosfstools
@@ -62,6 +65,7 @@
 
         shellHook = ''
           export CROSS_COMPILE_ARM=armv7l-unknown-linux-gnueabihf-
+          export PINNA_DEBIAN_KEYRINGS=${pkgs.debian-archive-keyring}/share/keyrings
           # cargo-zigbuild writes into zig's lib dir; the store copy is read-only.
           zig_lib="''${XDG_CACHE_HOME:-$HOME/.cache}/pinna/zig-lib-${pkgs.zig.version}"
           if [ ! -d "$zig_lib" ]; then

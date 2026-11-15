@@ -1,0 +1,13 @@
+# Provided via the sandbox tree so mkosi does not look for the Debian keyring on
+# the host (NixOS has none under /usr/share/keyrings). Installed by `just image`.
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: trixie trixie-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.debian.org/debian-security
+Suites: trixie-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
