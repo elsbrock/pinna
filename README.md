@@ -20,6 +20,7 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 | `mkosi/` | Debian trixie image definition |
 | `docs/` | Decision records and runbooks |
 | `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
+| `design/` | Design system: tokens, component CSS, fonts and the LED ring for the website and dashboard |
 | `secrets/`, `blobs/` | Owner-local inputs (credentials, vendor firmware, models) — never committed |
 
 ## Development

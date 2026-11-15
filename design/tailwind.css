@@ -1,0 +1,98 @@
+/* Pinna Tailwind v4 theme — generated from tokens.json by build.mjs. Do not edit. */
+/* Import after "tailwindcss" and after tokens.css (in a layer later than theme, e.g. base).
+   Utilities point at the design tokens, so light and dark switch with them. Colours and radii
+   are Pinna's only; Tailwind's default palette and radius scale are removed. */
+
+@theme {
+  --color-*: initial;
+  --radius-*: initial;
+  --text-display-xl: 52px;
+  --text-display-xl--line-height: 58px;
+  --text-display-xl--font-weight: 600;
+  --text-display-xl--letter-spacing: -0.02em;
+  --text-display-l: 34px;
+  --text-display-l--line-height: 42px;
+  --text-display-l--font-weight: 600;
+  --text-display-l--letter-spacing: -0.015em;
+  --text-display-m: 22px;
+  --text-display-m--line-height: 28px;
+  --text-display-m--font-weight: 600;
+  --text-display-m--letter-spacing: -0.01em;
+  --text-body-l: 18px;
+  --text-body-l--line-height: 28px;
+  --text-body-l--font-weight: 400;
+  --text-heading: 17px;
+  --text-heading--line-height: 24px;
+  --text-heading--font-weight: 700;
+  --text-body: 15px;
+  --text-body--line-height: 22px;
+  --text-body--font-weight: 400;
+  --text-body-strong: 15px;
+  --text-body-strong--line-height: 22px;
+  --text-body-strong--font-weight: 650;
+  --text-caption: 13px;
+  --text-caption--line-height: 18px;
+  --text-caption--font-weight: 400;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-label--font-weight: 700;
+  --text-label--letter-spacing: 0.08em;
+  --text-code: 14px;
+  --text-code--line-height: 22px;
+  --text-code--font-weight: 400;
+  --text-data: 13px;
+  --text-data--line-height: 18px;
+  --text-data--font-weight: 500;
+  --text-readout: 28px;
+  --text-readout--line-height: 32px;
+  --text-readout--font-weight: 500;
+  --text-readout--letter-spacing: -0.01em;
+}
+
+@theme inline {
+  --font-sans: var(--font-text);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+  --container-measure: var(--measure);
+  --container-page: var(--page-max);
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-full: var(--radius-full);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-signal: var(--signal);
+  --color-signal-soft: var(--signal-soft);
+  --color-on-signal: var(--on-signal);
+  --color-link: var(--link);
+  --color-focus: var(--focus);
+  --color-listening: var(--listening);
+  --color-listening-soft: var(--listening-soft);
+  --color-thinking: var(--thinking);
+  --color-thinking-soft: var(--thinking-soft);
+  --color-speaking: var(--speaking);
+  --color-speaking-soft: var(--speaking-soft);
+  --color-timer: var(--timer);
+  --color-timer-soft: var(--timer-soft);
+  --color-caution: var(--caution);
+  --color-caution-soft: var(--caution-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-puck: var(--puck);
+  --color-puck-rim: var(--puck-rim);
+  --color-led-off: var(--led-off);
+  --color-led-listening: var(--led-listening);
+  --color-led-thinking: var(--led-thinking);
+  --color-led-speaking: var(--led-speaking);
+  --color-led-error: var(--led-error);
+  --color-led-muted: var(--led-muted);
+  --color-led-amber: var(--led-amber);
+  --color-led-volume: var(--led-volume);
+}

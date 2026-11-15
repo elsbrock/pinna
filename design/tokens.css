@@ -1,0 +1,244 @@
+/* Pinna design tokens — generated from tokens.json by build.mjs. Do not edit. */
+
+@font-face {
+  font-family: "Unbounded";
+  src: url("fonts/Unbounded.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("fonts/AtkinsonHyperlegibleNext.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Mono";
+  src: url("fonts/AtkinsonHyperlegibleMono.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+  --surface: #f3f5f6;
+  --surface-raised: #ffffff;
+  --surface-sunken: #e9edef;
+  --line: #d6dde1;
+  --line-strong: #7f8c95;
+  --ink: #12171b;
+  --ink-muted: #505c64;
+  --signal: #0b69ad;
+  --signal-soft: #e2f0fb;
+  --on-signal: #ffffff;
+  --link: var(--signal);
+  --focus: var(--signal);
+  --listening: var(--signal);
+  --listening-soft: var(--signal-soft);
+  --thinking: #6a3dbe;
+  --thinking-soft: #efe8fb;
+  --speaking: #08717c;
+  --speaking-soft: #dff4f5;
+  --timer: #8f5400;
+  --timer-soft: #fdf0da;
+  --caution: var(--timer);
+  --caution-soft: var(--timer-soft);
+  --danger: #bf2e2b;
+  --danger-soft: #fbe6e4;
+  --ok: #23763f;
+  --ok-soft: #e2f2e7;
+  --puck: #1b2024;
+  --puck-rim: #2e363c;
+  --led-off: #333b41;
+  --led-listening: #48b9ff;
+  --led-thinking: #a873ef;
+  --led-speaking: #5adce6;
+  --led-error: #ef5050;
+  --led-muted: #ff0000;
+  --led-amber: #ffa000;
+  --led-volume: #78c8ff;
+  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0b69ad;
+  --shadow-pop: 0 8px 24px rgba(18, 23, 27, 0.14), 0 1px 2px rgba(18, 23, 27, 0.08);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-full: 999px;
+  --control-sm: 28px;
+  --control-md: 36px;
+  --control-lg: 44px;
+  --ring-sm: 32px;
+  --ring-md: 64px;
+  --ring-lg: 176px;
+  --measure: 68ch;
+  --page-max: 1120px;
+  --font-display: "Unbounded", "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --font-text: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* Dark follows the system unless the page sets data-theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface: #0e1215;
+    --surface-raised: #161b1f;
+    --surface-sunken: #090c0e;
+    --line: #262e34;
+    --line-strong: #5e6b74;
+    --ink: #e6ebee;
+    --ink-muted: #9aa6ae;
+    --signal: #48b9ff;
+    --signal-soft: #0d2a3d;
+    --on-signal: #06131c;
+    --thinking: #b994f6;
+    --thinking-soft: #261b3b;
+    --speaking: #5adce6;
+    --speaking-soft: #0d2e31;
+    --timer: #ffb23e;
+    --timer-soft: #33240a;
+    --danger: #ff7b72;
+    --danger-soft: #3a1614;
+    --ok: #5ccb86;
+    --ok-soft: #12301e;
+    --puck: #22292e;
+    --puck-rim: #3a444b;
+    --led-off: #3a4248;
+    --focus-ring: 0 0 0 2px #0e1215, 0 0 0 4px #48b9ff;
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #0e1215;
+  --surface-raised: #161b1f;
+  --surface-sunken: #090c0e;
+  --line: #262e34;
+  --line-strong: #5e6b74;
+  --ink: #e6ebee;
+  --ink-muted: #9aa6ae;
+  --signal: #48b9ff;
+  --signal-soft: #0d2a3d;
+  --on-signal: #06131c;
+  --thinking: #b994f6;
+  --thinking-soft: #261b3b;
+  --speaking: #5adce6;
+  --speaking-soft: #0d2e31;
+  --timer: #ffb23e;
+  --timer-soft: #33240a;
+  --danger: #ff7b72;
+  --danger-soft: #3a1614;
+  --ok: #5ccb86;
+  --ok-soft: #12301e;
+  --puck: #22292e;
+  --puck-rim: #3a444b;
+  --led-off: #3a4248;
+  --focus-ring: 0 0 0 2px #0e1215, 0 0 0 4px #48b9ff;
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.pn-type-display-xl {
+  font-family: var(--font-display);
+  font-size: 52px;
+  line-height: 58px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.pn-type-display-l {
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 42px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.pn-type-display-m {
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.pn-type-body-l {
+  font-family: var(--font-text);
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 400;
+}
+
+.pn-type-heading {
+  font-family: var(--font-text);
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+}
+
+.pn-type-body {
+  font-family: var(--font-text);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 400;
+}
+
+.pn-type-body-strong {
+  font-family: var(--font-text);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 650;
+}
+
+.pn-type-caption {
+  font-family: var(--font-text);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.pn-type-label {
+  font-family: var(--font-text);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pn-type-code {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.pn-type-data {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pn-type-readout {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
