@@ -1,0 +1,372 @@
+From 771beb5f7c366de5b1393f5f46678ed7234bc4d5 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 12:08:05 +0100
+Subject: [PATCH 6/9] fix(wlan): release RX reorder holes from a timer after
+ 100 ms
+
+The RX reorder queue only gave up a hole from qmPopOutDueToFallWithin(),
+i.e. when the next frame of the same TID arrived. The miss timestamp was
+one per TID, set at the first hole and not restarted when that hole
+filled and another opened, and the limit was 1 s.
+
+A TCP sender whose data sits behind a hole receives no ACKs and stops
+sending, so the next arrival is its retransmit, 200 ms to seconds later.
+Every hole therefore stalled the download for at least one RTO and up
+to the 1 s limit plus the next RTO, and a premature skip could also hit
+a fresh hole that inherited an old timestamp.
+
+Track when each frame entered reordering (rEchoBaTime from the previous
+patch) and give a hole up once any frame queued behind it has waited
+rx_reorder_timeout_ms (default 100, the mac80211 value), on arrival as
+before and from a cnmTimer while frames wait. The timer runs in the
+driver main thread, like the RX path, re-arms itself for the oldest
+waiting frame, and delivers released frames through the normal
+wlanProcessQueuedSwRfb()/kalRxIndicatePkts() path.
+
+Released holes log a rate-limited "ECHO_WLAN_RX_BA: timeout gave up"
+line; the RXSTAT ba line gains tmrRel (frames released by the timer).
+The limit is tunable at runtime:
+
+  echo 50 > /sys/module/wlan_mt/parameters/rx_reorder_timeout_ms
+---
+ .../mt_wifi/wlan/include/nic/que_mgt.h        |   1 +
+ .../drv_wlan/mt_wifi/wlan/nic/que_mgt.c       | 227 +++++++++++++-----
+ 2 files changed, 162 insertions(+), 66 deletions(-)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h
+index 6e4c49599..9b4f32f99 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h
+@@ -986,6 +986,7 @@ typedef struct _ECHO_WLAN_RX_STAT_T {
+ 	UINT_32 u4BaBar;
+ 	UINT_32 u4BaBarSkip;		/* sequence numbers given up by BAR */
+ 	UINT_32 u4BaTimeoutSkip;	/* holes given up by the miss timeout */
++	UINT_32 u4BaTimerRelease;	/* frames released by the hold timer (no arrival) */
+ 	UINT_32 u4BaRelease;		/* frames released from a reorder queue */
+ 	UINT_32 u4BaHoldMaxMs;		/* longest wait in a reorder queue (since last summary) */
+ 	UINT_32 u4BaHold100;		/* frames that waited >= 100 ms */
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+index 1135e767f..06f12f0e8 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+@@ -494,6 +494,25 @@ static ECHO_WLAN_RX_STAT_T g_rEchoRxStatLast;
+ static unsigned long g_ulEchoRxStatJiffies;
+ static BOOLEAN g_fgEchoRxStatStarted;
+ 
++/*
++ * How long a received frame may wait behind a reorder hole before the hole is
++ * given up.  mac80211 uses 100 ms (HT_RX_REORDER_BUF_TIMEOUT); the vendor
++ * code used QM_RX_BA_ENTRY_MISS_TIMEOUT_MS (1 s), checked only on arrivals.
++ * /sys/module/wlan_mt/parameters/rx_reorder_timeout_ms
++ */
++static unsigned int rx_reorder_timeout_ms = 100;
++module_param(rx_reorder_timeout_ms, uint, 0644);
++MODULE_PARM_DESC(rx_reorder_timeout_ms, "ms a frame may wait behind an RX reorder hole (10-2000)");
++
++static TIMER_T g_rRxReorderTimer;
++
++static UINT_32 qmRxReorderTimeoutMs(VOID)
++{
++	UINT_32 u4Ms = READ_ONCE(rx_reorder_timeout_ms);
++
++	return clamp_t(UINT_32, u4Ms, 10, 2000);
++}
++
+ /*----------------------------------------------------------------------------*/
+ /*!
+ * \brief Account for a frame leaving a reorder queue.
+@@ -539,11 +558,11 @@ VOID echoWlanRxStatTick(VOID)
+ 		ECHO_D(u4RxPortPkt), s->u4RxPortPktMax, ECHO_D(u4RxRfbShortSkip),
+ 		ECHO_D(u4RxOver16Skip), ECHO_D(u4RxTruncSkip), ECHO_D(u4RxLenMismatch),
+ 		s->u4FreeRfbMin, ECHO_D(u4QmLowRfbDrop));
+-	pr_info("ECHO_WLAN_RXSTAT: ba in=%u noBa=%u within=%u held=%u ahead=%u aheadSkip=%u behindDrop=%u behindPass=%u dup=%u bar=%u barSkip=%u tmoSkip=%u rel=%u holdMax=%ums hold100=%u depthMax=%u noReorder=%u\n",
++	pr_info("ECHO_WLAN_RXSTAT: ba in=%u noBa=%u within=%u held=%u ahead=%u aheadSkip=%u behindDrop=%u behindPass=%u dup=%u bar=%u barSkip=%u tmoSkip=%u tmrRel=%u rel=%u holdMax=%ums hold100=%u depthMax=%u noReorder=%u\n",
+ 		ECHO_D(u4BaIn), ECHO_D(u4BaNoEntry), ECHO_D(u4BaWithin), ECHO_D(u4BaHeld),
+ 		ECHO_D(u4BaAhead), ECHO_D(u4BaAheadSkip), ECHO_D(u4BaBehindDrop),
+ 		ECHO_D(u4BaBehindPass), ECHO_D(u4BaDup), ECHO_D(u4BaBar), ECHO_D(u4BaBarSkip),
+-		ECHO_D(u4BaTimeoutSkip), ECHO_D(u4BaRelease), s->u4BaHoldMaxMs, ECHO_D(u4BaHold100),
++		ECHO_D(u4BaTimeoutSkip), ECHO_D(u4BaTimerRelease), ECHO_D(u4BaRelease), s->u4BaHoldMaxMs, ECHO_D(u4BaHold100),
+ 		s->u4BaDepthMax, ECHO_D(u4NoReorder));
+ 	pr_info("ECHO_WLAN_RXSTAT: ind batch=%u pkt=%u cpuSwitch=%u softirqdBusy=%u cpu=%u\n",
+ 		ECHO_D(u4IndBatch), ECHO_D(u4IndPkt), ECHO_D(u4IndCpuSwitch),
+@@ -569,6 +588,10 @@ VOID echoWlanRxStatTick(VOID)
+ */
+ static inline VOID qmDetermineStaRecIndex(IN P_ADAPTER_T prAdapter, IN P_MSDU_INFO_T prMsduInfo);
+ 
++static VOID qmRxReorderTimeout(IN P_ADAPTER_T prAdapter, IN ULONG ulData);
++
++static VOID qmRxReorderArmTimer(IN P_ADAPTER_T prAdapter, IN P_RX_BA_ENTRY_T prReorderQueParm);
++
+ static inline VOID
+ qmDequeueTxPacketsFromPerStaQueues(IN P_ADAPTER_T prAdapter,
+ 				   OUT P_QUE_T prQue,
+@@ -668,6 +691,9 @@ VOID qmInit(IN P_ADAPTER_T prAdapter)
+ 
+ 	kalMemSet(&g_arMissTimeout, 0, sizeof(g_arMissTimeout));
+ 
++	/* cnmTimerInitialize() already ran in nicInitSystemService() */
++	cnmTimerInitTimer(prAdapter, &g_rRxReorderTimer, qmRxReorderTimeout, 0);
++
+ #if QM_ADAPTIVE_TC_RESOURCE_CTRL
+ 	/* 4 <4> Initialize TC resource control variables */
+ 	for (i = 0; i < TC_NUM; i++)
+@@ -3014,6 +3040,7 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 		if (qmPopOutDueToFallWithin(prReorderQueParm, prReturnedQue, &fgIsBaTimeout) == FALSE) {
+ 			STATS_RX_REORDER_HOLE_INC(prStaRec);	/* record hole count */
+ 			g_rEchoRxStat.u4BaHeld++;
++			qmRxReorderArmTimer(prAdapter, prReorderQueParm);
+ 		}
+ 		STATS_RX_REORDER_HOLE_TIMEOUT_INC(prStaRec, fgIsBaTimeout);
+ 	}
+@@ -3047,6 +3074,7 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 		     % MAX_SEQ_NO_COUNT);
+ 
+ 		qmPopOutDueToFallAhead(prReorderQueParm, prReturnedQue);
++		qmRxReorderArmTimer(prAdapter, prReorderQueParm);
+ 
+ 		STATS_RX_REORDER_FALL_AHEAD_INC(prStaRec);
+ 
+@@ -3172,6 +3200,7 @@ VOID qmProcessBarFrame(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb, OUT P_QU
+ 		       "QM:(BAR)[%d](%u){%d,%d}\n", prSwRfb->ucTid, u4SSN, prReorderQueParm->u2WinStart,
+ 			prReorderQueParm->u2WinEnd);
+ 		qmPopOutDueToFallAhead(prReorderQueParm, prReturnedQue);
++		qmRxReorderArmTimer(prAdapter, prReorderQueParm);
+ 
+ 		/* frames below the BAR SSN that never arrived are given up */
+ 		u4Passed = (u4SSN + MAX_SEQ_NO_COUNT - u4WinStart) % MAX_SEQ_NO_COUNT;
+@@ -3277,95 +3306,83 @@ VOID qmInsertFallAheadReorderPkt(IN P_SW_RFB_T prSwRfb, IN P_RX_BA_ENTRY_T prReo
+ 
+ }
+ 
++/*----------------------------------------------------------------------------*/
++/*!
++* \brief TRUE if a frame in the reorder queue has waited for the hold limit.
++*/
++/*----------------------------------------------------------------------------*/
++static BOOLEAN qmReorderQueHasExpired(IN P_QUE_T prReorderQue, IN OS_SYSTIME rCurrentTime)
++{
++	P_QUE_ENTRY_T prEntry;
++	UINT_32 u4TimeoutMs = qmRxReorderTimeoutMs();
++
++	for (prEntry = prReorderQue->prHead; prEntry; prEntry = prEntry->prNext) {
++		if (CHECK_FOR_TIMEOUT(rCurrentTime, ((P_SW_RFB_T) prEntry)->rEchoBaTime,
++				      MSEC_TO_SYSTIME(u4TimeoutMs)))
++			return TRUE;
++	}
++	return FALSE;
++}
++
+ BOOLEAN
+ qmPopOutDueToFallWithin(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prReturnedQue, OUT BOOLEAN *fgIsTimeout)
+ {
+ 	P_SW_RFB_T prReorderedSwRfb;
+ 	P_QUE_T prReorderQue;
+-	BOOLEAN fgDequeuHead, fgMissing;
+-	OS_SYSTIME rCurrentTime, *prMissTimeout;
++	OS_SYSTIME rCurrentTime;
+ 	UINT_32 u4Skipped = 0;
+ 
+ 	prReorderQue = &(prReorderQueParm->rReOrderQue);
+ 
+ 	*fgIsTimeout = FALSE;
+-	fgMissing = FALSE;
+-	rCurrentTime = 0;
+-	prMissTimeout = &(g_arMissTimeout[prReorderQueParm->ucStaRecIdx][prReorderQueParm->ucTid]);
+-	if ((*prMissTimeout)) {
+-		fgMissing = TRUE;
+-		GET_CURRENT_SYSTIME(&rCurrentTime);
+-	}
++	GET_CURRENT_SYSTIME(&rCurrentTime);
+ 
+ 	/* Check whether any packet can be indicated to the higher layer */
+-	while (TRUE) {
+-		if (QUEUE_IS_EMPTY(prReorderQue))
+-			break;
++	while (!QUEUE_IS_EMPTY(prReorderQue)) {
+ 
+ 		/* Always examine the head packet */
+ 		prReorderedSwRfb = (P_SW_RFB_T) QUEUE_GET_HEAD(prReorderQue);
+-		fgDequeuHead = FALSE;
+ 
+-		/* SN == WinStart, so the head packet shall be indicated (advance the window) */
+-		if ((prReorderedSwRfb->u2SSN) == (prReorderQueParm->u2WinStart)) {
+-
+-			fgDequeuHead = TRUE;
+-			prReorderQueParm->u2WinStart = (((prReorderedSwRfb->u2SSN) + 1) % MAX_SEQ_NO_COUNT);
+-		}
+-		/* SN > WinStart, break to update WinEnd */
+-		else {
+-			if ((fgMissing == TRUE) &&
+-			    CHECK_FOR_TIMEOUT(rCurrentTime, (*prMissTimeout),
+-					      MSEC_TO_SYSTIME(QM_RX_BA_ENTRY_MISS_TIMEOUT_MS))) {
+-				DBGLOG(QM, TRACE,
+-				       "QM:RX BA Timout Next Tid %d SSN %d\n", prReorderQueParm->ucTid,
+-					prReorderedSwRfb->u2SSN);
+-				fgDequeuHead = TRUE;
+-				prReorderQueParm->u2WinStart = (((prReorderedSwRfb->u2SSN) + 1) % MAX_SEQ_NO_COUNT);
+-
+-				/* Keep fgMissing set: every frame still queued arrived
+-				 * before this timeout expired, so skip every remaining
+-				 * hole in this pass. Releasing only one hole per call left
+-				 * a burst loss waiting for one new arrival (and another
+-				 * full timeout) per hole, stalling RX for 10-30 s while
+-				 * the sender backed off. */
+-				u4Skipped++;
+-				*fgIsTimeout = TRUE;
+-			} else
++		/*
++		 * SN != WinStart: frames are missing in front of the head.  Give
++		 * them up once any queued frame has waited the hold limit (per
++		 * frame, as mac80211 does).  The old code started one timer per
++		 * TID at the first hole, never restarted it for later holes and
++		 * only checked it when the next frame arrived, so frames behind a
++		 * hole waited for the sender's retransmit timeout.
++		 */
++		if ((prReorderedSwRfb->u2SSN) != (prReorderQueParm->u2WinStart)) {
++			if (!qmReorderQueHasExpired(prReorderQue, rCurrentTime))
+ 				break;
++
++			DBGLOG(QM, TRACE,
++			       "QM:RX BA Timout Next Tid %d SSN %d\n", prReorderQueParm->ucTid,
++				prReorderedSwRfb->u2SSN);
++			u4Skipped += ((prReorderedSwRfb->u2SSN) + MAX_SEQ_NO_COUNT - (prReorderQueParm->u2WinStart))
++				     % MAX_SEQ_NO_COUNT;
++			*fgIsTimeout = TRUE;
+ 		}
+ 
+-		/* Dequeue the head packet */
+-		if (fgDequeuHead) {
++		/* indicate the head packet and advance the window */
++		prReorderQueParm->u2WinStart = (((prReorderedSwRfb->u2SSN) + 1) % MAX_SEQ_NO_COUNT);
+ 
+-			if (((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext == NULL) {
+-				prReorderQue->prHead = NULL;
+-				prReorderQue->prTail = NULL;
+-			} else {
+-				prReorderQue->prHead = ((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext;
+-				(((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext)->prPrev = NULL;
+-			}
+-			prReorderQue->u4NumElem--;
+-			echoWlanRxStatHold(prReorderedSwRfb);
+-			/* DbgPrint("QM: [%d] %d (%d)\n",
+-				prReorderQueParm->ucTid,
+-				prReorderedSwRfb->u2PacketLen,
+-				prReorderedSwRfb->u2SSN); */
+-			QUEUE_INSERT_TAIL(prReturnedQue, (P_QUE_ENTRY_T) prReorderedSwRfb);
++		if (((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext == NULL) {
++			prReorderQue->prHead = NULL;
++			prReorderQue->prTail = NULL;
++		} else {
++			prReorderQue->prHead = ((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext;
++			(((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext)->prPrev = NULL;
+ 		}
++		prReorderQue->u4NumElem--;
++		echoWlanRxStatHold(prReorderedSwRfb);
++		QUEUE_INSERT_TAIL(prReturnedQue, (P_QUE_ENTRY_T) prReorderedSwRfb);
+ 	}
+ 
+ 	if (u4Skipped) {
+ 		g_rEchoRxStat.u4BaTimeoutSkip += u4Skipped;
+-		pr_info_ratelimited("ECHO_WLAN_RX_BA: timeout released %u hole(s) tid=%u win_start=%u\n",
+-				    u4Skipped, prReorderQueParm->ucTid, prReorderQueParm->u2WinStart);
+-	}
+-
+-	if (QUEUE_IS_EMPTY(prReorderQue))
+-		*prMissTimeout = 0;
+-	else {
+-		if (fgMissing == FALSE)
+-			GET_CURRENT_SYSTIME(prMissTimeout);
++		pr_info_ratelimited("ECHO_WLAN_RX_BA: timeout gave up %u sn tid=%u win_start=%u queued=%u\n",
++				    u4Skipped, prReorderQueParm->ucTid, prReorderQueParm->u2WinStart,
++				    prReorderQue->u4NumElem);
+ 	}
+ 
+ 	/* After WinStart has been determined, update the WinEnd */
+@@ -3374,6 +3391,84 @@ qmPopOutDueToFallWithin(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prRetur
+ 	return QUEUE_IS_EMPTY(prReorderQue);
+ }
+ 
++/*----------------------------------------------------------------------------*/
++/*!
++* \brief Release frames that waited too long behind a reorder hole when no
++*        further frame arrives (the sender stalls while its data is held).
++*
++* Runs as a cnmTimer callback, i.e. in the driver main thread like the RX path.
++*/
++/*----------------------------------------------------------------------------*/
++static VOID qmRxReorderTimeout(IN P_ADAPTER_T prAdapter, IN ULONG ulData)
++{
++	P_QUE_MGT_T prQM = &prAdapter->rQM;
++	P_RX_CTRL_T prRxCtrl = &prAdapter->rRxCtrl;
++	QUE_T rReturnedQue;
++	BOOLEAN fgIsTimeout, fgWaiting = FALSE;
++	OS_SYSTIME rCurrentTime, rOldest = 0;
++	UINT_32 i, u4Released, u4NextMs;
++
++	QUEUE_INITIALIZE(&rReturnedQue);
++
++	for (i = 0; i < CFG_NUM_OF_RX_BA_AGREEMENTS; i++) {
++		P_RX_BA_ENTRY_T prRxBaEntry = &prQM->arRxBaTable[i];
++
++		if (!prRxBaEntry->fgIsValid || QUEUE_IS_EMPTY(&prRxBaEntry->rReOrderQue))
++			continue;
++		qmPopOutDueToFallWithin(prRxBaEntry, &rReturnedQue, &fgIsTimeout);
++	}
++
++	u4Released = rReturnedQue.u4NumElem;
++	if (u4Released) {
++		g_rEchoRxStat.u4BaTimerRelease += u4Released;
++		prRxCtrl->ucNumIndPacket = 0;
++		prRxCtrl->ucNumRetainedPacket = 0;
++		wlanProcessQueuedSwRfb(prAdapter, (P_SW_RFB_T) QUEUE_GET_HEAD(&rReturnedQue));
++		if (prRxCtrl->ucNumIndPacket > 0) {
++			RX_ADD_CNT(prRxCtrl, RX_DATA_INDICATION_COUNT, prRxCtrl->ucNumIndPacket);
++			kalRxIndicatePkts(prAdapter->prGlueInfo, prRxCtrl->apvIndPacket,
++					  (UINT_32) prRxCtrl->ucNumIndPacket);
++			prRxCtrl->ucNumIndPacket = 0;
++		}
++	}
++
++	/* re-arm for the oldest frame still waiting */
++	GET_CURRENT_SYSTIME(&rCurrentTime);
++	for (i = 0; i < CFG_NUM_OF_RX_BA_AGREEMENTS; i++) {
++		P_RX_BA_ENTRY_T prRxBaEntry = &prQM->arRxBaTable[i];
++		P_QUE_ENTRY_T prEntry;
++
++		if (!prRxBaEntry->fgIsValid)
++			continue;
++		for (prEntry = prRxBaEntry->rReOrderQue.prHead; prEntry; prEntry = prEntry->prNext) {
++			OS_SYSTIME rTime = ((P_SW_RFB_T) prEntry)->rEchoBaTime;
++
++			if (!fgWaiting || TIME_BEFORE(rTime, rOldest))
++				rOldest = rTime;
++			fgWaiting = TRUE;
++		}
++	}
++	if (fgWaiting) {
++		u4NextMs = (UINT_32) (rOldest + qmRxReorderTimeoutMs() - rCurrentTime);
++		if ((INT_32) u4NextMs < 10)
++			u4NextMs = 10;
++		cnmTimerStartTimer(prAdapter, &g_rRxReorderTimer, u4NextMs);
++	}
++}
++
++/*----------------------------------------------------------------------------*/
++/*!
++* \brief Make sure the reorder hold timer runs while frames wait behind a hole.
++*/
++/*----------------------------------------------------------------------------*/
++static VOID qmRxReorderArmTimer(IN P_ADAPTER_T prAdapter, IN P_RX_BA_ENTRY_T prReorderQueParm)
++{
++	if (QUEUE_IS_EMPTY(&prReorderQueParm->rReOrderQue))
++		return;
++	if (!timerPendingTimer(&g_rRxReorderTimer))
++		cnmTimerStartTimer(prAdapter, &g_rRxReorderTimer, qmRxReorderTimeoutMs());
++}
++
+ VOID qmPopOutDueToFallAhead(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prReturnedQue)
+ {
+ 	P_SW_RFB_T prReorderedSwRfb;
+-- 
+2.54.0
+
