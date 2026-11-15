@@ -1,0 +1,14 @@
+[package]
+name = "pinna-ladspa"
+description = "LADSPA plugin running the Echo Dot microphone front end (beamformer) inside PipeWire's filter-chain"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pinna-audio = { path = "../pinna-audio" }
+pinna-hal = { path = "../pinna-hal" }
