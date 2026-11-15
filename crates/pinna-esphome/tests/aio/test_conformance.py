@@ -22,10 +22,24 @@ from aioesphomeapi.core import (
     RequiresEncryptionAPIError,
 )
 from aioesphomeapi.model import (
+    ButtonInfo,
+    EntityCategory,
+    Event,
+    EventInfo,
     LightInfo,
     LightState,
+    MediaPlayerCommand,
+    MediaPlayerEntityFeature as MF,
+    MediaPlayerFormatPurpose,
+    MediaPlayerInfo,
+    MediaPlayerState,
+    NumberInfo,
+    NumberMode,
+    NumberState,
     SwitchInfo,
     SwitchState,
+    TextSensorInfo,
+    TextSensorState,
     VoiceAssistantEventType as VE,
     VoiceAssistantTimerEventType as VT,
 )
@@ -151,13 +165,200 @@ async def test_entities(client):
     entities, services = await client.list_entities_services()
     assert not services
     by_key = {e.key: e for e in entities}
-    assert set(by_key) == {LIGHT_KEY, MUTE_KEY}
+    assert LIGHT_KEY in by_key and MUTE_KEY in by_key
+    assert len(by_key) == len(entities) == 2 + 4 + 1 + 7 + 1 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
-    assert list(light.effects) == ["Spin", "Pulse"]
+    assert list(light.effects) == ["Solid", "Pulse", "Flash"]
     assert 35 in [int(m) for m in light.supported_color_modes]
     assert isinstance(sw, SwitchInfo) and sw.name == "Microphone mute"
+
+
+async def infos(client, cls):
+    entities, _ = await client.list_entities_services()
+    return {e.name: e for e in entities if isinstance(e, cls)}
+
+
+@pytest.mark.asyncio
+async def test_entity_keys_are_unique_and_stable(client, demo):
+    entities, _ = await client.list_entities_services()
+    keys = [e.key for e in entities]
+    assert len(set(keys)) == len(keys) and 0 not in keys
+    again, _ = await client.list_entities_services()
+    assert [e.key for e in again] == keys
+
+
+@pytest.mark.asyncio
+async def test_numbers(client, demo):
+    nums = await infos(client, NumberInfo)
+    expected = {
+        "Volume": ("volume", "%", "mdi:volume-high"),
+        "Reply volume": ("reply_volume", "%", "mdi:account-voice"),
+        "Wake word sensitivity": ("wake_word_sensitivity", "", "mdi:tune-variant"),
+        "LED brightness": ("led_brightness", "%", "mdi:brightness-6"),
+    }
+    assert set(nums) == set(expected)
+    for name, (oid, unit, icon) in expected.items():
+        n = nums[name]
+        assert (n.object_id, n.unit_of_measurement, n.icon) == (oid, unit, icon)
+        assert (n.min_value, n.max_value, n.step) == (0.0, 100.0, 1.0)
+        assert n.entity_category == EntityCategory.CONFIG
+        assert n.mode == NumberMode.SLIDER
+
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    vol = nums["Volume"].key
+    await eventually(lambda: vol in states, "initial number state")
+    assert isinstance(states[vol], NumberState) and states[vol].missing_state is True
+    client.number_command(vol, 42.0)
+    cmd = await demo.wait(demo.cmd("number"), "number command")
+    assert cmd["object_id"] == "volume" and cmd["value"] == 42.0
+    await eventually(lambda: states[vol].missing_state is False, "echoed number state")
+    assert states[vol].state == 42.0
+
+    late = demo.client("late")
+    await late.connect(login=True)
+    seen = {}
+    late.subscribe_states(lambda s: seen.__setitem__(s.key, s))
+    await eventually(lambda: vol in seen, "number state for late client")
+    assert seen[vol].state == 42.0 and not seen[vol].missing_state
+    await late.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_button_event_and_text_sensor(client, demo):
+    buttons = await infos(client, ButtonInfo)
+    assert set(buttons) == {"Cancel request"}
+    b = buttons["Cancel request"]
+    assert (b.object_id, b.icon) == ("cancel_request", "mdi:close-circle-outline")
+    events = await infos(client, EventInfo)
+    texts = await infos(client, TextSensorInfo)
+    t = texts["Last wake word"]
+    assert (set(texts), t.object_id, t.icon) == ({"Last wake word"}, "last_wake_word", "mdi:account-voice")
+
+    states = []
+    client.subscribe_states(states.append)
+    await eventually(lambda: any(isinstance(s, TextSensorState) for s in states), "initial text state")
+    initial = [s for s in states if isinstance(s, TextSensorState)][0]
+    assert initial.key == t.key and initial.missing_state is True
+
+    client.button_command(b.key)
+    assert (await demo.wait(demo.cmd("button"), "button command"))["object_id"] == "cancel_request"
+    action = events["Action button"]
+    await eventually(
+        lambda: any(isinstance(s, Event) and s.key == action.key and s.event_type == "press" for s in states),
+        "action press event",
+    )
+    await eventually(
+        lambda: any(isinstance(s, TextSensorState) and s.state == "Alexa" and not s.missing_state for s in states),
+        "last wake word",
+    )
+
+
+@pytest.mark.asyncio
+async def test_event_entities_and_unknown_type_dropped(client, demo):
+    events = await infos(client, EventInfo)
+    button_types = ["press", "long_press", "double_press"]
+    expected = {
+        "Volume up button": ("volume_up", "button", button_types),
+        "Volume down button": ("volume_down", "button", button_types),
+        "Microphone mute button": ("microphone_mute", "button", button_types),
+        "Action button": ("action", "button", button_types),
+        "Voice assistant": (
+            "voice_assistant",
+            "",
+            ["wake_word", "listening", "thinking", "replying", "finished", "stopped"],
+        ),
+        "Playback": ("playback", "", ["started", "stopped"]),
+        "Timer": ("timer", "", ["started", "updated", "cancelled", "finished"]),
+    }
+    assert set(events) == set(expected)
+    for name, (oid, cls, types) in expected.items():
+        e = events[name]
+        assert (e.object_id, e.device_class, list(e.event_types)) == (oid, cls, types)
+
+    got = []
+    client.subscribe_states(got.append)
+    demo.send("event timer bogus")
+    demo.send("event timer started")
+    await eventually(lambda: any(isinstance(s, Event) for s in got), "timer event")
+    assert [(s.key, s.event_type) for s in got if isinstance(s, Event)] == [
+        (events["Timer"].key, "started")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_text_sensor_update(client, demo):
+    t = (await infos(client, TextSensorInfo))["Last wake word"]
+    got = []
+    client.subscribe_states(got.append)
+    demo.send("text last_wake_word Okay Nabu")
+    await eventually(
+        lambda: any(isinstance(s, TextSensorState) and s.state == "Okay Nabu" for s in got), "text state"
+    )
+    assert all(s.key == t.key for s in got if isinstance(s, TextSensorState))
+
+
+@pytest.mark.asyncio
+async def test_media_player_info(client):
+    players = await infos(client, MediaPlayerInfo)
+    assert set(players) == {"Media player"}
+    mp = players["Media player"]
+    assert mp.object_id == "media_player" and mp.supports_pause is True
+    want = (
+        MF.PAUSE | MF.VOLUME_SET | MF.VOLUME_MUTE | MF.PLAY_MEDIA | MF.STOP | MF.PLAY | MF.MEDIA_ANNOUNCE
+    )
+    assert mp.feature_flags == int(want)
+    fmts = [(f.format, f.sample_rate, f.num_channels, f.purpose, f.sample_bytes) for f in mp.supported_formats]
+    D, A = MediaPlayerFormatPurpose.DEFAULT, MediaPlayerFormatPurpose.ANNOUNCEMENT
+    assert fmts == [("mp3", 48000, 2, D, 0), ("wav", 48000, 1, A, 2), ("mp3", 48000, 2, A, 0)]
+
+
+@pytest.mark.asyncio
+async def test_media_player_commands(client, demo):
+    mp = (await infos(client, MediaPlayerInfo))["Media player"]
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: mp.key in states, "initial media player state")
+    assert states[mp.key].state == MediaPlayerState.IDLE
+
+    n = 0
+
+    def media_cmds():
+        return [x for x in demo.lines if x.get("command") == "media_player"]
+
+    async def command(want, state=None, **kw):
+        nonlocal n
+        client.media_player_command(mp.key, **kw)
+        n += 1
+        await demo.wait(lambda l: len(media_cmds()) >= n, "media player command")
+        last = media_cmds()[n - 1]
+        assert all(last[k] == v for k, v in want.items()), last
+        if state is not None:
+            await eventually(lambda: states[mp.key].state == state, f"state {state}")
+
+    await command(
+        {"media_url": "http://x/a.mp3", "announcement": False, "media_command": None},
+        MediaPlayerState.PLAYING,
+        media_url="http://x/a.mp3",
+        announcement=False,
+    )
+    await command(
+        {"media_url": "http://x/b.wav", "announcement": True},
+        MediaPlayerState.ANNOUNCING,
+        media_url="http://x/b.wav",
+        announcement=True,
+    )
+    await command({"volume": 0.25, "media_url": None}, volume=0.25)
+    await eventually(lambda: states[mp.key].volume == 0.25, "volume state")
+    await command({"media_command": 3}, command=MediaPlayerCommand.MUTE)
+    await eventually(lambda: states[mp.key].muted is True, "muted state")
+    await command({"media_command": 4}, command=MediaPlayerCommand.UNMUTE)
+    await eventually(lambda: states[mp.key].muted is False, "unmuted state")
+    await command({"media_command": 1}, MediaPlayerState.PAUSED, command=MediaPlayerCommand.PAUSE)
+    await command({"media_command": 0}, MediaPlayerState.PLAYING, command=MediaPlayerCommand.PLAY)
+    await command({"media_command": 2}, MediaPlayerState.IDLE, command=MediaPlayerCommand.STOP)
 
 
 @pytest.mark.asyncio
@@ -168,13 +369,13 @@ async def test_states_light_and_switch(client, demo):
     assert isinstance(states[LIGHT_KEY], LightState) and states[LIGHT_KEY].state is False
     assert isinstance(states[MUTE_KEY], SwitchState) and states[MUTE_KEY].state is False
 
-    client.light_command(LIGHT_KEY, state=True, brightness=0.5, rgb=(1.0, 0.0, 0.5), effect="Spin")
+    client.light_command(LIGHT_KEY, state=True, brightness=0.5, rgb=(1.0, 0.0, 0.5), effect="Solid")
     cmd = await demo.wait(demo.cmd("light"), "light command")
     assert cmd["on"] is True and cmd["brightness"] == 0.5
-    assert cmd["rgb"] == [1.0, 0.0, 0.5] and cmd["effect"] == "Spin"
+    assert cmd["rgb"] == [1.0, 0.0, 0.5] and cmd["effect"] == "Solid"
     await eventually(lambda: states[LIGHT_KEY].state is True, "echoed light state")
     s = states[LIGHT_KEY]
-    assert (s.brightness, s.red, s.green, s.blue, s.effect) == (0.5, 1.0, 0.0, 0.5, "Spin")
+    assert (s.brightness, s.red, s.green, s.blue, s.effect) == (0.5, 1.0, 0.0, 0.5, "Solid")
 
     client.switch_command(MUTE_KEY, True)
     assert (await demo.wait(demo.cmd("mute"), "mute command"))["state"] is True
