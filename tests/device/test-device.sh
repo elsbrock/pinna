@@ -36,11 +36,16 @@ check "/var is ext4 on userdata" 'findmnt -n -o SOURCE,FSTYPE /var | grep -q "ex
 check "Wi-Fi associated" 'wpa_cli -i wlan0 status | grep -qx wpa_state=COMPLETED'
 check "wlan0 has IPv4 and a default route" 'ip -4 addr show wlan0 | grep -q inet && ip route | grep -q "^default .* wlan0"'
 check "DNS resolves" 'resolvectl query deb.debian.org >/dev/null'
-check "clock synchronized" 'timedatectl show -p NTPSynchronized --value | grep -qx yes'
+check "clock synchronized" 'for i in $(seq 1 30); do timedatectl show -p NTPSynchronized --value | grep -qx yes && exit 0; sleep 2; done; exit 1'
 check "mDNS record published" 'grep -q "^Type=_esphomelib._tcp" /run/systemd/dnssd/*.dnssd'
 check "fastboot guard cleared, Kaeru present" 'pinna-bootctl status | grep -qx "command: Empty" && pinna-bootctl status | grep -qx "kaeru: true"'
 check "pinnad healthy (control API)" 'pinnactl status >/dev/null'
-check "microphone capture running" 'pgrep -x arecord >/dev/null && journalctl -u pinnad -b -o cat | grep -q "microphone running"'
+check "microphone capture running" '{ pgrep -x arecord || pgrep -f "pw-record .*dot_mic_aec"; } >/dev/null && journalctl -u pinnad -b -o cat | grep -q "microphone running"'
+backend=$(remote "pinnactl status | awk '/^audio:/{print \$2}'")
+info "audio backend: ${backend:-unknown}"
+if [ "$backend" = echodot-pipewire ]; then
+  check "PipeWire microphone graph running" 'systemctl is-active -q pinna-pipewire pinna-wireplumber && PIPEWIRE_RUNTIME_DIR=/run/pipewire pw-cli ls Node | grep -q "node.name = \"dot_mic_aec\""'
+fi
 check "LED ring driver present" 'ls /sys/bus/i2c/devices/*/frame >/dev/null'
 check "LED test animation accepted" 'pinnactl led-test >/dev/null'
 remote 'systemd-sysext status --no-pager | grep -q pinna-dev' && info "note: development sysext overlay active (just push)"
@@ -48,12 +53,17 @@ remote 'systemd-sysext status --no-pager | grep -q pinna-dev' && info "note: dev
 api_host=${PINNA_API_HOST:-$(remote "ip -4 -o addr show wlan0 | awk '{print \$4}' | cut -d/ -f1")}
 key_args=()
 [ -n "${PINNA_API_KEY:-}" ] && key_args=(--key-file "$PINNA_API_KEY")
+mode=direct
+[ "$backend" = echodot-pipewire ] && mode=aec
 if uv run -q --with aioesphomeapi==46.2.0 python -I "$root/tests/device/api_check.py" \
-    --host "$api_host" "${key_args[@]}" --loopback /var/lib/pinna/test/alexa-what-time.wav \
-    --stage "${ssh[*]} $host"; then
-  ok "ESPHome API, entities and acoustic loopback (speaker -> mic -> wake word)"
+    --host "$api_host" "${key_args[@]}" --mode "$mode" --stage "${ssh[*]} $host"; then
+  if [ "$mode" = aec ]; then
+    ok "ESPHome API, entities, speaker -> mics -> beamformer, echo cancellation, no self-wake"
+  else
+    ok "ESPHome API, entities and acoustic loopback (speaker -> mic -> wake word)"
+  fi
 else
-  bad "ESPHome API / acoustic loopback"
+  bad "ESPHome API / acoustic test ($mode)"
 fi
 
 if [ -n "${THROUGHPUT_URL:-}" ]; then
