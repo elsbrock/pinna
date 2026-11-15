@@ -36,7 +36,8 @@ export type Tone = "ok" | "caution" | "danger";
 export type Health = { tone: Tone; text: string };
 
 /** The Home Assistant health line. */
-export function health(s: Status | null, link: Link, offlineSince: Date | null): Health {
+export function health(s: Status | null, link: Link, offlineSince: Date | null, restarting = false): Health {
+  if (restarting && link !== "live") return { tone: "caution", text: "Restarting" };
   if (link === "offline" || !s) {
     const since = offlineSince ? ` since ${hhmm(offlineSince)}` : "";
     return { tone: "danger", text: `Not reachable${since}` };
@@ -94,9 +95,107 @@ export function hhmm(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** The wake word line: what the detector is doing, without guessing why. */
-export function wakeLine(s: Status): string {
-  const phrase = s.wakeWord?.phrase;
-  if (s.wakeWord?.enabled && phrase) return `Listening for "${phrase}"`;
-  return "Not listening for the wake word";
+/** The Wake word switch's hint: what the detector is doing, without guessing why. */
+export function wakeHint(s: Status): string {
+  const phrase = s.wakeWord?.phrase || "the wake word";
+  const quoted = s.wakeWord?.phrase ? `"${phrase}"` : phrase;
+  if (!s.settings?.wakeWord) return "Off. Press the action button to talk.";
+  if (s.wakeWord?.enabled) return `Listening for ${quoted}`;
+  return `Not listening for ${quoted} right now`;
+}
+
+/** The project's documentation (the dashboard works offline; these are plain links). */
+export const DOCS = "https://elsbrock.github.io/pinna/docs/";
+
+/** Wi-Fi signal as a word people use: thresholds as common for dBm. */
+export function signalWord(dbm: number): string {
+  if (dbm >= -55) return "Excellent";
+  if (dbm >= -67) return "Good";
+  if (dbm >= -75) return "Fair";
+  return "Weak";
+}
+
+export function band(mhz: number): string {
+  if (!mhz) return "";
+  if (mhz < 3000) return "2.4 GHz";
+  if (mhz < 5925) return "5 GHz";
+  return "6 GHz";
+}
+
+/** What an interface is, in words: the satellite has Wi-Fi and the USB console. */
+export function interfaceLabel(name: string, wireless: boolean): string {
+  if (wireless) return "Wi-Fi";
+  if (name.startsWith("usb")) return "USB (console)";
+  if (/^(eth|en)/.test(name)) return "Ethernet";
+  return name;
+}
+
+export type NetIssue = { title: string; body: string; href: string };
+
+/**
+ * What is wrong with the Wi-Fi, in the cases the troubleshooting page names.
+ * `wifi` is the wireless interface, if there is one.
+ */
+export function wifiIssue(
+  wifi: { wifi?: { ssid: string }; addresses: string[] } | undefined,
+): NetIssue | null {
+  const doc = `${DOCS}troubleshooting/#the-device-has-no-wi-fi`;
+  if (!wifi)
+    return {
+      title: "No Wi-Fi interface",
+      body: "The Wi-Fi firmware is probably missing from the image.",
+      href: doc,
+    };
+  const v4 = wifi.addresses.some((a) => !a.includes(":"));
+  // No link details (iw missing) but an address: it is connected.
+  if (!wifi.wifi && v4) return null;
+  if (!wifi.wifi)
+    return {
+      title: "Not connected to a Wi-Fi network",
+      body: "Check the network name and password in /var/lib/pinna/wifi/wpa_supplicant-wlan0.conf.",
+      href: doc,
+    };
+  if (!v4)
+    return {
+      title: `Connected to ${wifi.wifi?.ssid}, but no IPv4 address yet`,
+      body: "The network's DHCP server hasn't answered. This usually sorts itself out within a minute.",
+      href: doc,
+    };
+  return null;
+}
+
+type SlotLike = { name: string; version: string; state: string; triesLeft: number; active: boolean; booted: boolean };
+type UpdatesLike = { available: boolean; installing: boolean; slots: SlotLike[] };
+
+/** A slot's state in words. */
+export function slotWord(s: SlotLike): string {
+  if (s.state === "good") return "Good";
+  if (s.state === "trial") return `On trial, ${s.triesLeft} ${s.triesLeft === 1 ? "try" : "tries"} left`;
+  return "Can't boot";
+}
+
+/**
+ * Where an update stands, from the A/B slots alone (so a reloaded page, or one
+ * opened after a restart, knows too).
+ *   ready     install is possible
+ *   trial     this version runs on trial: installing waits until it is marked good
+ *   pending   another slot boots next: restart to try it
+ *   installing
+ *   unavailable
+ */
+export type UpdatePhase = "unavailable" | "installing" | "trial" | "pending" | "ready";
+
+export function updatePhase(u: UpdatesLike): UpdatePhase {
+  if (!u.available) return "unavailable";
+  if (u.installing) return "installing";
+  const booted = u.slots.find((s) => s.booted);
+  const active = u.slots.find((s) => s.active);
+  if (booted?.state === "trial") return "trial";
+  if (active && booted && active.name !== booted.name && active.state !== "unbootable") return "pending";
+  return "ready";
+}
+
+/** The slot an install writes: the one that is not running. */
+export function targetSlot(u: UpdatesLike): SlotLike | undefined {
+  return u.slots.find((s) => !s.booted);
 }

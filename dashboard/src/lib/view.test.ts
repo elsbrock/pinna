@@ -11,7 +11,7 @@ import {
   startBlocked,
   timerLeft,
   uptime,
-  wakeLine,
+  wakeHint,
 } from "./view.ts";
 
 // A connected, idle satellite; tests override what they need.
@@ -33,6 +33,7 @@ const status = (over: Partial<Status> = {}): Status =>
     audioBackend: "none",
     ledBackend: "none",
     alarmRinging: false,
+    settings: { wakeWord: true, wakeSensitivity: 50, ledBrightness: 100 },
     ...over,
   }) as Status;
 
@@ -62,6 +63,7 @@ test("health line wording", () => {
   const since = new Date(2026, 10, 15, 14, 2);
   assert.deepEqual(health(status(), "offline", since), { tone: "danger", text: "Not reachable since 14:02" });
   assert.equal(health(null, "offline", null).text, "Not reachable");
+  assert.deepEqual(health(status(), "offline", since, true), { tone: "caution", text: "Restarting" });
 });
 
 test("start says why it is disabled", () => {
@@ -98,7 +100,55 @@ test("clock and uptime formats", () => {
   assert.equal(uptime(3 * 86400 + 4 * 3600 + 59), "3d 4h");
 });
 
-test("wake word line does not guess a reason", () => {
-  assert.equal(wakeLine(status()), 'Listening for "Alexa"');
-  assert.equal(wakeLine(status({ wakeWord: { phrase: "Alexa", enabled: false } as Status["wakeWord"] })), "Not listening for the wake word");
+test("wake word hint says what the detector does, not why", () => {
+  assert.equal(wakeHint(status()), 'Listening for "Alexa"');
+  const idle = { phrase: "Alexa", enabled: false } as Status["wakeWord"];
+  assert.equal(wakeHint(status({ wakeWord: idle })), 'Not listening for "Alexa" right now');
+  const off = { wakeWord: false, wakeSensitivity: 50, ledBrightness: 100 } as Status["settings"];
+  assert.equal(wakeHint(status({ settings: off })), "Off. Press the action button to talk.");
+});
+
+test("network words", async () => {
+  const { band, interfaceLabel, signalWord, wifiIssue } = await import("./view.ts");
+  assert.equal(signalWord(-50), "Excellent");
+  assert.equal(signalWord(-67), "Good");
+  assert.equal(signalWord(-70), "Fair");
+  assert.equal(signalWord(-80), "Weak");
+  assert.equal(band(2437), "2.4 GHz");
+  assert.equal(band(5180), "5 GHz");
+  assert.equal(interfaceLabel("wlan0", true), "Wi-Fi");
+  assert.equal(interfaceLabel("usb0", false), "USB (console)");
+  assert.match(wifiIssue(undefined)?.title ?? "", /No Wi-Fi interface/);
+  assert.match(wifiIssue({ addresses: [] })?.title ?? "", /Not connected/);
+  assert.match(wifiIssue({ wifi: { ssid: "Home" }, addresses: ["fd00::2/64"] })?.title ?? "", /no IPv4/);
+  assert.equal(wifiIssue({ wifi: { ssid: "Home" }, addresses: ["192.168.1.20/24"] }), null);
+  // Without link details (no iw), an address still means connected.
+  assert.equal(wifiIssue({ addresses: ["192.168.1.20/24"] }), null);
+});
+
+test("update phases come from the slots", async () => {
+  const { slotWord, targetSlot, updatePhase } = await import("./view.ts");
+  const slot = (name: string, over: object = {}) => ({
+    name,
+    version: "0.1.0",
+    state: "good",
+    triesLeft: 0,
+    active: false,
+    booted: false,
+    ...over,
+  });
+  const u = (slots: ReturnType<typeof slot>[], over: object = {}) => ({ available: true, installing: false, slots, ...over });
+  const a = slot("a", { active: true, booted: true });
+  assert.equal(updatePhase(u([a, slot("b", { state: "unbootable" })])), "ready");
+  assert.equal(updatePhase(u([a, slot("b")], { installing: true })), "installing");
+  assert.equal(updatePhase(u([a, slot("b")], { available: false })), "unavailable");
+  // Installed into b, not restarted yet.
+  const pending = u([slot("a", { booted: true }), slot("b", { active: true, state: "trial", triesLeft: 3 })]);
+  assert.equal(updatePhase(pending), "pending");
+  assert.equal(targetSlot(pending)?.name, "b");
+  // Restarted into b, which is on trial until the health check marks it good.
+  const trial = u([slot("a"), slot("b", { active: true, booted: true, state: "trial", triesLeft: 2 })]);
+  assert.equal(updatePhase(trial), "trial");
+  assert.equal(slotWord(trial.slots[1]), "On trial, 2 tries left");
+  assert.equal(slotWord(slot("b", { state: "unbootable" })), "Can't boot");
 });

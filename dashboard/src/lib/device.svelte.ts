@@ -4,7 +4,7 @@
 import { ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
-import { DeviceService, type Status } from "../gen/pinna/v1/device_pb.ts";
+import { DeviceService, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
 import type { Link } from "./view.ts";
 
 const client = createClient(DeviceService, createConnectTransport({ baseUrl: location.origin }));
@@ -24,6 +24,8 @@ class Device {
   /** The last rejected command, in the API's words. */
   error = $state<string | null>(null);
   busy = $state(false);
+  /** A restart was asked for: being unreachable is expected, not an error. */
+  restarting = $state(false);
   /** A one-second clock for everything that counts. */
   now = $state(Date.now());
 
@@ -52,6 +54,7 @@ class Device {
     this.status = s;
     this.receivedAt = Date.now();
     this.link = "live";
+    this.restarting = false;
     this.offlineSince = null;
   }
 
@@ -113,11 +116,26 @@ class Device {
   setMicrophones(on: boolean) {
     return this.#command(() => client.setMute({ muted: !on }));
   }
+  updateSettings(patch: Partial<Omit<UpdateSettingsRequest, "$typeName">>) {
+    return this.#command(() => client.updateSettings(patch));
+  }
   startConversation() {
     return this.#command(() => client.startConversation({}));
   }
   stop() {
     return this.#command(() => client.stopConversation({}));
+  }
+  async restart() {
+    this.busy = true;
+    try {
+      await client.reboot({});
+      this.restarting = true;
+      this.error = null;
+    } catch (e) {
+      this.error = sentence(ConnectError.from(e).rawMessage);
+    } finally {
+      this.busy = false;
+    }
   }
 }
 
@@ -125,3 +143,4 @@ class Device {
 const sentence = (m: string) => (m ? m[0].toUpperCase() + m.slice(1).replace(/\.?$/, ".") : "The satellite refused.");
 
 export const device = new Device();
+export { client };
