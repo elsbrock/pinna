@@ -41,8 +41,8 @@ its colour, its brightness and one of three effects:
 
 The light shows only while the device is idle. When the device listens, works
 on a request or speaks, the ring shows that state, and the light comes back
-afterwards. The light also takes the place of the timer arc and the music
-lights.
+afterwards. While a timer runs, the ring shows the timer arc instead of the
+light. The light takes the place of the music lights.
 
 **LED brightness** in Home Assistant sets the brightness of the whole ring,
 including the states above.

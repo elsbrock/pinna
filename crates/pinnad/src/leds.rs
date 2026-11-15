@@ -98,7 +98,8 @@ pub struct LedState {
     pub base: Effect,
     /// Transient effect shown on top until it finishes (Error, Volume).
     pub overlay: Option<(Effect, Instant)>,
-    /// Home Assistant light entity: shown while the base effect is Idle.
+    /// Home Assistant light entity: shown while the base effect is Idle and
+    /// no timer runs.
     pub light: Option<Rgb>,
     pub light_effect: LightEffect,
     /// Remaining fraction of the soonest timer, shown while idle.
@@ -163,11 +164,13 @@ fn unscaled_frame(
         {
             render(Effect::Boot, t)
         }
+        // A running timer was asked of this device just now: its arc shows
+        // above the light, which shows above the music.
         Effect::Idle | Effect::Boot => {
-            if let Some(rgb) = state.light {
-                [scale(rgb, state.light_effect.level(t)); RING_PIXELS]
-            } else if let Some(frac) = state.timer {
+            if let Some(frac) = state.timer {
                 render(Effect::Timer(frac), t)
+            } else if let Some(rgb) = state.light {
+                [scale(rgb, state.light_effect.level(t)); RING_PIXELS]
             } else if let Some(bands) = music {
                 render(Effect::Equalizer(*bands), t)
             } else {
@@ -452,6 +455,11 @@ mod tests {
         s.light = Some(Rgb::new(0, 0, 200));
         assert_eq!(
             frame_for(&s, Some(&bands), now, now, None),
+            render(Effect::Timer(0.5), Duration::ZERO)
+        );
+        s.timer = None;
+        assert_eq!(
+            frame_for(&s, Some(&bands), now, now, None),
             [Rgb::new(0, 0, 200); RING_PIXELS]
         );
         // So do the voice states.
@@ -474,6 +482,34 @@ mod tests {
         let after = frame_for(&s, None, now, now + Duration::from_secs(10), None);
         assert_ne!(during, after);
         assert_eq!(after, render(Effect::Idle, Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn timer_arc_shows_above_the_light() {
+        let now = Instant::now();
+        let mut s = LedState {
+            base: Effect::Idle,
+            light: Some(Rgb {
+                r: 0,
+                g: 200,
+                b: 40,
+            }),
+            timer: Some(0.5),
+            ..Default::default()
+        };
+        assert_eq!(
+            frame_for(&s, None, now, now, None),
+            render(Effect::Timer(0.5), Duration::ZERO)
+        );
+        s.timer = None;
+        assert_eq!(
+            frame_for(&s, None, now, now, None)[0],
+            Rgb {
+                r: 0,
+                g: 200,
+                b: 40
+            }
+        );
     }
 
     #[test]
