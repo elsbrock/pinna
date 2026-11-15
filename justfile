@@ -53,3 +53,11 @@ bootimg:
 # everything needed for a flash: kernel, boot image, root filesystem
 all: kernel image bootimg
     ls -l {{build}}/pinna-boot.img {{out}}/pinna.root-arm.raw
+
+# fetch openWakeWord models (CC BY-NC-SA, never committed) into blobs/
+models:
+    scripts/fetch-models.sh
+
+# wake word: tract vs onnxruntime parity (needs `just models`)
+wakeword-parity:
+    cargo test --release -p pinna-wakeword --test parity -- --nocapture
