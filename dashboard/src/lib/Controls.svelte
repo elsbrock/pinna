@@ -22,7 +22,9 @@
     checked={!!s && !s.muted}
     disabled={!live || device.busy || !!s?.hardwareMuted}
     hint={s?.hardwareMuted
-      ? "Off with the microphone button on the satellite. Press it there to turn them on."
+      ? s.softwareMuted
+        ? "Off with the microphone button on the satellite, and in software. Press the button, then turn them on here."
+        : "Off with the microphone button on the satellite. Press it there to turn them on."
       : undefined}
     toggle={(on) => device.setMicrophones(on)}
   />

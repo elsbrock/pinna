@@ -33,7 +33,7 @@ time, logging, watchdog, USB gadget via configfs). Pinna's own code is the
   reference; laptops/VMs use the PipeWire backend.
 - **Home Assistant integration is the ESPHome native API** — HA adopts the
   device with no YAML; mDNS through systemd-resolved `.dnssd`.
-- **Local control API is ConnectRPC** on `127.0.0.1:7470`, unauthenticated and
-  therefore localhost-only; `pinnactl` is the console client and the boot health
-  check. The dashboard serves the same service on the LAN from a second
-  listener (ADR 0005).
+- **Local control API is ConnectRPC**, without authentication. On
+  `127.0.0.1:7470` it serves `pinnactl` (the console client) and the boot
+  health check. A second listener serves the same service to the LAN, with the
+  dashboard (ADR 0005).

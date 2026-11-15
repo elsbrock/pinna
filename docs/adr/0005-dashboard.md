@@ -80,9 +80,10 @@ Constraints:
   back to the previous slot if the new one fails. An older signed release
   installs too, if someone has a copy.
 
-  Short of restarting and installing, this is the exposure of a plaintext
-  ESPHome API. An owner who doesn't want it sets `[web] listen = ""` in
-  `/var/lib/pinna/pinnad.toml`.
+  The controls match what a plaintext ESPHome API already exposes. Reading the
+  log and the network details (SSID, signal, every address), restarting and
+  installing go beyond it. An owner who doesn't want any of it sets
+  `[web] listen = ""` in `/var/lib/pinna/pinnad.toml`.
 - A satellite opened by a custom DNS name (not `.local`) needs that name in
   `[web] allowed_hosts`. The 421 response says so.
 - Authentication (for example a password seeded from `secrets/device/`) is
