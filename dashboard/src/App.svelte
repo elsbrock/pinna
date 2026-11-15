@@ -39,15 +39,6 @@
         <Logo />
       {/if}
     </a>
-    {#if s}
-      <div class="pn-ident">
-        <Device model={s.model} effect="idle" width={48} label="Ring: {ring.replace('-', ' ')}" />
-        <span class="pn-ident-name">{s.name}</span>
-        <span class="pn-health" data-tone={line.tone}>{line.tone === "ok" ? "Home Assistant" : line.text}</span>
-      </div>
-    {:else}
-      <span class="pn-skeleton ident-skeleton"></span>
-    {/if}
     <nav class="pn-nav" aria-label="Sections">
       {#each groups as g (g)}
         <span class="pn-nav-label">{g}</span>
@@ -58,6 +49,15 @@
         {/each}
       {/each}
     </nav>
+    {#if s}
+      <div class="pn-ident">
+        <Device model={s.model} effect="idle" width={48} label="Ring: {ring.replace('-', ' ')}" />
+        <span class="pn-ident-name">{s.name}</span>
+        <span class="pn-health" data-tone={line.tone}>{line.tone === "ok" ? "Home Assistant" : line.text}</span>
+      </div>
+    {:else}
+      <span class="pn-skeleton ident-skeleton"></span>
+    {/if}
     <div class="side-foot">
       <span>Pinna{s ? ` ${s.version}` : ""}</span>
       <External href={DOCS}>Docs</External>
@@ -269,15 +269,16 @@
       width: 24px;
       height: 24px;
     }
-    .pn-ident {
+    /* The satellite sits at the bottom, above the links. */
+    .pn-ident,
+    .ident-skeleton {
+      margin-top: auto;
       margin-bottom: 6px;
     }
     .ident-skeleton {
       height: 64px;
-      margin-bottom: 6px;
     }
     .side-foot {
-      margin-top: auto;
       display: flex;
       flex-wrap: wrap;
       gap: var(--space-1) 14px;

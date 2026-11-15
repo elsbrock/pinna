@@ -30,7 +30,7 @@ Assistant.
 
 ## What the dashboard shows
 
-On a computer the sections are in a sidebar under the device's name; on a
+On a computer the sections are in a sidebar, with the device at its foot; on a
 phone they are in a bar at the bottom.
 
 | Section | What you can do |
