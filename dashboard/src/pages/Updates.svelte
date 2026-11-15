@@ -199,7 +199,7 @@
         />
         <span id="manifest-hint" class="pn-field-hint">
           Build a release with <code class="pn-code">just release</code>, then serve it from your computer with
-          <code class="pn-code">python3 -m http.server</code> in <code class="pn-code">build/release</code>.
+          <code class="pn-code">python3 -m http.server 8000 --directory build/release</code>.
         </span>
         <div>
           <button
