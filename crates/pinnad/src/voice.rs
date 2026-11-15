@@ -66,7 +66,6 @@ pub enum ApiCommand {
 /// Settings to change from the API; `None` leaves a setting as it is.
 #[derive(Debug, Default)]
 pub struct SettingsPatch {
-    pub reply_volume: Option<u8>,
     pub wake_word: Option<bool>,
     pub wake_sensitivity: Option<u8>,
     pub led_brightness: Option<u8>,
@@ -424,9 +423,6 @@ impl Brain {
             }
             ApiCommand::UpdateSettings(patch, reply) => {
                 // The same paths as Home Assistant's entities, so it sees the change.
-                if let Some(v) = patch.reply_volume {
-                    self.number("reply_volume".into(), f32::from(v)).await;
-                }
                 if let Some(v) = patch.wake_sensitivity {
                     self.number("wake_word_sensitivity".into(), f32::from(v))
                         .await;

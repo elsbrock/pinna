@@ -28,8 +28,12 @@ service DeviceService {
   rpc WatchLogs(WatchLogsRequest) returns (stream WatchLogsResponse);
   // The A/B slots and the running version.
   rpc GetUpdates(GetUpdatesRequest) returns (GetUpdatesResponse);
-  // Install a release into the inactive slot (`pinnactl update`), with progress.
-  rpc InstallUpdate(InstallUpdateRequest) returns (stream InstallUpdateResponse);
+  // Start installing a release into the inactive slot (`pinnactl update`).
+  // pinnad runs the install; it goes on when the caller goes away.
+  rpc InstallUpdate(InstallUpdateRequest) returns (InstallUpdateResponse);
+  // Progress of the running (or last) install: its lines so far, then new ones,
+  // ending after the line marked done.
+  rpc WatchInstall(WatchInstallRequest) returns (stream WatchInstallResponse);
   // Restart the satellite.
   rpc Reboot(RebootRequest) returns (RebootResponse);
 }
@@ -86,8 +90,8 @@ message Status {
 
 // Runtime settings, persisted on the satellite and shared with Home Assistant.
 message Settings {
-  // Replies and announcements 0..=100, never louder than `volume`.
-  uint32 reply_volume = 1;
+  // 1 was reply_volume: it follows `volume` unless set, which Home Assistant manages.
+  reserved 1;
   // Wake word detection on or off.
   bool wake_word = 2;
   // Wake word sensitivity 0..=100: higher wakes more easily.
@@ -143,7 +147,7 @@ message WatchStatusResponse {
 
 // Only the fields that are set change.
 message UpdateSettingsRequest {
-  optional uint32 reply_volume = 1;
+  reserved 1;
   optional bool wake_word = 2;
   optional uint32 wake_sensitivity = 3;
   optional uint32 led_brightness = 4;
@@ -219,16 +223,34 @@ message GetUpdatesResponse {
   string unavailable_reason = 2;
   string booted_version = 3;
   repeated Slot slots = 4;
-  // An InstallUpdate is running.
+  // An install is running (WatchInstall follows it).
   bool installing = 5;
+  // The last install since pinnad started, if any.
+  InstallResult last_install = 6;
+  // Where a release is probably served: the browser's own address, port 8000
+  // (`python3 -m http.server` in build/release, as the update docs show).
+  string suggested_manifest = 7;
+}
+
+message InstallResult {
+  bool ok = 1;
+  string manifest = 2;
+  // Milliseconds since the Unix epoch.
+  uint64 finished_unix_ms = 3;
+  // The last line of output: the error when `ok` is false.
+  string last_line = 4;
 }
 
 message InstallUpdateRequest {
-  // Release manifest: http(s) URL, file:// URL or path on the satellite.
+  // Release manifest: an http:// or https:// URL.
   string manifest = 1;
 }
 
-message InstallUpdateResponse {
+message InstallUpdateResponse {}
+
+message WatchInstallRequest {}
+
+message WatchInstallResponse {
   // One line of progress, as `pinnactl update` prints it.
   string line = 1;
   // Last message: the install finished, successfully or not.

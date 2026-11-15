@@ -141,7 +141,15 @@ impl DeviceService for Fake {
         &self,
         _: RequestContext,
         _: ServiceRequest<'_, InstallUpdateRequest>,
-    ) -> ServiceResult<ServiceStream<InstallUpdateResponse>> {
+    ) -> ServiceResult<InstallUpdateResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn watch_install(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, WatchInstallRequest>,
+    ) -> ServiceResult<ServiceStream<WatchInstallResponse>> {
         Err(ConnectError::unimplemented("fake"))
     }
 

@@ -18,8 +18,9 @@ use pinna_api::{
     LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetMuteRequest,
     SetMuteResponse, SetVolumeRequest, SetVolumeResponse, StartConversationRequest,
     StartConversationResponse, Status, StopConversationRequest, StopConversationResponse, Timer,
-    UpdateSettingsRequest, UpdateSettingsResponse, WakeWord, WatchLogsRequest, WatchLogsResponse,
-    WatchStatusRequest, WatchStatusResponse,
+    UpdateSettingsRequest, UpdateSettingsResponse, WakeWord, WatchInstallRequest,
+    WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchStatusRequest,
+    WatchStatusResponse,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -111,7 +112,6 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         led_backend: info.led_backend.clone(),
         alarm_ringing: s.alarm_ringing,
         settings: MessageField::some(pinna_api::Settings {
-            reply_volume: s.settings.reply_volume().into(),
             wake_word: s.settings.wake_word,
             wake_sensitivity: s.settings.wake_sensitivity.into(),
             led_brightness: s.settings.led_brightness.into(),
@@ -238,7 +238,6 @@ impl DeviceService for DeviceApi {
             v => Ok(v.map(|v| v as u8)),
         };
         let patch = SettingsPatch {
-            reply_volume: percent("reply_volume", request.reply_volume)?,
             wake_word: request.wake_word,
             wake_sensitivity: percent("wake_sensitivity", request.wake_sensitivity)?,
             led_brightness: percent("led_brightness", request.led_brightness)?,
@@ -286,9 +285,19 @@ impl DeviceService for DeviceApi {
         &self,
         _ctx: RequestContext,
         _request: ServiceRequest<'_, InstallUpdateRequest>,
-    ) -> ServiceResult<ServiceStream<InstallUpdateResponse>> {
+    ) -> ServiceResult<InstallUpdateResponse> {
         Err(ConnectError::unimplemented(
             "InstallUpdate is not implemented yet",
+        ))
+    }
+
+    async fn watch_install(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, WatchInstallRequest>,
+    ) -> ServiceResult<ServiceStream<WatchInstallResponse>> {
+        Err(ConnectError::unimplemented(
+            "WatchInstall is not implemented yet",
         ))
     }
 
@@ -521,8 +530,6 @@ mod tests {
             ),
             (70, 40, false)
         );
-        // Unset fields stay as they were.
-        assert_eq!(after.reply_volume, before.reply_volume);
 
         let err = c
             .update_settings(pinna_api::UpdateSettingsRequest {

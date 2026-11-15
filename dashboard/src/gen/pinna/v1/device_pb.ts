@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file pinna/v1/device.proto.
  */
 export const file_pinna_v1_device: GenFile = /*@__PURE__*/
-  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIisKCFdha2VXb3JkEg4KBnBocmFzZRgBIAEoCRIPCgdlbmFibGVkGAIgASgIIpwDCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRIMCgRuYW1lGAIgASgJEgsKA21hYxgDIAEoCRIWCg51cHRpbWVfc2Vjb25kcxgEIAEoBBIeCgVwaGFzZRgFIAEoDjIPLnBpbm5hLnYxLlBoYXNlEg0KBW11dGVkGAYgASgIEhYKDmhhcmR3YXJlX211dGVkGAcgASgIEhYKDnNvZnR3YXJlX211dGVkGAggASgIEg4KBnZvbHVtZRgJIAEoDRIUCgxoYV9jb25uZWN0ZWQYCiABKAgSGAoQdm9pY2Vfc3Vic2NyaWJlZBgLIAEoCBIlCgl3YWtlX3dvcmQYDCABKAsyEi5waW5uYS52MS5XYWtlV29yZBIfCgZ0aW1lcnMYDSADKAsyDy5waW5uYS52MS5UaW1lchIVCg1hdWRpb19iYWNrZW5kGA4gASgJEhMKC2xlZF9iYWNrZW5kGA8gASgJEhUKDWFsYXJtX3JpbmdpbmcYECABKAgSJAoIc2V0dGluZ3MYESABKAsyEi5waW5uYS52MS5TZXR0aW5ncyJlCghTZXR0aW5ncxIUCgxyZXBseV92b2x1bWUYASABKA0SEQoJd2FrZV93b3JkGAIgASgIEhgKEHdha2Vfc2Vuc2l0aXZpdHkYAyABKA0SFgoObGVkX2JyaWdodG5lc3MYBCABKA0iEgoQR2V0U3RhdHVzUmVxdWVzdCI1ChFHZXRTdGF0dXNSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiIwoQU2V0Vm9sdW1lUmVxdWVzdBIPCgdwZXJjZW50GAEgASgNIjUKEVNldFZvbHVtZVJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIfCg5TZXRNdXRlUmVxdWVzdBINCgVtdXRlZBgBIAEoCCIzCg9TZXRNdXRlUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhoKGFN0YXJ0Q29udmVyc2F0aW9uUmVxdWVzdCI9ChlTdGFydENvbnZlcnNhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIZChdTdG9wQ29udmVyc2F0aW9uUmVxdWVzdCI8ChhTdG9wQ29udmVyc2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhAKDkxlZFRlc3RSZXF1ZXN0IhEKD0xlZFRlc3RSZXNwb25zZSIUChJXYXRjaFN0YXR1c1JlcXVlc3QiNwoTV2F0Y2hTdGF0dXNSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMizQEKFVVwZGF0ZVNldHRpbmdzUmVxdWVzdBIZCgxyZXBseV92b2x1bWUYASABKA1IAIgBARIWCgl3YWtlX3dvcmQYAiABKAhIAYgBARIdChB3YWtlX3NlbnNpdGl2aXR5GAMgASgNSAKIAQESGwoObGVkX2JyaWdodG5lc3MYBCABKA1IA4gBAUIPCg1fcmVwbHlfdm9sdW1lQgwKCl93YWtlX3dvcmRCEwoRX3dha2Vfc2Vuc2l0aXZpdHlCEQoPX2xlZF9icmlnaHRuZXNzIjoKFlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhMKEUdldE5ldHdvcmtSZXF1ZXN0IlMKBFdpZmkSDAoEc3NpZBgBIAEoCRISCgpzaWduYWxfZGJtGAIgASgFEhUKDWZyZXF1ZW5jeV9taHoYAyABKA0SEgoKdHhfYml0cmF0ZRgEIAEoCSJjCglJbnRlcmZhY2USDAoEbmFtZRgBIAEoCRILCgNtYWMYAiABKAkSCgoCdXAYAyABKAgSEQoJYWRkcmVzc2VzGAQgAygJEhwKBHdpZmkYBSABKAsyDi5waW5uYS52MS5XaWZpIk8KEkdldE5ldHdvcmtSZXNwb25zZRIQCghob3N0bmFtZRgBIAEoCRInCgppbnRlcmZhY2VzGAIgAygLMhMucGlubmEudjEuSW50ZXJmYWNlIhIKEFdhdGNoTG9nc1JlcXVlc3QiSgoHTG9nTGluZRIPCgd1bml4X21zGAEgASgEEg0KBWxldmVsGAIgASgJEg4KBnRhcmdldBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjQKEVdhdGNoTG9nc1Jlc3BvbnNlEh8KBGxpbmUYASABKAsyES5waW5uYS52MS5Mb2dMaW5lIhMKEUdldFVwZGF0ZXNSZXF1ZXN0ImgKBFNsb3QSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg0KBXN0YXRlGAMgASgJEhIKCnRyaWVzX2xlZnQYBCABKA0SDgoGYWN0aXZlGAUgASgIEg4KBmJvb3RlZBgGIAEoCCKOAQoSR2V0VXBkYXRlc1Jlc3BvbnNlEhEKCWF2YWlsYWJsZRgBIAEoCBIaChJ1bmF2YWlsYWJsZV9yZWFzb24YAiABKAkSFgoOYm9vdGVkX3ZlcnNpb24YAyABKAkSHQoFc2xvdHMYBCADKAsyDi5waW5uYS52MS5TbG90EhIKCmluc3RhbGxpbmcYBSABKAgiKAoUSW5zdGFsbFVwZGF0ZVJlcXVlc3QSEAoIbWFuaWZlc3QYASABKAkiPwoVSW5zdGFsbFVwZGF0ZVJlc3BvbnNlEgwKBGxpbmUYASABKAkSDAoEZG9uZRgCIAEoCBIKCgJvaxgDIAEoCCIPCg1SZWJvb3RSZXF1ZXN0IhAKDlJlYm9vdFJlc3BvbnNlKmsKBVBoYXNlEhUKEVBIQVNFX1VOU1BFQ0lGSUVEEAASDgoKUEhBU0VfSURMRRABEhMKD1BIQVNFX0xJU1RFTklORxACEhIKDlBIQVNFX1RISU5LSU5HEAMSEgoOUEhBU0VfU1BFQUtJTkcQBDLiBwoNRGV2aWNlU2VydmljZRJECglHZXRTdGF0dXMSGi5waW5uYS52MS5HZXRTdGF0dXNSZXF1ZXN0GhsucGlubmEudjEuR2V0U3RhdHVzUmVzcG9uc2USRAoJU2V0Vm9sdW1lEhoucGlubmEudjEuU2V0Vm9sdW1lUmVxdWVzdBobLnBpbm5hLnYxLlNldFZvbHVtZVJlc3BvbnNlEj4KB1NldE11dGUSGC5waW5uYS52MS5TZXRNdXRlUmVxdWVzdBoZLnBpbm5hLnYxLlNldE11dGVSZXNwb25zZRJcChFTdGFydENvbnZlcnNhdGlvbhIiLnBpbm5hLnYxLlN0YXJ0Q29udmVyc2F0aW9uUmVxdWVzdBojLnBpbm5hLnYxLlN0YXJ0Q29udmVyc2F0aW9uUmVzcG9uc2USWQoQU3RvcENvbnZlcnNhdGlvbhIhLnBpbm5hLnYxLlN0b3BDb252ZXJzYXRpb25SZXF1ZXN0GiIucGlubmEudjEuU3RvcENvbnZlcnNhdGlvblJlc3BvbnNlEj4KB0xlZFRlc3QSGC5waW5uYS52MS5MZWRUZXN0UmVxdWVzdBoZLnBpbm5hLnYxLkxlZFRlc3RSZXNwb25zZRJMCgtXYXRjaFN0YXR1cxIcLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVxdWVzdBodLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVzcG9uc2UwARJTCg5VcGRhdGVTZXR0aW5ncxIfLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVxdWVzdBogLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USRwoKR2V0TmV0d29yaxIbLnBpbm5hLnYxLkdldE5ldHdvcmtSZXF1ZXN0GhwucGlubmEudjEuR2V0TmV0d29ya1Jlc3BvbnNlEkYKCVdhdGNoTG9ncxIaLnBpbm5hLnYxLldhdGNoTG9nc1JlcXVlc3QaGy5waW5uYS52MS5XYXRjaExvZ3NSZXNwb25zZTABEkcKCkdldFVwZGF0ZXMSGy5waW5uYS52MS5HZXRVcGRhdGVzUmVxdWVzdBocLnBpbm5hLnYxLkdldFVwZGF0ZXNSZXNwb25zZRJSCg1JbnN0YWxsVXBkYXRlEh4ucGlubmEudjEuSW5zdGFsbFVwZGF0ZVJlcXVlc3QaHy5waW5uYS52MS5JbnN0YWxsVXBkYXRlUmVzcG9uc2UwARI7CgZSZWJvb3QSFy5waW5uYS52MS5SZWJvb3RSZXF1ZXN0GhgucGlubmEudjEuUmVib290UmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIisKCFdha2VXb3JkEg4KBnBocmFzZRgBIAEoCRIPCgdlbmFibGVkGAIgASgIIpwDCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRIMCgRuYW1lGAIgASgJEgsKA21hYxgDIAEoCRIWCg51cHRpbWVfc2Vjb25kcxgEIAEoBBIeCgVwaGFzZRgFIAEoDjIPLnBpbm5hLnYxLlBoYXNlEg0KBW11dGVkGAYgASgIEhYKDmhhcmR3YXJlX211dGVkGAcgASgIEhYKDnNvZnR3YXJlX211dGVkGAggASgIEg4KBnZvbHVtZRgJIAEoDRIUCgxoYV9jb25uZWN0ZWQYCiABKAgSGAoQdm9pY2Vfc3Vic2NyaWJlZBgLIAEoCBIlCgl3YWtlX3dvcmQYDCABKAsyEi5waW5uYS52MS5XYWtlV29yZBIfCgZ0aW1lcnMYDSADKAsyDy5waW5uYS52MS5UaW1lchIVCg1hdWRpb19iYWNrZW5kGA4gASgJEhMKC2xlZF9iYWNrZW5kGA8gASgJEhUKDWFsYXJtX3JpbmdpbmcYECABKAgSJAoIc2V0dGluZ3MYESABKAsyEi5waW5uYS52MS5TZXR0aW5ncyJVCghTZXR0aW5ncxIRCgl3YWtlX3dvcmQYAiABKAgSGAoQd2FrZV9zZW5zaXRpdml0eRgDIAEoDRIWCg5sZWRfYnJpZ2h0bmVzcxgEIAEoDUoECAEQAiISChBHZXRTdGF0dXNSZXF1ZXN0IjUKEUdldFN0YXR1c1Jlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIjChBTZXRWb2x1bWVSZXF1ZXN0Eg8KB3BlcmNlbnQYASABKA0iNQoRU2V0Vm9sdW1lUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIh8KDlNldE11dGVSZXF1ZXN0Eg0KBW11dGVkGAEgASgIIjMKD1NldE11dGVSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGgoYU3RhcnRDb252ZXJzYXRpb25SZXF1ZXN0Ij0KGVN0YXJ0Q29udmVyc2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhkKF1N0b3BDb252ZXJzYXRpb25SZXF1ZXN0IjwKGFN0b3BDb252ZXJzYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiEAoOTGVkVGVzdFJlcXVlc3QiEQoPTGVkVGVzdFJlc3BvbnNlIhQKEldhdGNoU3RhdHVzUmVxdWVzdCI3ChNXYXRjaFN0YXR1c1Jlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyKnAQoVVXBkYXRlU2V0dGluZ3NSZXF1ZXN0EhYKCXdha2Vfd29yZBgCIAEoCEgAiAEBEh0KEHdha2Vfc2Vuc2l0aXZpdHkYAyABKA1IAYgBARIbCg5sZWRfYnJpZ2h0bmVzcxgEIAEoDUgCiAEBQgwKCl93YWtlX3dvcmRCEwoRX3dha2Vfc2Vuc2l0aXZpdHlCEQoPX2xlZF9icmlnaHRuZXNzSgQIARACIjoKFlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhMKEUdldE5ldHdvcmtSZXF1ZXN0IlMKBFdpZmkSDAoEc3NpZBgBIAEoCRISCgpzaWduYWxfZGJtGAIgASgFEhUKDWZyZXF1ZW5jeV9taHoYAyABKA0SEgoKdHhfYml0cmF0ZRgEIAEoCSJjCglJbnRlcmZhY2USDAoEbmFtZRgBIAEoCRILCgNtYWMYAiABKAkSCgoCdXAYAyABKAgSEQoJYWRkcmVzc2VzGAQgAygJEhwKBHdpZmkYBSABKAsyDi5waW5uYS52MS5XaWZpIk8KEkdldE5ldHdvcmtSZXNwb25zZRIQCghob3N0bmFtZRgBIAEoCRInCgppbnRlcmZhY2VzGAIgAygLMhMucGlubmEudjEuSW50ZXJmYWNlIhIKEFdhdGNoTG9nc1JlcXVlc3QiSgoHTG9nTGluZRIPCgd1bml4X21zGAEgASgEEg0KBWxldmVsGAIgASgJEg4KBnRhcmdldBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjQKEVdhdGNoTG9nc1Jlc3BvbnNlEh8KBGxpbmUYASABKAsyES5waW5uYS52MS5Mb2dMaW5lIhMKEUdldFVwZGF0ZXNSZXF1ZXN0ImgKBFNsb3QSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg0KBXN0YXRlGAMgASgJEhIKCnRyaWVzX2xlZnQYBCABKA0SDgoGYWN0aXZlGAUgASgIEg4KBmJvb3RlZBgGIAEoCCLZAQoSR2V0VXBkYXRlc1Jlc3BvbnNlEhEKCWF2YWlsYWJsZRgBIAEoCBIaChJ1bmF2YWlsYWJsZV9yZWFzb24YAiABKAkSFgoOYm9vdGVkX3ZlcnNpb24YAyABKAkSHQoFc2xvdHMYBCADKAsyDi5waW5uYS52MS5TbG90EhIKCmluc3RhbGxpbmcYBSABKAgSLQoMbGFzdF9pbnN0YWxsGAYgASgLMhcucGlubmEudjEuSW5zdGFsbFJlc3VsdBIaChJzdWdnZXN0ZWRfbWFuaWZlc3QYByABKAkiWgoNSW5zdGFsbFJlc3VsdBIKCgJvaxgBIAEoCBIQCghtYW5pZmVzdBgCIAEoCRIYChBmaW5pc2hlZF91bml4X21zGAMgASgEEhEKCWxhc3RfbGluZRgEIAEoCSIoChRJbnN0YWxsVXBkYXRlUmVxdWVzdBIQCghtYW5pZmVzdBgBIAEoCSIXChVJbnN0YWxsVXBkYXRlUmVzcG9uc2UiFQoTV2F0Y2hJbnN0YWxsUmVxdWVzdCI+ChRXYXRjaEluc3RhbGxSZXNwb25zZRIMCgRsaW5lGAEgASgJEgwKBGRvbmUYAiABKAgSCgoCb2sYAyABKAgiDwoNUmVib290UmVxdWVzdCIQCg5SZWJvb3RSZXNwb25zZSprCgVQaGFzZRIVChFQSEFTRV9VTlNQRUNJRklFRBAAEg4KClBIQVNFX0lETEUQARITCg9QSEFTRV9MSVNURU5JTkcQAhISCg5QSEFTRV9USElOS0lORxADEhIKDlBIQVNFX1NQRUFLSU5HEAQysQgKDURldmljZVNlcnZpY2USRAoJR2V0U3RhdHVzEhoucGlubmEudjEuR2V0U3RhdHVzUmVxdWVzdBobLnBpbm5hLnYxLkdldFN0YXR1c1Jlc3BvbnNlEkQKCVNldFZvbHVtZRIaLnBpbm5hLnYxLlNldFZvbHVtZVJlcXVlc3QaGy5waW5uYS52MS5TZXRWb2x1bWVSZXNwb25zZRI+CgdTZXRNdXRlEhgucGlubmEudjEuU2V0TXV0ZVJlcXVlc3QaGS5waW5uYS52MS5TZXRNdXRlUmVzcG9uc2USXAoRU3RhcnRDb252ZXJzYXRpb24SIi5waW5uYS52MS5TdGFydENvbnZlcnNhdGlvblJlcXVlc3QaIy5waW5uYS52MS5TdGFydENvbnZlcnNhdGlvblJlc3BvbnNlElkKEFN0b3BDb252ZXJzYXRpb24SIS5waW5uYS52MS5TdG9wQ29udmVyc2F0aW9uUmVxdWVzdBoiLnBpbm5hLnYxLlN0b3BDb252ZXJzYXRpb25SZXNwb25zZRI+CgdMZWRUZXN0EhgucGlubmEudjEuTGVkVGVzdFJlcXVlc3QaGS5waW5uYS52MS5MZWRUZXN0UmVzcG9uc2USTAoLV2F0Y2hTdGF0dXMSHC5waW5uYS52MS5XYXRjaFN0YXR1c1JlcXVlc3QaHS5waW5uYS52MS5XYXRjaFN0YXR1c1Jlc3BvbnNlMAESUwoOVXBkYXRlU2V0dGluZ3MSHy5waW5uYS52MS5VcGRhdGVTZXR0aW5nc1JlcXVlc3QaIC5waW5uYS52MS5VcGRhdGVTZXR0aW5nc1Jlc3BvbnNlEkcKCkdldE5ldHdvcmsSGy5waW5uYS52MS5HZXROZXR3b3JrUmVxdWVzdBocLnBpbm5hLnYxLkdldE5ldHdvcmtSZXNwb25zZRJGCglXYXRjaExvZ3MSGi5waW5uYS52MS5XYXRjaExvZ3NSZXF1ZXN0GhsucGlubmEudjEuV2F0Y2hMb2dzUmVzcG9uc2UwARJHCgpHZXRVcGRhdGVzEhsucGlubmEudjEuR2V0VXBkYXRlc1JlcXVlc3QaHC5waW5uYS52MS5HZXRVcGRhdGVzUmVzcG9uc2USUAoNSW5zdGFsbFVwZGF0ZRIeLnBpbm5hLnYxLkluc3RhbGxVcGRhdGVSZXF1ZXN0Gh8ucGlubmEudjEuSW5zdGFsbFVwZGF0ZVJlc3BvbnNlEk8KDFdhdGNoSW5zdGFsbBIdLnBpbm5hLnYxLldhdGNoSW5zdGFsbFJlcXVlc3QaHi5waW5uYS52MS5XYXRjaEluc3RhbGxSZXNwb25zZTABEjsKBlJlYm9vdBIXLnBpbm5hLnYxLlJlYm9vdFJlcXVlc3QaGC5waW5uYS52MS5SZWJvb3RSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * @generated from message pinna.v1.Timer
@@ -192,13 +192,6 @@ export const StatusSchema: GenMessage<Status> = /*@__PURE__*/
  * @generated from message pinna.v1.Settings
  */
 export type Settings = Message<"pinna.v1.Settings"> & {
-  /**
-   * Replies and announcements 0..=100, never louder than `volume`.
-   *
-   * @generated from field: uint32 reply_volume = 1;
-   */
-  replyVolume: number;
-
   /**
    * Wake word detection on or off.
    *
@@ -450,11 +443,6 @@ export const WatchStatusResponseSchema: GenMessage<WatchStatusResponse> = /*@__P
  * @generated from message pinna.v1.UpdateSettingsRequest
  */
 export type UpdateSettingsRequest = Message<"pinna.v1.UpdateSettingsRequest"> & {
-  /**
-   * @generated from field: optional uint32 reply_volume = 1;
-   */
-  replyVolume?: number | undefined;
-
   /**
    * @generated from field: optional bool wake_word = 2;
    */
@@ -771,11 +759,26 @@ export type GetUpdatesResponse = Message<"pinna.v1.GetUpdatesResponse"> & {
   slots: Slot[];
 
   /**
-   * An InstallUpdate is running.
+   * An install is running (WatchInstall follows it).
    *
    * @generated from field: bool installing = 5;
    */
   installing: boolean;
+
+  /**
+   * The last install since pinnad started, if any.
+   *
+   * @generated from field: pinna.v1.InstallResult last_install = 6;
+   */
+  lastInstall?: InstallResult | undefined;
+
+  /**
+   * Where a release is probably served: the browser's own address, port 8000
+   * (`python3 -m http.server` in build/release, as the update docs show).
+   *
+   * @generated from field: string suggested_manifest = 7;
+   */
+  suggestedManifest: string;
 };
 
 /**
@@ -786,11 +789,47 @@ export const GetUpdatesResponseSchema: GenMessage<GetUpdatesResponse> = /*@__PUR
   messageDesc(file_pinna_v1_device, 29);
 
 /**
+ * @generated from message pinna.v1.InstallResult
+ */
+export type InstallResult = Message<"pinna.v1.InstallResult"> & {
+  /**
+   * @generated from field: bool ok = 1;
+   */
+  ok: boolean;
+
+  /**
+   * @generated from field: string manifest = 2;
+   */
+  manifest: string;
+
+  /**
+   * Milliseconds since the Unix epoch.
+   *
+   * @generated from field: uint64 finished_unix_ms = 3;
+   */
+  finishedUnixMs: bigint;
+
+  /**
+   * The last line of output: the error when `ok` is false.
+   *
+   * @generated from field: string last_line = 4;
+   */
+  lastLine: string;
+};
+
+/**
+ * Describes the message pinna.v1.InstallResult.
+ * Use `create(InstallResultSchema)` to create a new message.
+ */
+export const InstallResultSchema: GenMessage<InstallResult> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 30);
+
+/**
  * @generated from message pinna.v1.InstallUpdateRequest
  */
 export type InstallUpdateRequest = Message<"pinna.v1.InstallUpdateRequest"> & {
   /**
-   * Release manifest: http(s) URL, file:// URL or path on the satellite.
+   * Release manifest: an http:// or https:// URL.
    *
    * @generated from field: string manifest = 1;
    */
@@ -802,12 +841,38 @@ export type InstallUpdateRequest = Message<"pinna.v1.InstallUpdateRequest"> & {
  * Use `create(InstallUpdateRequestSchema)` to create a new message.
  */
 export const InstallUpdateRequestSchema: GenMessage<InstallUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 30);
+  messageDesc(file_pinna_v1_device, 31);
 
 /**
  * @generated from message pinna.v1.InstallUpdateResponse
  */
 export type InstallUpdateResponse = Message<"pinna.v1.InstallUpdateResponse"> & {
+};
+
+/**
+ * Describes the message pinna.v1.InstallUpdateResponse.
+ * Use `create(InstallUpdateResponseSchema)` to create a new message.
+ */
+export const InstallUpdateResponseSchema: GenMessage<InstallUpdateResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 32);
+
+/**
+ * @generated from message pinna.v1.WatchInstallRequest
+ */
+export type WatchInstallRequest = Message<"pinna.v1.WatchInstallRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.WatchInstallRequest.
+ * Use `create(WatchInstallRequestSchema)` to create a new message.
+ */
+export const WatchInstallRequestSchema: GenMessage<WatchInstallRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 33);
+
+/**
+ * @generated from message pinna.v1.WatchInstallResponse
+ */
+export type WatchInstallResponse = Message<"pinna.v1.WatchInstallResponse"> & {
   /**
    * One line of progress, as `pinnactl update` prints it.
    *
@@ -829,11 +894,11 @@ export type InstallUpdateResponse = Message<"pinna.v1.InstallUpdateResponse"> & 
 };
 
 /**
- * Describes the message pinna.v1.InstallUpdateResponse.
- * Use `create(InstallUpdateResponseSchema)` to create a new message.
+ * Describes the message pinna.v1.WatchInstallResponse.
+ * Use `create(WatchInstallResponseSchema)` to create a new message.
  */
-export const InstallUpdateResponseSchema: GenMessage<InstallUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 31);
+export const WatchInstallResponseSchema: GenMessage<WatchInstallResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 34);
 
 /**
  * @generated from message pinna.v1.RebootRequest
@@ -846,7 +911,7 @@ export type RebootRequest = Message<"pinna.v1.RebootRequest"> & {
  * Use `create(RebootRequestSchema)` to create a new message.
  */
 export const RebootRequestSchema: GenMessage<RebootRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 32);
+  messageDesc(file_pinna_v1_device, 35);
 
 /**
  * @generated from message pinna.v1.RebootResponse
@@ -859,7 +924,7 @@ export type RebootResponse = Message<"pinna.v1.RebootResponse"> & {
  * Use `create(RebootResponseSchema)` to create a new message.
  */
 export const RebootResponseSchema: GenMessage<RebootResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 33);
+  messageDesc(file_pinna_v1_device, 36);
 
 /**
  * @generated from enum pinna.v1.Phase
@@ -1016,14 +1081,26 @@ export const DeviceService: GenService<{
     output: typeof GetUpdatesResponseSchema;
   },
   /**
-   * Install a release into the inactive slot (`pinnactl update`), with progress.
+   * Start installing a release into the inactive slot (`pinnactl update`).
+   * pinnad runs the install; it goes on when the caller goes away.
    *
    * @generated from rpc pinna.v1.DeviceService.InstallUpdate
    */
   installUpdate: {
-    methodKind: "server_streaming";
+    methodKind: "unary";
     input: typeof InstallUpdateRequestSchema;
     output: typeof InstallUpdateResponseSchema;
+  },
+  /**
+   * Progress of the running (or last) install: its lines so far, then new ones,
+   * ending after the line marked done.
+   *
+   * @generated from rpc pinna.v1.DeviceService.WatchInstall
+   */
+  watchInstall: {
+    methodKind: "server_streaming";
+    input: typeof WatchInstallRequestSchema;
+    output: typeof WatchInstallResponseSchema;
   },
   /**
    * Restart the satellite.
