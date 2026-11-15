@@ -1,0 +1,172 @@
+//! Runs the pinnactl binary against a fake in-process DeviceService.
+
+use std::sync::{Arc, Mutex};
+
+use buffa::MessageField;
+use connectrpc::{
+    ConnectError, RequestContext, Response, Router, Server, ServiceRequest, ServiceResult,
+    ServiceStream,
+};
+use pinna_api::*;
+
+#[derive(Default)]
+struct Fake {
+    state: Mutex<(u32, bool)>,
+}
+
+impl Fake {
+    fn status(&self) -> Status {
+        let (volume, muted) = *self.state.lock().unwrap();
+        Status {
+            name: "pinna-fake".into(),
+            volume,
+            muted,
+            software_muted: muted,
+            phase: Phase::PHASE_IDLE.into(),
+            wake_word: MessageField::some(WakeWord {
+                phrase: "Alexa".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+}
+
+macro_rules! status_reply {
+    ($ty:ident, $self:ident) => {
+        Response::ok($ty {
+            status: MessageField::some($self.status()),
+            ..Default::default()
+        })
+    };
+}
+
+#[allow(refining_impl_trait)]
+impl DeviceService for Fake {
+    async fn get_status(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, GetStatusRequest>,
+    ) -> ServiceResult<GetStatusResponse> {
+        status_reply!(GetStatusResponse, self)
+    }
+    async fn set_volume(
+        &self,
+        _: RequestContext,
+        r: ServiceRequest<'_, SetVolumeRequest>,
+    ) -> ServiceResult<SetVolumeResponse> {
+        self.state.lock().unwrap().0 = r.percent;
+        status_reply!(SetVolumeResponse, self)
+    }
+    async fn set_mute(
+        &self,
+        _: RequestContext,
+        r: ServiceRequest<'_, SetMuteRequest>,
+    ) -> ServiceResult<SetMuteResponse> {
+        self.state.lock().unwrap().1 = r.muted;
+        status_reply!(SetMuteResponse, self)
+    }
+    async fn start_conversation(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StartConversationRequest>,
+    ) -> ServiceResult<StartConversationResponse> {
+        Err(ConnectError::failed_precondition("the microphone is muted"))
+    }
+    async fn stop_conversation(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StopConversationRequest>,
+    ) -> ServiceResult<StopConversationResponse> {
+        status_reply!(StopConversationResponse, self)
+    }
+    async fn led_test(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, LedTestRequest>,
+    ) -> ServiceResult<LedTestResponse> {
+        Response::ok(LedTestResponse::default())
+    }
+    async fn watch_status(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, WatchStatusRequest>,
+    ) -> ServiceResult<ServiceStream<WatchStatusResponse>> {
+        let msg = |volume| {
+            Ok(WatchStatusResponse {
+                status: MessageField::some(Status {
+                    volume,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        };
+        Response::ok(Box::pin(futures::stream::iter([msg(10), msg(20)])))
+    }
+}
+
+async fn pinnactl(addr: std::net::SocketAddr, args: &[&str]) -> (bool, String, String) {
+    let out = tokio::process::Command::new(env!("CARGO_BIN_EXE_pinnactl"))
+        .arg("--api")
+        .arg(format!("http://{addr}"))
+        .args(args)
+        .output()
+        .await
+        .unwrap();
+    (
+        out.status.success(),
+        String::from_utf8(out.stdout).unwrap(),
+        String::from_utf8(out.stderr).unwrap(),
+    )
+}
+
+#[tokio::test]
+async fn commands_against_a_server() {
+    let router = Router::new().add_service(Arc::new(Fake::default()));
+    let server = Server::bind("127.0.0.1:0").await.unwrap();
+    let addr = server.local_addr().unwrap();
+    tokio::spawn(server.serve(router));
+
+    let (ok, out, _) = pinnactl(addr, &["status"]).await;
+    assert!(ok);
+    assert!(out.contains("pinna-fake") && out.contains("phase:      idle"));
+
+    let (ok, out, _) = pinnactl(addr, &["volume", "35"]).await;
+    assert!(ok && out.contains("35%"));
+    let (ok, out, _) = pinnactl(addr, &["mute", "on"]).await;
+    assert!(ok && out.contains("on"));
+    let (_, out, _) = pinnactl(addr, &["status"]).await;
+    assert!(out.contains("volume:     35%") && out.contains("yes (software)"));
+
+    let (ok, out, _) = pinnactl(addr, &["status", "--json"]).await;
+    assert!(ok);
+    let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(json["volume"], 35);
+    assert_eq!(json["name"], "pinna-fake");
+
+    let (ok, _, _) = pinnactl(addr, &["stop"]).await;
+    assert!(ok);
+    let (ok, _, _) = pinnactl(addr, &["led-test"]).await;
+    assert!(ok);
+
+    let (ok, _, err) = pinnactl(addr, &["listen"]).await;
+    assert!(!ok && err.contains("the microphone is muted"), "{err}");
+
+    let (ok, out, _) = pinnactl(addr, &["watch"]).await;
+    assert!(ok);
+    assert_eq!(out.lines().count(), 2);
+    assert!(out.contains("volume  10%") && out.contains("volume  20%"));
+
+    let (ok, _, _) = pinnactl(addr, &["volume", "101"]).await;
+    assert!(!ok);
+}
+
+#[tokio::test]
+async fn fails_when_nothing_listens() {
+    // Health check use: a dead API must be a non-zero exit.
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = free.local_addr().unwrap();
+    drop(free);
+    let (ok, _, err) = pinnactl(addr, &["status"]).await;
+    assert!(!ok && err.contains("pinnad API"), "{err}");
+}

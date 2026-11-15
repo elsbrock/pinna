@@ -1,0 +1,20 @@
+[package]
+name = "pinnactl"
+description = "Console client for pinnad's local control API"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-api = { path = "../pinna-api" }
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "client"] }
+serde_json = "1"
+
+[dev-dependencies]
+connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "client", "server"] }
+buffa = "0.9"
+futures = "0.3"
