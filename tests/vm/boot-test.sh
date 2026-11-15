@@ -68,12 +68,15 @@ done
 sleep 90
 
 log "ESPHome API via aioesphomeapi"
-if uv run -q --with aioesphomeapi==46.2.0 python - "$api_port" <<'EOF'
+# Owner images carry the Home Assistant API key (secrets/device/esphome-key).
+api_key=""
+[ -s "$root/secrets/device/esphome-key" ] && api_key=$(tr -d '\n' <"$root/secrets/device/esphome-key")
+if uv run -q --with aioesphomeapi==46.2.0 python - "$api_port" "$api_key" <<'EOF'
 import asyncio, sys
 from aioesphomeapi import APIClient
 
-async def main(port):
-    c = APIClient("127.0.0.1", port, None)
+async def main(port, key):
+    c = APIClient("127.0.0.1", port, None, noise_psk=key or None)
     for _ in range(30):
         try:
             await c.connect(login=True)
@@ -89,7 +92,7 @@ async def main(port):
     assert {"LightInfo", "SwitchInfo"} <= set(kinds)
     await c.disconnect()
 
-asyncio.run(main(int(sys.argv[1])))
+asyncio.run(main(int(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else ""))
 EOF
 then pass "pinnad answers the ESPHome API"; else fail "ESPHome API"; fi
 
