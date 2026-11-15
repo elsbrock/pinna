@@ -132,7 +132,7 @@ release: image bootimg
     ls -l {{build}}/release
     cat {{build}}/release/manifest.json
 
-# fetch openWakeWord models (CC BY-NC-SA, never committed) into blobs/
+# fetch the wake word models (openWakeWord CC BY-NC-SA, Okay Nabu from an Apache-2.0 repository; never committed) into blobs/
 models:
     scripts/fetch-models.sh
 
