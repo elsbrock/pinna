@@ -84,7 +84,7 @@ message Status {
   repeated Timer timers = 13;
   // Resolved audio backend ("echodot", "pipewire", "wav", "none").
   string audio_backend = 14;
-  // LED backend ("is31", "mock", "none").
+  // LED backend ("is31", "mock", "virtual", "none").
   string led_backend = 15;
   // A finished timer's alarm is sounding; StopConversation silences it.
   bool alarm_ringing = 16;
@@ -95,6 +95,9 @@ message Status {
   // A notification is pending (Home Assistant's "Notification" switch); the ring
   // pulses while idle. ClearNotification clears it.
   bool notification = 19;
+  // A virtual Echo Dot in the development VM (ADR 0014): its microphone,
+  // speaker, buttons and microphone switch are on the /virtual-device socket.
+  bool virtual_device = 20;
 }
 
 // Runtime settings, persisted on the satellite and shared with Home Assistant.

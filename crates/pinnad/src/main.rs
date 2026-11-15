@@ -12,6 +12,7 @@ mod logs;
 mod network;
 mod settings;
 mod updates;
+mod virtual_device;
 mod voice;
 mod web;
 
@@ -35,8 +36,9 @@ use crate::voice::{Brain, Input, Options, Shared, Snapshot};
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
+    /// Repeatable: each file layers over the one before.
     #[arg(long, default_value = "/etc/pinna/pinnad.toml")]
-    config: PathBuf,
+    config: Vec<PathBuf>,
     /// Device-local configuration layered over `--config` (identity, overrides).
     #[arg(long, default_value = "/var/lib/pinna/pinnad.toml")]
     local_config: PathBuf,
@@ -120,14 +122,14 @@ fn apply_gain(frame: &mut [i16], gain: f32) {
 }
 
 async fn capture_loop(
-    backend: Backend,
+    capture: CaptureConfig,
     gain: f32,
     mut detector: Option<pinna_wakeword::Detector>,
     shared: Arc<Shared>,
     esp: EsphomeHandle,
     inputs: mpsc::Sender<Input>,
 ) {
-    let mut stream = match start_capture(CaptureConfig::new(backend)).await {
+    let mut stream = match start_capture(capture).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("microphone unavailable: {e}");
@@ -236,6 +238,23 @@ async fn main() -> Result<()> {
     };
     let (_, initial) = settings::Store::load(&cli.settings, defaults);
 
+    // The development VM's virtual Echo Dot (ADR 0014): before the buttons and
+    // the privacy latch are looked for, so they are found like the Dot's.
+    let virt = if cfg.dev.virtual_device {
+        match virtual_device::VirtualDevice::start() {
+            Ok(v) => {
+                tracing::info!("virtual Echo Dot: buttons, microphone switch, browser audio");
+                Some(v)
+            }
+            Err(e) => {
+                tracing::error!("virtual Echo Dot disabled: {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Identity + ESPHome API.
     let mac = identity::device_mac();
     let name = if cfg.device.name.is_empty() {
@@ -291,9 +310,13 @@ async fn main() -> Result<()> {
         brightness: initial.led_brightness,
         ..Default::default()
     });
-    let ring = led_ring(&cfg.leds)?;
+    let ring = match &virt {
+        Some(v) => Some(LedHandle::spawn(v.leds())),
+        None => led_ring(&cfg.leds)?,
+    };
     let led_backend = match (&ring, cfg.leds.backend.as_str()) {
         (None, _) => "none",
+        (Some(_), _) if virt.is_some() => "virtual",
         (Some(_), "mock") => "mock",
         (Some(_), _) => "is31",
     };
@@ -363,8 +386,10 @@ async fn main() -> Result<()> {
         });
         tracing::info!("capture gain: {gain_db:+.1} dB");
         let gain = 10f32.powf(gain_db / 20.0);
+        let mut capture = CaptureConfig::new(b);
+        capture.pw_target = cfg.audio.capture_target.clone();
         tokio::spawn(capture_loop(
-            b,
+            capture,
             gain,
             detector,
             shared.clone(),
@@ -390,10 +415,23 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Hardware mic privacy latch.
-    let has_hw_privacy = pinna_hal::privacy::read_privacy_state().is_some();
+    // Hardware mic privacy latch (the virtual Dot's is a file).
+    let privacy_paths: Vec<PathBuf> = match &virt {
+        Some(v) => vec![v.latch_path().into()],
+        None => vec![
+            pinna_hal::privacy::PRIVACY_STATE_PATH.into(),
+            pinna_hal::privacy::PRIVACY_STATE_FALLBACK_PATH.into(),
+        ],
+    };
+    let has_hw_privacy = pinna_hal::privacy::read_privacy_state_from(
+        &privacy_paths
+            .iter()
+            .map(PathBuf::as_path)
+            .collect::<Vec<_>>(),
+    )
+    .is_some();
     if has_hw_privacy {
-        let mut privacy = pinna_hal::privacy::privacy_stream();
+        let mut privacy = pinna_hal::privacy::privacy_stream_from(privacy_paths);
         let tx = in_tx.clone();
         tokio::spawn(async move {
             while let Some(muted) = privacy.recv().await {
@@ -449,7 +487,13 @@ async fn main() -> Result<()> {
             wake_phrase: cfg.wake.phrase.clone(),
             audio_backend: audio_backend.into(),
             led_backend: led_backend.into(),
-            model: pinna_hal::ident::board_model().into(),
+            // The virtual Dot is drawn as the Dot it stands in for.
+            model: if virt.is_some() {
+                "echo-dot-2".into()
+            } else {
+                pinna_hal::ident::board_model().into()
+            },
+            virtual_device: virt.is_some(),
         },
         status_rx,
         in_tx.clone(),
@@ -457,7 +501,7 @@ async fn main() -> Result<()> {
     let api_addr = api::start(device_api.clone(), &cfg.api.listen).await?;
     tracing::info!("control API listening on {api_addr}");
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
-    match web::start(device_api, &cfg.web).await {
+    match web::start(device_api, &cfg.web, virt).await {
         Ok(Some(addr)) => tracing::info!("dashboard listening on http://{addr}"),
         Ok(None) => {}
         Err(e) => tracing::error!("dashboard: {e:#}"),

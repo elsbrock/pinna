@@ -38,6 +38,8 @@ pub struct Info {
     pub audio_backend: String,
     pub led_backend: String,
     pub model: String,
+    /// The development VM's virtual Echo Dot (ADR 0014).
+    pub virtual_device: bool,
 }
 
 pub struct DeviceApi {
@@ -128,6 +130,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         led_backend: info.led_backend.clone(),
         alarm_ringing: s.alarm_ringing,
         notification: s.settings.notification,
+        virtual_device: info.virtual_device,
         settings: MessageField::some(pinna_api::Settings {
             wake_word: s.settings.wake_word,
             wake_sensitivity: s.settings.wake_sensitivity.into(),
@@ -473,6 +476,7 @@ mod tests {
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
+            virtual_device: false,
         };
         let addr = start(
             Arc::new(DeviceApi::with_updater(
@@ -732,6 +736,7 @@ mod tests {
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
+            virtual_device: false,
         };
         let mut snap = Snapshot::default();
         assert!(!render(&info, Instant::now(), &snap).alarm_ringing);

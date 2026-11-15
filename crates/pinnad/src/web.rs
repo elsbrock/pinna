@@ -19,6 +19,7 @@ use tower_http::services::ServeDir;
 
 use crate::api::{self, DeviceApi};
 use crate::config::Web;
+use crate::virtual_device::{self, VirtualDevice};
 
 /// Host names the dashboard answers to besides IP addresses and `*.local`:
 /// lowercase, no port.
@@ -60,16 +61,28 @@ fn normalise(name: &str) -> String {
 }
 
 /// The routes: Connect procedures under `/pinna.v1.DeviceService/`, the
+/// virtual Echo Dot's socket in the development VM (ADR 0014), the
 /// dashboard's files for everything else.
-pub fn app(api: Arc<DeviceApi>, root: &Path, hosts: Hosts) -> axum::Router {
+pub fn app(
+    api: Arc<DeviceApi>,
+    root: &Path,
+    hosts: Hosts,
+    virt: Option<Arc<VirtualDevice>>,
+) -> axum::Router {
     let files = axum::Router::new()
         .fallback_service(ServeDir::new(root))
         .layer(middleware::from_fn(cache_control));
-    axum::Router::new()
-        .route_service(
-            "/pinna.v1.DeviceService/{method}",
-            api::router(api).into_axum_service(),
-        )
+    let mut router = axum::Router::new().route_service(
+        "/pinna.v1.DeviceService/{method}",
+        api::router(api).into_axum_service(),
+    );
+    if let Some(v) = virt {
+        router = router.route(
+            virtual_device::ROUTE,
+            axum::routing::get(virtual_device::socket).with_state(v),
+        );
+    }
+    router
         .fallback_service(files)
         .layer(middleware::from_fn_with_state(hosts, check_host))
         .layer(middleware::from_fn(peer_addr))
@@ -136,7 +149,11 @@ async fn cache_control(req: Request, next: Next) -> Response {
 }
 
 /// Bind `[web] listen` and serve in the background. `None` when it is off.
-pub async fn start(api: Arc<DeviceApi>, cfg: &Web) -> Result<Option<SocketAddr>> {
+pub async fn start(
+    api: Arc<DeviceApi>,
+    cfg: &Web,
+    virt: Option<Arc<VirtualDevice>>,
+) -> Result<Option<SocketAddr>> {
     if cfg.listen.is_empty() {
         return Ok(None);
     }
@@ -152,7 +169,7 @@ pub async fn start(api: Arc<DeviceApi>, cfg: &Web) -> Result<Option<SocketAddr>>
         .await
         .with_context(|| format!("binding the dashboard on {}", cfg.listen))?;
     let addr = listener.local_addr()?;
-    let app = app(api, &cfg.root, hosts);
+    let app = app(api, &cfg.root, hosts, virt);
     tokio::spawn(async move {
         if let Err(e) = axum::serve(
             listener,
@@ -246,10 +263,11 @@ mod tests {
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: String::new(),
+            virtual_device: false,
         };
         let api = Arc::new(DeviceApi::new(info, status_rx, in_tx));
         Fixture {
-            app: app(api, &dir, hosts()),
+            app: app(api, &dir, hosts(), None),
             _inputs: in_rx,
             dir,
         }
@@ -398,6 +416,7 @@ mod tests {
             audio_backend: String::new(),
             led_backend: String::new(),
             model: String::new(),
+            virtual_device: false,
         };
         let api = Arc::new(DeviceApi::new(info, rx, tx));
         let cfg = Web {
@@ -405,12 +424,12 @@ mod tests {
             root: f.dir.clone(),
             allowed_hosts: Vec::new(),
         };
-        assert_eq!(start(api.clone(), &cfg).await.unwrap(), None);
+        assert_eq!(start(api.clone(), &cfg, None).await.unwrap(), None);
         // A typo in the config is an error for main to log, never a panic.
         let cfg = Web {
             listen: "0.0.0.0:eighty".into(),
             ..cfg
         };
-        assert!(start(api, &cfg).await.is_err());
+        assert!(start(api, &cfg, None).await.is_err());
     }
 }

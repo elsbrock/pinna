@@ -13,6 +13,7 @@ pub struct Config {
     pub leds: Leds,
     pub api: Api,
     pub web: Web,
+    pub dev: Dev,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -44,6 +45,10 @@ pub struct Audio {
     /// Unix socket for live PCM streams into the media lane (raw s16le, 48 kHz
     /// stereo; AirPlay/Bluetooth bridges, ADR 0011). Empty = off.
     pub stream_socket: PathBuf,
+    /// PipeWire node to record from (`pipewire` backend). Unset: the default
+    /// source. The virtual Echo Dot's microphone is a filter, which
+    /// WirePlumber never makes the default.
+    pub capture_target: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -101,6 +106,16 @@ pub struct Web {
     pub allowed_hosts: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Dev {
+    /// The virtual Echo Dot for the development VM (ADR 0014): buttons, the
+    /// microphone switch, microphone and speaker on the dashboard's
+    /// `/virtual-device` socket. Only the x86_64 image sets it; pinnad refuses
+    /// it on real hardware.
+    pub virtual_device: bool,
+}
+
 impl Default for Device {
     fn default() -> Self {
         Self {
@@ -122,6 +137,7 @@ impl Default for Audio {
             wake_sound: false,
             capture_gain_db: None,
             stream_socket: PathBuf::new(),
+            capture_target: None,
         }
     }
 }
@@ -201,19 +217,24 @@ fn read_table(path: &Path) -> Result<Option<toml::Table>> {
 }
 
 impl Config {
-    /// The image's configuration with the device-local file (on /var) layered on top.
-    pub fn load_layered(image: &Path, local: &Path) -> Result<Self> {
-        let mut table = read_table(image)?.unwrap_or_else(|| {
-            tracing::warn!("{} not found, using defaults", image.display());
-            toml::Table::new()
-        });
+    /// The image's configuration files, each layered over the one before, with
+    /// the device-local file (on /var) layered on top.
+    pub fn load_layered(image: &[PathBuf], local: &Path) -> Result<Self> {
+        let mut table = toml::Table::new();
+        for path in image {
+            match read_table(path)? {
+                Some(over) => merge(&mut table, over),
+                None => tracing::warn!("{} not found, using defaults", path.display()),
+            }
+        }
         if let Some(over) = read_table(local)? {
             tracing::info!("local configuration: {}", local.display());
             merge(&mut table, over);
         }
+        let files: Vec<_> = image.iter().map(|p| p.display().to_string()).collect();
         toml::Value::Table(table)
             .try_into()
-            .with_context(|| format!("{} + {}", image.display(), local.display()))
+            .with_context(|| format!("{} + {}", files.join(" + "), local.display()))
     }
 }
 
@@ -279,7 +300,7 @@ mod tests {
             "[device]\nname = \"echodot2\"\nfriendly_name = \"Büro\"\n",
         )
         .unwrap();
-        let c = Config::load_layered(&image, &local).unwrap();
+        let c = Config::load_layered(std::slice::from_ref(&image), &local).unwrap();
         assert_eq!(
             (
                 c.device.name.as_str(),
@@ -288,10 +309,24 @@ mod tests {
             ),
             ("echodot2", "Büro", "Dot")
         );
-        let c = Config::load_layered(&image, &dir.join("missing.toml")).unwrap();
+        let c =
+            Config::load_layered(std::slice::from_ref(&image), &dir.join("missing.toml")).unwrap();
         assert_eq!(c.device.name, "");
+        // A second image file (the x86_64 image's vm.toml) layers between them.
+        let vm = dir.join("vm.toml");
+        std::fs::write(
+            &vm,
+            "[device]\nmodel = \"VM\"\n[dev]\nvirtual_device = true\n",
+        )
+        .unwrap();
+        let c = Config::load_layered(&[image.clone(), vm], &local).unwrap();
+        assert_eq!(
+            (c.device.model.as_str(), c.device.name.as_str()),
+            ("VM", "echodot2")
+        );
+        assert!(c.dev.virtual_device);
         std::fs::write(&local, "[device]\nnmae = 1\n").unwrap();
-        assert!(Config::load_layered(&image, &local).is_err());
+        assert!(Config::load_layered(std::slice::from_ref(&image), &local).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
