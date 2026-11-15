@@ -4,6 +4,9 @@
 //! Kaeru reads the 32-byte command at `misc` offset 0 and enters fastboot for
 //! `bootonce-bootloader`, clearing it itself (one-shot). Nothing else in the
 //! partition is touched; the slot record at 0x360 lives in a later sector.
+//! Pinna's own A/B slot state lives further up, see [`slot`].
+
+pub mod slot;
 
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
