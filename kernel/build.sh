@@ -3,6 +3,7 @@
 # Debian package.
 #
 #   kernel/build.sh            -> build/kernel/{zImage,vmlinux,.config} + build/debs/linux-image-*.deb
+#   kernel/build.sh qemu       -> build/kernel-qemu/ (QEMU virt variant for boot tests, no package)
 #
 # Requires the dev shell (cross gcc 15, make, dtc, dpkg).
 set -euo pipefail
@@ -12,9 +13,14 @@ root=$(dirname "$here")
 # shellcheck source=source.env
 source "$here/source.env"
 
+variant=${1:-device}
 cross=armv7l-unknown-linux-gnueabihf-
 src=$root/build/linux-src
-out=$root/build/kernel
+case "$variant" in
+  device) out=$root/build/kernel; defconfig=$LINUX_DEFCONFIG; fragments=("$here/pinna.config") ;;
+  qemu)   out=$root/build/kernel-qemu; defconfig=multi_v7_defconfig; fragments=("$here/pinna.config" "$here/qemu.config") ;;
+  *) echo "unknown variant: $variant" >&2; exit 2 ;;
+esac
 debs=$root/build/debs
 mkdir -p "$out" "$debs"
 
@@ -42,12 +48,12 @@ done
 # --- config ---------------------------------------------------------------
 mk() { make -C "$src" O="$out" ARCH=arm CROSS_COMPILE="$cross" "$@"; }
 
-log "config: $LINUX_DEFCONFIG + kernel/pinna.config"
-mk -s "$LINUX_DEFCONFIG"
-ARCH=arm CROSS_COMPILE="$cross" "$src/scripts/kconfig/merge_config.sh" -m -O "$out" "$out/.config" "$here/pinna.config" >/dev/null
+log "config ($variant): $defconfig + ${fragments[*]##*/}"
+mk -s "$defconfig"
+ARCH=arm CROSS_COMPILE="$cross" "$src/scripts/kconfig/merge_config.sh" -m -O "$out" "$out/.config" "${fragments[@]}" >/dev/null
 mk -s olddefconfig
 
-# Every symbol the fragment asks for must have landed.
+# Every symbol the fragments ask for must have landed (later fragments win).
 fail=0
 while IFS= read -r line; do
   case "$line" in
@@ -57,7 +63,10 @@ while IFS= read -r line; do
       sym=${line#\# }; sym=${sym%% *}
       if grep -q "^$sym=" "$out/.config"; then echo "should be unset: $sym"; fail=1; fi ;;
   esac
-done < "$here/pinna.config"
+done < <(cat "${fragments[@]}" | awk '
+  /^CONFIG_[A-Za-z0-9_]+=/ { k=$0; sub(/=.*/, "", k); v[k]=$0; if (!(k in o)) { o[k]=n++ } ; next }
+  /^# CONFIG_[A-Za-z0-9_]+ is not set/ { k=$2; v[k]=$0; if (!(k in o)) { o[k]=n++ } }
+  END { for (k in o) print v[k] }')
 [ "$fail" = 0 ] || { echo "kernel config assertions failed" >&2; exit 1; }
 log "config assertions passed"
 
@@ -73,6 +82,10 @@ printf 'vmlinux _end: virt 0x%s phys 0x%x (limit 0x43000000)\n' "$end_virt" "$en
 
 krel=$(cat "$out/include/config/kernel.release")
 log "kernel release $krel"
+if [ "$variant" = qemu ]; then
+  log "done: $out/arch/arm/boot/zImage"
+  exit 0
+fi
 
 # --- Debian package ---------------------------------------------------------
 pkgroot=$out/deb
