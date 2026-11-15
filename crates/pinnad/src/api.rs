@@ -217,9 +217,14 @@ impl DeviceService for DeviceApi {
     }
 }
 
+/// The ConnectRPC routes; shared by the loopback API and the dashboard listener.
+pub fn router(api: Arc<DeviceApi>) -> Router {
+    Router::new().add_service(api)
+}
+
 /// Bind `listen` and serve the API in the background; returns the bound address.
-pub async fn start(api: DeviceApi, listen: &str) -> Result<SocketAddr> {
-    let router = Router::new().add_service(Arc::new(api));
+pub async fn start(api: Arc<DeviceApi>, listen: &str) -> Result<SocketAddr> {
+    let router = router(api);
     let server = Server::bind(listen)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))
@@ -286,7 +291,7 @@ mod tests {
             led_backend: "none".into(),
         };
         let addr = start(
-            DeviceApi::new(info, status_rx, in_tx.clone()),
+            Arc::new(DeviceApi::new(info, status_rx, in_tx.clone())),
             "127.0.0.1:0",
         )
         .await

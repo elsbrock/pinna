@@ -10,6 +10,7 @@ mod identity;
 mod leds;
 mod settings;
 mod voice;
+mod web;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -245,6 +246,12 @@ async fn main() -> Result<()> {
     dc.manufacturer = cfg.device.manufacturer.clone();
     dc.suggested_area = cfg.device.suggested_area.clone();
     dc.port = cfg.esphome.port;
+    // Home Assistant's "Visit" link on the device page opens the dashboard.
+    dc.webserver_port = cfg
+        .web
+        .listen
+        .parse::<std::net::SocketAddr>()
+        .map_or(0, |a| a.port());
     dc.wake_words = vec![WakeWordInfo {
         id: cfg.wake.id.clone(),
         wake_word: cfg.wake.phrase.clone(),
@@ -411,22 +418,25 @@ async fn main() -> Result<()> {
 
     // Local control API.
     let (status_tx, status_rx) = watch::channel(Snapshot::default());
-    let api_addr = api::start(
-        api::DeviceApi::new(
-            api::Info {
-                name: dc_name,
-                mac: dc_mac,
-                wake_phrase: cfg.wake.phrase.clone(),
-                audio_backend: audio_backend.into(),
-                led_backend: led_backend.into(),
-            },
-            status_rx,
-            in_tx.clone(),
-        ),
-        &cfg.api.listen,
-    )
-    .await?;
+    let device_api = Arc::new(api::DeviceApi::new(
+        api::Info {
+            name: dc_name,
+            mac: dc_mac,
+            wake_phrase: cfg.wake.phrase.clone(),
+            audio_backend: audio_backend.into(),
+            led_backend: led_backend.into(),
+        },
+        status_rx,
+        in_tx.clone(),
+    ));
+    let api_addr = api::start(device_api.clone(), &cfg.api.listen).await?;
     tracing::info!("control API listening on {api_addr}");
+    // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
+    match web::start(device_api, &cfg.web).await {
+        Ok(Some(addr)) => tracing::info!("dashboard listening on http://{addr}"),
+        Ok(None) => {}
+        Err(e) => tracing::error!("dashboard: {e:#}"),
+    }
 
     let brain = Brain::new(
         esp,

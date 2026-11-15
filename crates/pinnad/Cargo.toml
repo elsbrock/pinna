@@ -23,6 +23,11 @@ bytes = "1"
 fastrand = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 pinna-api = { path = "../pinna-api" }
-connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "server"] }
+connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "server", "axum"] }
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "http2"] }
+tower-http = { version = "0.6", features = ["fs"] }
 buffa = "0.9"
 futures = "0.3"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

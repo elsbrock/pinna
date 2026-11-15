@@ -35,5 +35,15 @@ backend = "auto"
 brightness = 255
 
 [api]
-# Local control API (pinnactl, web UI). No authentication: keep it on loopback.
+# Local control API (pinnactl, boot health check). No authentication: keep it on loopback.
 listen = "127.0.0.1:7470"
+
+[web]
+# The dashboard and the same control API for your LAN (ADR 0005). No
+# authentication: anyone on the network can control this satellite. Set
+# listen = "" in /var/lib/pinna/pinnad.toml to turn it off.
+listen = "[::]:80"
+root = "/usr/share/pinna/web"
+# Host names to open the dashboard by, besides IP addresses, localhost, *.local
+# and the hostname (for example a name your router's DNS gives the satellite).
+allowed_hosts = []
