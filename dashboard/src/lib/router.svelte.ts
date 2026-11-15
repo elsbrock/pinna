@@ -1,20 +1,79 @@
 // Hash routes: the satellite serves one index.html, so the page picks the section.
-export const PAGES = [
-  { path: "/", title: "Overview" },
-  { path: "/settings", title: "Settings" },
-  { path: "/updates", title: "Updates" },
-  { path: "/network", title: "Network" },
-  { path: "/logs", title: "Logs" },
-] as const;
+import type { IconName } from "../../../design/icons.ts";
+import { routeOf, type Path } from "./view.ts";
 
-export type Path = (typeof PAGES)[number]["path"];
+export type Section = {
+  path: Path;
+  title: string;
+  /** Under the phone tab bar's icon. */
+  short: string;
+  icon: IconName;
+  /** The sidebar's group label. */
+  group: string;
+  /** The page header's one line. */
+  description: string;
+};
+
+export const SECTIONS: Section[] = [
+  { path: "/", title: "Overview", short: "Overview", icon: "overview", group: "Satellite", description: "" },
+  {
+    path: "/voice",
+    title: "Voice & sound",
+    short: "Voice",
+    icon: "voice",
+    group: "Satellite",
+    description: "What the satellite listens for, how loud it is, and how bright its ring is.",
+  },
+  {
+    path: "/home-assistant",
+    title: "Home Assistant",
+    short: "Home Assistant",
+    icon: "house",
+    group: "Connections",
+    description: "How Home Assistant reaches this satellite.",
+  },
+  {
+    path: "/network",
+    title: "Network",
+    short: "Network",
+    icon: "wifi",
+    group: "Connections",
+    description: "Wi-Fi, addresses, and the USB connection that works without them.",
+  },
+  {
+    path: "/system",
+    title: "System",
+    short: "System",
+    icon: "cpu",
+    group: "Maintenance",
+    description: "Software, updates, restarts and logs.",
+  },
+];
+
+export type Page = { path: Path; title: string; description: string; section: Section };
+
+const SUBPAGES: Omit<Page, "section">[] = [
+  {
+    path: "/system/logs",
+    title: "Logs",
+    description: "pinnad's log at info level and above, newest at the bottom. Debug lines stay on the satellite: they can contain what was said.",
+  },
+];
+
+/** The page at `path`, with the section it belongs to (a sub-page's parent). */
+export function pageOf(path: Path): Page {
+  const section = SECTIONS.find((s) => s.path === path);
+  if (section) return { ...section, section };
+  const sub = SUBPAGES.find((p) => p.path === path)!;
+  return { ...sub, section: SECTIONS.find((s) => path.startsWith(`${s.path}/`))! };
+}
 
 const parse = (): Path => {
-  const p = location.hash.replace(/^#/, "") || "/";
-  if (PAGES.some((x) => x.path === p)) return p as Path;
-  // An unknown section: show the overview and say so in the address bar too.
-  history.replaceState(null, "", "#/");
-  return "/";
+  const p = routeOf(location.hash);
+  const shown = p ?? "/";
+  // A moved or unknown address: show where it went in the address bar too.
+  if (`#${shown}` !== location.hash && !(shown === "/" && !location.hash)) history.replaceState(null, "", `#${shown}`);
+  return shown;
 };
 
 class Router {

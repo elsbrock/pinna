@@ -1,15 +1,18 @@
 <script lang="ts">
+  import Device from "./Device.svelte";
   import { device } from "./device.svelte.ts";
+  import Group from "./Group.svelte";
   import Ring from "./Ring.svelte";
   import { clock, timerLeft } from "./view.ts";
 
   const s = $derived(device.status);
   const elapsed = $derived(device.now - device.receivedAt);
   const live = $derived(device.link === "live");
+  const phrase = $derived(s?.wakeWord?.phrase || "Alexa");
 </script>
 
-<section class="panel" aria-labelledby="timers-title">
-  <h2 id="timers-title" class="pn-type-heading">Timers</h2>
+<Group title="Timers">
+  {#snippet aside()}{#if s?.timers.length}{s.timers.length}{/if}{/snippet}
   {#if s?.alarmRinging || s?.timers.length}
     <div class="pn-timers">
       {#if s.alarmRinging}
@@ -42,13 +45,16 @@
       {/each}
     </div>
   {:else}
-    <p class="empty">No timers. Ask the satellite to set one.</p>
+    <div class="pn-empty">
+      <Device model={s?.model ?? ""} effect="idle" width={112} label="Ring off" />
+      <span class="pn-empty-title">No timers</span>
+      <p>Ask the satellite to set one, for example “{phrase}, set a pasta timer for ten minutes.”</p>
+    </div>
   {/if}
-</section>
+</Group>
 
 <style>
-  .empty {
-    margin: 0;
-    color: var(--ink-muted);
+  .pn-timers {
+    padding: 0 var(--space-4);
   }
 </style>

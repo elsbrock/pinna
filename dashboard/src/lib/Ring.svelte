@@ -16,7 +16,15 @@
     value,
     size,
     label,
-  }: { effect: Effect; value?: number; size: number; label: string } = $props();
+    loop,
+  }: {
+    effect: Effect;
+    value?: number;
+    size: number;
+    label: string;
+    /** Replay an effect that ends (error, volume) every `loop` ms. */
+    loop?: number;
+  } = $props();
 
   const segments = Array.from({ length: RING_PIXELS }, (_, i) => segmentPath(pixelAngle(i)));
   const glow = $derived(size >= 40);
@@ -30,10 +38,12 @@
   $effect(() => {
     const e = shown;
     const v = value;
+    const every = loop;
     const started = performance.now();
     let raf = 0;
     const draw = () => {
-      frame = ringFrame(e, reduceMotion.matches ? (STILL_MS[e] ?? 0) : performance.now() - started, v);
+      const t = performance.now() - started;
+      frame = ringFrame(e, reduceMotion.matches ? (STILL_MS[e] ?? 0) : every ? t % every : t, v);
       if (!reduceMotion.matches && !STATIC.has(e)) raf = requestAnimationFrame(draw);
     };
     draw();

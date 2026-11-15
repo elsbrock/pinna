@@ -5,6 +5,7 @@ import { ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
 import { DeviceService, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
+import { toasts } from "./toast.svelte.ts";
 import type { Link } from "./view.ts";
 
 const client = createClient(DeviceService, createConnectTransport({ baseUrl: location.origin }));
@@ -21,8 +22,6 @@ class Device {
   receivedAt = $state(0);
   link = $state<Link>("connecting");
   offlineSince = $state<Date | null>(null);
-  /** The last rejected command, in the API's words. */
-  error = $state<string | null>(null);
   busy = $state(false);
   /** A restart was asked for: being unreachable is expected, not an error. */
   restarting = $state(false);
@@ -98,13 +97,14 @@ class Device {
     }
   }
 
-  async #command(run: () => Promise<{ status?: Status }>) {
+  /** Run a command; its reply's Status wins. A rejection shows as a toast. */
+  async #command(run: () => Promise<{ status?: Status }>, done?: string) {
     this.busy = true;
     try {
       this.#accept((await run()).status);
-      this.error = null;
+      if (done) toasts.show(done);
     } catch (e) {
-      this.error = sentence(ConnectError.from(e).rawMessage);
+      toasts.show(sentence(ConnectError.from(e).rawMessage), "danger");
     } finally {
       this.busy = false;
     }
@@ -117,13 +117,22 @@ class Device {
     return this.#command(() => client.setMute({ muted: !on }));
   }
   updateSettings(patch: Partial<Omit<UpdateSettingsRequest, "$typeName">>) {
-    return this.#command(() => client.updateSettings(patch));
+    return this.#command(() => client.updateSettings(patch), "Saved");
   }
   startConversation() {
     return this.#command(() => client.startConversation({}));
   }
   stop() {
     return this.#command(() => client.stopConversation({}));
+  }
+  /** Run the ring's test pattern, to find this satellite among others. */
+  async identify() {
+    try {
+      await client.ledTest({});
+      toasts.show("The ring runs its test pattern.", "info");
+    } catch (e) {
+      toasts.show(sentence(ConnectError.from(e).rawMessage), "danger");
+    }
   }
   /** Ask for a restart; returns why it failed, for the caller to show. */
   async restart(): Promise<string | null> {

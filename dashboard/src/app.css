@@ -14,19 +14,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* A panel: surface-raised with a line border, no shadow. */
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  min-width: 0;
+/* Links in running text: underlined, never colour alone. */
+a {
+  color: var(--link);
+  border-radius: var(--radius-xs);
 }
-.panel h2 {
-  margin: 0;
+a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* Touch layouts: controls at control-lg. */

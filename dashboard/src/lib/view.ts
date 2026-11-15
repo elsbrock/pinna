@@ -207,3 +207,65 @@ export function updatePhase(u: UpdatesLike): UpdatePhase {
 export function targetSlot(u: UpdatesLike): SlotLike | undefined {
   return u.slots.find((s) => !s.booted);
 }
+
+/** The dashboard's sections and pages: hash paths, as the router shows them. */
+export const PATHS = ["/", "/voice", "/home-assistant", "/network", "/system", "/system/logs"] as const;
+export type Path = (typeof PATHS)[number];
+
+// v1 addresses that people may have bookmarked.
+const MOVED: Record<string, Path> = { "/settings": "/voice", "/updates": "/system", "/logs": "/system/logs" };
+
+/** The page a location hash opens: itself, where it moved, or null for none. */
+export function routeOf(hash: string): Path | null {
+  const p = hash.replace(/^#/, "") || "/";
+  if ((PATHS as readonly string[]).includes(p)) return p as Path;
+  return MOVED[p] ?? null;
+}
+
+/** pinna.v1.InstallStage values (a generated TS enum, which `node --test` cannot load). */
+export const STAGE = { check: 1, download: 2, write: 3, verify: 4, installed: 5 } as const;
+
+export type StepState = "done" | "current" | "pending" | "failed";
+export type Step = { label: string; state: StepState };
+
+const STEP_LABELS = ["Check the release", "Download and write", "Verify", "Restart into the new version"];
+
+/**
+ * The install as steps, from the furthest stage its lines reached and how it
+ * ended (null while it runs). A failed install fails the step it was on.
+ */
+export function installSteps(stage: number, finished: { ok: boolean } | null): Step[] {
+  let at: number;
+  if (finished?.ok || stage >= STAGE.installed) at = 3;
+  else if (stage >= STAGE.write) at = 2;
+  else if (stage >= STAGE.check) at = 1;
+  else at = 0;
+  const failed = finished !== null && !finished.ok;
+  return STEP_LABELS.map((label, i) => ({
+    label,
+    state: i < at ? "done" : i > at ? "pending" : failed ? "failed" : "current",
+  }));
+}
+
+/** `  84.2 MiB of 212.4 MiB` from pinnactl update, as text and a fraction. */
+export function downloadProgress(line: string): { text: string; fraction: number } | null {
+  const m = /^\s+([\d.]+) MiB of ([\d.]+) MiB\s*$/.exec(line);
+  if (!m) return null;
+  const done = Number(m[1]);
+  const total = Number(m[2]);
+  return { text: `${m[1]} of ${m[2]} MiB`, fraction: total > 0 ? Math.min(1, done / total) : 0 };
+}
+
+/** When the satellite started, as `Thu 09:14`, from now and its uptime. */
+export function since(now: Date, uptimeSeconds: number): string {
+  const d = new Date(now.getTime() - uptimeSeconds * 1000);
+  return `${d.toLocaleDateString("en", { weekday: "short" })} ${hhmm(d)}`;
+}
+
+/** The Microphones switch's hint when the hardware button is involved. */
+export function micHint(s: Status): string | undefined {
+  if (!s.hardwareMuted) return undefined;
+  return s.softwareMuted
+    ? "Off with the microphone button on the satellite, and in software. Press the button, then turn them on here."
+    : "Off with the microphone button on the satellite. Press it there to turn them on.";
+}
