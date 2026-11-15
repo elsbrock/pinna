@@ -5,6 +5,7 @@
 # comes up healthy:
 #
 #  - from the host, while it runs: pinnad answers Home Assistant's ESPHome client;
+#    on x86_64, the virtual Echo Dot (ADR 0014) works through its socket;
 #  - from the VM's own journal (read off its userdata partition after power-off):
 #    pinna-init chose slot a, verified it and booted it through dm-verity (dm-0),
 #    /var formatted and mounted, multi-user reached, no failed units, pinnad
@@ -69,9 +70,10 @@ done
 sleep 90
 
 log "ESPHome API via aioesphomeapi"
-# Owner images carry the Home Assistant API key (secrets/device/esphome-key).
+# Owner device images carry the Home Assistant API key
+# (secrets/device/esphome-key); the x86_64 image does not (ADR 0014).
 api_key=""
-[ -s "$root/secrets/device/esphome-key" ] && api_key=$(tr -d '\n' <"$root/secrets/device/esphome-key")
+[ "$arch" = armhf ] && [ -s "$root/secrets/device/esphome-key" ] && api_key=$(tr -d '\n' <"$root/secrets/device/esphome-key")
 if uv run -q --with aioesphomeapi==46.2.0 python - "$api_port" "$api_key" <<'EOF'
 import asyncio, sys
 from aioesphomeapi import APIClient
@@ -96,6 +98,18 @@ async def main(port, key):
 asyncio.run(main(int(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else ""))
 EOF
 then pass "pinnad answers the ESPHome API"; else fail "ESPHome API"; fi
+
+if [ "$arch" = x86_64 ]; then
+  log "virtual Echo Dot (ADR 0014): buttons, microphone switch, speaker and microphone over /virtual-device"
+  wake=()
+  [ -d "$root/blobs/models" ] || { wake=(--no-wake-word); log "no wake word models (just models): skipping the wake word"; }
+  if uv run -q --with aioesphomeapi==46.2.0 --with websockets==15.0.1 python "$root/tests/vm/virtual_dot.py" \
+       "$api_port" "$web_port" "$root/crates/pinna-wakeword/tests/fixtures/alexa-twice.wav" "${wake[@]}" | sed 's/^/  /'; then
+    pass "virtual Echo Dot"
+  else
+    fail "virtual Echo Dot"
+  fi
+fi
 
 log "dashboard and control API on the LAN listener (port 80)"
 web="http://127.0.0.1:${web_port}"
