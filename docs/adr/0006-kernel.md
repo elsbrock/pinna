@@ -48,7 +48,9 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 - **Size:** no modules, XZ, `-Os`, `EXPERT` trimming, no tracing or debugfs in
   release kernels, only the drivers the Dot uses (Bluetooth keeps RFCOMM, not
   BNEP/HIDP; no USB host class drivers, ALSA sequencer or USB audio). Kept for
-  robustness: `KALLSYMS` (readable oopses) and the strong stack protector.
+  robustness: `KALLSYMS` (readable oopses), pstore/ramoops (console and oops
+  logs survive a warm reboot, in the DTB's `ramoops@44400000`) and the strong
+  stack protector.
 
 ## Consequences
 
