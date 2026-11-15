@@ -16,7 +16,7 @@ imports.
 | `ring.ts` | Port of `crates/pinna-hal/src/anim.rs` plus the ring's drawing geometry |
 | `ring.test.ts` | The `anim.rs` tests, against `ring.ts` |
 | `devices/` | One drawing per supported model, picked by `Status.model` (`devices/index.ts`); the Echo Dot (2nd gen) now |
-| `icons.ts` | The stroked icon set as SVG markup, shared by the dashboard and the website |
+| `icons.ts` | The stroked icon set as SVG markup, for the dashboard (the website can use it too) |
 | `mark.svg` | The mark (the ring's boot frame): favicon and app icon |
 | `fonts/` | Unbounded, Atkinson Hyperlegible Next and Mono, variable WOFF2 (latin), SIL OFL 1.1, licences beside them |
 
