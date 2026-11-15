@@ -2,7 +2,9 @@
 
 Status: accepted (2026-11-15). Boot path amended by ADR 0003: the boot image
 now carries an initramfs (pinna-init) that picks the A/B slot and mounts the
-root through dm-verity; the forced command line stays.
+root through dm-verity; the forced command line stays. Kernel superseded by
+ADR 0006: Debian's 6.12 with the MT8163 board support ported in
+`kernel/patches`, config from allnoconfig + fragments.
 
 ## Context
 
@@ -49,6 +51,6 @@ Device facts that constrain the design:
   (`system_a`/`system_b`) with dm-verity: ADR 0003 (the initramfs chooses the
   slot, so the command line stays fixed).
 - Wi-Fi/BT firmware is owner-supplied (`blobs/`), never committed.
-- Moving to Debian's kernel source (6.12 LTS) means porting the board patches;
-  tracked separately.
+- Moving to Debian's kernel source (6.12 LTS) means porting the board patches:
+  done in ADR 0006.
 - arm64 may be possible (ATF runs 64-bit, `bootopt=64S3,…`); not pursued yet.

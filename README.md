@@ -16,7 +16,7 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 |---|---|
 | `crates/` | Rust workspace: `pinnad` (device daemon), ESPHome API, wake word, HAL, audio, boot image tooling, `pinna-init` + signed A/B slot images and the updater |
 | `keys/` | Release public key (images are signed with `secrets/release.key`, see ADR 0003) |
-| `kernel/` | Kernel config fragment and build (packaged as a Debian `.deb`) |
+| `kernel/` | Debian 6.12 source pin, MT8163 board-support patches, config fragments and build (packaged as a Debian `.deb`) |
 | `mkosi/` | Debian trixie image definition |
 | `docs/` | Decision records and runbooks |
 | `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
