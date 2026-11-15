@@ -24,9 +24,46 @@ pub fn volume_gain(percent: u8) -> f32 {
     }
 }
 
+/// Extra Echo Dot speaker gain at the top of the volume range, in dB: none up
+/// to 70 %, then the stock firmware's measured steps (+3.52 dB at 80 %, +7.54
+/// at 90 %, +14.54 at 100 %), interpolated between them so that one volume
+/// step never jumps by several dB. The speaker chain's limiter keeps the
+/// result under full scale.
+pub fn top_boost_db(percent: u8) -> f32 {
+    const STEPS: [(u8, f32); 4] = [(70, 0.0), (80, 3.52), (90, 7.54), (100, 14.54)];
+    let p = percent.min(100);
+    if p <= STEPS[0].0 {
+        return 0.0;
+    }
+    for w in STEPS.windows(2) {
+        let ((p0, d0), (p1, d1)) = (w[0], w[1]);
+        if p <= p1 {
+            return d0 + (d1 - d0) * f32::from(p - p0) / f32::from(p1 - p0);
+        }
+    }
+    STEPS[STEPS.len() - 1].1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn top_boost_follows_the_stock_steps() {
+        for p in [0, 1, 50, 70] {
+            assert_eq!(top_boost_db(p), 0.0, "p={p}");
+        }
+        assert!((top_boost_db(80) - 3.52).abs() < 1e-4);
+        assert!((top_boost_db(90) - 7.54).abs() < 1e-4);
+        assert!((top_boost_db(100) - 14.54).abs() < 1e-4);
+        assert!((top_boost_db(85) - 5.53).abs() < 1e-4);
+        let mut prev = 0.0;
+        for p in 70..=100u8 {
+            let d = top_boost_db(p);
+            assert!(d >= prev && d - prev < 0.71, "p={p}: {prev} -> {d}");
+            prev = d;
+        }
+    }
 
     #[test]
     fn raw_endpoints() {

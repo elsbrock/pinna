@@ -95,13 +95,19 @@ impl SpeakerEq {
         }
     }
 
+    /// One stereo frame, unclipped.
+    pub fn process_frame(&mut self, l: f32, r: f32) -> (f32, f32) {
+        (self.l.process(l), self.r.process(r))
+    }
+
     /// In place on interleaved S16LE stereo bytes.
     pub fn process(&mut self, bytes: &mut [u8]) {
         for f in bytes.chunks_exact_mut(4) {
             let l = f32::from(i16::from_le_bytes([f[0], f[1]]));
             let r = f32::from(i16::from_le_bytes([f[2], f[3]]));
-            let l = self.l.process(l).round().clamp(-32768.0, 32767.0) as i16;
-            let r = self.r.process(r).round().clamp(-32768.0, 32767.0) as i16;
+            let (l, r) = self.process_frame(l, r);
+            let l = l.round().clamp(-32768.0, 32767.0) as i16;
+            let r = r.round().clamp(-32768.0, 32767.0) as i16;
             f[..2].copy_from_slice(&l.to_le_bytes());
             f[2..].copy_from_slice(&r.to_le_bytes());
         }

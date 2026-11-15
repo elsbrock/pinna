@@ -17,7 +17,7 @@ use crate::media::{Decoder, MediaHandle, MediaLane, MediaPhase, MediaState};
 use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
 use crate::spectrum::{Analyzer, Spectrum};
-use crate::volume::volume_gain;
+use crate::volume::{top_boost_db, volume_gain};
 use crate::{Backend, Error, Result, decode};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -54,6 +54,9 @@ pub struct SpeakerConfig {
     /// Fixed gain on top of the volume curve, in dB (the speaker's
     /// loudness calibration).
     pub pre_gain_db: f32,
+    /// Extra gain at the top of the volume range ([`top_boost_db`]), applied
+    /// in the Echo Dot speaker chain, whose limiter keeps it under full scale.
+    pub volume_boost: bool,
     /// The playback PCM's `/proc/asound` status file (Echo Dot). The amp is
     /// powered only once it reads `RUNNING`.
     pub pcm_status: Option<PathBuf>,
@@ -74,6 +77,7 @@ impl SpeakerConfig {
             lead: Duration::from_millis(100),
             duck_db: -20.0,
             pre_gain_db: 0.0,
+            volume_boost: false,
             pcm_status: Some("/proc/asound/card0/pcm23p/sub0/status".into()),
         }
     }
@@ -427,8 +431,8 @@ struct Session {
     /// The speaker's real frame rate (measured; nominal until known).
     rate: f64,
     frames_written: u64,
-    /// Echo Dot speaker EQ (the device's own speaker only).
-    eq: Option<crate::refsink::SpeakerEq>,
+    /// Echo Dot speaker chain (the device's own speaker only).
+    chain: Option<crate::chain::SpeakerChain>,
     /// Echo-cancellation reference into PipeWire (EchoDotPipeWire).
     reference: Option<crate::refsink::RefTap>,
 }
@@ -460,14 +464,15 @@ impl Session {
         }
     }
 
-    async fn write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        let eq_buf;
-        let bytes = match &mut self.eq {
-            Some(eq) => {
+    /// `boost` is the speaker chain's linear gain (see [`SpeakerConfig::volume_boost`]).
+    async fn write(&mut self, bytes: &[u8], boost: f32) -> std::io::Result<()> {
+        let chain_buf;
+        let bytes = match &mut self.chain {
+            Some(chain) => {
                 let mut b = bytes.to_vec();
-                eq.process(&mut b);
-                eq_buf = b;
-                &eq_buf[..]
+                chain.process(&mut b, boost);
+                chain_buf = b;
+                &chain_buf[..]
             }
             None => bytes,
         };
@@ -785,8 +790,13 @@ impl Actor {
             if s.time_of(s.frames_written).saturating_duration_since(now) > self.cfg.lead {
                 continue; // not due yet
             }
-            let gain = volume_gain(self.volume.load(Ordering::Relaxed))
-                * 10f32.powf(self.cfg.pre_gain_db / 20.0);
+            let volume = self.volume.load(Ordering::Relaxed);
+            let gain = volume_gain(volume) * 10f32.powf(self.cfg.pre_gain_db / 20.0);
+            let boost = if self.cfg.volume_boost {
+                10f32.powf(top_boost_db(volume) / 20.0)
+            } else {
+                1.0
+            };
             self.feeder
                 .voice_gain
                 .set(f32::from(self.voice_gain.load(Ordering::Relaxed)) / 100.0);
@@ -800,7 +810,7 @@ impl Actor {
                 let bands = self.analyzer.process(&self.feeder.media_mono);
                 self.spectrum.push(s.time_of(base), bands);
             }
-            if let Err(e) = s.write(&chunk).await {
+            if let Err(e) = s.write(&chunk, boost).await {
                 tracing::error!("speaker write failed: {e}");
                 self.feeder.fail_all("speaker process died");
                 self.feeder.media.fail("speaker process died");
@@ -874,7 +884,7 @@ impl Actor {
             anchor_frame: 0,
             rate,
             frames_written: 0,
-            eq: echo.then(crate::refsink::SpeakerEq::new),
+            chain: echo.then(crate::chain::SpeakerChain::new),
             reference,
         };
         let result: Result<()> = async {
@@ -885,7 +895,7 @@ impl Actor {
             let silence = vec![0u8; CHUNK_FRAMES * 4];
             let prime_chunks = (self.cfg.lead.as_millis() as usize * 2).div_ceil(20).max(1);
             for _ in 0..prime_chunks {
-                session.write(&silence).await?;
+                session.write(&silence, 1.0).await?;
             }
             if echo {
                 // The codec powers up while the player prepares the PCM. An

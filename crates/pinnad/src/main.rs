@@ -317,9 +317,12 @@ async fn main() -> Result<()> {
             sc.initial_volume = initial.volume;
             sc.profile.codec_flat = cfg.audio.speaker_profile.eq_ignore_ascii_case("flat");
             if echo_dot && sc.profile.codec_flat {
-                // LibreEcho's Echo Dot (biscuit) profile: pre_gain_db=6.00.
-                // The volume curve tops out at -12 dB, so this cannot clip.
+                // The Echo Dot (biscuit) speaker: +6 dB on top of the volume
+                // curve (which tops out at -12 dB), plus the stock firmware's
+                // extra gain above 70 %, which the speaker chain's limiter
+                // keeps under full scale.
                 sc.pre_gain_db = 6.0;
+                sc.volume_boost = true;
             }
             Arc::new(Speaker::new(sc))
         });

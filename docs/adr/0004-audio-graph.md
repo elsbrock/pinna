@@ -42,14 +42,17 @@ pinnad -> dot_ref (16 kHz mono copy of everything it plays) = echo reference
 
 The speaker is not in PipeWire. pinnad drives it through ALSA at 48 kHz
 (`EchoDotPipeWire` backend: aplay, its amp/codec sequences around playback,
-and the speaker EQ — a 150 Hz high-pass), and writes a 16 kHz mono copy of
-every chunk it plays into `dot_ref` through a bounded queue (dropped, never
-blocking, if PipeWire lags). The two clocks drift apart (speaker ≈ +320 ppm,
-microphones ≈ +5 ppm against the CPU), so pinnad fits both from the PCMs'
-hardware pointers (`/proc/asound/card0/pcm*/sub0/status`), paces the speaker at
-its measured rate and resamples the reference from the speaker clock to the
-microphone clock. WebRTC's delay estimator only absorbs the fixed offset
-between the two paths.
+and the speaker chain — a 150 Hz high-pass, the stock firmware's extra gain
+above 70 % volume (up to +14.5 dB at 100 %) and a look-ahead peak limiter at
+−0.1 dBFS), and writes a 16 kHz mono copy of every chunk it plays into
+`dot_ref` through a bounded queue (dropped, never blocking, if PipeWire lags).
+The two clocks drift apart (speaker ≈ +320 ppm, microphones ≈ +5 ppm against
+the CPU), so pinnad fits both from the PCMs' hardware pointers
+(`/proc/asound/card0/pcm*/sub0/status`), paces the speaker at its measured rate
+and resamples the reference from the speaker clock to the microphone clock.
+WebRTC's delay estimator only absorbs the fixed offset between the two paths.
+The amp is switched on only once the PCM runs: the codec powers up while the
+PCM is prepared (~1.2 s), and an amp that is already on plays that as a crack.
 
 - **Beamform first, then mono echo cancellation**: the usual design for small
   arrays and far cheaper than per-microphone AEC. The beamformer is LibreEcho's
