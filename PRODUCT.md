@@ -1,6 +1,7 @@
 # Pinna: product
 
-**Who it is for.** Home Assistant users who own an Echo Dot (2nd gen) and want
+**Who it is for.** Home Assistant users who own an Echo Dot (2nd gen) or an
+Echo (2nd gen) and want
 to use it as a voice satellite without Amazon. They are comfortable with a
 terminal, fastboot and building an image, and they accept early-stage software.
 

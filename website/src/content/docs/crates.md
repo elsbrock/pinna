@@ -16,7 +16,7 @@ This page helps you find your way around the
 | `dashboard/` | The dashboard, written in Svelte. `pinnad` serves it |
 | `firmware/` | The MT8163 Wi-Fi and Bluetooth firmware: Amazon's files, unmodified |
 | `mkosi/` | The image definition: Debian packages, configuration files and systemd units that go into the root filesystem |
-| `scripts/` | Build helpers, `flash-dot.sh` for installing over fastboot, `backup-dot.sh` and `verify-backup.sh` for the device backup, `fetch-models.sh` and `push-dev.sh` |
+| `scripts/` | Build helpers, `flash-gen2.sh` for installing over fastboot, `backup-dot.sh` and `verify-backup.sh` for the device backup, `fetch-models.sh` and `push-dev.sh` |
 | `tools/wmt/` | Small C programs that power up the Wi-Fi and Bluetooth chip |
 | `keys/` | The public key that root filesystem images must be signed with |
 | `tests/` | Virtual machine tests (`vm/`), the end-to-end voice test (`e2e/`) and the hardware test (`device/`) |

@@ -12,10 +12,12 @@ most common to the least.
 
 To open fastboot:
 
-1. Unplug the Echo Dot.
-2. Hold **Volume Down**, and plug in the micro-USB cable.
-3. When the light ring changes, release the button.
-4. Check that your computer sees the device:
+1. Unplug the device.
+2. On an Echo (2nd gen), connect the USB connection to your computer first.
+3. Hold **Volume Down**, and plug it in: the micro-USB cable on an Echo Dot
+   (2nd gen), or the power adapter on an Echo (2nd gen).
+4. When the light ring changes, release the button.
+5. Check that your computer sees the device:
 
    ```sh
    fastboot devices
@@ -113,7 +115,7 @@ reason, and the page shows the same reason by name:
 
 | Flashes | Reason | What usually fixes it |
 | --- | --- | --- |
-| 1 | `no-storage`: Pinna didn't find the storage's partitions within 15 seconds | The kernel can't drive the storage. Write a boot image that worked before: `BOOT_IMG=<file> scripts/flash-dot.sh boot` |
+| 1 | `no-storage`: Pinna didn't find the storage's partitions within 15 seconds | The kernel can't drive the storage. Write a boot image that worked before: `BOOT_IMG=<file> scripts/flash-gen2.sh boot` |
 | 2 | `no-root`: neither slot holds a root filesystem that Pinna can verify and mount | Write a root filesystem and a boot image from the same build. If the log says the signature doesn't verify, the two were signed with different keys |
 | 3 | `no-system`: the root filesystem was mounted, but the system on it didn't start | Write the root filesystem again, and a boot image from the same build |
 
@@ -127,7 +129,7 @@ for what each step means.
 
 To write an image, [start fastboot](#start-fastboot) with **Volume Down**.
 Writing a boot image keeps your settings. Writing a root filesystem with
-`scripts/flash-dot.sh root` erases the data partition, as described in
+`scripts/flash-gen2.sh root` erases the data partition, as described in
 [Recover a device that doesn't start](#recover-a-device-that-doesnt-start).
 
 ## Recover a device that doesn't start
@@ -141,7 +143,7 @@ connection to Home Assistant was encrypted, give the device its key again.
 2. Check the device:
 
    ```sh
-   scripts/flash-dot.sh check
+   scripts/flash-gen2.sh check
    ```
 
 3. Write a root filesystem that you know works. Keep a copy of one:
@@ -150,13 +152,13 @@ connection to Home Assistant was encrypted, give the device its key again.
 
    ```sh
    ROOT_IMG=~/pinna-releases/pinna-2026.11.15.1432-d032e69.root.img \
-     scripts/flash-dot.sh root
+     scripts/flash-gen2.sh root
    ```
 
 4. Write the boot image:
 
    ```sh
-   scripts/flash-dot.sh boot
+   scripts/flash-gen2.sh boot
    ```
 
 For the details of each step, see [Install Pinna](/docs/flash/).
@@ -170,7 +172,7 @@ fastboot:
 2. Restore the partitions:
 
    ```sh
-   scripts/flash-dot.sh restore ~/echo-backups/my-dot/partitions
+   scripts/flash-gen2.sh restore ~/echo-backups/my-dot/partitions
    ```
 
    Replace the path with the folder that holds your partition images and

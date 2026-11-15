@@ -1,11 +1,11 @@
 ---
 title: Build Pinna
-description: Build the boot image and the signed root filesystem image that you install on the Echo Dot.
+description: Build the boot image and the signed root filesystem image that you install on your device.
 ---
 
-This page shows how to build the two files you install on an Echo Dot (2nd
-gen): the boot image and the root filesystem image. Pinna has no prebuilt
-images yet, so you build your own.
+This page shows how to build the two files you install on an Echo (2nd gen)
+or an Echo Dot (2nd gen): the boot image and the root filesystem image. Pinna
+has no prebuilt images yet, so you build your own.
 
 ## Before you begin
 
@@ -127,5 +127,5 @@ tests, see [Contribute](/docs/development/).
 
 ## What's next
 
-[Install Pinna on your Echo Dot](/docs/flash/). Later, to build an update for
+[Install Pinna](/docs/flash/). Later, to build an update for
 a device that already runs Pinna, see [Update Pinna](/docs/update/).

@@ -9,16 +9,18 @@ voice request. The reasons behind each decision are in the decision records in
 
 ## Hardware
 
-The Echo Dot (2nd gen) has a MediaTek MT8163 processor, which runs Pinna in
-32-bit ARM mode, and about 480 MB of memory. The parts that Pinna uses:
+The Echo (2nd gen) and the Echo Dot (2nd gen) share the MT8163 platform: a
+MediaTek MT8163 processor, which runs Pinna in 32-bit ARM mode, and about
+480 MB of memory. The parts that Pinna uses:
 
 - Seven microphones on top, and a speaker.
 - A ring of 12 RGB LEDs behind a white diffuser, driven by an IS31FL3236 LED
   controller.
 - Four buttons, and a hardware switch that cuts the microphones.
 - Wi-Fi in the MT8163.
-- A micro-USB port, which Pinna uses for a serial console and a network
-  connection to your computer.
+- USB, which Pinna uses for a serial console and a network connection to your
+  computer: a micro-USB port on the Echo Dot (2nd gen), and the pins in the
+  base on the Echo (2nd gen).
 
 ## Boot
 

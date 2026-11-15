@@ -9,7 +9,7 @@ const steps = [
   {
     number: "1",
     title: "The device hears the wake word",
-    body: "Pinna listens for “Alexa” on the Echo Dot itself. Until it hears the wake word, no audio leaves the device.",
+    body: "Pinna listens for “Alexa” on the device itself. Until it hears the wake word, no audio leaves the device.",
   },
   {
     number: "2",
@@ -27,7 +27,7 @@ const features = [
   {
     icon: "mic",
     title: "Wake word on the device",
-    body: "Pinna detects the wake word with openWakeWord, on the Echo Dot. It doesn't use Amazon's services.",
+    body: "Pinna detects the wake word with openWakeWord, on the device. It doesn't use Amazon's services.",
   },
   {
     icon: "broadcast",
@@ -89,8 +89,8 @@ const hardware: { device: string; soc: string; status: string; tone: string }[] 
   {
     device: "Echo (2nd gen)",
     soc: "The same MT8163 platform",
-    status: "Planned",
-    tone: "text-ink-muted",
+    status: "Supported, in early development",
+    tone: "text-ink",
   },
 ];
 
@@ -130,17 +130,18 @@ const gaps = [
           <span class="bg-caution h-1.5 w-1.5 rounded-full"></span>
           Early development
         </span>
-        <span class="chip">Echo Dot (2nd gen)</span>
+        <span class="chip">Echo (2nd gen) · Echo Dot (2nd gen)</span>
       </div>
 
       <h1 class="font-display text-ink text-display-l sm:text-display-xl mt-6 max-w-2xl text-balance">
-        A local voice satellite for your Echo&nbsp;Dot
+        A local voice satellite for your Echo and Echo&nbsp;Dot
       </h1>
 
       <p class="text-ink-muted text-body-l mt-5 max-w-xl">
-        Pinna is an open-source operating system for the Echo Dot (2nd gen).
-        It detects the wake word on the device and sends your requests to your
-        own Home Assistant. It doesn't use Amazon's services.
+        Pinna is an open-source operating system for the Echo (2nd gen) and
+        the Echo Dot (2nd gen). It detects the wake word on the device and
+        sends your requests to your own Home Assistant. It doesn't use
+        Amazon's services.
       </p>
 
       <div class="mt-8 flex flex-wrap items-center gap-3">
@@ -215,7 +216,7 @@ const gaps = [
       <h2 class="section-title">Works with Home Assistant</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
         Pinna uses the ESPHome native API, the protocol of ESPHome devices.
-        Home Assistant finds the Echo Dot on your network and adds it like any
+        Home Assistant finds your device on your network and adds it like any
         ESPHome device, without YAML or an add-on. Choose an Assist pipeline
         for it, and say the wake word. These are the entities it adds:
       </p>
@@ -265,8 +266,8 @@ const gaps = [
       <p class="eyebrow">Devices</p>
       <h2 class="section-title">Supported devices</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        Pinna supports the Echo Dot (2nd gen). The Echo (2nd gen) uses the
-        same platform and is planned next.
+        Pinna supports the Echo (2nd gen) and the Echo Dot (2nd gen), which
+        share the same MT8163 platform and run the same image.
       </p>
 
       <div class="card mt-8 overflow-hidden">
@@ -300,8 +301,8 @@ const gaps = [
           <p class="text-ink-muted text-body">
             <span class="text-ink font-medium">It needs an unlocked bootloader.</span>
             Pinna installs over fastboot on a device unlocked with amonet and
-            Kaeru. Holding Volume Down while you plug in the cable always opens
-            fastboot.
+            Kaeru. Holding Volume Down while you plug the device in always
+            opens fastboot.
           </p>
         </div>
         <div class="flex items-start gap-3">
@@ -345,7 +346,7 @@ const gaps = [
           <h3 class="text-ink text-heading mt-4">Voice control for Home Assistant</h3>
           <p class="text-ink-muted text-body mt-2">
             Say the wake word, ask Home Assistant to do something, and hear the
-            answer from the Echo Dot. Timers, announcements and music work too,
+            answer from the device. Timers, announcements and music work too,
             and you can use the ring and the buttons in automations.
           </p>
         </div>
@@ -362,7 +363,7 @@ const gaps = [
           </div>
           <h3 class="text-ink text-heading mt-4">A voice assistant on its own</h3>
           <p class="text-ink-muted text-body mt-2">
-            Use the Echo Dot as a voice assistant without a Home Assistant
+            Use the device as a voice assistant without a Home Assistant
             instance. Pinna's parts are kept separate so that this stays
             possible.
           </p>
@@ -391,7 +392,7 @@ const gaps = [
             <span class="text-signal font-mono text-sm">2</span>
             <p class="text-ink-muted text-body">
               <span class="text-ink block font-medium">Install over fastboot</span>
-              <code class="font-mono text-sm">scripts/flash-dot.sh</code> writes
+              <code class="font-mono text-sm">scripts/flash-gen2.sh</code> writes
               the images, and can restore your backup later.
             </p>
           </li>
@@ -415,9 +416,9 @@ just models
 just all
 
 <span class="text-ink-muted"># Install: hold Volume Down and plug in the device</span>
-scripts/flash-dot.sh check
-scripts/flash-dot.sh root
-scripts/flash-dot.sh boot</pre>
+scripts/flash-gen2.sh check
+scripts/flash-gen2.sh root
+scripts/flash-gen2.sh boot</pre>
           </div>
           <p class="mt-4 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("requirements")}>
@@ -561,8 +562,9 @@ scripts/flash-dot.sh boot</pre>
           </div>
           <h3 class="text-ink text-heading mt-4">Support another device</h3>
           <p class="text-ink-muted text-body mt-2">
-            The Echo (2nd gen) uses the same platform as the Echo Dot. Other
-            devices need a device tree, board support and a device to test on.
+            Pinna supports the Echo (2nd gen) and the Echo Dot (2nd gen).
+            Other Echo devices need a device tree, board support and a device
+            to test on.
           </p>
           <p class="mt-4 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("architecture")}>

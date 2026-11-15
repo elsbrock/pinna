@@ -3,7 +3,7 @@ title: Audio
 description: How Pinna processes the microphones and the speaker, so that the wake word works while the device plays audio.
 ---
 
-The wake word has to work while the Echo Dot speaks or plays music. For that,
+The wake word has to work while the device speaks or plays music. For that,
 Pinna removes the device's own sound from the microphone signal before the
 wake word detection hears it. This page explains how the microphones and the
 speaker are connected to make that work.
@@ -76,8 +76,8 @@ chooses how `pinnad` reaches the audio hardware. Keep it at `"auto"`:
 
 | Backend | Used when |
 | --- | --- |
-| `echodot-pipewire` | On the Echo Dot, when PipeWire runs. The normal case |
-| `echodot` | On the Echo Dot, without PipeWire. Microphones and speaker through ALSA |
+| `echodot-pipewire` | On the Echo (2nd gen) and Echo Dot (2nd gen), when PipeWire runs. The normal case |
+| `echodot` | The same, without PipeWire. Microphones and speaker through ALSA |
 | `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. Virtual machine images run without an audio backend |
 | `wav:<path>` | Reads the microphone signal from a WAV file. No speaker. For tests |
 | `none` | No audio. The wake word and voice requests are off |

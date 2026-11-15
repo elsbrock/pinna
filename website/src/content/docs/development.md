@@ -4,7 +4,7 @@ description: Set up a development environment, run the tests, try changes on a d
 ---
 
 This page explains how to work on Pinna: how to set up the tools, which tests
-exist and what each one needs, and how to try a change on a running Echo Dot.
+exist and what each one needs, and how to try a change on a running device.
 
 Pinna is a small project in early development. Before you start on something
 larger than a fix, open an issue so that the work isn't duplicated.
@@ -73,7 +73,7 @@ before you send a change that affects the image or the device.
 | `just vm-test` | The real ARM root image boots in QEMU, and SSH and the Home Assistant API come up | `just kernel-qemu image` first. Takes a few minutes, because QEMU emulates the CPU |
 | `just vm-test-x86` | The same checks with the x86_64 image, and the virtual Echo Dot: its buttons, microphone button, speaker, and the wake word through its microphone | `just kernel-x86 image-x86` first. Faster with KVM. The wake word check needs the models (`just models`); skips without them |
 | `just vm-update-test` | An update installs into the other slot, the trial boot succeeds, and a broken update rolls back | `just kernel-qemu image` and the signing key. Builds two more images, so it takes longer |
-| `just test-device` | Speaker, microphones, LED ring and the Home Assistant API on a real device | A running Echo Dot reachable over SSH |
+| `just test-device` | Speaker, microphones, LED ring and the Home Assistant API on a real device | A running device reachable over SSH |
 
 `just wakeword-parity` and `just e2e` pass without running anything if the
 wake word models are missing. Run `just models` before you rely on their
@@ -81,7 +81,7 @@ result.
 
 ## Try a change on a device
 
-To test new versions of Pinna's programs on a running Echo Dot without
+To test new versions of Pinna's programs on a running device without
 reinstalling it, use `just push`:
 
 ```sh

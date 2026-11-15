@@ -28,8 +28,9 @@ under **Troubleshooting**.
   is green, Pinna couldn't start, and SSH doesn't run. See
   [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
 - **Over USB:** check that the computer sees the USB device **Pinna (Echo Dot
-  2nd gen)**. Use a cable that carries data. The device is at `10.42.0.1`, and
-  your computer gets an address between `10.42.0.10` and `10.42.0.29`.
+  2nd gen)** — **Pinna (Echo 2nd gen)** on an Echo. Use a cable that carries
+  data. The device is at `10.42.0.1`, and your computer gets an address
+  between `10.42.0.10` and `10.42.0.29`.
 - **Over SSH:** Pinna only accepts SSH keys, no passwords. The key comes from
   `secrets/authorized_keys` at build time. Without it, use the serial console:
   `picocom -b 115200 /dev/ttyACM0`.
@@ -186,7 +187,7 @@ and over, Pinna doesn't get as far as its services:
 1. Unplug the device and open fastboot with **Volume Down**. See
    [Recover a device](/docs/recovery/).
 2. Install the root filesystem and the boot image again with
-   `scripts/flash-dot.sh root` and `scripts/flash-dot.sh boot`.
+   `scripts/flash-gen2.sh root` and `scripts/flash-gen2.sh boot`.
 
 After an update, the device goes back to the previous version on its own after
 three failed attempts. See

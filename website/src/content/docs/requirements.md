@@ -9,16 +9,19 @@ firmware, unmodified, in `firmware/`.
 
 ## Device
 
-- **An Echo Dot (2nd gen).** In fastboot, the device reports the product name
-  `BISCUIT`. Pinna doesn't support other Echo devices yet.
+- **An Echo (2nd gen) or an Echo Dot (2nd gen).** In fastboot, the Echo Dot
+  reports the product name `BISCUIT` and the Echo reports `RADAR`. Pinna
+  doesn't support other Echo devices yet.
 - **An unlocked bootloader with Kaeru.** Pinna installs over fastboot. It
   also needs Kaeru, a small addition to the bootloader that the amonet-based
   unlock installs: Kaeru opens fastboot when the system asks for it, and Pinna
   uses that to get back to fastboot after a failed boot. These docs don't
   cover how to unlock a device.
-- **A micro-USB cable that carries data.** Some cables only charge. Pinna also
-  uses the cable for a serial console and a network connection to your
-  computer.
+- **A USB connection to the device.** On an Echo Dot (2nd gen), a micro-USB
+  cable that carries data; some cables only charge. On an Echo (2nd gen), the
+  pins in the base: a pogo-pin adapter, or a cable soldered to the pads.
+  Pinna also uses the connection for a serial console and a network link to
+  your computer.
 
 ## Backup of the device
 
@@ -33,11 +36,11 @@ scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
 
 The script copies the whole eMMC and its boot areas, and compares every
 partition except `userdata` with the device. It also writes the partition
-images that `scripts/flash-dot.sh restore` takes, into `partitions/`, with
+images that `scripts/flash-gen2.sh restore` takes, into `partitions/`, with
 their checksums. To compare a backup with the device again later, run
 `scripts/verify-backup.sh` with the same folder.
 
-To restore a backup with `scripts/flash-dot.sh restore`, the partition images
+To restore a backup with `scripts/flash-gen2.sh restore`, the partition images
 must be in one folder:
 
 | File | Partition | Required |

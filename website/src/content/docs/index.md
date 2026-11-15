@@ -3,11 +3,12 @@ title: Overview
 description: What Pinna is, how it works, and where to start.
 ---
 
-Pinna is an open-source operating system for the Echo Dot (2nd gen). It turns
-the device into a voice satellite for [Home Assistant](https://www.home-assistant.io/):
-you say the wake word, the device sends your request to your Home Assistant,
-and it plays the reply. The wake word detection runs on the device, and
-Pinna doesn't use Amazon's services.
+Pinna is an open-source operating system for the Echo (2nd gen) and the Echo
+Dot (2nd gen). It turns the device into a voice satellite for
+[Home Assistant](https://www.home-assistant.io/): you say the wake word, the
+device sends your request to your Home Assistant, and it plays the reply. The
+wake word detection runs on the device, and Pinna doesn't use Amazon's
+services.
 
 > **Early development.** Pinna works, but you build and install it yourself,
 > and you control it from the command line, from the

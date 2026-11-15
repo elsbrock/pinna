@@ -3,9 +3,10 @@ title: Status and roadmap
 description: What works in Pinna today, what is known to be missing or rough, and what is planned next.
 ---
 
-Pinna is in early development. You can build it, install it on an Echo Dot
-(2nd gen) and use it with Home Assistant and its own dashboard, but there is no
-prebuilt image, and parts of it are still being tuned on real hardware.
+Pinna is in early development. You can build it, install it on an Echo
+(2nd gen) or an Echo Dot (2nd gen) and use it with Home Assistant and its own
+dashboard, but there is no prebuilt image, and parts of it are still being
+tuned on real hardware.
 
 ## What works
 
@@ -25,10 +26,11 @@ These parts are covered by tests that run without hardware:
 - A complete voice request, from the wake word to the played reply, works
   against a simulated Home Assistant.
 
-On the Echo Dot itself:
+On the devices:
 
-- The microphone path with beamforming and echo cancellation runs, and lowers
-  the device's own music by 23 to 31 dB. See [Audio](/docs/audio/).
+- The microphone path with beamforming and echo cancellation runs; on the
+  Echo Dot (2nd gen) it lowers the device's own music by 23 to 31 dB. See
+  [Audio](/docs/audio/).
 - `scripts/backup-dot.sh` backs up the device, and `scripts/verify-backup.sh`
   checks the backup. See [What you need](/docs/requirements/#backup-of-the-device).
 - A hardware test (`just test-device`) checks the speaker, the microphones,
@@ -53,7 +55,6 @@ On the Echo Dot itself:
 
 ## Planned
 
-- **The Echo (2nd gen)**, which uses the same platform as the Echo Dot.
 - **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
   model and naming its phrase (ADR 0013).
 - **Standalone mode**: using the device as a voice assistant without Home

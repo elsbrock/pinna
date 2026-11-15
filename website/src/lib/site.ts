@@ -1,10 +1,11 @@
 export const SITE = {
   name: "Pinna",
-  tagline: "A voice satellite for Home Assistant on the Echo Dot (2nd gen)",
+  tagline:
+    "A voice satellite for Home Assistant on the Echo (2nd gen) and Echo Dot (2nd gen)",
   description:
-    "Pinna is an open-source operating system for the Echo Dot (2nd gen). It turns " +
-    "the device into a voice satellite for Home Assistant, with the wake word " +
-    "detected on the device.",
+    "Pinna is an open-source operating system for the Echo (2nd gen) and the " +
+    "Echo Dot (2nd gen). It turns the device into a voice satellite for Home " +
+    "Assistant, with the wake word detected on the device.",
   repo: "https://github.com/elsbrock/pinna",
   repoDocs: "https://github.com/elsbrock/pinna/tree/main/docs",
   adr: "https://github.com/elsbrock/pinna/tree/main/docs/adr",

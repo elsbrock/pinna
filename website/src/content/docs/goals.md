@@ -10,7 +10,7 @@ change works against one of them, the change needs a strong reason.
 
 ### Keep speech local
 
-Pinna detects the wake word on the Echo Dot itself. Until the device hears the
+Pinna detects the wake word on the device itself. Until the device hears the
 wake word, no audio leaves it. After that, audio goes only to the Home
 Assistant instance that you connected the device to, over your own network.
 Pinna doesn't use Amazon's services or any other cloud service to handle your
@@ -53,9 +53,9 @@ apart from Pinna's own code and isn't under Pinna's license.
 
 ## Later
 
-- **More devices.** Pinna supports the Echo Dot (2nd gen) today. The Echo (2nd
-  gen) uses the same platform and is the next device. Other devices may follow.
-- **Standalone mode.** Using the Echo Dot as a voice assistant without a Home
+- **More devices.** Pinna supports the Echo (2nd gen) and the Echo Dot
+  (2nd gen). Other Echo devices may follow.
+- **Standalone mode.** Using the device as a voice assistant without a Home
   Assistant instance. Pinna's parts are kept separate so that this stays
   possible.
 

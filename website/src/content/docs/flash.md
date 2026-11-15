@@ -1,11 +1,12 @@
 ---
 title: Install Pinna
-description: Install Pinna on an Echo Dot (2nd gen) over fastboot, check that it works, and connect it to Wi-Fi.
+description: Install Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen) over fastboot, check that it works, and connect it to Wi-Fi.
 ---
 
-This guide installs Pinna on an Echo Dot (2nd gen) over fastboot. You install
-the root filesystem first, then the boot image. Every step says what it
-writes, and [Recover a device](/docs/recovery/) explains how to undo it.
+This guide installs Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen) over
+fastboot. You install the root filesystem first, then the boot image. Every
+step says what it writes, and [Recover a device](/docs/recovery/) explains how
+to undo it.
 
 ## Before you begin
 
@@ -37,32 +38,39 @@ Pinna never writes these partitions:
 
 ## Start fastboot
 
-1. Unplug the Echo Dot.
-2. Hold **Volume Down**, and plug the micro-USB cable into the device and your
-   computer.
-3. When the light ring changes, release the button.
-4. Check that your computer sees the device:
+On an Echo Dot (2nd gen), the micro-USB cable also powers the device and
+connects it to your computer. On an Echo (2nd gen), the USB connection is on
+the pins in its base (a pogo-pin adapter, or a cable soldered to the pads),
+and the device uses its own power adapter.
+
+1. Unplug the device.
+2. On an Echo (2nd gen), connect the USB connection to your computer first.
+3. Hold **Volume Down**.
+4. Plug in the power: on the Echo Dot, the micro-USB cable, with the other end
+   on your computer; on the Echo, its power adapter.
+5. When the light ring changes, release the button.
+6. Check that your computer sees the device:
 
    ```sh
    fastboot devices
    ```
 
-5. Check the device and the images:
+7. Check the device and the images:
 
    ```sh
-   scripts/flash-dot.sh check
+   scripts/flash-gen2.sh check
    ```
 
-   The output shows the product name, which must be `BISCUIT`, the
-   partition sizes, and the checksums of the two images. This step writes
-   nothing.
+   The output shows the product name — `BISCUIT` on an Echo Dot (2nd gen),
+   `RADAR` on an Echo (2nd gen) — the partition sizes, and the checksums of
+   the two images. This step writes nothing.
 
 ## Install the root filesystem
 
 1. Write the root filesystem:
 
    ```sh
-   scripts/flash-dot.sh root
+   scripts/flash-gen2.sh root
    ```
 
    The script checks the image signature against `keys/release.pub`, asks you
@@ -74,7 +82,7 @@ Pinna never writes these partitions:
 
    ```sh
    img2simg build/pinna.root.img build/pinna.root.simg
-   ROOT_IMG=build/pinna.root.simg scripts/flash-dot.sh root
+   ROOT_IMG=build/pinna.root.simg scripts/flash-gen2.sh root
    ```
 
    The script can't check the signature of a sparse image. Convert only the
@@ -85,7 +93,7 @@ Pinna never writes these partitions:
 The device is still in fastboot after the previous step. Write the boot image:
 
 ```sh
-scripts/flash-dot.sh boot
+scripts/flash-gen2.sh boot
 ```
 
 The script asks you to confirm, writes `boot_a` and `boot_b`, and restarts the
@@ -95,17 +103,17 @@ firmware doesn't boot properly.
 ## Check the device
 
 1. Wait about 20 seconds. Your computer sees a new USB device named
-   **Pinna (Echo Dot 2nd gen)**, which provides a serial console and a network
-   connection.
+   **Pinna (Echo Dot 2nd gen)** — **Pinna (Echo 2nd gen)** on an Echo — which
+   provides a serial console and a network connection.
 
    If the device is named **Pinna rescue** instead, Pinna found nothing it
    can boot. Open `http://10.42.0.1` to see why. See
    [Rescue mode](/docs/recovery/#rescue-mode). **Restart** on that page
    boots the image in `boot_a` again, not the one you tried from memory. To
-   try again, open fastboot and run `scripts/flash-dot.sh try`.
+   try again, open fastboot and run `scripts/flash-gen2.sh try`.
 
    If no USB device appears within a minute, Pinna didn't boot. Unplug the
-   device, open fastboot, and check that `scripts/flash-dot.sh root` finished
+   device, open fastboot, and check that `scripts/flash-gen2.sh root` finished
    without errors.
 
 2. Log in. Use either connection:

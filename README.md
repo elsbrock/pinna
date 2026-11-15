@@ -1,7 +1,7 @@
 # Pinna
 
-An open, local-first voice satellite OS for the Amazon Echo (2nd gen) family,
-starting with the **Echo Dot 2nd gen** (MediaTek MT8163).
+An open, local-first voice satellite OS for the **Echo (2nd gen)** and
+**Echo Dot (2nd gen)** (MediaTek MT8163).
 
 Pinna turns the device into a Home Assistant voice satellite with on-device wake
 word, LED ring feedback and button control. It is a modern image-based Linux
@@ -10,7 +10,7 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 
 > Status: early bring-up. Console and a local dashboard. Expect sharp edges.
 
-Pinna needs an Echo Dot that has already been unlocked with Kaeru/amonet (as
+Pinna needs an Echo that has already been unlocked with Kaeru/amonet (as
 for the previous firmware). To install it, follow `docs/runbook-first-flash.md`: it backs
 the device up first and every step says how to undo it.
 

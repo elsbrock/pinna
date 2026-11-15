@@ -3,8 +3,8 @@ title: Light ring and buttons
 description: What each colour and animation of the light ring means, and what the four buttons do.
 ---
 
-The Echo Dot has no screen. The light ring shows what the device is doing, and
-the four buttons on top control it. This page describes both.
+The device has no screen. The light ring shows what it is doing, and the four
+buttons on top control it. This page describes both.
 
 ## Light ring
 
@@ -262,7 +262,7 @@ When the microphones are off, the ring is solid red and Pinna ignores all
 audio from the microphones: it doesn't listen for the wake word, and a request
 that is running stops.
 
-The Echo Dot has a hardware switch behind the **Microphone off** button. When
+The device has a hardware switch behind the **Microphone off** button. When
 the hardware switch is present, it turns the microphones off, and Pinna
 follows it. You can also turn the microphones off from Home Assistant (the
 **Microphone mute** switch) or with `pinnactl mute on`. The microphones are off

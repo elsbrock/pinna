@@ -73,9 +73,9 @@ How the device introduces itself to Home Assistant.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `backend` | `"auto"` | How Pinna reaches the microphones and the speaker. Leave it at `"auto"` on the Echo Dot. See [Audio](/docs/audio/) |
+| `backend` | `"auto"` | How Pinna reaches the microphones and the speaker. Leave it at `"auto"`. See [Audio](/docs/audio/) |
 | `volume` | `50` | The volume on the first boot, from 0 to 100. After that, Pinna keeps the last volume you set |
-| `speaker_profile` | `"Flat"` | The speaker tuning of the audio codec. `"Flat"` is the tuning for the Echo Dot (2nd gen); any other value selects the tuning for the Echo (2nd gen) |
+| `speaker_profile` | `"Flat"` | The speaker tuning of the audio codec. `"Flat"` is the tuning for the Echo Dot (2nd gen); set `"Radar"` on the Echo (2nd gen) |
 | `wake_sound` | `false` | Plays a short sound when the device starts listening |
 | `capture_gain_db` | Not set | The gain applied to the microphone audio before wake word detection and before it goes to Home Assistant, in dB. Not set means +12 dB on the Echo Dot with PipeWire, and 0 dB otherwise |
 | `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio (s16le, 48 kHz, stereo) into the media lane. Empty turns it off |

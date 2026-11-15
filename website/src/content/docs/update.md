@@ -123,7 +123,7 @@ chooses a slot, has no fallback, and `pinnactl update` doesn't change it. When a
 install it from fastboot:
 
 ```sh
-scripts/flash-dot.sh boot
+scripts/flash-gen2.sh boot
 ```
 
 See [Install Pinna](/docs/flash/#install-the-boot-image).
