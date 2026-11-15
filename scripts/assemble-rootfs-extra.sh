@@ -11,6 +11,9 @@
 #   dashboard/dist/          the dashboard's static files (`just web`)
 #   secrets/                 authorized_keys, wifi/wpa_supplicant-wlan0.conf
 #   mkosi/vm.extra/          the virtual Echo Dot (x86_64 only, ADR 0014)
+#
+# PINNA_RELEASE=1 refuses any owner file in secrets/ above and needs the wake
+# word models (ADR 0015).
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -35,6 +38,17 @@ rm -rf "${out:?}"
 mkdir -p "$out"
 
 warn() { printf 'assemble: WARNING: %s\n' "$*" >&2; }
+
+# A release image carries nothing of a particular owner (ADR 0015).
+if [ "${PINNA_RELEASE:-}" = 1 ]; then
+  for f in authorized_keys wifi/wpa_supplicant-wlan0.conf device/pinnad.toml device/esphome-key; do
+    if [ -e "$root/secrets/$f" ]; then
+      echo "assemble: PINNA_RELEASE=1, but secrets/$f exists; a release image must not carry it" >&2
+      exit 1
+    fi
+  done
+  [ -d "$root/blobs/models" ] || { echo "assemble: PINNA_RELEASE=1 needs the wake word models (just models)" >&2; exit 1; }
+fi
 
 # Firmware (device only)
 if [ "$device" = yes ]; then

@@ -41,3 +41,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
   `kernel/firmware/README.md`.
 - `firmware/`: Amazon's MT8163 Wi-Fi and Bluetooth firmware files from the
   Echo Dot (2nd gen)'s stock Fire OS, unmodified, see `firmware/README.md`.
+- Release images carry the wake word models
+  (`/usr/share/pinna/models/openwakeword-0.5.1/`) with a `NOTICE` next to
+  them: the openWakeWord v0.5.1 models (CC BY-NC-SA 4.0) and Okay Nabu,
+  from a pinned `rhasspy/pyopen-wakeword` (an Apache-2.0 repository; the
+  model file carries no license of its own). The repository doesn't contain
+  them; `just models` fetches them during the build.

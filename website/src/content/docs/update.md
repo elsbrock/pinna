@@ -24,8 +24,23 @@ to the old one on its own.
    returns to the previous slot and marks the new one as **unbootable**.
 
 Pinna only installs images that are signed with the key whose public part is
-built into the device. Build your updates with the same `secrets/release.key`
-that you used for the first installation.
+built into the device: the project key `keys/release.pub` in a release,
+`secrets/release.pub` in a build of your own. Build your updates with the
+same `secrets/release.key` that you used for the first installation.
+
+## Update to a new release
+
+A release's `manifest.json` installs the newest published release. On the
+device, with Wi-Fi and internet access:
+
+```sh
+pinnactl update https://github.com/elsbrock/pinna/releases/latest/download/manifest.json --reboot
+```
+
+It writes the new root filesystem into the other slot, checks it and restarts
+into it, as described above. When the release also changes the boot image,
+that still needs fastboot: download `pinna-boot.img` from the release and
+flash it as in [Update the boot image](#update-the-boot-image).
 
 ## Before you begin
 
@@ -34,15 +49,8 @@ that you used for the first installation.
   `pinna-bootctl slot-status` on the device.
 - The device can reach your computer over the network, either over Wi-Fi or
   over the USB cable.
-- Your copy of the repository is up to date. `just keygen` changed
-  `keys/release.pub`, so restore that file before you pull, and write your
-  public key again afterwards:
-
-  ```sh
-  git checkout keys/release.pub
-  git pull
-  just keygen
-  ```
+- Your copy of the repository is up to date. `keys/release.pub` is the
+  project key and doesn't change; your own signing key lives in `secrets/`.
 
 ## Install an update
 

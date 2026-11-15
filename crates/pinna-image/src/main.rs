@@ -16,13 +16,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Create the release signing key if missing and write its public key.
+    /// Create a signing key of your own if missing and write its public key
+    /// (compiled in instead of keys/release.pub).
     Keygen {
         #[arg(long, default_value = "secrets/release.key")]
         secret: PathBuf,
-        #[arg(long, default_value = "keys/release.pub")]
+        #[arg(long, default_value = "secrets/release.pub")]
         public: PathBuf,
     },
+    /// Print the compiled-in release public key (hex) and where it came from.
+    Key,
     /// Seal an erofs root (mkosi output) into a signed slot image.
     Seal {
         #[arg(long, default_value = "secrets/release.key")]
@@ -38,7 +41,7 @@ enum Cmd {
     },
     /// Check signature, footer and the whole hash tree of a slot image.
     Verify {
-        /// Public key file (hex); defaults to the compiled-in keys/release.pub.
+        /// Public key file (hex); defaults to the compiled-in release key.
         #[arg(long)]
         pubkey: Option<PathBuf>,
         image: PathBuf,
@@ -65,6 +68,10 @@ fn main() -> Result<()> {
                 public.display()
             );
         }
+        Cmd::Key => {
+            println!("{}", keys::hex(&keys::RELEASE_PUBLIC_KEY));
+            println!("{}", env!("PINNA_RELEASE_PUB_SOURCE"));
+        }
         Cmd::Seal {
             key,
             version,
@@ -72,7 +79,14 @@ fn main() -> Result<()> {
             input,
             output,
         } => {
-            let key = keys::read_secret(&key)?;
+            let path = key;
+            let key = keys::read_secret(&path)?;
+            ensure!(
+                key.verifying_key() == keys::release_key(),
+                "{path}: its public key is not the one compiled in ({source}); a root sealed with it would not boot. Use the matching key, or run just keygen",
+                path = path.display(),
+                source = env!("PINNA_RELEASE_PUB_SOURCE"),
+            );
             let salt: [u8; footer::SALT_LEN] = match salt {
                 Some(hex) => keys::unhex(&hex)?
                     .try_into()

@@ -2,6 +2,7 @@
 # Flash Pinna onto an Echo (2nd gen, "radar") or an Echo Dot (2nd gen,
 # "biscuit") that is in fastboot mode (hold Volume Down while plugging the
 # device in).
+# Also runs from a release folder, next to the images: ./flash-gen2.sh root
 #
 #   scripts/flash-gen2.sh check        # read-only: device, partition sizes, artifacts
 #   scripts/flash-gen2.sh root         # system_a <- sealed slot image, clear system_b, wipe userdata
@@ -14,9 +15,6 @@
 # misc (Pinna writes only its bootloader command and A/B slot state, at runtime).
 set -euo pipefail
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-boot_img=${BOOT_IMG:-$root/build/pinna-boot.img}
-root_img=${ROOT_IMG:-$root/build/pinna.root.img}
 fb=${FASTBOOT:-fastboot}
 
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
@@ -25,6 +23,20 @@ confirm() {
   read -r -p "$1 [y/N] " a
   [ "$a" = y ] || [ "$a" = Y ] || die "aborted"
 }
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+root=$(cd "$here/.." && pwd)
+# In a release folder (the script next to pinna-boot.img) the images are
+# here; in the repository they are in build/.
+if [ -s "$here/pinna-boot.img" ]; then
+  boot_img=${BOOT_IMG:-$here/pinna-boot.img}
+  roots=("$here"/pinna-*.root.img)
+  root_img=${ROOT_IMG:-${roots[0]}}
+  [ -n "${ROOT_IMG:-}" ] || [ ${#roots[@]} -eq 1 ] || die "more than one pinna-*.root.img in $here; set ROOT_IMG"
+else
+  boot_img=${BOOT_IMG:-$root/build/pinna-boot.img}
+  root_img=${ROOT_IMG:-$root/build/pinna.root.img}
+fi
 
 var() { $fb getvar "$1" 2>&1 | awk -F': ' -v k="$1" '$1==k {print $2; exit}' | tr -d '\r'; }
 
@@ -40,6 +52,18 @@ need_device() {
 }
 
 need_file() { [ -s "$1" ] || die "missing $1 ($2)"; }
+
+# 0 if FILE is listed in the SHA256SUMS next to it and matches, 1 if there
+# is no SHA256SUMS; dies if it isn't listed or doesn't match.
+check_sums() {
+  local dir name line
+  dir=$(dirname "$1"); name=$(basename "$1")
+  [ -s "$dir/SHA256SUMS" ] || return 1
+  line=$(awk -v n="$name" '$2 == n || $2 == "*" n' "$dir/SHA256SUMS")
+  [ -n "$line" ] || die "$name is not listed in $dir/SHA256SUMS"
+  (cd "$dir" && printf '%s\n' "$line" | sha256sum -c --status -) || die "$name does not match $dir/SHA256SUMS"
+  say "$name matches SHA256SUMS"
+}
 
 case "${1:-}" in
   check)
@@ -57,14 +81,18 @@ case "${1:-}" in
     ;;
   root)
     need_device
-    need_file "$root_img" "just image"
+    need_file "$root_img" "just image, or a release folder"
     # Only a sealed slot image signed with the release key boots (pinna-init).
     # Android sparse images (img2simg) cannot be checked here.
-    if [ "$(od -An -tx4 -N4 "$root_img" | tr -d ' ')" = ed26ff3a ]; then
+    if check_sums "$root_img"; then
+      :
+    elif [ "$(od -An -tx4 -N4 "$root_img" | tr -d ' ')" = ed26ff3a ]; then
       say "$(basename "$root_img") is a sparse image: signature not checked"
-    else
+    elif [ -s "$root/Cargo.toml" ] && command -v cargo >/dev/null; then
       cargo run -q --release --manifest-path "$root/Cargo.toml" -p pinna-image -- verify "$root_img" ||
-        die "$root_img is not a sealed slot image signed with keys/release.pub"
+        die "$root_img is not a sealed slot image signed with the release key"
+    else
+      die "cannot check $root_img: no SHA256SUMS next to it, and no repository with cargo"
     fi
     say "system_a <- $(basename "$root_img") ($(stat -c %s "$root_img") bytes)"
     say "system_b <- cleared (first MiB zeroed: no image, so slot a boots)"
@@ -81,14 +109,16 @@ case "${1:-}" in
     ;;
   try)
     need_device
-    need_file "$boot_img" "just bootimg"
+    need_file "$boot_img" "just bootimg, or a release folder"
+    check_sums "$boot_img" || say "no SHA256SUMS next to $(basename "$boot_img"): not checked"
     say "RAM-booting $(basename "$boot_img") (nothing is written; a power cycle returns to the flashed kernel)"
     $fb boot "$boot_img"
     say "watch for the USB serial console (/dev/ttyACM*) and network (ssh root@10.42.0.1)"
     ;;
   boot)
     need_device
-    need_file "$boot_img" "just bootimg"
+    need_file "$boot_img" "just bootimg, or a release folder"
+    check_sums "$boot_img" || say "no SHA256SUMS next to $(basename "$boot_img"): not checked"
     confirm "Write the Pinna boot image to boot_a and boot_b?"
     $fb flash boot_a "$boot_img"
     $fb flash boot_b "$boot_img"
@@ -112,7 +142,7 @@ case "${1:-}" in
     $fb reboot
     ;;
   *)
-    sed -n '2,13p' "$0"
+    sed -n '2,15p' "$0"
     exit 2
     ;;
 esac

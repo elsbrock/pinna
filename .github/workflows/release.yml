@@ -1,0 +1,115 @@
+name: release
+
+# A v* tag builds a release and uploads it to a draft GitHub release, signed
+# with PINNA_RELEASE_KEY from the protected "release" environment (ADR 0015).
+# Started by hand, it builds the same with a throwaway key and keeps the files
+# as workflow artifacts: for testing this workflow, never for devices.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    environment: ${{ github.event_name == 'push' && 'release' || 'dry-run' }}
+    permissions:
+      contents: write
+    env:
+      PINNA_RELEASE: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      # The kernel tree, the Nix store, cargo's target/ and mkosi's Debian
+      # trees need more than the runner's free space.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force || true
+          df -h /
+
+      # mkosi builds in user namespaces. Ubuntu 24.04 restricts them with
+      # AppArmor, and mkosi needs subordinate uid/gid ranges and a setuid
+      # newuidmap/newgidmap (Ubuntu's uidmap package).
+      - name: Let mkosi use user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update
+          sudo apt-get install -y uidmap
+          grep -q "^$USER:" /etc/subuid || echo "$USER:100000:65536" | sudo tee -a /etc/subuid
+          grep -q "^$USER:" /etc/subgid || echo "$USER:100000:65536" | sudo tee -a /etc/subgid
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Rust toolchain (rust-toolchain.toml)
+        run: nix develop -c rustup toolchain install
+
+      - name: Version
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            v=${GITHUB_REF_NAME#v}
+          else
+            v=dryrun-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}
+          fi
+          echo "PINNA_VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Signing key
+        if: github.event_name == 'push'
+        env:
+          KEY: ${{ secrets.PINNA_RELEASE_KEY }}
+        run: |
+          [ -n "$KEY" ] || { echo "PINNA_RELEASE_KEY is not set in the release environment" >&2; exit 1; }
+          [ ! -e secrets/release.pub ] || { echo "secrets/release.pub must not exist in a release build" >&2; exit 1; }
+          umask 077
+          mkdir -p secrets
+          printf '%s\n' "$KEY" > secrets/release.key
+          compiled=$(nix develop -c cargo run -q -p pinna-image -- key | head -n1)
+          [ "$compiled" = "$(tr -d '[:space:]' < keys/release.pub)" ] || { echo "the build does not compile in keys/release.pub" >&2; exit 1; }
+
+      - name: Throwaway key (dry run)
+        if: github.event_name != 'push'
+        run: nix develop -c just keygen
+
+      - name: Build
+        run: nix develop -c just kernel models release
+
+      - name: Check the files
+        run: |
+          cd build/release
+          sha256sum -c SHA256SUMS
+          ls -l
+
+      - name: Draft release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(mktemp)
+          {
+            echo "Pinna $PINNA_VERSION for the Echo Dot (2nd gen)."
+            echo
+            echo "Install: https://elsbrock.github.io/pinna/docs/flash/"
+            echo "Signed with keys/release.pub: $(tr -d '[:space:]' < keys/release.pub)"
+            echo
+            echo '```'
+            cat build/release/SHA256SUMS
+            echo '```'
+          } > "$notes"
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "Pinna $PINNA_VERSION" --notes-file "$notes" build/release/*
+
+      - name: Keep the dry run's files
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pinna-${{ env.PINNA_VERSION }}-throwaway-key-not-for-devices
+          path: build/release/
+          retention-days: 7

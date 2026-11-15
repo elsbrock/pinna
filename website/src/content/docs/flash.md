@@ -10,13 +10,16 @@ to undo it.
 
 ## Before you begin
 
-- Build the images, as described in [Build Pinna](/docs/build/). You need
-  `build/pinna-boot.img` and `build/pinna.root.img`.
+- Get the images: from a [release](https://github.com/elsbrock/pinna/releases)
+  (download all its files into one folder) or by building them, as described
+  in [Build Pinna](/docs/build/).
 - Back up the device, as described in
   [What you need](/docs/requirements/#backup-of-the-device). Installing Pinna
   erases the data partition.
-- Run the commands in this guide from the repository folder, inside the
-  development shell (`nix develop`).
+- Run the commands from the folder that holds the images, inside the
+  development shell (`nix develop`) when you built them. The examples say
+  `scripts/flash-gen2.sh`; in a release folder the script is `./flash-gen2.sh`
+  next to the images.
 
 ## What gets written
 
@@ -73,7 +76,8 @@ and the device uses its own power adapter.
    scripts/flash-gen2.sh root
    ```
 
-   The script checks the image signature against `keys/release.pub`, asks you
+   The script checks the files against `SHA256SUMS` when they come from a
+   release, and the image signature when you built them yourself. It asks you
    to confirm, writes `system_a`, and clears the start of `system_b` and
    `userdata`. After this step, the data on `userdata` is gone.
 
@@ -120,7 +124,9 @@ firmware doesn't boot properly.
 
    - Over the network: your computer gets an address from the device
      automatically. Run `ssh root@10.42.0.1` or `ssh root@pinna.local`. This
-     needs the SSH key from `secrets/authorized_keys`.
+     needs your SSH key on the device: `secrets/authorized_keys` is baked in
+     when you built the image; in a release image, add yours over the serial
+     console first.
    - Over the serial console: run `picocom -b 115200 /dev/ttyACM0`. You're
      logged in as `root` without a password.
 

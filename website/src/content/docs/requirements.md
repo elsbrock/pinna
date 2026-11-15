@@ -61,8 +61,11 @@ sha256sum *.img > SHA256SUMS
 
 ## Computer
 
-- An x86_64 Linux computer with [Nix](https://nixos.org/download/) and flakes
-  enabled. The development shell provides the build tools and `fastboot`.
+To install a release: any Linux computer with `fastboot`, `adb` and
+`sha256sum` (on Debian/Ubuntu, `android-tools` has the first two). To build:
+an x86_64 Linux computer with [Nix](https://nixos.org/download/) and flakes
+enabled; the development shell provides the build tools and `fastboot`.
+
 - Permission to use the device over USB without `sudo`. On most
   distributions, install the Android udev rules (often packaged as
   `android-udev-rules`) for fastboot, and add yourself to the `dialout` group
@@ -73,13 +76,13 @@ sha256sum *.img > SHA256SUMS
 
 ## Your own files
 
-Put these files into `secrets/`. Git ignores the folder, so they never end up
-in the repository.
+These files are only for building your own images. Put them into `secrets/`.
+Git ignores the folder, so they never end up in the repository.
 
 | File | What it's for | How to create it |
 | --- | --- | --- |
-| `secrets/release.key` | Signs the root filesystem images. Required | `just keygen` |
-| `secrets/machine-id` | The machine ID of the image. Optional | `systemd-id128 new > secrets/machine-id` |
+| `secrets/release.key` | Signs your own root filesystem images. Only to sign your own builds | `just keygen` (writes `secrets/release.pub` too; the build compiles it in) |
+| `secrets/machine-id` | Not needed: each device derives its machine id from its serial number | — |
 | `secrets/authorized_keys` | Your SSH public key. Without it, you can't log in over SSH | Copy your public key, for example `~/.ssh/id_ed25519.pub` |
 | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network, so the device connects on first boot. Optional: you can also set it up on the device | See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi) |
 | `secrets/device/pinnad.toml` | Settings for this device, such as its name. Optional | See [Configure Pinna](/docs/configure/) |
@@ -91,9 +94,10 @@ Pinna ships the openWakeWord models for **Alexa**, **Hey Jarvis**, **Hey
 Mycroft** and **Hey Rhasspy** (v0.5.1), and **Okay Nabu** from
 [`rhasspy/pyopen-wakeword`](https://github.com/rhasspy/pyopen-wakeword), pinned
 to a commit. `just models` downloads them during the build; they aren't part of
-the repository. The openWakeWord models are licensed under CC BY-NC-SA 4.0,
-which doesn't allow commercial use. Okay Nabu comes from a repository under
-Apache-2.0; the model itself carries no licence of its own.
+the repository. Release images include them with a `NOTICE` next to them that
+names their sources and licenses. The openWakeWord models are licensed under
+CC BY-NC-SA 4.0, which doesn't allow commercial use. Okay Nabu comes from a
+repository under Apache-2.0; the model itself carries no licence of its own.
 
 ## Home Assistant
 

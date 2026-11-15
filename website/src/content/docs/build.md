@@ -4,8 +4,9 @@ description: Build the boot image and the signed root filesystem image that you 
 ---
 
 This page shows how to build the two files you install on an Echo (2nd gen)
-or an Echo Dot (2nd gen): the boot image and the root filesystem image. Pinna
-has no prebuilt images yet, so you build your own.
+or an Echo Dot (2nd gen): the boot image and the root filesystem image.
+[Releases](https://github.com/elsbrock/pinna/releases) carry prebuilt ones;
+build your own to develop Pinna or to sign with a key of your own.
 
 ## Before you begin
 
@@ -36,7 +37,8 @@ Run all of the following commands inside the development shell.
 ## Create a signing key
 
 Pinna installs and boots only root filesystem images that are signed with the
-release key. Create your own key once:
+release key. Releases are signed with the project key in `keys/release.pub`.
+To sign your own images with your own key, run once:
 
 ```sh
 just keygen
@@ -47,11 +49,16 @@ The command writes two files:
 - `secrets/release.key`: the private key. Git ignores it. Keep it safe and
   make a backup: you need the same key to build updates for devices that run
   your images.
-- `keys/release.pub`: the public key. It is built into the boot image and into
-  `pinnactl`, so a device accepts only images signed with your private key.
+- `secrets/release.pub`: the public key. The build compiles it in instead of
+  the project key `keys/release.pub` when it exists, so a device accepts only
+  images signed with your private key.
 
 If `secrets/release.key` already exists, `just keygen` keeps it and only
 writes the public key again.
+
+Installing your own build on a device that runs a release is a key change:
+flash the root filesystem and the boot image together. `pinnactl update`
+cannot cross a key change.
 
 If you lose the private key, devices that run your images can't accept updates
 any more. To recover, build with a new key and install both the boot image and
@@ -64,7 +71,6 @@ the root filesystem again from fastboot.
 
    | Path | Contents |
    | --- | --- |
-   | `secrets/machine-id` | A machine ID for the image |
    | `secrets/authorized_keys` | Your SSH public key, for logging in to the device |
    | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network (optional) |
 

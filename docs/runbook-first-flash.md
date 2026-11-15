@@ -25,14 +25,26 @@ repository too (`kernel/firmware/`) and built into the kernel.
 
 ## 0. Tools
 
+Two ways in: from a release (no build), or from a build of the repository.
+
+**From a release**, you need `fastboot`, `adb` and `sha256sum` from your
+distribution (on Debian/Ubuntu, `android-tools` has the first two), and all
+five files of one [release](https://github.com/elsbrock/pinna/releases)
+downloaded into a single folder. The commands below run in that folder; where
+they say `scripts/flash-gen2.sh`, use `./flash-gen2.sh` there.
+
+**From a build**:
+
 ```sh
 git clone <this repository> pinna && cd pinna
 nix develop          # the supported environment (x86_64 Linux); needs flakes:
                      # nix --extra-experimental-features 'nix-command flakes' develop
-adb devices          # must list the Echo Dot (the previous firmware running, USB connected)
 ```
 
-All later commands run inside this shell, from the repository root.
+The commands below run inside this shell, from the repository root.
+
+Either way, `adb devices` must list the Echo Dot (the previous firmware
+running, USB connected).
 
 ## 1. Back up, and save what Home Assistant knows (the previous firmware still running)
 
@@ -76,14 +88,25 @@ entry in Home Assistant (ESPHome integration) instead.
 an error or an unknown key, and on a first flash that ends in fastboot (see
 Recovery).
 
-## 2. Owner-local inputs and build
+## 2a. Download a release
+
+A [release](https://github.com/elsbrock/pinna/releases) carries five files:
+`pinna-<version>.root.img`, `pinna-boot.img`, `manifest.json`, `SHA256SUMS`
+and `flash-gen2.sh`. Download all of them into one folder and check them
+against the checksums:
+
+```sh
+sha256sum -c SHA256SUMS
+```
+
+## 2b. Or build it yourself
 
 `secrets/` (gitignored) holds what makes the image yours:
 
 | File | Needed | Ends up as | Create with |
 |---|---|---|---|
-| `secrets/release.key` | yes | root image signing key | `just keygen` (also rewrites `keys/release.pub`) |
-| `secrets/machine-id` | yes | image machine id | `systemd-id128 new > secrets/machine-id` |
+| `secrets/release.key` | only to sign your own builds | root image signing key | `just keygen` (writes `secrets/release.key` and `secrets/release.pub`; the build compiles in `secrets/release.pub` instead of `keys/release.pub`) |
+| `secrets/machine-id` | no (each device derives its machine id from its serial number) | — | — |
 | `secrets/authorized_keys` | for SSH | `/root/.ssh/authorized_keys` | your SSH public key(s) |
 | `secrets/wifi/wpa_supplicant-wlan0.conf` | for Wi-Fi | default for `/var/lib/pinna/wifi/` (first boot; edit on the device afterwards) | see below |
 | `secrets/device/pinnad.toml` | no | default for `/var/lib/pinna/pinnad.toml` — device identity: a `[device]` table with e.g. `name = "echodot2"` on its own line | step 1, or by hand |
@@ -109,17 +132,16 @@ The `/var` defaults are copied only when missing, so a re-flash (which wipes
 
 ```sh
 mkdir -p secrets/device secrets/wifi
-systemd-id128 new > secrets/machine-id
 cat ~/.ssh/id_*.pub > secrets/authorized_keys
-just keygen                     # once: secrets/release.key signs root images
+just keygen                     # once: secrets/release.key signs your own images
 just all                        # kernel, wake word models, root image, boot image
 ```
 
-`just image` builds the erofs root and seals it into `build/pinna.root.img`;
-only images signed with the key in `keys/release.pub` (compiled into the boot
-image's pinna-init) boot. After changing the key, flash the new boot image and
-a root signed with the new key together (steps 4 and 5): `pinnactl update`
-cannot cross a key change.
+`just image` builds the erofs root and seals it into `build/pinna.root.img`.
+A device that runs a release only boots roots signed with the project key in
+`keys/release.pub` (compiled into the boot image's pinna-init), so flashing
+your own build means flashing the root and the boot image together (steps 4
+and 5): `pinnactl update` cannot cross a key change.
 
 ## 3. Enter fastboot
 
@@ -128,22 +150,37 @@ ring changes. (On Kaeru units the Action button does nothing.)
 
 ```sh
 fastboot devices
-scripts/flash-gen2.sh check     # product must be BISCUIT (Dot) or RADAR (Echo); lists the built images
+scripts/flash-gen2.sh check     # product must be BISCUIT (Dot) or RADAR (Echo); lists the images
 ```
 
 ## 4. Flash the root filesystem
+
+In the release folder you downloaded (step 2a):
+
+```sh
+./flash-gen2.sh root            # system_a <- the release root, system_b cleared, userdata wiped
+```
+
+In the repository (step 2b):
 
 ```sh
 scripts/flash-gen2.sh root      # system_a <- sealed root, system_b cleared, userdata wiped
 ```
 
-The script checks the image's signature first. LK accepts 109 MiB per download
-(`max-download-size` 0x6d00000); fastboot splits the larger root image into
-sparse chunks by itself.
+The script checks the files against `SHA256SUMS` when they come from a
+release, and the image's signature when you built it yourself. LK accepts
+109 MiB per download (`max-download-size` 0x6d00000); fastboot splits the
+larger root image into sparse chunks by itself.
 
 Undo: Recovery. From here until step 5, the previous firmware no longer boots properly.
 
 ## 5. Flash the boot image
+
+```sh
+./flash-gen2.sh boot            # in the release folder: boot_a + boot_b <- Pinna, reboot
+```
+
+From the repository:
 
 ```sh
 scripts/flash-gen2.sh boot      # boot_a + boot_b <- Pinna, reboot
@@ -167,6 +204,15 @@ Within ~20 s the host should see a new USB device "Pinna (Echo Dot 2nd gen)":
 A device named "Pinna rescue" instead means pinna-init found nothing to boot
 and stayed in rescue mode (ADR 0012): http://10.42.0.1 says why and offers the
 logs as one download; `/dev/ttyACM0` has a root shell.
+
+A release image carries no SSH key. Add yours over the serial console:
+
+```sh
+mkdir -p /var/lib/pinna/ssh && cat >> /var/lib/pinna/ssh/authorized_keys
+# paste your public key, then press Ctrl-D
+```
+
+A factory reset removes it again.
 
 Then check:
 
@@ -214,7 +260,13 @@ LED direction.
 
 ## 8. Updates and rollback
 
-On the build machine:
+To the newest release, from the device (it needs Wi-Fi with internet access):
+
+```sh
+pinnactl update https://github.com/elsbrock/pinna/releases/latest/download/manifest.json --reboot
+```
+
+For your own builds, on the build machine:
 
 ```sh
 just release                   # build/release/{pinna-<version>.root.img, pinna-boot.img, manifest.json}
@@ -253,9 +305,10 @@ switches by hand (as a trial).
 touch it. When `kernel/` or `crates/pinna-init/` changed, also flash the new
 boot image once the updated slot is marked good: `pinna-bootctl
 reboot-bootloader` on the device, then `scripts/flash-gen2.sh boot` (step 5).
-When the release key changed, `pinnactl update` cannot help: flash root and
-boot together (steps 3–5). Keep your `keys/release.pub` when pulling: a
-different key in the tree builds a pinna-init that rejects your root images.
+When the signing key changed — you built with a new `secrets/release.key` —
+`pinnactl update` cannot help: flash root and boot together (steps 3–5).
+`keys/release.pub` is the project key and doesn't change; your own key is in
+`secrets/`.
 
 ## Recovery
 

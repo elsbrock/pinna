@@ -6,8 +6,10 @@
 //! 4. check that slot's signed footer with the compiled-in release key; on
 //!    failure use the other slot
 //! 5. dm-verity device `root` over the slot, erofs read-only on /sysroot
+//! 5. dm-verity device `root` over the slot, erofs read-only on /sysroot
 //! 6. /run/pinna/boot-slot + boot-version + the root's boot protocol marker,
-//!    move /dev /proc /sys /run, switch root, exec /sbin/init with our argv
+//!    bind-mount a machine id from the idme serial over /etc/machine-id, move
+//!    /dev /proc /sys /run, switch root, exec /sbin/init with our argv
 //!
 //! Everything is logged to /dev/kmsg as `pinna-init: …`, and to pstore's
 //! /dev/pmsg0 so that it survives a warm reset. The LED ring shows boot
@@ -43,6 +45,7 @@ macro_rules! log {
 
 mod dm;
 mod http;
+mod machine_id;
 mod rescue;
 mod ring;
 
@@ -451,6 +454,11 @@ fn boot(argv: &[OsString], ring: &Ring) -> Failure {
         Some(1) => log!("root speaks boot protocol 1: the stage helper shows stages 4-6"),
         Some(v) => log!("root speaks unknown boot protocol {v}; ignoring its marker"),
         None => log!("root has no boot protocol marker: no stages 4-6"),
+    }
+    match machine_id::apply(Path::new(SYSROOT), Path::new(slot::RUN_DIR)) {
+        Ok(Some(id)) => log!("machine id {id}, from the device's serial number"),
+        Ok(None) => log!("no serial number; keeping the image's machine id"),
+        Err(e) => log!("machine id: {e:#}; keeping the image's"),
     }
     log!("booting slot {s}, version {}", footer.version);
     // Stage 3: the system starts. The still frame stays on the ring until

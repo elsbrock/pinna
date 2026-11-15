@@ -11,8 +11,10 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 > Status: early bring-up. Console and a local dashboard. Expect sharp edges.
 
 Pinna needs an Echo that has already been unlocked with Kaeru/amonet (as
-for the previous firmware). To install it, follow `docs/runbook-first-flash.md`: it backs
-the device up first and every step says how to undo it.
+for the previous firmware). To install it, follow `docs/runbook-first-flash.md`:
+it covers downloading a prebuilt image from a
+[release](https://github.com/elsbrock/pinna/releases) or building your own,
+backs the device up first, and every step says how to undo it.
 
 ## Layout
 
@@ -35,7 +37,7 @@ the device up first and every step says how to undo it.
 nix develop      # the supported environment (x86_64 Linux): toolchains, keyrings, fastboot
 just             # list tasks
                  # first: the owner inputs in secrets/ (docs/runbook-first-flash.md, step 2)
-just keygen      # once: release signing key (secrets/release.key, keys/release.pub)
+just keygen      # optional: your own signing key (secrets/release.{key,pub})
 just all         # kernel, wake word models, root filesystem (sealed slot image), boot image
 just release     # build/release/: root image, boot image, update manifest
 just push        # fresh binaries onto a running device (sysext overlay)

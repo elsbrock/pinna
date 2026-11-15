@@ -1,6 +1,7 @@
 //! Release keys: the signing key is a hex-encoded ed25519 seed in
-//! `secrets/release.key` (never committed); the public key is hex in
-//! `keys/release.pub`, committed and compiled into pinna-init and pinnactl.
+//! `secrets/release.key` (never committed); the public key compiled in is
+//! `secrets/release.pub` when it exists, else the project key
+//! `keys/release.pub` (ADR 0015).
 
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -15,7 +16,7 @@ const fn nibble(c: u8) -> u8 {
         b'0'..=b'9' => c - b'0',
         b'a'..=b'f' => c - b'a' + 10,
         b'A'..=b'F' => c - b'A' + 10,
-        _ => panic!("keys/release.pub: not a hex-encoded ed25519 public key"),
+        _ => panic!("the release public key: not a hex-encoded ed25519 public key"),
     }
 }
 
@@ -30,7 +31,7 @@ const fn parse_hex_key(text: &[u8]) -> [u8; 32] {
     while j < text.len() {
         assert!(
             text[j].is_ascii_whitespace(),
-            "keys/release.pub: trailing data"
+            "the release public key: trailing data"
         );
         j += 1;
     }
@@ -38,10 +39,12 @@ const fn parse_hex_key(text: &[u8]) -> [u8; 32] {
 }
 
 /// The release public key, checked at compile time.
-pub const RELEASE_PUBLIC_KEY: [u8; 32] = parse_hex_key(include_bytes!("../../../keys/release.pub"));
+pub const RELEASE_PUBLIC_KEY: [u8; 32] =
+    parse_hex_key(include_bytes!(concat!(env!("OUT_DIR"), "/release.pub")));
 
 pub fn release_key() -> VerifyingKey {
-    VerifyingKey::from_bytes(&RELEASE_PUBLIC_KEY).expect("keys/release.pub is not a valid key")
+    VerifyingKey::from_bytes(&RELEASE_PUBLIC_KEY)
+        .expect("the release public key is not a valid key")
 }
 
 pub fn hex(bytes: &[u8]) -> String {

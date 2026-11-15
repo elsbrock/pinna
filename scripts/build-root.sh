@@ -5,13 +5,16 @@
 #   scripts/build-root.sh                  # armhf  -> build/pinna.root.img
 #   scripts/build-root.sh --arch x86_64    # x86_64 -> build/pinna-x86.root.img
 #
-#   --version V        image version (default: YYYY.MM.DD.HHMM-<git short hash>)
+#   --version V        image version (default: $PINNA_VERSION, else
+#                      YYYY.MM.DD.HHMM-<git short hash>)
 #   --out FILE         sealed slot image
 #   --output-dir DIR   mkosi output directory (default: mkosi/mkosi.output)
 #   --extra-tree DIR   one more tree on top of the configured ones (tests only)
 #
 # The version is ImageVersion= for mkosi (IMAGE_VERSION in the image's
 # os-release) and the version in the signed footer; this checks they agree.
+# secrets/machine-id is optional: without it mkosi writes `uninitialized` and
+# pinna-init sets a machine id per device (ADR 0015).
 # Needs: the assembled extra tree (scripts/assemble-rootfs-extra.sh) and the
 # signing key secrets/release.key (`just keygen`).
 set -euo pipefail
@@ -29,7 +32,7 @@ while [ $# -gt 0 ]; do
     --out) out=$(realpath -m "${2:?}"); shift 2 ;;
     --output-dir) outdir=$(realpath -m "${2:?}"); shift 2 ;;
     --extra-tree) extra+=("--extra-tree=$(realpath "${2:?}")"); shift 2 ;;
-    *) sed -n '2,16p' "$0"; exit 2 ;;
+    *) sed -n '2,19p' "$0"; exit 2 ;;
   esac
 done
 [ -s "$root/secrets/release.key" ] || { echo "no secrets/release.key (run: just keygen)" >&2; exit 1; }
@@ -43,7 +46,14 @@ else
   raw=pinna.root-arm.raw
   out=${out:-$root/build/pinna.root.img}
 fi
-version=${version:-"$(date +%Y.%m.%d.%H%M)-$(git -C "$root" rev-parse --short HEAD)"}
+version=${version:-${PINNA_VERSION:-"$(date +%Y.%m.%d.%H%M)-$(git -C "$root" rev-parse --short HEAD)"}}
+
+# A release image carries no machine id: each Dot derives its own at boot (ADR 0015).
+machine_id=()
+if [ -s "$root/secrets/machine-id" ]; then
+  [ "${PINNA_RELEASE:-}" != 1 ] || { echo "PINNA_RELEASE=1: secrets/machine-id must not exist (each Dot derives its own, ADR 0015)" >&2; exit 1; }
+  machine_id=(--machine-id "$(cat "$root/secrets/machine-id")")
+fi
 
 # mkosi bootstraps its Debian tools tree with the host's keyring; NixOS has none in /usr/share.
 install -Dm0644 -t "$root/mkosi/mkosi.sandbox/usr/share/keyrings" "$PINNA_DEBIAN_KEYRINGS"/*.gpg
@@ -51,7 +61,7 @@ install -Dm0644 "$root/mkosi/apt-sources.sources" "$root/mkosi/mkosi.sandbox/etc
 mkdir -p "$outdir" "$(dirname "$out")"
 (
   cd "$root/mkosi"
-  mkosi "${mkosi_arch[@]}" --machine-id "$(cat ../secrets/machine-id)" \
+  mkosi "${mkosi_arch[@]}" "${machine_id[@]}" \
     --image-version "$version" --output-directory "$outdir" "${extra[@]}" -f build
 )
 

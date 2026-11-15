@@ -41,4 +41,33 @@ for entry in "${models[@]}"; do
   fi
   mv "$file.part" "$file"
 done
+
+# The models' sources and licenses travel with them (ADR 0015).
+oww_files=""
+pyoww_files=""
+for entry in "${models[@]}"; do
+  read -r name _ base <<<"$entry"
+  if [ "$base" = "$oww" ]; then
+    oww_files=${oww_files:+$oww_files, }$name
+  else
+    pyoww_files=${pyoww_files:+$pyoww_files, }$name
+  fi
+done
+cat > "$dest/NOTICE" <<EOF
+openWakeWord v0.5.1 models
+Files: $oww_files
+Source: https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1
+Author: David Scripka and the openWakeWord contributors
+License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+         International (CC BY-NC-SA 4.0),
+         https://creativecommons.org/licenses/by-nc-sa/4.0/
+The files are distributed unchanged. They may not be used commercially.
+
+Okay Nabu
+Files: $pyoww_files
+Source: https://github.com/rhasspy/pyopen-wakeword/tree/6bc5c5f5c9c71e46a723b6c9277b1d50f2ba13fd
+License: the model file carries no license of its own; its repository is
+         Apache-2.0, https://www.apache.org/licenses/LICENSE-2.0
+The file is distributed unchanged.
+EOF
 echo "models ready in $dest"

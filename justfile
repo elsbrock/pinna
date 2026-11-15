@@ -69,9 +69,9 @@ wmt:
         zig cc -target arm-linux-musleabihf -mcpu=cortex_a53 -static -Os -o {{build}}/wmt/$t tools/wmt/$t.c; \
     done
 
-# release signing key: secrets/release.key (created if missing, never committed) -> keys/release.pub
+# your own signing key: secrets/release.{key,pub}, compiled in instead of keys/release.pub (ADR 0015)
 keygen:
-    cargo run -q -p pinna-image -- keygen --secret secrets/release.key --public keys/release.pub
+    cargo run -q -p pinna-image -- keygen --secret secrets/release.key --public secrets/release.pub
 
 # dashboard: static files for /usr/share/pinna/web (dashboard/dist)
 web:
@@ -131,6 +131,8 @@ release: image bootimg
     cp {{build}}/pinna-boot.img {{build}}/release/pinna-boot.img
     cargo run -q --release -p pinna-image -- verify {{build}}/release/pinna-$v.root.img
     cargo run -q --release -p pinna-image -- manifest {{build}}/release/pinna-$v.root.img > {{build}}/release/manifest.json
+    install -m0755 scripts/flash-gen2.sh {{build}}/release/flash-gen2.sh
+    (cd {{build}}/release && sha256sum -- pinna-*.root.img pinna-boot.img manifest.json flash-gen2.sh > SHA256SUMS)
     ls -l {{build}}/release
     cat {{build}}/release/manifest.json
 
