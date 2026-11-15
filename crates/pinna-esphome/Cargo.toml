@@ -1,0 +1,26 @@
+[package]
+name = "pinna-esphome"
+description = "Server side of the ESPHome native API for Pinna"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes = "1"
+prost = "0.14"
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+anyhow.workspace = true
+heck = "0.5"
+prost-build = "0.14"
+prost-reflect = "0.16"
+protox = "0.10"
+
+[dev-dependencies]
+serde_json = "1"
+tracing-subscriber.workspace = true
