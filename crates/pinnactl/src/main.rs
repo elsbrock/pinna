@@ -156,8 +156,12 @@ fn render(s: &Status) -> String {
     );
     let _ = writeln!(
         out,
-        "wake word:  \"{}\" ({})",
-        wake.phrase,
+        "wake word:  {} ({})",
+        if wake.phrase.is_empty() {
+            "none chosen"
+        } else {
+            &wake.phrase
+        },
         if wake.enabled { "armed" } else { "not armed" }
     );
     let _ = writeln!(out, "audio:      {}", s.audio_backend);

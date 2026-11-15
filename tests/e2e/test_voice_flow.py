@@ -35,10 +35,18 @@ def free_port() -> int:
 
 @pytest.fixture
 def pinnad():
+    yield from start_pinnad()
+
+
+def start_pinnad(settings: str | None = None):
+    """Run pinnad on the fixture; `settings` seeds its settings.toml."""
     if not MODELS.exists():
         pytest.skip("wake word models missing (just models)")
     port = free_port()
     with tempfile.TemporaryDirectory() as d:
+        settings_file = Path(d) / "settings.toml"
+        if settings is not None:
+            settings_file.write_text(settings)
         cfg = Path(d) / "pinnad.toml"
         cfg.write_text(
             f"""
@@ -58,13 +66,21 @@ backend = "none"
         )
         logf = open(Path(d) / "pinnad.log", "w+")
         proc = subprocess.Popen(
-            [str(PINNAD), "--config", str(cfg)],
+            [
+                str(PINNAD),
+                "--config",
+                str(cfg),
+                "--local-config",
+                str(Path(d) / "local.toml"),
+                "--settings",
+                str(settings_file),
+            ],
             stdout=logf,
             stderr=subprocess.STDOUT,
             env={**{k: v for k, v in os.environ.items() if k != "JOURNAL_STREAM"}, "RUST_LOG": os.environ.get("RUST_LOG", "info")},
         )
         try:
-            yield port, proc
+            yield port, proc, settings_file
         finally:
             proc.terminate()
             proc.wait(timeout=10)
@@ -132,8 +148,74 @@ async def run_flow(port: int):
 
 
 def test_wake_word_drives_assist_run(pinnad):
-    port, proc = pinnad
+    port, proc, _ = pinnad
     starts, audio = asyncio.run(run_flow(port))
     assert proc.poll() is None, "pinnad exited"
     assert len(starts) == 2
     assert audio >= 640 * 25
+
+
+ALL_WORDS = {"alexa_v0.1", "hey_jarvis_v0.1", "hey_mycroft_v0.1", "hey_rhasspy_v0.1", "okay_nabu"}
+
+
+@pytest.fixture
+def pinnad_jarvis():
+    """pinnad that was last told to listen for Hey Jarvis only."""
+    yield from start_pinnad('wake_words = ["hey_jarvis_v0.1"]\n')
+
+
+async def choose_words(port: int, settings_file: Path):
+    client = APIClient("127.0.0.1", port, None)
+    for _ in range(50):
+        try:
+            await client.connect(login=True)
+            break
+        except Exception:
+            await asyncio.sleep(0.1)
+    await client.device_info()
+
+    starts: list[str] = []
+    started = asyncio.Event()
+
+    async def handle_start(conversation_id, flags, audio_settings, wake_word_phrase):
+        starts.append(wake_word_phrase)
+        started.set()
+        return 0
+
+    async def handle_stop(abort):
+        pass
+
+    async def handle_audio(data: bytes, data2: bytes = b""):
+        pass
+
+    unsub = client.subscribe_voice_assistant(
+        handle_start=handle_start, handle_stop=handle_stop, handle_audio=handle_audio
+    )
+
+    # The choice made before the restart is what Home Assistant reads.
+    config = await client.get_voice_assistant_configuration(5)
+    offered = {w.id for w in config.available_wake_words}
+    assert offered == ALL_WORDS, offered
+    assert list(config.active_wake_words) == ["hey_jarvis_v0.1"]
+    assert config.max_active_wake_words == 2
+
+    # The fixture's first "Alexa" (~1.6 s) must not wake Hey Jarvis.
+    await asyncio.sleep(5)
+    assert starts == [], starts
+
+    # Home Assistant adds Alexa: the second "Alexa" (~8.7 s) wakes it, by name.
+    await client.set_voice_assistant_configuration(["hey_jarvis_v0.1", "alexa_v0.1"])
+    config = await client.get_voice_assistant_configuration(5)
+    assert list(config.active_wake_words) == ["hey_jarvis_v0.1", "alexa_v0.1"]
+    await asyncio.wait_for(started.wait(), timeout=10)
+    assert starts == ["Alexa"], starts
+    assert 'wake_words = ["hey_jarvis_v0.1", "alexa_v0.1"]' in settings_file.read_text()
+
+    unsub()
+    await client.disconnect()
+
+
+def test_home_assistant_chooses_wake_words(pinnad_jarvis):
+    port, proc, settings_file = pinnad_jarvis
+    asyncio.run(choose_words(port, settings_file))
+    assert proc.poll() is None, "pinnad exited"

@@ -22,8 +22,9 @@ use pinna_api::{
     StartCalibrationRequest, StartCalibrationResponse, StartConversationRequest,
     StartConversationResponse, Status, StopCalibrationRequest, StopCalibrationResponse,
     StopConversationRequest, StopConversationResponse, Timer, UpdateSettingsRequest,
-    UpdateSettingsResponse, WakeEvent, WakeWord, WatchInstallRequest, WatchInstallResponse,
-    WatchLogsRequest, WatchLogsResponse, WatchStatusRequest, WatchStatusResponse,
+    UpdateSettingsResponse, WakeEvent, WakeWord, WakeWordOption, WatchInstallRequest,
+    WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchStatusRequest,
+    WatchStatusResponse,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -36,7 +37,8 @@ use crate::{logs, network};
 pub struct Info {
     pub name: String,
     pub mac: String,
-    pub wake_phrase: String,
+    /// The wake words on offer (ADR 0013).
+    pub wake_words: Arc<crate::wakewords::Catalogue>,
     pub audio_backend: String,
     pub led_backend: String,
     pub model: String,
@@ -107,7 +109,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         ha_connected: s.ha_connected,
         voice_subscribed: s.voice_subscribed,
         wake_word: MessageField::some(WakeWord {
-            phrase: info.wake_phrase.clone(),
+            phrase: info.wake_words.phrases(&s.active_wake_words),
             enabled: s.wake_enabled,
             threshold: s.settings.wake_threshold(),
             recent: s
@@ -142,6 +144,16 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
                     ..Default::default()
                 })
             }),
+            available: info
+                .wake_words
+                .words()
+                .iter()
+                .map(|w| WakeWordOption {
+                    id: w.id.clone(),
+                    phrase: w.phrase.clone(),
+                    ..Default::default()
+                })
+                .collect(),
             ..Default::default()
         }),
         timers: s
@@ -170,6 +182,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             wake_word: s.settings.wake_word,
             wake_sensitivity: s.settings.wake_sensitivity.into(),
             led_brightness: s.settings.led_brightness.into(),
+            wake_words: s.active_wake_words.clone(),
             ..Default::default()
         }),
         ..Default::default()
@@ -323,10 +336,22 @@ impl DeviceService for DeviceApi {
             ))),
             v => Ok(v.map(|v| v as u8)),
         };
+        let wake_words = match request.wake_words.as_option() {
+            Some(w) => {
+                let ids: Vec<String> = w.ids.iter().map(|id| (*id).to_owned()).collect();
+                self.info
+                    .wake_words
+                    .validate(&ids)
+                    .map_err(ConnectError::invalid_argument)?;
+                Some(ids)
+            }
+            None => None,
+        };
         let patch = SettingsPatch {
             wake_word: request.wake_word,
             wake_sensitivity: percent("wake_sensitivity", request.wake_sensitivity)?,
             led_brightness: percent("led_brightness", request.led_brightness)?,
+            wake_words,
         };
         let snap = self
             .command(|r| ApiCommand::UpdateSettings(patch, r))
@@ -533,7 +558,9 @@ mod tests {
             in_tx.clone(),
             Options {
                 key_file: std::env::temp_dir().join("pinnad-api-test-key"),
-                wake_phrase: "Alexa".into(),
+                wake_words: crate::wakewords::test_catalogue(),
+                active_wake_words: vec!["alexa_v0.1".into()],
+                keywords: None,
                 wake_sound: false,
                 has_hw_privacy: false,
                 settings_file: std::env::temp_dir().join(format!(
@@ -550,7 +577,7 @@ mod tests {
         let info = Info {
             name: "pinna-test".into(),
             mac: "02:00:00:AA:BB:CC".into(),
-            wake_phrase: "Alexa".into(),
+            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
@@ -764,6 +791,93 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wake_words_from_the_dashboard_and_home_assistant() {
+        let (c, inputs) = start_device().await;
+        let words = |ids: &[&str]| pinna_api::UpdateSettingsRequest {
+            wake_words: MessageField::some(pinna_api::WakeWordIds {
+                ids: ids.iter().map(|s| s.to_string()).collect(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let update = async |req: pinna_api::UpdateSettingsRequest| {
+            c.update_settings(req).await.map(|r| {
+                r.into_view()
+                    .to_owned_message()
+                    .status
+                    .into_option()
+                    .unwrap()
+            })
+        };
+        let active = |s: &Status| s.settings.as_option().unwrap().wake_words.clone();
+        let phrase = |s: &Status| s.wake_word.as_option().unwrap().phrase.clone();
+
+        let s = status(&c).await;
+        assert_eq!(active(&s), ["alexa_v0.1"]);
+        assert_eq!(phrase(&s), "Alexa");
+        let offered: Vec<_> = s
+            .wake_word
+            .as_option()
+            .unwrap()
+            .available
+            .iter()
+            .map(|w| (w.id.clone(), w.phrase.clone()))
+            .collect();
+        assert_eq!(
+            offered,
+            [
+                ("alexa_v0.1".to_string(), "Alexa".to_string()),
+                ("hey_jarvis_v0.1".to_string(), "Hey Jarvis".to_string())
+            ]
+        );
+
+        // Without Home Assistant, the dashboard chooses.
+        let s = update(words(&["hey_jarvis_v0.1", "alexa_v0.1"]))
+            .await
+            .unwrap();
+        assert_eq!(active(&s), ["hey_jarvis_v0.1", "alexa_v0.1"]);
+        assert_eq!(phrase(&s), "Hey Jarvis or Alexa");
+        let s = update(words(&[])).await.unwrap();
+        assert!(active(&s).is_empty());
+        assert_eq!(phrase(&s), "");
+        // Leaving the field out leaves the words alone.
+        let s = update(Default::default()).await.unwrap();
+        assert!(active(&s).is_empty());
+
+        for bad in [
+            &["gone"][..],
+            &["alexa_v0.1", "alexa_v0.1"],
+            &["alexa_v0.1", "hey_jarvis_v0.1", "alexa_v0.1"],
+        ] {
+            let err = update(words(bad)).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument, "{bad:?}");
+        }
+
+        // While Home Assistant is connected, it chooses.
+        inputs
+            .send(Input::Ha(HaCommand::ClientConnected { peer: "ha".into() }))
+            .await
+            .unwrap();
+        let err = update(words(&["alexa_v0.1"])).await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        assert!(
+            err.message
+                .unwrap_or_default()
+                .contains("Home Assistant chooses")
+        );
+        inputs
+            .send(Input::Ha(HaCommand::SetActiveWakeWords(vec![
+                "alexa_v0.1".into(),
+                "hey_jarvis_v0.1".into(),
+            ])))
+            .await
+            .unwrap();
+        // An empty update goes through the same queue, after Home Assistant's choice.
+        let s = update(Default::default()).await.unwrap();
+        assert_eq!(active(&s), ["alexa_v0.1", "hey_jarvis_v0.1"]);
+    }
+
+    #[tokio::test]
     async fn update_settings_round_trip() {
         let (c, _inputs) = start_device().await;
         let settings = |s: Status| s.settings.into_option().unwrap();
@@ -971,7 +1085,7 @@ mod tests {
         let info = Info {
             name: "pinna-test".into(),
             mac: String::new(),
-            wake_phrase: "Alexa".into(),
+            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),

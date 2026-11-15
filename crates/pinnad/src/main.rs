@@ -15,6 +15,7 @@ mod settings;
 mod updates;
 mod virtual_device;
 mod voice;
+mod wakewords;
 mod web;
 
 use std::collections::VecDeque;
@@ -33,6 +34,7 @@ use tokio::sync::{mpsc, watch};
 use crate::config::Config;
 use crate::leds::LedState;
 use crate::voice::{Brain, Input, Options, Shared, Snapshot};
+use crate::wakewords::{Catalogue, KeywordSet};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -126,6 +128,7 @@ async fn capture_loop(
     capture: CaptureConfig,
     gain: f32,
     mut detector: Option<pinna_wakeword::Detector>,
+    mut keywords: mpsc::UnboundedReceiver<KeywordSet>,
     shared: Arc<Shared>,
     esp: EsphomeHandle,
     inputs: mpsc::Sender<Input>,
@@ -144,9 +147,22 @@ async fn capture_loop(
     let mut peak = 0.0f32;
     // The peak reached the threshold (and something else rejected it).
     let mut peak_reached = false;
+    // Which word scored the peak, for the near-miss log.
+    let mut peak_word = String::new();
     let mut peak_at = std::time::Instant::now();
+    // The newest set of wake words applied (ADR 0013).
+    let mut generation = 0u64;
     let mut detected_at: Option<std::time::Instant> = None;
     while let Some(mut frame) = stream.recv().await {
+        // Newly chosen wake words, loaded outside this task.
+        while let Ok(set) = keywords.try_recv() {
+            if let Some(d) = detector.as_mut()
+                && set.generation > generation
+            {
+                generation = set.generation;
+                d.set_keywords(set.keywords);
+            }
+        }
         apply_gain(&mut frame, gain);
         if let Some(d) = detector.as_mut() {
             let t = f32::from_bits(shared.threshold.load(Ordering::Relaxed));
@@ -185,15 +201,20 @@ async fn capture_loop(
             // ~2 s of history); only act on detections while wake is enabled.
             if let Some(d) = detector.as_mut() {
                 let threshold = d.threshold();
+                let mut new_peak = None;
                 let detections = tokio::task::block_in_place(|| {
                     d.push_with(&frame, |b| {
                         if b.score > peak {
                             peak = b.score;
                             peak_reached = b.score >= threshold;
                             peak_at = std::time::Instant::now();
+                            new_peak = b.keyword;
                         }
                     })
                 });
+                if let Some(k) = new_peak.and_then(|i| d.keyword(i)) {
+                    peak_word = k.name().to_owned();
+                }
                 // A near miss (scored, but not detected) once the utterance is over:
                 // the score only, never audio.
                 if !detections.is_empty() {
@@ -204,7 +225,7 @@ async fn capture_loop(
                     let after_detection = detected_at
                         .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
                     if peak >= 0.2 && !after_detection {
-                        tracing::info!("wake word near miss: peak score {peak:.2}");
+                        tracing::info!("wake word near miss ({peak_word}): peak score {peak:.2}");
                         if shared.wake_enabled.load(Ordering::Relaxed) {
                             let _ = inputs
                                 .send(Input::NearMiss {
@@ -218,7 +239,13 @@ async fn capture_loop(
                 }
                 if shared.wake_enabled.load(Ordering::Relaxed) {
                     for det in detections {
-                        let _ = inputs.send(Input::Wake { score: det.score }).await;
+                        let id = d.keyword(det.keyword).map(|k| k.name().to_owned());
+                        let _ = inputs
+                            .send(Input::Wake {
+                                id: id.unwrap_or_default(),
+                                score: det.score,
+                            })
+                            .await;
                     }
                 }
             }
@@ -287,12 +314,36 @@ async fn main() -> Result<()> {
         .listen
         .parse::<std::net::SocketAddr>()
         .map_or(0, |a| a.port());
-    dc.wake_words = vec![WakeWordInfo {
-        id: cfg.wake.id.clone(),
-        wake_word: cfg.wake.phrase.clone(),
-        trained_languages: vec!["en".into()],
-    }];
-    dc.active_wake_words = vec![cfg.wake.id.clone()];
+    // Wake words (ADR 0013): those installed, and the ones chosen last.
+    let catalogue = Arc::new(Catalogue::new(&cfg.wake));
+    let active_wake = catalogue.sanitize(
+        initial
+            .wake_words
+            .as_deref()
+            .unwrap_or(std::slice::from_ref(&cfg.wake.id)),
+    );
+    tracing::info!(
+        "wake words on offer: {:?}; listening for {:?}",
+        catalogue.phrases(
+            &catalogue
+                .words()
+                .iter()
+                .map(|w| w.id.clone())
+                .collect::<Vec<_>>()
+        ),
+        catalogue.phrases(&active_wake)
+    );
+    dc.wake_words = catalogue
+        .words()
+        .iter()
+        .map(|w| WakeWordInfo {
+            id: w.id.clone(),
+            wake_word: w.phrase.clone(),
+            trained_languages: vec!["en".into()],
+        })
+        .collect();
+    dc.active_wake_words = active_wake.clone();
+    dc.max_active_wake_words = wakewords::MAX_ACTIVE as u32;
     pinna_esphome::echo_dot_entities(&mut dc);
     dc.encryption_key = identity::load_encryption_key(&cfg.esphome)?;
     tracing::info!(
@@ -373,18 +424,17 @@ async fn main() -> Result<()> {
     let shared = Arc::new(Shared::default());
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);
 
-    // Microphone + wake word.
+    // Microphone + wake word. Words chosen later reach the detector here.
+    let mut keyword_tx = None;
     if let Some(b) = backend {
         let detector = if cfg.wake.enabled {
             let wc = pinna_wakeword::WakeConfig {
                 threshold: initial.wake_threshold(),
                 ..Default::default()
             };
-            match pinna_wakeword::Detector::load(&cfg.wake.models, &cfg.wake.keyword, wc) {
-                Ok(d) => {
-                    tracing::info!("wake word: {} ({})", cfg.wake.phrase, cfg.wake.keyword);
-                    Some(d)
-                }
+            let keywords = catalogue.load(&active_wake);
+            match pinna_wakeword::Detector::new(&cfg.wake.models, keywords, wc) {
+                Ok(d) => Some(d),
                 Err(e) => {
                     tracing::error!("wake word disabled: {e:#}");
                     None
@@ -401,10 +451,15 @@ async fn main() -> Result<()> {
         let gain = 10f32.powf(gain_db / 20.0);
         let mut capture = CaptureConfig::new(b);
         capture.pw_target = cfg.audio.capture_target.clone();
+        let (tx, rx) = mpsc::unbounded_channel();
+        if detector.is_some() {
+            keyword_tx = Some(tx);
+        }
         tokio::spawn(capture_loop(
             capture,
             gain,
             detector,
+            rx,
             shared.clone(),
             esp.clone(),
             in_tx.clone(),
@@ -497,7 +552,7 @@ async fn main() -> Result<()> {
         api::Info {
             name: dc_name,
             mac: dc_mac,
-            wake_phrase: cfg.wake.phrase.clone(),
+            wake_words: catalogue.clone(),
             audio_backend: audio_backend.into(),
             led_backend: led_backend.into(),
             // The virtual Dot is drawn as the Dot it stands in for.
@@ -529,7 +584,9 @@ async fn main() -> Result<()> {
         in_tx,
         Options {
             key_file: cfg.esphome.key_file.clone(),
-            wake_phrase: cfg.wake.phrase.clone(),
+            wake_words: catalogue,
+            active_wake_words: active_wake,
+            keywords: keyword_tx,
             wake_sound: cfg.audio.wake_sound,
             has_hw_privacy,
             settings_file: cli.settings.clone(),

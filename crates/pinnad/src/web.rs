@@ -259,7 +259,7 @@ mod tests {
         let info = Info {
             name: "pinna-test".into(),
             mac: "02:00:00:aa:bb:cc".into(),
-            wake_phrase: "Alexa".into(),
+            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: String::new(),
@@ -412,7 +412,7 @@ mod tests {
         let info = Info {
             name: String::new(),
             mac: String::new(),
-            wake_phrase: String::new(),
+            wake_words: Default::default(),
             audio_backend: String::new(),
             led_backend: String::new(),
             model: String::new(),

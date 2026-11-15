@@ -64,6 +64,8 @@ message Timer {
 }
 
 message WakeWord {
+  // The active words' phrases for display, e.g. "Alexa" or "Alexa or Hey
+  // Jarvis"; empty when none is active.
   string phrase = 1;
   // Wake word detection is currently armed (idle, unmuted, voice subscribed).
   bool enabled = 2;
@@ -74,6 +76,21 @@ message WakeWord {
   repeated WakeEvent recent = 4;
   // Tuning with the satellite's buttons, while it runs.
   Calibration calibration = 5;
+  // Every word the satellite can listen for (ADR 0013).
+  repeated WakeWordOption available = 6;
+}
+
+message WakeWordOption {
+  // Stable id, as Home Assistant knows it (e.g. "alexa_v0.1").
+  string id = 1;
+  // What to say, e.g. "Alexa".
+  string phrase = 2;
+}
+
+// A list of wake word ids, so that UpdateSettingsRequest can tell "unchanged"
+// from "none".
+message WakeWordIds {
+  repeated string ids = 1;
 }
 
 // Sensitivity calibration from the satellite's + and − buttons, started from
@@ -181,6 +198,8 @@ message Settings {
   uint32 wake_sensitivity = 3;
   // LED ring brightness 0..=100.
   uint32 led_brightness = 4;
+  // The active wake words' ids, at most two, in Home Assistant's order.
+  repeated string wake_words = 5;
 }
 
 message GetStatusRequest {}
@@ -240,6 +259,9 @@ message UpdateSettingsRequest {
   optional bool wake_word = 2;
   optional uint32 wake_sensitivity = 3;
   optional uint32 led_brightness = 4;
+  // At most two ids from Status.wake_word.available. Refused while Home
+  // Assistant is connected: it chooses the wake words then.
+  WakeWordIds wake_words = 5;
 }
 
 message UpdateSettingsResponse {

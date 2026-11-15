@@ -26,6 +26,9 @@ pub struct Settings {
     /// A notification is pending ("Notification" switch). Persisted so an
     /// update, a crash or a power cut doesn't lose it before anyone saw it.
     pub notification: bool,
+    /// The active wake words' ids, at most two (ADR 0013). `None` until they
+    /// are first chosen: then `[wake] id` from pinnad.toml listens.
+    pub wake_words: Option<Vec<String>>,
 }
 
 impl Default for Settings {
@@ -39,6 +42,7 @@ impl Default for Settings {
             muted: false,
             listening_direction: true,
             notification: false,
+            wake_words: None,
         }
     }
 }
@@ -134,14 +138,34 @@ mod tests {
         let path = dir.join("settings.toml");
         let (store, s) = Store::load(&path, Settings::default());
         assert_eq!(s, Settings::default());
+        // Never chosen: the key is left out, so the pinnad.toml word applies.
+        store.save(&s);
+        assert!(
+            !std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("wake_words")
+        );
+        // Chosen as none: kept as an empty list, not as "never chosen".
+        let none = Settings {
+            wake_words: Some(Vec::new()),
+            ..Default::default()
+        };
+        store.save(&none);
+        assert_eq!(Store::load(&path, Settings::default()).1, none);
         let changed = Settings {
             volume: 33,
             reply_volume: Some(70),
             wake_word: false,
             notification: true,
+            wake_words: Some(vec!["hey_jarvis_v0.1".into(), "okay_nabu".into()]),
             ..Default::default()
         };
         store.save(&changed);
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("wake_words")
+        );
         assert_eq!(Store::load(&path, Settings::default()).1, changed);
         // A key from a newer pinnad (after a rollback) keeps everything else.
         std::fs::write(

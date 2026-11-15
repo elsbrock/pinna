@@ -551,6 +551,9 @@ impl Actor {
                 let m = self.text_state_msg(&object_id);
                 self.broadcast(&m, true);
             }
+            DeviceEvent::ActiveWakeWords(ids) => {
+                self.active_wake = self.known_wake_words(ids);
+            }
             DeviceEvent::MediaPlayerState {
                 state,
                 volume,
@@ -931,15 +934,7 @@ impl Actor {
             }
             proto::VoiceAssistantSetConfiguration::ID => {
                 let r = parse!(proto::VoiceAssistantSetConfiguration);
-                let mut active: Vec<String> = Vec::new();
-                for w in r.active_wake_words {
-                    if self.cfg.wake_words.iter().any(|k| k.id == w) && !active.contains(&w) {
-                        active.push(w);
-                    } else {
-                        warn!(wake_word = %w, "ignoring unknown or duplicate wake word");
-                    }
-                }
-                active.truncate(self.cfg.max_active_wake_words as usize);
+                let active = self.known_wake_words(r.active_wake_words);
                 self.active_wake = active.clone();
                 self.send_wake_config(id);
                 self.command(HaCommand::SetActiveWakeWords(active));
@@ -949,6 +944,20 @@ impl Actor {
             }
         }
         Ok(())
+    }
+
+    /// Known wake word ids only, without repeats, at most `max_active_wake_words`.
+    fn known_wake_words(&self, ids: Vec<String>) -> Vec<String> {
+        let mut active: Vec<String> = Vec::new();
+        for w in ids {
+            if self.cfg.wake_words.iter().any(|k| k.id == w) && !active.contains(&w) {
+                active.push(w);
+            } else {
+                warn!(wake_word = %w, "ignoring unknown or duplicate wake word");
+            }
+        }
+        active.truncate(self.cfg.max_active_wake_words as usize);
+        active
     }
 
     fn send_wake_config(&mut self, id: u64) {

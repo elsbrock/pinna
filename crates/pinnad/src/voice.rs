@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::calibration::{Calibration, Event as CalibrationEvent};
 use crate::leds::{self, LedState, LightEffect};
 use crate::settings::{Settings, Store};
+use crate::wakewords::{Catalogue, KeywordSet};
 
 /// Flags shared with the capture task.
 #[derive(Default)]
@@ -41,6 +42,8 @@ pub enum Input {
     Button(ButtonEvent),
     Privacy(bool),
     Wake {
+        /// The id of the word that fired.
+        id: String,
         score: f32,
     },
     /// An utterance scored at least the detector's support level without a
@@ -81,6 +84,8 @@ pub struct SettingsPatch {
     pub wake_word: Option<bool>,
     pub wake_sensitivity: Option<u8>,
     pub led_brightness: Option<u8>,
+    /// Already checked against the catalogue (`Catalogue::validate`).
+    pub wake_words: Option<Vec<String>>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -137,6 +142,8 @@ pub struct Snapshot {
     pub recent_wakes: Vec<WakeRecord>,
     /// The sensitivity tuning from the device's buttons, while it runs.
     pub calibration: Option<CalibrationSnapshot>,
+    /// The ids of the words listening now (ADR 0013).
+    pub active_wake_words: Vec<String>,
 }
 
 /// A running calibration, as the API shows it.
@@ -163,6 +170,7 @@ impl Default for Snapshot {
             settings: crate::settings::Settings::default(),
             recent_wakes: Vec::new(),
             calibration: None,
+            active_wake_words: Vec::new(),
         }
     }
 }
@@ -219,7 +227,13 @@ impl HaTimer {
 pub struct Options {
     /// Where a Noise key pushed by Home Assistant is persisted.
     pub key_file: std::path::PathBuf,
-    pub wake_phrase: String,
+    /// The wake words on offer (ADR 0013).
+    pub wake_words: Arc<Catalogue>,
+    /// The words listening at start: the persisted choice, or `[wake] id`.
+    pub active_wake_words: Vec<String>,
+    /// Where newly chosen words' classifiers go: the capture loop. `None`
+    /// without a detector.
+    pub keywords: Option<mpsc::UnboundedSender<KeywordSet>>,
     pub wake_sound: bool,
     pub has_hw_privacy: bool,
     /// Where runtime settings are persisted.
@@ -249,6 +263,10 @@ pub struct Brain {
     sw_muted: bool,
     voice_subscribed: bool,
     clients: u32,
+
+    active_wake: Vec<String>,
+    /// Counts classifier loads, so a slow one can't undo a newer choice.
+    keyword_generation: u64,
 
     light_on: bool,
     light_brightness: f32,
@@ -323,6 +341,7 @@ impl Brain {
             .build()
             .expect("http client");
         let (store, _) = Store::load(&opts.settings_file, opts.settings.clone());
+        let active_wake = opts.active_wake_words.clone();
         let settings = opts.settings.clone();
         shared
             .threshold
@@ -345,6 +364,8 @@ impl Brain {
             hw_muted: false,
             voice_subscribed: false,
             clients: 0,
+            active_wake,
+            keyword_generation: 0,
             light_on: false,
             light_brightness: 1.0,
             light_rgb: (1.0, 1.0, 1.0),
@@ -419,8 +440,9 @@ impl Brain {
 
     async fn handle(&mut self, input: Input) {
         match input {
-            Input::Wake { score } => {
-                tracing::info!("wake word detected (score {score:.2})");
+            Input::Wake { id, score } => {
+                let phrase = self.opts.wake_words.phrase(&id).to_owned();
+                tracing::info!("wake word {phrase:?} detected (score {score:.2})");
                 if self.phase == Phase::Idle && self.ringing.is_none() && !self.muted() {
                     self.record_wake(WakeRecord::now(true, score, false));
                     if let Some(c) = &mut self.calibration {
@@ -433,11 +455,11 @@ impl Brain {
                     } else {
                         self.send(DeviceEvent::TextSensorState {
                             object_id: "last_wake_word".into(),
-                            value: self.opts.wake_phrase.clone(),
+                            value: phrase.clone(),
                         })
                         .await;
                         self.event("voice_assistant", "wake_word").await;
-                        self.start_run(Some(self.opts.wake_phrase.clone())).await;
+                        self.start_run(Some(phrase)).await;
                     }
                 }
             }
@@ -515,8 +537,19 @@ impl Brain {
                 self.clear_notification().await;
                 (Ok(()), reply)
             }
+            ApiCommand::UpdateSettings(patch, reply)
+                if patch.wake_words.is_some() && self.clients > 0 =>
+            {
+                // Its dropdowns can't show a word chosen here (ADR 0013).
+                let why = "Home Assistant chooses the wake words while it is connected. \
+                           Choose them on this satellite's device page there.";
+                (Err(why.into()), reply)
+            }
             ApiCommand::UpdateSettings(patch, reply) => {
                 // The same paths as Home Assistant's entities, so it sees the change.
+                if let Some(ids) = patch.wake_words {
+                    self.set_wake_words(ids, false).await;
+                }
                 if let Some(v) = patch.wake_sensitivity {
                     self.number("wake_word_sensitivity".into(), f32::from(v))
                         .await;
@@ -574,6 +607,7 @@ impl Brain {
                 started_from: c.started_from,
                 events: c.events.iter().copied().collect(),
             }),
+            active_wake_words: self.active_wake.clone(),
         }
     }
 
@@ -723,7 +757,7 @@ impl Brain {
                 media_url,
                 announcement,
             } => self.media(command, volume, media_url, announcement).await,
-            HaCommand::SetActiveWakeWords(ids) => tracing::info!("active wake words: {ids:?}"),
+            HaCommand::SetActiveWakeWords(ids) => self.set_wake_words(ids, true).await,
             HaCommand::EncryptionKeySet(key) => {
                 match crate::identity::store_encryption_key(&self.opts.key_file, &key) {
                     Ok(()) => tracing::info!(
@@ -1036,6 +1070,35 @@ impl Brain {
         self.set_notification(false).await;
         self.event("notification", "cleared").await;
         self.overlay(Effect::NotificationCleared);
+    }
+
+    /// Listen for `ids` from now on and remember them. Home Assistant's choice
+    /// is already known to the ESPHome server; one made here is told to it.
+    async fn set_wake_words(&mut self, ids: Vec<String>, from_ha: bool) {
+        let ids = self.opts.wake_words.sanitize(&ids);
+        if !from_ha {
+            self.send(DeviceEvent::ActiveWakeWords(ids.clone())).await;
+        }
+        if ids == self.active_wake && self.settings.wake_words.as_ref() == Some(&ids) {
+            return;
+        }
+        tracing::info!("wake words: {:?}", self.opts.wake_words.phrases(&ids));
+        self.active_wake = ids.clone();
+        self.settings.wake_words = Some(ids.clone());
+        self.store.save(&self.settings);
+        let Some(tx) = self.opts.keywords.clone() else {
+            return;
+        };
+        self.keyword_generation += 1;
+        let generation = self.keyword_generation;
+        let catalogue = self.opts.wake_words.clone();
+        tokio::task::spawn_blocking(move || {
+            let keywords = catalogue.load(&ids);
+            let _ = tx.send(KeywordSet {
+                generation,
+                keywords,
+            });
+        });
     }
 
     async fn set_wake_word(&mut self, on: bool) {

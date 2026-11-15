@@ -313,6 +313,9 @@ pub enum DeviceEvent {
         volume: f32,
         muted: bool,
     },
+    /// The device chose its active wake words itself (ids from
+    /// `DeviceConfig::wake_words`); Home Assistant reads them when it next asks.
+    ActiveWakeWords(Vec<String>),
 }
 
 /// State of the media player.

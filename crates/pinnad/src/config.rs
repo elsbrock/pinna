@@ -55,11 +55,15 @@ pub struct Audio {
 #[serde(default, deny_unknown_fields)]
 pub struct Wake {
     pub enabled: bool,
+    /// The openWakeWord models: the shared mel and embedding models, and the
+    /// built-in words' classifiers (ADR 0013).
     pub models: PathBuf,
+    /// The word that listens until the active words are first chosen (from
+    /// Home Assistant or the dashboard): its classifier file in `models`...
     pub keyword: String,
-    /// Wake word id reported to Home Assistant.
+    /// ...its id, as Home Assistant knows it...
     pub id: String,
-    /// Phrase reported to Home Assistant.
+    /// ...and its phrase. A built-in word keeps its own phrase.
     pub phrase: String,
     pub threshold: f32,
 }
