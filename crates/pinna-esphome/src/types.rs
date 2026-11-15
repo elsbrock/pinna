@@ -28,8 +28,107 @@ pub struct LightConfig {
     pub effects: Vec<String>,
 }
 
-/// Static description of the device.
+/// `EntityCategory` of an entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EntityCategory {
+    #[default]
+    None,
+    Config,
+    Diagnostic,
+}
+
+/// `NumberMode` of a number entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NumberMode {
+    #[default]
+    Auto,
+    Box,
+    Slider,
+}
+
+/// A number entity (slider or box).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NumberConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    pub min: f32,
+    pub max: f32,
+    pub step: f32,
+    pub unit: Option<String>,
+    pub entity_category: EntityCategory,
+    pub mode: NumberMode,
+}
+
+/// A button entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ButtonConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+}
+
+/// An event entity; [`DeviceEvent::Event`] must use one of `event_types`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    pub device_class: Option<String>,
+    pub event_types: Vec<String>,
+}
+
+/// A text sensor entity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextSensorConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+}
+
+/// Purpose of a media player format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MediaPurpose {
+    #[default]
+    Default,
+    Announcement,
+}
+
+/// An audio format the media player accepts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaFormat {
+    pub format: String,
+    pub sample_rate: u32,
+    pub num_channels: u32,
+    pub purpose: MediaPurpose,
+    pub sample_bytes: u32,
+}
+
+/// `MediaPlayerEntityFeature` bits (as in aioesphomeapi / Home Assistant).
+pub mod media_feature {
+    pub const PAUSE: u32 = 1 << 0;
+    pub const VOLUME_SET: u32 = 1 << 2;
+    pub const VOLUME_MUTE: u32 = 1 << 3;
+    pub const PLAY_MEDIA: u32 = 1 << 9;
+    pub const STOP: u32 = 1 << 12;
+    pub const PLAY: u32 = 1 << 14;
+    pub const MEDIA_ANNOUNCE: u32 = 1 << 20;
+}
+
+/// The media player entity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaPlayerConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    pub supports_pause: bool,
+    /// `media_feature` bits.
+    pub feature_flags: u32,
+    pub supported_formats: Vec<MediaFormat>,
+}
+
+/// Static description of the device.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeviceConfig {
     pub name: String,
     pub friendly_name: String,
@@ -48,6 +147,11 @@ pub struct DeviceConfig {
     pub max_active_wake_words: u32,
     pub light: Option<LightConfig>,
     pub mute_switch: bool,
+    pub numbers: Vec<NumberConfig>,
+    pub buttons: Vec<ButtonConfig>,
+    pub events: Vec<EventConfig>,
+    pub text_sensors: Vec<TextSensorConfig>,
+    pub media_player: Option<MediaPlayerConfig>,
     /// Noise pre-shared key. `None` serves the plaintext API.
     pub encryption_key: Option<[u8; 32]>,
 }
@@ -84,6 +188,11 @@ impl DeviceConfig {
             max_active_wake_words: 1,
             light: None,
             mute_switch: false,
+            numbers: Vec::new(),
+            buttons: Vec::new(),
+            events: Vec::new(),
+            text_sensors: Vec::new(),
+            media_player: None,
             encryption_key: None,
         }
     }
@@ -162,6 +271,35 @@ pub enum DeviceEvent {
     },
     /// Ask Home Assistant for the time; answered with [`HaCommand::Time`].
     RequestTime,
+    /// Current value of a configured number.
+    NumberState {
+        object_id: String,
+        value: f32,
+    },
+    /// Fire a configured event entity (not cached; unknown types are dropped).
+    Event {
+        object_id: String,
+        event_type: String,
+    },
+    TextSensorState {
+        object_id: String,
+        value: String,
+    },
+    MediaPlayerState {
+        state: MediaPlayerStateKind,
+        /// 0..1
+        volume: f32,
+        muted: bool,
+    },
+}
+
+/// State of the media player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaPlayerStateKind {
+    Idle,
+    Playing,
+    Paused,
+    Announcing,
 }
 
 /// Home Assistant to device.
@@ -175,6 +313,20 @@ pub enum HaCommand {
         effect: Option<String>,
     },
     MuteSwitch(bool),
+    Number {
+        object_id: String,
+        value: f32,
+    },
+    Button {
+        object_id: String,
+    },
+    /// Fields HA did not set are `None`.
+    MediaPlayer {
+        command: Option<MediaPlayerCommand>,
+        volume: Option<f32>,
+        media_url: Option<String>,
+        announcement: bool,
+    },
     /// Answer to [`DeviceEvent::VoiceStart`].
     VoiceStarted {
         port: u32,
@@ -247,6 +399,15 @@ wire_enum! {
     TimerEventType { Started = 0, Updated = 1, Cancelled = 2, Finished = 3 }
 }
 
+wire_enum! {
+    /// `MediaPlayerCommand` values.
+    MediaPlayerCommand {
+        Play = 0, Pause = 1, Stop = 2, Mute = 3, Unmute = 4, Toggle = 5, VolumeUp = 6,
+        VolumeDown = 7, Enqueue = 8, RepeatOne = 9, RepeatOff = 10, ClearPlaylist = 11,
+        TurnOn = 12, TurnOff = 13,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +423,21 @@ mod tests {
         assert_eq!(VoiceEventType::from_i32(55), VoiceEventType::Unknown(55));
         assert_eq!(TimerEventType::from_i32(3), TimerEventType::Finished);
         assert_eq!(TimerEventType::from_i32(9), TimerEventType::Unknown(9));
+    }
+
+    #[test]
+    fn media_command_roundtrip() {
+        for v in 0..=13 {
+            assert!(!matches!(
+                MediaPlayerCommand::from_i32(v),
+                MediaPlayerCommand::Unknown(_)
+            ));
+            assert_eq!(MediaPlayerCommand::from_i32(v).to_i32(), v);
+        }
+        assert_eq!(
+            MediaPlayerCommand::from_i32(77),
+            MediaPlayerCommand::Unknown(77)
+        );
     }
 
     #[test]

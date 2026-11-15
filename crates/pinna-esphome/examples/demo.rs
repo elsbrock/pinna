@@ -3,14 +3,16 @@
 //! Usage: `demo [port] [--key <base64>]` (default port 6053, 0 picks a free port; with a key
 //! the API is Noise encrypted). Prints one JSON object per
 //! line on stdout (`ready`, `command`, `sent`); logs go to stderr. Commands on stdin:
-//! `voice [wake word phrase]` starts a voice run, `stop` aborts the run, `time` requests the time, `quit` exits.
+//! `voice [wake word phrase]` starts a voice run, `stop` aborts the run, `time` requests the time,
+//! `event <object_id> <type>` fires an event, `text <object_id> <value>` sets a text sensor, `quit` exits.
+//! Pressing the `Cancel request` button emits the `action` press event and sets `Last wake word` to Alexa.
 
 use std::time::Duration;
 
 use bytes::Bytes;
 use pinna_esphome::{
-    DeviceConfig, DeviceEvent, HaCommand, LightConfig, LightState, WakeWordInfo,
-    parse_encryption_key, serve,
+    DeviceConfig, DeviceEvent, HaCommand, LightState, MediaPlayerCommand, MediaPlayerStateKind,
+    WakeWordInfo, echo_dot_entities, parse_encryption_key, serve,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -66,12 +68,7 @@ async fn main() -> anyhow::Result<()> {
         },
     ];
     cfg.active_wake_words = vec!["okay_nabu".into()];
-    cfg.light = Some(LightConfig {
-        name: "LED ring".into(),
-        object_id: "led_ring".into(),
-        effects: vec!["Spin".into(), "Pulse".into()],
-    });
-    cfg.mute_switch = true;
+    echo_dot_entities(&mut cfg);
     cfg.encryption_key = key;
 
     let (handle, mut cmds) = serve(cfg).await?;
@@ -90,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdin_open = true;
     let mut run = 0u32;
+    let (mut mp_state, mut mp_volume, mut mp_muted) = (MediaPlayerStateKind::Idle, 0.5f32, false);
 
     loop {
         tokio::select! {
@@ -109,6 +107,20 @@ async fn main() -> anyhow::Result<()> {
                     }
                     ("stop", _) => handle.send(DeviceEvent::VoiceStop).await?,
                     ("time", _) => handle.send(DeviceEvent::RequestTime).await?,
+                    ("event", rest) => {
+                        let (object_id, event_type) = rest.split_once(' ').unwrap_or((rest, ""));
+                        handle.send(DeviceEvent::Event {
+                            object_id: object_id.to_owned(),
+                            event_type: event_type.to_owned(),
+                        }).await?;
+                    }
+                    ("text", rest) => {
+                        let (object_id, value) = rest.split_once(' ').unwrap_or((rest, ""));
+                        handle.send(DeviceEvent::TextSensorState {
+                            object_id: object_id.to_owned(),
+                            value: value.to_owned(),
+                        }).await?;
+                    }
                     ("quit", _) => break,
                     _ => {}
                 }
@@ -131,6 +143,46 @@ async fn main() -> anyhow::Result<()> {
                     HaCommand::MuteSwitch(m) => {
                         out(json!({"command": "mute", "state": m}));
                         handle.send(DeviceEvent::MuteState(m)).await?;
+                    }
+                    HaCommand::Number { object_id, value } => {
+                        out(json!({"command": "number", "object_id": object_id, "value": value}));
+                        handle.send(DeviceEvent::NumberState { object_id, value }).await?;
+                    }
+                    HaCommand::Button { object_id } => {
+                        out(json!({"command": "button", "object_id": object_id}));
+                        handle.send(DeviceEvent::Event {
+                            object_id: "action".into(),
+                            event_type: "press".into(),
+                        }).await?;
+                        handle.send(DeviceEvent::TextSensorState {
+                            object_id: "last_wake_word".into(),
+                            value: "Alexa".into(),
+                        }).await?;
+                    }
+                    HaCommand::MediaPlayer { command, volume, media_url, announcement } => {
+                        out(json!({"command": "media_player", "media_command": command.map(|c| c.to_i32()),
+                            "volume": volume, "media_url": media_url, "announcement": announcement}));
+                        if let Some(v) = volume {
+                            mp_volume = v;
+                        }
+                        if media_url.is_some() {
+                            mp_state = if announcement {
+                                MediaPlayerStateKind::Announcing
+                            } else {
+                                MediaPlayerStateKind::Playing
+                            };
+                        }
+                        match command {
+                            Some(MediaPlayerCommand::Play) => mp_state = MediaPlayerStateKind::Playing,
+                            Some(MediaPlayerCommand::Pause) => mp_state = MediaPlayerStateKind::Paused,
+                            Some(MediaPlayerCommand::Stop) => mp_state = MediaPlayerStateKind::Idle,
+                            Some(MediaPlayerCommand::Mute) => mp_muted = true,
+                            Some(MediaPlayerCommand::Unmute) => mp_muted = false,
+                            _ => {}
+                        }
+                        handle.send(DeviceEvent::MediaPlayerState {
+                            state: mp_state, volume: mp_volume, muted: mp_muted,
+                        }).await?;
                     }
                     HaCommand::VoiceStarted { port, error } => {
                         out(json!({"command": "voice_started", "port": port, "error": error}));

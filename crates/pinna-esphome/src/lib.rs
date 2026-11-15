@@ -1,5 +1,6 @@
 //! Server side of the ESPHome native API (plaintext or Noise), so Home Assistant adopts Pinna as
-//! an ESPHome device with a voice assistant, an RGB light and a microphone-mute switch.
+//! an ESPHome device with a voice assistant, an RGB light, a microphone-mute switch and
+//! generic number, button, event, text sensor and media player entities ([`echo_dot_entities`]).
 //!
 //! # API
 //!
@@ -30,13 +31,17 @@
 //!   the caller can persist it.
 
 pub mod frame;
+mod profile;
 pub mod proto;
 mod server;
 mod types;
 
+pub use profile::echo_dot_entities;
 pub use server::{EsphomeHandle, LIGHT_KEY, MUTE_KEY, Stopped, serve};
 pub use types::{
-    DeviceConfig, DeviceEvent, ESPHOME_VERSION, HaCommand, InvalidKey, LightConfig, LightState,
-    TimerEventType, VOICE_FEATURE_FLAGS, VoiceEventType, WakeWordInfo, mdns_txt,
-    parse_encryption_key,
+    ButtonConfig, DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory, EventConfig,
+    HaCommand, InvalidKey, LightConfig, LightState, MediaFormat, MediaPlayerCommand,
+    MediaPlayerConfig, MediaPlayerStateKind, MediaPurpose, NumberConfig, NumberMode,
+    TextSensorConfig, TimerEventType, VOICE_FEATURE_FLAGS, VoiceEventType, WakeWordInfo, mdns_txt,
+    media_feature, parse_encryption_key,
 };

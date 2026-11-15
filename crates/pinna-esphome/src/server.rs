@@ -24,7 +24,8 @@ use crate::{
     frame::{Frame, FrameCodec, HandshakeStep, NoiseHandshake, Plaintext},
     proto::{ApiMessage, proto},
     types::{
-        DeviceConfig, DeviceEvent, ESPHOME_VERSION, HaCommand, LightState, TimerEventType,
+        DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory, HaCommand, LightState,
+        MediaPlayerCommand, MediaPlayerStateKind, MediaPurpose, NumberMode, TimerEventType,
         VOICE_FEATURE_FLAGS, VoiceEventType,
     },
 };
@@ -33,6 +34,50 @@ use crate::{
 pub const MUTE_KEY: u32 = 2;
 /// Entity key of the light.
 pub const LIGHT_KEY: u32 = 3;
+
+/// Deterministic key (FNV-1a 32-bit) of an entity from its platform and object id.
+fn entity_key(platform: &str, object_id: &str) -> u32 {
+    let mut h = 0x811c_9dc5u32;
+    for b in platform.bytes().chain(*b"/").chain(object_id.bytes()) {
+        h = (h ^ u32::from(b)).wrapping_mul(0x0100_0193);
+    }
+    h
+}
+
+/// Keys of all configured entities; fails on a collision (also with the fixed keys and 0).
+fn check_keys(cfg: &DeviceConfig) -> anyhow::Result<()> {
+    let mut seen: HashMap<u32, String> = HashMap::new();
+    let mut add = |key: u32, what: String| -> anyhow::Result<()> {
+        if let Some(other) = seen.insert(key, what.clone()) {
+            anyhow::bail!("entity key {key} collides: {other} and {what}");
+        }
+        Ok(())
+    };
+    add(0, "reserved".into())?;
+    add(MUTE_KEY, "mute switch".into())?;
+    add(LIGHT_KEY, "light".into())?;
+    for (platform, ids) in [
+        (
+            "number",
+            cfg.numbers.iter().map(|e| &e.object_id).collect::<Vec<_>>(),
+        ),
+        ("button", cfg.buttons.iter().map(|e| &e.object_id).collect()),
+        ("event", cfg.events.iter().map(|e| &e.object_id).collect()),
+        (
+            "text_sensor",
+            cfg.text_sensors.iter().map(|e| &e.object_id).collect(),
+        ),
+        (
+            "media_player",
+            cfg.media_player.iter().map(|e| &e.object_id).collect(),
+        ),
+    ] {
+        for id in ids {
+            add(entity_key(platform, id), format!("{platform} {id}"))?;
+        }
+    }
+    Ok(())
+}
 
 const MAX_CLIENTS: usize = 2;
 const API_VERSION: (u32, u32) = (1, 14);
@@ -96,6 +141,7 @@ impl EsphomeHandle {
 pub async fn serve(
     cfg: DeviceConfig,
 ) -> anyhow::Result<(EsphomeHandle, mpsc::Receiver<HaCommand>)> {
+    check_keys(&cfg)?;
     let listener = TcpListener::bind((cfg.bind, cfg.port)).await?;
     let addr = listener.local_addr()?;
     info!(%addr, name = %cfg.name, "esphome api listening");
@@ -276,6 +322,9 @@ struct Actor {
     run_active: bool,
     light: LightState,
     muted: bool,
+    numbers: HashMap<String, f32>,
+    texts: HashMap<String, String>,
+    media: (MediaPlayerStateKind, f32, bool),
     active_wake: Vec<String>,
 }
 
@@ -291,6 +340,9 @@ impl Actor {
             run_active: false,
             light: LightState::default(),
             muted: false,
+            numbers: HashMap::new(),
+            texts: HashMap::new(),
+            media: (MediaPlayerStateKind::Idle, 0.0, false),
             active_wake,
         }
     }
@@ -394,8 +446,98 @@ impl Actor {
         }
     }
 
+    fn number_state_msg(&self, object_id: &str) -> proto::NumberStateResponse {
+        let value = self.numbers.get(object_id).copied();
+        proto::NumberStateResponse {
+            key: entity_key("number", object_id),
+            state: value.unwrap_or_default(),
+            missing_state: value.is_none(),
+            ..Default::default()
+        }
+    }
+
+    fn text_state_msg(&self, object_id: &str) -> proto::TextSensorStateResponse {
+        let value = self.texts.get(object_id);
+        proto::TextSensorStateResponse {
+            key: entity_key("text_sensor", object_id),
+            state: value.cloned().unwrap_or_default(),
+            missing_state: value.is_none(),
+            ..Default::default()
+        }
+    }
+
+    fn media_state_msg(&self) -> Option<proto::MediaPlayerStateResponse> {
+        let mp = self.cfg.media_player.as_ref()?;
+        let (state, volume, muted) = self.media;
+        let state = match state {
+            MediaPlayerStateKind::Idle => proto::MediaPlayerState::Idle,
+            MediaPlayerStateKind::Playing => proto::MediaPlayerState::Playing,
+            MediaPlayerStateKind::Paused => proto::MediaPlayerState::Paused,
+            MediaPlayerStateKind::Announcing => proto::MediaPlayerState::Announcing,
+        };
+        Some(proto::MediaPlayerStateResponse {
+            key: entity_key("media_player", &mp.object_id),
+            state: state as i32,
+            volume,
+            muted,
+            ..Default::default()
+        })
+    }
+
     fn device_event(&mut self, ev: DeviceEvent) {
         match ev {
+            DeviceEvent::NumberState { object_id, value } => {
+                if !self.cfg.numbers.iter().any(|n| n.object_id == object_id) {
+                    warn!(%object_id, "state for unknown number dropped");
+                    return;
+                }
+                self.numbers.insert(object_id.clone(), value);
+                let m = self.number_state_msg(&object_id);
+                self.broadcast(&m, true);
+            }
+            DeviceEvent::Event {
+                object_id,
+                event_type,
+            } => {
+                let Some(e) = self.cfg.events.iter().find(|e| e.object_id == object_id) else {
+                    warn!(%object_id, "unknown event entity dropped");
+                    return;
+                };
+                if !e.event_types.contains(&event_type) {
+                    warn!(%object_id, %event_type, "unknown event type dropped");
+                    return;
+                }
+                let m = proto::EventResponse {
+                    key: entity_key("event", &object_id),
+                    event_type,
+                    ..Default::default()
+                };
+                self.broadcast(&m, true);
+            }
+            DeviceEvent::TextSensorState { object_id, value } => {
+                if !self
+                    .cfg
+                    .text_sensors
+                    .iter()
+                    .any(|t| t.object_id == object_id)
+                {
+                    warn!(%object_id, "state for unknown text sensor dropped");
+                    return;
+                }
+                self.texts.insert(object_id.clone(), value);
+                let m = self.text_state_msg(&object_id);
+                self.broadcast(&m, true);
+            }
+            DeviceEvent::MediaPlayerState {
+                state,
+                volume,
+                muted,
+            } => {
+                self.media = (state, volume, muted);
+                if let Some(m) = self.media_state_msg() {
+                    self.broadcast(&m, true);
+                }
+            }
             DeviceEvent::LightState {
                 on,
                 brightness,
@@ -576,6 +718,77 @@ impl Actor {
                     let m = self.mute_state_msg();
                     self.send(id, &m);
                 }
+                let ids: Vec<String> = self
+                    .cfg
+                    .numbers
+                    .iter()
+                    .map(|n| n.object_id.clone())
+                    .collect();
+                for o in ids {
+                    let m = self.number_state_msg(&o);
+                    self.send(id, &m);
+                }
+                let ids: Vec<String> = self
+                    .cfg
+                    .text_sensors
+                    .iter()
+                    .map(|t| t.object_id.clone())
+                    .collect();
+                for o in ids {
+                    let m = self.text_state_msg(&o);
+                    self.send(id, &m);
+                }
+                if let Some(m) = self.media_state_msg() {
+                    self.send(id, &m);
+                }
+            }
+            proto::NumberCommandRequest::ID => {
+                let r = parse!(proto::NumberCommandRequest);
+                let Some(n) = self
+                    .cfg
+                    .numbers
+                    .iter()
+                    .find(|n| entity_key("number", &n.object_id) == r.key)
+                else {
+                    return Err(format!("number command for unknown key {}", r.key));
+                };
+                let object_id = n.object_id.clone();
+                self.command(HaCommand::Number {
+                    object_id,
+                    value: r.state,
+                });
+            }
+            proto::ButtonCommandRequest::ID => {
+                let r = parse!(proto::ButtonCommandRequest);
+                let Some(b) = self
+                    .cfg
+                    .buttons
+                    .iter()
+                    .find(|b| entity_key("button", &b.object_id) == r.key)
+                else {
+                    return Err(format!("button command for unknown key {}", r.key));
+                };
+                let object_id = b.object_id.clone();
+                self.command(HaCommand::Button { object_id });
+            }
+            proto::MediaPlayerCommandRequest::ID => {
+                let r = parse!(proto::MediaPlayerCommandRequest);
+                let known = self
+                    .cfg
+                    .media_player
+                    .as_ref()
+                    .is_some_and(|m| entity_key("media_player", &m.object_id) == r.key);
+                if !known {
+                    return Err(format!("media player command for unknown key {}", r.key));
+                }
+                self.command(HaCommand::MediaPlayer {
+                    command: r
+                        .has_command
+                        .then(|| MediaPlayerCommand::from_i32(r.command)),
+                    volume: r.has_volume.then_some(r.volume),
+                    media_url: r.has_media_url.then_some(r.media_url),
+                    announcement: r.has_announcement && r.announcement,
+                });
             }
             proto::LightCommandRequest::ID => {
                 let r = parse!(proto::LightCommandRequest);
@@ -757,6 +970,137 @@ impl Actor {
                 },
             );
         }
+        let cat = |c: EntityCategory| match c {
+            EntityCategory::None => proto::EntityCategory::None,
+            EntityCategory::Config => proto::EntityCategory::Config,
+            EntityCategory::Diagnostic => proto::EntityCategory::Diagnostic,
+        } as i32;
+        for n in self.cfg.numbers.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesNumberResponse {
+                    key: entity_key("number", &n.object_id),
+                    object_id: n.object_id,
+                    name: n.name,
+                    icon: n.icon,
+                    min_value: n.min,
+                    max_value: n.max,
+                    step: n.step,
+                    entity_category: cat(n.entity_category),
+                    unit_of_measurement: n.unit.unwrap_or_default(),
+                    mode: match n.mode {
+                        NumberMode::Auto => proto::NumberMode::Auto,
+                        NumberMode::Box => proto::NumberMode::Box,
+                        NumberMode::Slider => proto::NumberMode::Slider,
+                    } as i32,
+                    ..Default::default()
+                },
+            );
+        }
+        for b in self.cfg.buttons.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesButtonResponse {
+                    key: entity_key("button", &b.object_id),
+                    object_id: b.object_id,
+                    name: b.name,
+                    icon: b.icon,
+                    ..Default::default()
+                },
+            );
+        }
+        for e in self.cfg.events.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesEventResponse {
+                    key: entity_key("event", &e.object_id),
+                    object_id: e.object_id,
+                    name: e.name,
+                    icon: e.icon,
+                    device_class: e.device_class.unwrap_or_default(),
+                    event_types: e.event_types,
+                    ..Default::default()
+                },
+            );
+        }
+        for t in self.cfg.text_sensors.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesTextSensorResponse {
+                    key: entity_key("text_sensor", &t.object_id),
+                    object_id: t.object_id,
+                    name: t.name,
+                    icon: t.icon,
+                    ..Default::default()
+                },
+            );
+        }
+        if let Some(m) = self.cfg.media_player.clone() {
+            #[allow(deprecated)]
+            let msg = proto::ListEntitiesMediaPlayerResponse {
+                key: entity_key("media_player", &m.object_id),
+                object_id: m.object_id,
+                name: m.name,
+                icon: m.icon,
+                supports_pause: m.supports_pause,
+                feature_flags: m.feature_flags,
+                supported_formats: m
+                    .supported_formats
+                    .into_iter()
+                    .map(|f| proto::MediaPlayerSupportedFormat {
+                        format: f.format,
+                        sample_rate: f.sample_rate,
+                        num_channels: f.num_channels,
+                        purpose: match f.purpose {
+                            MediaPurpose::Default => proto::MediaPlayerFormatPurpose::Default,
+                            MediaPurpose::Announcement => {
+                                proto::MediaPlayerFormatPurpose::Announcement
+                            }
+                        } as i32,
+                        sample_bytes: f.sample_bytes,
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            self.send(id, &msg);
+        }
         self.send(id, &proto::ListEntitiesDoneResponse {});
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{echo_dot_entities, types::ButtonConfig};
+
+    #[test]
+    fn echo_profile_keys_are_unique() {
+        let mut cfg = DeviceConfig::new("t", [0; 6]);
+        echo_dot_entities(&mut cfg);
+        check_keys(&cfg).unwrap();
+    }
+
+    #[test]
+    fn duplicate_object_id_is_a_collision() {
+        let mut cfg = DeviceConfig::new("t", [0; 6]);
+        let b = ButtonConfig {
+            object_id: "x".into(),
+            name: "X".into(),
+            icon: String::new(),
+        };
+        cfg.buttons = vec![b.clone(), b];
+        assert!(check_keys(&cfg).is_err());
+    }
+
+    #[test]
+    fn keys_are_per_platform() {
+        assert_ne!(
+            entity_key("event", "microphone_mute"),
+            entity_key("switch", "microphone_mute")
+        );
+        assert_eq!(
+            entity_key("number", "volume"),
+            entity_key("number", "volume")
+        );
     }
 }
