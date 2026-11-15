@@ -401,6 +401,18 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Live streams into the media lane (AirPlay/Bluetooth bridges). Not
+    // essential to the satellite: a failed bind is logged, not fatal.
+    if let Some(s) = &speaker
+        && !cfg.audio.stream_socket.as_os_str().is_empty()
+    {
+        let path = &cfg.audio.stream_socket;
+        match s.media().serve_stream(path) {
+            Ok(()) => tracing::info!("stream ingest on {}", path.display()),
+            Err(e) => tracing::error!("stream ingest on {}: {e}", path.display()),
+        }
+    }
+
     // Media lane state (playing, paused, ended) for the Home Assistant media player.
     if let Some(s) = &speaker {
         let mut state = s.media().state();

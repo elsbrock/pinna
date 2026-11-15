@@ -42,7 +42,6 @@ impl Ramp {
         self.target = value;
     }
 
-    #[cfg(test)]
     pub fn value(&self) -> f32 {
         self.cur
     }

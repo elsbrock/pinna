@@ -12,6 +12,9 @@ backend = "auto"          # echodot on the device, pipewire on a laptop
 volume = 50
 speaker_profile = "Flat"  # biscuit; the full-size Echo uses "Radar"
 wake_sound = false
+# Live PCM streams into the media lane (raw s16le, 48 kHz stereo; ADR 0011).
+# Empty = off.
+stream_socket = "/run/pinna/stream.sock"
 
 [wake]
 enabled = true
