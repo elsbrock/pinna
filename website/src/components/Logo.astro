@@ -1,19 +1,30 @@
 ---
-type Props = { class?: string };
+// The mark (design/mark.svg: the ring's boot frame) and the wordmark in Unbounded.
+import mark from "../../../design/mark.svg?raw";
 
-const { class: className = "h-6 w-6" } = Astro.props;
+type Props = {
+  /** Mark size in px; the wordmark scales with it. */
+  size?: number;
+  wordmark?: boolean;
+  class?: string;
+};
+
+const { size = 28, wordmark = true, class: className } = Astro.props;
+const svg = mark
+  .replace(/<title>.*?<\/title>/, "")
+  .replace('width="100" height="100"', 'width="100%" height="100%" aria-hidden="true" focusable="false"');
 ---
 
-<svg viewBox="0 0 32 32" class={className} aria-hidden="true">
-  <circle
-    cx="16"
-    cy="16"
-    r="10.5"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="3"
-    stroke-linecap="round"
-    stroke-dasharray="16.5 5.5"
-  ></circle>
-  <circle cx="16" cy="16" r="2.4" fill="var(--color-ring)"></circle>
-</svg>
+<span class:list={["inline-flex items-center gap-2.5", className]}>
+  <span class="block shrink-0" style={`width:${size}px;height:${size}px`} set:html={svg} />
+  {
+    wordmark && (
+      <span
+        class="font-display text-ink font-semibold tracking-[-0.01em]"
+        style={`font-size:${Math.round(size * 0.72)}px;line-height:1`}
+      >
+        Pinna
+      </span>
+    )
+  }
+</span>

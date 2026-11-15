@@ -24,10 +24,10 @@ const { current = "" } = Astro.props;
                     href={docHref(item.slug)}
                     aria-current={active ? "page" : undefined}
                     class:list={[
-                      "block rounded-md px-2 py-1.5 text-sm transition-colors",
+                      "block rounded-sm px-2 py-1.5 text-sm transition-colors",
                       active
-                        ? "bg-accent-soft text-accent font-medium"
-                        : "text-muted hover:bg-surface hover:text-ink",
+                        ? "bg-signal-soft text-signal font-medium"
+                        : "text-ink-muted hover:bg-surface-sunken hover:text-ink",
                     ]}
                   >
                     {item.title}
@@ -42,16 +42,16 @@ const { current = "" } = Astro.props;
   </div>
 
   <div class="border-line mt-8 border-t px-2 pt-5">
-    <p class="text-faint text-xs leading-5">
+    <p class="text-ink-muted text-caption">
       Pinna is early bring-up. Found a sharp edge?
       <a
-        class="text-accent hover:underline"
+        class="link"
         href="https://github.com/elsbrock/pinna/issues">Open an issue</a
       >.
     </p>
-    <p class="text-faint mt-2 text-xs leading-5">
+    <p class="text-ink-muted mt-2 text-caption">
       Tip: press <kbd
-        class="border-line bg-surface text-muted rounded border px-1 font-mono text-[0.7rem]"
+        class="border-line bg-surface-sunken text-ink-muted rounded-xs border px-1 font-mono text-[0.7rem]"
         >/</kbd
       > to jump to search.
     </p>

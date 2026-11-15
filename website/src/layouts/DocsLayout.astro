@@ -23,12 +23,12 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
 
 <BaseLayout title={`${title} — Docs`} description={description}>
   <header
-    class="border-line bg-canvas/85 sticky top-0 z-30 border-b backdrop-blur"
+    class="border-line bg-surface/85 sticky top-0 z-30 border-b backdrop-blur"
   >
     <div class="mx-auto flex h-14 max-w-[88rem] items-center gap-3 px-4 lg:px-6">
       <button
         id="docs-nav-toggle"
-        class="btn btn-secondary -ml-1 px-2 lg:hidden"
+        class="pn-btn -ml-1 px-2 lg:hidden"
         aria-label="Toggle docs navigation"
         aria-controls="docs-nav"
         aria-expanded="false"
@@ -40,20 +40,19 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
       </button>
 
       <a href={href("/")} class="flex items-center gap-2.5">
-        <Logo class="text-accent h-6 w-6" />
-        <span class="text-ink font-semibold">Pinna</span>
-        <span class="text-faint text-sm">/ docs</span>
+        <Logo size={24} />
+        <span class="text-ink-muted text-sm">/ docs</span>
       </a>
 
       <div class="ml-auto flex items-center gap-2">
-        <a class="btn btn-secondary hidden sm:inline-flex" href={SITE.repo}>
+        <a class="pn-btn hidden sm:inline-flex" href={SITE.repo}>
           <Icon name="github" size={16} />
           GitHub
         </a>
-        <a class="btn btn-secondary px-2.5 sm:hidden" href={SITE.repo} aria-label="Pinna on GitHub">
+        <a class="pn-btn px-2.5 sm:hidden" href={SITE.repo} aria-label="Pinna on GitHub">
           <Icon name="github" size={16} />
         </a>
-        <a class="btn btn-secondary hidden sm:inline-flex" href={href("/")}>
+        <a class="pn-btn hidden sm:inline-flex" href={href("/")}>
           Home
         </a>
       </div>
@@ -72,17 +71,17 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
         <article class="max-w-3xl">
           <div data-pagefind-body>
             <h1
-              class="text-ink text-3xl font-semibold tracking-[-0.015em]"
+              class="font-display text-ink text-display-m sm:text-display-l text-balance"
               data-pagefind-meta="title"
             >
               {title}
             </h1>
             {
               description && (
-                <p class="text-muted mt-3 text-lg leading-7">{description}</p>
+                <p class="text-ink-muted text-body-l mt-3">{description}</p>
               )
             }
-            <div class="docs-content mt-8">
+            <div class="docs-content text-ink text-body-l mt-8">
               <slot />
             </div>
           </div>
@@ -97,9 +96,9 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
                   class="card hover:border-line-strong flex items-center gap-3 p-3.5 transition-colors"
                   href={docHref(previous.slug)}
                 >
-                  <Icon name="arrow" size={16} class="text-faint rotate-180" />
+                  <Icon name="arrow" size={16} class="text-ink-muted rotate-180" />
                   <span class="min-w-0">
-                    <span class="text-faint block text-xs">Previous</span>
+                    <span class="text-ink-muted block text-xs">Previous</span>
                     <span class="text-ink block truncate text-sm font-medium">
                       {previous.title}
                     </span>
@@ -116,12 +115,12 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
                   href={docHref(next.slug)}
                 >
                   <span class="min-w-0">
-                    <span class="text-faint block text-xs">Next</span>
+                    <span class="text-ink-muted block text-xs">Next</span>
                     <span class="text-ink block truncate text-sm font-medium">
                       {next.title}
                     </span>
                   </span>
-                  <Icon name="arrow" size={16} class="text-faint" />
+                  <Icon name="arrow" size={16} class="text-ink-muted" />
                 </a>
               )
             }
@@ -129,11 +128,11 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
 
           <p class="border-line mt-10 flex items-center gap-1.5 border-t pt-6 text-sm">
             <a
-              class="text-muted hover:text-ink inline-flex items-center gap-1.5"
+              class="text-ink-muted hover:text-ink inline-flex items-center gap-1.5"
               href={docEditHref(file)}
             >
               Edit this page on GitHub
-              <Icon name="external" size={14} class="text-faint" />
+              <Icon name="external" size={14} class="text-ink-muted" />
             </a>
           </p>
         </article>
@@ -177,8 +176,8 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
         top: 3.5rem;
         z-index: 40;
         overflow-y: auto;
-        background: var(--color-canvas);
-        border-top: 1px solid var(--color-line);
+        background: var(--surface);
+        border-top: 1px solid var(--line);
         padding: 1.25rem 1.25rem 4rem;
       }
     }

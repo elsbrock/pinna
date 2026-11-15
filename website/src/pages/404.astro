@@ -7,22 +7,22 @@ import { docHref, href } from "../lib/site";
 <BaseLayout title="Page not found" footer={false}>
   <div class="mx-auto flex max-w-xl flex-col items-start px-4 py-24 sm:px-6">
     <p class="chip">404</p>
-    <h1 class="text-ink mt-4 text-3xl font-semibold">No such page</h1>
-    <p class="text-muted mt-3 leading-7">
+    <h1 class="font-display text-ink text-display-l mt-4">No such page</h1>
+    <p class="text-ink-muted text-body-l mt-3">
       Nothing here — maybe the page moved while the project is still in
       bring-up. The console output would be
-      <code class="text-ink border-line bg-sunken rounded border px-1.5 py-0.5 font-mono text-sm">ENOENT</code>.
+      <code class="text-ink border-line bg-surface-sunken rounded-xs border px-1.5 py-0.5 font-mono text-sm">ENOENT</code>.
     </p>
     <div class="mt-8 flex gap-3">
-      <a class="btn btn-primary" href={href("/docs/")}>Docs</a>
-      <a class="btn btn-secondary" href={href("/")}>
+      <a class="pn-btn pn-btn-primary" href={href("/docs/")}>Docs</a>
+      <a class="pn-btn" href={href("/")}>
         <Icon name="arrow" size={16} class="rotate-180" />
         Home
       </a>
     </div>
-    <p class="text-faint mt-10 text-sm">
+    <p class="text-ink-muted mt-10 text-sm">
       Or jump to
-      <a class="text-accent hover:underline" href={docHref("flash")}
+      <a class="link" href={docHref("flash")}
         >flashing your first device</a
       >.
     </p>

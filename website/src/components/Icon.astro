@@ -41,7 +41,7 @@ type Props = {
   strokeWidth?: number;
 };
 
-const { name, size = 20, class: className = "", strokeWidth = 1.6 } =
+const { name, size = 20, class: className = "", strokeWidth = 1.75 } =
   Astro.props;
 const paths = ICONS[name as keyof typeof ICONS] ?? ICONS.ring;
 ---

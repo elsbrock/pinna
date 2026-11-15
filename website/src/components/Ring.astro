@@ -1,0 +1,84 @@
+---
+// The satellite's LED ring (design/ring.ts), drawn at build time as a still
+// frame. Give it data-ring-demo's script (RingDemo.astro) to animate it.
+import {
+  RING_PIXELS,
+  STILL_MS,
+  displayLevel,
+  pixelAngle,
+  ringFrame,
+  segmentPath,
+  type Effect,
+} from "../../../design/ring";
+
+type Props = {
+  /** Effect shown before (or without) JavaScript. */
+  effect?: Effect;
+  /** Rendered px: 32 (ring-sm), 64 (ring-md), 176 (ring-lg). */
+  size?: number;
+  /** Accessible name. */
+  label: string;
+  /** Unique per page: names the glow filter. */
+  id: string;
+  class?: string;
+};
+
+const { effect = "listening", size = 176, label, id, class: className } = Astro.props;
+
+const segments = Array.from({ length: RING_PIXELS }, (_, i) => segmentPath(pixelAngle(i)));
+const frame = ringFrame(effect, STILL_MS[effect] ?? 0);
+const lit = frame.map((p) => ({
+  stroke: p.c ? `rgb(${p.c.join(",")})` : "none",
+  opacity: p.c ? displayLevel(p.level) : 0,
+}));
+const glow = size >= 40;
+---
+
+<span
+  class:list={["pn-ring", className]}
+  style={`width:${size}px;height:${size}px`}
+  role="img"
+  aria-label={label}
+>
+  <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+    {
+      glow && (
+        <defs>
+          <filter id={`${id}-glow`} x="-25%" y="-25%" width="150%" height="150%">
+            <feGaussianBlur stdDeviation="3" />
+          </filter>
+        </defs>
+      )
+    }
+    <circle cx="50" cy="50" r="49" class="pn-ring-puck"></circle>
+    <g>{segments.map((d) => <path d={d} class="pn-ring-off" />)}</g>
+    {
+      glow && (
+        <g filter={`url(#${id}-glow)`}>
+          {segments.map((d, i) => (
+            <path
+              d={d}
+              class="pn-ring-glow"
+              data-glow
+              stroke={lit[i].stroke}
+              stroke-opacity={(lit[i].opacity > 0.35 ? lit[i].opacity * 0.85 : 0).toFixed(3)}
+            />
+          ))}
+        </g>
+      )
+    }
+    <g>
+      {
+        segments.map((d, i) => (
+          <path
+            d={d}
+            class="pn-ring-led"
+            data-led
+            stroke={lit[i].stroke}
+            stroke-opacity={lit[i].opacity.toFixed(3)}
+          />
+        ))
+      }
+    </g>
+  </svg>
+</span>

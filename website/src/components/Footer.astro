@@ -18,19 +18,16 @@ const project = [
 ];
 ---
 
-<footer class="border-line bg-surface mt-24 border-t">
+<footer class="border-line bg-surface-raised mt-24 border-t">
   <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6">
     <div class="grid gap-10 md:grid-cols-[1.6fr_1fr_1fr]">
       <div>
-        <div class="flex items-center gap-2.5">
-          <Logo class="text-accent h-6 w-6" />
-          <span class="text-ink font-semibold">Pinna</span>
-        </div>
-        <p class="text-muted mt-3 max-w-sm text-sm leading-6">
+        <Logo size={24} />
+        <p class="text-ink-muted mt-3 max-w-sm text-body">
           An open, image-based Linux system that turns the Echo Dot (2nd gen)
           into a local Home Assistant voice satellite. No cloud, no account.
         </p>
-        <p class="text-faint mt-4 max-w-sm text-xs leading-5">
+        <p class="text-ink-muted mt-4 max-w-sm text-caption">
           Not affiliated with Amazon. Echo and Alexa are trademarks of
           Amazon.com, Inc.
         </p>
@@ -43,7 +40,7 @@ const project = [
             docs.map((doc) => (
               <li>
                 <a
-                  class="text-muted hover:text-ink transition-colors"
+                  class="text-ink-muted hover:text-ink transition-colors"
                   href={docHref(doc.slug)}
                 >
                   {doc.title}
@@ -61,7 +58,7 @@ const project = [
             project.map((item) => (
               <li>
                 <a
-                  class="text-muted hover:text-ink transition-colors"
+                  class="text-ink-muted hover:text-ink transition-colors"
                   href={item.href}
                 >
                   {item.title}
@@ -74,16 +71,16 @@ const project = [
     </div>
 
     <div
-      class="border-line text-faint mt-10 flex flex-col gap-2 border-t pt-6 text-xs sm:flex-row sm:items-center sm:justify-between"
+      class="border-line text-ink-muted mt-10 flex flex-col gap-2 border-t pt-6 text-xs sm:flex-row sm:items-center sm:justify-between"
     >
       <p>
         Site source in <a
-          class="text-muted hover:text-ink font-mono"
+          class="text-ink-muted hover:text-ink font-mono"
           href={`${SITE.repo}/tree/main/website`}>website/</a
         > · built with Astro and Tailwind CSS.
       </p>
       <p>
-        <a class="text-muted hover:text-ink" href={docHref("status")}
+        <a class="text-ink-muted hover:text-ink" href={docHref("status")}
           >Status &amp; roadmap →</a
         >
       </p>

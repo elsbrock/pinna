@@ -58,6 +58,8 @@ export default defineConfig({
 
   vite: {
     plugins: [tailwindcss()],
+    // The design system lives in ../design (shared with the dashboard).
+    server: { fs: { allow: [".."] } },
   },
 
   integrations: [sitemap()],

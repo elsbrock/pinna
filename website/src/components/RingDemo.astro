@@ -1,0 +1,77 @@
+---
+// The ring stepping through a voice request with the device's own timings,
+// with the phase word under it. Still (Listening) under reduced motion.
+import Ring from "./Ring.astro";
+
+type Props = { size?: number; class?: string };
+const { size = 176, class: className } = Astro.props;
+---
+
+<figure class:list={["flex flex-col items-center gap-4", className]} data-ring-demo>
+  <Ring
+    id="hero-ring"
+    size={size}
+    effect="listening"
+    label="Pinna's LED ring stepping through Listening, Thinking and Speaking"
+  />
+  <figcaption class="flex flex-col items-center gap-2 text-center">
+    <span class="pn-badge" data-phase="listening">
+      <span class="pn-badge-dot" aria-hidden="true"></span>
+      <span data-word>Listening</span>
+    </span>
+  </figcaption>
+</figure>
+
+<script>
+  import { displayLevel, ringFrame, type Effect } from "../../../design/ring";
+
+  const STEPS: { effect: Effect; word: string; ms: number }[] = [
+    { effect: "listening", word: "Listening", ms: 3200 },
+    { effect: "thinking", word: "Thinking", ms: 2400 },
+    { effect: "speaking", word: "Speaking", ms: 4800 },
+    { effect: "idle", word: "Idle", ms: 1600 },
+  ];
+  const CYCLE = STEPS.reduce((sum, s) => sum + s.ms, 0);
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-ring-demo]")) {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) continue;
+
+    const leds = [...root.querySelectorAll<SVGPathElement>("[data-led]")];
+    const glows = [...root.querySelectorAll<SVGPathElement>("[data-glow]")];
+    const badge = root.querySelector<HTMLElement>("[data-phase]");
+    const word = root.querySelector<HTMLElement>("[data-word]");
+
+    const paint = (effect: Effect, t: number) => {
+      ringFrame(effect, t).forEach((p, i) => {
+        const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
+        const opacity = p.c ? displayLevel(p.level) : 0;
+        leds[i]?.setAttribute("stroke", stroke);
+        leds[i]?.setAttribute("stroke-opacity", opacity.toFixed(3));
+        glows[i]?.setAttribute("stroke", stroke);
+        glows[i]?.setAttribute("stroke-opacity", (opacity > 0.35 ? opacity * 0.85 : 0).toFixed(3));
+      });
+    };
+
+    const start = performance.now();
+    let shown = -1;
+    let raf = 0;
+    const tick = (now: number) => {
+      let t = (now - start) % CYCLE;
+      let i = 0;
+      while (t >= STEPS[i].ms) t -= STEPS[i++].ms;
+      if (i !== shown) {
+        shown = i;
+        if (badge) badge.dataset.phase = STEPS[i].effect;
+        if (word) word.textContent = STEPS[i].word;
+      }
+      paint(STEPS[i].effect, t);
+      raf = requestAnimationFrame(tick);
+    };
+
+    // Only animate while the ring is on screen.
+    new IntersectionObserver(([entry]) => {
+      cancelAnimationFrame(raf);
+      if (entry?.isIntersecting) raf = requestAnimationFrame(tick);
+    }).observe(root);
+  }
+</script>

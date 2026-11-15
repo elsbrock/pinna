@@ -1,66 +1,10 @@
 @import "tailwindcss";
 
-/* -------------------------------------------------------------------------
-   Design tokens. Light and dark values are plain CSS variables, so every
-   Tailwind colour utility picks up the active scheme automatically.
-   ------------------------------------------------------------------------- */
-
-@theme {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono:
-    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
-    "Liberation Mono", monospace;
-
-  --color-canvas: #ffffff;
-  --color-surface: #f7f8fa;
-  --color-sunken: #f2f4f6;
-  --color-raised: #ffffff;
-  --color-ink: #1f2328;
-  --color-body: #3c4043;
-  --color-muted: #5f6368;
-  --color-faint: #80868b;
-  --color-line: #e6e9ec;
-  --color-line-strong: #d3d8dd;
-  --color-accent: #0b6bcb;
-  --color-accent-strong: #0a5aa6;
-  --color-accent-soft: #eaf1fd;
-  --color-accent-contrast: #ffffff;
-  --color-ok: #1e8e3e;
-  --color-ring: #16a6c9;
-
-  --shadow-card:
-    0 1px 2px rgb(23 26 30 / 0.05), 0 2px 8px rgb(23 26 30 / 0.05);
-  --shadow-pop:
-    0 4px 12px rgb(23 26 30 / 0.08), 0 1px 3px rgb(23 26 30 / 0.06);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-canvas: #17181b;
-    --color-surface: #1e2024;
-    --color-sunken: #1c1e22;
-    --color-raised: #1e2024;
-    --color-ink: #e8eaed;
-    --color-body: #c6cad0;
-    --color-muted: #9aa0a6;
-    --color-faint: #80868b;
-    --color-line: #2e3136;
-    --color-line-strong: #3c4046;
-    --color-accent: #8ab4f8;
-    --color-accent-strong: #aecbfa;
-    --color-accent-soft: #1d2c44;
-    --color-accent-contrast: #17181b;
-    --color-ok: #81c995;
-    --color-ring: #4dd0e1;
-
-    --shadow-card:
-      0 1px 2px rgb(0 0 0 / 0.3), 0 2px 8px rgb(0 0 0 / 0.25);
-    --shadow-pop:
-      0 4px 14px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.3);
-  }
-}
+/* The Pinna design system (../../../design). Tokens and Tailwind theme come from
+   design/tokens.json; component classes (pn-*) from design/pinna.css. */
+@import "../../../design/tokens.css" layer(base);
+@import "../../../design/tailwind.css";
+@import "../../../design/pinna.css" layer(components);
 
 /* ------------------------------------------------------------------ base -- */
 
@@ -71,15 +15,15 @@
   }
 
   body {
-    @apply bg-canvas font-sans text-body antialiased;
+    @apply bg-surface text-ink text-body font-sans antialiased;
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--color-accent) 24%, transparent);
+    background: var(--signal-soft);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
     border-radius: 2px;
   }
@@ -94,76 +38,65 @@
 /* ------------------------------------------------------------ components -- */
 
 @layer components {
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors;
-  }
-
-  .btn-primary {
-    @apply bg-accent text-accent-contrast hover:bg-accent-strong;
-  }
-
-  .btn-secondary {
-    @apply text-ink border-line-strong bg-raised hover:bg-surface border;
-  }
-
   .chip {
-    @apply text-faint border-line bg-surface inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-xs;
+    @apply text-ink-muted border-line bg-surface-raised inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[12px] leading-4;
   }
 
   .card {
-    @apply border-line bg-raised shadow-card rounded-xl border;
+    @apply border-line bg-surface-raised rounded-md border;
   }
 
   .eyebrow {
-    @apply text-faint text-xs font-semibold tracking-[0.12em] uppercase;
+    @apply text-ink-muted text-label uppercase;
+  }
+
+  /* Links in running text: underlined at rest, never colour alone. */
+  .link {
+    color: var(--link);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  .link:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  .section-title {
+    @apply font-display text-ink text-display-m sm:text-display-l mt-3 max-w-2xl text-balance;
   }
 }
 
-/* Dark mode for light Shiki output (dual-theme CSS variables). */
+/* ------------------------------------------------------------ code (Shiki) -- */
+
+/* Shiki writes its own background inline; code sits on surface-sunken in both
+   themes. Dark token colours come from the dual-theme CSS variables. */
+.astro-code {
+  background-color: var(--surface-sunken) !important;
+}
+
 @media (prefers-color-scheme: dark) {
   .astro-code,
   .astro-code span {
     color: var(--shiki-dark) !important;
-    background-color: var(--shiki-dark-bg) !important;
     font-style: var(--shiki-dark-font-style) !important;
     font-weight: var(--shiki-dark-font-weight) !important;
     text-decoration: var(--shiki-dark-text-decoration) !important;
   }
 }
 
-/* --------------------------------------------------------------- landing -- */
-
-.hero-glow {
-  background:
-    radial-gradient(
-      56rem 26rem at 62% -10rem,
-      color-mix(in oklab, var(--color-accent) 9%, transparent),
-      transparent 70%
-    ),
-    radial-gradient(
-      30rem 18rem at 12% -6rem,
-      color-mix(in oklab, var(--color-ring) 7%, transparent),
-      transparent 70%
-    );
-}
-
 /* ----------------------------------------------------------- docs prose -- */
-
-.docs-content {
-  counter-reset: none;
-}
 
 .docs-content > :first-child {
   margin-top: 0;
 }
 
 .docs-content h2 {
-  @apply text-ink mt-10 mb-3 border-t pt-10 text-[1.375rem] leading-snug font-semibold tracking-[-0.01em];
-  border-color: var(--color-line);
+  @apply font-display text-ink text-display-m border-line mt-12 mb-3 border-t pt-10 text-balance;
 }
 
 .docs-content h3 {
-  @apply text-ink mt-8 mb-2 text-[1.125rem] leading-snug font-semibold;
+  @apply text-ink text-heading mt-8 mb-2;
 }
 
 .docs-content h2 + h3 {
@@ -171,7 +104,7 @@
 }
 
 .docs-content p {
-  @apply my-4 leading-7;
+  @apply my-4;
 }
 
 .docs-content strong {
@@ -179,12 +112,14 @@
 }
 
 .docs-content a {
-  color: var(--color-accent);
-  text-decoration: none;
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .docs-content a:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 .docs-content ul,
@@ -201,7 +136,7 @@
 }
 
 .docs-content li::marker {
-  color: var(--color-faint);
+  color: var(--ink-muted);
 }
 
 .docs-content li > ul,
@@ -210,11 +145,11 @@
 }
 
 .docs-content :not(pre) > code {
-  @apply text-ink border-line bg-sunken rounded border px-1.5 py-0.5 font-mono text-[0.875em];
+  @apply text-ink border-line bg-surface-sunken rounded-xs border px-1.5 py-0.5 font-mono text-[0.875em];
 }
 
 .docs-content pre {
-  @apply border-line bg-sunken my-5 overflow-x-auto rounded-xl border px-4 py-3.5 font-mono text-[0.8125rem] leading-6;
+  @apply border-line text-code my-5 overflow-x-auto rounded-md border px-4 py-3.5 font-mono;
 }
 
 .docs-content pre code {
@@ -223,7 +158,7 @@
 }
 
 .docs-content table {
-  @apply w-full border-collapse text-[0.9375rem];
+  @apply text-body w-full border-collapse;
 }
 
 .docs-content .table-wrap {
@@ -235,7 +170,7 @@
 }
 
 .docs-content th {
-  @apply text-ink bg-surface border-line border px-3 py-2 text-left font-semibold whitespace-nowrap;
+  @apply text-ink bg-surface-sunken border-line border px-3 py-2 text-left font-semibold whitespace-nowrap;
 }
 
 .docs-content td {
@@ -247,10 +182,9 @@
   white-space: nowrap;
 }
 
+/* Blockquotes read as an info notice: a tint, no edge stripe. */
 .docs-content blockquote {
-  @apply text-body my-5 rounded-r-lg border-l-[3px] py-3 pr-4 pl-4;
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
+  @apply bg-signal-soft text-ink my-5 rounded-md px-4 py-3;
 }
 
 .docs-content blockquote p {
@@ -262,7 +196,7 @@
 }
 
 .docs-content img {
-  @apply rounded-lg;
+  @apply rounded-md;
 }
 
 .docs-content :where(h2, h3) {
@@ -274,17 +208,17 @@
 /* The Component UI resets its hosts with `all: initial`; custom properties
    still inherit, so theming happens through these variables. */
 .search-shell {
-  --pf-font: var(--font-sans);
-  --pf-text: var(--color-ink);
-  --pf-text-secondary: var(--color-muted);
-  --pf-text-muted: var(--color-faint);
-  --pf-background: var(--color-canvas);
-  --pf-border: var(--color-line-strong);
-  --pf-border-focus: var(--color-accent);
-  --pf-hover: var(--color-surface);
-  --pf-mark: var(--color-accent-soft);
-  --pf-outline-focus: var(--color-accent);
-  --pf-border-radius: 0.5rem;
+  --pf-font: var(--font-text);
+  --pf-text: var(--ink);
+  --pf-text-secondary: var(--ink-muted);
+  --pf-text-muted: var(--ink-muted);
+  --pf-background: var(--surface-raised);
+  --pf-border: var(--line-strong);
+  --pf-border-focus: var(--signal);
+  --pf-hover: var(--surface-sunken);
+  --pf-mark: var(--signal-soft);
+  --pf-outline-focus: var(--focus);
+  --pf-border-radius: var(--radius-sm);
   --pf-input-height: 40px;
   --pf-input-font-size: 16px;
   --pf-summary-font-size: 12px;
@@ -316,7 +250,7 @@
 
 .search-shell .pf-searchbox-result-excerpt mark,
 .search-shell mark {
-  background: var(--color-accent-soft) !important;
-  color: var(--color-ink) !important;
+  background: var(--signal-soft) !important;
+  color: var(--ink) !important;
   border-radius: 2px;
 }
