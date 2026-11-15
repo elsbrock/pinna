@@ -9,7 +9,7 @@
 #   partitions.txt                      device, name, start and size (512-byte sectors)
 #   device-info.txt                     boot area device numbers, kernel command line
 #   partitions/*.img + SHA256SUMS       boot_a, boot_b, system_a, system_b, userdata,
-#                                       misc: what `scripts/flash-dot.sh restore` takes
+#                                       misc: what `scripts/flash-gen2.sh restore` takes
 # Every partition except userdata (it changes while the previous firmware runs) is compared
 # with the device before the partition images are cut.
 set -euo pipefail

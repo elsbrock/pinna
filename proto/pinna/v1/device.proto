@@ -178,7 +178,8 @@ message Status {
   bool alarm_ringing = 16;
   Settings settings = 17;
   // Which hardware this is, as a stable id for the dashboard's drawing:
-  // "echo-dot-2" for the Echo Dot (2nd gen); empty when unknown (QEMU, a PC).
+  // "echo-dot-2" for the Echo Dot (2nd gen), "echo-2" for the Echo
+  // (2nd gen); empty when unknown (QEMU, a PC).
   string model = 18;
   // A notification is pending (Home Assistant's "Notification" switch); the ring
   // pulses while idle. ClearNotification clears it.

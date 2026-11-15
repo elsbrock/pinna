@@ -1,6 +1,7 @@
-//! Hardware access for Pinna (Echo Dot 2nd gen "biscuit"): LED ring, buttons,
-//! mic privacy switch and identity data. Real implementations talk to sysfs
-//! and evdev only; mocks allow development on a laptop.
+//! Hardware access for Pinna (Echo Dot 2nd gen "biscuit" and Echo 2nd gen
+//! "radar"): LED ring, buttons, mic privacy switch and identity data. Real
+//! implementations talk to sysfs and evdev only; mocks allow development on a
+//! laptop.
 
 pub mod anim;
 pub mod buttons;

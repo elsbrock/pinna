@@ -46,7 +46,7 @@ scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
 It needs about 8 GB free. It pulls the whole eMMC and its boot areas over
 adb (~4 GB), compares every
 partition except `userdata` with the device, and cuts `partitions/*.img` with
-`SHA256SUMS`, the layout `scripts/flash-dot.sh restore` takes. Copy the
+`SHA256SUMS`, the layout `scripts/flash-gen2.sh restore` takes. Copy the
 directory somewhere safe. `scripts/verify-backup.sh <dir>` repeats the
 comparison later, as long as the previous firmware still runs.
 
@@ -128,13 +128,13 @@ ring changes. (On Kaeru units the Action button does nothing.)
 
 ```sh
 fastboot devices
-scripts/flash-dot.sh check     # product must be BISCUIT; lists the built images
+scripts/flash-gen2.sh check     # product must be BISCUIT (Dot) or RADAR (Echo); lists the built images
 ```
 
 ## 4. Flash the root filesystem
 
 ```sh
-scripts/flash-dot.sh root      # system_a <- sealed root, system_b cleared, userdata wiped
+scripts/flash-gen2.sh root      # system_a <- sealed root, system_b cleared, userdata wiped
 ```
 
 The script checks the image's signature first. LK accepts 109 MiB per download
@@ -146,7 +146,7 @@ Undo: Recovery. From here until step 5, the previous firmware no longer boots pr
 ## 5. Flash the boot image
 
 ```sh
-scripts/flash-dot.sh boot      # boot_a + boot_b <- Pinna, reboot
+scripts/flash-gen2.sh boot      # boot_a + boot_b <- Pinna, reboot
 ```
 
 Undo: Recovery.
@@ -252,7 +252,7 @@ switches by hand (as a trial).
 `boot_a` (kernel, initramfs) is not A/B and `pinnactl update` does not
 touch it. When `kernel/` or `crates/pinna-init/` changed, also flash the new
 boot image once the updated slot is marked good: `pinna-bootctl
-reboot-bootloader` on the device, then `scripts/flash-dot.sh boot` (step 5).
+reboot-bootloader` on the device, then `scripts/flash-gen2.sh boot` (step 5).
 When the release key changed, `pinnactl update` cannot help: flash root and
 boot together (steps 3–5). Keep your `keys/release.pub` when pulling: a
 different key in the tree builds a pinna-init that rejects your root images.
@@ -263,7 +263,7 @@ Any time, from fastboot (Volume Down + plug in, or `pinna-bootctl
 reboot-bootloader` on a running Pinna):
 
 ```sh
-scripts/flash-dot.sh restore <backup dir>/partitions
+scripts/flash-gen2.sh restore <backup dir>/partitions
 ```
 
 restores the previous firmware exactly from the step 1 backup (boot_a, boot_b, system_a,

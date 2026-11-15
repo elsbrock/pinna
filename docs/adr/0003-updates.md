@@ -120,7 +120,7 @@ needs no partition renames and no boot loader support.
   and `system_a` together by hand: a new pinna-init rejects slots signed with
   the old key (and stays in rescue mode, ADR 0012), and the running updater only
   accepts images signed with the key it was built with.
-- Root images carry ~0.8 % hash tree + 4 KiB. `flash-dot.sh root` clears the
+- Root images carry ~0.8 % hash tree + 4 KiB. `flash-gen2.sh root` clears the
   head of `system_b` so a fresh flash boots slot a whatever misc says.
 - On a slot that is already good, a failed health check also reboots: into
   fastboot with the guard, in a loop without it (no Kaeru payload).

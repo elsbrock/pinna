@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Flash Pinna onto an Echo Dot (2nd gen, "biscuit") that is in fastboot mode
-# (hold Volume Down while plugging in the micro-USB cable).
+# Flash Pinna onto an Echo (2nd gen, "radar") or an Echo Dot (2nd gen,
+# "biscuit") that is in fastboot mode (hold Volume Down while plugging the
+# device in).
 #
-#   scripts/flash-dot.sh check        # read-only: device, partition sizes, artifacts
-#   scripts/flash-dot.sh root         # system_a <- sealed slot image, clear system_b, wipe userdata
-#   scripts/flash-dot.sh try          # RAM-boot the Pinna kernel once (nothing written)
-#   scripts/flash-dot.sh boot         # boot_a + boot_b <- Pinna boot image (persistent)
-#   scripts/flash-dot.sh restore DIR  # put the previous firmware back from a backup's partitions/
+#   scripts/flash-gen2.sh check        # read-only: device, partition sizes, artifacts
+#   scripts/flash-gen2.sh root         # system_a <- sealed slot image, clear system_b, wipe userdata
+#   scripts/flash-gen2.sh try          # RAM-boot the Pinna kernel once (nothing written)
+#   scripts/flash-gen2.sh boot         # boot_a + boot_b <- Pinna boot image (persistent)
+#   scripts/flash-gen2.sh restore DIR  # put the previous firmware back from a backup's partitions/
 #
 # Only boot_a, boot_b, system_a, system_b and userdata are ever written. Never
 # touched: preloader/boot areas, lk_a/lk_b, tee1/tee2, expdb (Kaeru), persist,
@@ -28,10 +29,14 @@ confirm() {
 var() { $fb getvar "$1" 2>&1 | awk -F': ' -v k="$1" '$1==k {print $2; exit}' | tr -d '\r'; }
 
 need_device() {
-  [ -n "$($fb devices)" ] || die "no fastboot device (hold Volume Down while plugging in)"
+  [ -n "$($fb devices)" ] || die "no fastboot device (hold Volume Down while plugging the device in)"
   local product
   product=$(var product)
-  [ "$product" = BISCUIT ] || die "fastboot product is '${product:-?}', expected BISCUIT (Echo Dot 2nd gen)"
+  case "$product" in
+    BISCUIT) model="Echo Dot (2nd gen)" ;;
+    RADAR)   model="Echo (2nd gen)" ;;
+    *) die "fastboot product is '${product:-?}', expected BISCUIT (Echo Dot 2nd gen) or RADAR (Echo 2nd gen)" ;;
+  esac
 }
 
 need_file() { [ -s "$1" ] || die "missing $1 ($2)"; }
@@ -40,6 +45,7 @@ case "${1:-}" in
   check)
     need_device
     say "device"
+    printf '  %-28s %s\n' model "$model"
     for v in product serialno unlocked max-download-size partition-size:boot_a partition-size:system_a partition-size:system_b partition-size:userdata; do
       printf '  %-28s %s\n' "$v" "$(var "$v")"
     done
