@@ -77,11 +77,13 @@ initramfs-x86:
     mkdir -p {{build}}
     cargo run -q -p pinna-bootimg -- initramfs --init target/x86_64-unknown-linux-musl/release/pinna-init --out {{build}}/initramfs-x86.cpio
 
-# boot image for boot_a: kernel + known-good DTB + initramfs (pinna-init)
+# boot image for boot_a: kernel + DTB from the kernel build + initramfs (pinna-init)
+# The Echo Dot (2nd gen) boots the radar-puffin device tree (the Echo 2nd gen's);
+# it decompiles identically to the DTB in the known-good LibreEcho boot_a.
 bootimg: initramfs
     cargo run -q -p pinna-bootimg -- pack \
         --zimage {{build}}/kernel/arch/arm/boot/zImage \
-        --dtb blobs/boot/libreecho-biscuit.dtb \
+        --dtb {{build}}/kernel/arch/arm/boot/dts/libreecho-radar-puffin.dtb \
         --ramdisk {{build}}/initramfs.cpio \
         --out {{build}}/pinna-boot.img
     cargo run -q -p pinna-bootimg -- info {{build}}/pinna-boot.img

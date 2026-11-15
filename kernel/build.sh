@@ -103,7 +103,8 @@ mkdir -p "$pkgroot/DEBIAN" "$pkgroot/boot" "$pkgroot/usr/lib/linux-image-$krel"
 install -m0644 "$out/arch/arm/boot/zImage" "$pkgroot/boot/vmlinuz-$krel"
 install -m0644 "$out/.config" "$pkgroot/boot/config-$krel"
 install -m0644 "$out/System.map" "$pkgroot/boot/System.map-$krel"
-# Device trees built from the tree (the boot image uses the known-good DTB from blobs/).
+# Device trees built from the tree. The boot image uses libreecho-radar-puffin.dtb
+# from the build directory (see the justfile's bootimg).
 find "$out/arch/arm/boot/dts" -maxdepth 1 -name 'libreecho-*.dtb' -exec install -m0644 {} "$pkgroot/usr/lib/linux-image-$krel/" \;
 version=$(git -C "$src" rev-parse --short=10 HEAD)
 cat > "$pkgroot/DEBIAN/control" <<EOF

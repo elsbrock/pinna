@@ -32,8 +32,13 @@ Device facts that constrain the design:
   injected root is ignored. Originally no initramfs: the boot image carried a
   placeholder cpio without `/init` so LK still saw a ramdisk. Since ADR 0003
   the ramdisk is the pinna-init initramfs (slot choice, dm-verity).
-- **Boot image:** Android v0, built by `pinna-bootimg` with the known-good DTB
-  from the device's original `boot_a` (byte-identical round-trip verified).
+- **Boot image:** Android v0, built by `pinna-bootimg` (byte-identical
+  round-trip verified). The DTB is `libreecho-radar-puffin.dtb` from our own
+  kernel build: the Echo Dot (2nd gen) boots the same device tree as the Echo
+  (2nd gen). Amended 2026-11-15: until then the boot image used a DTB extracted
+  from the device's original LibreEcho `boot_a`; the kernel-built one
+  decompiles (`dtc -I dtb -O dts`) to the identical tree, so the build no
+  longer needs a file from another firmware.
 - **Safety net:** a one-shot `bootonce-bootloader` in `misc` armed early each
   boot and cleared once healthy (dev images); since ADR 0003 not during the
   trial boot of a new slot that has a good fallback.
