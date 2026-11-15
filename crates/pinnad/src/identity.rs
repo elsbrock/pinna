@@ -170,6 +170,6 @@ mod tests {
         assert!(unit.contains("Type=_esphomelib._tcp"));
         assert!(unit.contains("Port=6053"));
         assert!(unit.contains("\"friendly_name=Echo Dot\""));
-        assert!(unit.contains("mac=02:00:00:0A:0B:0C"));
+        assert!(unit.contains("mac=02:00:00:0a:0b:0c"));
     }
 }
