@@ -53,6 +53,8 @@ and resamples the reference from the speaker clock to the microphone clock.
 WebRTC's delay estimator only absorbs the fixed offset between the two paths.
 The amp is switched on only once the PCM runs: the codec powers up while the
 PCM is prepared (~1.2 s), and an amp that is already on plays that as a crack.
+If the PCM's state can't be read, or it isn't running after 3 s, the amp is
+switched on anyway (with a warning) rather than leaving the speaker silent.
 
 - **Beamform first, then mono echo cancellation**: the usual design for small
   arrays and far cheaper than per-microphone AEC. The beamformer is LibreEcho's

@@ -58,8 +58,11 @@ request, the media lane gets 20 dB quieter, and returns afterwards.
 
 ## Volume
 
-The volume runs from 0 to 100 and is applied digitally. 1 is about −60 dB and
-100 is about −12 dB, so that the small speaker doesn't distort. 0 is silent.
+The volume runs from 0 to 100 and is applied digitally. 0 is silent, 1 is about
+−60 dB and 100 is about −12 dB. The Echo Dot's speaker gets 6 dB more, and
+above 70 also the extra gain of its stock firmware, up to +14.5 dB at 100. A
+limiter holds the peaks just under full scale, so loud replies and music
+don't clip.
 **Reply volume** lowers the voice lane relative to the volume, and is never
 louder than the volume.
 
