@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package pinna.v1;
+
+// Local control API of pinnad. Served on 127.0.0.1:7470 without authentication:
+// anyone who can reach the loopback interface can control the device.
+service DeviceService {
+  // Current state of the device.
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  // Set the speaker volume.
+  rpc SetVolume(SetVolumeRequest) returns (SetVolumeResponse);
+  // Set the software microphone mute (the hardware latch is read-only).
+  rpc SetMute(SetMuteRequest) returns (SetMuteResponse);
+  // Start a voice conversation, like pressing the action button.
+  rpc StartConversation(StartConversationRequest) returns (StartConversationResponse);
+  // Stop the current conversation, announcement or timer alarm.
+  rpc StopConversation(StopConversationRequest) returns (StopConversationResponse);
+  // Run a short LED animation cycle.
+  rpc LedTest(LedTestRequest) returns (LedTestResponse);
+  // Current state, then again on every change.
+  rpc WatchStatus(WatchStatusRequest) returns (stream WatchStatusResponse);
+}
+
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  PHASE_IDLE = 1;
+  PHASE_LISTENING = 2;
+  PHASE_THINKING = 3;
+  PHASE_SPEAKING = 4;
+}
+
+message Timer {
+  string id = 1;
+  string name = 2;
+  uint32 seconds_left = 3;
+  uint32 total_seconds = 4;
+  bool active = 5;
+}
+
+message WakeWord {
+  string phrase = 1;
+  // Wake word detection is currently armed (idle, unmuted, voice subscribed).
+  bool enabled = 2;
+}
+
+message Status {
+  string version = 1;
+  // ESPHome node name.
+  string name = 2;
+  string mac = 3;
+  uint64 uptime_seconds = 4;
+  Phase phase = 5;
+  // Muted by either source.
+  bool muted = 6;
+  bool hardware_muted = 7;
+  bool software_muted = 8;
+  // Logical volume 0..=100.
+  uint32 volume = 9;
+  // Home Assistant is connected to the ESPHome API.
+  bool ha_connected = 10;
+  // Home Assistant subscribed to voice assistant runs.
+  bool voice_subscribed = 11;
+  WakeWord wake_word = 12;
+  repeated Timer timers = 13;
+  // Resolved audio backend ("echodot", "pipewire", "wav", "none").
+  string audio_backend = 14;
+  // LED backend ("is31", "mock", "none").
+  string led_backend = 15;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  Status status = 1;
+}
+
+message SetVolumeRequest {
+  // 0..=100.
+  uint32 percent = 1;
+}
+
+message SetVolumeResponse {
+  Status status = 1;
+}
+
+message SetMuteRequest {
+  bool muted = 1;
+}
+
+message SetMuteResponse {
+  Status status = 1;
+}
+
+message StartConversationRequest {}
+
+message StartConversationResponse {
+  Status status = 1;
+}
+
+message StopConversationRequest {}
+
+message StopConversationResponse {
+  Status status = 1;
+}
+
+message LedTestRequest {}
+
+message LedTestResponse {}
+
+message WatchStatusRequest {}
+
+message WatchStatusResponse {
+  Status status = 1;
+}
