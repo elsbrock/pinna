@@ -951,7 +951,13 @@ mod tests {
         inputs.send(near(0.48, false)).await.unwrap();
         inputs.send(near(0.6, true)).await.unwrap();
         inputs.send(near(0.3, false)).await.unwrap();
-        inputs.send(Input::Wake { score: 0.62 }).await.unwrap();
+        inputs
+            .send(Input::Wake {
+                id: "alexa_v0.1".into(),
+                score: 0.62,
+            })
+            .await
+            .unwrap();
         let wake = set_mute(&c, false).await.wake_word.into_option().unwrap();
         // The default sensitivity, 68.
         assert!((wake.threshold - 0.5508).abs() < 1e-4);
@@ -1057,7 +1063,13 @@ mod tests {
         c.start_calibration(StartCalibrationRequest::default())
             .await
             .unwrap();
-        inputs.send(Input::Wake { score: 0.62 }).await.unwrap();
+        inputs
+            .send(Input::Wake {
+                id: "alexa_v0.1".into(),
+                score: 0.62,
+            })
+            .await
+            .unwrap();
         inputs.send(press(Button::VolumeDown)).await.unwrap();
         let s = set_mute(&c, false).await;
         assert_eq!(sensitivity(&s), 49);
