@@ -25,6 +25,12 @@ service DeviceService {
   rpc WatchStatus(WatchStatusRequest) returns (stream WatchStatusResponse);
   // Change runtime settings; the same as changing them in Home Assistant.
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+  // Start tuning the wake word sensitivity with the satellite's + and −
+  // buttons. Fails while the microphones are muted, the wake word is off, or
+  // a request or timer alarm is active.
+  rpc StartCalibration(StartCalibrationRequest) returns (StartCalibrationResponse);
+  // Stop it, keeping the sensitivity as it is; UpdateSettings undoes a change.
+  rpc StopCalibration(StopCalibrationRequest) returns (StopCalibrationResponse);
   // Network interfaces, addresses and Wi-Fi link.
   rpc GetNetwork(GetNetworkRequest) returns (GetNetworkResponse);
   // pinnad's recent log lines, then new ones as they are written.
@@ -61,6 +67,71 @@ message WakeWord {
   string phrase = 1;
   // Wake word detection is currently armed (idle, unmuted, voice subscribed).
   bool enabled = 2;
+  // The score a wake needs at the current sensitivity, 0..1.
+  float threshold = 3;
+  // Wakes and near misses while detection was armed, since pinnad started:
+  // oldest first, at most 20.
+  repeated WakeEvent recent = 4;
+  // Tuning with the satellite's buttons, while it runs.
+  Calibration calibration = 5;
+}
+
+// Sensitivity calibration from the satellite's + and − buttons, started from
+// the dashboard or Home Assistant. The buttons are volume buttons outside one.
+message Calibration {
+  // The sensitivity when calibration started, which Undo restores.
+  uint32 started_from = 1;
+  // What happened so far, oldest first, at most 10.
+  repeated CalibrationEvent events = 2;
+}
+
+message CalibrationEvent {
+  // Counts up from 1 within a calibration.
+  uint32 id = 1;
+  CalibrationEventKind kind = 2;
+  // The + (raise) or − button; false for a wake.
+  bool raise = 3;
+  // The wake's or near miss's score, when the press referred to one.
+  optional float score = 4;
+  // Sensitivity before and after; equal for an event that changed nothing.
+  uint32 from = 5;
+  uint32 to = 6;
+}
+
+enum CalibrationEventKind {
+  CALIBRATION_EVENT_KIND_UNSPECIFIED = 0;
+  // The detector woke; no request started.
+  CALIBRATION_EVENT_KIND_WOKE = 1;
+  // + raised the sensitivity, to catch a near miss.
+  CALIBRATION_EVENT_KIND_RAISED = 2;
+  // − lowered it, to ignore a false wake.
+  CALIBRATION_EVENT_KIND_LOWERED = 3;
+  // A press with nothing heard in the feedback window.
+  CALIBRATION_EVENT_KIND_NOTHING_HEARD = 4;
+  // A press no setting can fix: a near miss below what 100 catches, or one that
+  // reached the threshold and was rejected for another reason (+); a wake
+  // every setting accepts (−).
+  CALIBRATION_EVENT_KIND_NO_SETTING_HELPS = 5;
+  // Refused: the change would undo a press the other way, because the real wake
+  // and the false one score about the same here.
+  CALIBRATION_EVENT_KIND_WOULD_UNDO = 6;
+}
+
+// A wake, or a near miss: speech that scored at least 0.20 without waking the
+// satellite.
+message WakeEvent {
+  // Milliseconds since the Unix epoch.
+  uint64 unix_ms = 1;
+  bool woke = 2;
+  // The detector's peak score, 0..1.
+  float score = 3;
+  // The lowest sensitivity at which this score wakes the satellite; unset when
+  // even 100 doesn't.
+  optional uint32 wakes_from = 4;
+  // A near miss whose score reached the threshold, rejected by the detector's
+  // other rules (too quiet against the background noise, or too short). The
+  // sensitivity doesn't change that.
+  bool reached_threshold = 5;
 }
 
 message Status {
@@ -172,6 +243,18 @@ message UpdateSettingsRequest {
 }
 
 message UpdateSettingsResponse {
+  Status status = 1;
+}
+
+message StartCalibrationRequest {}
+
+message StartCalibrationResponse {
+  Status status = 1;
+}
+
+message StopCalibrationRequest {}
+
+message StopCalibrationResponse {
   Status status = 1;
 }
 

@@ -19,6 +19,7 @@ this table wins:
 | Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch in Home Assistant |
 | A violet light that runs around the ring | Home Assistant is working on your request |
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
+| A green arc | Wake word calibration runs. The arc shows the sensitivity, and the volume buttons tune it. It shows in place of a running timer's arc, a notification, the light and the music. See [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) |
 | An amber arc | A timer is running. The arc shows how much time is left |
 | Yellow, the whole ring slowly getting brighter and dimmer | A notification is waiting. See [Notifications](#notifications) |
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |
@@ -28,7 +29,8 @@ Two short signals appear on top of these states:
 
 | What you see | Meaning |
 | --- | --- |
-| Red, flashing three times | Something went wrong: Home Assistant refused or didn't answer the request, or the microphones are off when you press the Action button |
+| Red, flashing three times | Something went wrong: Home Assistant refused or didn't answer the request, the microphones are off when you press the Action button, or a calibration +/− press changed nothing |
+| Green, one flash | The wake word was heard while calibration runs. No request starts |
 | A light blue arc, for 1.5 seconds | The volume changed. The arc shows the new level |
 
 ### Use the ring as a light
@@ -230,13 +232,15 @@ Seen from above, with the front of the device towards you, the buttons are:
 
 | Button | Press | Hold |
 | --- | --- | --- |
-| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While a timer rings, stops it. While the ring shows a notification, clears it | Sends a `long_press` event to Home Assistant after 2 seconds |
-| Volume up | Raises the volume by 5 | Keeps raising the volume |
-| Volume down | Lowers the volume by 5 | Keeps lowering the volume |
+| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it | Sends a `long_press` event to Home Assistant after 2 seconds |
+| Volume up | Raises the volume by 5. While calibration runs, raises the wake word sensitivity to catch the strongest near miss heard in the last 15 seconds instead | Keeps raising the volume |
+| Volume down | Lowers the volume by 5. While calibration runs, lowers the wake word sensitivity to ignore the last wake instead | Keeps lowering the volume |
 | Microphone off | Turns the microphones off or on | Nothing |
 
 Every press also sends an event to Home Assistant, so you can use the buttons
-in automations. See [Home Assistant entities](/docs/entities/#events).
+in automations. While calibration runs, the volume buttons tune the
+sensitivity instead and don't send theirs. See
+[Home Assistant entities](/docs/entities/#events).
 
 ### Microphone off
 

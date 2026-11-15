@@ -62,6 +62,12 @@ impl WakeConfig {
     pub fn threshold_for_sensitivity(sensitivity: u8) -> f32 {
         (0.85 - f32::from(sensitivity) * 0.0044).clamp(0.30, 0.85)
     }
+
+    /// The lowest sensitivity whose threshold `score` reaches, or `None` when
+    /// even 100's is higher.
+    pub fn min_sensitivity_for(score: f32) -> Option<u8> {
+        (0..=100).find(|&s| score >= Self::threshold_for_sensitivity(s))
+    }
 }
 
 /// A completed wake word detection.
@@ -430,6 +436,20 @@ mod tests {
         assert_eq!(WakeConfig::threshold_for_sensitivity(0), 0.85);
         assert!((WakeConfig::threshold_for_sensitivity(100) - 0.41).abs() < 1e-6);
         assert!((WakeConfig::threshold_for_sensitivity(75) - 0.52).abs() < 1e-6);
+    }
+
+    #[test]
+    fn min_sensitivity_for_a_score() {
+        // 68 gives 0.5508, so 0.55 first passes at 69.
+        assert_eq!(WakeConfig::min_sensitivity_for(0.55), Some(69));
+        assert_eq!(WakeConfig::min_sensitivity_for(0.9), Some(0));
+        assert_eq!(WakeConfig::min_sensitivity_for(0.42), Some(98));
+        assert_eq!(WakeConfig::min_sensitivity_for(0.40), None);
+        for score in [0.45, 0.5, 0.62, 0.7, 0.8] {
+            let s = WakeConfig::min_sensitivity_for(score).unwrap();
+            assert!(score >= WakeConfig::threshold_for_sensitivity(s));
+            assert!(score < WakeConfig::threshold_for_sensitivity(s - 1));
+        }
     }
 
     #[test]

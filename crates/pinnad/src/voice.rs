@@ -2,10 +2,10 @@
 //! over the ESPHome API → TTS playback, plus timers, announcements, mute, the
 //! light entity and volume. Single task, all inputs arrive on one channel.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use pinna_audio::beamview::{self, BeamViewReader};
 use pinna_audio::{MediaPhase, MediaState, Speaker, tone};
@@ -18,6 +18,7 @@ use pinna_hal::buttons::{Button, ButtonEvent};
 use pinna_hal::led::Rgb;
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::calibration::{Calibration, Event as CalibrationEvent};
 use crate::leds::{self, LedState, LightEffect};
 use crate::settings::{Settings, Store};
 
@@ -42,6 +43,13 @@ pub enum Input {
     Wake {
         score: f32,
     },
+    /// An utterance scored at least the detector's support level without a
+    /// detection, while detection was armed.
+    NearMiss {
+        score: f32,
+        /// The score reached the threshold; the detector's other rules rejected it.
+        reached_threshold: bool,
+    },
     PlaybackDone {
         token: u64,
         ok: bool,
@@ -63,6 +71,8 @@ pub enum ApiCommand {
     LedTest(ApiReply),
     UpdateSettings(SettingsPatch, ApiReply),
     ClearNotification(ApiReply),
+    StartCalibration(ApiReply),
+    StopCalibration(ApiReply),
 }
 
 /// Settings to change from the API; `None` leaves a setting as it is.
@@ -71,6 +81,29 @@ pub struct SettingsPatch {
     pub wake_word: Option<bool>,
     pub wake_sensitivity: Option<u8>,
     pub led_brightness: Option<u8>,
+}
+
+/// A wake or a near miss, for the dashboard's recent list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WakeRecord {
+    pub unix_ms: u64,
+    pub woke: bool,
+    pub score: f32,
+    pub reached_threshold: bool,
+}
+
+impl WakeRecord {
+    fn now(woke: bool, score: f32, reached_threshold: bool) -> Self {
+        let unix_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        Self {
+            unix_ms,
+            woke,
+            score,
+            reached_threshold,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,6 +133,19 @@ pub struct Snapshot {
     /// A finished timer's alarm is sounding (finished timers leave `timers`).
     pub alarm_ringing: bool,
     pub settings: crate::settings::Settings,
+    /// Wakes and near misses, oldest first.
+    pub recent_wakes: Vec<WakeRecord>,
+    /// The sensitivity tuning from the device's buttons, while it runs.
+    pub calibration: Option<CalibrationSnapshot>,
+}
+
+/// A running calibration, as the API shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalibrationSnapshot {
+    /// The sensitivity when calibration started, for undo.
+    pub started_from: u8,
+    /// What happened so far, oldest first.
+    pub events: Vec<CalibrationEvent>,
 }
 
 impl Default for Snapshot {
@@ -115,6 +161,8 @@ impl Default for Snapshot {
             timers: Vec::new(),
             alarm_ringing: false,
             settings: crate::settings::Settings::default(),
+            recent_wakes: Vec::new(),
+            calibration: None,
         }
     }
 }
@@ -146,6 +194,8 @@ enum PlaybackKind {
 
 /// Two presses of the same button within this window form a double press.
 const DOUBLE_PRESS: Duration = Duration::from_millis(400);
+/// Wakes and near misses kept for the dashboard.
+const RECENT_WAKES: usize = 20;
 
 struct HaTimer {
     name: String,
@@ -231,6 +281,10 @@ pub struct Brain {
     talker: leds::Talker,
     /// When the speaker last stopped playing a chime, reply or announcement.
     speaker_quiet_since: Instant,
+    /// Wakes and near misses, oldest first.
+    recent_wakes: VecDeque<WakeRecord>,
+    /// The sensitivity tuning with the device's buttons, while it runs.
+    calibration: Option<Calibration>,
 }
 
 const START_TIMEOUT: Duration = Duration::from_secs(5);
@@ -313,6 +367,8 @@ impl Brain {
             beams: BeamViewReader::new(beamview::PATH),
             talker: leds::Talker::default(),
             speaker_quiet_since: Instant::now(),
+            recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
+            calibration: None,
         }
     }
 
@@ -366,13 +422,32 @@ impl Brain {
             Input::Wake { score } => {
                 tracing::info!("wake word detected (score {score:.2})");
                 if self.phase == Phase::Idle && self.ringing.is_none() && !self.muted() {
-                    self.send(DeviceEvent::TextSensorState {
-                        object_id: "last_wake_word".into(),
-                        value: self.opts.wake_phrase.clone(),
-                    })
-                    .await;
-                    self.event("voice_assistant", "wake_word").await;
-                    self.start_run(Some(self.opts.wake_phrase.clone())).await;
+                    self.record_wake(WakeRecord::now(true, score, false));
+                    if let Some(c) = &mut self.calibration {
+                        // Calibration acknowledges the wake itself: no request.
+                        c.woke(score, self.settings.wake_sensitivity, Instant::now());
+                        self.overlay(Effect::CalibrationHeard);
+                        if self.opts.wake_sound {
+                            self.play_pcm(tone::wake_chime(), PlaybackKind::Cue);
+                        }
+                    } else {
+                        self.send(DeviceEvent::TextSensorState {
+                            object_id: "last_wake_word".into(),
+                            value: self.opts.wake_phrase.clone(),
+                        })
+                        .await;
+                        self.event("voice_assistant", "wake_word").await;
+                        self.start_run(Some(self.opts.wake_phrase.clone())).await;
+                    }
+                }
+            }
+            Input::NearMiss {
+                score,
+                reached_threshold,
+            } => {
+                self.record_wake(WakeRecord::now(false, score, reached_threshold));
+                if let Some(c) = &mut self.calibration {
+                    c.near_miss(score, Instant::now());
                 }
             }
             Input::Button(ev) => self.button(ev).await,
@@ -454,6 +529,11 @@ impl Brain {
                 }
                 (Ok(()), reply)
             }
+            ApiCommand::StartCalibration(reply) => (self.set_calibration(true).await, reply),
+            ApiCommand::StopCalibration(reply) => {
+                let _ = self.set_calibration(false).await;
+                (Ok(()), reply)
+            }
         };
         self.refresh();
         let _ = reply.send(result.map(|()| self.snapshot()));
@@ -489,7 +569,19 @@ impl Brain {
             timers,
             alarm_ringing: self.ringing.is_some(),
             settings: self.settings.clone(),
+            recent_wakes: self.recent_wakes.iter().cloned().collect(),
+            calibration: self.calibration.as_ref().map(|c| CalibrationSnapshot {
+                started_from: c.started_from,
+                events: c.events.iter().copied().collect(),
+            }),
         }
+    }
+
+    fn record_wake(&mut self, record: WakeRecord) {
+        if self.recent_wakes.len() == RECENT_WAKES {
+            self.recent_wakes.pop_front();
+        }
+        self.recent_wakes.push_back(record);
     }
 
     // --- Home Assistant -----------------------------------------------------
@@ -517,6 +609,8 @@ impl Brain {
                     on: self.settings.notification,
                 })
                 .await;
+                self.send_calibration_switch(self.calibration.is_some())
+                    .await;
                 self.send_media_state().await;
             }
             HaCommand::ClientDisconnected => {
@@ -612,6 +706,12 @@ impl Brain {
             }
             HaCommand::Switch { object_id, on } if object_id == "notification" => {
                 self.set_notification(on).await;
+            }
+            HaCommand::Switch { object_id, on } if object_id == "wake_word_calibration" => {
+                if let Err(why) = self.set_calibration(on).await {
+                    tracing::info!("calibration: not started: {why}");
+                    self.send_calibration_switch(false).await;
+                }
             }
             HaCommand::Button { object_id } if object_id == "cancel_request" => {
                 tracing::info!("cancel requested by Home Assistant");
@@ -781,14 +881,25 @@ impl Brain {
                     self.last_press.insert(b, now);
                 }
                 let kind = if double { "double_press" } else { "press" };
-                self.event(button_entity(b), kind).await;
+                if !self.calibration_feedback(b) {
+                    self.event(button_entity(b), kind).await;
+                }
             }
-            ButtonEvent::LongPress(b) => self.event(button_entity(b), "long_press").await,
+            ButtonEvent::LongPress(b) if !self.calibration_feedback(b) => {
+                self.event(button_entity(b), "long_press").await;
+            }
             _ => {}
         }
         match ev {
             ButtonEvent::Press(b @ (Button::VolumeUp | Button::VolumeDown))
             | ButtonEvent::Repeat(b @ (Button::VolumeUp | Button::VolumeDown)) => {
+                if self.calibration.is_some() {
+                    // One press, one change: holding must not fire after press.
+                    if matches!(ev, ButtonEvent::Press(_)) {
+                        self.calibrate(b == Button::VolumeUp).await;
+                    }
+                    return;
+                }
                 if self.speaker.is_none() {
                     return;
                 }
@@ -806,6 +917,8 @@ impl Brain {
                     tracing::info!("timer alarm dismissed");
                     self.ringing = None;
                     self.stop_playback();
+                } else if self.calibration.is_some() {
+                    self.end_calibration().await;
                 } else if self.phase != Phase::Idle {
                     tracing::info!("run cancelled by button");
                     self.abort_run(true).await;
@@ -929,11 +1042,89 @@ impl Brain {
         tracing::info!("wake word detection: {on}");
         self.settings.wake_word = on;
         self.store.save(&self.settings);
+        if !on && self.calibration.is_some() {
+            self.end_calibration().await;
+        }
         self.send(DeviceEvent::SwitchState {
             object_id: "wake_word".into(),
             on,
         })
         .await;
+    }
+
+    async fn send_calibration_switch(&self, on: bool) {
+        self.send(DeviceEvent::SwitchState {
+            object_id: "wake_word_calibration".into(),
+            on,
+        })
+        .await;
+    }
+
+    /// Calibration on the device, from the dashboard or Home Assistant.
+    async fn set_calibration(&mut self, on: bool) -> Result<(), String> {
+        if !on {
+            self.end_calibration().await;
+            return Ok(());
+        }
+        if self.calibration.is_some() {
+            return Ok(());
+        }
+        if self.muted() {
+            return Err("the microphones are muted".to_string());
+        }
+        if !self.settings.wake_word {
+            return Err("the wake word is turned off".to_string());
+        }
+        if self.ringing.is_some() || self.phase != Phase::Idle {
+            return Err("a conversation or timer alarm is already active".to_string());
+        }
+        tracing::info!(
+            "calibration: started at sensitivity {}",
+            self.settings.wake_sensitivity
+        );
+        self.calibration = Some(Calibration::start(
+            self.settings.wake_sensitivity,
+            Instant::now(),
+        ));
+        self.send_calibration_switch(true).await;
+        Ok(())
+    }
+
+    /// End calibration; the sensitivity keeps its value.
+    async fn end_calibration(&mut self) {
+        if self.calibration.take().is_some() {
+            tracing::info!("calibration: ended");
+        }
+        self.send_calibration_switch(false).await;
+    }
+
+    /// While calibrating, the volume buttons give feedback instead of firing
+    /// their Home Assistant events.
+    fn calibration_feedback(&self, b: Button) -> bool {
+        self.calibration.is_some() && matches!(b, Button::VolumeUp | Button::VolumeDown)
+    }
+
+    /// A + or − press on the device while calibrating: move the sensitivity by
+    /// what the press refers to, or say why nothing changed.
+    async fn calibrate(&mut self, raise: bool) {
+        let current = self.settings.wake_sensitivity;
+        let now = Instant::now();
+        let result = match &mut self.calibration {
+            Some(c) if raise => c.raise(current, now),
+            Some(c) => c.lower(current, now),
+            None => return,
+        };
+        match result {
+            Ok(to) => {
+                tracing::info!("calibration: sensitivity {current} -> {to}");
+                self.number("wake_word_sensitivity".into(), f32::from(to))
+                    .await;
+            }
+            Err(why) => {
+                tracing::info!("calibration: {why:?}, no change");
+                self.error_feedback();
+            }
+        }
     }
 
     async fn number(&mut self, object_id: String, value: f32) {
@@ -1160,6 +1351,9 @@ impl Brain {
         }
         let m = self.muted();
         self.shared.muted.store(m, Ordering::SeqCst);
+        if m && self.calibration.is_some() {
+            self.end_calibration().await;
+        }
         if m && self.phase != Phase::Idle {
             self.abort_run(true).await;
         }
@@ -1307,6 +1501,9 @@ impl Brain {
             }
             _ => {}
         }
+        if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
+            self.end_calibration().await;
+        }
         if !self.boot_done && now - self.booted_at > BOOT_ANIMATION {
             self.boot_done = true;
         }
@@ -1362,6 +1559,9 @@ impl Brain {
             Effect::Muted
         } else if self.ringing.is_some() {
             Effect::TimerRinging
+        } else if self.calibration.is_some() && self.phase == Phase::Idle {
+            // Calibration shows where the sensitivity stands.
+            Effect::Calibration(self.settings.wake_sensitivity)
         } else {
             match self.phase {
                 // A media player announcement speaks without a run.
@@ -1422,10 +1622,11 @@ impl Brain {
                 s.duck(duck);
             }
         }
+        // Calibration wakes start no request, so they don't need a pipeline.
         let wake = self.phase == Phase::Idle
             && !muted
             && self.settings.wake_word
-            && self.voice_subscribed
+            && (self.voice_subscribed || self.calibration.is_some())
             && self.ringing.is_none()
             && self.boot_done;
         self.shared.wake_enabled.store(wake, Ordering::SeqCst);

@@ -25,9 +25,13 @@ pub const EQUALIZER: [Rgb; RING_PIXELS / 2] = [
 /// Pending notification: Alexa's yellow, greener than the timers' amber.
 /// To be settled by eye on the device, next to a running timer arc.
 pub const NOTIFICATION: Rgb = Rgb::new(255, 215, 0);
+/// Wake word calibration: an arc in its own colour, away from the volume's.
+pub const CALIBRATION: Rgb = Rgb::new(120, 230, 170);
 
 /// How long the volume meter is held.
 pub const VOLUME_HOLD: Duration = Duration::from_millis(1500);
+/// How long a wake word heard during calibration flashes.
+const HEARD_FLASH: Duration = Duration::from_millis(600);
 const ERROR_FLASH: Duration = Duration::from_millis(250);
 const ERROR_FLASHES: u32 = 3;
 const BOOT_DURATION: Duration = Duration::from_millis(1200);
@@ -65,6 +69,10 @@ pub enum Effect {
     Notification,
     /// The notification was cleared: one bright flash that fades out.
     NotificationCleared,
+    /// Wake word calibration runs: the arc shows sensitivity 0..=100.
+    Calibration(u8),
+    /// The wake word was heard while calibrating: one flash.
+    CalibrationHeard,
     Boot,
     /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
     Equalizer([f32; RING_PIXELS]),
@@ -79,6 +87,7 @@ impl Effect {
             Effect::Volume(_) => Some(VOLUME_HOLD),
             Effect::Boot => Some(BOOT_DURATION),
             Effect::NotificationCleared => Some(CLEARED_FADE),
+            Effect::CalibrationHeard => Some(HEARD_FLASH),
             _ => None,
         }
     }
@@ -145,6 +154,14 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
         Effect::NotificationCleared => {
             let left = 1.0 - t.as_secs_f32() / CLEARED_FADE.as_secs_f32();
             solid(NOTIFICATION.scaled(left.max(0.0)))
+        }
+        Effect::Calibration(level) => arc(CALIBRATION, f32::from(level.min(100)) / 100.0),
+        Effect::CalibrationHeard => {
+            if effect.is_finished(t) {
+                return solid(Rgb::OFF);
+            }
+            let left = 1.0 - t.as_secs_f32() / HEARD_FLASH.as_secs_f32();
+            solid(CALIBRATION.scaled(left.max(0.0)))
         }
         Effect::Boot => {
             if effect.is_finished(t) {
@@ -389,6 +406,27 @@ mod tests {
     }
 
     #[test]
+    fn calibration_arc_tracks_the_sensitivity() {
+        let f = render(Effect::Calibration(50), ms(0));
+        assert_eq!(f[0], CALIBRATION);
+        assert_eq!(f[5], CALIBRATION);
+        assert_ne!(f[6], CALIBRATION);
+        assert_eq!(render(Effect::Calibration(100), ms(0))[11], CALIBRATION);
+        let zero = render(Effect::Calibration(0), ms(0));
+        assert!(zero.iter().all(|p| p.g < 12));
+        assert_ne!(CALIBRATION, VOLUME);
+    }
+
+    #[test]
+    fn a_heard_wake_flashes_once() {
+        assert_eq!(render(Effect::CalibrationHeard, ms(0)), solid(CALIBRATION));
+        let mid = render(Effect::CalibrationHeard, ms(300))[0];
+        assert!(mid.g > 50 && mid.g < 220, "{mid:?}");
+        assert!(Effect::CalibrationHeard.is_finished(ms(600)));
+        assert_eq!(lit(&render(Effect::CalibrationHeard, ms(600))), 0);
+    }
+
+    #[test]
     fn notification_cleared_flashes_and_fades() {
         assert_eq!(
             render(Effect::NotificationCleared, ms(0)),
@@ -430,6 +468,7 @@ mod tests {
             Effect::TimerRinging,
             Effect::Equalizer([1.0; 12]),
             Effect::Notification,
+            Effect::Calibration(50),
         ] {
             assert!(!e.is_finished(Duration::from_secs(3600)));
         }

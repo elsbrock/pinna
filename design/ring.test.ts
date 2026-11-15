@@ -87,6 +87,21 @@ test("notification cleared flashes, then fades out", () => {
   assert.equal(lit(ringFrame("notification-cleared", 400)), 0);
 });
 
+test("calibration arc tracks the sensitivity", () => {
+  const f = ringFrame("calibration", 0, 50);
+  assert.ok(full(f, 0, LED.calibration) && full(f, 5, LED.calibration) && !full(f, 6, LED.calibration));
+  assert.ok(full(ringFrame("calibration", 0, 100), 11, LED.calibration));
+  assert.ok(ringFrame("calibration", 0, 0).every((p) => p.level <= 0.04));
+  assert.notDeepEqual(LED.calibration, LED.volume);
+});
+
+test("a heard wake flashes once", () => {
+  assert.ok(full(ringFrame("calibration-heard", 0), 0, LED.calibration));
+  const mid = ringFrame("calibration-heard", 300)[0].level;
+  assert.ok(mid > 0.4 && mid < 0.6, `${mid}`);
+  assert.equal(lit(ringFrame("calibration-heard", 600)), 0);
+});
+
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);

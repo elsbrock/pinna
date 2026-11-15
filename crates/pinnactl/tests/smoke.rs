@@ -120,6 +120,22 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn start_calibration(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StartCalibrationRequest>,
+    ) -> ServiceResult<StartCalibrationResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn stop_calibration(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StopCalibrationRequest>,
+    ) -> ServiceResult<StopCalibrationResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn get_network(
         &self,
         _: RequestContext,

@@ -16,10 +16,11 @@ a device named **Echo Dot**.
 | Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button |
 | Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The Action button still starts a request |
 | Listening direction | `listening_direction` | Switch (configuration) | On, off | While the device listens, points the light ring at the person speaking. Off shows the plain listening ring. On by default |
+| Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | Notification | `notification` | Switch | On, off | Turn it on to show a waiting notification on the ring. It turns off when someone clears it on the device or the dashboard. See [Notifications](/docs/ring-and-buttons/#notifications) |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
 | Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements relative to the speaker volume. Replies are never louder than the speaker volume |
-| Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68 |
+| Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68. The dashboard's [Wake word page](/docs/dashboard/#tune-the-wake-word) shows which setting catches or ignores each recent wake and near miss |
 | LED brightness | `led_brightness` | Number | 0 to 100, in % | Sets the brightness of the whole ring |
 | Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
 | Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
@@ -49,7 +50,9 @@ Events don't have a state. Use them as triggers in automations.
 | Notification | `notification` | `cleared` | Someone clears the notification with the Action button or on the dashboard. It doesn't fire when Home Assistant turns the switch off |
 
 A `double_press` fires when you press the same button twice within 0.4
-seconds. The button still does its normal job for both presses.
+seconds. The button still does its normal job for both presses. While wake
+word calibration runs, the volume buttons tune the sensitivity instead and
+don't fire their events.
 
 ## Media player
 

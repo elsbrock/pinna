@@ -144,6 +144,13 @@ class Device {
   clearNotification() {
     return this.#command(() => client.clearNotification({}), "Notification cleared");
   }
+  /** Tune the wake word sensitivity with the satellite's + and − buttons. */
+  startCalibration() {
+    return this.#command(() => client.startCalibration({}), "Calibrating");
+  }
+  stopCalibration() {
+    return this.#command(() => client.stopCalibration({}), "Calibration done");
+  }
   /** Ask for a restart; returns why it failed, for the caller to show. */
   async restart(): Promise<string | null> {
     this.busy = true;

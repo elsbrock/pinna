@@ -2,6 +2,7 @@
   import type { Effect } from "../../../design/ring.ts";
   import { device } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
+  import Icon from "../lib/Icon.svelte";
   import Ring from "../lib/Ring.svelte";
   import Slider from "../lib/Slider.svelte";
   import SwitchRow from "../lib/SwitchRow.svelte";
@@ -38,15 +39,14 @@
       hint={wakeHint(s)}
       toggle={(on) => device.updateSettings({ wakeWord: on })}
     />
-    <div class="pn-row is-stack">
-      <Slider
-        label="Sensitivity"
-        value={set.wakeSensitivity}
-        disabled={!live}
-        hint="Higher wakes more easily, and more often by mistake."
-        commit={(v) => device.updateSettings({ wakeSensitivity: v })}
-      />
-    </div>
+    <a class="pn-row" href="#/voice/wake-word">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Sensitivity</span>
+        <span class="pn-row-hint">How easily it wakes, its recent wakes, and tuning it from the satellite's buttons</span>
+      </span>
+      <span class="pn-row-value is-mono">{set.wakeSensitivity}</span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
   </Group>
 
   <Group title="Microphones">

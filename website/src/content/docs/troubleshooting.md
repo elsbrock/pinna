@@ -79,7 +79,7 @@ Check each condition with `pinnactl status`:
 | --- | --- | --- |
 | `muted` | `no` | Press the **Microphone off** button, or run `pinnactl mute off` |
 | `home assistant` | `connected, voice subscribed` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/) |
-| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant. The wake word is also off while a request runs or a timer rings |
+| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while a request runs or a timer rings |
 | `audio` | Anything but `none` | `none` means Pinna found no audio device. Check for `microphone unavailable` in the log |
 
 If all lines look right:
@@ -88,17 +88,40 @@ If all lines look right:
   `wake word disabled: …` means the model files are missing. Run
   `just models`, build the image again, and install it with
   [Update Pinna](/docs/update/).
-- Watch the log while you say the wake word:
+- Test the wake word on the dashboard's **Wake word** page:
 
-  ```sh
-  journalctl -f -u pinnad
-  ```
+  1. Open **Voice & sound > Sensitivity** in the
+     [dashboard](/docs/dashboard/#tune-the-wake-word).
+  2. Say the wake word from where you usually speak. Wait until the ring is
+     off between tries.
+  3. Each try shows in **Recent wakes**. A try that wakes the device shows at
+     once. Don't select its **Set to** button: that is for false wakes. A near
+     miss shows after about two seconds, with the setting that catches it.
+     **Set to** sets it.
+  4. If a try doesn't show, its score was below 0.20, and no setting helps.
+     Speak closer, or with less noise around.
 
-  Each detection logs `wake word detected (score …)`. If nothing appears,
-  raise **Wake word sensitivity** in Home Assistant. If the device triggers
-  too often, lower it.
-- Press the **Action** button. If a request starts, the microphones and Home
-  Assistant work, and only the wake word detection needs attention.
+  You can tune with feedback at the device too: select **Calibrate** on the
+  same page, then press **+** when it missed you and **−** when it woke by
+  itself, as
+  [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device)
+  describes. The ring flashes green on every wake while it runs.
+
+  The log shows the scores too, in the lines `wake word detected (score …)`
+  and `wake word near miss: peak score …`.
+
+## The device wakes by itself
+
+1. Soon after it happens, open **Voice & sound > Sensitivity** in the
+   [dashboard](/docs/dashboard/#tune-the-wake-word). **Recent wakes** keeps
+   only the last 20 entries, and it starts again when `pinnad` or the device
+   restarts.
+2. Find the wake in **Recent wakes** by its time, and select its **Set to**
+   button. The entry says what else the new setting changes. If it also
+   ignores your own wakes, no setting fixes both. Move the device away from the
+   TV or the radio instead.
+3. If the entry says **Every setting wakes on this**, move the device away
+   from the sound, or turn off the wake word while it plays.
 
 ## The ring flashes red three times
 

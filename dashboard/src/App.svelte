@@ -16,6 +16,7 @@
   import Overview from "./pages/Overview.svelte";
   import System from "./pages/System.svelte";
   import Voice from "./pages/Voice.svelte";
+  import WakeWord from "./pages/WakeWord.svelte";
 
   const s = $derived(device.status);
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
@@ -126,6 +127,7 @@
         <Overview />
       {:else}
         {#if page.path === "/voice"}<Voice />
+        {:else if page.path === "/voice/wake-word"}<WakeWord />
         {:else if page.path === "/home-assistant"}<HomeAssistant />
         {:else if page.path === "/network"}<Network />
         {:else if page.path === "/system"}<System />

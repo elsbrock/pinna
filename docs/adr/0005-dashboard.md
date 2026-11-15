@@ -56,6 +56,8 @@ Constraints:
   - status and controls
   - settings (wake word, sensitivity, ring brightness), through the same paths
     as Home Assistant's entities
+  - tuning the wake word sensitivity with the device's + and − buttons, until
+    the calibration ends
   - the network (read-only)
   - pinnad's journal at info level and above (debug lines can carry transcripts)
   - the A/B slots
@@ -73,6 +75,9 @@ Constraints:
   - change the volume, the settings and the software microphone switch (the
     hardware microphone switch stays out of reach)
   - start a conversation, stop an alarm and clear a waiting notification
+  - start a wake word calibration, which takes the volume buttons over and
+    keeps the wake word from starting requests until it ends, 5 minutes after
+    the last + or − press
   - read pinnad's log and the network details
   - run the ring's test pattern
   - restart the satellite

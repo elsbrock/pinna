@@ -7,16 +7,23 @@
     hint,
     disabled = false,
     commit,
+    preview,
   }: {
     label: string;
     value: number;
     hint?: string;
     disabled?: boolean;
     commit: (v: number) => Promise<unknown>;
+    /** The value while it is held, then null once it is committed. */
+    preview?: (v: number | null) => void;
   } = $props();
 
   let editing = $state<number | null>(null);
   const shown = $derived(editing ?? value);
+  // The label holds the <output> too, which is labelable: name the input.
+  const id = `sl-${Math.random().toString(36).slice(2, 8)}`;
+
+  $effect(() => preview?.(editing));
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   // Arrow keys fire a change per press: send the value once they settle.
@@ -30,10 +37,12 @@
   }
 </script>
 
-<label class="pn-slider">
+<label class="pn-slider" for={id}>
   <span class="pn-slider-label">{label}</span>
   <output class="pn-slider-value" aria-hidden="true">{shown}</output>
   <input
+    {id}
+    aria-describedby={hint ? `${id}-hint` : undefined}
     type="range"
     min="0"
     max="100"
@@ -44,5 +53,5 @@
     oninput={(e) => (editing = Number(e.currentTarget.value))}
     onchange={release}
   />
-  {#if hint}<span class="pn-slider-hint">{hint}</span>{/if}
+  {#if hint}<span id="{id}-hint" class="pn-slider-hint">{hint}</span>{/if}
 </label>

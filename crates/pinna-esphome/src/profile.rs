@@ -72,6 +72,14 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             icon: "mdi:compass-outline".into(),
             entity_category: EntityCategory::Config,
         },
+        // Tune the sensitivity with the volume buttons; turns itself off when
+        // calibration ends.
+        SwitchConfig {
+            object_id: "wake_word_calibration".into(),
+            name: "Wake word calibration".into(),
+            icon: "mdi:tune-vertical".into(),
+            entity_category: EntityCategory::Config,
+        },
         // Pending notification: the ring pulses until the Action button, the
         // dashboard or Home Assistant clears it.
         SwitchConfig {

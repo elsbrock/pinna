@@ -14,14 +14,16 @@ use connectrpc::{ConnectError, RequestContext, Response, Router, Server, Service
 use connectrpc::{ServiceResult, ServiceStream};
 use futures::{Stream, StreamExt};
 use pinna_api::{
-    ClearNotificationRequest, ClearNotificationResponse, DeviceService, GetNetworkRequest,
-    GetNetworkResponse, GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
+    Calibration, CalibrationEvent, CalibrationEventKind, ClearNotificationRequest,
+    ClearNotificationResponse, DeviceService, GetNetworkRequest, GetNetworkResponse,
+    GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
     InstallUpdateRequest, InstallUpdateResponse, LedTestRequest, LedTestResponse, RebootRequest,
     RebootResponse, SetMuteRequest, SetMuteResponse, SetVolumeRequest, SetVolumeResponse,
-    StartConversationRequest, StartConversationResponse, Status, StopConversationRequest,
-    StopConversationResponse, Timer, UpdateSettingsRequest, UpdateSettingsResponse, WakeWord,
-    WatchInstallRequest, WatchInstallResponse, WatchLogsRequest, WatchLogsResponse,
-    WatchStatusRequest, WatchStatusResponse,
+    StartCalibrationRequest, StartCalibrationResponse, StartConversationRequest,
+    StartConversationResponse, Status, StopCalibrationRequest, StopCalibrationResponse,
+    StopConversationRequest, StopConversationResponse, Timer, UpdateSettingsRequest,
+    UpdateSettingsResponse, WakeEvent, WakeWord, WatchInstallRequest, WatchInstallResponse,
+    WatchLogsRequest, WatchLogsResponse, WatchStatusRequest, WatchStatusResponse,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -107,6 +109,39 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         wake_word: MessageField::some(WakeWord {
             phrase: info.wake_phrase.clone(),
             enabled: s.wake_enabled,
+            threshold: s.settings.wake_threshold(),
+            recent: s
+                .recent_wakes
+                .iter()
+                .map(|w| WakeEvent {
+                    unix_ms: w.unix_ms,
+                    woke: w.woke,
+                    score: w.score,
+                    wakes_from: pinna_wakeword::WakeConfig::min_sensitivity_for(w.score)
+                        .map(u32::from),
+                    reached_threshold: w.reached_threshold,
+                    ..Default::default()
+                })
+                .collect(),
+            calibration: s.calibration.as_ref().map_or_else(MessageField::none, |c| {
+                MessageField::some(Calibration {
+                    started_from: c.started_from.into(),
+                    events: c
+                        .events
+                        .iter()
+                        .map(|e| CalibrationEvent {
+                            id: e.id,
+                            kind: calibration_kind(e.kind).into(),
+                            raise: e.raise,
+                            score: e.score,
+                            from: e.from.into(),
+                            to: e.to.into(),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                })
+            }),
             ..Default::default()
         }),
         timers: s
@@ -138,6 +173,25 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             ..Default::default()
         }),
         ..Default::default()
+    }
+}
+
+/// The proto kind of a calibration event.
+fn calibration_kind(kind: crate::calibration::EventKind) -> CalibrationEventKind {
+    use crate::calibration::{EventKind, Unchanged};
+    match kind {
+        EventKind::Woke => CalibrationEventKind::CALIBRATION_EVENT_KIND_WOKE,
+        EventKind::Raised => CalibrationEventKind::CALIBRATION_EVENT_KIND_RAISED,
+        EventKind::Lowered => CalibrationEventKind::CALIBRATION_EVENT_KIND_LOWERED,
+        EventKind::Unchanged(Unchanged::NothingHeard) => {
+            CalibrationEventKind::CALIBRATION_EVENT_KIND_NOTHING_HEARD
+        }
+        EventKind::Unchanged(Unchanged::NoSettingHelps) => {
+            CalibrationEventKind::CALIBRATION_EVENT_KIND_NO_SETTING_HELPS
+        }
+        EventKind::Unchanged(Unchanged::WouldUndo) => {
+            CalibrationEventKind::CALIBRATION_EVENT_KIND_WOULD_UNDO
+        }
     }
 }
 
@@ -278,6 +332,30 @@ impl DeviceService for DeviceApi {
             .command(|r| ApiCommand::UpdateSettings(patch, r))
             .await?;
         Response::ok(UpdateSettingsResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn start_calibration(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, StartCalibrationRequest>,
+    ) -> ServiceResult<StartCalibrationResponse> {
+        let snap = self.command(ApiCommand::StartCalibration).await?;
+        Response::ok(StartCalibrationResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn stop_calibration(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, StopCalibrationRequest>,
+    ) -> ServiceResult<StopCalibrationResponse> {
+        let snap = self.command(ApiCommand::StopCalibration).await?;
+        Response::ok(StopCalibrationResponse {
             status: MessageField::some(self.render(&snap)),
             ..Default::default()
         })
@@ -725,6 +803,167 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
         assert_eq!(settings(status(&c).await).led_brightness, 40);
+    }
+
+    #[tokio::test]
+    async fn recent_wakes_carry_the_setting_that_wakes_on_them() {
+        let (c, inputs) = start_device().await;
+        let near = |score, reached_threshold| Input::NearMiss {
+            score,
+            reached_threshold,
+        };
+        inputs.send(near(0.48, false)).await.unwrap();
+        inputs.send(near(0.6, true)).await.unwrap();
+        inputs.send(near(0.3, false)).await.unwrap();
+        inputs.send(Input::Wake { score: 0.62 }).await.unwrap();
+        let wake = set_mute(&c, false).await.wake_word.into_option().unwrap();
+        // The default sensitivity, 68.
+        assert!((wake.threshold - 0.5508).abs() < 1e-4);
+        let got: Vec<_> = wake
+            .recent
+            .iter()
+            .map(|e| (e.woke, e.wakes_from, e.reached_threshold))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (false, Some(85), false),
+                (false, Some(57), true),
+                (false, None, false),
+                (true, Some(53), false),
+            ]
+        );
+        assert!(wake.recent.iter().all(|e| e.unix_ms > 1_700_000_000_000));
+
+        // Only the last 20 are kept.
+        for i in 0..30 {
+            inputs
+                .send(near(0.2 + i as f32 / 100.0, false))
+                .await
+                .unwrap();
+        }
+        let recent = set_mute(&c, false)
+            .await
+            .wake_word
+            .into_option()
+            .unwrap()
+            .recent;
+        assert_eq!(recent.len(), 20);
+        assert!((recent[0].score - 0.3).abs() < 1e-6);
+        assert!((recent[19].score - 0.49).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn calibration_tunes_the_sensitivity_from_the_buttons() {
+        use pinna_hal::buttons::{Button, ButtonEvent};
+        let (c, inputs) = start_device().await;
+        let press = |b| Input::Button(ButtonEvent::Press(b));
+        let calibration = |s: &Status| {
+            s.wake_word
+                .as_option()
+                .unwrap()
+                .calibration
+                .as_option()
+                .cloned()
+        };
+        let sensitivity = |s: &Status| s.settings.as_option().unwrap().wake_sensitivity;
+
+        // Nothing to tune while the microphones are off.
+        set_mute(&c, true).await;
+        let err = c
+            .start_calibration(StartCalibrationRequest::default())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        set_mute(&c, false).await;
+
+        let s = c
+            .start_calibration(StartCalibrationRequest::default())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message()
+            .status
+            .into_option()
+            .unwrap();
+        let cal = calibration(&s).unwrap();
+        assert_eq!(cal.started_from, 68);
+        assert!(cal.events.is_empty());
+
+        // A near miss, then + : raise just enough to catch it.
+        inputs
+            .send(Input::NearMiss {
+                score: 0.5,
+                reached_threshold: false,
+            })
+            .await
+            .unwrap();
+        inputs.send(press(Button::VolumeUp)).await.unwrap();
+        let s = set_mute(&c, false).await;
+        assert_eq!(sensitivity(&s), 85);
+        let cal = calibration(&s).unwrap();
+        let last = cal.events.last().unwrap();
+        assert_eq!(
+            last.kind,
+            CalibrationEventKind::CALIBRATION_EVENT_KIND_RAISED
+        );
+        assert_eq!((last.from, last.to), (68, 85));
+        assert!((last.score.unwrap() - 0.5).abs() < 1e-6);
+
+        // Action ends it; the setting stays.
+        inputs.send(press(Button::Action)).await.unwrap();
+        let s = set_mute(&c, false).await;
+        assert!(calibration(&s).is_none());
+        assert_eq!(sensitivity(&s), 85);
+
+        // A fresh calibration: a wake, then − lowers to ignore it. The wake
+        // starts no request.
+        c.start_calibration(StartCalibrationRequest::default())
+            .await
+            .unwrap();
+        inputs.send(Input::Wake { score: 0.62 }).await.unwrap();
+        inputs.send(press(Button::VolumeDown)).await.unwrap();
+        let s = set_mute(&c, false).await;
+        assert_eq!(sensitivity(&s), 49);
+        assert_eq!(s.phase, Phase::PHASE_IDLE);
+        let cal = calibration(&s).unwrap();
+        let last = cal.events.last().unwrap();
+        assert_eq!(
+            last.kind,
+            CalibrationEventKind::CALIBRATION_EVENT_KIND_LOWERED
+        );
+        assert_eq!((last.from, last.to), (85, 49));
+        c.stop_calibration(StopCalibrationRequest::default())
+            .await
+            .unwrap();
+        assert!(calibration(&set_mute(&c, false).await).is_none());
+
+        // The Home Assistant switch starts and stops it; the wake word being
+        // off refuses a start.
+        inputs
+            .send(Input::Ha(HaCommand::Switch {
+                object_id: "wake_word_calibration".into(),
+                on: true,
+            }))
+            .await
+            .unwrap();
+        assert!(calibration(&set_mute(&c, false).await).is_some());
+        c.stop_calibration(StopCalibrationRequest::default())
+            .await
+            .unwrap();
+        assert!(calibration(&set_mute(&c, false).await).is_none());
+        inputs
+            .send(Input::Ha(HaCommand::Switch {
+                object_id: "wake_word".into(),
+                on: false,
+            }))
+            .await
+            .unwrap();
+        let err = c
+            .start_calibration(StartCalibrationRequest::default())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
     }
 
     #[test]

@@ -36,13 +36,87 @@ phone they are in a bar at the bottom.
 | Section | What you can do |
 | --- | --- |
 | **Overview** | See the device with its light ring, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. **Identify** runs the ring's test pattern, to find the device among others |
-| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off and set its **Sensitivity**, turn the microphones on or off, and set the volume and the ring brightness. Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
+| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, turn the microphones on or off, and set the volume and the ring brightness. **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
 | **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device. Copy the host and port to add the device by hand |
 | **Network** | See the Wi-Fi network, the signal strength, the addresses and the hostname. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies |
 | **System** | See which version runs from which slot, install an update and follow its steps, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad` as it is written. Debug lines are left out, because they can contain what was said |
 
 You change the Wi-Fi network and the wake word model over SSH, not in the
 dashboard. See [Configure Pinna](/docs/configure/).
+
+## Tune the wake word
+
+**Voice & sound > Sensitivity** opens the **Wake word** page. The slider sets
+how easily the device wakes. Its hint shows the score that the setting needs.
+The score is how sure the device is that it heard the wake word, from 0 to 1.
+While you move the slider, the hint and the entries show what the new value
+does.
+
+**Recent wakes** lists the last 20 wakes and near misses. A near miss is a
+sound that scored at least 0.20 but didn't wake the device; it may have
+reached the setting and been rejected for another reason. Each entry shows
+when it happened, its score, and what that score means at the current setting:
+
+- **Woke**: the entry says which sensitivity ignores that score. If it wasn't
+  you, select **Set to**.
+- **Almost woke**: the entry says which sensitivity catches that score. If it
+  was you, select **Set to**.
+
+After the change, the same button says **Back to** and the old value. Select
+it to undo the change.
+
+The entry also says what else the new setting changes, for example "But it
+also ignores 2 other wakes listed here". Check the times of those entries. If
+ignoring a false wake also ignores your own wakes, or catching your near miss
+also catches the TV, no setting fixes both. Move the device away from the TV or
+the radio instead.
+
+An entry without a button says why:
+
+- **Ignored at this setting** or **Wakes at this setting**: the current
+  setting already does what you want.
+- **Too faint for any setting**: even 100 doesn't catch it. Speak closer, or
+  with less noise around.
+- **High enough at the time, but too quiet against the background or too short
+  to count**: the device didn't accept it. Speak closer or louder, with less
+  noise around.
+- **Every setting wakes on this**: the score is 0.85 or more. If it wasn't
+  you, move the device away from the TV or the radio, or turn off the wake word
+  while it plays.
+
+The list holds scores only, not what was said. It records only while the
+device listens for the wake word. It starts again when `pinnad` or the device
+restarts.
+
+### Calibrate at the device
+
+Select **Calibrate**, next to the slider, to tune the sensitivity from where
+you usually stand, using the buttons on the device. The volume buttons become
+feedback buttons while calibration runs: the ring shows the setting as a green
+arc.
+
+1. Say the wake word. When the device hears it, the ring flashes green and the
+   wake sound plays, if you turned it on. Nothing else happens: no request
+   starts, and a false wake costs nothing.
+2. If it missed you, press **+** within 15 seconds. The sensitivity rises just
+   enough to catch what it almost heard.
+3. If it woke on something that wasn't you, such as the TV, press **−**, also
+   within 15 seconds. The sensitivity drops just enough to ignore that.
+
+The panel under the slider lists what each press did, for example
+`+ raised the sensitivity 68 → 90, to catch a near miss at 0.48`. If a **+**
+and a **−** would undo each other, because your wake and the false one score
+about the same, the second press changes nothing: the ring flashes red at the
+device, and the panel says why. No setting settles both, so move the device
+away from the sound instead.
+
+Select **Done**, press the Action button, or leave it 5 minutes without a
+press to finish. Muting the microphones or turning the wake word off ends it
+too. **Back to 68** returns the sensitivity to the value it had when you
+started. Home Assistant has the same switch, **Wake word calibration**.
+Calibration won't start while the microphones or the wake word are off, or
+while a request or a timer alarm is active. It also works before Home
+Assistant connects, because a calibration wake starts no request.
 
 ## Who can use the dashboard
 

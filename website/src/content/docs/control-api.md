@@ -107,6 +107,8 @@ device. `pinnad` serves it in two places:
 | `LedTest` | Empty | Runs the LED test |
 | `ClearNotification` | Empty | Clears a waiting notification, even if the ring shows something else: the **Notification** switch turns off and the `cleared` event fires. Does nothing if no notification is waiting |
 | `UpdateSettings` | Any of `wake_word` (bool), `wake_sensitivity` and `led_brightness` (0–100) | Changes those settings, as Home Assistant's entities do. Values above 100 return `invalid_argument` |
+| `StartCalibration` | Empty | Starts tuning the wake word sensitivity with the + and − buttons on the device. Returns `failed_precondition` while the microphones or the wake word are off, or while a request or a timer alarm is active |
+| `StopCalibration` | Empty | Ends it, keeping the sensitivity as it is. Does nothing if none runs |
 | `GetNetwork` | Empty | Returns the hostname and each interface: name, MAC, addresses, and for Wi-Fi the network, signal, band and bitrate |
 | `WatchLogs` | Empty | Streams the last 1000 lines of `pinnad`'s journal, then new lines. Debug and trace lines are left out |
 | `GetUpdates` | Empty | Returns the A/B slots (version, state, tries left, which one runs and which one starts next), whether an install runs, the last install's result, and a suggested manifest URL |
@@ -115,7 +117,8 @@ device. `pinnad` serves it in two places:
 | `Reboot` | Empty | Restarts the device |
 
 `SetVolume`, `SetMute`, `StartConversation`, `StopConversation`,
-`ClearNotification` and `UpdateSettings` return the `Status` after the change.
+`ClearNotification`, `UpdateSettings`, `StartCalibration` and
+`StopCalibration` return the `Status` after the change.
 
 ### Example
 
@@ -141,7 +144,7 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `volume` | uint32 | The volume, 0–100 |
 | `ha_connected` | bool | Home Assistant is connected |
 | `voice_subscribed` | bool | Home Assistant has an Assist pipeline for the device |
-| `wake_word` | `WakeWord` | `phrase`, and `enabled`: the device listens for the wake word right now |
+| `wake_word` | `WakeWord` | `phrase`; `enabled`: the device listens for the wake word right now; `threshold`: the score a wake needs at the current sensitivity, 0–1; `recent`: the last 20 wakes and near misses since `pinnad` started, oldest first. Each `WakeEvent` has `unix_ms`, `woke`, `score` (0–1), `wakes_from` (the lowest sensitivity at which that score wakes the device, unset when even 100 doesn't) and `reached_threshold` (a near miss that the detector's other checks rejected). `calibration` is set while a calibration runs: `started_from` (the sensitivity Undo returns to) and `events`, oldest first. A `CalibrationEvent` has `id`, `kind`, `raise` (the + or − button), `score`, and `from`/`to` (equal when nothing changed) |
 | `timers` | `Timer` list | Each with `id`, `name`, `seconds_left`, `total_seconds` and `active` |
 | `audio_backend` | string | `echodot-pipewire` (the normal value on an Echo Dot), `echodot`, `pipewire`, `wav` or `none` |
 | `led_backend` | string | `is31`, `mock` or `none` |

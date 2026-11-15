@@ -1,7 +1,7 @@
 // What the page shows, derived from Status: words, tones, disabled reasons and
 // ticking numbers. No Svelte and no runtime imports, so `node --test` runs it.
 import type { Effect } from "../../../design/ring.ts";
-import type { Status, Timer } from "../gen/pinna/v1/device_pb.ts";
+import type { CalibrationEvent, Status, Timer, WakeEvent } from "../gen/pinna/v1/device_pb.ts";
 
 /** The connection to the satellite's WatchStatus stream. */
 export type Link = "connecting" | "live" | "offline";
@@ -51,6 +51,16 @@ export function health(s: Status | null, link: Link, offlineSince: Date | null, 
   if (!s.haConnected) return { tone: "caution", text: "Not connected to Home Assistant" };
   if (!s.voiceSubscribed) return { tone: "caution", text: "Connected, no voice pipeline" };
   return { tone: "ok", text: "Connected to Home Assistant" };
+}
+
+/** Why Calibrate is disabled, or null when it can be pressed. Mirrors pinnad. */
+export function calibrationBlocked(s: Status | null, link: Link): string | null {
+  if (!s || link !== "live") return "The satellite is not reachable.";
+  if (s.muted) return "Turn the microphones on to calibrate.";
+  if (!s.settings?.wakeWord) return "Turn the wake word on to calibrate.";
+  if (s.alarmRinging) return "Stop the timer alarm first.";
+  if (s.phase !== 1) return "A conversation is already running.";
+  return null;
 }
 
 /** Why Start conversation is disabled, or null when it can be pressed. */
@@ -116,6 +126,146 @@ export function wakeHint(s: Status): string {
   if (s.alarmRinging) return `Not listening for ${phrase} while the alarm rings`;
   if (s.phase !== 1 && s.phase !== 0) return `Not listening for ${phrase} during the conversation`;
   return `Not listening for ${phrase} yet`;
+}
+
+/** A near miss's suggestion sits this far above the lowest setting that catches it. */
+const CATCH_MARGIN = 5;
+/** A wake's suggestion sits this far below the highest setting that ignores it. */
+const IGNORE_MARGIN = 3;
+
+/** The score a sensitivity needs: pinna-wakeword's `threshold_for_sensitivity`, keep in step. */
+export function thresholdFor(sensitivity: number): number {
+  return Math.min(0.85, Math.max(0.3, 0.85 - sensitivity * 0.0044));
+}
+
+/**
+ * A score at two decimals, rounded away from the threshold: up for a score
+ * that reached it, down for one that didn't. So `0.5508` needed and a near
+ * miss at `0.5499` read 0.56 and 0.54, not 0.55 and 0.55.
+ */
+export function scoreText(score: number, reached: boolean): string {
+  const hundredths = reached ? Math.ceil(score * 100 - 1e-4) : Math.floor(score * 100 + 1e-4);
+  return (hundredths / 100).toFixed(2);
+}
+
+export type WakeAdvice = {
+  /** What the score means at `sensitivity`. */
+  text: string;
+  /** The sensitivity that fixes it, when one does and it isn't set yet. */
+  set?: number;
+};
+
+type WakeLike = Pick<WakeEvent, "woke" | "score" | "wakesFrom" | "reachedThreshold">;
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * What a wake or near miss says about the sensitivity: the setting that would
+ * have ignored a wake or caught a near miss, with a small margin, or why no
+ * setting would. `all`: the whole list, to say what else that setting would
+ * ignore or catch.
+ */
+export function wakeAdvice(e: WakeLike, sensitivity: number, all: readonly WakeLike[] = []): WakeAdvice {
+  const score = `Score ${scoreText(e.score, e.woke || e.reachedThreshold)}`;
+  const from = e.wakesFrom;
+  const others = all.filter((o) => o !== e && o.wakesFrom !== undefined);
+  if (e.woke) {
+    if (!from)
+      return {
+        text: `${score}: every setting wakes on this. If it wasn't you, move the satellite away from the TV or the radio.`,
+      };
+    if (sensitivity < from) return { text: `${score}. Ignored at this setting.` };
+    const set = Math.max(0, from - 1 - IGNORE_MARGIN);
+    // Other wakes that still wake now and would not at `set`.
+    const lost = others.filter((o) => o.woke && o.wakesFrom! > set && o.wakesFrom! <= sensitivity).length;
+    const cost = lost ? ` But it also ignores ${plural(lost, "other wake", "other wakes")} listed here.` : "";
+    return { text: `${score}. If it wasn't you, sensitivity ${set} ignores it.${cost}`, set };
+  }
+  if (e.reachedThreshold)
+    return {
+      text: `${score}: high enough at the time, but too quiet against the background or too short to count. Speak closer or louder, with less noise around.`,
+    };
+  if (from === undefined) return { text: `${score}: too faint for any setting. Speak closer, or with less noise around.` };
+  if (sensitivity >= from) return { text: `${score}. Wakes at this setting.` };
+  const set = Math.min(100, from + CATCH_MARGIN);
+  // Other near misses that miss now and would wake at `set`.
+  const gained = others.filter(
+    (o) => !o.woke && !o.reachedThreshold && o.wakesFrom! <= set && o.wakesFrom! > sensitivity,
+  ).length;
+  const also = gained ? ` It also catches ${plural(gained, "other near miss", "other near misses")} listed here.` : "";
+  return { text: `${score}. If it was you, sensitivity ${set} catches it.${also}`, set };
+}
+
+/** pinna.v1.CalibrationEventKind values (a generated TS enum, which `node --test` cannot load). */
+export const CAL_KIND = { woke: 1, raised: 2, lowered: 3, nothingHeard: 4, noSettingHelps: 5, wouldUndo: 6 } as const;
+
+type CalibrationLike = Pick<CalibrationEvent, "kind" | "raise" | "score" | "from" | "to">;
+
+/** How long a + or − press looks back at what was heard (pinnad's own window). */
+const FEEDBACK_SECONDS = 15;
+
+/**
+ * One event during calibration, in words: what the wake or the + / − press did,
+ * or why the device changed nothing.
+ */
+export function calibrationAdvice(e: CalibrationLike): { label: string; text: string } {
+  const nothing = `${e.raise ? "+" : "−"} did nothing`;
+  const score = e.score ?? 0;
+  switch (e.kind) {
+    case CAL_KIND.woke:
+      return {
+        label: "Heard the wake word",
+        text: `Score ${scoreText(score, true)}. No request started.`,
+      };
+    case CAL_KIND.raised:
+      return {
+        label: "+ raised the sensitivity",
+        text: `${e.from} → ${e.to}, to catch a near miss at ${scoreText(score, false)}.`,
+      };
+    case CAL_KIND.lowered:
+      return {
+        label: "− lowered the sensitivity",
+        text: `${e.from} → ${e.to}, to ignore a wake at ${scoreText(score, true)}.`,
+      };
+    case CAL_KIND.nothingHeard:
+      return { label: nothing, text: `Nothing was heard in the last ${FEEDBACK_SECONDS} seconds.` };
+    case CAL_KIND.noSettingHelps:
+      if (!e.raise)
+        return {
+          label: nothing,
+          text: `Every setting wakes on a score of ${scoreText(score, true)}. Move the satellite away from the sound, or turn off the wake word while it plays.`,
+        };
+      if (score < thresholdFor(e.from))
+        return {
+          label: nothing,
+          text: `Score ${scoreText(score, false)} is too faint for any setting. Speak closer, or with less noise around.`,
+        };
+      return {
+        label: nothing,
+        text: `Score ${scoreText(score, true)} was enough at the time, but the device rejected it for being quiet against the background or too short. Speak closer or louder, with less noise around.`,
+      };
+    case CAL_KIND.wouldUndo:
+      return {
+        label: nothing,
+        text: e.raise
+          ? "It would let back the false wake you ignored. Your wake and that one score about the same; no setting settles both. Move the satellite away from the TV or the radio."
+          : "It would lose the wake you caught. That wake and the false one score about the same; no setting settles both. Move the satellite away from the TV or the radio.",
+      };
+    default:
+      return { label: "Calibration", text: "An event the dashboard doesn't know." };
+  }
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Local time as `14:02` today, `Yesterday 14:02`, or `12 Nov 14:02`. */
+export function when(unixMs: number, now: Date): string {
+  const d = new Date(unixMs);
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86_400_000);
+  if (days === 0) return hhmm(d);
+  if (days === 1) return `Yesterday ${hhmm(d)}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${hhmm(d)}`;
 }
 
 /** The project's documentation (the dashboard works offline; these are plain links). */
@@ -215,7 +365,15 @@ export function targetSlot(u: UpdatesLike): SlotLike | undefined {
 }
 
 /** The dashboard's sections and pages: hash paths, as the router shows them. */
-export const PATHS = ["/", "/voice", "/home-assistant", "/network", "/system", "/system/logs"] as const;
+export const PATHS = [
+  "/",
+  "/voice",
+  "/voice/wake-word",
+  "/home-assistant",
+  "/network",
+  "/system",
+  "/system/logs",
+] as const;
 export type Path = (typeof PATHS)[number];
 
 // v1 addresses that people may have bookmarked.

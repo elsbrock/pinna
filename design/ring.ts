@@ -19,6 +19,7 @@ export const LED = {
   amber: [255, 160, 0],
   volume: [120, 200, 255],
   notification: [255, 215, 0],
+  calibration: [120, 230, 170],
 } as const satisfies Record<string, Rgb>;
 
 export type Effect =
@@ -34,6 +35,8 @@ export type Effect =
   | "timer-ringing"
   | "notification"
   | "notification-cleared"
+  | "calibration"
+  | "calibration-heard"
   | "boot"
   | "equalizer";
 
@@ -53,6 +56,7 @@ export const EFFECT_DURATION_MS = {
   volume: 1500,
   boot: 1200,
   "notification-cleared": 400,
+  "calibration-heard": 600,
 } as const;
 
 /** One pixel: colour (null when dark) and LED duty 0..1. */
@@ -153,6 +157,11 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
     case "notification-cleared":
       if (tMs >= EFFECT_DURATION_MS["notification-cleared"]) return dark();
       return solid(LED.notification, 1 - tMs / EFFECT_DURATION_MS["notification-cleared"]);
+    case "calibration":
+      return arc(LED.calibration, clamp(n ?? 0, 0, 100) / 100);
+    case "calibration-heard":
+      if (tMs >= EFFECT_DURATION_MS["calibration-heard"]) return dark();
+      return solid(LED.calibration, 1 - tMs / EFFECT_DURATION_MS["calibration-heard"]);
     case "boot":
       if (tMs >= EFFECT_DURATION_MS.boot) return dark();
       return spin(LED.listening, t, 0.6, 6);

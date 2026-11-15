@@ -5,6 +5,7 @@
 //! Home Assistant adopts the device as a voice satellite.
 
 mod api;
+mod calibration;
 mod config;
 mod identity;
 mod leds;
@@ -141,6 +142,8 @@ async fn capture_loop(
     let mut was_streaming = false;
     // Peak detector score of the current utterance, for near-miss logging.
     let mut peak = 0.0f32;
+    // The peak reached the threshold (and something else rejected it).
+    let mut peak_reached = false;
     let mut peak_at = std::time::Instant::now();
     let mut detected_at: Option<std::time::Instant> = None;
     while let Some(mut frame) = stream.recv().await {
@@ -181,10 +184,12 @@ async fn capture_loop(
             // Always feed the detector so it keeps its audio context (it needs
             // ~2 s of history); only act on detections while wake is enabled.
             if let Some(d) = detector.as_mut() {
+                let threshold = d.threshold();
                 let detections = tokio::task::block_in_place(|| {
                     d.push_with(&frame, |b| {
                         if b.score > peak {
                             peak = b.score;
+                            peak_reached = b.score >= threshold;
                             peak_at = std::time::Instant::now();
                         }
                     })
@@ -200,6 +205,14 @@ async fn capture_loop(
                         .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
                     if peak >= 0.2 && !after_detection {
                         tracing::info!("wake word near miss: peak score {peak:.2}");
+                        if shared.wake_enabled.load(Ordering::Relaxed) {
+                            let _ = inputs
+                                .send(Input::NearMiss {
+                                    score: peak,
+                                    reached_threshold: peak_reached,
+                                })
+                                .await;
+                        }
                     }
                     peak = 0.0;
                 }

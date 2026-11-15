@@ -4,6 +4,9 @@ import { test } from "node:test";
 import type { Status, Timer } from "../gen/pinna/v1/device_pb.ts";
 import {
   badge,
+  CAL_KIND,
+  calibrationAdvice,
+  calibrationBlocked,
   canStop,
   clock,
   downloadProgress,
@@ -18,7 +21,11 @@ import {
   startBlocked,
   timerLeft,
   uptime,
+  scoreText,
+  thresholdFor,
+  wakeAdvice,
   wakeHint,
+  when,
   wifiConnected,
 } from "./view.ts";
 
@@ -129,6 +136,55 @@ test("wake word hint names pinnad's reason for pausing", () => {
   assert.equal(wakeHint(status({ settings: off })), "Off. Press the action button to talk.");
 });
 
+test("calibration starts only when the satellite would", () => {
+  assert.equal(calibrationBlocked(status(), "live"), null);
+  assert.match(calibrationBlocked(status({ muted: true }), "live") ?? "", /microphones on/);
+  const off = { wakeWord: false, wakeSensitivity: 50, ledBrightness: 100 } as Status["settings"];
+  assert.match(calibrationBlocked(status({ settings: off }), "live") ?? "", /wake word on/);
+  assert.match(calibrationBlocked(status({ alarmRinging: true }), "live") ?? "", /alarm/);
+  assert.match(calibrationBlocked(status({ phase: 3 }), "live") ?? "", /already running/);
+  assert.match(calibrationBlocked(status(), "offline") ?? "", /not reachable/);
+});
+
+test("calibration events say what a press did", () => {
+  const event = (over: object) =>
+    ({ id: 1, kind: CAL_KIND.woke, raise: false, from: 68, to: 68, ...over }) as Parameters<
+      typeof calibrationAdvice
+    >[0];
+
+  const woke = calibrationAdvice(event({ kind: CAL_KIND.woke, score: 0.62 }));
+  assert.equal(woke.label, "Heard the wake word");
+  assert.match(woke.text, /Score 0\.62/);
+  assert.match(woke.text, /No request started/);
+
+  const raised = calibrationAdvice(event({ kind: CAL_KIND.raised, raise: true, score: 0.5, to: 85 }));
+  assert.equal(raised.label, "+ raised the sensitivity");
+  assert.match(raised.text, /68 → 85, to catch a near miss at 0\.50/);
+
+  const lowered = calibrationAdvice(event({ kind: CAL_KIND.lowered, score: 0.62, from: 85, to: 49 }));
+  assert.equal(lowered.label, "− lowered the sensitivity");
+  assert.match(lowered.text, /85 → 49, to ignore a wake at 0\.62/);
+
+  const nothing = calibrationAdvice(event({ kind: CAL_KIND.nothingHeard, raise: true }));
+  assert.equal(nothing.label, "+ did nothing");
+  assert.match(nothing.text, /last 15 seconds/);
+
+  // Too faint for any setting: below what 100 catches.
+  const faint = calibrationAdvice(event({ kind: CAL_KIND.noSettingHelps, raise: true, score: 0.35 }));
+  assert.match(faint.text, /too faint for any setting/);
+  // Reached what this setting needs, rejected for another reason.
+  const rejected = calibrationAdvice(event({ kind: CAL_KIND.noSettingHelps, raise: true, score: 0.62 }));
+  assert.match(rejected.text, /quiet against the background or too short/);
+  // Every setting wakes on it.
+  const everyone = calibrationAdvice(event({ kind: CAL_KIND.noSettingHelps, score: 0.95 }));
+  assert.match(everyone.text, /Every setting wakes on a score of 0\.95/);
+
+  const undoRaise = calibrationAdvice(event({ kind: CAL_KIND.wouldUndo, raise: true, score: 0.48 }));
+  assert.match(undoRaise.text, /let back the false wake/);
+  const undoLower = calibrationAdvice(event({ kind: CAL_KIND.wouldUndo, score: 0.62 }));
+  assert.match(undoLower.text, /lose the wake you caught/);
+});
+
 test("network words", async () => {
   const { band, interfaceLabel, signalWord, wifiIssue } = await import("./view.ts");
   assert.equal(signalWord(-50), "Excellent");
@@ -179,6 +235,7 @@ test("routeOf: sections, sub-pages, moved v1 paths and unknowns", () => {
   assert.equal(routeOf("#/"), "/");
   assert.equal(routeOf("#/voice"), "/voice");
   assert.equal(routeOf("#/system/logs"), "/system/logs");
+  assert.equal(routeOf("#/voice/wake-word"), "/voice/wake-word");
   assert.equal(routeOf("#/settings"), "/voice");
   assert.equal(routeOf("#/updates"), "/system");
   assert.equal(routeOf("#/logs"), "/system/logs");
@@ -228,4 +285,82 @@ test("wifiConnected: link details or an IPv4 address", () => {
   assert.equal(wifiConnected({ wifi: {}, addresses: [] }), true);
   assert.equal(wifiConnected({ addresses: ["192.168.1.42/24"] }), true);
   assert.equal(wifiConnected({ addresses: ["fe80::1/64"] }), false);
+});
+
+test("wakeAdvice: the setting that ignores a wake or catches a near miss", () => {
+  const wake = (score: number, wakesFrom?: number) => ({ woke: true, score, wakesFrom, reachedThreshold: false });
+  const near = (score: number, wakesFrom?: number, reachedThreshold = false) => ({
+    woke: false,
+    score,
+    wakesFrom,
+    reachedThreshold,
+  });
+
+  // A wake at 0.62 first wakes at 53: 52 ignores it, 49 with the margin.
+  assert.deepEqual(wakeAdvice(wake(0.62, 53), 68), {
+    text: "Score 0.62. If it wasn't you, sensitivity 49 ignores it.",
+    set: 49,
+  });
+  assert.deepEqual(wakeAdvice(wake(0.62, 53), 40), { text: "Score 0.62. Ignored at this setting." });
+  assert.match(wakeAdvice(wake(0.91, 0), 68).text, /^Score 0\.91: every setting wakes on this\. If it wasn't you, move/);
+  assert.equal(wakeAdvice(wake(0.91, 0), 68).set, undefined);
+  assert.equal(wakeAdvice(wake(0.84, 2), 68).set, 0);
+
+  // A near miss at 0.48 first wakes at 85: 90 with the margin.
+  assert.deepEqual(wakeAdvice(near(0.48, 85), 68), {
+    text: "Score 0.48. If it was you, sensitivity 90 catches it.",
+    set: 90,
+  });
+  assert.equal(wakeAdvice(near(0.42, 98), 68).set, 100);
+  assert.deepEqual(wakeAdvice(near(0.48, 85), 85), { text: "Score 0.48. Wakes at this setting." });
+  assert.equal(wakeAdvice(near(0.35), 68).set, undefined);
+  assert.match(wakeAdvice(near(0.35), 68).text, /too faint for any setting/);
+
+  // What else the suggestion ignores or catches, of what the list holds: a cost for wakes.
+  const strong = wake(0.81, 10);
+  const list = [strong, wake(0.62, 53), wake(0.7, 35), wake(0.62, 53), near(0.5, 80), near(0.45, 91)];
+  assert.equal(
+    wakeAdvice(strong, 68, list).text,
+    "Score 0.81. If it wasn't you, sensitivity 6 ignores it. But it also ignores 3 other wakes listed here.",
+  );
+  assert.equal(
+    wakeAdvice(list[1], 68, list).text,
+    "Score 0.62. If it wasn't you, sensitivity 49 ignores it. But it also ignores 1 other wake listed here.",
+  );
+  // A wake already ignored now isn't lost again.
+  assert.match(wakeAdvice(strong, 50, list).text, /also ignores 1 other wake listed/);
+  assert.equal(wakeAdvice(list[4], 68, list).text, "Score 0.50. If it was you, sensitivity 85 catches it.");
+  assert.equal(
+    wakeAdvice(list[5], 68, list).text,
+    "Score 0.45. If it was you, sensitivity 96 catches it. It also catches 1 other near miss listed here.",
+  );
+
+  // Enough at the time, rejected for being too quiet or short: a next step, no setting.
+  const other = wakeAdvice(near(0.6, 57, true), 50);
+  assert.equal(other.set, undefined);
+  assert.match(other.text, /^Score 0\.60: high enough at the time, .* Speak closer or louder/);
+});
+
+test("scoreText rounds away from the threshold, thresholdFor matches the detector", () => {
+  assert.equal(thresholdFor(0), 0.85);
+  assert.ok(Math.abs(thresholdFor(68) - 0.5508) < 1e-9);
+  assert.ok(Math.abs(thresholdFor(100) - 0.41) < 1e-9);
+  // 68 needs 0.5508: the hint, a wake just over it and a near miss just under it.
+  assert.equal(scoreText(thresholdFor(68), true), "0.56");
+  assert.equal(scoreText(0.5509, true), "0.56");
+  assert.equal(scoreText(0.5499, false), "0.54");
+  // Exact hundredths stay as they are, either way.
+  assert.equal(scoreText(thresholdFor(75), true), "0.52");
+  assert.equal(scoreText(0.62, true), "0.62");
+  assert.equal(scoreText(0.62, false), "0.62");
+  // f32 scores from pinnad.
+  assert.equal(scoreText(Math.fround(0.48), false), "0.48");
+  assert.equal(scoreText(Math.fround(0.81), true), "0.81");
+});
+
+test("when: time today, yesterday, or the date", () => {
+  const now = new Date(2026, 10, 15, 21, 30);
+  assert.equal(when(new Date(2026, 10, 15, 9, 5).getTime(), now), "09:05");
+  assert.equal(when(new Date(2026, 10, 14, 23, 59).getTime(), now), "Yesterday 23:59");
+  assert.equal(when(new Date(2026, 10, 12, 14, 2).getTime(), now), "12 Nov 14:02");
 });
