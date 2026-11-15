@@ -4,7 +4,7 @@
 //! amp power-up), so one `aplay` stays open while a turn is active. Silence is
 //! written while idle (no underrun pops) and the session is closed after
 //! [`SpeakerConfig::idle_timeout`] without audio. Volume is applied digitally
-//! in this pipeline using LibreEcho's curve; the codec stays at its 0 dB
+//! in this pipeline using the previous firmware's curve; the codec stays at its 0 dB
 //! reference.
 //!
 //! The session mixes two lanes: the *voice* lane (queued clips: replies,

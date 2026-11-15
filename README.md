@@ -11,7 +11,7 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 > Status: early bring-up. Console and a local dashboard. Expect sharp edges.
 
 Pinna needs an Echo Dot that has already been unlocked with Kaeru/amonet (as
-for LibreEcho). To install it, follow `docs/runbook-first-flash.md`: it backs
+for the previous firmware). To install it, follow `docs/runbook-first-flash.md`: it backs
 the device up first and every step says how to undo it.
 
 ## Layout

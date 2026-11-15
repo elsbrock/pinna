@@ -1,6 +1,6 @@
 //! The beamformer's live state, shared from the `pinna_beam` LADSPA plugin
 //! (inside PipeWire) with pinnad through a small memory-mapped file. A port of
-//! LibreEcho micd's beam snapshot (`beam_view`, `format_beams`).
+//! the previous firmware's micd beam snapshot (`beam_view`, `format_beams`).
 //!
 //! The plugin publishes after every processing cycle. A reader takes a
 //! consistent copy through a seqlock: the counter is odd while the writer is

@@ -36,7 +36,7 @@ fn alexa_what_time_detects_once() {
 }
 
 /// music-clean.wav is alexa-what-time.wav behind 2 s of lead-in with no music
-/// bed (see LibreEcho's music-snr.json), so it holds one wake word.
+/// bed (see the previous firmware's music-snr.json), so it holds one wake word.
 #[test]
 fn music_clean_detects_once() {
     if let Some(d) = detections("music-clean.wav") {

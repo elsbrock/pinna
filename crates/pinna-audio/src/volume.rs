@@ -1,4 +1,4 @@
-//! Playback volume curve, ported from LibreEcho's audio_engine.c.
+//! Playback volume curve, ported from the previous firmware's audio_engine.c.
 
 /// Raw codec-equivalent index for a logical volume 1..=100:
 /// `103 - round(96 * (1 - x)^1.3)` with `x = (p - 1) / 99`.

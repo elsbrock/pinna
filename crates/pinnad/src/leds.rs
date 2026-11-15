@@ -195,7 +195,7 @@ pub const TALKER_MOVE_DEG: u16 = 12;
 /// Go back to the plain pulse after this long without a confident reading.
 pub const TALKER_UNSURE_AFTER: Duration = Duration::from_secs(1);
 
-/// Where the listening ring points, from beam snapshots (LibreEcho's
+/// Where the listening ring points, from beam snapshots (the previous firmware's
 /// esphomed rule, with a fallback). A confident reading points or moves the
 /// segment. Short pauses keep it where it is; a second of unsure or missing
 /// readings returns the ring to the plain pulse.

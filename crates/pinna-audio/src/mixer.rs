@@ -1,4 +1,4 @@
-//! ALSA mixer sequences for the Echo Dot, translated from LibreEcho's
+//! ALSA mixer sequences for the Echo Dot, translated from the previous firmware's
 //! tinymix / tinyalsa calls (micd.c `configure_capture_path`, audio_engine.c
 //! `arm_output_controls` and friends) into `amixer cset` invocations.
 //!
@@ -47,7 +47,7 @@ impl MixerCmd {
     }
 }
 
-/// Microphone PGA volume: LibreEcho's default and hard maximum.
+/// Microphone PGA volume: the previous firmware's default and hard maximum.
 pub const MICPGA_DEFAULT: u32 = 40;
 pub const MICPGA_MAX: u32 = 80;
 
@@ -108,7 +108,7 @@ pub struct SpeakerProfile {
     /// Kernel "Speaker Codec Profile": Flat for biscuit (Echo Dot), Radar for
     /// the Echo 2nd gen.
     pub codec_flat: bool,
-    /// Codec "HP Driver Gain Volume" index (LibreEcho default 6).
+    /// Codec "HP Driver Gain Volume" index (the previous firmware's default, 6).
     pub hp_driver_gain: u32,
 }
 

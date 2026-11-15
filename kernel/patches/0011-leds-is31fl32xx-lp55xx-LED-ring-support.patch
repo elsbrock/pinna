@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sun, 15 Nov 2026 13:46:20 +0100
 Subject: [PATCH 11/27] leds: is31fl32xx, lp55xx: LED ring support
 
-Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
+Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  drivers/leds/leds-is31fl32xx.c    | 233 +++++++++++++++++++++++++++++-
  drivers/leds/leds-lp55xx-common.c |  27 +++-
@@ -74,7 +74,7 @@ index 8793330dd..c5371fa74 100644
  }
  
 +/*
-+ * LibreEcho's userspace renders the 12 RGB pixels atomically.  Keep this
++ * the previous firmware's userspace renders the 12 RGB pixels atomically.  Keep this
 + * board-specific interface on the I2C device while retaining the standard
 + * per-channel LED class interface for DTs that describe child LEDs.
 + *
@@ -296,7 +296,7 @@ index 8793330dd..c5371fa74 100644
 +		if (ret)
 +			return ret;
 +		dev_info(dev,
-+			 "LibreEcho 36-channel atomic frame interface ready\n");
++			 "36-channel atomic frame interface ready\n");
 +	}
 +
  	return 0;

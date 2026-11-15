@@ -8,8 +8,8 @@ ADR 0006: Debian's 6.12 with the MT8163 board support ported in
 
 ## Context
 
-Pinna replaces LibreEcho on the Echo (2nd gen) family (MT8163, ARMv7, ~480 MB
-RAM). LibreEcho runs everything from a BusyBox initramfs with hand-written C
+Pinna replaces the previous firmware on the Echo (2nd gen) family (MT8163, ARMv7, ~480 MB
+RAM). The previous firmware runs everything from a BusyBox initramfs with hand-written C
 daemons. We want a modern, standard userland and an easy build.
 
 Device facts that constrain the design:
@@ -19,7 +19,7 @@ Device facts that constrain the design:
 - LK appends `root=/dev/dm-0 dm=… skip_initramfs` to the command line. No
   kernel code consumes LK's other arguments (`androidboot.*`, `bootopt`).
 - MT8163 board support (pinctrl, clocks, audio, connectivity, SPI-FPGA mics)
-  exists only in LibreEcho-Linux 6.1, not upstream.
+  exists only in the previous firmware's 6.1 Linux tree, not upstream.
 - `fastboot` (Volume Down + plug in) is always available for recovery.
 
 ## Decision
@@ -28,17 +28,17 @@ Device facts that constrain the design:
   on `system_a` (since ADR 0003: signed A/B slots `system_a`/`system_b`),
   persistent `/var` (ext4, `x-systemd.makefs`) on `userdata`. systemd,
   networkd, resolved (mDNS), wpa_supplicant, OpenSSH.
-- **Kernel:** LibreEcho-Linux release/0.14.5 + patches in `kernel/patches`,
+- **Kernel:** the previous firmware's Linux tree (release 0.14.5) + patches in `kernel/patches`,
   plus `kernel/pinna.config`; packaged as a `.deb`. `CONFIG_CMDLINE_FORCE` sets
   our own command line (`root=PARTLABEL=system_a rootfstype=erofs …`), so LK's
   injected root is ignored. Originally no initramfs: the boot image carried a
   placeholder cpio without `/init` so LK still saw a ramdisk. Since ADR 0003
   the ramdisk is the pinna-init initramfs (slot choice, dm-verity).
 - **Boot image:** Android v0, built by `pinna-bootimg` (byte-identical
-  round-trip verified). The DTB is `libreecho-radar-puffin.dtb` from our own
+  round-trip verified). The DTB is `mt8163-radar-puffin.dtb` from our own
   kernel build: the Echo Dot (2nd gen) boots the same device tree as the Echo
   (2nd gen). Amended 2026-11-15: until then the boot image used a DTB extracted
-  from the device's original LibreEcho `boot_a`; the kernel-built one
+  from the previous firmware's original `boot_a`; the kernel-built one
   decompiles (`dtc -I dtb -O dts`) to the identical tree, so the build no
   longer needs a file from another firmware.
 - **Safety net:** a one-shot `bootonce-bootloader` in `misc` armed early each
@@ -52,7 +52,7 @@ Device facts that constrain the design:
   slot, so the command line stays fixed).
 - Wi-Fi/BT firmware is committed (`firmware/`), like the microphone FPGA
   bitstream (`kernel/firmware/`, ADR 0006): neither has a source other than
-  the device's stock firmware or LibreEcho, so an owner without them would
+  the device's stock firmware or the previous firmware, so an owner without them would
   have no Wi-Fi or no microphones. Amended 2026-11-15; until then they were
   owner-supplied in `blobs/`.
 - Moving to Debian's kernel source (6.12 LTS) means porting the board patches:

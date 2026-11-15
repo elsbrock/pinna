@@ -4,7 +4,7 @@ use crate::led::{FRONT_CENTRE, Frame, RING_PIXELS, Rgb};
 use std::f32::consts::TAU;
 use std::time::Duration;
 
-/// LibreEcho's esphomed theme colours (esphomed.c profile()).
+/// the previous firmware's esphomed theme colours (esphomed.c profile()).
 pub const LISTENING: Rgb = Rgb::new(72, 185, 255);
 pub const THINKING: Rgb = Rgb::new(168, 115, 239);
 pub const ERROR: Rgb = Rgb::new(239, 80, 80);
@@ -33,7 +33,7 @@ const ERROR_FLASHES: u32 = 3;
 const BOOT_DURATION: Duration = Duration::from_millis(1200);
 const CLEARED_FADE: Duration = Duration::from_millis(400);
 
-// Listening direction cue (LibreEcho ledd.c, PATTERN_DIRECTION). Pixel i sits
+// Listening direction cue (the previous firmware's ledd.c, PATTERN_DIRECTION). Pixel i sits
 // at (45 + 30 * i) degrees clockwise from the front, so the front-centre pair
 // 10/11 is at -15/+15 degrees.
 const PIXEL_ZERO_DEG: u32 = 45;
@@ -175,7 +175,7 @@ fn pixel_angle(i: usize) -> u32 {
 
 /// A dim ring with a brighter segment at `azimuth`, interpolated across
 /// neighbouring pixels so twelve pixels still read as a direction. Integer
-/// arithmetic as in ledd.c, so the frames match LibreEcho's.
+/// arithmetic as in ledd.c, so the frames match the previous firmware's.
 fn direction(colour: Rgb, azimuth: u32) -> Frame {
     let base = |c: u8| u32::from(c) * DIRECTION_BASE_PERCENT / 100;
     let pointer = |c: u8| u32::from(c) + (255 - u32::from(c)) * DIRECTION_POINTER_PERCENT / 100;

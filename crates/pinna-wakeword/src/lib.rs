@@ -2,7 +2,7 @@
 //!
 //! openWakeWord v0.5.1 ONNX models (mel spectrogram -> embedding -> keyword
 //! classifier) run on the pure-Rust `tract` engine. The framing, model
-//! chaining, startup behaviour and detection rule reproduce LibreEcho's
+//! chaining, startup behaviour and detection rule reproduce the previous firmware's
 //! `wake_engine_onnx.cpp` / `wake_worker.c` exactly.
 //!
 //! The models are CC BY-NC-SA 4.0 and are never part of this repository; see
@@ -29,12 +29,12 @@ const FEATURE_BINS: usize = 96;
 const SUPPORT_THRESHOLD: f32 = 0.20;
 /// Scores suppressed after startup/reset (the classifier is still settling).
 const STARTUP_SUPPRESSED: u32 = 5;
-/// VAD frame size (10 ms at 16 kHz), as in LibreEcho's AFE path.
+/// VAD frame size (10 ms at 16 kHz), as in the previous firmware's AFE path.
 const VAD_FRAME_SAMPLES: usize = 160;
 
 type Plan = TypedRunnableModel<TypedModel>;
 
-/// Detection tuning. `Default` is LibreEcho's configuration.
+/// Detection tuning. `Default` is the previous firmware's configuration.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WakeConfig {
     /// Accept threshold for the peak score of the last three blocks.
@@ -57,7 +57,7 @@ impl Default for WakeConfig {
 }
 
 impl WakeConfig {
-    /// Map a 0..=100 sensitivity to an accept threshold (LibreEcho's
+    /// Map a 0..=100 sensitivity to an accept threshold (the previous firmware's
     /// `sensitivity_threshold`): `0.85 - 0.0044 * s`, clamped to 0.30..=0.85.
     pub fn threshold_for_sensitivity(sensitivity: u8) -> f32 {
         (0.85 - f32::from(sensitivity) * 0.0044).clamp(0.30, 0.85)
@@ -147,7 +147,7 @@ fn run(plan: &Plan, input: &[f32], shape: &[usize]) -> Result<TValue> {
 impl Detector {
     /// Load `melspectrogram.onnx`, `embedding_model.onnx` and `keyword_model`
     /// (for example `alexa_v0.1.onnx`) from `model_dir`, then warm up on
-    /// silence exactly as LibreEcho does.
+    /// silence exactly as the previous firmware does.
     pub fn load(model_dir: &Path, keyword_model: &str, cfg: WakeConfig) -> Result<Self> {
         let mel_path = model_dir.join("melspectrogram.onnx");
         let mut det = Self {
@@ -383,7 +383,7 @@ impl Detector {
         self.mel_history[keep..].copy_from_slice(&self.mel_out);
     }
 
-    /// LibreEcho's `decode_score`: the peak of the last three scores must reach
+    /// the previous firmware's `decode_score`: the peak of the last three scores must reach
     /// the threshold, be VAD-active, outside the lockout, and be corroborated
     /// by two (one during playback) scores of at least 0.20.
     fn decode(&mut self, score: f32, obs: Observation) -> Option<Detection> {
@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_match_libreecho() {
+    fn defaults_match_previous_firmware() {
         let c = WakeConfig::default();
         assert_eq!(c.threshold, 0.55);
         assert_eq!(c.lockout_samples, 28_000);

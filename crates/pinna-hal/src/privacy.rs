@@ -11,7 +11,7 @@ pub const PRIVACY_STATE_PATH: &str = "/sys/devices/platform/amz_privacy/privacy_
 pub const PRIVACY_STATE_FALLBACK_PATH: &str = "/sys/devices/platform/amz-privacy/privacy_state";
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// First `0`/`1` character of the file, as LibreEcho parses it.
+/// First `0`/`1` character of the file, as the previous firmware parses it.
 pub fn parse_state(text: &str) -> Option<bool> {
     match text.trim_start().chars().next()? {
         '0' => Some(false),

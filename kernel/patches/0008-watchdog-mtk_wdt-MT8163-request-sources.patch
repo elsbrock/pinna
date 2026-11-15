@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sun, 15 Nov 2026 13:46:19 +0100
 Subject: [PATCH 08/27] watchdog: mtk_wdt: MT8163 request sources
 
-Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
+Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  drivers/watchdog/mtk_wdt.c | 57 ++++++++++++++++++++++++++++++++++++++
  1 file changed, 57 insertions(+)

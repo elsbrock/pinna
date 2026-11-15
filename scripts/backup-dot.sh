@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Back up the Echo Dot's eMMC before flashing Pinna. Read-only on the device;
-# needs the running LibreEcho with adb.
+# needs the previous firmware running, with adb.
 #
 #   scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
 #
@@ -10,7 +10,7 @@
 #   device-info.txt                     boot area device numbers, kernel command line
 #   partitions/*.img + SHA256SUMS       boot_a, boot_b, system_a, system_b, userdata,
 #                                       misc: what `scripts/flash-dot.sh restore` takes
-# Every partition except userdata (it changes while LibreEcho runs) is compared
+# Every partition except userdata (it changes while the previous firmware runs) is compared
 # with the device before the partition images are cut.
 set -euo pipefail
 
@@ -19,7 +19,7 @@ out=${1:?usage: $0 <backup dir>}
 adb=${ADB:-adb}
 
 command -v "$adb" >/dev/null || { echo "$adb not found (run inside nix develop)" >&2; exit 1; }
-[ "$($adb get-state 2>/dev/null)" = device ] || { echo "no adb device (is LibreEcho running and USB connected?)" >&2; exit 1; }
+[ "$($adb get-state 2>/dev/null)" = device ] || { echo "no adb device (is the previous firmware running and USB connected?)" >&2; exit 1; }
 [ ! -e "$out/mmcblk0.img" ] || { echo "$out already holds a backup" >&2; exit 1; }
 mkdir -p "$out/partitions"
 cd "$out"

@@ -213,7 +213,7 @@ impl DeviceConfig {
     }
 
     /// MAC as `aa:bb:cc:dd:ee:ff`. Home Assistant builds entity unique ids from this string
-    /// verbatim, so its case must stay stable (LibreEcho, whose entries Pinna takes over,
+    /// verbatim, so its case must stay stable (the previous firmware, whose entries Pinna takes over,
     /// reported lowercase).
     pub fn mac_string(&self) -> String {
         let m = self.mac;

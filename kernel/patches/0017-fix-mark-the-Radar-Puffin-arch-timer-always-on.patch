@@ -21,13 +21,13 @@ CONFIG_CPU_IDLE is not built, so CPUs only execute WFI and the core
 timer never stops: always-on is accurate for this configuration. Pin
 that pairing in a contract test so enabling cpuidle has to revisit it.
 ---
- arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts | 6 ++++++
+ arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts | 6 ++++++
  1 file changed, 6 insertions(+)
 
-diff --git a/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts b/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
+diff --git a/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts b/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts
 index a382d02e7..d035c6279 100644
---- a/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
-+++ b/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
+--- a/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts
++++ b/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts
 @@ -339,6 +339,12 @@ timer {
  		 * timer registers, as required by the ARM32 binding for this case.
  		 */

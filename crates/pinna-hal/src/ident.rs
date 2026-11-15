@@ -28,7 +28,7 @@ pub fn mac_from(path: &Path) -> Option<String> {
 /// unknown.
 ///
 /// The Echo Dot (2nd gen) is the only supported MT8163 board today. It boots
-/// the shared `libreecho-radar-puffin.dtb` (see `kernel/build.sh`), so the
+/// the shared `mt8163-radar-puffin.dtb` (see `kernel/build.sh`), so the
 /// device tree cannot tell it from the Echo (2nd gen). Supporting a second
 /// MT8163 model needs another source, probably idme.
 pub fn board_model() -> &'static str {

@@ -4,29 +4,29 @@ Date: Sun, 15 Nov 2026 13:46:20 +0100
 Subject: [PATCH 13/27] iio: light: AMS TSL2540 and TSL2583 ambient light
  sensors
 
-Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
+Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  drivers/iio/light/Kconfig                     |    2 +
  drivers/iio/light/Makefile                    |    1 +
- drivers/iio/light/libreecho/Kconfig           |   43 +
- drivers/iio/light/libreecho/Makefile          |    6 +
- drivers/iio/light/libreecho/ams_i2c.c         |  203 +++
- drivers/iio/light/libreecho/ams_i2c.h         |   44 +
- drivers/iio/light/libreecho/ams_tsl2540.c     |  994 +++++++++++
- drivers/iio/light/libreecho/ams_tsl2540.h     |  267 +++
- drivers/iio/light/libreecho/ams_tsl2540_als.c |  947 +++++++++++
- drivers/iio/light/libreecho/ams_tsl2540_als.h |   30 +
- drivers/iio/light/libreecho/tsl2583.c         | 1461 +++++++++++++++++
+ drivers/iio/light/ams/Kconfig           |   43 +
+ drivers/iio/light/ams/Makefile          |    6 +
+ drivers/iio/light/ams/ams_i2c.c         |  203 +++
+ drivers/iio/light/ams/ams_i2c.h         |   44 +
+ drivers/iio/light/ams/ams_tsl2540.c     |  994 +++++++++++
+ drivers/iio/light/ams/ams_tsl2540.h     |  267 +++
+ drivers/iio/light/ams/ams_tsl2540_als.c |  947 +++++++++++
+ drivers/iio/light/ams/ams_tsl2540_als.h |   30 +
+ drivers/iio/light/ams/tsl2583.c         | 1461 +++++++++++++++++
  11 files changed, 3998 insertions(+)
- create mode 100644 drivers/iio/light/libreecho/Kconfig
- create mode 100644 drivers/iio/light/libreecho/Makefile
- create mode 100644 drivers/iio/light/libreecho/ams_i2c.c
- create mode 100644 drivers/iio/light/libreecho/ams_i2c.h
- create mode 100644 drivers/iio/light/libreecho/ams_tsl2540.c
- create mode 100644 drivers/iio/light/libreecho/ams_tsl2540.h
- create mode 100644 drivers/iio/light/libreecho/ams_tsl2540_als.c
- create mode 100644 drivers/iio/light/libreecho/ams_tsl2540_als.h
- create mode 100644 drivers/iio/light/libreecho/tsl2583.c
+ create mode 100644 drivers/iio/light/ams/Kconfig
+ create mode 100644 drivers/iio/light/ams/Makefile
+ create mode 100644 drivers/iio/light/ams/ams_i2c.c
+ create mode 100644 drivers/iio/light/ams/ams_i2c.h
+ create mode 100644 drivers/iio/light/ams/ams_tsl2540.c
+ create mode 100644 drivers/iio/light/ams/ams_tsl2540.h
+ create mode 100644 drivers/iio/light/ams/ams_tsl2540_als.c
+ create mode 100644 drivers/iio/light/ams/ams_tsl2540_als.h
+ create mode 100644 drivers/iio/light/ams/tsl2583.c
 
 diff --git a/drivers/iio/light/Kconfig b/drivers/iio/light/Kconfig
 index f2f3e4148..c25b7d988 100644
@@ -36,7 +36,7 @@ index f2f3e4148..c25b7d988 100644
  
  menu "Light sensors"
  
-+source "drivers/iio/light/libreecho/Kconfig"
++source "drivers/iio/light/ams/Kconfig"
 +
  config ACPI_ALS
  	tristate "ACPI Ambient Light Sensor"
@@ -49,19 +49,19 @@ index 321010fc0..b0f0f1aff 100644
  #
  
  # When adding new entries keep the list in alphabetical order
-+obj-y				+= libreecho/
++obj-y				+= ams/
  obj-$(CONFIG_ACPI_ALS)		+= acpi-als.o
  obj-$(CONFIG_ADJD_S311)		+= adjd_s311.o
  obj-$(CONFIG_ADUX1020)		+= adux1020.o
-diff --git a/drivers/iio/light/libreecho/Kconfig b/drivers/iio/light/libreecho/Kconfig
+diff --git a/drivers/iio/light/ams/Kconfig b/drivers/iio/light/ams/Kconfig
 new file mode 100644
 index 000000000..bd2f4ceb3
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/Kconfig
++++ b/drivers/iio/light/ams/Kconfig
 @@ -0,0 +1,43 @@
 +# SPDX-License-Identifier: GPL-2.0-only
 +
-+menu "LibreEcho Radar-Puffin ambient light sensors"
++menu "the previous firmware Radar-Puffin ambient light sensors"
 +
 +config ALS_TSL2583
 +	tristate "Vendor TAOS TSL2584TSV ambient light sensor"
@@ -102,23 +102,23 @@ index 000000000..bd2f4ceb3
 +	  baseline from /idme/alscal.
 +
 +endmenu
-diff --git a/drivers/iio/light/libreecho/Makefile b/drivers/iio/light/libreecho/Makefile
+diff --git a/drivers/iio/light/ams/Makefile b/drivers/iio/light/ams/Makefile
 new file mode 100644
 index 000000000..30297897d
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/Makefile
++++ b/drivers/iio/light/ams/Makefile
 @@ -0,0 +1,6 @@
 +# SPDX-License-Identifier: GPL-2.0
 +
 +obj-$(CONFIG_ALS_TSL2583) += tsl2583.o
 +
-+obj-$(CONFIG_SENSORS_TSL2540) += libreecho-tsl2540.o
-+libreecho-tsl2540-y := ams_tsl2540.o ams_tsl2540_als.o ams_i2c.o
-diff --git a/drivers/iio/light/libreecho/ams_i2c.c b/drivers/iio/light/libreecho/ams_i2c.c
++obj-$(CONFIG_SENSORS_TSL2540) += ams-tsl2540.o
++ams-tsl2540-y := ams_tsl2540.o ams_tsl2540_als.o ams_i2c.o
+diff --git a/drivers/iio/light/ams/ams_i2c.c b/drivers/iio/light/ams/ams_i2c.c
 new file mode 100644
 index 000000000..6f83c7e35
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/ams_i2c.c
++++ b/drivers/iio/light/ams/ams_i2c.c
 @@ -0,0 +1,203 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
@@ -323,11 +323,11 @@ index 000000000..6f83c7e35
 +	tmp &= mask << pos;
 +	*val = tmp >> pos;
 +}
-diff --git a/drivers/iio/light/libreecho/ams_i2c.h b/drivers/iio/light/libreecho/ams_i2c.h
+diff --git a/drivers/iio/light/ams/ams_i2c.h b/drivers/iio/light/ams/ams_i2c.h
 new file mode 100644
 index 000000000..92ee77b4f
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/ams_i2c.h
++++ b/drivers/iio/light/ams/ams_i2c.h
 @@ -0,0 +1,44 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
@@ -373,11 +373,11 @@ index 000000000..92ee77b4f
 +
 +
 +#endif /* __AMSI2C_H */
-diff --git a/drivers/iio/light/libreecho/ams_tsl2540.c b/drivers/iio/light/libreecho/ams_tsl2540.c
+diff --git a/drivers/iio/light/ams/ams_tsl2540.c b/drivers/iio/light/ams/ams_tsl2540.c
 new file mode 100644
 index 000000000..91dc72e2d
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/ams_tsl2540.c
++++ b/drivers/iio/light/ams/ams_tsl2540.c
 @@ -0,0 +1,994 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
@@ -1373,11 +1373,11 @@ index 000000000..91dc72e2d
 +
 +MODULE_DESCRIPTION("AMS-TAOS tsl2540 ALS sensor driver");
 +MODULE_LICENSE("GPL");
-diff --git a/drivers/iio/light/libreecho/ams_tsl2540.h b/drivers/iio/light/libreecho/ams_tsl2540.h
+diff --git a/drivers/iio/light/ams/ams_tsl2540.h b/drivers/iio/light/ams/ams_tsl2540.h
 new file mode 100644
 index 000000000..1deea22c7
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/ams_tsl2540.h
++++ b/drivers/iio/light/ams/ams_tsl2540.h
 @@ -0,0 +1,267 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
@@ -1646,11 +1646,11 @@ index 000000000..1deea22c7
 +};
 +
 +#endif /* __TSL2540_H */
-diff --git a/drivers/iio/light/libreecho/ams_tsl2540_als.c b/drivers/iio/light/libreecho/ams_tsl2540_als.c
+diff --git a/drivers/iio/light/ams/ams_tsl2540_als.c b/drivers/iio/light/ams/ams_tsl2540_als.c
 new file mode 100644
 index 000000000..5902d02ca
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/ams_tsl2540_als.c
++++ b/drivers/iio/light/ams/ams_tsl2540_als.c
 @@ -0,0 +1,947 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
@@ -2599,11 +2599,11 @@ index 000000000..5902d02ca
 +const struct attribute_group tsl2540_als_attr_group = {
 +	.attrs = tsl2540_als_attributes,
 +};
-diff --git a/drivers/iio/light/libreecho/ams_tsl2540_als.h b/drivers/iio/light/libreecho/ams_tsl2540_als.h
+diff --git a/drivers/iio/light/ams/ams_tsl2540_als.h b/drivers/iio/light/ams/ams_tsl2540_als.h
 new file mode 100644
 index 000000000..7b06a33fb
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/ams_tsl2540_als.h
++++ b/drivers/iio/light/ams/ams_tsl2540_als.h
 @@ -0,0 +1,30 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
@@ -2635,11 +2635,11 @@ index 000000000..7b06a33fb
 +extern void tsl2540_report_als(struct tsl2540_chip *chip);
 +
 +#endif /* __AMS_TSL2540_ALS_H */
-diff --git a/drivers/iio/light/libreecho/tsl2583.c b/drivers/iio/light/libreecho/tsl2583.c
+diff --git a/drivers/iio/light/ams/tsl2583.c b/drivers/iio/light/ams/tsl2583.c
 new file mode 100644
 index 000000000..e7ab64064
 --- /dev/null
-+++ b/drivers/iio/light/libreecho/tsl2583.c
++++ b/drivers/iio/light/ams/tsl2583.c
 @@ -0,0 +1,1461 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*

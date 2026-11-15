@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sun, 15 Nov 2026 13:46:18 +0100
 Subject: [PATCH 03/27] pinctrl: mediatek: add MT8163
 
-Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
+Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  drivers/pinctrl/mediatek/Kconfig              |    7 +
  drivers/pinctrl/mediatek/Makefile             |    1 +

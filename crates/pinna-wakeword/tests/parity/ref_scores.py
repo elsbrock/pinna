@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reference openWakeWord pipeline on onnxruntime, mirroring LibreEcho's
+"""Reference openWakeWord pipeline on onnxruntime, mirroring the previous firmware's
 wake_engine_onnx.cpp block for block. Writes per-block scores, mel and
 embedding tensors for a WAV to JSON so the tract implementation can be
 compared against it.

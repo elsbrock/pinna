@@ -4,10 +4,10 @@ Date: Sun, 15 Nov 2026 13:46:17 +0100
 Subject: [PATCH 01/27] ARM: mediatek: add MT8163 SoC and the Radar-Puffin
  device tree
 
-Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
+Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  arch/arm/boot/dts/mediatek/Makefile           |    3 +-
- .../dts/mediatek/libreecho-radar-puffin.dts   | 3275 +++++++++++++++++
+ .../dts/mediatek/mt8163-radar-puffin.dts   | 3275 +++++++++++++++++
  arch/arm/boot/dts/mediatek/mt8163-pinfunc.h   |  817 ++++
  arch/arm/boot/dts/mediatek/mt8163.dtsi        | 1790 +++++++++
  arch/arm/mach-mediatek/Kconfig                |    5 +
@@ -19,7 +19,7 @@ Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
  include/dt-bindings/power/mt8163-power.h      |   13 +
  .../reset-controller/mt8163-resets.h          |   34 +
  12 files changed, 6470 insertions(+), 1 deletion(-)
- create mode 100644 arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
+ create mode 100644 arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts
  create mode 100644 arch/arm/boot/dts/mediatek/mt8163-pinfunc.h
  create mode 100644 arch/arm/boot/dts/mediatek/mt8163.dtsi
  create mode 100644 arch/arm/mach-mediatek/mt8163-smp.c
@@ -37,12 +37,12 @@ index 1957947cb..10a9b9f57 100644
  	mt8127-moose.dtb \
 -	mt8135-evbp1.dtb
 +	mt8135-evbp1.dtb \
-+	libreecho-radar-puffin.dtb
-diff --git a/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts b/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
++	mt8163-radar-puffin.dtb
+diff --git a/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts b/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts
 new file mode 100644
 index 000000000..a382d02e7
 --- /dev/null
-+++ b/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
++++ b/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dts
 @@ -0,0 +1,3275 @@
 +/dts-v1/;
 +

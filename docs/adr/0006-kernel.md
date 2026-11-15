@@ -4,11 +4,11 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 
 ## Context
 
-- ADR 0001 built LibreEcho-Linux release/0.14.5: Linux 6.1.178 with the
+- ADR 0001 built the previous firmware's Linux tree (release 0.14.5): Linux 6.1.178 with the
   MT8163 board support merged in, its `mt8163_arm32_defconfig` and a Pinna
   fragment. The userland is Debian trixie, whose kernel is 6.12 LTS, supported
   for trixie's lifetime.
-- LibreEcho's delta to upstream 6.1.178 is 388 files: about 28.6k lines of
+- The previous firmware's delta to upstream 6.1.178 is 388 files: about 28.6k lines of
   board support (clocks, pinctrl, power domains, PMIC wrapper, MMC, SPI, MUSB,
   watchdog, thermal, LEDs, privacy switch, light sensors, codecs, AFE, FPGA SPI
   microphones, device tree) and the MT8163 CONSYS vendor driver (Wi-Fi/BT, 214k
@@ -22,20 +22,20 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
   Debian's patch series from the kernel team's packaging tag, both pinned by
   commit in `kernel/source.env`.
 - **Board support in `kernel/patches`**, applied after Debian's series: the
-  LibreEcho board support ported to 6.12 (one patch per subsystem) with
+  previous firmware's board support ported to 6.12 (one patch per subsystem) with
   Pinna's audio and device-tree fixes, then the CONSYS driver (imported
   unmodified, then ported) with Pinna's Wi-Fi fixes. Not carried:
   diagnostic-only changes (SPI firmware-transfer tracing, FunctionFS and MUSB
   debug logging, a log line per watchdog ping), a `/proc` fix that is upstream
   in 6.12, and the Fire HD 8 (Giza) board with its bq24190 charger IDs (the
   Dot's charger node is disabled).
-- **Device tree:** the boot image keeps using `libreecho-radar-puffin.dtb`
+- **Device tree:** the boot image keeps using `mt8163-radar-puffin.dtb`
   from this kernel build (ADR 0001); the 6.12 build decompiles to the same
-  tree as the DTB in the known-good LibreEcho `boot_a`.
+  tree as the DTB in the previous firmware's known-good `boot_a`.
 - **The microphone FPGA bitstream is committed** (`kernel/firmware/`, 31 KB)
   and built in with `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it
   at probe, before the root is mounted, so the device kernel cannot be built
-  without it, and LibreEcho-Linux is its only public source. The Wi-Fi/BT
+  without it, and the previous firmware's Linux tree is its only public source. The Wi-Fi/BT
   firmware is committed for the same reason (`firmware/`, ADR 0001).
 - **Config from allnoconfig + fragments.** `common.config` holds what every
   variant needs: the systemd requirements (README, v257), erofs/ext4/overlay,

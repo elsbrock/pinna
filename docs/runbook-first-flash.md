@@ -1,6 +1,6 @@
 # First flash: Echo Dot (2nd gen) → Pinna
 
-Moves an Echo Dot that currently runs LibreEcho (Kaeru/amonet-unlocked) to
+Moves an Echo Dot that currently runs the previous firmware (Kaeru/amonet-unlocked) to
 Pinna. Every step says what it writes; Recovery (at the end) undoes all of
 them from the step 1 backup.
 
@@ -8,11 +8,11 @@ them from the step 1 backup.
 
 | Partition | Before | After |
 |---|---|---|
-| `boot_a` (p10) | LibreEcho boot image | Pinna boot image (`build/pinna-boot.img`: kernel, DTB, initramfs with pinna-init) — the one LK always loads |
-| `boot_b` (p11) | LibreEcho copy | Pinna boot image (manual fallback copy) |
-| `system_a` (p13) | stock Fire OS system (LibreEcho reads Wi-Fi firmware from it) | Pinna root, sealed slot image (`build/pinna.root.img`: erofs + signed footer + dm-verity hash tree) |
+| `boot_a` (p10) | previous firmware's boot image | Pinna boot image (`build/pinna-boot.img`: kernel, DTB, initramfs with pinna-init) — the one LK always loads |
+| `boot_b` (p11) | previous firmware's copy | Pinna boot image (manual fallback copy) |
+| `system_a` (p13) | stock Fire OS system (the previous firmware reads Wi-Fi firmware from it) | Pinna root, sealed slot image (`build/pinna.root.img`: erofs + signed footer + dm-verity hash tree) |
 | `system_b` | stock copy | first MiB zeroed (no image); later written by `pinnactl update` |
-| `userdata` (p16) | LibreEcho `/data` | wiped; Pinna formats it as `/var` on first boot |
+| `userdata` (p16) | previous firmware's `/data` | wiped; Pinna formats it as `/var` on first boot |
 
 Never written: preloader/boot areas, `lk_a`/`lk_b`, `tee1`/`tee2`, `expdb`
 (Kaeru payload), `persist` (identity, calibration, MAC). `misc` only at
@@ -29,12 +29,12 @@ repository too (`kernel/firmware/`) and built into the kernel.
 git clone <this repository> pinna && cd pinna
 nix develop          # the supported environment (x86_64 Linux); needs flakes:
                      # nix --extra-experimental-features 'nix-command flakes' develop
-adb devices          # must list the Echo Dot (LibreEcho running, USB connected)
+adb devices          # must list the Echo Dot (the previous firmware running, USB connected)
 ```
 
 All later commands run inside this shell, from the repository root.
 
-## 1. Back up, and save what Home Assistant knows (LibreEcho still running)
+## 1. Back up, and save what Home Assistant knows (the previous firmware still running)
 
 Step 4 overwrites `system_a` and wipes `userdata`, and recovery restores from
 this backup. Do not continue without it.
@@ -48,25 +48,30 @@ adb (~4 GB), compares every
 partition except `userdata` with the device, and cuts `partitions/*.img` with
 `SHA256SUMS`, the layout `scripts/flash-dot.sh restore` takes. Copy the
 directory somewhere safe. `scripts/verify-backup.sh <dir>` repeats the
-comparison later, as long as LibreEcho still runs.
+comparison later, as long as the previous firmware still runs.
 
-**Taking over the LibreEcho device in Home Assistant** (keeps its entities,
-automations and scripts; see step 7): `userdata` holds LibreEcho's API key and
+**Taking over the previous firmware's device in Home Assistant** (keeps its entities,
+automations and scripts; see step 7): `userdata` holds the previous firmware's API key and
 node name, so save them now:
 
 ```sh
 mkdir -p secrets/device
-adb shell cat /data/libreecho/config/web-config.json | tr -d '\r' > secrets/libreecho-web-config.json
-python3 - secrets/libreecho-web-config.json <<'EOF'
+adb shell 'cat /data/*/config/web-config.json' | tr -d '\r' > secrets/previous-web-config.json
+python3 - secrets/previous-web-config.json <<'EOF'
 import json, sys
 c = json.load(open(sys.argv[1]))
 open("secrets/device/esphome-key", "w").write(c["esphome_noise_key"] + "\n")
-open("secrets/device/pinnad.toml", "w").write('[device]\nname = "%s"\n' % c.get("hostname", "libreecho"))
+if "hostname" not in c:
+    sys.exit("no hostname in web-config.json: write [device] name = \"<node name>\" "
+             "to secrets/device/pinnad.toml, using the node name Home Assistant shows")
+open("secrets/device/pinnad.toml", "w").write('[device]\nname = "%s"\n' % c["hostname"])
 EOF
 cat secrets/device/pinnad.toml
 ```
 
-`hostname` is LibreEcho's node name (`libreecho` if it was never set).
+`hostname` is the previous firmware's node name. If it was never set, the
+file has none and the snippet stops: take the node name from the device's
+entry in Home Assistant (ESPHome integration) instead.
 `secrets/device/pinnad.toml` must be valid TOML: pinnad refuses to start on
 an error or an unknown key, and on a first flash that ends in fastboot (see
 Recovery).
@@ -82,7 +87,7 @@ Recovery).
 | `secrets/authorized_keys` | for SSH | `/root/.ssh/authorized_keys` | your SSH public key(s) |
 | `secrets/wifi/wpa_supplicant-wlan0.conf` | for Wi-Fi | default for `/var/lib/pinna/wifi/` (first boot; edit on the device afterwards) | see below |
 | `secrets/device/pinnad.toml` | no | default for `/var/lib/pinna/pinnad.toml` — device identity: a `[device]` table with e.g. `name = "echodot2"` on its own line | step 1, or by hand |
-| `secrets/device/esphome-key` | no | default for `/var/lib/pinna/esphome-key` — the Home Assistant API key (base64, 32 bytes) | `head -c32 /dev/urandom \| base64`, or LibreEcho's (step 1) |
+| `secrets/device/esphome-key` | no | default for `/var/lib/pinna/esphome-key` — the Home Assistant API key (base64, 32 bytes) | `head -c32 /dev/urandom \| base64`, or the previous firmware's (step 1) |
 
 Without an API key the ESPHome API is plaintext and Home Assistant adds the
 device without asking for one. Without Wi-Fi credentials the device is
@@ -136,7 +141,7 @@ The script checks the image's signature first. LK accepts 109 MiB per download
 (`max-download-size` 0x6d00000); fastboot splits the larger root image into
 sparse chunks by itself.
 
-Undo: Recovery. From here until step 5, LibreEcho no longer boots properly.
+Undo: Recovery. From here until step 5, the previous firmware no longer boots properly.
 
 ## 5. Flash the boot image
 
@@ -182,8 +187,8 @@ Pinna advertises `_esphomelib._tcp` via mDNS.
 - **New device**: Home Assistant shows "Echo Dot" as a discovered ESPHome
   device. Add it; if `secrets/device/esphome-key` was set, it asks for that
   key. Then configure the voice assistant pipeline for the device.
-- **Taking over LibreEcho's entry** (step 1): do not add a new device. Pinna
-  exposes LibreEcho's entity set under the same names, so the existing
+- **Taking over the previous firmware's entry** (step 1): do not add a new device. Pinna
+  exposes the previous firmware's entity set under the same names, so the existing
   entities, automations and scripts keep working. Reload the existing ESPHome
   config entry once so Home Assistant rebuilds the platforms from Pinna's
   device info.
@@ -257,7 +262,7 @@ reboot-bootloader` on a running Pinna):
 scripts/flash-dot.sh restore <backup dir>/partitions
 ```
 
-restores LibreEcho exactly from the step 1 backup (boot_a, boot_b, system_a,
+restores the previous firmware exactly from the step 1 backup (boot_a, boot_b, system_a,
 userdata, and system_b when the backup has it). It checks the backup's
 `SHA256SUMS` and that every required image is there before writing anything.
 

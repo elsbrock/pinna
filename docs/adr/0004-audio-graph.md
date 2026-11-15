@@ -57,7 +57,7 @@ If the PCM's state can't be read, or it isn't running after 3 s, the amp is
 switched on anyway (with a warning) rather than leaving the speaker silent.
 
 - **Beamform first, then mono echo cancellation**: the usual design for small
-  arrays and far cheaper than per-microphone AEC. The beamformer is LibreEcho's
+  arrays and far cheaper than per-microphone AEC. The beamformer is the previous firmware's
   superdirective fixed-beam design, ported to Rust (within 1 LSB of the C on
   ≥ 99.9 % of samples) and loaded into
   PipeWire as a LADSPA plugin (`crates/pinna-ladspa`).

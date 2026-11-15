@@ -28,7 +28,7 @@ arch=arm
 cross=armv7l-unknown-linux-gnueabihf-
 fragments=("$here/common.config")
 case "$variant" in
-  device) out=$root/build/kernel; fragments+=("$here/device.config"); targets=(zImage mediatek/libreecho-radar-puffin.dtb) ;;
+  device) out=$root/build/kernel; fragments+=("$here/device.config"); targets=(zImage mediatek/mt8163-radar-puffin.dtb) ;;
   qemu)   out=$root/build/kernel-qemu; fragments+=("$here/qemu.config"); targets=(zImage) ;;
   x86)    out=$root/build/kernel-x86; fragments+=("$here/x86.config"); targets=(bzImage)
           arch=x86_64; cross= ;;
@@ -130,9 +130,9 @@ mkdir -p "$pkgroot/DEBIAN" "$pkgroot/boot" "$pkgroot/usr/lib/linux-image-$krel"
 install -m0644 "$out/arch/arm/boot/zImage" "$pkgroot/boot/vmlinuz-$krel"
 install -m0644 "$out/.config" "$pkgroot/boot/config-$krel"
 install -m0644 "$out/System.map" "$pkgroot/boot/System.map-$krel"
-# Device trees built from the tree. The boot image uses libreecho-radar-puffin.dtb
+# Device trees built from the tree. The boot image uses mt8163-radar-puffin.dtb
 # from the build directory (see the justfile's bootimg).
-find "$out/arch/arm/boot/dts/mediatek" -maxdepth 1 -name 'libreecho-*.dtb' -exec install -m0644 {} "$pkgroot/usr/lib/linux-image-$krel/" \;
+find "$out/arch/arm/boot/dts/mediatek" -maxdepth 1 -name 'mt8163-*.dtb' -exec install -m0644 {} "$pkgroot/usr/lib/linux-image-$krel/" \;
 version=$(git -C "$root" log -1 --format=%h -- kernel)
 cat > "$pkgroot/DEBIAN/control" <<EOF
 Package: linux-image-$krel
