@@ -10,6 +10,7 @@
 #   PINNA_API_KEY     file with the ESPHome Noise key (empty: plaintext)
 #   MIN_THROUGHPUT    minimum Wi-Fi download rate in bytes/s (default 100000)
 #   THROUGHPUT_URL    file to download for the throughput check (required for it)
+#   PINNA_ACOUSTIC    0 skips the acoustic test (it plays sound; needs a quiet room)
 set -uo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -55,9 +56,12 @@ key_args=()
 [ -n "${PINNA_API_KEY:-}" ] && key_args=(--key-file "$PINNA_API_KEY")
 mode=direct
 [ "$backend" = echodot-pipewire ] && mode=aec
+[ "${PINNA_ACOUSTIC:-1}" = 0 ] && mode=none
 if uv run -q --with aioesphomeapi==46.2.0 python -I "$root/tests/device/api_check.py" \
     --host "$api_host" "${key_args[@]}" --mode "$mode" --stage "${ssh[*]} $host"; then
-  if [ "$mode" = aec ]; then
+  if [ "$mode" = none ]; then
+    ok "ESPHome API and entities (acoustic test skipped)"
+  elif [ "$mode" = aec ]; then
     ok "ESPHome API, entities, speaker -> mics -> beamformer, echo cancellation, no self-wake"
   else
     ok "ESPHome API, entities and acoustic loopback (speaker -> mic -> wake word)"
