@@ -18,7 +18,8 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 out=${1:?usage: $0 <backup dir>}
 adb=${ADB:-adb}
 
-[ "$($adb get-state 2>/dev/null)" = device ] || { echo "no adb device" >&2; exit 1; }
+command -v "$adb" >/dev/null || { echo "$adb not found (run inside nix develop)" >&2; exit 1; }
+[ "$($adb get-state 2>/dev/null)" = device ] || { echo "no adb device (is LibreEcho running and USB connected?)" >&2; exit 1; }
 [ ! -e "$out/mmcblk0.img" ] || { echo "$out already holds a backup" >&2; exit 1; }
 mkdir -p "$out/partitions"
 cd "$out"
