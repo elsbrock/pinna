@@ -235,8 +235,11 @@ impl Brain {
         self_tx: mpsc::Sender<Input>,
         opts: Options,
     ) -> Self {
+        // No total timeout: a long reply over a slow link is fine as long
+        // as bytes keep arriving.
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
+            .connect_timeout(Duration::from_secs(10))
+            .read_timeout(Duration::from_secs(15))
             .build()
             .expect("http client");
         let (store, _) = Store::load(&opts.settings_file, opts.settings.clone());

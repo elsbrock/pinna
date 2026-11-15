@@ -36,13 +36,14 @@ fn event(object_id: &str, name: &str, device_class: Option<&str>, types: &[&str]
 
 fn format(
     format: &str,
+    sample_rate: u32,
     num_channels: u32,
     purpose: MediaPurpose,
     sample_bytes: u32,
 ) -> MediaFormat {
     MediaFormat {
         format: format.into(),
-        sample_rate: 48000,
+        sample_rate,
         num_channels,
         purpose,
         sample_bytes,
@@ -139,9 +140,12 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             | media_feature::PLAY
             | media_feature::MEDIA_ANNOUNCE,
         supported_formats: vec![
-            format("mp3", 2, MediaPurpose::Default, 0),
-            format("wav", 1, MediaPurpose::Announcement, 2),
-            format("mp3", 2, MediaPurpose::Announcement, 0),
+            format("mp3", 48000, 2, MediaPurpose::Default, 0),
+            // Home Assistant renders replies in the first announcement
+            // format. Speech as 22.05 kHz mono MP3 is ~4 KB/s (48 kHz WAV
+            // would be 96 KB/s), so replies still arrive over a weak link.
+            format("mp3", 22050, 1, MediaPurpose::Announcement, 0),
+            format("wav", 22050, 1, MediaPurpose::Announcement, 2),
         ],
     });
 }

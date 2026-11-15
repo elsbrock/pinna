@@ -312,7 +312,7 @@ async def test_media_player_info(client):
     assert mp.feature_flags == int(want)
     fmts = [(f.format, f.sample_rate, f.num_channels, f.purpose, f.sample_bytes) for f in mp.supported_formats]
     D, A = MediaPlayerFormatPurpose.DEFAULT, MediaPlayerFormatPurpose.ANNOUNCEMENT
-    assert fmts == [("mp3", 48000, 2, D, 0), ("wav", 48000, 1, A, 2), ("mp3", 48000, 2, A, 0)]
+    assert fmts == [("mp3", 48000, 2, D, 0), ("mp3", 22050, 1, A, 0), ("wav", 22050, 1, A, 2)]
 
 
 @pytest.mark.asyncio
