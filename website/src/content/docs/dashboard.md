@@ -27,13 +27,16 @@ Assistant.
 
 ## What the dashboard shows
 
+On a computer the sections are in a sidebar under the device's name; on a
+phone they are in a bar at the bottom.
+
 | Section | What you can do |
 | --- | --- |
-| **Overview** | See the light ring, the phase and the connection to Home Assistant. Set the volume, turn the microphones and the wake word on or off, start or stop a request, and see the timers and the device details |
-| **Settings** | Set the wake word sensitivity and the ring brightness. Home Assistant shows the same settings, and a change in one shows in the other |
-| **Updates** | See which version runs from which slot. Install an update and restart the device. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard) |
-| **Network** | See the Wi-Fi network, the signal strength and the addresses. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies |
-| **Logs** | Read the log of `pinnad` as it is written. Debug lines are left out, because they can contain what was said |
+| **Overview** | See the device with its light ring, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, and see the timers. **Identify** runs the ring's test pattern, to find the device among others |
+| **Voice & sound** | Turn the wake word on or off and set its sensitivity, turn the microphones on or off, and set the volume and the ring brightness. Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
+| **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device. Copy the host and port to add the device by hand |
+| **Network** | See the Wi-Fi network, the signal strength, the addresses and the hostname. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies |
+| **System** | See which version runs from which slot, install an update and follow its steps, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad` as it is written. Debug lines are left out, because they can contain what was said |
 
 You change the Wi-Fi network and the wake word over SSH, not in the dashboard.
 See [Configure Pinna](/docs/configure/).
