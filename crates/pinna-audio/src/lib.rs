@@ -6,6 +6,8 @@
 pub mod capture;
 pub mod decode;
 pub mod dsp;
+pub mod media;
+pub(crate) mod mix;
 pub mod mixer;
 pub mod speaker;
 pub mod tone;
@@ -15,6 +17,7 @@ use std::io;
 
 pub use capture::{CaptureConfig, CaptureStatus, CaptureStream, start_capture};
 pub use decode::{Pcm, decode};
+pub use media::{MediaHandle, MediaPhase, MediaState};
 pub use speaker::{PlaybackState, Speaker, SpeakerConfig};
 
 #[derive(Debug, thiserror::Error)]
