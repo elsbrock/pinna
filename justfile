@@ -61,3 +61,16 @@ models:
 # wake word: tract vs onnxruntime parity (needs `just models`)
 wakeword-parity:
     cargo test --release -p pinna-wakeword --test parity -- --nocapture
+
+# end-to-end: pinnad + real wake word on a WAV fixture, aioesphomeapi playing Home Assistant
+e2e:
+    cargo build --release -p pinnad
+    uv run --with aioesphomeapi==46.2.0 --with pytest pytest tests/e2e -q -s
+
+# boot the real image under QEMU and check it (needs: just kernel-qemu image)
+vm-test:
+    tests/vm/boot-test.sh
+
+# QEMU virt variant of the kernel for vm-test
+kernel-qemu:
+    kernel/build.sh qemu

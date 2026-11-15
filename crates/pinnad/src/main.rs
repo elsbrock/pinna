@@ -123,19 +123,23 @@ async fn capture_loop(
         } else {
             if was_streaming {
                 let _ = esp.send(DeviceEvent::VoiceAudioEnd).await;
+                // The detector skipped the streamed audio; drop its stale history.
+                if let Some(d) = detector.as_mut() {
+                    d.reset();
+                }
             }
             if preroll.len() == 10 {
                 preroll.pop_front();
             }
             preroll.push_back(frame_bytes(&frame));
+            // Always feed the detector so it keeps its audio context (it needs
+            // ~2 s of history); only act on detections while wake is enabled.
             if let Some(d) = detector.as_mut() {
+                let detections = tokio::task::block_in_place(|| d.push(&frame));
                 if shared.wake_enabled.load(Ordering::Relaxed) {
-                    let detections = tokio::task::block_in_place(|| d.push(&frame));
                     for det in detections {
                         let _ = inputs.send(Input::Wake { score: det.score }).await;
                     }
-                } else {
-                    d.reset();
                 }
             }
         }
@@ -146,13 +150,18 @@ async fn capture_loop(
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
+    let fmt = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
-        .with_target(false)
-        .without_time()
-        .init();
+        .with_target(false);
+    // journald timestamps lines itself.
+    if std::env::var_os("JOURNAL_STREAM").is_some() {
+        fmt.without_time().init();
+    } else {
+        fmt.with_timer(tracing_subscriber::fmt::time::uptime())
+            .init();
+    }
     let cli = Cli::parse();
     let cfg = Config::load(&cli.config)?;
 
