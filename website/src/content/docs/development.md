@@ -69,7 +69,7 @@ before you send a change that affects the image or the device.
 | `just kernel-config` | The kernel configuration for the device, QEMU and x86_64 contains every option Pinna needs | Network access the first time, to download the kernel source |
 | `just bootimg-roundtrip` | The boot image unpacks and repacks byte for byte | `build/pinna-boot.img` from `just bootimg` |
 | `just vm-test` | The real ARM root image boots in QEMU, and SSH and the Home Assistant API come up | `just kernel-qemu image` first. Takes a few minutes, because QEMU emulates the CPU |
-| `just vm-test-x86` | The same checks with the x86_64 image | `just kernel-x86 image-x86` first. Faster with KVM |
+| `just vm-test-x86` | The same checks with the x86_64 image, and the virtual Echo Dot: its buttons, microphone button, speaker, and the wake word through its microphone | `just kernel-x86 image-x86` first. Faster with KVM. The wake word check needs the models (`just models`); skips without them |
 | `just vm-update-test` | An update installs into the other slot, the trial boot succeeds, and a broken update rolls back | `just kernel-qemu image` and the signing key. Builds two more images, so it takes longer |
 | `just test-device` | Speaker, microphones, LED ring and the Home Assistant API on a real device | A running Echo Dot reachable over SSH |
 
@@ -103,6 +103,98 @@ To remove the extension and go back to the installed programs, run:
 ```sh
 scripts/push-dev.sh --remove
 ```
+
+## Try a change without a device
+
+`just dev-vm` runs the x86_64 image in a virtual machine as a **virtual Echo
+Dot**. Your browser stands in for its hardware: its microphone, its speaker
+and its four buttons. The image, `pinnad`, the wake word and Home Assistant's
+voice pipeline are the same as on a Dot. The beamformer and the Dot's echo
+canceller are not part of it.
+
+You need:
+
+- KVM: write access to `/dev/kvm`, usually by being in the `kvm` group.
+  Without it the CPU is emulated, and the satellite takes many minutes to
+  start.
+- Podman or Docker, installed on your computer. The development shell
+  doesn't include them.
+- The signing key and `secrets/authorized_keys`, as for any image (see
+  [What you need](/docs/requirements/)). Without `authorized_keys`, SSH and
+  `just push-vm` can't log in.
+
+```sh
+just models                 # once: the wake word models
+just kernel-x86 image-x86   # once, and again after changes to the image
+just dev-vm                 # keeps running; stop it with Ctrl-C
+just dev-ha                 # in a second terminal
+```
+
+Without `just models` the image has no wake word, and saying it does
+nothing.
+
+`just dev-ha` runs a Home Assistant for the satellite on your computer, in
+containers: Home Assistant, Whisper for speech to text and
+Piper for text to speech. It sets them up once, with an Assist pipeline and
+the virtual Echo Dot added. The first start downloads the images and the
+speech models, a few gigabytes. Open it at `http://localhost:8123`; from this
+computer it needs no login. `just dev-ha stop` removes the containers, and
+`build/dev-ha/` keeps their state.
+
+Then:
+
+1. Open the dashboard at `http://127.0.0.1:18090`, on the same computer.
+   Browsers share the microphone only with `localhost` or `127.0.0.1`. From
+   another computer, forward the port with
+   `ssh -L 18090:127.0.0.1:18090 <this computer>` and open the same address
+   there.
+2. On the Overview, under **Virtual Echo Dot**, select **Connect** and allow
+   the browser to use the microphone.
+3. Say "Alexa, what time is it?" The ring on the Overview is the satellite's
+   own: it shows what `pinnad` lights.
+
+Hold the round buttons the way you would on the Dot: a short press, a long
+press, or **+** held down to repeat. The microphone button turns the
+microphones off and on, like the Dot's.
+
+**Audio file as the microphone** (**Choose…**, once connected) plays a
+recording into the satellite instead of your voice. That gives the same input every time, for example
+`crates/pinna-wakeword/tests/fixtures/alexa-twice.wav`.
+
+The virtual machine keeps its disk in `build/dev-vm/`, so Home Assistant
+keeps knowing it after a restart. Each start installs the newest
+`build/pinna-x86.root.img`. `FRESH=1 just dev-vm` starts with an empty
+`/var`. The virtual satellite has its own identity. It never joins Home
+Assistant as your Echo Dot.
+
+To try a new `pinnad` without building the image again, run `just push-vm`
+while the virtual machine is running. It works like `just push`, but the
+programs it puts on the satellite last only until the virtual machine
+restarts. Then the image's own are back.
+
+To work on the dashboard with live reloading, point Vite at the virtual
+machine:
+
+```sh
+cd dashboard && PINNA_URL=http://127.0.0.1:18090 npm run dev
+```
+
+Open the `localhost` address Vite prints. The virtual Echo Dot works there too.
+
+To use your own Home Assistant instead of `just dev-ha`, start the virtual
+machine with `ESPHOME_BIND=0.0.0.0 just dev-vm`. Then add the satellite under
+**Settings › Devices & services › Add integration › ESPHome**, with this
+computer's address and port `6053`. Your computer's firewall and your network
+must let Home Assistant reach that port. Discovery doesn't work from inside
+the virtual machine.
+
+To run a second virtual machine, for example from another worktree, give it
+other ports: `WEB_PORT=18190 SSH_PORT=2323 ESPHOME_PORT=6153 just dev-vm`, and
+`SSH_PORT=2323 just push-vm` to update it. There is one `just dev-ha` per
+computer: running it from another worktree replaces the containers. Images
+built from the same checkout are the same device to Home Assistant, so
+connect only one of them to it at a time. The decision record is
+[ADR 0014](https://github.com/elsbrock/pinna/tree/main/docs/adr/0014-virtual-echo-dot.md).
 
 ## Work on one part
 
