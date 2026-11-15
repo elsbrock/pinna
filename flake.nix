@@ -52,6 +52,8 @@
           openssl
           dtc
           kmod
+          elfutils
+          pkg-config
           rsync
 
           # device + VM

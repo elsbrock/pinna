@@ -3,7 +3,8 @@
 # Debian package.
 #
 #   kernel/build.sh            -> build/kernel/{zImage,vmlinux,.config} + build/debs/linux-image-*.deb
-#   kernel/build.sh qemu       -> build/kernel-qemu/ (QEMU virt variant for boot tests, no package)
+#   kernel/build.sh qemu       -> build/kernel-qemu/ (ARM QEMU virt variant for boot tests, no package)
+#   kernel/build.sh x86        -> build/kernel-x86/ (x86_64 QEMU/KVM variant for smoke tests, no package)
 #
 # Requires the dev shell (cross gcc 15, make, dtc, dpkg).
 set -euo pipefail
@@ -14,11 +15,14 @@ root=$(dirname "$here")
 source "$here/source.env"
 
 variant=${1:-device}
-cross=armv7l-unknown-linux-gnueabihf-
 src=$root/build/linux-src
+arch=arm
+cross=armv7l-unknown-linux-gnueabihf-
 case "$variant" in
-  device) out=$root/build/kernel; defconfig=$LINUX_DEFCONFIG; fragments=("$here/pinna.config") ;;
-  qemu)   out=$root/build/kernel-qemu; defconfig=multi_v7_defconfig; fragments=("$here/pinna.config" "$here/qemu.config") ;;
+  device) out=$root/build/kernel; defconfig=$LINUX_DEFCONFIG; fragments=("$here/pinna.config"); targets=(zImage dtbs) ;;
+  qemu)   out=$root/build/kernel-qemu; defconfig=multi_v7_defconfig; fragments=("$here/pinna.config" "$here/qemu.config"); targets=(zImage) ;;
+  x86)    out=$root/build/kernel-x86; defconfig=x86_64_defconfig; fragments=("$here/pinna.config" "$here/x86.config"); targets=(bzImage)
+          arch=x86_64; cross= ;;
   *) echo "unknown variant: $variant" >&2; exit 2 ;;
 esac
 debs=$root/build/debs
@@ -46,11 +50,11 @@ done
 : > "$src/.scmversion"
 
 # --- config ---------------------------------------------------------------
-mk() { make -C "$src" O="$out" ARCH=arm CROSS_COMPILE="$cross" "$@"; }
+mk() { make -C "$src" O="$out" ARCH="$arch" ${cross:+CROSS_COMPILE="$cross"} "$@"; }
 
 log "config ($variant): $defconfig + ${fragments[*]##*/}"
 mk -s "$defconfig"
-ARCH=arm CROSS_COMPILE="$cross" "$src/scripts/kconfig/merge_config.sh" -m -O "$out" "$out/.config" "${fragments[@]}" >/dev/null
+ARCH="$arch" CROSS_COMPILE="$cross" "$src/scripts/kconfig/merge_config.sh" -m -O "$out" "$out/.config" "${fragments[@]}" >/dev/null
 mk -s olddefconfig
 
 # Every symbol the fragments ask for must have landed (later fragments win).
@@ -69,21 +73,26 @@ done < <(cat "${fragments[@]}" | awk '
   END { for (k in o) print v[k] }')
 [ "$fail" = 0 ] || { echo "kernel config assertions failed" >&2; exit 1; }
 log "config assertions passed"
+if [ -n "${CHECK_ONLY:-}" ]; then
+  exit 0
+fi
 
 # --- build ----------------------------------------------------------------
-log "building zImage + dtbs"
-mk -s -j"$(nproc)" zImage dtbs
+log "building ${targets[*]}"
+mk -s -j"$(nproc)" "${targets[@]}"
 
-# The decompressed kernel must end below the ATF carve-out at 0x43000000.
-end_virt=$(${cross}nm "$out/vmlinux" | awk '$3=="_end"{print $1}')
-end_phys=$(( 0x$end_virt - 0xC0000000 + 0x40000000 ))
-printf 'vmlinux _end: virt 0x%s phys 0x%x (limit 0x43000000)\n' "$end_virt" "$end_phys"
-[ "$end_phys" -lt $((0x43000000)) ] || { echo "kernel image overlaps ATF" >&2; exit 1; }
+if [ "$variant" = device ]; then
+  # The decompressed kernel must end below the ATF carve-out at 0x43000000.
+  end_virt=$(${cross}nm "$out/vmlinux" | awk '$3=="_end"{print $1}')
+  end_phys=$(( 0x$end_virt - 0xC0000000 + 0x40000000 ))
+  printf 'vmlinux _end: virt 0x%s phys 0x%x (limit 0x43000000)\n' "$end_virt" "$end_phys"
+  [ "$end_phys" -lt $((0x43000000)) ] || { echo "kernel image overlaps ATF" >&2; exit 1; }
+fi
 
 krel=$(cat "$out/include/config/kernel.release")
 log "kernel release $krel"
-if [ "$variant" = qemu ]; then
-  log "done: $out/arch/arm/boot/zImage"
+if [ "$variant" != device ]; then
+  log "done: $out/arch/$([ "$arch" = x86_64 ] && echo x86/boot/bzImage || echo arm/boot/zImage)"
   exit 0
 fi
 
