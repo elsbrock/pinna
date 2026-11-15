@@ -10,8 +10,10 @@ time, logging, watchdog, USB gadget via configfs). Pinna's own code is the
 
 | Crate | Role |
 |---|---|
-| `pinnad` | State machine: wake word / button → Home Assistant Assist run → TTS; timers, announcements, mute, LED light entity, volume |
-| `pinna-esphome` | ESPHome native API server (plaintext; Noise later), conformance-tested against aioesphomeapi |
+| `pinnad` | State machine: wake word / button → Home Assistant Assist run → TTS; timers, announcements, mute, LED light entity, volume; serves the local control API |
+| `pinna-esphome` | ESPHome native API server, plaintext or Noise (NNpsk0, key provisioning by HA), conformance-tested against aioesphomeapi |
+| `pinna-api` | ConnectRPC `pinna.v1.DeviceService` (proto in `proto/`), generated with `connectrpc-build` + `protox` |
+| `pinnactl` | Console client for the control API (`status`, `volume`, `mute`, `listen`, `stop`, `led-test`, `watch`) |
 | `pinna-wakeword` | openWakeWord on pure-Rust `tract`, matching onnxruntime to 3e-6 |
 | `pinna-hal` | IS31FL3236 LED ring (kernel sysfs), evdev buttons, privacy latch; mocks |
 | `pinna-audio` | Capture/playback via `arecord`/`aplay` (device) or `pw-record`/`pw-play`; DSP front end, mixer sequences, decoding |
@@ -26,4 +28,6 @@ time, logging, watchdog, USB gadget via configfs). Pinna's own code is the
   modelled; laptops/VMs use the PipeWire backend.
 - **Home Assistant integration is the ESPHome native API** — HA adopts the
   device with no YAML; mDNS through systemd-resolved `.dnssd`.
-- Console-first: no web UI yet. The ConnectRPC API and `pinnactl` come next.
+- **Local control API is ConnectRPC** on `127.0.0.1:7470`, unauthenticated and
+  therefore localhost-only; `pinnactl` is the console client and the boot health
+  check. A web UI (Svelte + connect-es) can use the same protos later.

@@ -75,10 +75,13 @@ Within ~20 s the host should see a new USB device "Pinna (Echo Dot 2nd gen)":
 Then check:
 
 ```sh
+pinnactl status
 systemctl --failed
 journalctl -b -u pinna-wifi -u wpa_supplicant@wlan0 -u pinnad
 ip addr show wlan0
 pinna-bootctl status
+pinnactl led-test            # ring animation
+pinnactl volume 40
 ```
 
 ## 5. Make it persistent
@@ -92,8 +95,14 @@ scripts/flash-dot.sh boot      # boot_a + boot_b <- Pinna, reboot
 ## 6. Home Assistant
 
 Pinna advertises `_esphomelib._tcp` via mDNS. Home Assistant should show
-"Echo Dot" as a discovered ESPHome device (plaintext API, no key yet). Add it,
-then configure the voice assistant pipeline for the device. Say "Alexa…".
+"Echo Dot" as a discovered ESPHome device. Add it, then configure the voice
+assistant pipeline for the device. Say "Alexa…".
+
+The API is plaintext until a key is set: put a base64 32-byte key in
+`[esphome] encryption_key` (`/etc/pinna/pinnad.toml`, i.e. in the image) or in
+`/var/lib/pinna/esphome-key`, and give Home Assistant the same key. Home
+Assistant can then rotate it over the encrypted connection; the new key is
+stored in `/var/lib/pinna/esphome-key`.
 
 Things expected to need tuning on real hardware (not testable off-device):
 mic gain and wake threshold (`/etc/pinna/pinnad.toml`, `journalctl -u pinnad`

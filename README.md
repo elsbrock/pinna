@@ -25,6 +25,9 @@ and small Rust daemons.
 ```sh
 nix develop      # or install: rustup, just, mkosi, cargo-zigbuild, qemu
 just             # list tasks
+just all         # kernel, root filesystem, boot image for the Echo Dot
+just test        # everything: unit/lint, ESPHome conformance, wake word parity,
+                 # end-to-end voice flow, armhf + x86_64 VM boot gates
 ```
 
 See `docs/` for the platform design and the first-flash runbook.
