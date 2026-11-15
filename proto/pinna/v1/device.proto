@@ -86,6 +86,9 @@ message Status {
   // A finished timer's alarm is sounding; StopConversation silences it.
   bool alarm_ringing = 16;
   Settings settings = 17;
+  // Which hardware this is, as a stable id for the dashboard's drawing:
+  // "echo-dot-2" for the Echo Dot (2nd gen); empty when unknown (QEMU, a PC).
+  string model = 18;
 }
 
 // Runtime settings, persisted on the satellite and shared with Home Assistant.
@@ -258,6 +261,23 @@ message WatchInstallResponse {
   // Last message: the install finished, successfully or not.
   bool done = 2;
   bool ok = 3;
+  // The stage `line` reports; UNSPECIFIED for lines that report none (errors, `done`).
+  InstallStage stage = 4;
+}
+
+// How far an install got, from the line that reported it.
+enum InstallStage {
+  INSTALL_STAGE_UNSPECIFIED = 0;
+  // The manifest is read and the target slot chosen.
+  INSTALL_STAGE_CHECK = 1;
+  // The image is streaming into the target slot.
+  INSTALL_STAGE_DOWNLOAD = 2;
+  // Written and flushed; sha256 matches.
+  INSTALL_STAGE_WRITE = 3;
+  // Signature and dm-verity checked on the slot.
+  INSTALL_STAGE_VERIFY = 4;
+  // The slot boots next, with tries before rollback.
+  INSTALL_STAGE_INSTALLED = 5;
 }
 
 message RebootRequest {}

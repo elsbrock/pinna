@@ -245,6 +245,7 @@ mod tests {
             wake_phrase: "Alexa".into(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
+            model: String::new(),
         };
         let api = Arc::new(DeviceApi::new(info, status_rx, in_tx));
         Fixture {
@@ -396,6 +397,7 @@ mod tests {
             wake_phrase: String::new(),
             audio_backend: String::new(),
             led_backend: String::new(),
+            model: String::new(),
         };
         let api = Arc::new(DeviceApi::new(info, rx, tx));
         let cfg = Web {
