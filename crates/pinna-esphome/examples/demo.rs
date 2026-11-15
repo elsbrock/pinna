@@ -53,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
     let mut cfg = DeviceConfig::new("pinna-demo", [0x02, 0x00, 0x00, 0x00, 0x00, 0x42]);
     cfg.friendly_name = "Pinna Demo".into();
     cfg.suggested_area = Some("Lab".into());
+    cfg.webserver_port = 80;
     cfg.port = port;
     cfg.bind = [127, 0, 0, 1].into();
     cfg.wake_words = vec![

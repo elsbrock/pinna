@@ -164,6 +164,9 @@ pub struct DeviceConfig {
     pub media_player: Option<MediaPlayerConfig>,
     /// Noise pre-shared key. `None` serves the plaintext API.
     pub encryption_key: Option<[u8; 32]>,
+    /// Port of the device's web page, which Home Assistant links to as
+    /// "Visit". 0 = none.
+    pub webserver_port: u16,
 }
 
 /// The encryption key is not base64 of exactly 32 bytes.
@@ -205,6 +208,7 @@ impl DeviceConfig {
             switches: Vec::new(),
             media_player: None,
             encryption_key: None,
+            webserver_port: 0,
         }
     }
 

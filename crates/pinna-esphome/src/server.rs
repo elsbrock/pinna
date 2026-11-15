@@ -983,6 +983,7 @@ impl Actor {
             suggested_area: c.suggested_area.clone().unwrap_or_default(),
             voice_assistant_feature_flags: VOICE_FEATURE_FLAGS,
             api_encryption_supported: true,
+            webserver_port: c.webserver_port.into(),
             ..Default::default()
         };
         self.send(id, &m);
