@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use buffa::MessageField;
 use connectrpc::ConnectError;
-use pinna_api::{GetUpdatesResponse, InstallResult, Slot as ApiSlot};
+use pinna_api::{GetUpdatesResponse, InstallResult, InstallStage, Slot as ApiSlot};
 use pinna_bootctl::slot::{self, Slot, SlotState};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -261,4 +261,75 @@ fn slot_version(paths: &UpdaterPaths, s: Slot) -> String {
         Ok(pinna_image::read_footer(&dev, &pinna_image::keys::release_key())?.version)
     };
     read().unwrap_or_default()
+}
+
+/// The install stage a `pinna-update` output line reports; keep in step with
+/// the `say(...)` calls there.
+pub fn stage_of(line: &str) -> InstallStage {
+    if line.starts_with("booted slot ") {
+        InstallStage::INSTALL_STAGE_CHECK
+    } else if line.starts_with("downloading ") || is_progress(line) {
+        InstallStage::INSTALL_STAGE_DOWNLOAD
+    } else if line.starts_with("written and flushed ") {
+        InstallStage::INSTALL_STAGE_WRITE
+    } else if line.starts_with("slot ") && line.contains(" verified") {
+        InstallStage::INSTALL_STAGE_VERIFY
+    } else if line.starts_with("installed version ") {
+        InstallStage::INSTALL_STAGE_INSTALLED
+    } else {
+        InstallStage::INSTALL_STAGE_UNSPECIFIED
+    }
+}
+
+/// `  12.0 MiB of 212.4 MiB`: two spaces, then a size.
+fn is_progress(line: &str) -> bool {
+    line.strip_prefix("  ")
+        .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+
+    #[test]
+    fn lines_map_to_stages() {
+        let cases = [
+            (
+                "booted slot a (version 0.3.0); installing version 0.4.0 into slot b",
+                InstallStage::INSTALL_STAGE_CHECK,
+            ),
+            (
+                "downloading https://example.org/pinna.root.img (212.4 MiB) into /dev/disk/by-partlabel/root_b",
+                InstallStage::INSTALL_STAGE_DOWNLOAD,
+            ),
+            (
+                "  12.0 MiB of 212.4 MiB",
+                InstallStage::INSTALL_STAGE_DOWNLOAD,
+            ),
+            (
+                "written and flushed 212.4 MiB; sha256 OK",
+                InstallStage::INSTALL_STAGE_WRITE,
+            ),
+            (
+                "slot b verified: signature OK, dm-verity root hash 00ff matches the data",
+                InstallStage::INSTALL_STAGE_VERIFY,
+            ),
+            (
+                "installed version 0.4.0 into slot b: the next boot tries it (3 tries), falling back to slot a (version 0.3.0)",
+                InstallStage::INSTALL_STAGE_INSTALLED,
+            ),
+            (
+                "sha256 mismatch: got 00, manifest says 11",
+                InstallStage::INSTALL_STAGE_UNSPECIFIED,
+            ),
+            (
+                "  indented but no size",
+                InstallStage::INSTALL_STAGE_UNSPECIFIED,
+            ),
+            ("", InstallStage::INSTALL_STAGE_UNSPECIFIED),
+        ];
+        for (line, stage) in cases {
+            assert_eq!(stage_of(line), stage, "{line:?}");
+        }
+    }
 }

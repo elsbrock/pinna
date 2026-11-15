@@ -432,6 +432,7 @@ async fn main() -> Result<()> {
             wake_phrase: cfg.wake.phrase.clone(),
             audio_backend: audio_backend.into(),
             led_backend: led_backend.into(),
+            model: pinna_hal::ident::board_model().into(),
         },
         status_rx,
         in_tx.clone(),

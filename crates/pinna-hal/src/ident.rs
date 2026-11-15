@@ -6,6 +6,7 @@ pub const MICCAL_UNITY: i32 = 16384;
 pub const MIC_CHANNELS: usize = 7;
 const IDME_DIR: &str = "/proc/idme";
 const DT_IDME_DIR: &str = "/sys/firmware/devicetree/base/idme";
+const DT_COMPATIBLE: &str = "/sys/firmware/devicetree/base/compatible";
 const WLAN0_ADDRESS: &str = "/sys/class/net/wlan0/address";
 
 /// MAC address of wlan0, lowercase colon-separated.
@@ -21,6 +22,28 @@ pub fn mac_from(path: &Path) -> Option<String> {
         && s.split(':')
             .all(|o| o.len() == 2 && o.bytes().all(|b| b.is_ascii_hexdigit()));
     ok.then_some(s)
+}
+
+/// Which hardware this is, as the id the dashboard draws it by; empty when
+/// unknown.
+///
+/// The Echo Dot (2nd gen) is the only supported MT8163 board today. It boots
+/// the shared `libreecho-radar-puffin.dtb` (see `kernel/build.sh`), so the
+/// device tree cannot tell it from the Echo (2nd gen). Supporting a second
+/// MT8163 model needs another source, probably idme.
+pub fn board_model() -> &'static str {
+    board_model_from(Path::new(DT_COMPATIBLE))
+}
+
+pub fn board_model_from(path: &Path) -> &'static str {
+    let Ok(bytes) = std::fs::read(path) else {
+        return "";
+    };
+    if bytes.split(|&b| b == 0).any(|s| s == b"mediatek,mt8163") {
+        "echo-dot-2"
+    } else {
+        ""
+    }
 }
 
 /// Q14 calibration factors for the 7 logical mic channels (16384 = unity).
@@ -123,6 +146,18 @@ mod tests {
         let c = read_miccal_in(&d.join("idme"), &dt);
         assert_eq!(c[2], 15000);
         assert_eq!(c[0], 16384);
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn board_model_from_compatible() {
+        let d = tmp("model");
+        let f = d.join("compatible");
+        fs::write(&f, "amazon,whatever\0mediatek,mt8163\0").unwrap();
+        assert_eq!(board_model_from(&f), "echo-dot-2");
+        fs::write(&f, "acme,board\0").unwrap();
+        assert_eq!(board_model_from(&f), "");
+        assert_eq!(board_model_from(&d.join("missing")), "");
         fs::remove_dir_all(&d).unwrap();
     }
 

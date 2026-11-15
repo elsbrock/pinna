@@ -25,7 +25,7 @@ use pinna_api::{
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::updates::{Event, Updater, UpdaterPaths};
+use crate::updates::{Event, Updater, UpdaterPaths, stage_of};
 use crate::voice::{ApiCommand, ApiReply, Input, SettingsPatch, Snapshot};
 use crate::{logs, network};
 
@@ -37,6 +37,7 @@ pub struct Info {
     pub wake_phrase: String,
     pub audio_backend: String,
     pub led_backend: String,
+    pub model: String,
 }
 
 pub struct DeviceApi {
@@ -92,6 +93,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         version: env!("CARGO_PKG_VERSION").into(),
         name: info.name.clone(),
         mac: info.mac.clone(),
+        model: info.model.clone(),
         uptime_seconds: started.elapsed().as_secs(),
         phase: s.phase.into(),
         muted: s.hw_muted || s.sw_muted,
@@ -334,6 +336,7 @@ impl DeviceService for DeviceApi {
     ) -> ServiceResult<ServiceStream<WatchInstallResponse>> {
         let progress = self.updater.progress();
         let line = |line: String| WatchInstallResponse {
+            stage: stage_of(&line).into(),
             line,
             ..Default::default()
         };
@@ -456,6 +459,7 @@ mod tests {
             wake_phrase: "Alexa".into(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
+            model: "echo-dot-2".into(),
         };
         let addr = start(
             Arc::new(DeviceApi::with_updater(
@@ -629,6 +633,7 @@ mod tests {
             wake_phrase: "Alexa".into(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
+            model: "echo-dot-2".into(),
         };
         let mut snap = Snapshot::default();
         assert!(!render(&info, Instant::now(), &snap).alarm_ringing);

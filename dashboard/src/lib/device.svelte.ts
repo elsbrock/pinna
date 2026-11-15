@@ -1,10 +1,11 @@
 // The satellite as the page sees it: the latest Status from WatchStatus, the
 // state of that connection, and the commands. Served from the satellite itself,
 // so the API is on this page's own origin.
-import { ConnectError, createClient } from "@connectrpc/connect";
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
 import { DeviceService, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
+import { toasts } from "./toast.svelte.ts";
 import type { Link } from "./view.ts";
 
 const client = createClient(DeviceService, createConnectTransport({ baseUrl: location.origin }));
@@ -21,9 +22,9 @@ class Device {
   receivedAt = $state(0);
   link = $state<Link>("connecting");
   offlineSince = $state<Date | null>(null);
-  /** The last rejected command, in the API's words. */
-  error = $state<string | null>(null);
   busy = $state(false);
+  /** Identify was pressed a moment ago: more presses wait. */
+  identifying = $state(false);
   /** A restart was asked for: being unreachable is expected, not an error. */
   restarting = $state(false);
   /** A one-second clock for everything that counts. */
@@ -98,32 +99,47 @@ class Device {
     }
   }
 
-  async #command(run: () => Promise<{ status?: Status }>) {
+  /** Run a command; its reply's Status wins. A rejection shows as a toast. */
+  async #command(run: () => Promise<{ status?: Status }>, done?: string) {
     this.busy = true;
     try {
       this.#accept((await run()).status);
-      this.error = null;
+      if (done) toasts.show(done);
     } catch (e) {
-      this.error = sentence(ConnectError.from(e).rawMessage);
+      toasts.show(errorSentence(e), "danger");
+      // The satellite may be gone: find out now, not at the next ping.
+      if (unreachable(e)) void this.#ping();
     } finally {
       this.busy = false;
     }
   }
 
   setVolume(percent: number) {
-    return this.#command(() => client.setVolume({ percent }));
+    return this.#command(() => client.setVolume({ percent }), "Saved");
   }
   setMicrophones(on: boolean) {
-    return this.#command(() => client.setMute({ muted: !on }));
+    return this.#command(() => client.setMute({ muted: !on }), on ? "Microphones on" : "Microphones off");
   }
   updateSettings(patch: Partial<Omit<UpdateSettingsRequest, "$typeName">>) {
-    return this.#command(() => client.updateSettings(patch));
+    return this.#command(() => client.updateSettings(patch), "Saved");
   }
   startConversation() {
     return this.#command(() => client.startConversation({}));
   }
   stop() {
     return this.#command(() => client.stopConversation({}));
+  }
+  /** Run the ring's test pattern, to find this satellite among others. */
+  async identify() {
+    if (this.identifying) return;
+    this.identifying = true;
+    setTimeout(() => (this.identifying = false), 3_000);
+    try {
+      await client.ledTest({});
+      toasts.show("The ring runs its test pattern.", "info");
+    } catch (e) {
+      toasts.show(errorSentence(e), "danger");
+    }
   }
   /** Ask for a restart; returns why it failed, for the caller to show. */
   async restart(): Promise<string | null> {
@@ -134,7 +150,7 @@ class Device {
       return null;
     } catch (e) {
       this.restarting = false;
-      return sentence(ConnectError.from(e).rawMessage);
+      return errorSentence(e);
     } finally {
       this.busy = false;
     }
@@ -143,6 +159,22 @@ class Device {
 
 /** The API's errors are lowercase fragments ("the microphone is muted"). */
 const sentence = (m: string) => (m ? m[0].toUpperCase() + m.slice(1).replace(/\.?$/, ".") : "The satellite refused.");
+
+/** The request never got an answer: no network, or the satellite is down. */
+function unreachable(e: unknown): boolean {
+  const err = ConnectError.from(e);
+  return (
+    err.code === Code.Unavailable ||
+    err.code === Code.DeadlineExceeded ||
+    /failed to fetch|networkerror|load failed/i.test(err.rawMessage)
+  );
+}
+
+/** An error in words for the page: the API's own sentence, or that it can't be reached. */
+export function errorSentence(e: unknown): string {
+  if (unreachable(e)) return "Can't reach the satellite. Check that it has power and Wi-Fi.";
+  return sentence(ConnectError.from(e).rawMessage);
+}
 
 export const device = new Device();
 export { client };

@@ -6,12 +6,20 @@ import {
   badge,
   canStop,
   clock,
+  downloadProgress,
+  bitrate,
   health,
+  healthWord,
+  installSteps,
   ringEffect,
+  routeOf,
+  since,
+  STAGE,
   startBlocked,
   timerLeft,
   uptime,
   wakeHint,
+  wifiConnected,
 } from "./view.ts";
 
 // A connected, idle satellite; tests override what they need.
@@ -154,4 +162,60 @@ test("update phases come from the slots", async () => {
   assert.equal(updatePhase(trial), "trial");
   assert.equal(slotWord(trial.slots[1]), "On trial, 2 tries left");
   assert.equal(slotWord(slot("b", { state: "unbootable" })), "Can't boot");
+});
+
+test("routeOf: sections, sub-pages, moved v1 paths and unknowns", () => {
+  assert.equal(routeOf(""), "/");
+  assert.equal(routeOf("#/"), "/");
+  assert.equal(routeOf("#/voice"), "/voice");
+  assert.equal(routeOf("#/system/logs"), "/system/logs");
+  assert.equal(routeOf("#/settings"), "/voice");
+  assert.equal(routeOf("#/updates"), "/system");
+  assert.equal(routeOf("#/logs"), "/system/logs");
+  assert.equal(routeOf("#/nope"), null);
+});
+
+test("installSteps: from the stage reached and how it ended", () => {
+  const states = (stage: number, finished: { ok: boolean } | null) =>
+    installSteps(stage, finished).map((s) => s.state);
+  assert.deepEqual(states(0, null), ["current", "pending", "pending", "pending"]);
+  assert.deepEqual(states(STAGE.check, null), ["done", "current", "pending", "pending"]);
+  assert.deepEqual(states(STAGE.download, null), ["done", "current", "pending", "pending"]);
+  assert.deepEqual(states(STAGE.write, null), ["done", "done", "current", "pending"]);
+  assert.deepEqual(states(STAGE.verify, null), ["done", "done", "current", "pending"]);
+  assert.deepEqual(states(STAGE.installed, null), ["done", "done", "done", "current"]);
+  assert.deepEqual(states(STAGE.installed, { ok: true }), ["done", "done", "done", "current"]);
+  // A failure fails the step it was on.
+  assert.deepEqual(states(STAGE.download, { ok: false }), ["done", "failed", "pending", "pending"]);
+  assert.deepEqual(states(0, { ok: false }), ["failed", "pending", "pending", "pending"]);
+});
+
+test("downloadProgress: pinnactl's progress lines only", () => {
+  assert.deepEqual(downloadProgress("  53.1 MiB of 212.4 MiB"), { text: "53.1 of 212.4 MiB", fraction: 53.1 / 212.4 });
+  assert.equal(downloadProgress("downloading http://x/root.img (212.4 MiB) into /dev/x"), null);
+  assert.equal(downloadProgress("  indented"), null);
+});
+
+test("since: the start time from uptime", () => {
+  const now = new Date(2026, 10, 12, 9, 20); // a Thursday
+  assert.equal(since(now, 6 * 60), "Thu 09:14");
+});
+
+test("healthWord: the app bar's word for each health line", () => {
+  assert.equal(healthWord({ tone: "ok", text: "Connected to Home Assistant" }), "Connected");
+  assert.equal(healthWord({ tone: "danger", text: "Not reachable since 14:02" }), "Not reachable");
+  assert.equal(healthWord({ tone: "caution", text: "Restarting" }), "Restarting");
+  assert.equal(healthWord({ tone: "caution", text: "Connected, no voice pipeline" }), "Check Home Assistant");
+});
+
+test("bitrate: iw's tx bitrate, rounded", () => {
+  assert.equal(bitrate("433.3 MBit/s VHT-MCS 9 80MHz short GI"), "433 Mbit/s");
+  assert.equal(bitrate("odd"), "odd");
+});
+
+test("wifiConnected: link details or an IPv4 address", () => {
+  assert.equal(wifiConnected(undefined), false);
+  assert.equal(wifiConnected({ wifi: {}, addresses: [] }), true);
+  assert.equal(wifiConnected({ addresses: ["192.168.1.42/24"] }), true);
+  assert.equal(wifiConnected({ addresses: ["fe80::1/64"] }), false);
 });

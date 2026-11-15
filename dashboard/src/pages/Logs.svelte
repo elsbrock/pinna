@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { ConnectError } from "@connectrpc/connect";
   import { tick } from "svelte";
 
-  import { client } from "../lib/device.svelte.ts";
+  import { copyText } from "../lib/copy.ts";
+  import { client, errorSentence } from "../lib/device.svelte.ts";
   import Icon from "../lib/Icon.svelte";
   import Switch from "../lib/Switch.svelte";
 
@@ -44,7 +44,7 @@
           }
         } catch (e) {
           if (abort.signal.aborted) return;
-          error = ConnectError.from(e).rawMessage;
+          error = errorSentence(e);
         }
         connected = false;
         await new Promise((r) => setTimeout(r, 3000));
@@ -69,25 +69,11 @@
 
   async function copy() {
     const text = shown.map((l) => `${l.time} ${l.level.padEnd(5)} ${l.message}`).join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Not a secure context (plain http on the LAN): the old way still works.
-      const area = document.createElement("textarea");
-      area.value = text;
-      document.body.append(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
-    }
+    await copyText(text);
     copied = true;
     setTimeout(() => (copied = false), 1500);
   }
 </script>
-
-<p class="lead">
-  pinnad's log from the journal, newest at the bottom. Debug lines are left out: they can contain what was said.
-</p>
 
 <div class="tools">
   <div class="filter" role="group" aria-label="Show">
@@ -101,7 +87,7 @@
 </div>
 
 {#if error && !connected}
-  <p class="pn-field-error" role="alert"><Icon name="alert" />Can't read the log: {error}. Trying again…</p>
+  <p class="pn-field-error" role="alert"><Icon name="alert" />{error} Trying again…</p>
 {/if}
 
 <!-- Focusable so the keyboard can scroll it (a scrollable region must be reachable). -->
@@ -119,11 +105,6 @@
 </div>
 
 <style>
-  .lead {
-    margin: 0;
-    max-width: var(--measure);
-    color: var(--ink-muted);
-  }
   .tools {
     display: flex;
     flex-wrap: wrap;
@@ -144,7 +125,8 @@
     padding: var(--space-3) var(--space-4);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
-    background: var(--surface-sunken);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
     font-family: var(--font-mono);
     font-size: 13px;
     line-height: 20px;

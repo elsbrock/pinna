@@ -190,6 +190,7 @@ pub fn install(opts: &Options, manifest: &str, say: &mut dyn FnMut(&str)) -> Res
     let manifest_url = resolve(None, manifest)?;
     let m = fetch_manifest(&manifest_url)?;
     let image_url = resolve(Some(&manifest_url), &m.root.url)?;
+    // pinnad's updates.rs (`stage_of`) maps these lines to install stages, so keep their prefixes.
     say(&format!(
         "booted slot {booted} (version {booted_version}); installing version {} into slot {target}",
         m.version

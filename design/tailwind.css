@@ -85,6 +85,7 @@
   --color-danger-soft: var(--danger-soft);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
+  --color-scrim: var(--scrim);
   --color-puck: var(--puck);
   --color-puck-rim: var(--puck-rim);
   --color-led-off: var(--led-off);
