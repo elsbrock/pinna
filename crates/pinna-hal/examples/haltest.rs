@@ -75,6 +75,7 @@ async fn main() {
 
     let start = Instant::now();
     let mut tick = tokio::time::interval(Duration::from_millis(33));
+    let mut shown = usize::MAX;
     loop {
         tokio::select! {
             _ = tick.tick() => {
@@ -82,7 +83,8 @@ async fn main() {
                 let idx = (el.as_secs() / EFFECT_TIME.as_secs()) as usize % EFFECTS.len();
                 let t = el - Duration::from_secs((el.as_secs() / EFFECT_TIME.as_secs()) * EFFECT_TIME.as_secs());
                 leds.show(&render(EFFECTS[idx].1, t));
-                if t < Duration::from_millis(40) {
+                if idx != shown {
+                    shown = idx;
                     eprintln!("\neffect: {}", EFFECTS[idx].0);
                 }
             }
