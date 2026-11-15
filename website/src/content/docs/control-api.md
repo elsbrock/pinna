@@ -5,7 +5,7 @@ description: Reference for the pinnactl command and the local ConnectRPC API tha
 
 `pinnactl` controls a Pinna device from its own command line. It uses the
 control API, which `pinnad` serves on the device. Other programs on the device
-can use the same API.
+can use the same API, and so does the [dashboard](/docs/dashboard/).
 
 ## pinnactl
 
@@ -84,10 +84,14 @@ You can call it with any Connect, gRPC or gRPC-Web client, or with plain HTTP
 and JSON.
 
 The API has no authentication: anyone who can reach it can control the
-device. That's why it listens on `127.0.0.1:7470`, which only programs on the
-device itself can reach. If you change the address with `[api] listen` in the
-[configuration](/docs/configure/#api), anyone on that network can control the
-device.
+device. `pinnad` serves it in two places:
+
+- On `127.0.0.1:7470`, which only programs on the device itself can reach.
+  `pinnactl` and the boot health check use this address.
+- On port 80, with the dashboard, for your network (`[web]` in the
+  [configuration](/docs/configure/#web)). This one only answers requests for IP
+  addresses, `localhost`, `.local` names and the names in
+  `[web] allowed_hosts`. Other names get `421 Misdirected Request`.
 
 ### Methods
 
@@ -100,8 +104,16 @@ device.
 | `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings or a request is already running |
 | `StopConversation` | Empty | Stops a request, a reply, an announcement or a timer alarm |
 | `LedTest` | Empty | Runs the LED test |
+| `UpdateSettings` | Any of `wake_word` (bool), `wake_sensitivity` and `led_brightness` (0–100) | Changes those settings, as Home Assistant's entities do. Values above 100 return `invalid_argument` |
+| `GetNetwork` | Empty | Returns the hostname and each interface: name, MAC, addresses, and for Wi-Fi the network, signal, band and bitrate |
+| `WatchLogs` | Empty | Streams the last 1000 lines of `pinnad`'s journal, then new lines. Debug and trace lines are left out |
+| `GetUpdates` | Empty | Returns the A/B slots (version, state, tries left, which one runs and which one starts next), whether an install runs, the last install's result, and a suggested manifest URL |
+| `InstallUpdate` | `manifest` (an `http://` or `https://` URL) | Starts `pinnactl update` on the device. Returns `failed_precondition` while another install runs |
+| `WatchInstall` | Empty | Streams the output of the running or last install, and ends with a message that has `done` set |
+| `Reboot` | Empty | Restarts the device |
 
-All methods except `LedTest` return the `Status` after the change.
+`SetVolume`, `SetMute`, `StartConversation`, `StopConversation` and
+`UpdateSettings` return the `Status` after the change.
 
 ### Example
 
@@ -131,6 +143,8 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `timers` | `Timer` list | Each with `id`, `name`, `seconds_left`, `total_seconds` and `active` |
 | `audio_backend` | string | `echodot`, `pipewire`, `wav` or `none` |
 | `led_backend` | string | `is31`, `mock` or `none` |
+| `alarm_ringing` | bool | A finished timer's alarm rings. `StopConversation` stops it |
+| `settings` | `Settings` | `wake_word`, `wake_sensitivity` and `led_brightness` |
 
 ## What's next
 

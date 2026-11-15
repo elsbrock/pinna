@@ -87,6 +87,25 @@ that you used for the first installation.
 To give the new version more or fewer attempts than three, add
 `--tries <number>` to `pinnactl update`.
 
+## Install an update from the dashboard
+
+The [dashboard](/docs/dashboard/) runs the same update as `pinnactl update`.
+
+1. Build and serve the update files, as in steps 1 and 2 above.
+2. In the dashboard, open **Updates**. The manifest address is already filled
+   in with your computer's address and port 8000. Check it, and select
+   **Install update**.
+
+   The page shows each step. The device keeps running the update if you close
+   the page; open **Updates** again to see where it is.
+3. When the update is installed, select **Restart now**. The page reconnects
+   when the device is back, and shows the new version on trial.
+4. Wait until the new slot is marked `Good`, within 5 minutes of the restart.
+   You can install the next update after that.
+
+If the new version doesn't start, the device goes back to the previous one, and
+**Updates** shows the new slot as `Can't boot`.
+
 ## Update the boot image
 
 Updates only replace the root filesystem. The bootloader always boots

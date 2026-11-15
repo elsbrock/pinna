@@ -39,6 +39,7 @@ export const DOCS_NAV: DocGroup[] = [
     group: "Use Pinna",
     items: [
       { slug: "ring-and-buttons", title: "Light ring and buttons" },
+      { slug: "dashboard", title: "Use the dashboard" },
       { slug: "configure", title: "Configure Pinna" },
       { slug: "update", title: "Update Pinna" },
       { slug: "troubleshooting", title: "Troubleshooting" },

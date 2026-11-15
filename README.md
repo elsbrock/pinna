@@ -8,7 +8,7 @@ word, LED ring feedback and button control. It is a modern image-based Linux
 system: Debian userland built with mkosi, systemd, a read-only erofs root in
 signed A/B slots verified by dm-verity, and small Rust daemons.
 
-> Status: early bring-up. Console only. Expect sharp edges.
+> Status: early bring-up. Console and a local dashboard. Expect sharp edges.
 
 ## Layout
 
@@ -20,6 +20,7 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 | `mkosi/` | Debian trixie image definition |
 | `docs/` | Decision records and runbooks |
 | `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
+| `dashboard/` | The dashboard (Svelte, connect-es) that `pinnad` serves on port 80; built into the image by `just web` |
 | `design/` | Design system: tokens, component CSS, fonts and the LED ring for the website and dashboard |
 | `secrets/`, `blobs/` | Owner-local inputs (credentials, vendor firmware, models) — never committed |
 
