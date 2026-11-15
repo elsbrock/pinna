@@ -1311,7 +1311,7 @@ index 9a12e5823..66ca7541e 100644
  #include <linux/clk-provider.h>
  #include <linux/compiler_types.h>
  #include <linux/container_of.h>
-@@ -321,4 +322,139 @@ int devm_mtk_clk_mux_notifier_register(struct device *dev, struct clk *clk,
+@@ -321,4 +322,142 @@ int devm_mtk_clk_mux_notifier_register(struct device *dev, struct clk *clk,
  }
  EXPORT_SYMBOL_GPL(devm_mtk_clk_mux_notifier_register);
  
@@ -1410,6 +1410,9 @@ index 9a12e5823..66ca7541e 100644
 +	.is_enabled = mtk_mux_upd_is_enabled,
 +	.get_parent = mtk_mux_upd_get_parent,
 +	.set_parent = mtk_mux_upd_set_parent,
++	/* Since 6.5 the clk core refuses a mux with .set_parent but no
++	 * .determine_rate; 6.1 never reparented these, so keep it that way. */
++	.determine_rate = clk_hw_determine_rate_no_reparent,
 +};
 +
 +void mtk_clk_register_mux_upds(const struct mtk_mux_upd *muxes, int num,
