@@ -60,14 +60,13 @@ If you lose the private key, devices that run your images can't accept updates
 any more. To recover, build with a new key and install both the boot image and
 the root filesystem again from fastboot.
 
-## Add your device files
+## Add your own files
 
-1. Copy the files from your device into the repository, as described in
-   [What you need](/docs/requirements/):
+1. Put your own files into `secrets/`, as described in
+   [What you need](/docs/requirements/#your-own-files):
 
    | Path | Contents |
    | --- | --- |
-   | `blobs/firmware/` | Wi-Fi and Bluetooth firmware from your backup |
    | `secrets/machine-id` | A machine ID for the image |
    | `secrets/authorized_keys` | Your SSH public key, for logging in to the device |
    | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network (optional) |
@@ -81,9 +80,8 @@ the root filesystem again from fastboot.
    This puts the openWakeWord models into `blobs/models/`.
 
 The build stops if the signing key is missing. For the other files, it
-prints a warning and continues. Read the warnings: without
-Wi-Fi firmware the device has no Wi-Fi, and without `authorized_keys` you
-can't log in over SSH.
+prints a warning and continues. Read the warnings: without `authorized_keys`
+you can't log in over SSH.
 
 ## Build the images
 

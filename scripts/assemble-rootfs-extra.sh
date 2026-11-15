@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Gather everything that goes into the image but is either built here or
-# owner-local (never committed) into build/rootfs-extra, which mkosi copies on
-# top of the Debian root.
+# Gather everything that goes into the image but is either built here, vendor
+# firmware or owner-local (never committed) into build/rootfs-extra, which
+# mkosi copies on top of the Debian root.
 #
-#   blobs/firmware/          MT8163 WMT/Wi-Fi firmware (from the device's stock system partition)
+#   firmware/                MT8163 Wi-Fi/BT firmware (see firmware/README.md)
 #   blobs/models/            openWakeWord models (CC BY-NC-SA, fetched by `just models`)
 #   build/wmt/               static WMT helpers (`just wmt`)
 #   target/<arm>/release/    pinnad, pinnactl, pinna-bootctl (`just rust-arm`)
@@ -36,13 +36,10 @@ mkdir -p "$out"
 warn() { printf 'assemble: WARNING: %s\n' "$*" >&2; }
 
 # Firmware (device only)
-if [ "$device" = no ]; then
-  :
-elif compgen -G "$root/blobs/firmware/*" >/dev/null; then
+if [ "$device" = yes ]; then
   install -d "$out/usr/lib/firmware"
-  install -m0644 "$root"/blobs/firmware/* "$out/usr/lib/firmware/"
-else
-  warn "no firmware in blobs/firmware — Wi-Fi will not come up on the device"
+  install -m0644 "$root"/firmware/WIFI_RAM_CODE_8163 "$root"/firmware/ROMv2_lm_patch_1_*_hdr.bin \
+    "$root"/firmware/WMT_SOC.cfg "$out/usr/lib/firmware/"
 fi
 
 # WMT helpers (device only)

@@ -19,8 +19,8 @@ runtime: the bootloader command field (fastboot guard) and Pinna's A/B slot
 state at offset 0x40000 (ADR 0003).
 
 The Wi-Fi firmware that used to come from `system_a` is baked into the Pinna
-root (`blobs/firmware/`, extracted from the backup). The microphone FPGA
-bitstream is in the repository (`kernel/firmware/`) and built into the kernel.
+root (`firmware/` in the repository). The microphone FPGA bitstream is in the
+repository too (`kernel/firmware/`) and built into the kernel.
 
 ## 0. Owner-local inputs and build
 

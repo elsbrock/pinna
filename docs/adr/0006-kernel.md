@@ -35,8 +35,8 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 - **The microphone FPGA bitstream is committed** (`kernel/firmware/`, 31 KB)
   and built in with `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it
   at probe, before the root is mounted, so the device kernel cannot be built
-  without it, and LibreEcho-Linux is its only public source. It is the one
-  vendor file in the repository.
+  without it, and LibreEcho-Linux is its only public source. The Wi-Fi/BT
+  firmware is committed for the same reason (`firmware/`, ADR 0001).
 - **Config from allnoconfig + fragments.** `common.config` holds what every
   variant needs: the systemd requirements (README, v257), erofs/ext4/overlay,
   dm-verity, networking. `device.config`, `qemu.config` and `x86.config` add

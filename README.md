@@ -22,7 +22,8 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 | `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
 | `dashboard/` | The dashboard (Svelte, connect-es) that `pinnad` serves on port 80; built into the image by `just web` |
 | `design/` | Design system: tokens, component CSS, fonts and the LED ring for the website and dashboard |
-| `secrets/`, `blobs/` | Owner-local inputs (credentials, vendor firmware, models) — never committed |
+| `firmware/` | MT8163 Wi-Fi/BT firmware from the stock Fire OS, installed into the root image |
+| `secrets/`, `blobs/` | Owner-local inputs (credentials, models, device backups) — never committed |
 
 ## Development
 

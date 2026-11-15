@@ -60,24 +60,6 @@ the individual partitions.
 - Network access during the build, for the toolchain, the Debian packages, the
   kernel source and the wake word models.
 
-## Files from your device
-
-Put this file into the repository after you clone it:
-
-- **Wi-Fi and Bluetooth firmware** in `blobs/firmware/`. The firmware is
-  proprietary and isn't distributed with Pinna. It's in the system partition
-  of the stock firmware, in your backup. Pinna needs at least
-  `WIFI_RAM_CODE_8163`, `ROMv2_lm_patch_1_0_hdr.bin` and
-  `ROMv2_lm_patch_1_1_hdr.bin`. To find them, mount the partition image
-  read-only:
-
-  ```sh
-  sudo mount -o loop,ro system_a.img /mnt
-  find /mnt -name 'WIFI_RAM_CODE*' -o -name 'ROMv2_lm_patch*'
-  ```
-
-  Without the firmware, the build continues, but the device has no Wi-Fi.
-
 ## Your own files
 
 Put these files into `secrets/`. Git ignores the folder, so they never end up

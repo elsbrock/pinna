@@ -42,11 +42,14 @@ it does and any errors. The sections below quote the lines to look for.
    ip addr show wlan0
    ```
 
-2. If `wlan0` doesn't exist, the Wi-Fi firmware is probably missing. The build
-   warns about it. Add the firmware to `blobs/firmware/`, as described in
-   [What you need](/docs/requirements/#files-from-your-device), and build the
-   image again. Then install the new root filesystem over the USB cable with
-   [Update Pinna](/docs/update/), which keeps your settings.
+2. If `wlan0` doesn't exist, powering up the Wi-Fi failed. The `pinna-wifi`
+   lines in the log show the step that failed, for example
+   `wlan0 did not appear`. To try again, run:
+
+   ```sh
+   systemctl restart pinna-wifi
+   ```
+
 3. If `wlan0` exists but has no address, check the network name and password
    in `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`. See
    [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi).

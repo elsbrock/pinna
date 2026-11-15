@@ -50,7 +50,11 @@ Device facts that constrain the design:
 - Kernel updates are separate from root updates. A/B for the root
   (`system_a`/`system_b`) with dm-verity: ADR 0003 (the initramfs chooses the
   slot, so the command line stays fixed).
-- Wi-Fi/BT firmware is owner-supplied (`blobs/`), never committed.
+- Wi-Fi/BT firmware is committed (`firmware/`), like the microphone FPGA
+  bitstream (`kernel/firmware/`, ADR 0006): neither has a source other than
+  the device's stock firmware or LibreEcho, so an owner without them would
+  have no Wi-Fi or no microphones. Amended 2026-11-15; until then they were
+  owner-supplied in `blobs/`.
 - Moving to Debian's kernel source (6.12 LTS) means porting the board patches:
   done in ADR 0006.
 - arm64 may be possible (ATF runs 64-bit, `bootopt=64S3,…`); not pursued yet.

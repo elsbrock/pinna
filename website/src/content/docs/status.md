@@ -38,8 +38,7 @@ On the Echo Dot itself:
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 - **No prebuilt images.** You build your own images and sign them with your
   own key.
-- **Backup and firmware.** Pinna doesn't yet provide a tool to back up the
-  device or to extract the Wi-Fi firmware from the backup.
+- **Backup.** Pinna doesn't yet provide a tool to back up the device.
 - **Tuning.** The microphone gain is fixed in the code. The direction in which
   the ring's LEDs are numbered isn't confirmed on hardware yet.
 - **One wake word.** Pinna listens for "Alexa", with the openWakeWord model.
