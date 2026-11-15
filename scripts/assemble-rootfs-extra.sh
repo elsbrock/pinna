@@ -86,6 +86,15 @@ if [ -s "$root/secrets/authorized_keys" ]; then
 else
   warn "no secrets/authorized_keys — SSH login will be impossible"
 fi
+# Owner-local device identity and Home Assistant API key: defaults only, seeded
+# to /var/lib/pinna on first boot (tmpfiles) so a re-flash keeps the same
+# Home Assistant device.
+for f in pinnad.toml esphome-key; do
+  if [ -s "$root/secrets/device/$f" ]; then
+    install -d "$out/usr/share/pinna/device"
+    install -m0600 "$root/secrets/device/$f" "$out/usr/share/pinna/device/$f"
+  fi
+done
 if [ -s "$root/secrets/wifi/wpa_supplicant-wlan0.conf" ]; then
   # Default only: first boot copies it to /var/lib/pinna/wifi/ (tmpfiles), which
   # /etc/wpa_supplicant/wpa_supplicant-wlan0.conf points at, so Wi-Fi can be
