@@ -3,10 +3,40 @@
 use std::time::{Duration, Instant};
 
 use pinna_audio::beamview::BeamSnapshot;
-use pinna_audio::{Bands, Spectrum};
-use pinna_hal::anim::{Effect, render};
+use pinna_audio::{Bands, Spectrum, VoiceLevel};
+use pinna_hal::anim::{Effect, render, speaking, speech_level};
 use pinna_hal::led::{Frame, LedHandle, RING_PIXELS, Rgb};
 use tokio::sync::watch;
+
+/// How fast the speaking ring rises with the voice and falls back: fast
+/// enough to show syllables, slow enough not to flicker.
+const SPEECH_ATTACK: Duration = Duration::from_millis(25);
+const SPEECH_RELEASE: Duration = Duration::from_millis(120);
+
+/// Smooths the reply's level for the speaking ring.
+#[derive(Debug, Default)]
+struct Envelope {
+    value: f32,
+    at: Option<Instant>,
+}
+
+impl Envelope {
+    /// Move towards `target` (0..=1) for the time since the last update.
+    fn update(&mut self, target: f32, now: Instant) -> f32 {
+        let dt = self
+            .at
+            .map_or(Duration::ZERO, |t| now.saturating_duration_since(t));
+        let tau = if target > self.value {
+            SPEECH_ATTACK
+        } else {
+            SPEECH_RELEASE
+        };
+        let k = 1.0 - (-dt.as_secs_f32() / tau.as_secs_f32()).exp();
+        self.value += (target - self.value) * k;
+        self.at = Some(now);
+        self.value
+    }
+}
 
 /// How the Home Assistant light entity is shown (its effect list: Solid, Pulse, Flash).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -90,14 +120,17 @@ impl Default for LedState {
     }
 }
 
-/// `music`: the band levels sounding now, if music is playing.
+/// `music`: the band levels sounding now, if music is playing. `speech`: the
+/// reply's smoothed level (0..=1) while it is heard; without it the speaking
+/// ring breathes.
 pub fn frame_for(
     state: &LedState,
     music: Option<&Bands>,
     base_since: Instant,
     now: Instant,
+    speech: Option<f32>,
 ) -> Frame {
-    let mut frame = unscaled_frame(state, music, base_since, now);
+    let mut frame = unscaled_frame(state, music, base_since, now, speech);
     if state.brightness < 100 {
         let k = f32::from(state.brightness) / 100.0;
         for px in &mut frame {
@@ -112,12 +145,16 @@ fn unscaled_frame(
     music: Option<&Bands>,
     base_since: Instant,
     now: Instant,
+    speech: Option<f32>,
 ) -> Frame {
     if let Some((effect, since)) = state.overlay {
         let t = now.saturating_duration_since(since);
         if !effect.is_finished(t) {
             return render(effect, t);
         }
+    }
+    if let (Effect::Speaking, Some(level)) = (state.base, speech) {
+        return speaking(level);
     }
     let t = now.saturating_duration_since(base_since);
     match state.base {
@@ -195,11 +232,12 @@ impl Talker {
 }
 
 /// Drive the ring from `state` (and `music`, the speaker's spectrum) until the
-/// sender is dropped.
+/// sender is dropped. The speaking ring follows `voice`, the speaker's level.
 pub async fn run(
     leds: Option<LedHandle>,
     mut state: watch::Receiver<LedState>,
     music: Option<Spectrum>,
+    voice: Option<VoiceLevel>,
 ) {
     let Some(leds) = leds else {
         // No ring: just log transitions.
@@ -215,6 +253,7 @@ pub async fn run(
     };
     let mut current = state.borrow().clone();
     let mut base_since = Instant::now();
+    let mut envelope = Envelope::default();
     let mut tick = tokio::time::interval(Duration::from_millis(33));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -234,7 +273,24 @@ pub async fn run(
         }
         let now = Instant::now();
         let bands = music.as_ref().and_then(|m| m.at(now));
-        leds.show(&frame_for(&current, bands.as_ref(), base_since, now));
+        let heard = voice
+            .as_ref()
+            .filter(|_| current.base == Effect::Speaking)
+            .and_then(|v| v.at(now));
+        let speech = match heard {
+            Some(rms) => Some(envelope.update(speech_level(rms), now)),
+            None => {
+                envelope = Envelope::default();
+                None
+            }
+        };
+        leds.show(&frame_for(
+            &current,
+            bands.as_ref(),
+            base_since,
+            now,
+            speech,
+        ));
     }
 }
 
@@ -255,9 +311,9 @@ mod tests {
             light: Some(green),
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, None, now, now), [green; RING_PIXELS]);
+        assert_eq!(frame_for(&s, None, now, now, None), [green; RING_PIXELS]);
         s.base = Effect::Muted;
-        assert_ne!(frame_for(&s, None, now, now), [green; RING_PIXELS]);
+        assert_ne!(frame_for(&s, None, now, now, None), [green; RING_PIXELS]);
     }
 
     #[test]
@@ -274,20 +330,20 @@ mod tests {
             brightness: 50,
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, None, now, now)[0].r, 100);
+        assert_eq!(frame_for(&s, None, now, now, None)[0].r, 100);
         s.brightness = 100;
         s.light_effect = LightEffect::Flash;
         assert_eq!(
-            frame_for(&s, None, now, now + Duration::from_millis(100))[0].r,
+            frame_for(&s, None, now, now + Duration::from_millis(100), None)[0].r,
             200
         );
         assert_eq!(
-            frame_for(&s, None, now, now + Duration::from_millis(600))[0].r,
+            frame_for(&s, None, now, now + Duration::from_millis(600), None)[0].r,
             0
         );
         s.light_effect = LightEffect::Pulse;
-        let low = frame_for(&s, None, now, now)[0].r;
-        let high = frame_for(&s, None, now, now + Duration::from_secs(1))[0].r;
+        let low = frame_for(&s, None, now, now, None)[0].r;
+        let high = frame_for(&s, None, now, now + Duration::from_secs(1), None)[0].r;
         assert!(low < 50 && high == 200, "{low} {high}");
         assert_eq!(LightEffect::from_name("Flash"), Some(LightEffect::Flash));
         assert_eq!(LightEffect::Pulse.name(), "Pulse");
@@ -385,23 +441,23 @@ mod tests {
             base: Effect::Idle,
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, Some(&bands), now, now), eq);
-        assert_eq!(frame_for(&s, None, now, now), [Rgb::OFF; RING_PIXELS]);
+        assert_eq!(frame_for(&s, Some(&bands), now, now, None), eq);
+        assert_eq!(frame_for(&s, None, now, now, None), [Rgb::OFF; RING_PIXELS]);
         // A running timer and the light win over the equalizer.
         s.timer = Some(0.5);
         assert_eq!(
-            frame_for(&s, Some(&bands), now, now),
+            frame_for(&s, Some(&bands), now, now, None),
             render(Effect::Timer(0.5), Duration::ZERO)
         );
         s.light = Some(Rgb::new(0, 0, 200));
         assert_eq!(
-            frame_for(&s, Some(&bands), now, now),
+            frame_for(&s, Some(&bands), now, now, None),
             [Rgb::new(0, 0, 200); RING_PIXELS]
         );
         // So do the voice states.
         s.base = Effect::Thinking;
         assert_eq!(
-            frame_for(&s, Some(&bands), now, now),
+            frame_for(&s, Some(&bands), now, now, None),
             render(Effect::Thinking, Duration::ZERO)
         );
     }
@@ -414,9 +470,68 @@ mod tests {
             overlay: Some((Effect::Volume(50), now)),
             ..Default::default()
         };
-        let during = frame_for(&s, None, now, now + Duration::from_millis(100));
-        let after = frame_for(&s, None, now, now + Duration::from_secs(10));
+        let during = frame_for(&s, None, now, now + Duration::from_millis(100), None);
+        let after = frame_for(&s, None, now, now + Duration::from_secs(10), None);
         assert_ne!(during, after);
         assert_eq!(after, render(Effect::Idle, Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn speaking_follows_the_reply_when_heard() {
+        let now = Instant::now();
+        let mut s = LedState {
+            base: Effect::Speaking,
+            brightness: 50,
+            ..Default::default()
+        };
+        // No level (still downloading, no speaker): the breathing.
+        assert_eq!(
+            frame_for(&s, None, now, now, None),
+            frame_for(
+                &LedState {
+                    brightness: 100,
+                    ..s.clone()
+                },
+                None,
+                now,
+                now,
+                None
+            )
+            .map(|p| scale(p, 0.5))
+        );
+        assert_eq!(
+            frame_for(&s, None, now, now, Some(1.0)),
+            [scale(speaking(1.0)[0], 0.5); 12]
+        );
+        // A transient overlay still wins.
+        s.overlay = Some((Effect::Volume(50), now));
+        assert_eq!(
+            frame_for(&s, None, now, now, Some(1.0)),
+            frame_for(&s, None, now, now, None)
+        );
+        // Only the speaking ring follows the voice.
+        s.overlay = None;
+        s.base = Effect::Thinking;
+        assert_eq!(
+            frame_for(&s, None, now, now, Some(1.0)),
+            frame_for(&s, None, now, now, None)
+        );
+    }
+
+    #[test]
+    fn envelope_rises_fast_and_falls_slowly() {
+        let t0 = Instant::now();
+        let ms = |n| t0 + Duration::from_millis(n);
+        let mut e = Envelope::default();
+        assert_eq!(e.update(1.0, t0), 0.0, "no time has passed yet");
+        let up = e.update(1.0, ms(33));
+        assert!(up > 0.7, "{up}");
+        let mut e = Envelope {
+            value: 1.0,
+            at: Some(t0),
+        };
+        let down = e.update(0.0, ms(33));
+        assert!(down > 0.7 && down < 0.8, "{down}");
+        assert!(e.update(0.0, ms(1000)) < 0.01);
     }
 }

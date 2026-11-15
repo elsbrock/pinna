@@ -23,7 +23,7 @@ use std::io;
 pub use capture::{CaptureConfig, CaptureStatus, CaptureStream, start_capture};
 pub use decode::{Pcm, decode};
 pub use media::{MediaHandle, MediaPhase, MediaState};
-pub use speaker::{PlaybackState, Speaker, SpeakerConfig};
+pub use speaker::{PlaybackState, Speaker, SpeakerConfig, VoiceLevel};
 pub use spectrum::{Bands, Spectrum};
 
 #[derive(Debug, thiserror::Error)]

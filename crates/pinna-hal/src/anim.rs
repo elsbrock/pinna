@@ -176,6 +176,27 @@ fn direction(colour: Rgb, azimuth: u32) -> Frame {
     f
 }
 
+/// Voice level for the speaking ring: this quiet is the floor, this loud is
+/// full brightness (RMS over 20 ms, relative to full scale).
+const SPEECH_FLOOR_DBFS: f32 = -42.0;
+const SPEECH_FULL_DBFS: f32 = -15.0;
+
+/// Map the RMS of the reply (sample units, before volume) to 0..=1.
+pub fn speech_level(rms: f32) -> f32 {
+    if rms <= 0.0 {
+        return 0.0;
+    }
+    let dbfs = 20.0 * (rms / 32768.0).log10();
+    ((dbfs - SPEECH_FLOOR_DBFS) / (SPEECH_FULL_DBFS - SPEECH_FLOOR_DBFS)).clamp(0.0, 1.0)
+}
+
+/// The speaking ring following the reply: `level` 0..=1 (from
+/// [`speech_level`], smoothed) between the breathing's floor and full.
+/// [`Effect::Speaking`] is the fallback when no level is known.
+pub fn speaking(level: f32) -> Frame {
+    solid(SPEAKING.scaled(0.25 + 0.75 * level.clamp(0.0, 1.0)))
+}
+
 /// Meter / countdown arc starting at pixel 0, with a fractional last pixel and
 /// a dim track for the unlit remainder.
 fn arc(colour: Rgb, fraction: f32) -> Frame {
@@ -337,6 +358,24 @@ mod tests {
         let f = render(Effect::Equalizer(bands), ms(0));
         assert_eq!((f[1], f[8]), (EQUALIZER[2], EQUALIZER[2]));
         assert_eq!(lit(&f), 2);
+    }
+
+    #[test]
+    fn speech_level_maps_loudness() {
+        let rms = |dbfs: f32| 32768.0 * 10f32.powf(dbfs / 20.0);
+        assert_eq!(speech_level(0.0), 0.0);
+        assert_eq!(speech_level(rms(-60.0)), 0.0);
+        assert!((speech_level(rms(-28.5)) - 0.5).abs() < 1e-3);
+        assert_eq!(speech_level(rms(-3.0)), 1.0);
+        assert!(speech_level(rms(-30.0)) < speech_level(rms(-20.0)));
+    }
+
+    #[test]
+    fn speaking_follows_level() {
+        assert_eq!(speaking(0.0), solid(SPEAKING.scaled(0.25)));
+        assert_eq!(speaking(1.0), solid(SPEAKING));
+        assert_eq!(speaking(7.0), speaking(1.0));
+        assert!(speaking(0.6)[0].g > speaking(0.3)[0].g);
     }
 
     #[test]

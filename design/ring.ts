@@ -1,7 +1,9 @@
 // The LED ring for screens: a port of crates/pinna-hal/src/anim.rs plus the
 // geometry for drawing it. Framework-free, so the website and the dashboard
 // share it. Keep ringFrame() in step with anim.rs (ring.test.ts mirrors its
-// tests).
+// tests). One deliberate difference: on the device the speaking ring follows
+// the loudness of the voice (anim.rs speaking()); screens can't hear it, so
+// they show the breathing the device falls back to.
 
 export const RING_PIXELS = 12;
 

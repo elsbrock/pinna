@@ -21,8 +21,8 @@ use crate::volume::volume_gain;
 use crate::{Backend, Error, Result, decode};
 use std::collections::VecDeque;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, Command};
@@ -84,6 +84,37 @@ pub enum PlaybackState {
     Playing,
 }
 
+/// Chunks of voice level kept: 640 ms, well past the lead.
+const LEVEL_HISTORY: usize = 32;
+/// A level older than this is not current any more (a chunk lasts 20 ms).
+const LEVEL_STALE: Duration = Duration::from_millis(60);
+
+/// Loudness of the voice lane (replies, announcements, chimes) as it is
+/// heard: the RMS of each 20 ms chunk in sample units, before any volume, at
+/// the moment the chunk starts to sound. Media is not included.
+#[derive(Clone, Default)]
+pub struct VoiceLevel(Arc<Mutex<VecDeque<(Instant, f32)>>>);
+
+impl VoiceLevel {
+    fn push(&self, at: Instant, rms: f32) {
+        let mut q = self.0.lock().unwrap();
+        if q.len() == LEVEL_HISTORY {
+            q.pop_front();
+        }
+        q.push_back((at, rms));
+    }
+
+    /// The level sounding at `now`, or `None` when no voice is playing.
+    pub fn at(&self, now: Instant) -> Option<f32> {
+        let q = self.0.lock().unwrap();
+        q.iter()
+            .rev()
+            .find(|(t, _)| *t <= now)
+            .filter(|(t, _)| now.duration_since(*t) < LEVEL_STALE)
+            .map(|(_, rms)| *rms)
+    }
+}
+
 pub(crate) struct Clip {
     samples: Vec<i16>,
     pos: usize,
@@ -111,6 +142,7 @@ struct Inner {
     spectrum: Spectrum,
     state: watch::Receiver<PlaybackState>,
     session_open: Arc<AtomicBool>,
+    level: VoiceLevel,
 }
 
 #[derive(Clone)]
@@ -131,6 +163,7 @@ impl Speaker {
         let (media_tx, media_rx) = watch::channel(MediaState::default());
         let media = MediaHandle::new(tx.clone(), media_rx);
         let spectrum = Spectrum::default();
+        let level = VoiceLevel::default();
         let actor = Actor {
             feeder: Feeder::new(cfg.duck_db),
             // Only the Echo Dot's own sound card has the two clocks to track.
@@ -148,6 +181,7 @@ impl Speaker {
             idle_since: Instant::now(),
             analyzer: Analyzer::new(OUT_RATE),
             spectrum: spectrum.clone(),
+            level: level.clone(),
         };
         tokio::spawn(actor.run());
         Speaker {
@@ -160,8 +194,14 @@ impl Speaker {
                 spectrum,
                 state: state_rx,
                 session_open,
+                level,
             }),
         }
+    }
+
+    /// Loudness of the voice lane as it is heard (for the LED ring).
+    pub fn voice_level(&self) -> VoiceLevel {
+        self.inner.level.clone()
     }
 
     /// Play a clip of any rate/channel layout (converted to 48 kHz stereo).
@@ -263,6 +303,9 @@ struct Feeder {
     media: MediaLane,
     /// The last chunk's media lane as mono (before ducking and gain).
     media_mono: Vec<f32>,
+    /// RMS of the voice samples in the last chunk (before any gain); `None`
+    /// when the chunk had no voice.
+    voice_rms: Option<f32>,
 }
 
 impl Default for Feeder {
@@ -287,6 +330,7 @@ impl Feeder {
             ducker: Ducker::new(duck_db),
             media: MediaLane::default(),
             media_mono: Vec::new(),
+            voice_rms: None,
         }
     }
 
@@ -302,13 +346,17 @@ impl Feeder {
         self.media_mono.clear();
         let mut ended = Vec::new();
         let start_gain = self.gain;
+        let (mut voice_power, mut voice_samples) = (0.0f64, 0u32);
         for f in 0..frames {
             let mut voice = None;
             if let Some(clip) = self.queue.front_mut() {
-                voice = Some((
+                let (l, r) = (
                     f32::from(clip.samples[clip.pos]),
                     f32::from(clip.samples[clip.pos + 1]),
-                ));
+                );
+                voice_power += f64::from(l * l) + f64::from(r * r);
+                voice_samples += 2;
+                voice = Some((l, r));
                 clip.pos += 2;
                 if clip.pos + 1 >= clip.samples.len() {
                     let clip = self.queue.pop_front().unwrap();
@@ -332,6 +380,8 @@ impl Feeder {
             }
         }
         self.gain = target_gain;
+        self.voice_rms =
+            (voice_samples > 0).then(|| (voice_power / f64::from(voice_samples)).sqrt() as f32);
         ended
     }
 
@@ -497,6 +547,7 @@ struct Actor {
     idle_since: Instant,
     analyzer: Analyzer,
     spectrum: Spectrum,
+    level: VoiceLevel,
 }
 
 /// Player command line.
@@ -721,6 +772,9 @@ impl Actor {
                 self.close_session().await;
                 continue;
             }
+            if let Some(rms) = self.feeder.voice_rms {
+                self.level.push(s.time_of(base), rms);
+            }
             for e in ended {
                 self.finishing.push_back((base + e.frame as u64, e.done));
             }
@@ -931,6 +985,47 @@ mod tests {
         f.queue.push_back(c);
         f.cancel_all();
         assert!(matches!(rx.try_recv(), Ok(Ok(()))));
+    }
+
+    #[test]
+    fn feeder_measures_voice_before_gain() {
+        let mut f = Feeder::default();
+        let mut out = Vec::new();
+        f.next_chunk(4, 1.0, &mut out);
+        assert_eq!(f.voice_rms, None, "no voice queued");
+        // A square wave of +-3000 has an RMS of 3000, whatever the volume.
+        let (c, _rx) = clip(vec![3000, -3000, -3000, 3000, 3000, -3000]);
+        f.queue.push_back(c);
+        f.next_chunk(8, 0.1, &mut out);
+        assert_eq!(f.voice_rms, Some(3000.0), "only the 3 voice frames count");
+        f.next_chunk(4, 0.1, &mut out);
+        assert_eq!(f.voice_rms, None, "the clip ended");
+    }
+
+    #[test]
+    fn voice_level_is_what_sounds_now() {
+        let level = VoiceLevel::default();
+        let t0 = Instant::now();
+        let ms = |n| t0 + Duration::from_millis(n);
+        level.push(ms(0), 100.0);
+        level.push(ms(20), 200.0);
+        level.push(ms(40), 300.0);
+        assert_eq!(
+            level.at(t0.checked_sub(Duration::from_millis(1)).unwrap()),
+            None
+        );
+        assert_eq!(level.at(ms(5)), Some(100.0));
+        assert_eq!(
+            level.at(ms(25)),
+            Some(200.0),
+            "a later chunk is not heard yet"
+        );
+        assert_eq!(level.at(ms(90)), Some(300.0));
+        assert_eq!(level.at(ms(100)), None, "stale after the last chunk");
+        for i in 0..100 {
+            level.push(ms(100 + i * 20), 1.0);
+        }
+        assert_eq!(level.0.lock().unwrap().len(), LEVEL_HISTORY);
     }
 
     // -- two-lane mixing ---------------------------------------------------

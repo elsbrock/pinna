@@ -18,7 +18,7 @@ this table wins:
 | Amber, pulsing twice a second | A timer has finished. Press the Action button to stop it |
 | Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch in Home Assistant |
 | A violet light that runs around the ring | Home Assistant is working on your request |
-| Cyan, slowly getting brighter and dimmer | The device is playing the reply |
+| Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | An amber arc | A timer is running. The arc shows how much time is left |
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |
 | Off | The device is idle |

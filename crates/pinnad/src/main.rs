@@ -323,10 +323,12 @@ async fn main() -> Result<()> {
             }
             Arc::new(Speaker::new(sc))
         });
+    // The ring shows music as an equalizer and follows the voice while speaking.
     tokio::spawn(leds::run(
         ring,
         led_rx,
         speaker.as_ref().map(|s| s.spectrum()),
+        speaker.as_ref().map(|s| s.voice_level()),
     ));
 
     let shared = Arc::new(Shared::default());

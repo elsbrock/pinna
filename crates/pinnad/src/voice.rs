@@ -1308,6 +1308,12 @@ impl Brain {
             Effect::TimerRinging
         } else {
             match self.phase {
+                // A media player announcement speaks without a run.
+                Phase::Idle
+                    if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) =>
+                {
+                    Effect::Speaking
+                }
                 Phase::Idle => Effect::Idle,
                 Phase::Starting(_) | Phase::Listening(_) => self
                     .talker
