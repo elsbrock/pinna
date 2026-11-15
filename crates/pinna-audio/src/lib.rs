@@ -3,6 +3,7 @@
 //! No C bindings: audio moves through subprocesses (`arecord`/`aplay`/
 //! `amixer` from alsa-utils on the device, `pw-record`/`pw-play` on a laptop).
 
+pub mod beamformer;
 pub mod capture;
 pub mod decode;
 pub mod dsp;
