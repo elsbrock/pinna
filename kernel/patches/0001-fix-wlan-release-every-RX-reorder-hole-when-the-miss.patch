@@ -1,0 +1,62 @@
+From e05ab808f3bbd1f2e1711b6ea6618ae0ef73cb97 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 14 Nov 2026 10:54:21 +0100
+Subject: [PATCH] fix(wlan): release every RX reorder hole when the miss
+ timeout expires
+
+qmPopOutDueToFallWithin() skipped a single sequence hole when the
+1 s miss timeout expired, then cleared fgMissing and stopped at the
+next hole. After a burst loss each remaining hole waited for another
+received frame plus another full timeout. TCP stops sending while its
+ACKs are held, so new frames arrived only at the sender's backed-off
+retransmit pace, and RX stalled for 10-30 s while the link stayed
+associated (beacons still flowed).
+
+Keep fgMissing set so a timeout releases every frame still queued; all
+of them arrived before the timeout expired. Log a rate-limited
+ECHO_WLAN_RX_BA line when holes are skipped.
+---
+ .../conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c    | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+index 843e295aa..bac5b58bd 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+@@ -3164,6 +3164,7 @@ qmPopOutDueToFallWithin(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prRetur
+ 	P_QUE_T prReorderQue;
+ 	BOOLEAN fgDequeuHead, fgMissing;
+ 	OS_SYSTIME rCurrentTime, *prMissTimeout;
++	UINT_32 u4Skipped = 0;
+ 
+ 	prReorderQue = &(prReorderQueParm->rReOrderQue);
+ 
+@@ -3202,7 +3203,13 @@ qmPopOutDueToFallWithin(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prRetur
+ 				fgDequeuHead = TRUE;
+ 				prReorderQueParm->u2WinStart = (((prReorderedSwRfb->u2SSN) + 1) % MAX_SEQ_NO_COUNT);
+ 
+-				fgMissing = FALSE;
++				/* Keep fgMissing set: every frame still queued arrived
++				 * before this timeout expired, so skip every remaining
++				 * hole in this pass. Releasing only one hole per call left
++				 * a burst loss waiting for one new arrival (and another
++				 * full timeout) per hole, stalling RX for 10-30 s while
++				 * the sender backed off. */
++				u4Skipped++;
+ 				*fgIsTimeout = TRUE;
+ 			} else
+ 				break;
+@@ -3227,6 +3234,10 @@ qmPopOutDueToFallWithin(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prRetur
+ 		}
+ 	}
+ 
++	if (u4Skipped)
++		pr_info_ratelimited("ECHO_WLAN_RX_BA: timeout released %u hole(s) tid=%u win_start=%u\n",
++				    u4Skipped, prReorderQueParm->ucTid, prReorderQueParm->u2WinStart);
++
+ 	if (QUEUE_IS_EMPTY(prReorderQue))
+ 		*prMissTimeout = 0;
+ 	else {
+-- 
+2.54.0
+

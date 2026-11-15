@@ -1,0 +1,117 @@
+From 1f10428dc7bf6b79273ddb2d16d753a50755c7dd Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 14 Nov 2026 23:26:11 +0100
+Subject: [PATCH] fix: pace the amznspi capture loop in TASK_IDLE
+
+amzn_spi_data_read() is an always-on capture loop while the wakeword
+pipeline holds the SPI PCM open. Its inter-frame pacing sleep used
+usleep_range(), which sleeps TASK_UNINTERRUPTIBLE, so the healthy loop
+showed as a permanently D-state kworker (kworker/0:xH+amznspi,
+wchan=amzn_spi_data_read) and added a constant 1.0 to the load average.
+
+Use usleep_idle_range() so the pacing sleep is TASK_IDLE: same wakeup
+behaviour, but not reported as D and not counted as load. Add a source
+contract test that pins the TASK_IDLE pacing sleep.
+---
+ libreecho/run_contract_tests.py               |  1 +
+ .../mt8163-amzn-spi/amzn-mt-spi-pcm.c         |  4 +-
+ .../test_amzn_spi_capture_pacing_contract.py  | 60 +++++++++++++++++++
+ 3 files changed, 63 insertions(+), 2 deletions(-)
+ create mode 100644 sound/soc/mediatek/mt8163-amzn-spi/test_amzn_spi_capture_pacing_contract.py
+
+diff --git a/libreecho/run_contract_tests.py b/libreecho/run_contract_tests.py
+index c3a6c8a87..2284c13c9 100644
+--- a/libreecho/run_contract_tests.py
++++ b/libreecho/run_contract_tests.py
+@@ -29,6 +29,7 @@
+     "sound/soc/mediatek/mt8163/test_radar_puffin_volume_preservation.py",
+     "sound/soc/mediatek/mt8163/test_radar_puffin_speaker_profile.py",
+     "sound/soc/mediatek/mt8163/test_mt8163_wide_playback_contract.py",
++    "sound/soc/mediatek/mt8163-amzn-spi/test_amzn_spi_capture_pacing_contract.py",
+     "fs/proc/test_proc_map_files_null_mm_contract.py",
+     "tools/mt8163_pstore_contract_test.py",
+     "tools/mt8163_pstore_ramoops_contract_test.py",
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
+index a9b832568..5bbcf4862 100644
+--- a/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
++++ b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
+@@ -409,8 +409,8 @@ static void amzn_spi_data_read(struct work_struct *work)
+ 						    previous_time);
+ 		if (elapsed_us < SPI_READ_WAIT_MIN_US - MARGIN_US &&
+ 		    !rx_frame->dsf.overrun) {
+-			usleep_range(SPI_READ_WAIT_MIN_US - elapsed_us,
+-				     SPI_READ_WAIT_MAX_US - elapsed_us);
++			/* TASK_IDLE: this always-on pacing sleep is not a D-state wait and is not load. */
++			usleep_idle_range(SPI_READ_WAIT_MIN_US - elapsed_us, SPI_READ_WAIT_MAX_US - elapsed_us);
+ 			previous_time = ktime_get_raw();
+ 		} else {
+ 			previous_time = current_time;
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/test_amzn_spi_capture_pacing_contract.py b/sound/soc/mediatek/mt8163-amzn-spi/test_amzn_spi_capture_pacing_contract.py
+new file mode 100644
+index 000000000..d3fa01588
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163-amzn-spi/test_amzn_spi_capture_pacing_contract.py
+@@ -0,0 +1,60 @@
++#!/usr/bin/env python3
++"""Regression contract for the Radar-Puffin FPGA capture loop's pacing sleep.
++
++amzn_spi_data_read() is the body of an always-on capture loop: while the
++wakeword pipeline holds the SPI PCM open it never returns, and between FPGA
++frame reads it sleeps for a few milliseconds.  A plain usleep_range() sleeps
++TASK_UNINTERRUPTIBLE, so the healthy loop showed up as a permanently D-state
++kworker (kworker/0:xH+amznspi, wchan=amzn_spi_data_read) and added a constant
++1.0 to the load average, which reads as a wedged driver.
++
++This contract asserts:
++
++1. The pacing sleep uses usleep_idle_range() (TASK_IDLE: uninterruptible, but
++   neither counted toward loadavg nor reported as D).
++2. The capture loop has no other TASK_UNINTERRUPTIBLE timed sleep.
++
++Run from the kernel source root:
++
++    python3 sound/soc/mediatek/mt8163-amzn-spi/test_amzn_spi_capture_pacing_contract.py
++"""
++
++import re
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[4]
++DRIVER = ROOT / "sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c"
++
++# Timed sleeps that put the task in TASK_UNINTERRUPTIBLE and so count as load.
++UNINTERRUPTIBLE_SLEEPS = ("usleep_range", "fsleep", "msleep", "ssleep", "schedule_timeout_uninterruptible")
++
++
++def function_body(text, signature):
++    start = text.index(signature)
++    brace = text.index("{", start)
++    depth = 0
++    for i in range(brace, len(text)):
++        depth += {"{": 1, "}": -1}.get(text[i], 0)
++        if depth == 0:
++            return text[brace:i + 1]
++    raise AssertionError(f"unterminated body for {signature}")
++
++
++def main():
++    body = function_body(DRIVER.read_text(), "static void amzn_spi_data_read(struct work_struct *work)")
++    failures = []
++    if not re.search(r"\busleep_idle_range\(\s*SPI_READ_WAIT_MIN_US - elapsed_us,\s*SPI_READ_WAIT_MAX_US - elapsed_us\)", body):
++        failures.append("capture pacing sleep must be usleep_idle_range(SPI_READ_WAIT_MIN_US - elapsed_us, SPI_READ_WAIT_MAX_US - elapsed_us)")
++    for call in UNINTERRUPTIBLE_SLEEPS:
++        if re.search(rf"\b{call}\s*\(", body):
++            failures.append(f"amzn_spi_data_read() must not use TASK_UNINTERRUPTIBLE sleep {call}()")
++    for failure in failures:
++        print(f"FAIL: {failure}")
++    if not failures:
++        print("PASS: capture loop paces in TASK_IDLE")
++    return 1 if failures else 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+-- 
+2.54.0
+

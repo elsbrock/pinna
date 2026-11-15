@@ -1,0 +1,113 @@
+From fbef8d618eee13543240aef84f8275bfe00a93b5 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 14 Nov 2026 23:27:30 +0100
+Subject: [PATCH] fix: mark the Radar-Puffin arch timer always-on
+
+Without always-on the armv8 timer driver flags the per-CPU timer
+CLOCK_EVT_FEAT_C3STOP, so switching to oneshot needs a broadcast
+device, and this board registers none. The kernel therefore stays in
+periodic low-res mode for its whole uptime: Tick Device mode 0,
+hrtimer resolution 10 ms, 100 arch_timer IRQ/s on every idle CPU,
+despite CONFIG_HIGH_RES_TIMERS=y and CONFIG_NO_HZ_IDLE=y.
+
+In that mode every hrtimer wakeup (nanosleep, poll/epoll timeouts,
+usleep_range) is expired from the tick immediately before
+scheduler_tick() runs calc_global_load_tick(), so each loadavg sample
+counts every task the tick just woke. On an idle device the sampled
+active count swung 2..7 (mean ~4.4) against a time-averaged ~1.9,
+which is the persistent ~4.5 load average.
+
+CONFIG_CPU_IDLE is not built, so CPUs only execute WFI and the core
+timer never stops: always-on is accurate for this configuration. Pin
+that pairing in a contract test so enabling cpuidle has to revisit it.
+---
+ arch/arm/boot/dts/libreecho-radar-puffin.dts  |  6 +++
+ libreecho/run_contract_tests.py               |  1 +
+ ...mt8163_arch_timer_oneshot_contract_test.py | 46 +++++++++++++++++++
+ 3 files changed, 53 insertions(+)
+ create mode 100644 tools/mt8163_arch_timer_oneshot_contract_test.py
+
+diff --git a/arch/arm/boot/dts/libreecho-radar-puffin.dts b/arch/arm/boot/dts/libreecho-radar-puffin.dts
+index a382d02e7..d035c6279 100644
+--- a/arch/arm/boot/dts/libreecho-radar-puffin.dts
++++ b/arch/arm/boot/dts/libreecho-radar-puffin.dts
+@@ -339,6 +339,12 @@ timer {
+ 		 * timer registers, as required by the ARM32 binding for this case.
+ 		 */
+ 		arm,cpu-registers-not-fw-configured;
++		/*
++		 * No cpuidle driver is built (CONFIG_CPU_IDLE=n): CPUs only WFI, so the per-CPU
++		 * timer never stops.  Without this it is C3STOP, and with no broadcast device the
++		 * tick never leaves periodic low-res mode (10 ms hrtimers, no NO_HZ idle).
++		 */
++		always-on;
+ 	};
+ 
+ 	soc {
+diff --git a/libreecho/run_contract_tests.py b/libreecho/run_contract_tests.py
+index 2284c13c9..d38efbc3f 100644
+--- a/libreecho/run_contract_tests.py
++++ b/libreecho/run_contract_tests.py
+@@ -35,6 +35,7 @@
+     "tools/mt8163_pstore_ramoops_contract_test.py",
+     "tools/mt8163_mute_lamp_contract_test.py",
+     "tools/mt8163_bluetooth_contract_test.py",
++    "tools/mt8163_arch_timer_oneshot_contract_test.py",
+     "drivers/misc/mediatek/mt8163-connectivity/test_idme_factory_mac_contract.py",
+     "drivers/misc/mediatek/mt8163-connectivity/test_wext_cfg80211_fallback.py",
+     "drivers/misc/mediatek/mt8163-connectivity/test_wifi_state_reporting_contract.py",
+diff --git a/tools/mt8163_arch_timer_oneshot_contract_test.py b/tools/mt8163_arch_timer_oneshot_contract_test.py
+new file mode 100644
+index 000000000..57c102d0e
+--- /dev/null
++++ b/tools/mt8163_arch_timer_oneshot_contract_test.py
+@@ -0,0 +1,46 @@
++#!/usr/bin/env python3
++"""Source contract: the Radar-Puffin tick must be able to leave periodic mode.
++
++Without "always-on" the arm,armv8-timer driver marks the per-CPU timer
++CLOCK_EVT_FEAT_C3STOP, and tick_is_oneshot_available() then needs a oneshot
++broadcast device.  This board registers none, so the kernel stayed in periodic
++low-res mode for its whole uptime (Tick Device mode 0, hrtimer resolution
++10 ms, 100 arch_timer IRQ/s on every idle CPU) despite CONFIG_HIGH_RES_TIMERS
++and CONFIG_NO_HZ_IDLE.  Every hrtimer wakeup then lands on the tick just
++before calc_global_load_tick() samples, inflating loadavg to ~4.5 on an
++idle device.
++
++always-on is only true while nothing powers the core timer down in idle, i.e.
++while no cpuidle driver is built (CPUs only execute WFI).  Enabling
++CONFIG_CPU_IDLE must revisit this, so the contract pins both together.
++"""
++
++from pathlib import Path
++import unittest
++
++
++ROOT = Path(__file__).resolve().parents[1]
++DTS = ROOT / "arch/arm/boot/dts/libreecho-radar-puffin.dts"
++DEFCONFIG = ROOT / "arch/arm/configs/mt8163_arm32_defconfig"
++
++
++def node_of(source: str, opening: str) -> str:
++    start = source.index(opening)
++    return source[start:source.index("\n\t};\n", start) + 1]
++
++
++class ArchTimerOneshotContractTests(unittest.TestCase):
++    def test_arch_timer_is_always_on(self) -> None:
++        timer = node_of(DTS.read_text(), "\ttimer {\n")
++        self.assertIn('compatible = "arm,armv8-timer";', timer)
++        self.assertIn("\t\talways-on;\n", timer)
++
++    def test_always_on_holds_only_without_cpuidle(self) -> None:
++        defconfig = DEFCONFIG.read_text().splitlines()
++        self.assertNotIn("CONFIG_CPU_IDLE=y", defconfig)
++        self.assertIn("CONFIG_HIGH_RES_TIMERS=y", defconfig)
++        self.assertIn("CONFIG_NO_HZ_IDLE=y", defconfig)
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.54.0
+

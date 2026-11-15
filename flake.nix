@@ -62,6 +62,13 @@
 
         shellHook = ''
           export CROSS_COMPILE_ARM=armv7l-unknown-linux-gnueabihf-
+          # cargo-zigbuild writes into zig's lib dir; the store copy is read-only.
+          zig_lib="''${XDG_CACHE_HOME:-$HOME/.cache}/pinna/zig-lib-${pkgs.zig.version}"
+          if [ ! -d "$zig_lib" ]; then
+            mkdir -p "$(dirname "$zig_lib")"
+            cp -r --no-preserve=mode "${pkgs.zig}/lib/zig" "$zig_lib.tmp" && mv "$zig_lib.tmp" "$zig_lib"
+          fi
+          export ZIG_LIB_DIR="$zig_lib"
         '';
       };
 
