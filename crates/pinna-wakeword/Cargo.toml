@@ -1,6 +1,6 @@
 [package]
 name = "pinna-wakeword"
-description = "On-device wake word detection: openWakeWord ONNX models on tract"
+description = "On-device wake word detection: openWakeWord models (ONNX or TFLite) on tract"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 tract-onnx = "0.22"
+tract-tflite = "0.22"
 
 [dev-dependencies]
 hound = "3"
