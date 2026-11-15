@@ -12,13 +12,13 @@
   const live = $derived(device.link === "live");
 
   // What the ring says, in the device's own colours and timings.
-  const LEGEND: { effect: Effect; word: string; what: string; loop?: number }[] = [
+  const LEGEND: { effect: Effect; word: string; what: string }[] = [
     { effect: "listening", word: "Listening", what: "Heard the wake word; speak now." },
     { effect: "thinking", word: "Thinking", what: "Home Assistant is working on it." },
     { effect: "speaking", word: "Speaking", what: "Playing the reply." },
     { effect: "muted", word: "Muted", what: "The microphones are off." },
     { effect: "timer", word: "Timer", what: "How much of a timer is left." },
-    { effect: "error", word: "Error", what: "Something failed: three flashes.", loop: 3000 },
+    { effect: "error", word: "Error", what: "A request failed: three flashes. Logs, under System, says why." },
   ];
 </script>
 
@@ -28,7 +28,8 @@
       id="wake"
       label="Wake word"
       checked={set.wakeWord}
-      disabled={!live || device.busy}
+      disabled={!live}
+      busy={device.busy}
       hint={wakeHint(s)}
       toggle={(on) => device.updateSettings({ wakeWord: on })}
     />
@@ -48,7 +49,8 @@
       id="mics"
       label="Microphones"
       checked={!s.muted}
-      disabled={!live || device.busy || s.hardwareMuted}
+      disabled={!live || s.hardwareMuted}
+      busy={device.busy}
       hint={micHint(s) ?? "The microphone button on the satellite turns them off too."}
       toggle={(on) => device.setMicrophones(on)}
     />
@@ -86,7 +88,13 @@
     <ul class="legend" aria-label="What the ring shows">
       {#each LEGEND as l (l.effect)}
         <li>
-          <Ring effect={l.effect} value={l.effect === "timer" ? 0.6 : undefined} loop={l.loop} size={40} label="Ring: {l.word.toLowerCase()}" />
+          <Ring
+            effect={l.effect}
+            value={l.effect === "timer" ? 0.6 : undefined}
+            still
+            size={32}
+            label="Ring: {l.word.toLowerCase()}"
+          />
           <span><b>{l.word}</b>{l.what}</span>
         </li>
       {/each}

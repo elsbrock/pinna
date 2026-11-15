@@ -15,7 +15,7 @@
   }: {
     model: string;
     effect: Effect;
-    /** Rendered width in px; the flat Ring fallback is a little smaller. */
+    /** Rendered width in px; the flat Ring fallback takes the nearest ring size below. */
     width: number;
     label: string;
     /** Light the surface behind with the ring's colour. */
@@ -30,6 +30,16 @@
   const svg = $derived(drawing?.svg(id) ?? "");
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const STATIC: ReadonlySet<Effect> = new Set(["idle", "muted"]);
+  // The halo takes the state's UI colour; LED colours stay on the device.
+  const HALO: Partial<Record<Effect, string>> = {
+    listening: "--listening",
+    thinking: "--thinking",
+    speaking: "--speaking",
+    muted: "--danger",
+    error: "--danger",
+    timer: "--timer",
+    "timer-ringing": "--timer",
+  };
 
   let root = $state<HTMLElement>();
 
@@ -46,7 +56,6 @@
     const draw = () => {
       const frame = ringFrame(e, reduceMotion.matches ? (STILL_MS[e] ?? 0) : performance.now() - started);
       let sum = 0;
-      let rgb: readonly number[] | null = null;
       frame.forEach((p, i) => {
         const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
         const o = p.c ? displayLevel(p.level) : 0;
@@ -55,10 +64,9 @@
         glows[i]?.setAttribute("stroke", stroke);
         glows[i]?.setAttribute("stroke-opacity", (o * glow).toFixed(3));
         sum += o;
-        rgb ??= p.c;
       });
       if (halo) {
-        el.style.setProperty("--ring-rgb", (rgb ?? [72, 185, 255]).join(", "));
+        el.style.setProperty("--halo", `var(${HALO[e] ?? "--signal"})`);
         el.style.setProperty("--ring-a", (sum / frame.length).toFixed(3));
       }
       if (!reduceMotion.matches && !STATIC.has(e)) raf = requestAnimationFrame(draw);
@@ -80,5 +88,5 @@
     {@html svg}
   </span>
 {:else}
-  <Ring effect={shown} size={Math.round(width * 0.7)} {label} />
+  <Ring effect={shown} size={width >= 176 ? 176 : width >= 64 ? 64 : 32} {label} />
 {/if}

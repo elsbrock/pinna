@@ -22,7 +22,8 @@
     id="mics"
     label="Microphones"
     checked={!!s && !s.muted}
-    disabled={!live || device.busy || !!s?.hardwareMuted}
+    disabled={!live || !!s?.hardwareMuted}
+    busy={device.busy}
     hint={s ? micHint(s) : undefined}
     toggle={(on) => device.setMicrophones(on)}
   />
@@ -31,7 +32,8 @@
       id="wake"
       label="Wake word"
       checked={!!s.settings?.wakeWord}
-      disabled={!live || device.busy}
+      disabled={!live}
+      busy={device.busy}
       hint={wakeHint(s)}
       toggle={(on) => device.updateSettings({ wakeWord: on })}
     />

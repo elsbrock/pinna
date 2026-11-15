@@ -1,6 +1,7 @@
 <!-- The shell: a sidebar with the satellite and the sections from 760px up; an
      app bar and a tab bar on phones. -->
 <script lang="ts">
+  import Device from "./lib/Device.svelte";
   import { device } from "./lib/device.svelte.ts";
   import External from "./lib/External.svelte";
   import Icon from "./lib/Icon.svelte";
@@ -8,7 +9,7 @@
   import Ring from "./lib/Ring.svelte";
   import { SECTIONS, pageOf, router } from "./lib/router.svelte.ts";
   import Toasts from "./lib/Toasts.svelte";
-  import { DOCS, health, ringEffect } from "./lib/view.ts";
+  import { DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
   import HomeAssistant from "./pages/HomeAssistant.svelte";
   import Logs from "./pages/Logs.svelte";
   import Network from "./pages/Network.svelte";
@@ -33,7 +34,7 @@
     <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
     {#if s}
       <div class="pn-ident">
-        <Ring effect={ring} size={40} label="Ring: {ring.replace('-', ' ')}" />
+        <Ring effect={ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
         <span class="pn-ident-name">{s.name}</span>
         <span class="pn-health" data-tone={line.tone}>{line.text}</span>
       </div>
@@ -59,9 +60,9 @@
 
   <header class="appbar">
     {#if s}
-      <Ring effect={ring} size={28} label="Ring: {ring.replace('-', ' ')}" />
+      <Ring effect={ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
       <a class="appbar-name" href="#/">{s.name}</a>
-      <span class="pn-health" data-tone={line.tone} title={line.text}><span class="sr">{line.text}</span></span>
+      <span class="pn-health" data-tone={line.tone} title={line.text}>{healthWord(line)}</span>
     {:else}
       <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
     {/if}
@@ -84,17 +85,7 @@
     {/if}
 
     <main class="content">
-      {#if !s}
-        <p class="sr" role="status">{device.link === "connecting" ? "Connecting…" : line.text}</p>
-        <div class="skeleton" aria-hidden="true">
-          <span class="pn-skeleton" style:height="220px"></span>
-          <span class="tiles">
-            {#each [0, 1, 2, 3] as i (i)}<span class="pn-skeleton" style:height="92px"></span>{/each}
-          </span>
-        </div>
-      {:else if page.path === "/"}
-        <Overview />
-      {:else}
+      {#if page.path !== "/"}
         <header class="pn-pagehead">
           <div>
             {#if page.section.path !== page.path}
@@ -104,6 +95,30 @@
             <p>{page.description}</p>
           </div>
         </header>
+      {/if}
+      {#if !s}
+        {#if device.link === "offline"}
+          <div class="pn-empty">
+            <Device model="" effect="idle" width={112} label="Ring off" />
+            <span class="pn-empty-title">Waiting for the satellite</span>
+            <p>This page fills in as soon as it answers.</p>
+          </div>
+        {:else}
+          <p class="sr" role="status">Connecting…</p>
+          <div class="skeleton" aria-hidden="true">
+            {#if page.path === "/"}
+              <span class="pn-skeleton" style:height="220px"></span>
+              <span class="tiles">
+                {#each [0, 1, 2, 3] as i (i)}<span class="pn-skeleton" style:height="92px"></span>{/each}
+              </span>
+            {:else}
+              {#each [0, 1] as i (i)}<span class="pn-skeleton" style:height="140px"></span>{/each}
+            {/if}
+          </div>
+        {/if}
+      {:else if page.path === "/"}
+        <Overview />
+      {:else}
         {#if page.path === "/voice"}<Voice />
         {:else if page.path === "/home-assistant"}<HomeAssistant />
         {:else if page.path === "/network"}<Network />
@@ -170,14 +185,14 @@
     white-space: nowrap;
     border-radius: var(--radius-xs);
     color: var(--ink);
-    font-family: var(--font-display);
     font-size: 16px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 700;
     text-decoration: none;
   }
   .appbar .pn-health {
+    flex: none;
     margin-left: auto;
+    font-size: 13px;
   }
   .tabbar {
     position: fixed;

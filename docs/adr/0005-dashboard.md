@@ -60,7 +60,8 @@ Constraints:
   - pinnad's journal at info level and above (debug lines can carry transcripts)
   - the A/B slots
   - installing an update
-  - restarting.
+  - restarting
+  - running the ring's test pattern (Identify).
 - **Updates run in pinnad.** pinnad runs `pinnactl update -- <manifest>` itself
   (http and https manifests only) and keeps its output, so a browser that goes
   away cannot interrupt an install. Signature and dm-verity checks and the
@@ -73,6 +74,7 @@ Constraints:
     hardware microphone switch stays out of reach)
   - start a conversation and stop an alarm
   - read pinnad's log and the network details
+  - run the ring's test pattern
   - restart the satellite
   - install an update.
 
@@ -81,8 +83,8 @@ Constraints:
   installs too, if someone has a copy.
 
   The controls match what a plaintext ESPHome API already exposes. Reading the
-  log and the network details (SSID, signal, every address), restarting and
-  installing go beyond it. An owner who doesn't want any of it sets
+  log and the network details (SSID, signal, every address), the ring's test
+  pattern, restarting and installing go beyond it. An owner who doesn't want any of it sets
   `[web] listen = ""` in `/var/lib/pinna/pinnad.toml`.
 - A satellite opened by a custom DNS name (not `.local`) needs that name in
   `[web] allowed_hosts`. The 421 response says so.

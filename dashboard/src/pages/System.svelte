@@ -42,7 +42,7 @@
       <span class="pn-row-icon"><Icon name="logs" /></span>
       <span class="pn-row-text">
         <span class="pn-row-label">Logs</span>
-        <span class="pn-row-hint">pinnad, info and above, live</span>
+        <span class="pn-row-hint">What the satellite is doing, as it happens</span>
       </span>
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>

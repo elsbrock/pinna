@@ -7,7 +7,9 @@ import {
   canStop,
   clock,
   downloadProgress,
+  bitrate,
   health,
+  healthWord,
   installSteps,
   ringEffect,
   routeOf,
@@ -17,6 +19,7 @@ import {
   timerLeft,
   uptime,
   wakeHint,
+  wifiConnected,
 } from "./view.ts";
 
 // A connected, idle satellite; tests override what they need.
@@ -196,4 +199,23 @@ test("downloadProgress: pinnactl's progress lines only", () => {
 test("since: the start time from uptime", () => {
   const now = new Date(2026, 10, 12, 9, 20); // a Thursday
   assert.equal(since(now, 6 * 60), "Thu 09:14");
+});
+
+test("healthWord: the app bar's word for each health line", () => {
+  assert.equal(healthWord({ tone: "ok", text: "Connected to Home Assistant" }), "Connected");
+  assert.equal(healthWord({ tone: "danger", text: "Not reachable since 14:02" }), "Not reachable");
+  assert.equal(healthWord({ tone: "caution", text: "Restarting" }), "Restarting");
+  assert.equal(healthWord({ tone: "caution", text: "Connected, no voice pipeline" }), "Check Home Assistant");
+});
+
+test("bitrate: iw's tx bitrate, rounded", () => {
+  assert.equal(bitrate("433.3 MBit/s VHT-MCS 9 80MHz short GI"), "433 Mbit/s");
+  assert.equal(bitrate("odd"), "odd");
+});
+
+test("wifiConnected: link details or an IPv4 address", () => {
+  assert.equal(wifiConnected(undefined), false);
+  assert.equal(wifiConnected({ wifi: {}, addresses: [] }), true);
+  assert.equal(wifiConnected({ addresses: ["192.168.1.42/24"] }), true);
+  assert.equal(wifiConnected({ addresses: ["fe80::1/64"] }), false);
 });

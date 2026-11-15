@@ -269,3 +269,21 @@ export function micHint(s: Status): string | undefined {
     ? "Off with the microphone button on the satellite, and in software. Press the button, then turn them on here."
     : "Off with the microphone button on the satellite. Press it there to turn them on.";
 }
+
+/** The health line in a word or two, for the phone's app bar. */
+export function healthWord(h: Health): string {
+  if (h.tone === "ok") return "Connected";
+  if (h.tone === "danger") return "Not reachable";
+  return h.text === "Restarting" ? "Restarting" : "Check Home Assistant";
+}
+
+/** `433.3 MBit/s VHT-MCS 9 80MHz short GI` from iw, as `433 Mbit/s`. */
+export function bitrate(tx: string): string {
+  const m = /^([\d.]+)\s*MBit\/s/i.exec(tx);
+  return m ? `${Math.round(Number(m[1]))} Mbit/s` : tx;
+}
+
+/** Connected to Wi-Fi: link details, or (without them) an IPv4 address. wifiIssue() agrees. */
+export function wifiConnected(w: { wifi?: unknown; addresses: string[] } | undefined): boolean {
+  return !!w && (!!w.wifi || w.addresses.some((a) => !a.includes(":")));
+}

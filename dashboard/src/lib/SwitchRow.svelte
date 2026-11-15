@@ -7,6 +7,7 @@
     checked,
     hint,
     disabled = false,
+    busy = false,
     toggle,
   }: {
     id: string;
@@ -14,6 +15,8 @@
     checked: boolean;
     hint?: string;
     disabled?: boolean;
+    /** A command is in flight: ignore presses but keep focus (disabled would drop it). */
+    busy?: boolean;
     toggle: (on: boolean) => unknown;
   } = $props();
 </script>
@@ -31,6 +34,9 @@
     aria-labelledby="{id}-label"
     aria-describedby={hint ? `${id}-hint` : undefined}
     {disabled}
-    onclick={() => toggle(!checked)}
+    aria-disabled={busy || undefined}
+    onclick={() => {
+      if (!busy) toggle(!checked);
+    }}
   ></button>
 </div>

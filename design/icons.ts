@@ -1,6 +1,7 @@
 // The stroked icon set: a 24px grid, a 1.75 stroke, round caps, currentColor
-// (style: .pn-icon in pinna.css). The first three are Pinna's own; the rest
-// are Lucide (https://lucide.dev, ISC licence), as the brand book recommends.
+// (style: .pn-icon in pinna.css). alert, info, external, overview and clock
+// are Pinna's own; the rest are Lucide (https://lucide.dev, ISC licence), as
+// the brand book recommends.
 // Each value is the SVG's inner markup.
 export const ICONS = {
   alert: '<path d="M12 3.5 2.8 19.5h18.4Z"/><path d="M12 10v4"/><path d="M12 17h.01"/>',

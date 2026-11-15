@@ -10,8 +10,9 @@
   const live = $derived(device.link === "live");
 
   $effect(() => network.watch());
-  // Over USB the page's own host isn't one Home Assistant can reach: offer the Wi-Fi address.
-  const host = $derived(location.hostname === "10.42.0.1" ? (network.ipv4 ?? "pinna.local") : location.hostname);
+  // The satellite's own address on the network. The page's host may be one Home
+  // Assistant can't reach: USB (10.42.0.1), a port forward, a proxy.
+  const host = $derived(network.ipv4 ?? (location.hostname === "10.42.0.1" ? "pinna.local" : location.hostname));
   // The ESPHome API port; the image doesn't change it.
   const PORT = "6053";
 
@@ -41,7 +42,7 @@
         <span class="pn-row-hint">Home Assistant runs speech-to-text, the conversation and the reply.</span>
       </div>
       <span class="pn-row-value">
-        {#if !live || !s.haConnected}—{:else if s.voiceSubscribed}Ready{:else}
+        {#if !live}Not reachable{:else if !s.haConnected}Needs Home Assistant{:else if s.voiceSubscribed}Ready{:else}
           <span class="pn-health" data-tone="caution">Not set up</span>
         {/if}
       </span>

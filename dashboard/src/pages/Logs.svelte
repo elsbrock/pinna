@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { ConnectError } from "@connectrpc/connect";
   import { tick } from "svelte";
 
   import { copyText } from "../lib/copy.ts";
-  import { client } from "../lib/device.svelte.ts";
+  import { client, errorSentence } from "../lib/device.svelte.ts";
   import Icon from "../lib/Icon.svelte";
   import Switch from "../lib/Switch.svelte";
 
@@ -45,7 +44,7 @@
           }
         } catch (e) {
           if (abort.signal.aborted) return;
-          error = ConnectError.from(e).rawMessage;
+          error = errorSentence(e);
         }
         connected = false;
         await new Promise((r) => setTimeout(r, 3000));
@@ -88,7 +87,7 @@
 </div>
 
 {#if error && !connected}
-  <p class="pn-field-error" role="alert"><Icon name="alert" />Can't read the log: {error}. Trying again…</p>
+  <p class="pn-field-error" role="alert"><Icon name="alert" />{error} Trying again…</p>
 {/if}
 
 <!-- Focusable so the keyboard can scroll it (a scrollable region must be reachable). -->

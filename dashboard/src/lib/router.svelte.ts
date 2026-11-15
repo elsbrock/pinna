@@ -56,7 +56,8 @@ const SUBPAGES: Omit<Page, "section">[] = [
   {
     path: "/system/logs",
     title: "Logs",
-    description: "pinnad's log at info level and above, newest at the bottom. Debug lines stay on the satellite: they can contain what was said.",
+    description:
+      "What the satellite is doing, newest at the bottom. Debug lines stay on the satellite, because they can contain what was said.",
   },
 ];
 

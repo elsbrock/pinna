@@ -222,10 +222,12 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* ---------- Drawing: a supported model with its ring (design/devices/) ---------- */
 .pn-drawing { position: relative; isolation: isolate; display: inline-block; max-width: 100%; line-height: 0; flex: none; vertical-align: middle; }
 .pn-drawing svg { display: block; width: 100%; height: auto; overflow: visible; }
-/* The ring's light on the surface behind: set --ring-rgb ("r, g, b") and --ring-a (0..1). */
+/* The ring's state, in its UI colour, on the surface behind: set --halo (a phase token, never an led-*)
+   and --ring-a (how lit the ring is, 0..1). */
 .pn-drawing.has-halo::before {
   content: ""; position: absolute; z-index: -1; inset: -30% -45%; pointer-events: none;
-  background: radial-gradient(closest-side, rgba(var(--ring-rgb, 72, 185, 255), calc(var(--ring-a, 0) * 0.24)), transparent);
+  background: radial-gradient(closest-side, var(--halo, var(--signal)), transparent);
+  opacity: calc(var(--ring-a, 0) * 0.24);
 }
 /* The device is dark plastic in both themes; shades derive from --puck. */
 .pn-drawing .side-edge { stop-color: color-mix(in oklab, var(--puck) 55%, black); }
@@ -257,7 +259,6 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
   border-radius: var(--radius-sm); color: var(--ink-muted); font-weight: 650; text-decoration: none;
   transition: background-color .12s, color .12s;
 }
-.pn-nav-item .pn-icon { width: 18px; height: 18px; }
 .pn-nav-item:hover { background: var(--surface-sunken); color: var(--ink); }
 .pn-nav-item[aria-current="page"] { background: var(--signal-soft); color: var(--ink); }
 .pn-nav-item[aria-current="page"] .pn-icon { color: var(--signal); }
@@ -266,7 +267,7 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* ---------- Tab bar (phones) ---------- */
 .pn-tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); height: var(--tabbar-h); box-sizing: content-box; background: var(--surface-raised); border-top: 1px solid var(--line); }
 .pn-tab {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; padding: 4px 2px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; min-width: 0; padding: 8px 2px 4px;
   color: var(--ink-muted); font-size: 11px; line-height: 13px; font-weight: 650; text-align: center; text-decoration: none;
 }
 .pn-tab-icon { width: 52px; height: 28px; border-radius: 14px; display: grid; place-items: center; transition: background-color .12s; }
@@ -279,7 +280,7 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* ---------- Identity (the satellite at the top of the nav) ---------- */
 .pn-ident { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 12px; padding: 12px; border-radius: var(--radius-md); background: var(--surface-sunken); }
 .pn-ident > .pn-ring { grid-row: span 2; }
-.pn-ident-name { font-family: var(--font-display); font-weight: 600; font-size: 15px; line-height: 20px; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.pn-ident-name { font-weight: 700; overflow-wrap: break-word; min-width: 0; }
 .pn-ident .pn-health { font-size: 13px; line-height: 18px; }
 
 /* ---------- PageHeader ---------- */
@@ -305,14 +306,14 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 a.pn-row, button.pn-row { cursor: pointer; transition: background-color .12s; }
 a.pn-row:hover, button.pn-row:hover { background: var(--surface-sunken); }
 a.pn-row:focus-visible, button.pn-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus); }
-.pn-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.pn-row-label { font-weight: 650; overflow-wrap: anywhere; }
+/* The text keeps room for its words; a long value wraps instead. */
+.pn-row-text { flex: 1 1 0; min-width: min(9em, 45%); display: flex; flex-direction: column; gap: 2px; }
+.pn-row-label { font-weight: 650; overflow-wrap: break-word; }
 .pn-row-hint { font-size: 13px; line-height: 18px; color: var(--ink-muted); }
 .pn-row-value { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink-muted); text-align: right; overflow-wrap: anywhere; }
 .pn-row-value.is-mono { font-family: var(--font-mono); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .pn-row-chev { width: 18px; height: 18px; margin-right: -4px; color: var(--ink-muted); }
-.pn-row-icon { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--signal-soft); color: var(--signal); }
-.pn-row-icon .pn-icon { width: 18px; height: 18px; }
+.pn-row-icon { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--surface-sunken); color: var(--ink-muted); }
 .pn-row.is-stack { display: block; padding: 14px 16px 12px; }
 .pn-row.is-actions { flex-wrap: wrap; gap: 12px; padding: 14px 16px; }
 .pn-row .pn-switch-control { flex: none; }
@@ -371,7 +372,7 @@ a.pn-stat:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-step:last-child::before { display: none; }
 .pn-step[data-state="done"]::before { background: var(--ok); }
 .pn-step-mark { grid-row: span 3; width: 24px; height: 24px; box-sizing: border-box; display: grid; place-items: center; border: 2px solid var(--line-strong); border-radius: 50%; background: var(--surface-raised); }
-.pn-step-mark .pn-icon { width: 14px; height: 14px; stroke-width: 2.5; }
+.pn-step-mark .pn-icon { width: 14px; height: 14px; stroke-width: 2; }
 .pn-step[data-state="done"] .pn-step-mark { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
 .pn-step[data-state="current"] .pn-step-mark { border-color: var(--signal); color: var(--signal); }
 .pn-step[data-state="current"] .pn-step-mark::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }

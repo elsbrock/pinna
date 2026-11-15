@@ -1,7 +1,7 @@
 # Pinna design system
 
 Tokens, component styles, fonts and the LED ring for everything Pinna shows on
-a screen: the website (`website/`) now, the dashboard later. The brand book
+a screen: the website (`website/`) and the dashboard (`dashboard/`). The brand book
 (voice, colour and type rules, the ring's states, component guidelines with live
 previews) is the design system page:
 <https://claude.ai/artifact/PNXQTXcpiYpNeeoeT7vtvR>. This directory is what code
@@ -15,6 +15,8 @@ imports.
 | `pinna.css` | Component classes (`pn-btn`, `pn-badge`, `pn-ring`, `pn-notice`, …). Plain CSS on the tokens, no framework |
 | `ring.ts` | Port of `crates/pinna-hal/src/anim.rs` plus the ring's drawing geometry |
 | `ring.test.ts` | The `anim.rs` tests, against `ring.ts` |
+| `devices/` | One drawing per supported model, picked by `Status.model` (`devices/index.ts`); the Echo Dot (2nd gen) now |
+| `icons.ts` | The stroked icon set as SVG markup, shared by the dashboard and the website |
 | `mark.svg` | The mark (the ring's boot frame): favicon and app icon |
 | `fonts/` | Unbounded, Atkinson Hyperlegible Next and Mono, variable WOFF2 (latin), SIL OFL 1.1, licences beside them |
 

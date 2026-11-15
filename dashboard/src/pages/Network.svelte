@@ -5,13 +5,20 @@
   import Icon from "../lib/Icon.svelte";
   import { network } from "../lib/network.svelte.ts";
   import SignalBars from "../lib/SignalBars.svelte";
-  import { band, interfaceLabel, signalWord, wifiIssue } from "../lib/view.ts";
+  import { band, bitrate, interfaceLabel, signalWord, wifiConnected, wifiIssue } from "../lib/view.ts";
 
   $effect(() => network.watch());
   const net = $derived(network.current);
   const wireless = $derived(network.wireless);
   const issue = $derived(net ? wifiIssue(wireless) : null);
+  // Wi-Fi first; every interface gets its own group.
+  const interfaces = $derived(net ? [...net.interfaces].sort((a, b) => Number(b.wireless) - Number(a.wireless)) : []);
 </script>
+
+{#snippet wifiFoot()}
+  For now the Wi-Fi network is set in <code class="pn-code">/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf</code> over
+  SSH. Choosing a network here is planned.
+{/snippet}
 
 {#if net}
   {#if issue}
@@ -24,40 +31,32 @@
     </div>
   {/if}
 
-  {#if wireless}
-    <Group title="Wi-Fi">
-      {#snippet foot()}
-        For now the Wi-Fi network is set in <code class="pn-code">/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf</code>
-        over SSH. Choosing a network here is planned.
-      {/snippet}
-      <div class="pn-row">
-        {#if wireless.wifi}<SignalBars dbm={wireless.wifi.signalDbm} />{/if}
-        <div class="pn-row-text">
-          <span class="pn-row-label">{wireless.wifi?.ssid || "Not connected"}</span>
-          {#if wireless.wifi}
-            <span class="pn-row-hint">
-              {signalWord(wireless.wifi.signalDbm)} signal ({wireless.wifi.signalDbm} dBm){wireless.wifi.frequencyMhz
-                ? ` · ${band(wireless.wifi.frequencyMhz)}`
-                : ""}{wireless.wifi.txBitrate ? ` · ${wireless.wifi.txBitrate}` : ""}
-            </span>
-          {/if}
-        </div>
-        {#if wireless.wifi && wireless.up}
-          <span class="pn-row-value"><Icon name="check" />Connected</span>
-        {/if}
-      </div>
-    </Group>
-  {/if}
-
-  {#each net.interfaces as i (i.name)}
-    <Group title={interfaceLabel(i.name, i.wireless)}>
+  {#each interfaces as i (i.name)}
+    <Group title={interfaceLabel(i.name, i.wireless)} foot={i.wireless ? wifiFoot : undefined}>
       {#snippet aside()}
         <span class="pn-health" data-tone={i.up ? "ok" : "caution"}>{i.up ? "Up" : "Down"}</span>
       {/snippet}
-      <div class="pn-row">
-        <div class="pn-row-text"><span class="pn-row-label">Addresses</span></div>
-        <span class="pn-row-value is-mono addrs">
-          {#each i.addresses as a (a)}<span>{a}</span>{:else}None{/each}
+      {#if i.wireless}
+        <div class="pn-row">
+          {#if i.wifi}<SignalBars dbm={i.wifi.signalDbm} />{/if}
+          <div class="pn-row-text">
+            <span class="pn-row-label">{i.wifi?.ssid || (wifiConnected(i) ? "Connected" : "Not connected")}</span>
+            {#if i.wifi}
+              <span class="pn-row-hint">
+                {signalWord(i.wifi.signalDbm)} signal ({i.wifi.signalDbm} dBm){i.wifi.frequencyMhz
+                  ? ` · ${band(i.wifi.frequencyMhz)}`
+                  : ""}{i.wifi.txBitrate ? ` · ${bitrate(i.wifi.txBitrate)}` : ""}
+              </span>
+            {:else if wifiConnected(i)}
+              <span class="pn-row-hint">The satellite can't read the network's name and signal.</span>
+            {/if}
+          </div>
+        </div>
+      {/if}
+      <div class="pn-row is-stack">
+        <span class="pn-row-label">Addresses</span>
+        <span class="addrs">
+          {#each i.addresses as a (a)}<span>{a}</span>{:else}<span class="none">None</span>{/each}
         </span>
       </div>
       <div class="pn-row">
@@ -100,9 +99,19 @@
 
 <style>
   .addrs {
+    display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 0;
+    margin-top: 2px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 500;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .none {
+    font-family: var(--font-text);
   }
   .sr {
     position: absolute;

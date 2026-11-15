@@ -16,14 +16,14 @@
     value,
     size,
     label,
-    loop,
+    still = false,
   }: {
     effect: Effect;
     value?: number;
     size: number;
     label: string;
-    /** Replay an effect that ends (error, volume) every `loop` ms. */
-    loop?: number;
+    /** One still frame, as under reduced motion: for a ring that isn't a satellite's. */
+    still?: boolean;
   } = $props();
 
   const segments = Array.from({ length: RING_PIXELS }, (_, i) => segmentPath(pixelAngle(i)));
@@ -38,13 +38,12 @@
   $effect(() => {
     const e = shown;
     const v = value;
-    const every = loop;
+    const fixed = still || reduceMotion.matches;
     const started = performance.now();
     let raf = 0;
     const draw = () => {
-      const t = performance.now() - started;
-      frame = ringFrame(e, reduceMotion.matches ? (STILL_MS[e] ?? 0) : every ? t % every : t, v);
-      if (!reduceMotion.matches && !STATIC.has(e)) raf = requestAnimationFrame(draw);
+      frame = ringFrame(e, fixed ? (STILL_MS[e] ?? 0) : performance.now() - started, v);
+      if (!fixed && !STATIC.has(e)) raf = requestAnimationFrame(draw);
     };
     draw();
     return () => cancelAnimationFrame(raf);

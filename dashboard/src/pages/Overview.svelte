@@ -10,7 +10,17 @@
   import SignalBars from "../lib/SignalBars.svelte";
   import StatTile from "../lib/StatTile.svelte";
   import Timers from "../lib/Timers.svelte";
-  import { badge, band, health, ringEffect, signalWord, since, slotWord, uptime } from "../lib/view.ts";
+  import {
+    badge,
+    band,
+    health,
+    ringEffect,
+    signalWord,
+    since,
+    slotWord,
+    uptime,
+    wifiConnected,
+  } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -20,8 +30,8 @@
   // Uptime only arrives with a change; count on between messages.
   const up = $derived(s ? Number(s.uptimeSeconds) + Math.floor((device.now - device.receivedAt) / 1000) : 0);
 
-  // Phones get a smaller drawing, so Volume and Microphones stay near the top.
-  const phone = matchMedia("(max-width: 759px)");
+  // Narrow layouts get a smaller drawing, so Volume and Microphones stay near the top.
+  const phone = matchMedia("(max-width: 999px)");
   let small = $state(phone.matches);
   $effect(() => {
     const update = () => (small = phone.matches);
@@ -72,7 +82,7 @@
     <div class="pn-notice" data-tone="caution" role="status">
       <Icon name="info" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
-        <p class="pn-notice-title">Not connected to Home Assistant yet</p>
+        <p class="pn-notice-title">Add this satellite to Home Assistant</p>
         <p>
           Home Assistant usually finds the satellite on its own under Settings › Devices &amp; services.
           <a href="#/home-assistant">How to add it by hand</a>
@@ -91,26 +101,37 @@
       {#if !live}
         Not reachable
       {:else if !s.haConnected}
-        <span class="pn-health" data-tone="caution">Waiting for it</span>
+        How to add it
       {:else if s.voiceSubscribed}
         <span class="pn-health" data-tone="ok">Voice pipeline ready</span>
       {:else}
         <span class="pn-health" data-tone="caution">No voice pipeline</span>
       {/if}
     </StatTile>
-    <StatTile href="#/network" icon="wifi" label="Wi-Fi" value={wifi?.wifi?.ssid ?? (wifi ? "Not connected" : "—")}>
-      {#if wifi?.wifi}
+    <StatTile
+      href="#/network"
+      icon="wifi"
+      label="Wi-Fi"
+      value={!live || !network.current
+        ? "—"
+        : (wifi?.wifi?.ssid ?? (wifiConnected(wifi) ? "Connected" : wifi ? "Not connected" : "No Wi-Fi"))}
+    >
+      {#if !live}
+        Not reachable
+      {:else if wifi?.wifi}
         <SignalBars dbm={wifi.wifi.signalDbm} />{signalWord(wifi.wifi.signalDbm)}{wifi.wifi.frequencyMhz
           ? ` · ${band(wifi.wifi.frequencyMhz)}`
           : ""}
-      {:else if network.current && !wifi}
-        No Wi-Fi interface
+      {:else if wifiConnected(wifi)}
+        No signal details
       {:else}
         &nbsp;
       {/if}
     </StatTile>
     <StatTile href="#/system" icon="download" label="Software" value={s.version} mono>
-      {#if booted}
+      {#if !live}
+        Not reachable
+      {:else if booted}
         Slot {booted.name.toUpperCase()} · {slotWord(booted).toLowerCase()}
       {:else if updates && !updates.available}
         Updates not available here
@@ -153,7 +174,7 @@
   }
   h1 {
     margin: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .state {
     display: flex;
@@ -182,7 +203,8 @@
     gap: var(--space-6);
     align-items: start;
   }
-  @media (min-width: 760px) {
+  /* Two columns once the content (beside the sidebar) has room for the name. */
+  @media (min-width: 1000px) {
     .hero {
       grid-template-columns: auto minmax(0, 1fr);
       justify-items: start;
