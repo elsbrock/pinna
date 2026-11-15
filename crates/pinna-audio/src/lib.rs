@@ -10,6 +10,7 @@ pub mod dsp;
 pub mod media;
 pub(crate) mod mix;
 pub mod mixer;
+pub mod refsink;
 pub mod speaker;
 pub mod tone;
 pub mod volume;
@@ -40,10 +41,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Backend {
     /// Echo Dot: alsa-utils against the MT8163 sound card.
     EchoDot,
-    /// Echo Dot through the device's PipeWire graph: the microphone front end
+    /// Echo Dot with the device's PipeWire microphone graph: the front end
     /// (beamformer) and echo cancellation run in PipeWire, so capture reads one
-    /// processed mono stream (`dot_mic_aec`) and playback goes to the echo-cancel
-    /// reference sink (`dot_out`). The amp and mic mixer sequences stay here.
+    /// processed mono stream (`dot_mic_aec`). The speaker is still driven through
+    /// ALSA at 48 kHz (with the amp and mixer sequences here); a 16 kHz copy of
+    /// everything played goes to the echo-cancel reference sink (`dot_ref`).
     EchoDotPipeWire,
     /// PipeWire tools (`pw-record` / `pw-play`) for laptops and VMs.
     PipeWire,
@@ -67,8 +69,14 @@ impl Backend {
         matches!(self, Backend::EchoDotPipeWire).then_some("dot_mic_aec")
     }
 
-    /// Default PipeWire playback node for this backend.
+    /// Default PipeWire playback node for this backend (the plain `PipeWire` backend
+    /// uses the default sink).
     pub fn pw_playback_target(&self) -> Option<&'static str> {
-        matches!(self, Backend::EchoDotPipeWire).then_some("dot_out")
+        None
+    }
+
+    /// PipeWire node that receives the echo-cancellation reference, if any.
+    pub fn pw_reference_target(&self) -> Option<&'static str> {
+        matches!(self, Backend::EchoDotPipeWire).then_some("dot_ref")
     }
 }

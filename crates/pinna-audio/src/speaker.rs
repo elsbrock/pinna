@@ -343,6 +343,10 @@ struct Session {
     /// Wall-clock origin of the frame counter.
     t0: Instant,
     frames_written: u64,
+    /// Echo Dot speaker EQ (the device's own speaker only).
+    eq: Option<crate::refsink::SpeakerEq>,
+    /// Echo-cancellation reference into PipeWire (EchoDotPipeWire).
+    reference: Option<crate::refsink::RefTap>,
 }
 
 impl Session {
@@ -351,6 +355,19 @@ impl Session {
     }
 
     async fn write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let eq_buf;
+        let bytes = match &mut self.eq {
+            Some(eq) => {
+                let mut b = bytes.to_vec();
+                eq.process(&mut b);
+                eq_buf = b;
+                &eq_buf[..]
+            }
+            None => bytes,
+        };
+        if let Some(r) = &mut self.reference {
+            r.push(bytes);
+        }
         if let Sink::Process { stdin, .. } = &mut self.sink {
             stdin.write_all(bytes).await?;
         }
@@ -378,7 +395,7 @@ struct Actor {
 /// Player command line.
 pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
     match cfg.backend {
-        Backend::EchoDot => Some((
+        Backend::EchoDot | Backend::EchoDotPipeWire => Some((
             cfg.aplay_bin.clone(),
             [
                 "-D",
@@ -396,7 +413,7 @@ pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
             .map(String::from)
             .to_vec(),
         )),
-        Backend::PipeWire | Backend::EchoDotPipeWire => {
+        Backend::PipeWire => {
             // `--raw`: otherwise pw-play expects a container on stdin.
             let mut a: Vec<String> = [
                 "--raw",
@@ -617,10 +634,17 @@ impl Actor {
                 }
             }
         };
+        let reference = self.cfg.backend.pw_reference_target().and_then(|t| {
+            crate::refsink::RefTap::spawn(&self.cfg.pw_play_bin, t)
+                .map_err(|e| tracing::warn!("echo reference to {t}: {e}"))
+                .ok()
+        });
         let mut session = Session {
             sink,
             t0: Instant::now(),
             frames_written: 0,
+            eq: echo.then(crate::refsink::SpeakerEq::new),
+            reference,
         };
         let result: Result<()> = async {
             if echo {
