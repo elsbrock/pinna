@@ -75,6 +75,12 @@
   background-color: var(--surface-sunken) !important;
 }
 
+/* github-light's comment grey is 3.9:1 on surface-sunken; comments carry
+   instructions ("# product must be BISCUIT"), so they take ink-muted. */
+.astro-code span[style*="#6E7781" i] {
+  color: var(--ink-muted) !important;
+}
+
 @media (prefers-color-scheme: dark) {
   .astro-code,
   .astro-code span {
@@ -111,6 +117,12 @@
   @apply text-ink font-semibold;
 }
 
+/* The text face has no italics: emphasis is weight. */
+.docs-content em {
+  font-style: normal;
+  font-weight: 650;
+}
+
 .docs-content a {
   color: var(--link);
   text-decoration: underline;
@@ -145,7 +157,10 @@
 }
 
 .docs-content :not(pre) > code {
-  @apply text-ink border-line bg-surface-sunken rounded-xs border px-1.5 py-0.5 font-mono text-[0.875em];
+  @apply text-ink bg-surface-sunken rounded-xs px-1 py-px font-mono text-[0.85em];
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  overflow-wrap: anywhere;
 }
 
 .docs-content pre {

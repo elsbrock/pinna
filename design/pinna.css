@@ -53,7 +53,7 @@
 .pn-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-btn:disabled, .pn-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .pn-btn-primary { background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
-.pn-btn-primary:hover { background: var(--signal); background-image: linear-gradient(rgba(0, 0, 0, .12), rgba(0, 0, 0, .12)); }
+.pn-btn-primary:hover { background: color-mix(in srgb, var(--signal) 88%, black); border-color: color-mix(in srgb, var(--signal) 88%, black); }
 .pn-btn-quiet { background: transparent; border-color: transparent; }
 .pn-btn-quiet:hover { background: var(--surface-sunken); }
 .pn-btn-danger { color: var(--danger); border-color: var(--danger); }

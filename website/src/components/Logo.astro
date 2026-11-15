@@ -10,10 +10,26 @@ type Props = {
 };
 
 const { size = 28, wordmark = true, class: className } = Astro.props;
+// Inline, the mark takes its colours from the tokens (its own <style> only
+// serves the favicon); the rim brightens in dark so the disc keeps its edge.
 const svg = mark
   .replace(/<title>.*?<\/title>/, "")
+  .replace(/<style>.*?<\/style>/, "")
+  .replace('class="puck"', 'class="pn-mark-puck"')
   .replace('width="100" height="100"', 'width="100%" height="100%" aria-hidden="true" focusable="false"');
 ---
+
+<style is:global>
+  .pn-mark-puck {
+    fill: var(--puck);
+    stroke: var(--puck-rim);
+  }
+  @media (prefers-color-scheme: dark) {
+    .pn-mark-puck {
+      stroke: var(--line-strong);
+    }
+  }
+</style>
 
 <span class:list={["inline-flex items-center gap-2.5", className]}>
   <span class="block shrink-0" style={`width:${size}px;height:${size}px`} set:html={svg} />
