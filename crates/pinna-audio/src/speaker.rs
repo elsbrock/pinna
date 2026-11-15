@@ -126,6 +126,8 @@ impl Speaker {
         let media = MediaHandle::new(tx.clone(), media_rx);
         let actor = Actor {
             feeder: Feeder::new(cfg.duck_db),
+            // Only the Echo Dot's own sound card has the two clocks to track.
+            clocks: cfg.backend.echo_dot_mixer().then(Clocks::new),
             cfg,
             rx,
             state: state_tx,
@@ -340,8 +342,11 @@ enum Sink {
 
 struct Session {
     sink: Sink,
-    /// Wall-clock origin of the frame counter.
-    t0: Instant,
+    /// Pacing: frame `anchor_frame` is due at `anchor_t`, later ones at `rate` per second.
+    anchor_t: Instant,
+    anchor_frame: u64,
+    /// The speaker's real frame rate (measured; nominal until known).
+    rate: f64,
     frames_written: u64,
     /// Echo Dot speaker EQ (the device's own speaker only).
     eq: Option<crate::refsink::SpeakerEq>,
@@ -351,7 +356,29 @@ struct Session {
 
 impl Session {
     fn time_of(&self, frame: u64) -> Instant {
-        self.t0 + Duration::from_secs_f64(frame as f64 / f64::from(OUT_RATE))
+        let df = frame as f64 - self.anchor_frame as f64;
+        if df >= 0.0 {
+            self.anchor_t + Duration::from_secs_f64(df / self.rate)
+        } else {
+            self.anchor_t
+                .checked_sub(Duration::from_secs_f64(-df / self.rate))
+                .unwrap_or(self.anchor_t)
+        }
+    }
+
+    /// Restart the pacing clock at the current frame (pre-roll start).
+    fn restart_clock(&mut self, now: Instant) {
+        self.anchor_t = now;
+        self.anchor_frame = self.frames_written;
+    }
+
+    /// Pace by a new rate from the next frame on, without a jump.
+    fn set_rate(&mut self, rate: f64) {
+        if (rate - self.rate).abs() > 0.005 {
+            self.anchor_t = self.time_of(self.frames_written);
+            self.anchor_frame = self.frames_written;
+            self.rate = rate;
+        }
     }
 
     async fn write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
@@ -376,8 +403,66 @@ impl Session {
     }
 }
 
+/// The speaker's and the microphones' hardware clocks (Echo Dot), measured.
+struct Clocks {
+    spk: crate::clock::PcmClock,
+    mic: crate::clock::PcmClock,
+    last: Instant,
+    /// Deviation from nominal, e.g. 3.2e-4 = +320 ppm (kept across sessions).
+    d_spk: f64,
+    d_mic: f64,
+    logged: Instant,
+}
+
+impl Clocks {
+    fn new() -> Self {
+        Self {
+            spk: crate::clock::PcmClock::new("/proc/asound/card0/pcm23p/sub0/status", 48_000.0),
+            mic: crate::clock::PcmClock::new("/proc/asound/card0/pcm24c/sub0/status", 16_000.0),
+            last: Instant::now(),
+            d_spk: 0.0,
+            d_mic: 0.0,
+            logged: Instant::now(),
+        }
+    }
+
+    /// Sample both clocks (every 200 ms) and update the estimates.
+    fn tick(&mut self, now: Instant) -> bool {
+        if now.saturating_duration_since(self.last) < Duration::from_millis(200) {
+            return false;
+        }
+        self.last = now;
+        self.spk.sample(now);
+        self.mic.sample(now);
+        let mut changed = false;
+        if let Some(d) = self.spk.deviation() {
+            self.d_spk = d;
+            changed = true;
+        }
+        if let Some(d) = self.mic.deviation() {
+            self.d_mic = d;
+            changed = true;
+        }
+        if changed && now.saturating_duration_since(self.logged) > Duration::from_secs(60) {
+            self.logged = now;
+            tracing::info!(
+                "audio clocks: speaker {:+.0} ppm, microphones {:+.0} ppm",
+                self.d_spk * 1e6,
+                self.d_mic * 1e6
+            );
+        }
+        changed
+    }
+
+    /// Reference decimation step: speaker-clock input per microphone-clock output.
+    fn ref_step(&self) -> f64 {
+        3.0 * (1.0 + self.d_spk) / (1.0 + self.d_mic)
+    }
+}
+
 struct Actor {
     cfg: SpeakerConfig,
+    clocks: Option<Clocks>,
     rx: mpsc::UnboundedReceiver<Cmd>,
     state: watch::Sender<PlaybackState>,
     media_state: watch::Sender<MediaState>,
@@ -548,6 +633,15 @@ impl Actor {
             }
 
             let now = Instant::now();
+            if let Some(c) = self.clocks.as_mut()
+                && c.tick(now)
+                && let Some(s) = self.session.as_mut()
+            {
+                s.set_rate(f64::from(OUT_RATE) * (1.0 + c.d_spk));
+                if let Some(r) = s.reference.as_mut() {
+                    r.set_step(c.ref_step());
+                }
+            }
             // Complete clips whose last frame has sounded.
             while let Some((end, _)) = self.finishing.front() {
                 if self
@@ -634,14 +728,23 @@ impl Actor {
                 }
             }
         };
-        let reference = self.cfg.backend.pw_reference_target().and_then(|t| {
+        let mut reference = self.cfg.backend.pw_reference_target().and_then(|t| {
             crate::refsink::RefTap::spawn(&self.cfg.pw_play_bin, t)
                 .map_err(|e| tracing::warn!("echo reference to {t}: {e}"))
                 .ok()
         });
+        if let Some(c) = self.clocks.as_mut() {
+            c.spk.reset();
+            if let Some(r) = reference.as_mut() {
+                r.set_step(c.ref_step());
+            }
+        }
+        let rate = f64::from(OUT_RATE) * (1.0 + self.clocks.as_ref().map_or(0.0, |c| c.d_spk));
         let mut session = Session {
             sink,
-            t0: Instant::now(),
+            anchor_t: Instant::now(),
+            anchor_frame: 0,
+            rate,
             frames_written: 0,
             eq: echo.then(crate::refsink::SpeakerEq::new),
             reference,
@@ -652,7 +755,7 @@ impl Actor {
                 tokio::time::sleep(AMP_SETTLE).await;
             }
             // Pre-roll: twice the lead of silence, written before the unmute.
-            session.t0 = Instant::now();
+            session.restart_clock(Instant::now());
             let silence = vec![0u8; CHUNK_FRAMES * 4];
             let prime_chunks = (self.cfg.lead.as_millis() as usize * 2).div_ceil(20).max(1);
             for _ in 0..prime_chunks {

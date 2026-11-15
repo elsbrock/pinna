@@ -5,6 +5,7 @@
 
 pub mod beamformer;
 pub mod capture;
+pub mod clock;
 pub mod decode;
 pub mod dsp;
 pub mod media;

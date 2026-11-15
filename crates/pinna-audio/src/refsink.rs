@@ -95,13 +95,20 @@ impl Default for SpeakerEq {
     }
 }
 
-/// 48 kHz stereo S16LE -> 16 kHz mono S16LE: downmix, low-pass FIR, keep every third sample.
+/// 48 kHz stereo S16LE -> 16 kHz mono S16LE: downmix, low-pass FIR, then pick
+/// output samples every `step` input samples (3.0 nominally; adjusted so the
+/// output runs at the microphone clock while the input runs at the speaker's).
 #[derive(Clone, Debug)]
 pub struct Decimator3 {
     taps: Vec<f32>,
     hist: Vec<f32>,
     pos: usize,
-    phase: usize,
+    /// Index of the next input sample.
+    n: f64,
+    /// Position (in input samples) of the next output sample.
+    next: f64,
+    step: f64,
+    prev: f32,
 }
 
 impl Decimator3 {
@@ -130,8 +137,16 @@ impl Decimator3 {
             hist: vec![0.0; n],
             taps,
             pos: 0,
-            phase: 0,
+            n: 0.0,
+            next: 0.0,
+            step: 3.0,
+            prev: 0.0,
         }
+    }
+
+    /// Input samples per output sample (3.0 = exactly 48 kHz -> 16 kHz).
+    pub fn set_step(&mut self, step: f64) {
+        self.step = step.clamp(2.97, 3.03);
     }
 
     pub fn process(&mut self, stereo: &[u8], out: &mut Vec<u8>) {
@@ -141,15 +156,22 @@ impl Decimator3 {
             let r = f32::from(i16::from_le_bytes([f[2], f[3]]));
             self.hist[self.pos] = (l + r) * 0.5;
             self.pos = (self.pos + 1) % n;
-            self.phase += 1;
-            if self.phase == 3 {
-                self.phase = 0;
-                let mut acc = 0.0;
-                for (k, t) in self.taps.iter().enumerate() {
-                    acc += t * self.hist[(self.pos + k) % n];
-                }
-                let s = acc.round().clamp(-32768.0, 32767.0) as i16;
-                out.extend_from_slice(&s.to_le_bytes());
+            let mut y = 0.0;
+            for (k, t) in self.taps.iter().enumerate() {
+                y += t * self.hist[(self.pos + k) % n];
+            }
+            // y is the filtered sample at index self.n, prev at self.n - 1.
+            while self.next <= self.n {
+                let frac = (self.next - (self.n - 1.0)) as f32;
+                let s = self.prev + (y - self.prev) * frac;
+                out.extend_from_slice(&(s.round().clamp(-32768.0, 32767.0) as i16).to_le_bytes());
+                self.next += self.step;
+            }
+            self.prev = y;
+            self.n += 1.0;
+            if self.n > 1e6 {
+                self.n -= 1e6;
+                self.next -= 1e6;
             }
         }
     }
@@ -183,7 +205,7 @@ impl RefTap {
                 "--format",
                 "s16",
                 "--latency",
-                "40ms",
+                "100ms",
                 "--target",
                 target,
                 "-",
@@ -209,6 +231,11 @@ impl RefTap {
             decim: Decimator3::new(),
             task,
         })
+    }
+
+    /// See [`Decimator3::set_step`].
+    pub fn set_step(&mut self, step: f64) {
+        self.decim.set_step(step);
     }
 
     /// Queue the 16 kHz mono copy of a 48 kHz stereo chunk; drops it when the queue is full.
@@ -261,6 +288,17 @@ mod tests {
         d.process(&stereo_tone(12_000.0, 48_000, 10_000.0), &mut out);
         let stop = rms(&out, 100);
         assert!(stop < 200.0, "12 kHz leaks {stop}");
+    }
+
+    #[test]
+    fn decimator_step_sets_the_output_rate() {
+        let mut d = Decimator3::new();
+        d.set_step(3.0 * (1.0 + 320e-6) / (1.0 + 5e-6));
+        let mut out = Vec::new();
+        d.process(&stereo_tone(1_000.0, 48_000 * 10, 10_000.0), &mut out);
+        // 480000 input frames / 3.000945 = 159949.6 output samples.
+        let got = out.len() / 2;
+        assert!((159_948..=159_951).contains(&got), "{got}");
     }
 
     #[test]
