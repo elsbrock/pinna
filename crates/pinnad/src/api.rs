@@ -106,6 +106,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             .collect(),
         audio_backend: info.audio_backend.clone(),
         led_backend: info.led_backend.clone(),
+        alarm_ringing: s.alarm_ringing,
         ..Default::default()
     }
 }
@@ -399,6 +400,21 @@ mod tests {
         .unwrap()
         .expect("stream ended");
         msg.to_owned_message().status.into_option().unwrap()
+    }
+
+    #[test]
+    fn render_reports_a_ringing_alarm() {
+        let info = Info {
+            name: "pinna-test".into(),
+            mac: String::new(),
+            wake_phrase: "Alexa".into(),
+            audio_backend: "none".into(),
+            led_backend: "none".into(),
+        };
+        let mut snap = Snapshot::default();
+        assert!(!render(&info, Instant::now(), &snap).alarm_ringing);
+        snap.alarm_ringing = true;
+        assert!(render(&info, Instant::now(), &snap).alarm_ringing);
     }
 
     #[tokio::test]

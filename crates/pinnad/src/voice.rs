@@ -86,6 +86,8 @@ pub struct Snapshot {
     /// The wake word detector is armed.
     pub wake_enabled: bool,
     pub timers: Vec<TimerSnapshot>,
+    /// A finished timer's alarm is sounding (finished timers leave `timers`).
+    pub alarm_ringing: bool,
 }
 
 impl Default for Snapshot {
@@ -99,6 +101,7 @@ impl Default for Snapshot {
             voice_subscribed: false,
             wake_enabled: false,
             timers: Vec::new(),
+            alarm_ringing: false,
         }
     }
 }
@@ -440,6 +443,7 @@ impl Brain {
             voice_subscribed: self.voice_subscribed,
             wake_enabled: self.shared.wake_enabled.load(Ordering::Relaxed),
             timers,
+            alarm_ringing: self.ringing.is_some(),
         }
     }
 

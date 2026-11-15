@@ -67,6 +67,8 @@ message Status {
   string audio_backend = 14;
   // LED backend ("is31", "mock", "none").
   string led_backend = 15;
+  // A finished timer's alarm is sounding; StopConversation silences it.
+  bool alarm_ringing = 16;
 }
 
 message GetStatusRequest {}
