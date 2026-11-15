@@ -47,3 +47,9 @@ just test        # everything: unit/lint, ESPHome conformance, wake word parity,
 See `docs/` for the platform design and the first-flash runbook. The website
 lives in `website/` (`npm run dev`); it deploys to GitHub Pages from
 `.github/workflows/deploy-site.yml` — see `website/README.md`.
+
+## License
+
+MIT, see `LICENSE`. Exceptions: `kernel/patches/` and `tools/wmt/` are
+GPL-2.0, like the code they patch or come from. Third-party notices for
+ported and copied material are in `THIRD-PARTY-NOTICES.md`.
