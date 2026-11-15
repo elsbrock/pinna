@@ -11,10 +11,11 @@ belong to the device's manufacturer or to you.
 
 - **An Echo Dot (2nd gen).** In fastboot, the device reports the product name
   `BISCUIT`. Pinna doesn't support other Echo devices yet.
-- **An unlocked bootloader.** Pinna installs over fastboot and relies on the
-  Kaeru fastboot payload from the amonet bootloader unlock: it uses Kaeru to
-  return to fastboot when a boot fails. How to unlock a device is outside the
-  scope of these docs.
+- **An unlocked bootloader with Kaeru.** Pinna installs over fastboot. It
+  also needs Kaeru, a small addition to the bootloader that the amonet-based
+  unlock installs: Kaeru opens fastboot when the system asks for it, and Pinna
+  uses that to get back to fastboot after a failed boot. These docs don't
+  cover how to unlock a device.
 - **A micro-USB cable that carries data.** Some cables only charge. Pinna also
   uses the cable for a serial console and a network connection to your
   computer.
@@ -37,15 +38,25 @@ in one folder:
 | `system_b.img` | `system_b` | No |
 | `SHA256SUMS` | Checksums of the files above, in `sha256sum` format | Yes |
 
-Pinna doesn't provide a tool to create the backup. Use the tools that came
-with your bootloader unlock, and keep a full image of the eMMC as well as the
-individual partitions.
+To create `SHA256SUMS`, run this in the folder:
+
+```sh
+sha256sum *.img > SHA256SUMS
+```
+
+Pinna doesn't provide a tool to create the backup itself. Use the tools that
+came with your bootloader unlock, and keep a full image of the eMMC as well as
+the individual partitions.
 
 ## Computer
 
 - An x86_64 Linux computer with [Nix](https://nixos.org/download/) and flakes
-  enabled. The development shell provides every other tool, including
-  `fastboot`.
+  enabled. The development shell provides the build tools and `fastboot`.
+- Permission to use the device over USB without `sudo`. On most
+  distributions, install the Android udev rules (often packaged as
+  `android-udev-rules`) for fastboot, and add yourself to the `dialout` group
+  for the serial console.
+- `picocom`, or another serial terminal, from your distribution's packages.
 - Network access during the build, for the toolchain, the Debian packages, the
   kernel source and the wake word models.
 
@@ -54,11 +65,28 @@ individual partitions.
 Put these files into the repository after you clone it:
 
 - **Wi-Fi and Bluetooth firmware** in `blobs/firmware/`. The firmware is
-  proprietary and isn't distributed with Pinna. Take the MT8163 Wi-Fi and
-  Bluetooth firmware files from the system partition in your backup. Without
-  them, the build continues, but the device has no Wi-Fi.
+  proprietary and isn't distributed with Pinna. It's in the system partition
+  of the stock firmware, in your backup. Pinna needs at least
+  `WIFI_RAM_CODE_8163`, `ROMv2_lm_patch_1_0_hdr.bin` and
+  `ROMv2_lm_patch_1_1_hdr.bin`. To find them, mount the partition image
+  read-only:
+
+  ```sh
+  sudo mount -o loop,ro system_a.img /mnt
+  find /mnt -name 'WIFI_RAM_CODE*' -o -name 'ROMv2_lm_patch*'
+  ```
+
+  Without the firmware, the build continues, but the device has no Wi-Fi.
 - **The device tree** in `blobs/boot/libreecho-biscuit.dtb`. The boot image
-  uses this file to describe the Echo Dot's hardware to the kernel.
+  uses it to describe the Echo Dot's hardware to the kernel. It's required:
+  the build stops without it. It must be a device tree for Linux 6.1 with
+  MT8163 board support; the device tree of the stock firmware doesn't work.
+  If the `boot_a` image in your backup contains one, extract it:
+
+  ```sh
+  cargo run -q -p pinna-bootimg -- unpack <backup>/boot_a.img /tmp/boot_a
+  cp /tmp/boot_a/dtb blobs/boot/libreecho-biscuit.dtb
+  ```
 
 ## Your own files
 
@@ -68,7 +96,7 @@ in the repository.
 | File | What it's for | How to create it |
 | --- | --- | --- |
 | `secrets/release.key` | Signs the root filesystem images. Required | `just keygen` |
-| `secrets/machine-id` | The machine ID of the image | `systemd-id128 new > secrets/machine-id` |
+| `secrets/machine-id` | The machine ID of the image. Optional | `systemd-id128 new > secrets/machine-id` |
 | `secrets/authorized_keys` | Your SSH public key. Without it, you can't log in over SSH | Copy your public key, for example `~/.ssh/id_ed25519.pub` |
 | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network, so the device connects on first boot. Optional: you can also set it up on the device | See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi) |
 | `secrets/device/pinnad.toml` | Settings for this device, such as its name. Optional | See [Configure Pinna](/docs/configure/) |

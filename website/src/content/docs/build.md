@@ -32,7 +32,7 @@ images yet, so you build your own.
    nix develop
    ```
 
-   The first start downloads the tools and takes a few minutes.
+   The first time, it downloads the tools and takes a few minutes.
 
 Run all of the following commands inside the development shell.
 
@@ -56,6 +56,10 @@ The command writes two files:
 If `secrets/release.key` already exists, `just keygen` keeps it and only
 writes the public key again.
 
+If you lose the private key, devices that run your images can't accept updates
+any more. To recover, build with a new key and install both the boot image and
+the root filesystem again from fastboot.
+
 ## Add your device files
 
 1. Copy the files from your device into the repository, as described in
@@ -77,9 +81,10 @@ writes the public key again.
 
    This puts the openWakeWord models into `blobs/models/`.
 
-The build warns about a missing file but continues, except for the signing
-key. Read the warnings: without Wi-Fi firmware the device has no Wi-Fi, and
-without `authorized_keys` you can't log in over SSH.
+The build stops if the signing key or the device tree is missing. For the
+other files, it prints a warning and continues. Read the warnings: without
+Wi-Fi firmware the device has no Wi-Fi, and without `authorized_keys` you
+can't log in over SSH.
 
 ## Build the images
 
@@ -95,7 +100,7 @@ lists the two files:
 | File | Contents |
 | --- | --- |
 | `build/pinna-boot.img` | The kernel, the device tree, and a small initramfs that checks and mounts the root filesystem |
-| `build/pinna.root.img` | The root filesystem: Debian with Pinna, read-only, with a dm-verity hash tree and a signature |
+| `build/pinna.root.img` | The root filesystem: Debian with Pinna, read-only and signed, so that the device can detect any change to it |
 
 The first build takes longest, because it downloads and compiles the kernel.
 
@@ -112,9 +117,9 @@ You don't need to rebuild everything after each change:
 `just bootimg` uses the kernel from the last `just kernel`. After you change
 the kernel, run `just kernel` before `just bootimg`.
 
-## Check the build
+## Check the build (optional)
 
-To check that the image starts before you install it, boot it in a virtual
+To check that the image boots before you install it, boot it in a virtual
 machine. This needs a kernel built for QEMU:
 
 ```sh
@@ -126,18 +131,7 @@ The test boots the root image you built, then checks that the system services,
 SSH and the Home Assistant API come up. It takes a few minutes. For the other
 tests, see [Contribute](/docs/development/).
 
-## Build files for an update
-
-To build the files for [updating](/docs/update/) devices that already run
-Pinna, run:
-
-```sh
-just release
-```
-
-The files are in `build/release/`: the root image named after its version,
-the boot image, and a `manifest.json` that describes them.
-
 ## What's next
 
-[Install Pinna on your Echo Dot](/docs/flash/).
+[Install Pinna on your Echo Dot](/docs/flash/). Later, to build an update for
+a device that already runs Pinna, see [Update Pinna](/docs/update/).

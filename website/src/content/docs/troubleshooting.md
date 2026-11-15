@@ -12,11 +12,10 @@ systemctl --failed
 journalctl -b -u pinnad
 ```
 
-`pinnad` is the program that runs the voice satellite. Its log says what it
-does and what goes wrong, in plain words. The sections below quote the lines
-to look for.
+`pinnad` is the program that runs the voice satellite. Its log records what
+it does and any errors. The sections below quote the lines to look for.
 
-## I can't log in
+## You can't log in
 
 - **Over USB:** check that the computer sees the USB device **Pinna (Echo Dot
   2nd gen)**. Use a cable that carries data. The device is at `10.42.0.1`, and
@@ -26,6 +25,13 @@ to look for.
   `picocom -b 115200 /dev/ttyACM0`.
 - **At `pinna.local`:** your computer needs mDNS. If the name doesn't resolve,
   use the IP address.
+- **After a reinstall:** the device has a new SSH host key, and `ssh` refuses
+  to connect. Remove the old key from your computer:
+
+  ```sh
+  ssh-keygen -R 10.42.0.1
+  ssh-keygen -R pinna.local
+  ```
 
 ## The device has no Wi-Fi
 
@@ -37,8 +43,10 @@ to look for.
    ```
 
 2. If `wlan0` doesn't exist, the Wi-Fi firmware is probably missing. The build
-   warns about it. Add the firmware to `blobs/firmware/` and build again. See
-   [What you need](/docs/requirements/#files-from-your-device).
+   warns about it. Add the firmware to `blobs/firmware/`, as described in
+   [What you need](/docs/requirements/#files-from-your-device), and build the
+   image again. Then install the new root filesystem over the USB cable with
+   [Update Pinna](/docs/update/), which keeps your settings.
 3. If `wlan0` exists but has no address, check the network name and password
    in `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`. See
    [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi).
@@ -76,7 +84,8 @@ If all lines look right:
 
 - Check that the wake word model loaded. The log line
   `wake word disabled: …` means the model files are missing. Run
-  `just models` before you build.
+  `just models`, build the image again, and install it with
+  [Update Pinna](/docs/update/).
 - Watch the log while you say the wake word:
 
   ```sh
@@ -102,14 +111,43 @@ The request didn't work. The log says why:
 The ring also flashes red when you press the Action button while the
 microphones are off.
 
-## The device doesn't start Pinna
+## The device opens fastboot on its own
 
-If the ring stays dark or the device restarts over and over:
+Pinna's health check failed, so Pinna restarted the device into fastboot. See
+[The fastboot guard](/docs/recovery/#the-fastboot-guard). Common causes are an
+invalid `pinnad.toml` or encryption key file, which stop `pinnad`.
 
-1. Unplug it and start fastboot with **Volume Down**. See
+1. Boot Pinna again:
+
+   ```sh
+   fastboot reboot
+   ```
+
+2. Log in over the USB serial console right away: the health check restarts
+   the device about 40 seconds after Pinna's services start. The serial
+   console doesn't need an SSH key.
+3. Read the log of the previous boot, and fix the cause:
+
+   ```sh
+   journalctl -b -1 -u pinnad
+   ```
+
+If you can't fix it in time, install the root filesystem again from fastboot,
+as described in [Recover a device](/docs/recovery/). This erases your
+settings, which also removes a broken configuration.
+
+## The device doesn't boot Pinna
+
+If the ring stays dark, no USB device appears, or the device restarts over
+and over, Pinna doesn't get as far as its services:
+
+1. Unplug the device and open fastboot with **Volume Down**. See
    [Recover a device](/docs/recovery/).
-2. Try the boot image from memory with `scripts/flash-dot.sh try`, and watch
-   the serial console.
+2. Install the root filesystem again, and try the boot image from memory with
+   `scripts/flash-dot.sh try`.
+
+Pinna's messages from early in the boot only go to the board's internal
+serial port, at 921600 baud, not to USB.
 
 After an update, the device goes back to the previous version on its own after
 three failed attempts. See
@@ -126,7 +164,9 @@ journalctl -b -u pinnad
 ```
 
 Fix the file and run `systemctl restart pinnad`. See
-[Configure Pinna](/docs/configure/).
+[Configure Pinna](/docs/configure/). If the device restarts into fastboot
+before you can fix it, see
+[The device opens fastboot on its own](#the-device-opens-fastboot-on-its-own).
 
 ## Report a problem
 

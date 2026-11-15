@@ -12,15 +12,15 @@ to the old one on its own.
 
 1. `pinnactl update` downloads the new root filesystem image and writes it to
    the slot that isn't running. It checks the download against the checksum in
-   the update manifest, then checks the image signature and the dm-verity hash
-   tree after writing.
-2. On the next start, the device starts the new slot **on trial**, with three
+   the update manifest. After writing, it checks the image's signature and its
+   hash tree, which lets the device detect any changed block.
+2. On the next boot, the device boots the new slot **on trial**, with three
    attempts.
 3. When the new system is up, Pinna checks itself: `pinnad` must answer and
    SSH must run within five minutes. If the check passes, the slot is marked
    **good** and stays in use.
 4. If the check fails or doesn't finish in time, the device restarts. Each
-   start on trial uses one attempt. When no attempts are left, the device
+   boot on trial uses one attempt. When no attempts are left, the device
    returns to the previous slot and marks the new one as **unbootable**.
 
 Pinna only installs images that are signed with the key whose public part is
@@ -34,6 +34,15 @@ that you used for the first installation.
   `pinna-bootctl slot-status` on the device.
 - The device can reach your computer over the network, either over Wi-Fi or
   over the USB cable.
+- Your copy of the repository is up to date. `just keygen` changed
+  `keys/release.pub`, so restore that file before you pull, and write your
+  public key again afterwards:
+
+  ```sh
+  git checkout keys/release.pub
+  git pull
+  just keygen
+  ```
 
 ## Install an update
 
@@ -44,7 +53,8 @@ that you used for the first installation.
    ```
 
    The files are in `build/release/`: the root image, the boot image and
-   `manifest.json`.
+   `manifest.json`. `just release` replaces them each time, so copy a release
+   that works to a safe place.
 
 2. Serve the folder over HTTP:
 
@@ -79,9 +89,9 @@ To give the new version more or fewer attempts than three, add
 
 ## Update the boot image
 
-Updates only replace the root filesystem. The boot image (`boot_a`), which
-holds the kernel and the program that chooses a slot, has only one copy, so
-Pinna doesn't update it automatically. When a release changes the boot image,
+Updates only replace the root filesystem. The bootloader always boots
+`boot_a`, so the boot image, which holds the kernel and the program that
+chooses a slot, has no fallback, and `pinnactl update` doesn't change it. When a release changes the boot image,
 install it from fastboot:
 
 ```sh

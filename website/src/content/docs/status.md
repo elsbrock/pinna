@@ -15,7 +15,7 @@ These parts are covered by tests that run without hardware:
   the repository.
 - The image boots in a virtual machine, in both the ARM and the x86_64
   version, and its services, SSH and the Home Assistant API come up.
-- An update installs into the second slot and starts on trial, and a broken
+- An update installs into the second slot and boots on trial, and a broken
   update rolls back to the previous slot automatically.
 - The Home Assistant connection passes tests with Home Assistant's own client
   library, including encryption and key rotation.

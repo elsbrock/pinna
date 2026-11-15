@@ -25,13 +25,16 @@ write it to the device once it works. Every step says what it writes, and
 | `boot_a` | Pinna's boot image. The bootloader always starts this partition |
 | `boot_b` | A second copy of Pinna's boot image |
 | `system_a` | Pinna's root filesystem |
-| `system_b` | Cleared at the start. Pinna installs updates here |
-| `userdata` | Cleared at the start. Pinna creates its data partition (`/var`) here on first boot |
+| `system_b` | Its beginning is cleared. Pinna installs updates here |
+| `userdata` | Its beginning is cleared. Pinna creates its data partition (`/var`) here on first boot |
 | `misc` | Pinna stores its fastboot request and its update state here |
 
-Pinna never writes the bootloader partitions (the preloader, `lk_a`, `lk_b`,
-`tee1` and `tee2`), `expdb`, which holds the Kaeru payload, or `persist`, which
-holds the device's identity, calibration data and MAC address.
+Pinna never writes these partitions:
+
+- The bootloader: the preloader, `lk_a`, `lk_b`, `tee1` and `tee2`.
+- `expdb`, which holds Kaeru.
+- `persist`, which holds the device's identity, calibration data and MAC
+  address.
 
 ## Start fastboot
 
@@ -98,6 +101,11 @@ changed yet.
    **Pinna (Echo Dot 2nd gen)**, which provides a serial console and a network
    connection.
 
+   If no USB device appears within a minute, Pinna didn't boot. Unplug the
+   device, open fastboot, and check that `scripts/flash-dot.sh root` finished
+   without errors. Pinna's early boot messages only go to the board's internal
+   serial port, not to USB.
+
 3. Log in. Use either connection:
 
    - Over the network: your computer gets an address from the device
@@ -116,12 +124,16 @@ changed yet.
    `pinnactl status` shows the device's name, its state and its volume.
    `systemctl --failed` lists no units.
 
-5. Check the LED ring and the speaker:
+5. Check the LED ring:
 
    ```sh
    pinnactl led-test
-   pinnactl volume 40
    ```
+
+   The ring shows the listening, thinking, speaking and muted animations.
+
+6. Check the speaker: press **Volume up** on the device. You hear a short
+   beep, and the ring shows the new volume.
 
 ## Install the boot image
 
@@ -151,8 +163,8 @@ device instead:
 
 1. Log in to the device over USB, as described in
    [Try the boot image](#try-the-boot-image).
-2. Edit `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`. It's a standard
-   wpa_supplicant configuration file:
+2. Create or edit `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`, for
+   example with `vi`. It's a standard wpa_supplicant configuration file:
 
    ```text
    ctrl_interface=/run/wpa_supplicant
@@ -181,16 +193,19 @@ don't change it.
 
 ## Check that the installation is healthy
 
-After each start, Pinna checks itself: `pinnad` must answer and SSH must run
-within five minutes. When the check passes, Pinna marks the start as good. To
-see the result, run:
+Pinna has two copies of its root filesystem, called slots: `system_a` and
+`system_b`. After each boot, Pinna checks itself: `pinnad` must answer and SSH
+must run. When the check passes, Pinna marks the slot as good. To see the
+result, run:
 
 ```sh
 pinna-bootctl slot-status
 ```
 
-The output shows which root filesystem slot is running and whether it's
-marked `good`. If a check fails, see [Troubleshooting](/docs/troubleshooting/).
+The output shows which slot is running and whether it's marked `good`.
+
+If the check fails, the device restarts and opens fastboot. See
+[The device opens fastboot on its own](/docs/troubleshooting/#the-device-opens-fastboot-on-its-own).
 
 ## What's next
 

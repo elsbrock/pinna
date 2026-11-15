@@ -7,11 +7,10 @@ import { docHref, href } from "../lib/site";
 <BaseLayout title="Page not found" footer={false}>
   <div class="mx-auto flex max-w-xl flex-col items-start px-4 py-24 sm:px-6">
     <p class="chip">404</p>
-    <h1 class="font-display text-ink text-display-l mt-4">No such page</h1>
+    <h1 class="font-display text-ink text-display-l mt-4">Page not found</h1>
     <p class="text-ink-muted text-body-l mt-3">
-      Nothing here — maybe the page moved while the project is still in
-      bring-up. The console output would be
-      <code class="text-ink border-line bg-surface-sunken rounded-xs border px-1.5 py-0.5 font-mono text-sm">ENOENT</code>.
+      There's no page at this address. It may have moved when the
+      documentation was reorganised.
     </p>
     <div class="mt-8 flex gap-3">
       <a class="pn-btn pn-btn-primary" href={href("/docs/")}>Docs</a>
@@ -21,10 +20,8 @@ import { docHref, href } from "../lib/site";
       </a>
     </div>
     <p class="text-ink-muted mt-10 text-sm">
-      Or jump to
-      <a class="link" href={docHref("flash")}
-        >flashing your first device</a
-      >.
+      To install Pinna, start with
+      <a class="link" href={docHref("requirements")}>What you need</a>.
     </p>
   </div>
 </BaseLayout>

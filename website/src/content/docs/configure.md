@@ -74,7 +74,7 @@ How the device introduces itself to Home Assistant.
 | Setting | Default | Description |
 | --- | --- | --- |
 | `backend` | `"auto"` | How Pinna reaches the microphones and the speaker. Leave it at `"auto"` on the Echo Dot. See [Audio](/docs/audio/) |
-| `volume` | `50` | The volume on first start, from 0 to 100. After that, Pinna keeps the last volume you set |
+| `volume` | `50` | The volume on the first boot, from 0 to 100. After that, Pinna keeps the last volume you set |
 | `speaker_profile` | `"Flat"` | The speaker tuning of the audio codec. `"Flat"` is the tuning for the Echo Dot (2nd gen); any other value selects the tuning for the Echo (2nd gen) |
 | `wake_sound` | `false` | Plays a short sound when the device starts listening |
 
@@ -87,7 +87,7 @@ How the device introduces itself to Home Assistant.
 | `keyword` | `"alexa_v0.1.onnx"` | The wake word model file in that folder |
 | `id` | `"alexa_v0.1"` | The wake word ID that Home Assistant sees |
 | `phrase` | `"Alexa"` | The wake word that Home Assistant shows |
-| `threshold` | `0.55` | How sure the model must be, on first start. After that, the **Wake word sensitivity** entity in Home Assistant sets it |
+| `threshold` | `0.55` | How sure the model must be, on the first boot. After that, the **Wake word sensitivity** entity in Home Assistant sets it |
 
 ### `[esphome]`
 
@@ -116,7 +116,7 @@ The connection to Home Assistant. See
 
 ## Settings that Home Assistant controls
 
-These values come from Home Assistant after the first start, so changing them
+These values come from Home Assistant after the first boot, so changing them
 in `pinnad.toml` has no effect once the device has run:
 
 - The volume (`[audio] volume`)

@@ -20,7 +20,7 @@ The Echo Dot (2nd gen) has a MediaTek MT8163 processor, which runs Pinna in
 - A micro-USB port, which Pinna uses for a serial console and a network
   connection to your computer.
 
-## Start-up
+## Boot
 
 1. The bootloader always loads the boot image from `boot_a`. It contains the
    Linux kernel (6.1, with board support for the MT8163), the device tree, and
@@ -31,9 +31,9 @@ The Echo Dot (2nd gen) has a MediaTek MT8163 processor, which runs Pinna in
    `system_b`. See [Updates](#updates).
 4. `pinna-init` checks the slot's signature, sets up dm-verity, and mounts the
    root filesystem read-only.
-5. systemd starts. It formats the `userdata` partition as `/var` on the first
-   start, and starts Pinna's services.
-6. About 10 seconds after the start, `pinna-boot-ok` checks that `pinnad`
+5. systemd starts. On the first boot, it formats the `userdata` partition as
+   `/var`. Then it starts Pinna's services.
+6. About 10 seconds after the services start, `pinna-boot-ok` checks that `pinnad`
    answers and SSH runs. If they do, it marks the slot as good and cancels the
    fastboot request. If they don't within five minutes, it restarts the device.
 
@@ -62,8 +62,8 @@ journal.
 ## Updates
 
 An update writes a new image into the slot that isn't running, and marks it
-for a trial start with three attempts. `pinna-init` takes one attempt each
-time it starts the trial slot. When the health check passes, the slot becomes
+for a trial boot with three attempts. `pinna-init` takes one attempt each
+time it boots the trial slot. When the health check passes, the slot becomes
 good. When the attempts run out, `pinna-init` returns to the other slot. For
 the steps, see [Update Pinna](/docs/update/).
 
@@ -75,9 +75,10 @@ it. You install a new boot image from fastboot.
 Pinna relies on Kaeru, a payload of the bootloader unlock, which opens fastboot
 when the `misc` partition contains the command `bootonce-bootloader`.
 
-Early in each start, Pinna writes that command, and it removes it once the
-health check passes. If a start hangs and you unplug the device, it opens
-fastboot instead of the broken system. During the trial start of an update,
+Early in each boot, Pinna writes that command, and it removes it once the
+health check passes. If the health check fails, Pinna restarts the device into
+fastboot. If a boot hangs and you unplug the device, it also opens
+fastboot instead of the broken system. During the trial boot of an update,
 Pinna doesn't write the command, because the slot fallback already handles a
 failure.
 
@@ -101,8 +102,8 @@ Pinna's own services:
 | `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons |
 | `pinna-wifi` | Powers up the Wi-Fi chip and loads its firmware |
 | `pinna-gadget` | Sets up the USB serial console and network |
-| `pinna-fastboot-guard` | Writes the fastboot request early in each start |
-| `pinna-boot-ok` | The health check that marks a start as good |
+| `pinna-fastboot-guard` | Writes the fastboot request early in each boot |
+| `pinna-boot-ok` | The health check that marks a boot as good |
 
 ## A voice request
 
