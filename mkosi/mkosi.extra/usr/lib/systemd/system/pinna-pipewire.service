@@ -1,0 +1,16 @@
+[Unit]
+Description=PipeWire audio graph (Echo Dot microphones, echo cancellation, speaker)
+ConditionFirmware=device-tree-compatible(mediatek,mt8163)
+After=systemd-udevd.service sound.target
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/pipewire PIPEWIRE_RUNTIME_DIR=/run/pipewire
+RuntimeDirectory=pipewire
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/pipewire
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

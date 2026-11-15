@@ -1,0 +1,16 @@
+[Unit]
+Description=WirePlumber session manager for the Echo Dot audio graph
+ConditionFirmware=device-tree-compatible(mediatek,mt8163)
+BindsTo=pinna-pipewire.service
+After=pinna-pipewire.service
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/pipewire PIPEWIRE_RUNTIME_DIR=/run/pipewire XDG_STATE_HOME=/var/lib/pinna/wireplumber
+StateDirectory=pinna/wireplumber
+ExecStart=/usr/bin/wireplumber
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=pinna-pipewire.service

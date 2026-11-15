@@ -13,7 +13,9 @@ systemctl enable \
     pinnad.service \
     pinna-fastboot-guard.service \
     pinna-boot-ok.service \
-    systemd-sysext.service
+    systemd-sysext.service \
+    pinna-pipewire.service \
+    pinna-wireplumber.service
 
 # wpa_supplicant and the USB serial getty are started by udev when wlan0 /
 # ttyGS0 appear (see 90-pinna.rules), never by a static dependency on a device
@@ -30,9 +32,10 @@ systemctl mask \
 mkdir -p /etc/systemd/system-generators
 ln -sf /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
 
-# PipeWire is installed but not used on the device yet (pinnad drives ALSA
-# directly until the MT8163 card has a UCM profile).
+# PipeWire runs system-wide on the device (pinna-pipewire.service, static Echo
+# Dot nodes in /etc/pipewire/pipewire.conf.d); no per-user instances.
 systemctl --global disable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+systemctl --global mask pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket wireplumber.service filter-chain.service 2>/dev/null || true
 
 ln -sfn ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 

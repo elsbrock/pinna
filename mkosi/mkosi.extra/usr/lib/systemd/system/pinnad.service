@@ -1,12 +1,15 @@
 [Unit]
 Description=Pinna device daemon (LEDs, buttons, wake word, Home Assistant)
-After=network.target sound.target pinna-wifi.service
+After=network.target sound.target pinna-wifi.service pinna-pipewire.service pinna-wireplumber.service
+Wants=pinna-wireplumber.service
 
 [Service]
 ExecStart=/usr/bin/pinnad --config /etc/pinna/pinnad.toml
 Restart=always
 RestartSec=2
 Environment=RUST_LOG=info
+# The device's PipeWire graph (pinna-pipewire.service) runs system-wide.
+Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
 
 [Install]
 WantedBy=multi-user.target
