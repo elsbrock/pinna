@@ -40,6 +40,7 @@ case "$arch" in
 esac
 ssh_port=${SSH_PORT:-2222}
 api_port=${API_PORT:-16053}
+web_port=${WEB_PORT:-18080}
 timeout_s=${BOOT_TIMEOUT:-600}
 
 mkdir -p "$work"
@@ -47,7 +48,7 @@ version=$(cargo run -q --manifest-path "$root/Cargo.toml" -p pinna-image -- info
 make_disk "$work/disk.raw" "$image"
 rm -f "$work/console.log"
 
-netdev="user,id=n0,hostfwd=tcp:127.0.0.1:${ssh_port}-:22,hostfwd=tcp:127.0.0.1:${api_port}-:6053"
+netdev="user,id=n0,hostfwd=tcp:127.0.0.1:${ssh_port}-:22,hostfwd=tcp:127.0.0.1:${api_port}-:6053,hostfwd=tcp:127.0.0.1:${web_port}-:80"
 log "booting $(basename "$image") (version $version, $arch) under QEMU"
 qemu_start "$arch" "$kernel" "$initrd" "$work/disk.raw" "$work/console.log" "$work/qemu.pid" "$netdev"
 
@@ -95,6 +96,22 @@ async def main(port, key):
 asyncio.run(main(int(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else ""))
 EOF
 then pass "pinnad answers the ESPHome API"; else fail "ESPHome API"; fi
+
+log "dashboard and control API on the LAN listener (port 80)"
+web="http://127.0.0.1:${web_port}"
+if curl -fsS --max-time 10 "$web/" | grep -q '<div id="app">'; then
+  pass "dashboard served on port 80"
+else
+  fail "dashboard on port 80"
+fi
+if curl -fsS --max-time 10 -H 'Content-Type: application/json' -d '{}' \
+     "$web/pinna.v1.DeviceService/GetStatus" | grep -q '"status"'; then
+  pass "GetStatus over the web listener"
+else
+  fail "GetStatus over the web listener"
+fi
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H 'Host: evil.example' "$web/")
+if [ "$code" = 421 ]; then pass "foreign Host refused (421)"; else fail "foreign Host got $code, not 421"; fi
 
 if [ -n "${SSH_KEY:-}" ]; then
   log "ssh checks"
