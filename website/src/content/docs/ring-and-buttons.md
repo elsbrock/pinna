@@ -16,7 +16,7 @@ this table wins:
 | A blue light that runs around the ring, briefly | Pinna is starting |
 | Solid red | The microphones are off |
 | Amber, pulsing twice a second | A timer has finished. Press the Action button to stop it |
-| Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead |
+| Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch in Home Assistant |
 | A violet light that runs around the ring | Home Assistant is working on your request |
 | Cyan, slowly getting brighter and dimmer | The device is playing the reply |
 | An amber arc | A timer is running. The arc shows how much time is left |

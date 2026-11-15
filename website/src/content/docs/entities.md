@@ -14,6 +14,7 @@ in front of them, for example `light.pinna_2a914e_led_ring`.
 | LED ring | `led_ring` | Light | Colour, brightness, effects Solid, Pulse and Flash | Uses the ring as a light while the device is idle. See [Light ring and buttons](/docs/ring-and-buttons/#use-the-ring-as-a-light) |
 | Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button |
 | Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The Action button still starts a request |
+| Listening direction | `listening_direction` | Switch (configuration) | On, off | While the device listens, points the light ring at the person speaking. Off shows the plain listening ring. On by default |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
 | Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements relative to the speaker volume. Replies are never louder than the speaker volume |
 | Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68 |

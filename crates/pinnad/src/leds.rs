@@ -146,32 +146,51 @@ fn unscaled_frame(
 pub const TALKER_MIN_CONTRAST_DB: f64 = 2.0;
 /// Move the segment only when the talker's beam moves at least this far.
 pub const TALKER_MOVE_DEG: u16 = 12;
+/// Go back to the plain pulse after this long without a confident reading.
+pub const TALKER_UNSURE_AFTER: Duration = Duration::from_secs(1);
 
-/// Where the listening ring points after a beam snapshot, given where it
-/// points now (LibreEcho's esphomed rule). A confident reading points or moves
-/// the segment; anything else keeps the current direction, so once the ring
-/// has pointed it does not fall back to the plain pulse during the turn.
-pub fn follow_talker(current: Option<u16>, snapshot: Option<&BeamSnapshot>) -> Option<u16> {
-    let Some(s) = snapshot.filter(|s| s.contrast_db() >= TALKER_MIN_CONTRAST_DB) else {
-        return current;
-    };
-    let Ok(azimuth) = u16::try_from(s.selected_deg) else {
-        return current;
-    };
-    if azimuth >= 360 {
-        return current;
+/// Where the listening ring points, from beam snapshots (LibreEcho's
+/// esphomed rule, with a fallback). A confident reading points or moves the
+/// segment. Short pauses keep it where it is; a second of unsure or missing
+/// readings returns the ring to the plain pulse.
+#[derive(Debug, Default)]
+pub struct Talker {
+    direction: Option<u16>,
+    unsure_since: Option<Instant>,
+}
+
+impl Talker {
+    pub fn direction(&self) -> Option<u16> {
+        self.direction
     }
-    match current {
-        Some(now) => {
-            let d = now.abs_diff(azimuth);
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn update(&mut self, snapshot: Option<&BeamSnapshot>, now: Instant) {
+        let confident = snapshot
+            .filter(|s| s.contrast_db() >= TALKER_MIN_CONTRAST_DB)
+            .and_then(|s| u16::try_from(s.selected_deg).ok())
+            .filter(|az| *az < 360);
+        let Some(azimuth) = confident else {
+            if self.direction.is_some() {
+                let since = *self.unsure_since.get_or_insert(now);
+                if now.saturating_duration_since(since) >= TALKER_UNSURE_AFTER {
+                    self.clear();
+                }
+            }
+            return;
+        };
+        self.unsure_since = None;
+        let moved = self.direction.is_none_or(|current| {
+            let d = current.abs_diff(azimuth);
             let distance = if d > 180 { 360 - d } else { d };
-            Some(if distance >= TALKER_MOVE_DEG {
-                azimuth
-            } else {
-                now
-            })
+            distance >= TALKER_MOVE_DEG
+        });
+        if moved {
+            self.direction = Some(azimuth);
         }
-        None => Some(azimuth),
     }
 }
 
@@ -288,28 +307,73 @@ mod tests {
         }
     }
 
+    /// A tracker pointing at `deg`, and the instant it pointed.
+    fn pointing(deg: i32) -> (Talker, Instant) {
+        let now = Instant::now();
+        let mut t = Talker::default();
+        t.update(Some(&beams(deg, true)), now);
+        (t, now)
+    }
+
     #[test]
     fn follows_the_talker_only_when_confident() {
-        // No graph, or a diffuse field: no direction yet, and a latched one stays.
-        assert_eq!(follow_talker(None, None), None);
-        assert_eq!(follow_talker(None, Some(&beams(90, false))), None);
-        assert_eq!(follow_talker(Some(90), None), Some(90));
-        assert_eq!(follow_talker(Some(90), Some(&beams(270, false))), Some(90));
+        let now = Instant::now();
+        let mut t = Talker::default();
+        // No graph, or a diffuse field: no direction.
+        t.update(None, now);
+        t.update(Some(&beams(90, false)), now);
+        assert_eq!(t.direction(), None);
         // A confident reading points, and moves the segment.
-        assert_eq!(follow_talker(None, Some(&beams(90, true))), Some(90));
-        assert_eq!(follow_talker(Some(90), Some(&beams(270, true))), Some(270));
-        // Across 0 degrees: 30 degrees apart.
-        assert_eq!(follow_talker(Some(345), Some(&beams(15, true))), Some(15));
-        // Out-of-range azimuths are ignored.
-        assert_eq!(follow_talker(Some(90), Some(&beams(-30, true))), Some(90));
-        assert_eq!(follow_talker(None, Some(&beams(360, true))), None);
+        t.update(Some(&beams(90, true)), now);
+        assert_eq!(t.direction(), Some(90));
+        t.update(Some(&beams(270, true)), now);
+        assert_eq!(t.direction(), Some(270));
+        // Out-of-range azimuths count as unsure.
+        t.update(Some(&beams(-30, true)), now);
+        t.update(Some(&beams(360, true)), now);
+        assert_eq!(t.direction(), Some(270));
+        let mut fresh = Talker::default();
+        fresh.update(Some(&beams(360, true)), now);
+        assert_eq!(fresh.direction(), None);
     }
 
     #[test]
     fn small_moves_keep_the_segment_still() {
-        assert_eq!(follow_talker(Some(90), Some(&beams(101, true))), Some(90));
-        assert_eq!(follow_talker(Some(90), Some(&beams(102, true))), Some(102));
-        assert_eq!(follow_talker(Some(5), Some(&beams(354, true))), Some(5));
+        let (mut t, now) = pointing(90);
+        t.update(Some(&beams(101, true)), now);
+        assert_eq!(t.direction(), Some(90));
+        t.update(Some(&beams(102, true)), now);
+        assert_eq!(t.direction(), Some(102));
+        // Across 0 degrees: 11 degrees apart.
+        let (mut t, now) = pointing(5);
+        t.update(Some(&beams(354, true)), now);
+        assert_eq!(t.direction(), Some(5));
+        t.update(Some(&beams(15, true)), now);
+        assert_eq!(t.direction(), Some(5));
+        t.update(Some(&beams(345, true)), now);
+        assert_eq!(t.direction(), Some(345));
+    }
+
+    #[test]
+    fn pauses_keep_the_direction_a_second_of_doubt_clears_it() {
+        let ms = |n| Duration::from_millis(n);
+        let (mut t, start) = pointing(90);
+        // Unsure for 750 ms, then confident again: the segment never left.
+        for n in [250, 500, 750] {
+            t.update(Some(&beams(90, false)), start + ms(n));
+        }
+        t.update(Some(&beams(90, true)), start + ms(1000));
+        assert_eq!(t.direction(), Some(90));
+        // The doubt timer restarted: 999 ms of missing readings keep it ...
+        t.update(None, start + ms(1250));
+        t.update(None, start + ms(2249));
+        assert_eq!(t.direction(), Some(90));
+        // ... a full second returns the ring to the plain pulse.
+        t.update(None, start + ms(2250));
+        assert_eq!(t.direction(), None);
+        // And a new confident reading points again.
+        t.update(Some(&beams(180, true)), start + ms(2500));
+        assert_eq!(t.direction(), Some(180));
     }
 
     #[test]

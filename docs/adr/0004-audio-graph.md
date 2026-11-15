@@ -73,5 +73,4 @@ the beamformer output; the graph runs without underruns; PipeWire ~10% CPU.
   listening ring at the talker. The file only ever grows, so a reader's mapping
   stays valid when PipeWire restarts. A snapshot older than 500 ms means the
   graph has stopped. The ring shows the plain listening pulse until a
-  confident snapshot arrives in the turn; after that it keeps the last
-  direction until the turn stops listening.
+  confident snapshot arrives, and again after a second without one.

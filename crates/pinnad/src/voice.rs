@@ -227,7 +227,7 @@ pub struct Brain {
     /// The beamformer's state, published by the PipeWire graph on the Dot.
     beams: BeamViewReader,
     /// Where the listening ring points, once the talker's direction is known.
-    talker: Option<u16>,
+    talker: leds::Talker,
     /// When the speaker last stopped playing a chime, reply or announcement.
     speaker_quiet_since: Instant,
 }
@@ -310,7 +310,7 @@ impl Brain {
             boot_done: false,
             led_test: None,
             beams: BeamViewReader::new(beamview::PATH),
-            talker: None,
+            talker: leds::Talker::default(),
             speaker_quiet_since: Instant::now(),
         }
     }
@@ -502,6 +502,11 @@ impl Brain {
                     on: self.settings.wake_word,
                 })
                 .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "listening_direction".into(),
+                    on: self.settings.listening_direction,
+                })
+                .await;
                 self.send_media_state().await;
             }
             HaCommand::ClientDisconnected => {
@@ -588,6 +593,12 @@ impl Brain {
             HaCommand::Number { object_id, value } => self.number(object_id, value).await,
             HaCommand::Switch { object_id, on } if object_id == "wake_word" => {
                 self.set_wake_word(on).await;
+            }
+            HaCommand::Switch { object_id, on } if object_id == "listening_direction" => {
+                tracing::info!("listening direction on the ring: {on}");
+                self.settings.listening_direction = on;
+                self.store.save(&self.settings);
+                self.send(DeviceEvent::SwitchState { object_id, on }).await;
             }
             HaCommand::Button { object_id } if object_id == "cancel_request" => {
                 tracing::info!("cancel requested by Home Assistant");
@@ -1028,7 +1039,7 @@ impl Brain {
         self.tts_url = None;
         self.phase = Phase::Starting(Instant::now());
         // The wake word was just spoken: read its direction before the chime.
-        self.talker = None;
+        self.talker.clear();
         self.track_talker();
         tracing::info!("starting Assist run {}", self.conversation_id);
         self.send(DeviceEvent::VoiceStart {
@@ -1255,8 +1266,9 @@ impl Brain {
     /// While listening, point the ring at the talker's beam (LibreEcho's
     /// directional listening ring). Called at run start and every tick.
     fn track_talker(&mut self) {
-        if !matches!(self.phase, Phase::Starting(_) | Phase::Listening(_)) {
-            self.talker = None;
+        let listening = matches!(self.phase, Phase::Starting(_) | Phase::Listening(_));
+        if !listening || !self.settings.listening_direction {
+            self.talker.clear();
             return;
         }
         // Our own chime or reply would point the ring at the Dot or a wall.
@@ -1271,7 +1283,7 @@ impl Brain {
                 "talker beam"
             );
         }
-        self.talker = leds::follow_talker(self.talker, snapshot.as_ref());
+        self.talker.update(snapshot.as_ref(), Instant::now());
     }
 
     fn overlay(&mut self, effect: Effect) {
@@ -1297,9 +1309,10 @@ impl Brain {
         } else {
             match self.phase {
                 Phase::Idle => Effect::Idle,
-                Phase::Starting(_) | Phase::Listening(_) => {
-                    self.talker.map_or(Effect::Listening, Effect::ListeningAt)
-                }
+                Phase::Starting(_) | Phase::Listening(_) => self
+                    .talker
+                    .direction()
+                    .map_or(Effect::Listening, Effect::ListeningAt),
                 Phase::Thinking(_) => Effect::Thinking,
                 Phase::Speaking => Effect::Speaking,
             }

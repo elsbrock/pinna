@@ -50,7 +50,8 @@ fn format(
     }
 }
 
-/// Fill `cfg` with exactly the entities LibreEcho exposed (names are part of the HA unique id).
+/// Fill `cfg` with the entities LibreEcho exposed (names are part of the HA unique id),
+/// plus Pinna's own: the "Listening direction" switch.
 pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
     cfg.light = Some(LightConfig {
         name: "LED ring".into(),
@@ -58,12 +59,20 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
         effects: strings(&["Solid", "Pulse", "Flash"]),
     });
     cfg.mute_switch = true;
-    cfg.switches = vec![SwitchConfig {
-        object_id: "wake_word".into(),
-        name: "Wake word".into(),
-        icon: "mdi:account-voice".into(),
-        entity_category: EntityCategory::Config,
-    }];
+    cfg.switches = vec![
+        SwitchConfig {
+            object_id: "wake_word".into(),
+            name: "Wake word".into(),
+            icon: "mdi:account-voice".into(),
+            entity_category: EntityCategory::Config,
+        },
+        SwitchConfig {
+            object_id: "listening_direction".into(),
+            name: "Listening direction".into(),
+            icon: "mdi:compass-outline".into(),
+            entity_category: EntityCategory::Config,
+        },
+    ];
     cfg.numbers = vec![
         number("volume", "Volume", Some("%"), "mdi:volume-high"),
         number(

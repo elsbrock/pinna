@@ -19,6 +19,8 @@ pub struct Settings {
     pub wake_word: bool,
     /// Software microphone mute (the Home Assistant switch).
     pub muted: bool,
+    /// Point the listening ring at the talker ("Listening direction" switch).
+    pub listening_direction: bool,
 }
 
 impl Default for Settings {
@@ -30,6 +32,7 @@ impl Default for Settings {
             led_brightness: 100,
             wake_word: true,
             muted: false,
+            listening_direction: true,
         }
     }
 }
