@@ -72,7 +72,7 @@ Constraints:
 - Anyone on the LAN can do all of the following:
   - change the volume, the settings and the software microphone switch (the
     hardware microphone switch stays out of reach)
-  - start a conversation and stop an alarm
+  - start a conversation, stop an alarm and clear a waiting notification
   - read pinnad's log and the network details
   - run the ring's test pattern
   - restart the satellite
@@ -84,8 +84,11 @@ Constraints:
 
   The controls match what a plaintext ESPHome API already exposes. Reading the
   log and the network details (SSID, signal, every address), the ring's test
-  pattern, restarting and installing go beyond it. An owner who doesn't want any of it sets
-  `[web] listen = ""` in `/var/lib/pinna/pinnad.toml`.
+  pattern, restarting and installing go beyond it. So does clearing a
+  notification: it fires the `cleared` event, which tells Home Assistant that
+  someone at the device acknowledged it. An ESPHome client can only turn the
+  switch off. An owner who doesn't want any of it sets `[web] listen = ""` in
+  `/var/lib/pinna/pinnad.toml`.
 - A satellite opened by a custom DNS name (not `.local`) needs that name in
   `[web] allowed_hosts`. The 421 response says so.
 - Authentication (for example a password seeded from `secrets/device/`) is
