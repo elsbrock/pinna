@@ -55,13 +55,21 @@ wmt:
 keygen:
     cargo run -q -p pinna-image -- keygen --secret secrets/release.key --public keys/release.pub
 
+# dashboard: static files for /usr/share/pinna/web (dashboard/dist)
+web:
+    cd dashboard && npm ci && npm run build
+
+# dashboard checks: design tokens, generated API code, unit tests, svelte-check
+web-check:
+    cd dashboard && npm ci && npm run check
+
 # root filesystem: erofs via mkosi, sealed into a signed slot image build/pinna.root.img
-image: wmt rust-arm ladspa
+image: wmt rust-arm ladspa web
     scripts/assemble-rootfs-extra.sh
     scripts/build-root.sh
 
 # x86_64 image for KVM smoke tests (same userland, x86_64 binaries) -> build/pinna-x86.root.img
-image-x86: rust-x86 ladspa
+image-x86: rust-x86 ladspa web
     scripts/assemble-rootfs-extra.sh --arch x86_64
     scripts/build-root.sh --arch x86_64
 
@@ -150,4 +158,4 @@ bootimg-roundtrip:
 
 # the plan's full verification: unit/lint, boot images, kernel configs,
 # ESPHome conformance, wake word parity, end-to-end voice flow, VM boot gates and A/B update/rollback
-test: check bootimg-roundtrip kernel-config esphome-conformance wakeword-parity e2e vm-test vm-test-x86 vm-update-test
+test: check web-check bootimg-roundtrip kernel-config esphome-conformance wakeword-parity e2e vm-test vm-test-x86 vm-update-test

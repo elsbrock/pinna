@@ -157,6 +157,7 @@ async def test_hello_and_device_info(client, demo):
     assert info.manufacturer == "Pinna"
     assert info.project_name == "pinna.satellite"
     assert info.suggested_area == "Lab"
+    assert info.webserver_port == 80
     assert info.voice_assistant_feature_flags == 61
 
 

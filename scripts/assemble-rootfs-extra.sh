@@ -8,6 +8,7 @@
 #   build/wmt/               static WMT helpers (`just wmt`)
 #   target/<arm>/release/    pinnad, pinnactl, pinna-bootctl (`just rust-arm`)
 #   target/<gnu>/release/    libpinna_ladspa.so, glibc (`just ladspa`)
+#   dashboard/dist/          the dashboard's static files (`just web`)
 #   secrets/                 authorized_keys, wifi/wpa_supplicant-wlan0.conf
 set -euo pipefail
 
@@ -69,6 +70,14 @@ if [ -f "$ladspa" ]; then
   install -Dm0644 "$ladspa" "$out/usr/lib/ladspa/pinna-beam.so"
 else
   warn "pinna-beam.so not built for $target_arch (just ladspa)"
+fi
+
+# Dashboard (served by pinnad's [web] listener)
+if [ -s "$root/dashboard/dist/index.html" ]; then
+  install -d "$out/usr/share/pinna"
+  cp -r "$root/dashboard/dist" "$out/usr/share/pinna/web"
+else
+  warn "dashboard not built (just web) — pinnad serves the API only on port 80"
 fi
 
 # Wake word models

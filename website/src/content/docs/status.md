@@ -4,7 +4,7 @@ description: What works in Pinna today, what is known to be missing or rough, an
 ---
 
 Pinna is in early development. You can build it, install it on an Echo Dot
-(2nd gen) and use it with Home Assistant, but there is no web interface, no
+(2nd gen) and use it with Home Assistant and its own dashboard, but there is no
 prebuilt image, and parts of it are still being tuned on real hardware.
 
 ## What works
@@ -33,8 +33,9 @@ On the Echo Dot itself:
 
 ## Known gaps
 
-- **No web interface.** You set up and control the device from its command
-  line and from Home Assistant.
+- **The dashboard has no login.** Anyone on your network can use it,
+  including restarting and updating the device. See
+  [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 - **No prebuilt images.** You build your own images and sign them with your
   own key.
 - **Backup and firmware.** Pinna doesn't yet provide a tool to back up the
@@ -50,8 +51,6 @@ On the Echo Dot itself:
 
 ## Planned
 
-- **A web interface** on the device, for status and settings. The design
-  system for it is in the repository.
 - **The Echo (2nd gen)**, which uses the same platform as the Echo Dot.
 - **Standalone mode**: using the device as a voice assistant without Home
   Assistant.

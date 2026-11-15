@@ -60,6 +60,15 @@ pub enum ApiCommand {
     StartConversation(ApiReply),
     StopConversation(ApiReply),
     LedTest(ApiReply),
+    UpdateSettings(SettingsPatch, ApiReply),
+}
+
+/// Settings to change from the API; `None` leaves a setting as it is.
+#[derive(Debug, Default)]
+pub struct SettingsPatch {
+    pub wake_word: Option<bool>,
+    pub wake_sensitivity: Option<u8>,
+    pub led_brightness: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,6 +95,9 @@ pub struct Snapshot {
     /// The wake word detector is armed.
     pub wake_enabled: bool,
     pub timers: Vec<TimerSnapshot>,
+    /// A finished timer's alarm is sounding (finished timers leave `timers`).
+    pub alarm_ringing: bool,
+    pub settings: crate::settings::Settings,
 }
 
 impl Default for Snapshot {
@@ -99,6 +111,8 @@ impl Default for Snapshot {
             voice_subscribed: false,
             wake_enabled: false,
             timers: Vec::new(),
+            alarm_ringing: false,
+            settings: crate::settings::Settings::default(),
         }
     }
 }
@@ -407,6 +421,20 @@ impl Brain {
                 self.led_test = Some(Instant::now());
                 (Ok(()), reply)
             }
+            ApiCommand::UpdateSettings(patch, reply) => {
+                // The same paths as Home Assistant's entities, so it sees the change.
+                if let Some(v) = patch.wake_sensitivity {
+                    self.number("wake_word_sensitivity".into(), f32::from(v))
+                        .await;
+                }
+                if let Some(v) = patch.led_brightness {
+                    self.number("led_brightness".into(), f32::from(v)).await;
+                }
+                if let Some(on) = patch.wake_word {
+                    self.set_wake_word(on).await;
+                }
+                (Ok(()), reply)
+            }
         };
         self.refresh();
         let _ = reply.send(result.map(|()| self.snapshot()));
@@ -440,6 +468,8 @@ impl Brain {
             voice_subscribed: self.voice_subscribed,
             wake_enabled: self.shared.wake_enabled.load(Ordering::Relaxed),
             timers,
+            alarm_ringing: self.ringing.is_some(),
+            settings: self.settings.clone(),
         }
     }
 
@@ -543,10 +573,7 @@ impl Brain {
             }
             HaCommand::Number { object_id, value } => self.number(object_id, value).await,
             HaCommand::Switch { object_id, on } if object_id == "wake_word" => {
-                tracing::info!("wake word detection: {on}");
-                self.settings.wake_word = on;
-                self.store.save(&self.settings);
-                self.send(DeviceEvent::SwitchState { object_id, on }).await;
+                self.set_wake_word(on).await;
             }
             HaCommand::Button { object_id } if object_id == "cancel_request" => {
                 tracing::info!("cancel requested by Home Assistant");
@@ -815,6 +842,17 @@ impl Brain {
             })
             .await;
         }
+    }
+
+    async fn set_wake_word(&mut self, on: bool) {
+        tracing::info!("wake word detection: {on}");
+        self.settings.wake_word = on;
+        self.store.save(&self.settings);
+        self.send(DeviceEvent::SwitchState {
+            object_id: "wake_word".into(),
+            on,
+        })
+        .await;
     }
 
     async fn number(&mut self, object_id: String, value: f32) {

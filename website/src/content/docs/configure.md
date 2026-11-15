@@ -63,7 +63,7 @@ How the device introduces itself to Home Assistant.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `name` | `""` | The device name on the network and in Home Assistant. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
+| `name` | `""` | The device name in Home Assistant and in mDNS discovery. It doesn't change the hostname, which is always `pinna`. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
 | `friendly_name` | `"Echo Dot"` | The name that Home Assistant shows |
 | `model` | `"Echo Dot (2nd Gen)"` | The model that Home Assistant shows |
 | `manufacturer` | `"Pinna"` | The manufacturer that Home Assistant shows |
@@ -114,10 +114,19 @@ The connection to Home Assistant. See
 | --- | --- | --- |
 | `listen` | `"127.0.0.1:7470"` | The address of the control API that `pinnactl` uses. The API has no authentication, so keep it on `127.0.0.1` |
 
+### `[web]`
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `listen` | `"[::]:80"` | The address of the [dashboard](/docs/dashboard/) and of the same control API, for your network. It has no authentication. `""` turns it off |
+| `root` | `"/usr/share/pinna/web"` | The dashboard's files |
+| `allowed_hosts` | `[]` | Names to open the dashboard by, besides IP addresses, `localhost`, `.local` names and the hostname. See [Open the dashboard by another name](/docs/dashboard/#open-the-dashboard-by-another-name) |
+
 ## Settings that Home Assistant controls
 
-These values come from Home Assistant after the first boot, so changing them
-in `pinnad.toml` has no effect once the device has run:
+These values come from Home Assistant or the [dashboard](/docs/dashboard/)
+after the first boot, so changing them in `pinnad.toml` has no effect once the
+device has run:
 
 - The volume (`[audio] volume`)
 - The wake word sensitivity (`[wake] threshold`)

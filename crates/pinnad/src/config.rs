@@ -12,6 +12,7 @@ pub struct Config {
     pub esphome: Esphome,
     pub leds: Leds,
     pub api: Api,
+    pub web: Web,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -84,6 +85,19 @@ pub struct Api {
     pub listen: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Web {
+    /// Dashboard and control API for the LAN (ADR 0005). No authentication.
+    /// Empty = off.
+    pub listen: String,
+    /// The built dashboard (static files).
+    pub root: PathBuf,
+    /// Host names the dashboard may be opened by, besides IP addresses,
+    /// `localhost`, the hostname and the node name (each also with `.local`).
+    pub allowed_hosts: Vec<String>,
+}
+
 impl Default for Device {
     fn default() -> Self {
         Self {
@@ -149,6 +163,16 @@ impl Default for Api {
     }
 }
 
+impl Default for Web {
+    fn default() -> Self {
+        Self {
+            listen: String::new(),
+            root: "/usr/share/pinna/web".into(),
+            allowed_hosts: Vec::new(),
+        }
+    }
+}
+
 /// Merge `over` into `base`: tables merge key by key, everything else is replaced.
 fn merge(base: &mut toml::Table, over: toml::Table) {
     for (k, v) in over {
@@ -208,6 +232,23 @@ mod tests {
         assert_eq!(c.wake.threshold, 0.6);
         assert_eq!(c.esphome.port, 6053);
         assert_eq!(c.api.listen, "127.0.0.1:7470");
+        assert_eq!(c.web.listen, "");
+        assert_eq!(c.web.root, Path::new("/usr/share/pinna/web"));
+    }
+
+    #[test]
+    fn parses_web() {
+        let c: Config = toml::from_str(
+            r#"
+            [web]
+            listen = "0.0.0.0:80"
+            allowed_hosts = ["kitchen.home.arpa"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(c.web.listen, "0.0.0.0:80");
+        assert_eq!(c.web.allowed_hosts, ["kitchen.home.arpa"]);
+        assert_eq!(c.web.root, Path::new("/usr/share/pinna/web"));
     }
 
     #[test]
