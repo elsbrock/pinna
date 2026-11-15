@@ -77,8 +77,11 @@ else
   warn "no secrets/authorized_keys — SSH login will be impossible"
 fi
 if [ -s "$root/secrets/wifi/wpa_supplicant-wlan0.conf" ]; then
-  install -d "$out/etc/wpa_supplicant"
-  install -m0600 "$root/secrets/wifi/wpa_supplicant-wlan0.conf" "$out/etc/wpa_supplicant/"
+  # Default only: first boot copies it to /var/lib/pinna/wifi/ (tmpfiles), which
+  # /etc/wpa_supplicant/wpa_supplicant-wlan0.conf points at, so Wi-Fi can be
+  # changed on the device without a new image.
+  install -d "$out/usr/share/pinna/wifi"
+  install -m0600 "$root/secrets/wifi/wpa_supplicant-wlan0.conf" "$out/usr/share/pinna/wifi/"
 else
   warn "no Wi-Fi credentials — the device is reachable over USB only"
 fi

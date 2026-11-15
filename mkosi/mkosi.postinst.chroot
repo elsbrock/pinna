@@ -12,7 +12,8 @@ systemctl enable \
     pinna-wifi.service \
     pinnad.service \
     pinna-fastboot-guard.service \
-    pinna-boot-ok.service
+    pinna-boot-ok.service \
+    systemd-sysext.service
 
 # wpa_supplicant and the USB serial getty are started by udev when wlan0 /
 # ttyGS0 appear (see 90-pinna.rules), never by a static dependency on a device
@@ -47,5 +48,7 @@ if [ -d /root/.ssh ]; then
     chmod 700 /root/.ssh
     chmod 600 /root/.ssh/authorized_keys 2>/dev/null || true
 fi
-chmod 600 /etc/wpa_supplicant/wpa_supplicant-*.conf 2>/dev/null || true
+chmod 600 /usr/share/pinna/wifi/*.conf 2>/dev/null || true
+mkdir -p /etc/wpa_supplicant
+ln -sfn /var/lib/pinna/wifi/wpa_supplicant-wlan0.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 chmod 755 /usr/libexec/pinna/* /usr/bin/pinna* 2>/dev/null || true
