@@ -1,0 +1,23 @@
+[package]
+name = "pinnad"
+description = "Pinna device daemon: LEDs, buttons, wake word and Home Assistant voice satellite"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-esphome = { path = "../pinna-esphome" }
+pinna-hal = { path = "../pinna-hal" }
+pinna-audio = { path = "../pinna-audio" }
+pinna-wakeword = { path = "../pinna-wakeword" }
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+toml.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+bytes = "1"
+fastrand = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

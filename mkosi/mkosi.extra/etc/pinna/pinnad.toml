@@ -1,0 +1,30 @@
+# pinnad configuration (Echo Dot 2nd gen). See crates/pinnad/src/config.rs.
+
+[device]
+# ESPHome node name; empty = "pinna-" + last three MAC bytes.
+name = ""
+friendly_name = "Echo Dot"
+model = "Echo Dot (2nd Gen)"
+manufacturer = "Pinna"
+
+[audio]
+backend = "auto"          # echodot on the device, pipewire on a laptop
+volume = 50
+speaker_profile = "Flat"  # biscuit; the full-size Echo uses "Radar"
+wake_sound = false
+
+[wake]
+enabled = true
+models = "/usr/share/pinna/models/openwakeword-0.5.1"
+keyword = "alexa_v0.1.onnx"
+id = "alexa_v0.1"
+phrase = "Alexa"
+threshold = 0.55
+
+[esphome]
+port = 6053
+mdns = true
+
+[leds]
+backend = "auto"
+brightness = 255
