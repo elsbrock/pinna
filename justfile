@@ -100,8 +100,8 @@ bootimg: initramfs
         --out {{build}}/pinna-boot.img
     cargo run -q -p pinna-bootimg -- info {{build}}/pinna-boot.img
 
-# everything needed for a flash: kernel, boot image, root filesystem
-all: kernel image bootimg
+# everything needed for a flash: kernel, wake word models, root filesystem, boot image
+all: kernel models image bootimg
     ls -l {{build}}/pinna-boot.img {{build}}/pinna.root.img
 
 # release artifacts: build/release/{pinna-<version>.root.img, pinna-boot.img, manifest.json}

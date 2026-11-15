@@ -87,7 +87,8 @@ successful) and clears the fastboot guard. `FailureAction=reboot` plus
 within 5 minutes of boot, reboots. A trial slot thus counts down its tries and
 pinna-init rolls back to the previous slot.
 
-**Fastboot guard** (dev images): armed only when the booted slot is already
+**Fastboot guard** (every image carries `/etc/pinna/fastboot-guard`; it acts
+only when the Kaeru payload is in `expdb`): armed only when the booted slot is already
 good or there is no good fallback. During the trial boot of a new slot with a
 good fallback it is not armed; a failed trial rolls back instead of landing in
 fastboot.
@@ -121,8 +122,9 @@ needs no partition renames and no boot loader support.
 - Root images carry ~0.8 % hash tree + 4 KiB. `flash-dot.sh root` clears the
   head of `system_b` so a fresh flash boots slot a whatever misc says.
 - On a slot that is already good, a failed health check also reboots: into
-  fastboot with the dev guard, in a loop without it.
+  fastboot with the guard, in a loop without it (no Kaeru payload).
 - dm-verity uses its default error mode: a corrupted block reads as EIO.
-- Unverified on hardware so far: LK with this (0.6 MB) ramdisk — LibreEcho's
-  7.3 MB ramdisk at the same load address booted; eMMC behaviour of the misc
-  sector writes; verification time on the A53.
+- Verified on the Echo Dot (2026-11-15): LK boots the pinna-init ramdisk, the
+  slot state in `misc` survives reboots, and an update over USB (download,
+  write, full read-back verification of a 153 MiB root) takes ~47 s; the new
+  slot booted and was marked good.

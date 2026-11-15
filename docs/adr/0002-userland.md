@@ -14,9 +14,9 @@ time, logging, watchdog, USB gadget via configfs). Pinna's own code is the
 | `pinna-esphome` | ESPHome native API server, plaintext or Noise (NNpsk0, key provisioning by HA), conformance-tested against aioesphomeapi |
 | `pinna-api` | ConnectRPC `pinna.v1.DeviceService` (proto in `proto/`), generated with `connectrpc-build` + `protox` |
 | `pinnactl` | Console client for the control API (`status`, `volume`, `mute`, `listen`, `stop`, `led-test`, `watch`) and the A/B updater (`update`) |
-| `pinna-wakeword` | openWakeWord on pure-Rust `tract`, matching onnxruntime to 3e-6 |
+| `pinna-wakeword` | openWakeWord on pure-Rust `tract`, matching onnxruntime (scores within 1e-3 in the parity test; ~3e-6 measured) |
 | `pinna-hal` | IS31FL3236 LED ring (kernel sysfs), evdev buttons, privacy latch; mocks |
-| `pinna-audio` | Capture/playback via `arecord`/`aplay` (device) or `pw-record`/`pw-play`; DSP front end, mixer sequences, decoding |
+| `pinna-audio` | On the Echo Dot `aplay` for the speaker and `pw-record` for the processed microphone stream (`arecord` in the ALSA fallback); `pw-record`/`pw-play` elsewhere; DSP front end, mixer sequences, decoding |
 | `pinna-bootctl` | Bootloader message (fastboot guard), A/B slot state (`slot-status`, `mark-good`, `set-active`) |
 | `pinna-bootimg` | Boot image and initramfs tooling |
 | `pinna-init` | Initramfs PID 1: A/B slot choice, image signature, dm-verity root, switch root (ADR 0003) |
@@ -30,7 +30,7 @@ time, logging, watchdog, USB gadget via configfs). Pinna's own code is the
 - **Audio (superseded by ADR 0004)**: on the Echo Dot the microphone path
   (beamformer, WebRTC echo cancellation) runs in a system-wide PipeWire graph
   and pinnad drives the speaker through ALSA, feeding PipeWire the echo
-  reference; laptops/VMs use the PipeWire backend.
+  reference; laptops use the PipeWire backend, the VM images none.
 - **Home Assistant integration is the ESPHome native API** — HA adopts the
   device with no YAML; mDNS through systemd-resolved `.dnssd`.
 - **Local control API is ConnectRPC**, without authentication. On

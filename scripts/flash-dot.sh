@@ -71,7 +71,7 @@ case "${1:-}" in
     head -c 4194304 /dev/zero > "$tmp"
     $fb flash userdata "$tmp"
     rm -f "$tmp"
-    say "done; next: $0 try"
+    say "done; next: $0 boot"
     ;;
   try)
     need_device
@@ -91,7 +91,7 @@ case "${1:-}" in
   restore)
     dir=${2:?usage: $0 restore <backup>/partitions}
     need_device
-    for p in boot_a system_a userdata; do need_file "$dir/$p.img" "backup partition"; done
+    for p in boot_a boot_b system_a userdata; do need_file "$dir/$p.img" "backup partition"; done
     (cd "$dir" && sha256sum -c --ignore-missing SHA256SUMS) || die "backup checksums do not match"
     confirm "Restore the backup (boot_a, boot_b, system_a, system_b, userdata) from $dir?"
     $fb flash boot_a "$dir/boot_a.img"

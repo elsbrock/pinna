@@ -8,7 +8,7 @@ model = "Echo Dot (2nd Gen)"
 manufacturer = "Pinna"
 
 [audio]
-backend = "auto"          # echodot on the device, pipewire on a laptop
+backend = "auto"          # echodot-pipewire on the device (echodot without the graph), pipewire on a laptop
 volume = 50
 speaker_profile = "Flat"  # biscuit; the full-size Echo uses "Radar"
 wake_sound = false

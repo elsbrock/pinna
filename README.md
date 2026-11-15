@@ -10,6 +10,10 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 
 > Status: early bring-up. Console and a local dashboard. Expect sharp edges.
 
+Pinna needs an Echo Dot that has already been unlocked with Kaeru/amonet (as
+for LibreEcho). To install it, follow `docs/runbook-first-flash.md`: it backs
+the device up first and every step says how to undo it.
+
 ## Layout
 
 | Path | What |
@@ -28,10 +32,11 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 ## Development
 
 ```sh
-nix develop      # or install: rustup, just, mkosi, cargo-zigbuild, qemu
+nix develop      # the supported environment (x86_64 Linux): toolchains, keyrings, fastboot
 just             # list tasks
+                 # first: the owner inputs in secrets/ (docs/runbook-first-flash.md, step 2)
 just keygen      # once: release signing key (secrets/release.key, keys/release.pub)
-just all         # kernel, root filesystem (sealed slot image), boot image for the Echo Dot
+just all         # kernel, wake word models, root filesystem (sealed slot image), boot image
 just release     # build/release/: root image, boot image, update manifest
 just push        # fresh binaries onto a running device (sysext overlay)
 just test-device # hardware gate against a running device

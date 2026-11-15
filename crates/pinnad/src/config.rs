@@ -29,7 +29,7 @@ pub struct Device {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Audio {
-    /// auto | echodot | pipewire | none | wav:<path>
+    /// auto | echodot | echodot-pipewire | pipewire | none | wav:<path>
     pub backend: String,
     /// Startup volume 0..=100.
     pub volume: u8,

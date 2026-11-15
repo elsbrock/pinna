@@ -44,28 +44,36 @@ The speaker is not in PipeWire. pinnad drives it through ALSA at 48 kHz
 (`EchoDotPipeWire` backend: aplay, its amp/codec sequences around playback,
 and the speaker EQ — a 150 Hz high-pass), and writes a 16 kHz mono copy of
 every chunk it plays into `dot_ref` through a bounded queue (dropped, never
-blocking, if PipeWire lags). WebRTC's delay estimator absorbs the fixed offset
-between the two paths and the slow drift between the two clocks.
+blocking, if PipeWire lags). The two clocks drift apart (speaker ≈ +320 ppm,
+microphones ≈ +5 ppm against the CPU), so pinnad fits both from the PCMs'
+hardware pointers (`/proc/asound/card0/pcm*/sub0/status`), paces the speaker at
+its measured rate and resamples the reference from the speaker clock to the
+microphone clock. WebRTC's delay estimator only absorbs the fixed offset
+between the two paths.
 
 - **Beamform first, then mono echo cancellation**: the usual design for small
   arrays and far cheaper than per-microphone AEC. The beamformer is LibreEcho's
-  superdirective fixed-beam design, ported to Rust (bit-exact) and loaded into
+  superdirective fixed-beam design, ported to Rust (within 1 LSB of the C on
+  ≥ 99.9 % of samples) and loaded into
   PipeWire as a LADSPA plugin (`crates/pinna-ladspa`).
 - **The speaker stays out of PipeWire**: full 48 kHz playback, and the amp is
   only ever switched by the code that knows when it plays — no PipeWire graph
   restart can reach the speaker.
 
-Measured on the device (music through pinnad, speech band 300–3400 Hz):
-after ~8 s of convergence the echo is 32–44 dB lower after cancellation than at
-the beamformer output; the graph runs without underruns; PipeWire ~10% CPU.
+Measured on the device (music through pinnad, speech band 300–3400 Hz, room
+noise present): after convergence the echo is 23–31 dB lower after cancellation
+than at the beamformer output (~6 dB before the clock tracking); the reference
+stream needs 100 ms of buffering to ride out feeder jitter; PipeWire ~10% CPU.
+The hardware gate (`just test-device`) requires at least 20 dB.
 
 ## Consequences
 
-- pinnad falls back to driving ALSA directly for both directions (`EchoDot`
-  backend) when the PipeWire socket is absent, so the device keeps working if
-  the graph fails.
+- pinnad drives ALSA directly for both directions (`EchoDot` backend) when the
+  PipeWire socket is absent at startup. The choice is made once: a graph that
+  fails later, or runs without `dot_mic_aec`, is not detected.
 - The first seconds of new audio are not fully cancelled while WebRTC adapts.
-- Laptops/VMs keep using the plain `PipeWire` backend.
+- Laptops keep using the plain `PipeWire` backend; the VM images run without
+  an audio backend.
 - The beamformer runs in PipeWire's process, so pinnad cannot ask it which
   beam it follows. After every cycle the plugin writes a seqlock snapshot
   (selected beam, per-beam power) to `/run/pipewire/pinna-beam`
