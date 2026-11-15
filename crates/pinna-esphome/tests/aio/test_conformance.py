@@ -167,7 +167,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    assert len(by_key) == len(entities) == 2 + 3 + 4 + 1 + 8 + 1 + 1
+    # 1 light, 5 switches, 4 numbers, 1 button, 8 events, 1 text sensor and
+    # 1 media player.
+    assert len(by_key) == len(entities) == 1 + 5 + 4 + 1 + 8 + 1 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
