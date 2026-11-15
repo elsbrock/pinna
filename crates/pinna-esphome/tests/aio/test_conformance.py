@@ -1,11 +1,13 @@
-"""Conformance of pinna-esphome against the real aioesphomeapi client (plaintext).
+"""Conformance of pinna-esphome against the real aioesphomeapi client (plaintext and Noise).
 
 Run: just esphome-conformance
-The demo example is started on a free port; its stdout JSON lines are the oracle for what
+The demo example is started on a free port (every test using the `demo` fixture runs once
+plaintext and once with a Noise key); its stdout JSON lines are the oracle for what
 the device side received from the client.
 """
 
 import asyncio
+import base64
 import importlib.metadata
 import json
 import os
@@ -15,6 +17,10 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from aioesphomeapi import APIClient
+from aioesphomeapi.core import (
+    InvalidEncryptionKeyAPIError,
+    RequiresEncryptionAPIError,
+)
 from aioesphomeapi.model import (
     LightInfo,
     LightState,
@@ -30,13 +36,17 @@ ROOT = Path(__file__).resolve().parents[4]
 TARGET = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
 DEMO = Path(os.environ.get("PINNA_DEMO_BIN", TARGET / "debug" / "examples" / "demo"))
 
+KEY = base64.b64encode(bytes(range(32))).decode()
+WRONG_KEY = base64.b64encode(bytes(range(1, 33))).decode()
+
 LIGHT_KEY = 3
 MUTE_KEY = 2
 
 
 class Demo:
-    def __init__(self, proc):
+    def __init__(self, proc, psk):
         self.proc = proc
+        self.psk = psk
         self.lines = []
         self.port = None
         self._reader = asyncio.create_task(self._read())
@@ -57,6 +67,11 @@ class Demo:
             await asyncio.sleep(0.01)
         raise AssertionError(f"demo never printed {what}; got {self.lines}")
 
+    def client(self, client_info, psk="default", **kw):
+        """Client for this demo; `psk` defaults to the key the demo runs with."""
+        psk = self.psk if psk == "default" else psk
+        return APIClient("127.0.0.1", self.port, None, client_info=client_info, noise_psk=psk, **kw)
+
     def cmd(self, name):
         return lambda line: line.get("command") == name
 
@@ -70,25 +85,38 @@ class Demo:
         self._reader.cancel()
 
 
-@pytest_asyncio.fixture
-async def demo():
+async def start_demo(psk):
     assert DEMO.exists(), f"{DEMO} missing: build with cargo build -p pinna-esphome --example demo"
     proc = await asyncio.create_subprocess_exec(
         str(DEMO),
         "0",
+        *(["--key", psk] if psk else []),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
     )
-    d = Demo(proc)
+    d = Demo(proc, psk)
     ready = await d.wait(lambda l: l.get("ready"), "ready")
     d.port = ready["port"]
+    return d
+
+
+@pytest_asyncio.fixture(params=[None, KEY], ids=["plaintext", "noise"])
+async def demo(request):
+    d = await start_demo(request.param)
+    yield d
+    await d.stop()
+
+
+@pytest_asyncio.fixture
+async def noise_demo():
+    d = await start_demo(KEY)
     yield d
     await d.stop()
 
 
 @pytest_asyncio.fixture
 async def client(demo):
-    c = APIClient("127.0.0.1", demo.port, None, client_info="conformance")
+    c = demo.client("conformance")
     await c.connect(login=True)
     yield c
     await c.disconnect()
@@ -155,11 +183,11 @@ async def test_states_light_and_switch(client, demo):
 
 @pytest.mark.asyncio
 async def test_late_subscriber_gets_current_state(demo):
-    a = APIClient("127.0.0.1", demo.port, None, client_info="a")
+    a = demo.client("a")
     await a.connect(login=True)
     a.switch_command(MUTE_KEY, True)
     await demo.wait(demo.cmd("mute"), "mute command")
-    b = APIClient("127.0.0.1", demo.port, None, client_info="b")
+    b = demo.client("b")
     await b.connect(login=True)
     seen = {}
     b.subscribe_states(lambda s: seen.__setitem__(s.key, s))
@@ -171,11 +199,11 @@ async def test_late_subscriber_gets_current_state(demo):
 
 @pytest.mark.asyncio
 async def test_third_client_is_rejected(demo):
-    a = APIClient("127.0.0.1", demo.port, None, client_info="a")
-    b = APIClient("127.0.0.1", demo.port, None, client_info="b")
+    a = demo.client("a")
+    b = demo.client("b")
     await a.connect(login=True)
     await b.connect(login=True)
-    c = APIClient("127.0.0.1", demo.port, None, client_info="c")
+    c = demo.client("c")
     with pytest.raises(Exception):
         await c.connect(login=True)
     await a.disconnect()
@@ -289,10 +317,66 @@ async def test_wake_word_configuration(client, demo):
 
 @pytest.mark.asyncio
 async def test_time_request_and_disconnect(demo):
-    c = APIClient("127.0.0.1", demo.port, None, client_info="t", provide_time=True)
+    c = demo.client("t", provide_time=True)
     await c.connect(login=True)
     demo.send("time")
     t = await demo.wait(demo.cmd("time"), "time response")
     assert abs(t["epoch_seconds"] - time.time()) < 10
     await c.disconnect()
     await demo.wait(demo.cmd("client_disconnected"), "client_disconnected")
+
+
+@pytest.mark.asyncio
+async def test_noise_device_info_advertises_encryption(noise_demo):
+    c = noise_demo.client("info")
+    await c.connect(login=True)
+    info = await c.device_info()
+    assert info.api_encryption_supported
+    assert info.name == "pinna-demo"
+    await c.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_noise_wrong_key_is_rejected(noise_demo):
+    c = noise_demo.client("bad", psk=WRONG_KEY)
+    with pytest.raises(InvalidEncryptionKeyAPIError):
+        await c.connect(login=True)
+
+
+@pytest.mark.asyncio
+async def test_noise_server_refuses_plaintext_client(noise_demo):
+    c = noise_demo.client("plain", psk=None)
+    with pytest.raises(RequiresEncryptionAPIError):
+        await c.connect(login=True)
+
+
+@pytest.mark.asyncio
+async def test_noise_set_key_rotates_key(noise_demo):
+    c = noise_demo.client("rot")
+    await c.connect(login=True)
+    new = bytes(range(100, 132))
+    assert await c.noise_encryption_set_key(new)
+    got = await noise_demo.wait(noise_demo.cmd("encryption_key_set"), "encryption_key_set")
+    assert bytes(got["key"]) == new
+    await c.disconnect()
+
+    with pytest.raises(InvalidEncryptionKeyAPIError):
+        await noise_demo.client("old").connect(login=True)
+    c = noise_demo.client("new", psk=base64.b64encode(new).decode())
+    await c.connect(login=True)
+    assert (await c.device_info()).name == "pinna-demo"
+    # A bad key length is refused and changes nothing.
+    assert not await c.noise_encryption_set_key(b"short")
+    await c.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_plaintext_set_key_is_refused(request):
+    d = await start_demo(None)
+    try:
+        c = d.client("pt")
+        await c.connect(login=True)
+        assert not await c.noise_encryption_set_key(bytes(32))
+        await c.disconnect()
+    finally:
+        await d.stop()
