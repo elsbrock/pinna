@@ -2,7 +2,8 @@
 
 use crate::types::{
     ButtonConfig, DeviceConfig, EntityCategory, EventConfig, LightConfig, MediaFormat,
-    MediaPlayerConfig, MediaPurpose, NumberConfig, NumberMode, TextSensorConfig, media_feature,
+    MediaPlayerConfig, MediaPurpose, NumberConfig, NumberMode, SwitchConfig, TextSensorConfig,
+    media_feature,
 };
 
 fn strings(v: &[&str]) -> Vec<String> {
@@ -56,6 +57,12 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
         effects: strings(&["Solid", "Pulse", "Flash"]),
     });
     cfg.mute_switch = true;
+    cfg.switches = vec![SwitchConfig {
+        object_id: "wake_word".into(),
+        name: "Wake word".into(),
+        icon: "mdi:account-voice".into(),
+        entity_category: EntityCategory::Config,
+    }];
     cfg.numbers = vec![
         number("volume", "Volume", Some("%"), "mdi:volume-high"),
         number(

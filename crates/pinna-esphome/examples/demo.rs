@@ -144,6 +144,10 @@ async fn main() -> anyhow::Result<()> {
                         out(json!({"command": "mute", "state": m}));
                         handle.send(DeviceEvent::MuteState(m)).await?;
                     }
+                    HaCommand::Switch { object_id, on } => {
+                        out(json!({"command": "switch", "object_id": object_id, "state": on}));
+                        handle.send(DeviceEvent::SwitchState { object_id, on }).await?;
+                    }
                     HaCommand::Number { object_id, value } => {
                         out(json!({"command": "number", "object_id": object_id, "value": value}));
                         handle.send(DeviceEvent::NumberState { object_id, value }).await?;

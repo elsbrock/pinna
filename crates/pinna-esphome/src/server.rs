@@ -71,6 +71,7 @@ fn check_keys(cfg: &DeviceConfig) -> anyhow::Result<()> {
             "media_player",
             cfg.media_player.iter().map(|e| &e.object_id).collect(),
         ),
+        ("switch", cfg.switches.iter().map(|e| &e.object_id).collect()),
     ] {
         for id in ids {
             add(entity_key(platform, id), format!("{platform} {id}"))?;
@@ -324,6 +325,7 @@ struct Actor {
     muted: bool,
     numbers: HashMap<String, f32>,
     texts: HashMap<String, String>,
+    switches: HashMap<String, bool>,
     media: (MediaPlayerStateKind, f32, bool),
     active_wake: Vec<String>,
 }
@@ -342,6 +344,7 @@ impl Actor {
             muted: false,
             numbers: HashMap::new(),
             texts: HashMap::new(),
+            switches: HashMap::new(),
             media: (MediaPlayerStateKind::Idle, 0.0, false),
             active_wake,
         }
@@ -446,6 +449,14 @@ impl Actor {
         }
     }
 
+    fn switch_state_msg(&self, object_id: &str) -> proto::SwitchStateResponse {
+        proto::SwitchStateResponse {
+            key: entity_key("switch", object_id),
+            state: self.switches.get(object_id).copied().unwrap_or(false),
+            ..Default::default()
+        }
+    }
+
     fn number_state_msg(&self, object_id: &str) -> proto::NumberStateResponse {
         let value = self.numbers.get(object_id).copied();
         proto::NumberStateResponse {
@@ -512,6 +523,15 @@ impl Actor {
                     event_type,
                     ..Default::default()
                 };
+                self.broadcast(&m, true);
+            }
+            DeviceEvent::SwitchState { object_id, on } => {
+                if !self.cfg.switches.iter().any(|s| s.object_id == object_id) {
+                    warn!(%object_id, "state for unknown switch dropped");
+                    return;
+                }
+                self.switches.insert(object_id.clone(), on);
+                let m = self.switch_state_msg(&object_id);
                 self.broadcast(&m, true);
             }
             DeviceEvent::TextSensorState { object_id, value } => {
@@ -720,6 +740,16 @@ impl Actor {
                 }
                 let ids: Vec<String> = self
                     .cfg
+                    .switches
+                    .iter()
+                    .map(|s| s.object_id.clone())
+                    .collect();
+                for o in ids {
+                    let m = self.switch_state_msg(&o);
+                    self.send(id, &m);
+                }
+                let ids: Vec<String> = self
+                    .cfg
                     .numbers
                     .iter()
                     .map(|n| n.object_id.clone())
@@ -804,10 +834,22 @@ impl Actor {
             }
             proto::SwitchCommandRequest::ID => {
                 let r = parse!(proto::SwitchCommandRequest);
-                if r.key != MUTE_KEY || !self.cfg.mute_switch {
+                if r.key == MUTE_KEY && self.cfg.mute_switch {
+                    self.command(HaCommand::MuteSwitch(r.state));
+                } else if let Some(s) = self
+                    .cfg
+                    .switches
+                    .iter()
+                    .find(|s| entity_key("switch", &s.object_id) == r.key)
+                {
+                    let object_id = s.object_id.clone();
+                    self.command(HaCommand::Switch {
+                        object_id,
+                        on: r.state,
+                    });
+                } else {
                     return Err(format!("switch command for unknown key {}", r.key));
                 }
-                self.command(HaCommand::MuteSwitch(r.state));
             }
             proto::GetTimeResponse::ID => {
                 let r = parse!(proto::GetTimeResponse);
@@ -975,6 +1017,19 @@ impl Actor {
             EntityCategory::Config => proto::EntityCategory::Config,
             EntityCategory::Diagnostic => proto::EntityCategory::Diagnostic,
         } as i32;
+        for s in self.cfg.switches.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesSwitchResponse {
+                    key: entity_key("switch", &s.object_id),
+                    object_id: s.object_id,
+                    name: s.name,
+                    icon: s.icon,
+                    entity_category: cat(s.entity_category),
+                    ..Default::default()
+                },
+            );
+        }
         for n in self.cfg.numbers.clone() {
             self.send(
                 id,

@@ -166,7 +166,7 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    assert len(by_key) == len(entities) == 2 + 4 + 1 + 7 + 1 + 1
+    assert len(by_key) == len(entities) == 2 + 1 + 4 + 1 + 7 + 1 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -380,6 +380,21 @@ async def test_states_light_and_switch(client, demo):
     client.switch_command(MUTE_KEY, True)
     assert (await demo.wait(demo.cmd("mute"), "mute command"))["state"] is True
     await eventually(lambda: states[MUTE_KEY].state is True, "echoed switch state")
+
+
+@pytest.mark.asyncio
+async def test_wake_word_switch(client, demo):
+    switches = await infos(client, SwitchInfo)
+    ww = switches["Wake word"]
+    assert ww.object_id == "wake_word" and ww.key != MUTE_KEY
+    assert int(ww.entity_category) == 1  # config
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: ww.key in states, "initial wake word switch state")
+    client.switch_command(ww.key, True)
+    cmd = await demo.wait(demo.cmd("switch"), "switch command")
+    assert cmd["object_id"] == "wake_word" and cmd["state"] is True
+    await eventually(lambda: states[ww.key].state is True, "echoed wake word switch")
 
 
 @pytest.mark.asyncio

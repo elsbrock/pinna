@@ -86,6 +86,15 @@ pub struct TextSensorConfig {
     pub icon: String,
 }
 
+/// A switch besides the built-in microphone mute switch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwitchConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    pub entity_category: EntityCategory,
+}
+
 /// Purpose of a media player format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MediaPurpose {
@@ -151,6 +160,7 @@ pub struct DeviceConfig {
     pub buttons: Vec<ButtonConfig>,
     pub events: Vec<EventConfig>,
     pub text_sensors: Vec<TextSensorConfig>,
+    pub switches: Vec<SwitchConfig>,
     pub media_player: Option<MediaPlayerConfig>,
     /// Noise pre-shared key. `None` serves the plaintext API.
     pub encryption_key: Option<[u8; 32]>,
@@ -192,6 +202,7 @@ impl DeviceConfig {
             buttons: Vec::new(),
             events: Vec::new(),
             text_sensors: Vec::new(),
+            switches: Vec::new(),
             media_player: None,
             encryption_key: None,
         }
@@ -285,6 +296,11 @@ pub enum DeviceEvent {
         object_id: String,
         value: String,
     },
+    /// State of a configured switch (not the microphone mute switch).
+    SwitchState {
+        object_id: String,
+        on: bool,
+    },
     MediaPlayerState {
         state: MediaPlayerStateKind,
         /// 0..1
@@ -319,6 +335,11 @@ pub enum HaCommand {
     },
     Button {
         object_id: String,
+    },
+    /// A configured switch (not the microphone mute switch) was turned on or off.
+    Switch {
+        object_id: String,
+        on: bool,
     },
     /// Fields HA did not set are `None`.
     MediaPlayer {

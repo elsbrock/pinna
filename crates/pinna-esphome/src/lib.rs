@@ -42,6 +42,6 @@ pub use types::{
     ButtonConfig, DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory, EventConfig,
     HaCommand, InvalidKey, LightConfig, LightState, MediaFormat, MediaPlayerCommand,
     MediaPlayerConfig, MediaPlayerStateKind, MediaPurpose, NumberConfig, NumberMode,
-    TextSensorConfig, TimerEventType, VOICE_FEATURE_FLAGS, VoiceEventType, WakeWordInfo, mdns_txt,
+    SwitchConfig, TextSensorConfig, TimerEventType, VOICE_FEATURE_FLAGS, VoiceEventType, WakeWordInfo, mdns_txt,
     media_feature, parse_encryption_key,
 };
