@@ -1,0 +1,12 @@
+[package]
+name = "pinna-bootimg"
+description = "Android v0 boot image tooling for the MT8163 Echo devices"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+sha1.workspace = true

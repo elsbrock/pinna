@@ -19,3 +19,4 @@ result-*
 # python
 __pycache__/
 .venv/
+*.log
