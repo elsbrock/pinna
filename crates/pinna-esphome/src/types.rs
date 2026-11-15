@@ -208,11 +208,13 @@ impl DeviceConfig {
         }
     }
 
-    /// MAC as `AA:BB:CC:DD:EE:FF`.
+    /// MAC as `aa:bb:cc:dd:ee:ff`. Home Assistant builds entity unique ids from this string
+    /// verbatim, so its case must stay stable (LibreEcho, whose entries Pinna takes over,
+    /// reported lowercase).
     pub fn mac_string(&self) -> String {
         let m = self.mac;
         format!(
-            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             m[0], m[1], m[2], m[3], m[4], m[5]
         )
     }
@@ -465,7 +467,7 @@ mod tests {
     fn txt_records() {
         let cfg = DeviceConfig::new("pinna-1", [0x02, 0, 0, 0, 0xab, 1]);
         let txt = mdns_txt(&cfg);
-        assert!(txt.contains(&("mac".into(), "02:00:00:00:AB:01".into())));
+        assert!(txt.contains(&("mac".into(), "02:00:00:00:ab:01".into())));
         assert!(txt.contains(&("version".into(), "2026.9.0".into())));
         assert!(!txt.iter().any(|(k, _)| k == "api_encryption"));
         let mut cfg = cfg;

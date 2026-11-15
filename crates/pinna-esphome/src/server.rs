@@ -71,7 +71,10 @@ fn check_keys(cfg: &DeviceConfig) -> anyhow::Result<()> {
             "media_player",
             cfg.media_player.iter().map(|e| &e.object_id).collect(),
         ),
-        ("switch", cfg.switches.iter().map(|e| &e.object_id).collect()),
+        (
+            "switch",
+            cfg.switches.iter().map(|e| &e.object_id).collect(),
+        ),
     ] {
         for id in ids {
             add(entity_key(platform, id), format!("{platform} {id}"))?;
