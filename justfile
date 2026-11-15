@@ -31,6 +31,20 @@ test-device:
 push: rust-arm
     scripts/push-dev.sh
 
+# the virtual Echo Dot: the x86_64 image under KVM, driven from its dashboard (ADR 0014; needs: just kernel-x86 image-x86)
+dev-vm: initramfs-x86
+    scripts/dev-vm.sh
+
+# a Home Assistant for the virtual Echo Dot on this computer: HA, Whisper and Piper in containers (`just dev-ha stop` removes them)
+dev-ha *args:
+    scripts/dev-ha.sh {{args}}
+
+# fresh binaries into the running virtual Echo Dot, like `just push`, until it restarts
+push-vm: rust-x86
+    PINNA_TARGET=x86_64-unknown-linux-musl PINNA_SYSEXT_DIR=/run/extensions PINNA_HOST=root@127.0.0.1 \
+    PINNA_SSH="ssh -p ${SSH_PORT:-2223} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
+        scripts/push-dev.sh
+
 # x86_64 static binaries for the VM smoke-test image
 rust-x86:
     cargo zigbuild --release --target x86_64-unknown-linux-musl --workspace --bins
