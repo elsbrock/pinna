@@ -3,16 +3,16 @@
 # userdata) under QEMU `virt` with the Pinna kernel's QEMU variant and check
 # that it comes up healthy:
 #
-#  - from the serial console (systemd status output): kernel mounted the erofs
-#    root, /var formatted and mounted, multi-user reached, no failed units,
-#    pinnad started, boot marked healthy;
-#  - from the host: pinnad answers Home Assistant's ESPHome client.
+#  - from the host, while it runs: pinnad answers Home Assistant's ESPHome client;
+#  - from the VM's own journal (read off its userdata partition after power-off):
+#    erofs root, /var formatted and mounted, multi-user reached, no failed units,
+#    pinnad started and published mDNS, boot marked healthy.
 #
 #   tests/vm/boot-test.sh                  # boot, check, power off
 #   SSH_KEY=~/.ssh/key tests/vm/boot-test.sh   # also run checks over ssh
 #   KEEP=1 tests/vm/boot-test.sh           # leave the VM running
 #
-# Needs: just kernel-qemu image.
+# Needs: just kernel-qemu image; sgdisk, debugfs, journalctl on the host.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -53,27 +53,14 @@ trap cleanup EXIT
 
 console() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$work/console.log" 2>/dev/null; }
 
-log "waiting for multi-user.target"
+log "waiting for pinnad's ESPHome API (boot takes a few minutes under TCG)"
 for _ in $(seq 1 $((timeout_s / 5))); do
-  console | grep -q "Reached target multi-user.target" && break
+  (exec 3<>/dev/tcp/127.0.0.1/"$api_port") 2>/dev/null && break
   sleep 5
 done
-# Give late units (pinna-boot-ok waits 10 s) time to finish.
-for _ in $(seq 1 24); do
-  console | grep -q "pinna-boot-ok.service" && console | grep -qE "Finished pinna-boot-ok|Failed to start pinna-boot-ok" && break
-  sleep 5
-done
-
-log "console checks"
-check() { if console | grep -qE "$2"; then pass "$1"; else fail "$1"; fi; }
-check "kernel mounted the erofs root" "erofs.*mounted|VFS: Mounted root \(erofs"
-check "/var formatted on first boot" "systemd-makefs@|Finished.*makefs|mkfs"
-check "/var mounted" "Mounted var.mount"
-check "multi-user.target reached" "Reached target multi-user.target"
-check "pinnad started" "Started pinnad.service"
-check "boot marked healthy" "Finished pinna-boot-ok.service"
-failed=$(console | grep -E "\[FAILED\]|Failed to start" || true)
-if [ -z "$failed" ]; then pass "no failed units"; else fail "failed units:"; echo "$failed" | sed 's/^/     /'; fi
+# Let late units (pinna-boot-ok waits 10 s) finish and the journal reach the
+# virtual disk (the VM is killed, not shut down, so allow for writeback).
+sleep 90
 
 log "ESPHome API via aioesphomeapi"
 if uv run -q --with aioesphomeapi==46.2.0 python - "$api_port" <<'EOF'
@@ -109,6 +96,30 @@ if [ -n "${SSH_KEY:-}" ]; then
   }
   ssh_vm 'systemctl is-system-running; systemctl --failed --no-legend; findmnt -no SOURCE,FSTYPE / /var; ls /run/systemd/dnssd' | sed 's/^/     /' || fail "ssh"
 fi
+
+log "stopping the VM and reading its journal from the userdata partition"
+kill "$(cat "$work/qemu.pid")" 2>/dev/null || true
+sleep 2
+range=$(sgdisk -i 3 "$work/disk.raw" | awk '/First sector/{f=$3} /Last sector/{l=$3} END{print f, l}')
+read -r first last <<<"$range"
+dd if="$work/disk.raw" of="$work/userdata.ext4" bs=512 skip="$first" count=$((last - first + 1)) status=none
+# The VM was killed, not shut down: replay ext4's own journal on the copy.
+e2fsck -fy "$work/userdata.ext4" >/dev/null 2>&1 || true
+rm -rf "${work:?}/journal"
+mkdir -p "$work/journal"
+debugfs -c -R "rdump /log/journal $work/journal" "$work/userdata.ext4" >/dev/null 2>&1 || true
+journalctl --directory="$work/journal/journal" --no-pager -o cat > "$work/journal.txt" 2>/dev/null || true
+jcheck() { if grep -qE "$2" "$work/journal.txt"; then pass "$1"; else fail "$1"; fi; }
+jcheck "kernel mounted the erofs root" "Mounted root \(erofs"
+jcheck "/var formatted on first boot" "successfully formatted as ext4"
+jcheck "/var mounted" "Mounted var.mount"
+jcheck "multi-user.target reached" "Reached target multi-user.target"
+jcheck "pinnad started" "Started pinnad.service"
+jcheck "mDNS service published" "published _esphomelib._tcp"
+jcheck "boot marked healthy" "Finished pinna-boot-ok.service"
+failed=$(grep -E "failed with result|Failed to start" "$work/journal.txt" || true)
+if [ -z "$failed" ]; then pass "no failed units"; else fail "failed units:"; echo "$failed" | sed 's/^/     /'; fi
+grep -m1 "Startup finished" "$work/journal.txt" | sed 's/^/     /' || true
 
 if [ "$status" = 0 ]; then log "VM boot gate PASSED"; else log "VM boot gate FAILED (console: $work/console.log)"; fi
 exit "$status"
