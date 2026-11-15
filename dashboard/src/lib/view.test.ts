@@ -41,6 +41,7 @@ const status = (over: Partial<Status> = {}): Status =>
     audioBackend: "none",
     ledBackend: "none",
     alarmRinging: false,
+    notification: false,
     settings: { wakeWord: true, wakeSensitivity: 50, ledBrightness: 100 },
     ...over,
   }) as Status;
@@ -52,6 +53,15 @@ test("ring follows the device: muted, then a ringing alarm, then the phase", () 
   assert.equal(ringEffect(status({ phase: 0 }), "live"), "idle");
   assert.equal(ringEffect(status({ phase: 2 }), "offline"), "idle");
   assert.equal(ringEffect(null, "connecting"), "idle");
+});
+
+test("a waiting notification shows while idle, below a running timer", () => {
+  const tea = { id: "1", name: "Tea", secondsLeft: 90, totalSeconds: 180, active: true } as Timer;
+  assert.equal(ringEffect(status({ notification: true }), "live"), "notification");
+  assert.equal(ringEffect(status({ notification: true, phase: 2 }), "live"), "listening");
+  assert.equal(ringEffect(status({ notification: true, muted: true }), "live"), "muted");
+  assert.equal(ringEffect(status({ notification: true, timers: [tea] }), "live"), "idle");
+  assert.equal(ringEffect(status({ notification: true, timers: [{ ...tea, active: false }] }), "live"), "notification");
 });
 
 test("badge words are the proto's", () => {

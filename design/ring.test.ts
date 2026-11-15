@@ -72,6 +72,14 @@ test("timer ringing pulses at 2 Hz", () => {
   assert.ok(ringFrame("timer-ringing", 250)[0].level > ringFrame("timer-ringing", 0)[0].level);
 });
 
+test("notification pulses slowly", () => {
+  const dim = ringFrame("notification", 0)[0];
+  assert.ok(full(ringFrame("notification", 1500), 0, LED.notification));
+  assert.ok(dim.level > 0 && dim.level < 0.12);
+  const a = ringFrame("notification", 400)[0].level;
+  assert.ok(Math.abs(a - ringFrame("notification", 3400)[0].level) < 1e-9);
+});
+
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);

@@ -91,6 +91,24 @@
     </div>
   {/if}
 
+  {#if s.notification && device.link === "live"}
+    <div class="pn-notice" role="status">
+      <Icon name="info" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">A notification is waiting</p>
+        <p>
+          While the satellite is idle, the ring pulses yellow until someone clears it. Clearing it here
+          is the same as pressing the Action button.
+        </p>
+        <div>
+          <button class="pn-btn pn-btn-sm" disabled={device.busy} onclick={() => device.clearNotification()}>
+            Clear
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <div class="stats">
     <StatTile
       href="#/home-assistant"

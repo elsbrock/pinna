@@ -13,12 +13,18 @@ const PHASE_WORDS: Record<number, "listening" | "thinking" | "speaking"> = {
   4: "speaking",
 };
 
-/** The ring effect, in the device's own order: muted, a ringing alarm, the phase. */
+/**
+ * The ring effect, in the device's own order: muted, a ringing alarm, the phase,
+ * then a waiting notification unless a running timer's arc shows above it.
+ */
 export function ringEffect(s: Status | null, link: Link): Effect {
   if (!s || link !== "live") return "idle";
   if (s.muted) return "muted";
   if (s.alarmRinging) return "timer-ringing";
-  return PHASE_WORDS[s.phase] ?? "idle";
+  const phase = PHASE_WORDS[s.phase];
+  if (phase) return phase;
+  if (s.notification && !s.timers.some((t) => t.active)) return "notification";
+  return "idle";
 }
 
 export type Badge = { phase: string; word: string };

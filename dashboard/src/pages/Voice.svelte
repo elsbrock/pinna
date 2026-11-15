@@ -18,6 +18,11 @@
     { effect: "speaking", word: "Speaking", what: "Playing the reply." },
     { effect: "muted", word: "Muted", what: "The microphones are off." },
     { effect: "timer", word: "Timer", what: "How much of a timer is left." },
+    {
+      effect: "notification",
+      word: "Notification",
+      what: "Home Assistant has a notification. Press the Action button to clear it.",
+    },
     { effect: "error", word: "Error", what: "A request failed: three flashes. Logs, under System, says why." },
   ];
 </script>

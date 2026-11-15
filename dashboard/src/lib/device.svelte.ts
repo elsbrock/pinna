@@ -141,6 +141,9 @@ class Device {
       toasts.show(errorSentence(e), "danger");
     }
   }
+  clearNotification() {
+    return this.#command(() => client.clearNotification({}), "Notification cleared");
+  }
   /** Ask for a restart; returns why it failed, for the caller to show. */
   async restart(): Promise<string | null> {
     this.busy = true;

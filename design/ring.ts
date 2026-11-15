@@ -18,6 +18,7 @@ export const LED = {
   speaking: [90, 220, 230],
   amber: [255, 160, 0],
   volume: [120, 200, 255],
+  notification: [255, 215, 0],
 } as const satisfies Record<string, Rgb>;
 
 export type Effect =
@@ -31,6 +32,7 @@ export type Effect =
   | "volume"
   | "timer"
   | "timer-ringing"
+  | "notification"
   | "boot"
   | "equalizer";
 
@@ -140,6 +142,8 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
       return arc(LED.amber, clamp(n ?? 1, 0, 1));
     case "timer-ringing":
       return solid(LED.amber, 0.15 + 0.85 * wave(t, 0.5));
+    case "notification":
+      return solid(LED.notification, 0.1 + 0.9 * wave(t, 3));
     case "boot":
       if (tMs >= EFFECT_DURATION_MS.boot) return dark();
       return spin(LED.listening, t, 0.6, 6);
@@ -181,5 +185,6 @@ export const STILL_MS: Partial<Record<Effect, number>> = {
   listening: 800,
   speaking: 1200,
   "timer-ringing": 250,
+  notification: 1500,
   boot: 300,
 };
