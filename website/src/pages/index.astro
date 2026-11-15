@@ -52,7 +52,12 @@ const features = [
   {
     icon: "terminal",
     title: "Command-line control",
-    body: "pinnactl shows the device's state and sets the volume, mute and the ring. A small API on the device offers the same to other programs.",
+    body: "pinnactl shows the device's state and sets the volume and mute. A small API on the device offers the same to other programs.",
+  },
+  {
+    icon: "sliders",
+    title: "A dashboard in your browser",
+    body: "A web page on the device shows its state and controls it. Open it from a browser on your network, without a login.",
   },
 ];
 
@@ -60,13 +65,16 @@ const entities: { entity: string; type: string; notes: string }[] = [
   { entity: "LED ring", type: "light", notes: "Colour and brightness; effects Solid, Pulse and Flash" },
   { entity: "Microphone mute", type: "switch", notes: "Turns the microphones off in software" },
   { entity: "Wake word", type: "switch", notes: "Turns wake word detection on or off" },
+  { entity: "Listening direction", type: "switch", notes: "Points the ring at the person speaking while the device listens" },
+  { entity: "Notification", type: "switch", notes: "Shows a waiting notification on the ring until someone clears it" },
   { entity: "Volume, Reply volume", type: "number", notes: "0 to 100" },
   { entity: "Wake word sensitivity", type: "number", notes: "0 to 100; higher triggers more easily" },
   { entity: "LED brightness", type: "number", notes: "0 to 100" },
   { entity: "Cancel request", type: "button", notes: "Stops a request, a reply or a timer alarm" },
   { entity: "Voice assistant", type: "event", notes: "wake_word, listening, thinking, replying, finished, stopped" },
-  { entity: "Action, Volume up, Volume down, Microphone mute", type: "event", notes: "press, double_press; Action also long_press" },
+  { entity: "Action button, Volume up button, Volume down button, Microphone mute button", type: "event", notes: "press, double_press; Action also long_press" },
   { entity: "Timer, Playback", type: "event", notes: "Timer and media player changes" },
+  { entity: "Notification", type: "event", notes: "cleared" },
   { entity: "Last wake word", type: "text sensor", notes: "For example “Alexa”" },
   { entity: "Media player", type: "media player", notes: "Music from a URL, announcements, volume" },
 ];
@@ -92,7 +100,7 @@ const goals = [
   { title: "Be safe to install and update", body: "Every installation step can be undone, and updates roll back on their own." },
   { title: "Use standard parts", body: "Debian, systemd and a small set of Rust programs." },
   { title: "Make development pleasant", body: "One shell for every tool, and tests that run without hardware." },
-  { title: "Stay open", body: "All code is public. Proprietary firmware stays with you." },
+  { title: "Stay open", body: "All code is public. The few proprietary firmware files are included unmodified, in their own folder." },
 ];
 
 const works = [
@@ -100,14 +108,12 @@ const works = [
   "Updates install into the second slot and roll back when they fail",
   "The Home Assistant connection passes tests with Home Assistant's own client library",
   "A complete voice request works against a simulated Home Assistant",
-  "On the Echo Dot, echo cancellation lowers the device's own music by 32 to 44 dB",
+  "On the Echo Dot, echo cancellation lowers the device's own music by 23 to 31 dB",
+  "The dashboard shows and controls the device from a browser on your network",
 ];
 
 const gaps = [
-  "No web interface yet: you use the command line and Home Assistant",
   "No prebuilt images: you build and sign your own",
-  "Backing up the device needs your own tools",
-  "The microphone gain and the LED order still need tuning on hardware",
 ];
 ---
 
@@ -301,9 +307,10 @@ const gaps = [
         <div class="flex items-start gap-3">
           <Icon name="disk" size={18} class="text-signal mt-0.5 shrink-0" />
           <p class="text-ink-muted text-body">
-            <span class="text-ink font-medium">You provide the firmware.</span>
-            The Wi-Fi and Bluetooth firmware is proprietary. It comes from the
-            backup of your own device and isn't distributed with Pinna.
+            <span class="text-ink font-medium">You provide the backup.</span>
+            You back up your own device before you install, and you create
+            your own signing key. The proprietary Wi-Fi firmware is included
+            unmodified, in its own folder.
           </p>
         </div>
         <div class="flex items-start gap-3">
@@ -410,7 +417,6 @@ just all
 <span class="text-ink-muted"># Install: hold Volume Down and plug in the device</span>
 scripts/flash-dot.sh check
 scripts/flash-dot.sh root
-scripts/flash-dot.sh try    <span class="text-ink-muted"># start from memory first</span>
 scripts/flash-dot.sh boot</pre>
           </div>
           <p class="mt-4 text-sm">

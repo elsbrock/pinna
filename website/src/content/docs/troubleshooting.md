@@ -3,8 +3,10 @@ title: Troubleshooting
 description: Find out why a Pinna device doesn't connect, doesn't hear the wake word or doesn't start, and what to do about it.
 ---
 
-Start with the device's own view of the problem. Log in over SSH or the USB
-serial console, and run:
+Start with the device's own view of the problem. The
+[dashboard](/docs/dashboard/) shows the state under **Overview** and the log of
+`pinnad` under **System > Logs**, without a login. If the dashboard doesn't
+open, log in over SSH or the USB serial console, and run:
 
 ```sh
 pinnactl status
@@ -44,11 +46,8 @@ it does and any errors. The sections below quote the lines to look for.
 
 2. If `wlan0` doesn't exist, powering up the Wi-Fi failed. The `pinna-wifi`
    lines in the log show the step that failed, for example
-   `wlan0 did not appear`. To try again, run:
-
-   ```sh
-   systemctl restart pinna-wifi
-   ```
+   `wlan0 did not appear`. The Wi-Fi chip allows one power-up attempt per
+   start, so restart the device to try again.
 
 3. If `wlan0` exists but has no address, check the network name and password
    in `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`. See
@@ -146,8 +145,8 @@ and over, Pinna doesn't get as far as its services:
 
 1. Unplug the device and open fastboot with **Volume Down**. See
    [Recover a device](/docs/recovery/).
-2. Install the root filesystem again, and try the boot image from memory with
-   `scripts/flash-dot.sh try`.
+2. Install the root filesystem and the boot image again with
+   `scripts/flash-dot.sh root` and `scripts/flash-dot.sh boot`.
 
 Pinna's messages from early in the boot only go to the board's internal
 serial port, at 921600 baud, not to USB.

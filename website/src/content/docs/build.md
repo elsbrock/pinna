@@ -12,9 +12,6 @@ images yet, so you build your own.
 - Use an x86_64 Linux computer with [Nix](https://nixos.org/download/) and
   flakes enabled. The build needs network access to download the toolchain,
   the Debian packages and the kernel source.
-- Collect the files from your device that are listed in
-  [What you need](/docs/requirements/). You put them into the repository in
-  this guide.
 
 ## Get the source and the tools
 

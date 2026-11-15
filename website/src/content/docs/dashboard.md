@@ -4,9 +4,12 @@ description: Open the device's dashboard in a browser to see its state, change s
 ---
 
 The device serves a small web page, the dashboard, on port 80. It shows what
-the device is doing and lets you change what Home Assistant can change, and
-more. It works without an internet connection: the page and its fonts come
-from the device itself.
+the device is doing and lets you change most of what Home Assistant can
+change. It doesn't change the **Listening direction** switch, the ring's colour
+and effect, or the **Reply volume**. It also does what Home Assistant can't:
+it installs updates, restarts the device, shows the network details and the
+log, and runs the ring's test pattern. It works without an internet
+connection: the page and its fonts come from the device itself.
 
 ## Open the dashboard
 

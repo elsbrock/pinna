@@ -13,8 +13,9 @@ larger than a fix, open an issue so that the work isn't duplicated.
 
 Pinna builds on an x86_64 Linux computer with [Nix](https://nixos.org/download/)
 and flakes enabled. The repository's development shell provides every tool:
-the Rust toolchain, the ARM cross compilers, mkosi, QEMU, fastboot and
-[uv](https://docs.astral.sh/uv/) for the Python-based tests.
+the Rust toolchain, the ARM cross compilers, mkosi, QEMU, fastboot,
+[uv](https://docs.astral.sh/uv/) for the Python-based tests, and Node for the
+dashboard (`just web`, `just image` and `just web-check`).
 
 1. Clone the repository:
 
@@ -66,6 +67,7 @@ before you send a change that affects the image or the device.
 | `just esphome-conformance` | Home Assistant's own client library (`aioesphomeapi` 46.2.0) talks to Pinna's ESPHome API server: the entity set, encryption, key rotation and error cases | Network access the first time, to download the Python packages |
 | `just wakeword-parity` | Pinna's wake word scores match the reference implementation (onnxruntime) on test recordings | The wake word models (`just models`); skips without them |
 | `just e2e` | A complete voice request: `pinnad` with the real wake word and a recording, with a simulated Home Assistant | The wake word models (`just models`); skips without them |
+| `just web-check` | The dashboard: design tokens, generated API code, unit tests and `svelte-check`. `just test` runs it | Network access the first time, to download the npm packages |
 | `just kernel-config` | The kernel configuration for the device, QEMU and x86_64 contains every option Pinna needs | Network access the first time, to download the kernel source |
 | `just bootimg-roundtrip` | The boot image unpacks and repacks byte for byte | `build/pinna-boot.img` from `just bootimg` |
 | `just vm-test` | The real ARM root image boots in QEMU, and SSH and the Home Assistant API come up | `just kernel-qemu image` first. Takes a few minutes, because QEMU emulates the CPU |

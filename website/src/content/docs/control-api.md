@@ -47,7 +47,7 @@ muted:      no
 volume:     40%
 home assistant: connected, voice subscribed
 wake word:  "Alexa" (armed)
-audio:      echodot
+audio:      echodot-pipewire
 leds:       is31
 timers:
   Pasta: 4m 32s left of 10m 00s
@@ -90,8 +90,9 @@ device. `pinnad` serves it in two places:
   `pinnactl` and the boot health check use this address.
 - On port 80, with the dashboard, for your network (`[web]` in the
   [configuration](/docs/configure/#web)). This one only answers requests for IP
-  addresses, `localhost`, `.local` names and the names in
-  `[web] allowed_hosts`. Other names get `421 Misdirected Request`.
+  addresses, `localhost`, `.local` names, the device's own hostname (`pinna`)
+  and the names in `[web] allowed_hosts`. Other names get
+  `421 Misdirected Request`.
 
 ### Methods
 
@@ -130,7 +131,7 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | Field | Type | Description |
 | --- | --- | --- |
 | `version` | string | The version of `pinnad` |
-| `name` | string | The device name in Home Assistant |
+| `name` | string | The ESPHome node name, for example `pinna-2a914e` |
 | `mac` | string | The Wi-Fi MAC address, in lowercase |
 | `uptime_seconds` | uint64 | Seconds since `pinnad` started |
 | `phase` | `Phase` | `PHASE_IDLE`, `PHASE_LISTENING`, `PHASE_THINKING` or `PHASE_SPEAKING` |
@@ -142,11 +143,12 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `voice_subscribed` | bool | Home Assistant has an Assist pipeline for the device |
 | `wake_word` | `WakeWord` | `phrase`, and `enabled`: the device listens for the wake word right now |
 | `timers` | `Timer` list | Each with `id`, `name`, `seconds_left`, `total_seconds` and `active` |
-| `audio_backend` | string | `echodot`, `pipewire`, `wav` or `none` |
+| `audio_backend` | string | `echodot-pipewire` (the normal value on an Echo Dot), `echodot`, `pipewire`, `wav` or `none` |
 | `led_backend` | string | `is31`, `mock` or `none` |
 | `alarm_ringing` | bool | A finished timer's alarm rings. `StopConversation` stops it |
 | `notification` | bool | A notification is waiting. `ClearNotification` clears it |
 | `settings` | `Settings` | `wake_word`, `wake_sensitivity` and `led_brightness` |
+| `model` | string | `"echo-dot-2"` on an Echo Dot (2nd gen), empty when the hardware is unknown |
 
 ## What's next
 

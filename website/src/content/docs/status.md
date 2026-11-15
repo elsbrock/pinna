@@ -12,7 +12,8 @@ prebuilt image, and parts of it are still being tuned on real hardware.
 These parts are covered by tests that run without hardware:
 
 - The kernel, the signed root filesystem image and the boot image build from
-  the repository.
+  the repository. The kernel is Debian's 6.12 with the MT8163 board support
+  ported to it.
 - The image boots in a virtual machine, in both the ARM and the x86_64
   version, and its services, SSH and the Home Assistant API come up.
 - An update installs into the second slot and boots on trial, and a broken
@@ -27,7 +28,9 @@ These parts are covered by tests that run without hardware:
 On the Echo Dot itself:
 
 - The microphone path with beamforming and echo cancellation runs, and lowers
-  the device's own music by 32 to 44 dB. See [Audio](/docs/audio/).
+  the device's own music by 23 to 31 dB. See [Audio](/docs/audio/).
+- `scripts/backup-dot.sh` backs up the device, and `scripts/verify-backup.sh`
+  checks the backup. See [What you need](/docs/requirements/#backup-of-the-device).
 - A hardware test (`just test-device`) checks the speaker, the microphones,
   the light ring and the Home Assistant connection on a running device.
 
@@ -38,9 +41,6 @@ On the Echo Dot itself:
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 - **No prebuilt images.** You build your own images and sign them with your
   own key.
-- **Backup.** Pinna doesn't yet provide a tool to back up the device.
-- **Tuning.** The microphone gain is fixed in the code. The direction in which
-  the ring's LEDs are numbered isn't confirmed on hardware yet.
 - **One wake word.** Pinna listens for "Alexa", with the openWakeWord model.
   The model's licence doesn't allow commercial use.
 - **The boot image isn't updated automatically.** Updates replace the root
@@ -53,8 +53,6 @@ On the Echo Dot itself:
 - **The Echo (2nd gen)**, which uses the same platform as the Echo Dot.
 - **Standalone mode**: using the device as a voice assistant without Home
   Assistant.
-- **A newer kernel**: moving the MT8163 board support to Debian's 6.12 LTS
-  kernel.
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 
 These plans follow the project's [goals](/docs/goals/).

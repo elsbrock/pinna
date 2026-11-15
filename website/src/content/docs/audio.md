@@ -36,13 +36,14 @@ microphones' native 16 kHz:
 3. **`pinnad`** reads the result in 20 ms frames, for the wake word detection
    and for the requests to Home Assistant.
 
-On the device, the echo cancellation lowers the device's own music by 32 to
-44 dB in the speech range, after about 8 seconds of adapting to the room. In
-the first seconds of new audio, some echo remains.
+On the device, the echo cancellation lowers the device's own music by 23 to
+31 dB in the speech range, after it has adapted to the room. In the first
+seconds of new audio, some echo remains.
 
 If PipeWire isn't running, `pinnad` reads the microphones directly and
-averages four of them, without beamforming or echo cancellation. The device
-keeps working, but the wake word is less reliable while it plays audio.
+averages four of them, without beamforming or echo cancellation. `pinnad`
+makes this choice once, when it starts. If PipeWire fails later, `pinnad`
+doesn't notice. The wake word is less reliable while the device plays audio.
 
 ## Speaker
 
@@ -51,7 +52,9 @@ program can switch the amplifier on or off at the wrong moment. It mixes two
 lanes:
 
 - **Voice**: replies, announcements, the timer alarm and short sounds.
-- **Media**: music and other audio from the media player.
+- **Media**: music and other audio from the media player. This lane also takes
+  live audio on a Unix socket, the `stream_socket` setting. Nothing on the
+  device feeds it yet.
 
 While the voice lane plays, and while the device listens or works on a
 request, the media lane gets 20 dB quieter, and returns afterwards.
@@ -75,7 +78,7 @@ chooses how `pinnad` reaches the audio hardware. Keep it at `"auto"`:
 | --- | --- |
 | `echodot-pipewire` | On the Echo Dot, when PipeWire runs. The normal case |
 | `echodot` | On the Echo Dot, without PipeWire. Microphones and speaker through ALSA |
-| `pipewire` | On other computers and in virtual machines, through PipeWire |
+| `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. Virtual machine images run without an audio backend |
 | `wav:<path>` | Reads the microphone signal from a WAV file. No speaker. For tests |
 | `none` | No audio. The wake word and voice requests are off |
 

@@ -4,9 +4,8 @@ description: Install Pinna on an Echo Dot (2nd gen) over fastboot, check that it
 ---
 
 This guide installs Pinna on an Echo Dot (2nd gen) over fastboot. You install
-the root filesystem first, then try the new boot image from memory, and only
-write it to the device once it works. Every step says what it writes, and
-[Recover a device](/docs/recovery/) explains how to undo it.
+the root filesystem first, then the boot image. Every step says what it
+writes, and [Recover a device](/docs/recovery/) explains how to undo it.
 
 ## Before you begin
 
@@ -81,23 +80,21 @@ Pinna never writes these partitions:
    The script can't check the signature of a sparse image. Convert only the
    image that you built and that passed the check in step 1.
 
-## Try the boot image
+## Install the boot image
 
-You can start Pinna's boot image from memory without writing it. If something
-goes wrong, unplug the device and start fastboot again: `boot_a` hasn't
-changed yet.
+The device is still in fastboot after the previous step. Write the boot image:
 
-1. Start the boot image from memory:
+```sh
+scripts/flash-dot.sh boot
+```
 
-   ```sh
-   scripts/flash-dot.sh try
-   ```
+The script asks you to confirm, writes `boot_a` and `boot_b`, and restarts the
+device. From now on, the device starts Pinna. Until this step, the previous
+firmware doesn't boot properly.
 
-   If your bootloader doesn't support starting an image from memory, skip to
-   [Install the boot image](#install-the-boot-image). Recovery works the same
-   way afterwards.
+## Check the device
 
-2. Wait about 20 seconds. Your computer sees a new USB device named
+1. Wait about 20 seconds. Your computer sees a new USB device named
    **Pinna (Echo Dot 2nd gen)**, which provides a serial console and a network
    connection.
 
@@ -106,7 +103,7 @@ changed yet.
    without errors. Pinna's early boot messages only go to the board's internal
    serial port, not to USB.
 
-3. Log in. Use either connection:
+2. Log in. Use either connection:
 
    - Over the network: your computer gets an address from the device
      automatically. Run `ssh root@10.42.0.1` or `ssh root@pinna.local`. This
@@ -114,7 +111,7 @@ changed yet.
    - Over the serial console: run `picocom -b 115200 /dev/ttyACM0`. You're
      logged in as `root` without a password.
 
-4. Check that Pinna runs:
+3. Check that Pinna runs:
 
    ```sh
    pinnactl status
@@ -124,7 +121,7 @@ changed yet.
    `pinnactl status` shows the device's name, its state and its volume.
    `systemctl --failed` lists no units.
 
-5. Check the LED ring:
+4. Check the LED ring:
 
    ```sh
    pinnactl led-test
@@ -132,28 +129,8 @@ changed yet.
 
    The ring shows the listening, thinking, speaking and muted animations.
 
-6. Check the speaker: press **Volume up** on the device. You hear a short
+5. Check the speaker: press **Volume up** on the device. You hear a short
    beep, and the ring shows the new volume.
-
-## Install the boot image
-
-1. Restart the device into fastboot. On the device, run:
-
-   ```sh
-   pinna-bootctl reboot-bootloader
-   ```
-
-   You can also unplug the device and start fastboot with **Volume Down**, as
-   before.
-
-2. On your computer, write the boot image:
-
-   ```sh
-   scripts/flash-dot.sh boot
-   ```
-
-   The script asks you to confirm, writes `boot_a` and `boot_b`, and restarts
-   the device. From now on, the device starts Pinna.
 
 ## Connect to Wi-Fi
 
@@ -162,7 +139,7 @@ before the build, the device connects on its own. To set up Wi-Fi on the
 device instead:
 
 1. Log in to the device over USB, as described in
-   [Try the boot image](#try-the-boot-image).
+   [Check the device](#check-the-device).
 2. Create or edit `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`, for
    example with `vi`. It's a standard wpa_supplicant configuration file:
 

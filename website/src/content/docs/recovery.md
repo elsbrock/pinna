@@ -110,13 +110,7 @@ connection to Home Assistant was encrypted, give the device its key again.
      scripts/flash-dot.sh root
    ```
 
-4. Try the boot image from memory before you write it:
-
-   ```sh
-   scripts/flash-dot.sh try
-   ```
-
-5. If the device starts, write the boot image:
+4. Write the boot image:
 
    ```sh
    scripts/flash-dot.sh boot

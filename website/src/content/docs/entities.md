@@ -39,10 +39,10 @@ Events don't have a state. Use them as triggers in automations.
 
 | Entity | Object ID | Event types | Fires when |
 | --- | --- | --- | --- |
-| Action | `action` | `press`, `double_press`, `long_press` | The Action button is pressed. `long_press` fires after holding it for 2 seconds |
-| Volume up | `volume_up` | `press`, `double_press` | The Volume up button is pressed |
-| Volume down | `volume_down` | `press`, `double_press` | The Volume down button is pressed |
-| Microphone mute | `microphone_mute` | `press`, `double_press` | The Microphone off button is pressed |
+| Action button | `action` | `press`, `double_press`, `long_press` | The Action button is pressed. `long_press` fires after holding it for 2 seconds |
+| Volume up button | `volume_up` | `press`, `double_press` | The Volume up button is pressed |
+| Volume down button | `volume_down` | `press`, `double_press` | The Volume down button is pressed |
+| Microphone mute button | `microphone_mute` | `press`, `double_press` | The Microphone off button is pressed |
 | Voice assistant | `voice_assistant` | `wake_word`, `listening`, `thinking`, `replying`, `finished`, `stopped` | A voice request moves to the next step |
 | Playback | `playback` | `started`, `stopped` | The media player starts or stops playing |
 | Timer | `timer` | `started`, `updated`, `cancelled`, `finished` | A timer on the device changes |

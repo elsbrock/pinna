@@ -16,15 +16,15 @@ The Echo Dot (2nd gen) has a MediaTek MT8163 processor, which runs Pinna in
 - A ring of 12 RGB LEDs behind a white diffuser, driven by an IS31FL3236 LED
   controller.
 - Four buttons, and a hardware switch that cuts the microphones.
-- Wi-Fi and Bluetooth in the MT8163.
+- Wi-Fi in the MT8163.
 - A micro-USB port, which Pinna uses for a serial console and a network
   connection to your computer.
 
 ## Boot
 
 1. The bootloader always loads the boot image from `boot_a`. It contains the
-   Linux kernel (6.1, with board support for the MT8163), the device tree, and
-   a small initramfs.
+   Linux kernel (Debian's 6.12, with the MT8163 board support ported to it),
+   the device tree, and a small initramfs.
 2. The kernel ignores the command line from the bootloader and uses its own.
 3. `pinna-init`, the program in the initramfs, reads the slot state from the
    `misc` partition and chooses a root filesystem slot: `system_a` or
@@ -99,7 +99,7 @@ Pinna's own services:
 
 | Service | Job |
 | --- | --- |
-| `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons |
+| `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons. Serves the dashboard and the control API on port 80, and the control API on `127.0.0.1:7470` for `pinnactl` and the health check |
 | `pinna-wifi` | Powers up the Wi-Fi chip and loads its firmware |
 | `pinna-gadget` | Sets up the USB serial console and network |
 | `pinna-fastboot-guard` | Writes the fastboot request early in each boot |

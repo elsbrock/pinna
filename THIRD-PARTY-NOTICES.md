@@ -39,3 +39,5 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
   is GPL-2.0 (its `COPYING`); the file itself has no license header.
 - `kernel/firmware/i2s_to_spi_v34.bin`: Amazon's FPGA bitstream, see
   `kernel/firmware/README.md`.
+- `firmware/`: Amazon's MT8163 Wi-Fi and Bluetooth firmware files from the
+  Echo Dot (2nd gen)'s stock Fire OS, unmodified, see `firmware/README.md`.

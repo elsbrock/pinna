@@ -10,7 +10,8 @@ and it plays the reply. The wake word detection runs on the device, and
 Pinna doesn't use Amazon's services.
 
 > **Early development.** Pinna works, but you build and install it yourself,
-> and you control it from the command line and from Home Assistant. See
+> and you control it from the command line, from the
+> [dashboard](/docs/dashboard/) and from Home Assistant. See
 > [Status and roadmap](/docs/status/).
 
 ## How it works

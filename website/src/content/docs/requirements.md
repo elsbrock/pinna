@@ -3,9 +3,9 @@ title: What you need
 description: The device, computer, files and Home Assistant setup that you need before you build and install Pinna.
 ---
 
-Collect everything on this page before you [build Pinna](/docs/build/). Most
-items are files from your own device: Pinna can't include them, because they
-belong to the device's manufacturer or to you.
+Collect everything on this page before you [build Pinna](/docs/build/). Only
+the backup comes from your own device. Pinna includes the device's Wi-Fi
+firmware, unmodified, in `firmware/`.
 
 ## Device
 
@@ -22,12 +22,23 @@ belong to the device's manufacturer or to you.
 
 ## Backup of the device
 
-Before you install Pinna, back up every partition of the device. Pinna can
-restore the backup, and the backup is also where the Wi-Fi firmware comes
-from.
+Before you install Pinna, back up the device. Pinna can restore the backup.
 
-To restore it with `scripts/flash-dot.sh restore`, keep the partition images
-in one folder:
+Run `scripts/backup-dot.sh` while the previous firmware still runs on the
+device and `adb` can reach it. It needs about 8 GB of free space:
+
+```sh
+scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
+```
+
+The script copies the whole eMMC and its boot areas, and compares every
+partition except `userdata` with the device. It also writes the partition
+images that `scripts/flash-dot.sh restore` takes, into `partitions/`, with
+their checksums. To compare a backup with the device again later, run
+`scripts/verify-backup.sh` with the same folder.
+
+To restore a backup with `scripts/flash-dot.sh restore`, the partition images
+must be in one folder:
 
 | File | Partition | Required |
 | --- | --- | --- |
@@ -38,15 +49,12 @@ in one folder:
 | `system_b.img` | `system_b` | No |
 | `SHA256SUMS` | Checksums of the files above, in `sha256sum` format | Yes |
 
-To create `SHA256SUMS`, run this in the folder:
+`scripts/backup-dot.sh` creates this folder. If you made the backup with other
+tools, create `SHA256SUMS` by running this in the folder:
 
 ```sh
 sha256sum *.img > SHA256SUMS
 ```
-
-Pinna doesn't provide a tool to create the backup itself. Use the tools that
-came with your bootloader unlock, and keep a full image of the eMMC as well as
-the individual partitions.
 
 ## Computer
 
