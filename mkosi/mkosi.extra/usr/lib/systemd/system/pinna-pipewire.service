@@ -1,5 +1,5 @@
 [Unit]
-Description=PipeWire audio graph (Echo Dot microphones, echo cancellation, speaker)
+Description=PipeWire audio graph (Echo Dot microphones, echo cancellation)
 ConditionFirmware=device-tree-compatible(mediatek,mt8163)
 After=systemd-udevd.service sound.target
 
