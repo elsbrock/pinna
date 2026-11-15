@@ -22,13 +22,15 @@ time, logging, watchdog, USB gadget via configfs). Pinna's own code is the
 | `pinna-init` | Initramfs PID 1: A/B slot choice, image signature, dm-verity root, switch root (ADR 0003) |
 | `pinna-image` | Signed slot images: seal, verify, manifest, keys (host tool + library) |
 | `pinna-update` | Installs a release into the inactive slot (library behind `pinnactl update`) |
+| `pinna-ladspa` | LADSPA plugin running the microphone front end (beamformer) inside PipeWire (ADR 0004) |
 
 - **One process for now.** Pure-Rust inference removed the main reason for a
   separate voice process (C++ crash isolation). Crates keep the seams to split
   later.
-- **Audio goes straight to ALSA on the device for v0.** PipeWire is installed
-  but unused until the MT8163 card has a UCM profile and the amp sequence is
-  modelled; laptops/VMs use the PipeWire backend.
+- **Audio (superseded by ADR 0004)**: on the Echo Dot the microphone path
+  (beamformer, WebRTC echo cancellation) runs in a system-wide PipeWire graph
+  and pinnad drives the speaker through ALSA, feeding PipeWire the echo
+  reference; laptops/VMs use the PipeWire backend.
 - **Home Assistant integration is the ESPHome native API** — HA adopts the
   device with no YAML; mDNS through systemd-resolved `.dnssd`.
 - **Local control API is ConnectRPC** on `127.0.0.1:7470`, unauthenticated and

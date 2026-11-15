@@ -29,6 +29,8 @@ just             # list tasks
 just keygen      # once: release signing key (secrets/release.key, keys/release.pub)
 just all         # kernel, root filesystem (sealed slot image), boot image for the Echo Dot
 just release     # build/release/: root image, boot image, update manifest
+just push        # fresh binaries onto a running device (sysext overlay)
+just test-device # hardware gate against a running device
 just test        # everything: unit/lint, ESPHome conformance, wake word parity,
                  # end-to-end voice flow, armhf + x86_64 VM boot gates, A/B update + rollback
 ```
