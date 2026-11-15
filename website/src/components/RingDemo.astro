@@ -1,18 +1,18 @@
 ---
-// The ring stepping through a voice request with the device's own timings,
-// with the phase word under it. Still (Listening) under reduced motion.
-import Ring from "./Ring.astro";
+// An Echo Dot whose ring steps through a voice request with the device's own
+// timings, with the phase word under it. Still (Listening) under reduced motion.
+import EchoDot from "./EchoDot.astro";
 
-type Props = { size?: number; class?: string };
-const { size = 176, class: className } = Astro.props;
+type Props = { width?: number; class?: string };
+const { width = 340, class: className } = Astro.props;
 ---
 
 <figure class:list={["flex flex-col items-center gap-4", className]} data-ring-demo>
-  <Ring
-    id="hero-ring"
-    size={size}
+  <EchoDot
+    id="hero-dot"
+    width={width}
     effect="listening"
-    label="Pinna's LED ring stepping through Listening, Thinking and Speaking"
+    label="An Echo Dot running Pinna, its LED ring stepping through Listening, Thinking and Speaking"
   />
   <figcaption class="flex flex-col items-center gap-2 text-center">
     <span class="pn-badge" data-phase="listening">
@@ -48,7 +48,7 @@ const { size = 176, class: className } = Astro.props;
         leds[i]?.setAttribute("stroke", stroke);
         leds[i]?.setAttribute("stroke-opacity", opacity.toFixed(3));
         glows[i]?.setAttribute("stroke", stroke);
-        glows[i]?.setAttribute("stroke-opacity", (opacity > 0.35 ? opacity * 0.85 : 0).toFixed(3));
+        glows[i]?.setAttribute("stroke-opacity", (opacity * 0.6).toFixed(3));
       });
     };
 

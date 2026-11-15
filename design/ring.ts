@@ -108,10 +108,11 @@ export function ringFrame(effect: Effect, tMs: number, value?: number): Frame {
  */
 export const pixelAngle = (i: number) => 225 + 30 * i;
 
-/** SVG path for one pixel: a short arc centred on `angle`. */
-export function segmentPath(angle: number): string {
-  const r = 36;
-  const half = 6.5;
+/**
+ * SVG path for one pixel: a short arc centred on `angle`, on radius `r`,
+ * spanning `half` degrees either side.
+ */
+export function segmentPath(angle: number, r = 36, half = 6.5): string {
   const pt = (a: number) => {
     const rad = (a * Math.PI) / 180;
     return `${(50 + r * Math.sin(rad)).toFixed(2)} ${(50 - r * Math.cos(rad)).toFixed(2)}`;

@@ -1,0 +1,240 @@
+---
+// An Echo Dot (2nd gen) in three-quarter view. The top face is drawn top-down
+// in a 100x100 box and squashed into an ellipse, so the ring, buttons and mic
+// holes foreshorten together. The ring is one band of frosted white plastic;
+// the 12 LEDs only show as diffused light inside it. Light paths carry
+// data-led / data-glow in pixel order; RingDemo animates them.
+// A drawing of the device, not a photo: no Amazon marks.
+import {
+  RING_PIXELS,
+  STILL_MS,
+  displayLevel,
+  pixelAngle,
+  ringFrame,
+  segmentPath,
+  type Effect,
+} from "../../../design/ring";
+
+type Props = {
+  /** Effect shown before (or without) JavaScript. */
+  effect?: Effect;
+  /** Rendered width in px; height follows. */
+  width?: number;
+  /** Accessible name. */
+  label: string;
+  /** Unique per page: prefixes gradient and filter ids. */
+  id: string;
+  class?: string;
+};
+
+const { effect = "listening", width = 300, label, id, class: className } = Astro.props;
+
+// Geometry in viewBox units. The Dot is 84 mm across and 32 mm tall, seen
+// from 30 degrees above.
+const CX = 120;
+const TOP_Y = 64;
+const SX = 2;
+const TILT = 0.5; // sin(30 deg): how round the top face looks
+const SY = SX * TILT;
+const R = 49 * SX;
+const RY = 49 * SY;
+const H = Math.round((32 / 84) * 2 * R * Math.cos(Math.asin(TILT)));
+const BOTTOM_Y = TOP_Y + H;
+const BASE = 6; // rubber foot band
+const VIEW = { x: 0, y: 8, w: 240, h: BOTTOM_Y + RY + 12 - 8 };
+
+const body = `M${CX - R} ${TOP_Y} V${BOTTOM_Y} A${R} ${RY} 0 0 0 ${CX + R} ${BOTTOM_Y} V${TOP_Y} Z`;
+const foot =
+  `M${CX - R} ${BOTTOM_Y - BASE} A${R} ${RY} 0 0 0 ${CX + R} ${BOTTOM_Y - BASE} ` +
+  `V${BOTTOM_Y} A${R} ${RY} 0 0 1 ${CX - R} ${BOTTOM_Y} Z`;
+const topTransform = `translate(${CX - 50 * SX} ${TOP_Y - 50 * SY}) scale(${SX} ${SY})`;
+
+// The ring band at the top rim (local units). Each LED lights a stretch of it
+// wide enough to overlap its neighbours; blur and a clip to the band diffuse it.
+const BAND = { r: 45.5, inner: 43, outer: 48 };
+const segments = Array.from({ length: RING_PIXELS }, (_, i) => segmentPath(pixelAngle(i), BAND.r, 19));
+const annulus = (o: number, n: number) =>
+  `M${50 - o} 50 A${o} ${o} 0 1 1 ${50 + o} 50 A${o} ${o} 0 1 1 ${50 - o} 50 Z ` +
+  `M${50 - n} 50 A${n} ${n} 0 1 1 ${50 + n} 50 A${n} ${n} 0 1 1 ${50 - n} 50 Z`;
+const frame = ringFrame(effect, STILL_MS[effect] ?? 0);
+const lit = frame.map((p) => ({
+  stroke: p.c ? `rgb(${p.c.join(",")})` : "none",
+  opacity: p.c ? displayLevel(p.level) : 0,
+}));
+
+// Top face, in the local 100x100 box (front = bottom): one microphone hole in
+// the centre and the four buttons in a diamond.
+const polar = (r: number, deg: number) => {
+  const rad = (deg * Math.PI) / 180;
+  return { x: 50 + r * Math.sin(rad), y: 50 - r * Math.cos(rad) };
+};
+const micHoles = [{ x: 50, y: 50 }];
+// Clockwise from the back: action, volume down, microphone off, volume up.
+const buttons = [
+  { at: polar(20, 0), glyph: "action" },
+  { at: polar(20, 90), glyph: "minus" },
+  { at: polar(20, 180), glyph: "mic-off" },
+  { at: polar(20, 270), glyph: "plus" },
+];
+---
+
+<span
+  class:list={["echo-dot", className]}
+  style={`width:${width}px`}
+  role="img"
+  aria-label={label}
+>
+  <svg
+    viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <defs>
+      <linearGradient id={`${id}-side`} gradientUnits="userSpaceOnUse" x1={CX - R} x2={CX + R} y1="0" y2="0">
+        <stop offset="0" class="side-edge"></stop>
+        <stop offset="0.2" class="side-light"></stop>
+        <stop offset="0.5" class="side-mid"></stop>
+        <stop offset="0.82" class="side-dark"></stop>
+        <stop offset="1" class="side-edge"></stop>
+      </linearGradient>
+      <radialGradient id={`${id}-sheen`} cx="0.36" cy="0.3" r="0.75">
+        <stop offset="0" class="sheen-hi"></stop>
+        <stop offset="1" class="sheen-lo"></stop>
+      </radialGradient>
+      <filter id={`${id}-shadow`} x="-20%" y="-50%" width="140%" height="200%">
+        <feGaussianBlur stdDeviation="6"></feGaussianBlur>
+      </filter>
+      <filter id={`${id}-glow`} x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="4"></feGaussianBlur>
+      </filter>
+      <filter id={`${id}-diffuse`} x="-10%" y="-10%" width="120%" height="120%">
+        <feGaussianBlur stdDeviation="1.6"></feGaussianBlur>
+      </filter>
+      <clipPath id={`${id}-band`}>
+        <path d={annulus(BAND.outer, BAND.inner)} clip-rule="evenodd"></path>
+      </clipPath>
+    </defs>
+
+    <ellipse class="shadow" cx={CX} cy={BOTTOM_Y + 6} rx={R + 6} ry={RY + 2} filter={`url(#${id}-shadow)`}
+    ></ellipse>
+    <path class="body" d={body} fill={`url(#${id}-side)`}></path>
+    <path class="foot" d={foot}></path>
+
+    <g transform={topTransform}>
+      <circle class="top" cx="50" cy="50" r="49"></circle>
+      <circle cx="50" cy="50" r="49" fill={`url(#${id}-sheen)`}></circle>
+      <circle class="rim" cx="50" cy="50" r="48.6" vector-effect="non-scaling-stroke"></circle>
+
+      {micHoles.map((p) => <circle class="hole" cx={p.x} cy={p.y} r="0.9" />)}
+
+      {
+        buttons.map(({ at, glyph }) => (
+          <g transform={`translate(${at.x} ${at.y})`}>
+            <circle class="button" r="7" vector-effect="non-scaling-stroke" />
+            {glyph === "minus" && <path class="glyph" d="M-2.6 0H2.6" />}
+            {glyph === "plus" && <path class="glyph" d="M-2.6 0H2.6M0 -2.6V2.6" />}
+            {glyph === "action" && <circle class="glyph-fill" r="1.5" />}
+            {glyph === "mic-off" && (
+              <path
+                class="glyph"
+                d="M-1.1 -1.6V-2a1.1 1.1 0 0 1 2.2 0V0.4M-2.4 -0.2a2.4 2.4 0 0 0 4.1 1.7M0 2.2V3.2M-3 -3L3 3"
+              />
+            )}
+          </g>
+        ))
+      }
+
+      <circle class="band" cx="50" cy="50" r={BAND.r}></circle>
+      <g filter={`url(#${id}-glow)`}>
+        {
+          segments.map((d, i) => (
+            <path
+              class="led-glow"
+              d={d}
+              data-glow
+              stroke={lit[i].stroke}
+              stroke-opacity={(lit[i].opacity * 0.6).toFixed(3)}
+            />
+          ))
+        }
+      </g>
+      <g clip-path={`url(#${id}-band)`}>
+        <g filter={`url(#${id}-diffuse)`}>
+        {
+          segments.map((d, i) => (
+            <path
+              class="led"
+              d={d}
+              data-led
+              stroke={lit[i].stroke}
+              stroke-opacity={lit[i].opacity.toFixed(3)}
+            />
+          ))
+        }
+        </g>
+      </g>
+      <circle class="band-edge" cx="50" cy="50" r={BAND.outer} vector-effect="non-scaling-stroke"></circle>
+    </g>
+  </svg>
+</span>
+
+<style>
+  .echo-dot {
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0;
+  }
+
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* The device is dark plastic in both themes; shades derive from --puck. */
+  .side-edge { stop-color: color-mix(in oklab, var(--puck) 55%, black); }
+  .side-light { stop-color: color-mix(in oklab, var(--puck) 86%, white); }
+  .side-mid { stop-color: var(--puck); }
+  .side-dark { stop-color: color-mix(in oklab, var(--puck) 72%, black); }
+  .sheen-hi { stop-color: white; stop-opacity: 0.07; }
+  .sheen-lo { stop-color: white; stop-opacity: 0; }
+
+  .shadow { fill: black; opacity: 0.22; }
+  .foot { fill: color-mix(in oklab, var(--puck) 50%, black); }
+  .top { fill: color-mix(in oklab, var(--puck) 94%, white); }
+  .rim { fill: none; stroke: var(--puck-rim); stroke-width: 1; }
+  .hole { fill: color-mix(in oklab, var(--puck) 45%, black); }
+  .button {
+    fill: color-mix(in oklab, var(--puck) 88%, white);
+    stroke: color-mix(in oklab, var(--puck) 60%, black);
+    stroke-width: 1;
+  }
+  .glyph {
+    fill: none;
+    stroke: color-mix(in oklab, var(--puck) 40%, white);
+    stroke-width: 0.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .glyph-fill { fill: color-mix(in oklab, var(--puck) 40%, white); }
+
+  /* Frosted white plastic: pale when dark, tinted by whatever LEDs are lit. */
+  .band {
+    fill: none;
+    stroke: color-mix(in oklab, var(--puck) 28%, white);
+    stroke-width: 5;
+  }
+  .band-edge {
+    fill: none;
+    stroke: color-mix(in oklab, var(--puck) 60%, black);
+    stroke-width: 0.75;
+  }
+  .led,
+  .led-glow {
+    fill: none;
+    stroke-linecap: butt;
+  }
+  .led { stroke-width: 7; }
+  .led-glow { stroke-width: 12; }
+</style>
