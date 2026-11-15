@@ -144,18 +144,43 @@ impl Default for Api {
     }
 }
 
-impl Config {
-    pub fn load(path: &Path) -> Result<Self> {
-        match std::fs::read_to_string(path) {
-            Ok(text) => {
-                toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+/// Merge `over` into `base`: tables merge key by key, everything else is replaced.
+fn merge(base: &mut toml::Table, over: toml::Table) {
+    for (k, v) in over {
+        match (base.get_mut(&k), v) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge(b, o),
+            (_, v) => {
+                base.insert(k, v);
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                tracing::warn!("{} not found, using defaults", path.display());
-                Ok(Self::default())
-            }
-            Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
+    }
+}
+
+fn read_table(path: &Path) -> Result<Option<toml::Table>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => text
+            .parse::<toml::Table>()
+            .map(Some)
+            .with_context(|| format!("parsing {}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+impl Config {
+    /// The image's configuration with the device-local file (on /var) layered on top.
+    pub fn load_layered(image: &Path, local: &Path) -> Result<Self> {
+        let mut table = read_table(image)?.unwrap_or_else(|| {
+            tracing::warn!("{} not found, using defaults", image.display());
+            toml::Table::new()
+        });
+        if let Some(over) = read_table(local)? {
+            tracing::info!("local configuration: {}", local.display());
+            merge(&mut table, over);
+        }
+        toml::Value::Table(table)
+            .try_into()
+            .with_context(|| format!("{} + {}", image.display(), local.display()))
     }
 }
 
@@ -178,6 +203,37 @@ mod tests {
         assert_eq!(c.wake.threshold, 0.6);
         assert_eq!(c.esphome.port, 6053);
         assert_eq!(c.api.listen, "127.0.0.1:7470");
+    }
+
+    #[test]
+    fn local_file_overrides_image() {
+        let dir = std::env::temp_dir().join(format!("pinnad-cfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (image, local) = (dir.join("image.toml"), dir.join("local.toml"));
+        std::fs::write(
+            &image,
+            "[device]\nfriendly_name = \"Pinna\"\nmodel = \"Dot\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &local,
+            "[device]\nname = \"echodot2\"\nfriendly_name = \"Büro\"\n",
+        )
+        .unwrap();
+        let c = Config::load_layered(&image, &local).unwrap();
+        assert_eq!(
+            (
+                c.device.name.as_str(),
+                c.device.friendly_name.as_str(),
+                c.device.model.as_str()
+            ),
+            ("echodot2", "Büro", "Dot")
+        );
+        let c = Config::load_layered(&image, &dir.join("missing.toml")).unwrap();
+        assert_eq!(c.device.name, "");
+        std::fs::write(&local, "[device]\nnmae = 1\n").unwrap();
+        assert!(Config::load_layered(&image, &local).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

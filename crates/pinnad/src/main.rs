@@ -8,6 +8,7 @@ mod api;
 mod config;
 mod identity;
 mod leds;
+mod settings;
 mod voice;
 
 use std::collections::VecDeque;
@@ -19,7 +20,7 @@ use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
 use pinna_audio::{Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
-use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle, LightConfig, WakeWordInfo};
+use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle, WakeWordInfo};
 use pinna_hal::led::{Is31Sysfs, LedHandle, MockLeds};
 use tokio::sync::{mpsc, watch};
 
@@ -32,6 +33,12 @@ use crate::voice::{Brain, Input, Options, Shared, Snapshot};
 struct Cli {
     #[arg(long, default_value = "/etc/pinna/pinnad.toml")]
     config: PathBuf,
+    /// Device-local configuration layered over `--config` (identity, overrides).
+    #[arg(long, default_value = "/var/lib/pinna/pinnad.toml")]
+    local_config: PathBuf,
+    /// Runtime settings changed from Home Assistant (volume, sensitivity, ...).
+    #[arg(long, default_value = "/var/lib/pinna/settings.toml")]
+    settings: PathBuf,
     /// Read button presses from stdin (up/down/action/mute) — development.
     #[arg(long)]
     stdin_buttons: bool,
@@ -106,6 +113,12 @@ async fn capture_loop(
     let mut preroll: VecDeque<Bytes> = VecDeque::with_capacity(10);
     let mut was_streaming = false;
     while let Some(frame) = stream.recv().await {
+        if let Some(d) = detector.as_mut() {
+            let t = f32::from_bits(shared.threshold.load(Ordering::Relaxed));
+            if t > 0.0 && t != d.threshold() {
+                d.set_threshold(t);
+            }
+        }
         if shared.muted.load(Ordering::Relaxed) {
             preroll.clear();
             if let Some(d) = detector.as_mut() {
@@ -164,7 +177,13 @@ async fn main() -> Result<()> {
             .init();
     }
     let cli = Cli::parse();
-    let cfg = Config::load(&cli.config)?;
+    let cfg = Config::load_layered(&cli.config, &cli.local_config)?;
+    let defaults = settings::Settings {
+        volume: cfg.audio.volume,
+        wake_sensitivity: settings::sensitivity_for_threshold(cfg.wake.threshold),
+        ..Default::default()
+    };
+    let (_, initial) = settings::Store::load(&cli.settings, defaults);
 
     // Identity + ESPHome API.
     let mac = identity::device_mac();
@@ -185,12 +204,7 @@ async fn main() -> Result<()> {
         trained_languages: vec!["en".into()],
     }];
     dc.active_wake_words = vec![cfg.wake.id.clone()];
-    dc.light = Some(LightConfig {
-        name: "LED ring".into(),
-        object_id: "led_ring".into(),
-        effects: Vec::new(),
-    });
-    dc.mute_switch = true;
+    pinna_esphome::echo_dot_entities(&mut dc);
     dc.encryption_key = identity::load_encryption_key(&cfg.esphome)?;
     tracing::info!(
         "ESPHome API encryption: {}",
@@ -216,7 +230,10 @@ async fn main() -> Result<()> {
     tracing::info!("ESPHome API listening on {}", esp.local_addr());
 
     // LEDs.
-    let (led_tx, led_rx) = watch::channel(LedState::default());
+    let (led_tx, led_rx) = watch::channel(LedState {
+        brightness: initial.led_brightness,
+        ..Default::default()
+    });
     let ring = led_ring(&cfg.leds)?;
     let led_backend = match (&ring, cfg.leds.backend.as_str()) {
         (None, _) => "none",
@@ -239,7 +256,7 @@ async fn main() -> Result<()> {
         .filter(|b| !matches!(b, Backend::WavFile(_)))
         .map(|b| {
             let mut sc = SpeakerConfig::new(b);
-            sc.initial_volume = cfg.audio.volume;
+            sc.initial_volume = initial.volume;
             sc.profile.codec_flat = cfg.audio.speaker_profile.eq_ignore_ascii_case("flat");
             Arc::new(Speaker::new(sc))
         });
@@ -251,7 +268,7 @@ async fn main() -> Result<()> {
     if let Some(b) = backend {
         let detector = if cfg.wake.enabled {
             let wc = pinna_wakeword::WakeConfig {
-                threshold: cfg.wake.threshold,
+                threshold: initial.wake_threshold(),
                 ..Default::default()
             };
             match pinna_wakeword::Detector::load(&cfg.wake.models, &cfg.wake.keyword, wc) {
@@ -346,9 +363,10 @@ async fn main() -> Result<()> {
         Options {
             key_file: cfg.esphome.key_file.clone(),
             wake_phrase: cfg.wake.phrase.clone(),
-            volume: cfg.audio.volume,
             wake_sound: cfg.audio.wake_sound,
             has_hw_privacy,
+            settings_file: cli.settings.clone(),
+            settings: initial,
         },
     );
     tokio::select! {

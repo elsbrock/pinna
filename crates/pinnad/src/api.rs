@@ -264,9 +264,16 @@ mod tests {
             Options {
                 key_file: std::env::temp_dir().join("pinnad-api-test-key"),
                 wake_phrase: "Alexa".into(),
-                volume: 40,
                 wake_sound: false,
                 has_hw_privacy: false,
+                settings_file: std::env::temp_dir().join(format!(
+                    "pinnad-api-test-settings-{}.toml",
+                    std::process::id()
+                )),
+                settings: crate::settings::Settings {
+                    volume: 40,
+                    ..Default::default()
+                },
             },
         );
         tokio::spawn(brain.run(in_rx));

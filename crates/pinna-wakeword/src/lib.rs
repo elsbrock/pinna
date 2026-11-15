@@ -248,6 +248,16 @@ impl Detector {
         self.playing = playing;
     }
 
+    /// Change the accept threshold (see [`WakeConfig::threshold_for_sensitivity`]).
+    pub fn set_threshold(&mut self, threshold: f32) {
+        self.cfg.threshold = threshold;
+    }
+
+    /// The current accept threshold.
+    pub fn threshold(&self) -> f32 {
+        self.cfg.threshold
+    }
+
     /// Return to the freshly loaded state (stream position 0, no lockout).
     pub fn reset(&mut self) {
         self.reset_stream();
