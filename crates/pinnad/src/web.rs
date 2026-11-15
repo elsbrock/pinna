@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::extract::{Request, State};
+use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -72,6 +72,16 @@ pub fn app(api: Arc<DeviceApi>, root: &Path, hosts: Hosts) -> axum::Router {
         )
         .fallback_service(files)
         .layer(middleware::from_fn_with_state(hosts, check_host))
+        .layer(middleware::from_fn(peer_addr))
+}
+
+/// `axum::serve` knows the peer, but only connectrpc's own `Server` hands it to
+/// handlers (`ctx.peer_addr()`); pass it on.
+async fn peer_addr(mut req: Request, next: Next) -> Response {
+    if let Some(ConnectInfo(addr)) = req.extensions().get::<ConnectInfo<SocketAddr>>().copied() {
+        req.extensions_mut().insert(connectrpc::PeerAddr(addr));
+    }
+    next.run(req).await
 }
 
 async fn check_host(State(hosts): State<Hosts>, req: Request, next: Next) -> Response {
@@ -144,7 +154,12 @@ pub async fn start(api: Arc<DeviceApi>, cfg: &Web) -> Result<Option<SocketAddr>>
     let addr = listener.local_addr()?;
     let app = app(api, &cfg.root, hosts);
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+        if let Err(e) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
             tracing::error!("dashboard server stopped: {e}");
         }
     });
@@ -333,6 +348,25 @@ mod tests {
         let (status, _, body) = send(&f, req).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(body.contains("\"name\":\"pinna-test\""), "{body}");
+    }
+
+    #[tokio::test]
+    async fn get_updates_suggests_the_peers_address() {
+        let f = fixture("peer", false);
+        let mut req = rpc(
+            "pinna.local",
+            "GetUpdates",
+            "application/json",
+            b"{}".to_vec(),
+        );
+        let peer: SocketAddr = "192.168.1.77:51234".parse().unwrap();
+        req.extensions_mut().insert(ConnectInfo(peer));
+        let (status, _, body) = send(&f, req).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body.contains("\"suggestedManifest\":\"http://192.168.1.77:8000/manifest.json\""),
+            "{body}"
+        );
     }
 
     #[tokio::test]

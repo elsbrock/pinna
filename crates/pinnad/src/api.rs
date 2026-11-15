@@ -4,7 +4,7 @@
 //! its own: reads come from the brain's status `watch`, commands go to the brain
 //! as inputs and are answered with the state right after they were applied.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use buffa::MessageField;
 use connectrpc::{ConnectError, RequestContext, Response, Router, Server, ServiceRequest};
 use connectrpc::{ServiceResult, ServiceStream};
+use futures::{Stream, StreamExt};
 use pinna_api::{
     DeviceService, GetNetworkRequest, GetNetworkResponse, GetStatusRequest, GetStatusResponse,
     GetUpdatesRequest, GetUpdatesResponse, InstallUpdateRequest, InstallUpdateResponse,
@@ -24,7 +25,9 @@ use pinna_api::{
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::updates::{Event, Updater, UpdaterPaths};
 use crate::voice::{ApiCommand, ApiReply, Input, SettingsPatch, Snapshot};
+use crate::{logs, network};
 
 /// What does not change while pinnad runs.
 #[derive(Debug, Clone)]
@@ -41,15 +44,26 @@ pub struct DeviceApi {
     started: Instant,
     status: watch::Receiver<Snapshot>,
     inputs: mpsc::Sender<Input>,
+    updater: Arc<Updater>,
 }
 
 impl DeviceApi {
     pub fn new(info: Info, status: watch::Receiver<Snapshot>, inputs: mpsc::Sender<Input>) -> Self {
+        Self::with_updater(info, status, inputs, Updater::new(UpdaterPaths::default()))
+    }
+
+    pub fn with_updater(
+        info: Info,
+        status: watch::Receiver<Snapshot>,
+        inputs: mpsc::Sender<Input>,
+        updater: Updater,
+    ) -> Self {
         Self {
             info,
             started: Instant::now(),
             status,
             inputs,
+            updater: Arc::new(updater),
         }
     }
 
@@ -256,9 +270,14 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         _request: ServiceRequest<'_, GetNetworkRequest>,
     ) -> ServiceResult<GetNetworkResponse> {
-        Err(ConnectError::unimplemented(
-            "GetNetwork is not implemented yet",
-        ))
+        let interfaces = network::interfaces()
+            .await
+            .map_err(|e| ConnectError::unavailable(format!("reading network interfaces: {e:#}")))?;
+        Response::ok(GetNetworkResponse {
+            hostname: network::hostname(),
+            interfaces,
+            ..Default::default()
+        })
     }
 
     async fn watch_logs(
@@ -266,29 +285,46 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         _request: ServiceRequest<'_, WatchLogsRequest>,
     ) -> ServiceResult<ServiceStream<WatchLogsResponse>> {
-        Err(ConnectError::unimplemented(
-            "WatchLogs is not implemented yet",
-        ))
+        let lines = logs::watch()
+            .map_err(|e| ConnectError::unavailable(format!("journalctl is not available: {e}")))?;
+        let stream = lines.map(|line| {
+            Ok(WatchLogsResponse {
+                line: MessageField::some(line),
+                ..Default::default()
+            })
+        });
+        Response::ok(Box::pin(stream))
     }
 
     async fn get_updates(
         &self,
-        _ctx: RequestContext,
+        ctx: RequestContext,
         _request: ServiceRequest<'_, GetUpdatesRequest>,
     ) -> ServiceResult<GetUpdatesResponse> {
-        Err(ConnectError::unimplemented(
-            "GetUpdates is not implemented yet",
-        ))
+        let mut resp = self.updater.get_updates().await;
+        // The browser's own address is where a release is probably served.
+        resp.suggested_manifest = match ctx.peer_addr().map(|a| a.ip().to_canonical()) {
+            Some(IpAddr::V4(ip)) => format!("http://{ip}:8000/manifest.json"),
+            Some(IpAddr::V6(ip)) => format!("http://[{ip}]:8000/manifest.json"),
+            None => String::new(),
+        };
+        Response::ok(resp)
     }
 
     async fn install_update(
         &self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, InstallUpdateRequest>,
+        request: ServiceRequest<'_, InstallUpdateRequest>,
     ) -> ServiceResult<InstallUpdateResponse> {
-        Err(ConnectError::unimplemented(
-            "InstallUpdate is not implemented yet",
-        ))
+        let manifest = request.manifest.trim();
+        let valid = url::Url::parse(manifest).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
+        if !valid {
+            return Err(ConnectError::invalid_argument(
+                "the manifest must be an http:// or https:// URL",
+            ));
+        }
+        self.updater.install(manifest)?;
+        Response::ok(InstallUpdateResponse::default())
     }
 
     async fn watch_install(
@@ -296,9 +332,39 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         _request: ServiceRequest<'_, WatchInstallRequest>,
     ) -> ServiceResult<ServiceStream<WatchInstallResponse>> {
-        Err(ConnectError::unimplemented(
-            "WatchInstall is not implemented yet",
-        ))
+        let progress = self.updater.progress();
+        let line = |line: String| WatchInstallResponse {
+            line,
+            ..Default::default()
+        };
+        let done = |ok: bool| WatchInstallResponse {
+            done: true,
+            ok,
+            ..Default::default()
+        };
+        let history = futures::stream::iter(progress.history.into_iter().map(line));
+        // Live lines until the done marker; `Lagged` just skips ahead.
+        let tail: std::pin::Pin<Box<dyn Stream<Item = WatchInstallResponse> + Send>> =
+            match (progress.live, progress.finished) {
+                (Some(rx), _) => {
+                    Box::pin(futures::stream::unfold(Some(rx), move |rx| async move {
+                        let mut rx = rx?;
+                        loop {
+                            match rx.recv().await {
+                                Ok(Event::Line(l)) => return Some((line(l), Some(rx))),
+                                Ok(Event::Done { ok }) => return Some((done(ok), None)),
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                    continue;
+                                }
+                                Err(_) => return None,
+                            }
+                        }
+                    }))
+                }
+                (None, Some(ok)) => Box::pin(futures::stream::once(async move { done(ok) })),
+                (None, None) => Box::pin(futures::stream::empty()),
+            };
+        Response::ok(Box::pin(history.chain(tail).map(Ok)))
     }
 
     async fn reboot(
@@ -306,7 +372,11 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         _request: ServiceRequest<'_, RebootRequest>,
     ) -> ServiceResult<RebootResponse> {
-        Err(ConnectError::unimplemented("Reboot is not implemented yet"))
+        self.updater
+            .reboot()
+            .await
+            .map_err(|e| ConnectError::internal(format!("rebooting: {e:#}")))?;
+        Response::ok(RebootResponse::default())
     }
 }
 
@@ -347,6 +417,10 @@ mod tests {
 
     /// The real brain without audio or LED backends, served on an ephemeral port.
     async fn start_device() -> (Client, mpsc::Sender<Input>) {
+        start_device_with(Updater::new(UpdaterPaths::default())).await
+    }
+
+    async fn start_device_with(updater: Updater) -> (Client, mpsc::Sender<Input>) {
         let mut dc = DeviceConfig::new("pinna-test", [2, 0, 0, 0xaa, 0xbb, 0xcc]);
         dc.port = 0;
         let (esp, _ha) = pinna_esphome::serve(dc).await.unwrap();
@@ -384,7 +458,12 @@ mod tests {
             led_backend: "none".into(),
         };
         let addr = start(
-            Arc::new(DeviceApi::new(info, status_rx, in_tx.clone())),
+            Arc::new(DeviceApi::with_updater(
+                info,
+                status_rx,
+                in_tx.clone(),
+                updater,
+            )),
             "127.0.0.1:0",
         )
         .await
@@ -572,5 +651,243 @@ mod tests {
         .unwrap();
         let changed = next(&mut stream).await;
         assert_eq!(changed.volume, 12);
+    }
+
+    /// An updater over a temp dir with a fake `pinnactl` that runs `body`.
+    struct Rig {
+        dir: std::path::PathBuf,
+        paths: UpdaterPaths,
+    }
+
+    impl Rig {
+        fn new(name: &str, body: &str) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            let dir =
+                std::env::temp_dir().join(format!("pinnad-upd-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            for d in ["run", "parts"] {
+                std::fs::create_dir_all(dir.join(d)).unwrap();
+            }
+            let script = dir.join("pinnactl");
+            std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let paths = UpdaterPaths {
+                misc: dir.join("misc"),
+                partdir: dir.join("parts"),
+                run_dir: dir.join("run"),
+                pinnactl: script,
+                reboot: vec!["true".into()],
+            };
+            Self { dir, paths }
+        }
+
+        fn updater(&self) -> Updater {
+            Updater::new(self.paths.clone())
+        }
+    }
+
+    impl Drop for Rig {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    async fn updates(c: &Client) -> GetUpdatesResponse {
+        c.get_updates(GetUpdatesRequest::default())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message()
+    }
+
+    fn install_request(manifest: &str) -> InstallUpdateRequest {
+        InstallUpdateRequest {
+            manifest: manifest.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Every message of a WatchInstall until it ends.
+    async fn watch_install_all(c: &Client) -> Vec<WatchInstallResponse> {
+        let mut stream = c
+            .watch_install(WatchInstallRequest::default())
+            .await
+            .unwrap();
+        let mut out = Vec::new();
+        while let Some(m) = tokio::time::timeout(
+            Duration::from_secs(10),
+            stream.message::<WatchInstallResponse>(),
+        )
+        .await
+        .expect("WatchInstall stalled")
+        .unwrap()
+        {
+            out.push(m.to_owned_message());
+        }
+        out
+    }
+
+    async fn wait_until_idle(c: &Client) -> GetUpdatesResponse {
+        for _ in 0..100 {
+            let u = updates(c).await;
+            if !u.installing {
+                return u;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the install did not finish");
+    }
+
+    #[tokio::test]
+    async fn get_updates_without_pinna_init_is_unavailable() {
+        let rig = Rig::new("noinit", "");
+        let (c, _) = start_device_with(rig.updater()).await;
+        let u = updates(&c).await;
+        assert!(!u.available);
+        assert!(
+            u.unavailable_reason.contains("pinna-init"),
+            "{}",
+            u.unavailable_reason
+        );
+        assert_eq!(u.suggested_manifest, "http://127.0.0.1:8000/manifest.json");
+    }
+
+    #[tokio::test]
+    async fn get_updates_reads_the_slots() {
+        let rig = Rig::new("slots", "");
+        std::fs::write(rig.paths.run_dir.join("boot-slot"), "a\n").unwrap();
+        std::fs::write(rig.paths.run_dir.join("boot-version"), "1.2.3\n").unwrap();
+        std::fs::write(&rig.paths.misc, vec![0u8; 0x40000 + 512]).unwrap();
+        let (c, _) = start_device_with(rig.updater()).await;
+        let u = updates(&c).await;
+        assert!(u.available, "{}", u.unavailable_reason);
+        assert_eq!(u.booted_version, "1.2.3");
+        assert_eq!(u.slots.len(), 2);
+        let (a, b) = (&u.slots[0], &u.slots[1]);
+        assert_eq!((a.name.as_str(), a.state.as_str()), ("a", "good"));
+        assert!(a.booted && a.active && a.version.is_empty());
+        assert_eq!((b.name.as_str(), b.state.as_str()), ("b", "unbootable"));
+        assert!(!b.booted && !b.active && b.version.is_empty());
+        assert!(!u.installing && u.last_install.as_option().is_none());
+    }
+
+    #[tokio::test]
+    async fn install_streams_progress_and_records_the_result() {
+        let rig = Rig::new("ok", "echo one; echo two >&2; echo three; exit 0");
+        let (c, _) = start_device_with(rig.updater()).await;
+        // Nothing has run yet.
+        assert!(watch_install_all(&c).await.is_empty());
+
+        c.install_update(install_request("http://10.0.0.2:8000/manifest.json"))
+            .await
+            .unwrap();
+        let msgs = watch_install_all(&c).await;
+        let last = msgs.last().unwrap();
+        assert!(last.done && last.ok);
+        let mut lines: Vec<_> = msgs
+            .iter()
+            .filter(|m| !m.done)
+            .map(|m| m.line.as_str())
+            .collect();
+        lines.sort_unstable();
+        assert_eq!(lines, ["one", "three", "two"]);
+
+        let u = wait_until_idle(&c).await;
+        let r = u.last_install.as_option().unwrap();
+        assert!(r.ok);
+        assert_eq!(r.manifest, "http://10.0.0.2:8000/manifest.json");
+        assert!(r.finished_unix_ms > 0);
+
+        // A watcher that comes late gets the history and the result.
+        let msgs = watch_install_all(&c).await;
+        assert_eq!(msgs.len(), 4);
+        assert!(msgs[3].done && msgs[3].ok);
+    }
+
+    #[tokio::test]
+    async fn failed_install_reports_its_last_line() {
+        let rig = Rig::new("fail", "echo working; echo boom; exit 1");
+        let (c, _) = start_device_with(rig.updater()).await;
+        c.install_update(install_request("https://example.org/manifest.json"))
+            .await
+            .unwrap();
+        let msgs = watch_install_all(&c).await;
+        let last = msgs.last().unwrap();
+        assert!(last.done && !last.ok);
+        let u = wait_until_idle(&c).await;
+        let r = u.last_install.as_option().unwrap();
+        assert!(!r.ok);
+        assert_eq!(r.last_line, "boom");
+    }
+
+    #[tokio::test]
+    async fn second_install_is_refused_while_one_runs() {
+        let rig = Rig::new("busy", "echo start; sleep 1; echo end");
+        let (c, _) = start_device_with(rig.updater()).await;
+        c.install_update(install_request("http://h/m.json"))
+            .await
+            .unwrap();
+        assert!(updates(&c).await.installing);
+        let err = c
+            .install_update(install_request("http://h/m.json"))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        assert!(
+            !wait_until_idle(&c)
+                .await
+                .last_install
+                .as_option()
+                .unwrap()
+                .last_line
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn install_rejects_other_schemes() {
+        let rig = Rig::new("scheme", "exit 0");
+        let (c, _) = start_device_with(rig.updater()).await;
+        for bad in ["file:///x", "ftp://h/m.json", "not a url", ""] {
+            let err = c.install_update(install_request(bad)).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument, "{bad}");
+        }
+    }
+
+    #[tokio::test]
+    async fn install_goes_on_when_the_watcher_leaves() {
+        let rig = Rig::new("leave", "echo start; sleep 1; echo end");
+        let (c, _) = start_device_with(rig.updater()).await;
+        c.install_update(install_request("http://h/m.json"))
+            .await
+            .unwrap();
+        let mut stream = c
+            .watch_install(WatchInstallRequest::default())
+            .await
+            .unwrap();
+        let first = stream
+            .message::<WatchInstallResponse>()
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.line(), "start");
+        drop(stream);
+        let u = wait_until_idle(&c).await;
+        let r = u.last_install.as_option().unwrap();
+        assert!(r.ok);
+        assert_eq!(r.last_line, "end");
+    }
+
+    #[tokio::test]
+    async fn reboot_runs_the_command() {
+        let rig = Rig::new("reboot", "");
+        let (c, _) = start_device_with(rig.updater()).await;
+        c.reboot(RebootRequest::default()).await.unwrap();
+
+        let mut paths = rig.paths.clone();
+        paths.reboot = vec!["false".into()];
+        let (c, _) = start_device_with(Updater::new(paths)).await;
+        let err = c.reboot(RebootRequest::default()).await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::Internal);
     }
 }

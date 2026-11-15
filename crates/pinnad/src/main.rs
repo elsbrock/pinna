@@ -8,7 +8,10 @@ mod api;
 mod config;
 mod identity;
 mod leds;
+mod logs;
+mod network;
 mod settings;
+mod updates;
 mod voice;
 mod web;
 
@@ -219,7 +222,7 @@ async fn main() -> Result<()> {
         .with_target(false);
     // journald timestamps lines itself.
     if std::env::var_os("JOURNAL_STREAM").is_some() {
-        fmt.without_time().init();
+        fmt.without_time().with_ansi(false).init();
     } else {
         fmt.with_timer(tracing_subscriber::fmt::time::uptime())
             .init();

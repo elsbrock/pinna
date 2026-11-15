@@ -11,9 +11,12 @@ pinna-esphome = { path = "../pinna-esphome" }
 pinna-hal = { path = "../pinna-hal" }
 pinna-audio = { path = "../pinna-audio" }
 pinna-wakeword = { path = "../pinna-wakeword" }
+pinna-bootctl = { path = "../pinna-bootctl" }
+pinna-image = { path = "../pinna-image" }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -28,6 +31,7 @@ axum = { version = "0.8", default-features = false, features = ["tokio", "http1"
 tower-http = { version = "0.6", features = ["fs"] }
 buffa = "0.9"
 futures = "0.3"
+url = "2"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
