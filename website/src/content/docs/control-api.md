@@ -40,7 +40,7 @@ writes the update directly. It takes these options:
 
 ```text
 device:     pinna-2a914e (00:fc:8b:2a:91:4e)
-version:    0.1.0
+version:    2026.11.15.2312-aeafbda
 uptime:     3h 12m 05s
 phase:      idle
 muted:      no

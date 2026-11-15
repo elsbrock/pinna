@@ -556,6 +556,12 @@ async fn main() -> Result<()> {
     let (status_tx, status_rx) = watch::channel(Snapshot::default());
     let device_api = Arc::new(api::DeviceApi::new(
         api::Info {
+            version: pinna_bootctl::slot::booted_version(std::path::Path::new(
+                pinna_bootctl::slot::RUN_DIR,
+            ))
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
             name: dc_name,
             mac: dc_mac,
             wake_words: catalogue.clone(),

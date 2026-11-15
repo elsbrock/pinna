@@ -258,6 +258,7 @@ mod tests {
         let (_status_tx, status_rx) = watch::channel(Snapshot::default());
         let (in_tx, in_rx) = mpsc::channel(1);
         let info = Info {
+            version: "0.1.0".into(),
             name: "pinna-test".into(),
             mac: "02:00:00:aa:bb:cc".into(),
             wake_words: crate::wakewords::test_catalogue(),
@@ -412,6 +413,7 @@ mod tests {
         let (_tx, rx) = watch::channel(Snapshot::default());
         let (tx, _rx) = mpsc::channel(1);
         let info = Info {
+            version: "0.1.0".into(),
             name: String::new(),
             mac: String::new(),
             wake_words: Default::default(),

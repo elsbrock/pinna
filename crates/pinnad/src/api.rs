@@ -36,6 +36,9 @@ use crate::{logs, network};
 /// What does not change while pinnad runs.
 #[derive(Debug, Clone)]
 pub struct Info {
+    /// The running image version (pinna-init's boot-version), or pinnad's own
+    /// version where no image was booted.
+    pub version: String,
     pub name: String,
     pub mac: String,
     /// The wake words on offer (ADR 0013).
@@ -99,7 +102,7 @@ impl DeviceApi {
 fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
     let now = Instant::now();
     Status {
-        version: env!("CARGO_PKG_VERSION").into(),
+        version: info.version.clone(),
         name: info.name.clone(),
         mac: info.mac.clone(),
         model: info.model.clone(),
@@ -596,6 +599,7 @@ mod tests {
         );
         tokio::spawn(brain.run(in_rx));
         let info = Info {
+            version: "0.1.0".into(),
             name: "pinna-test".into(),
             mac: "02:00:00:AA:BB:CC".into(),
             wake_words: crate::wakewords::test_catalogue(),
@@ -1117,6 +1121,7 @@ mod tests {
     #[test]
     fn render_reports_a_ringing_alarm() {
         let info = Info {
+            version: "0.1.0".into(),
             name: "pinna-test".into(),
             mac: String::new(),
             wake_words: crate::wakewords::test_catalogue(),
