@@ -136,6 +136,16 @@ jcheck "kernel: erofs mounted from dm-0" "erofs: \(device dm-0\): mounted"
 jcheck "/var formatted on first boot" "successfully formatted as ext4"
 jcheck "/var mounted" "Mounted var.mount"
 jcheck "multi-user.target reached" "Reached target multi-user.target"
+# systemd taints itself when the kernel misses what it needs: the kernel
+# config must meet its requirements. (unmerged-bin is Debian trixie's separate
+# /usr/sbin, a userland matter.)
+kernel_taints='old-kernel|cgroupsv1|overflow[ug]id-not-65534|short-[ug]id-range'
+taint=$(grep -oE 'System is tainted: .*' "$work/journal.txt" | head -1)
+if grep -qE "$kernel_taints" <<<"$taint"; then
+  fail "systemd tainted by the kernel: $taint"
+else
+  pass "systemd not tainted by the kernel${taint:+ ($taint)}"
+fi
 jcheck "pinnad started" "Started pinnad.service"
 jcheck "mDNS service published" "published _esphomelib._tcp"
 jcheck "fastboot guard armed" "armed: next boot enters fastboot unless cleared"
