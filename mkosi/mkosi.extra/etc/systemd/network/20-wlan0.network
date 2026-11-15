@@ -1,0 +1,11 @@
+[Match]
+Name=wlan0
+
+[Network]
+DHCP=yes
+MulticastDNS=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+# Keep the lease keyed on the (fixed) MAC so existing reservations keep working.
+ClientIdentifier=mac

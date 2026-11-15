@@ -1,0 +1,19 @@
+# Development safety net: arm a one-shot "reboot into fastboot" request as
+# early as possible. pinna-boot-ok.service clears it once the system is
+# healthy, so a boot that hangs (followed by a power cycle) lands in fastboot
+# instead of looping. Enabled by the presence of /etc/pinna/fastboot-guard.
+[Unit]
+Description=Arm the fastboot fallback for this boot
+DefaultDependencies=no
+Requires=dev-disk-by\x2dpartlabel-misc.device
+After=dev-disk-by\x2dpartlabel-misc.device
+Before=sysinit.target
+ConditionPathExists=/etc/pinna/fastboot-guard
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/pinna-bootctl guard-arm
+
+[Install]
+WantedBy=sysinit.target

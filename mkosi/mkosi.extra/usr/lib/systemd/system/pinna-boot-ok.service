@@ -1,0 +1,16 @@
+[Unit]
+Description=Mark this boot healthy (clear the fastboot fallback)
+Requires=ssh.service
+After=ssh.service pinnad.service network.target
+ConditionPathExists=/etc/pinna/fastboot-guard
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Give pinnad a moment to crash-loop if it is going to.
+ExecStartPre=/bin/sleep 10
+ExecStartPre=/bin/systemctl is-active --quiet pinnad.service
+ExecStart=/usr/bin/pinna-bootctl guard-clear
+
+[Install]
+WantedBy=multi-user.target

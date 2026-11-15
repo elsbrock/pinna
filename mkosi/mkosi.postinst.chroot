@@ -1,0 +1,51 @@
+#!/bin/sh
+# Runs inside the image after packages and extra trees are installed.
+set -eu
+
+# Core services.
+systemctl enable \
+    systemd-networkd.service \
+    systemd-resolved.service \
+    systemd-timesyncd.service \
+    ssh.service \
+    pinna-gadget.service \
+    pinna-wifi.service \
+    pinnad.service \
+    pinna-fastboot-guard.service \
+    pinna-boot-ok.service
+
+# wpa_supplicant and the USB serial getty are started by udev when wlan0 /
+# ttyGS0 appear (see 90-pinna.rules), never by a static dependency on a device
+# that may not exist (QEMU, Wi-Fi bring-up failure).
+systemctl disable wpa_supplicant.service 2>/dev/null || true
+
+# No VT, no package management on a read-only image, no gpt-auto.
+systemctl mask \
+    getty@tty1.service \
+    apt-daily.timer apt-daily-upgrade.timer \
+    man-db.timer \
+    e2scrub_all.timer e2scrub_reap.service \
+    systemd-firstboot.service
+mkdir -p /etc/systemd/system-generators
+ln -sf /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
+
+# PipeWire is installed but not used on the device yet (pinnad drives ALSA
+# directly until the MT8163 card has a UCM profile).
+systemctl --global disable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+
+ln -sfn ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+# The WMT driver opens its firmware by fixed paths under /lib/firmware and
+# /etc/firmware.
+ln -sfn ../usr/lib/firmware /etc/firmware
+if [ -e /usr/lib/firmware/WIFI_RAM_CODE_8163 ] && [ ! -e /usr/lib/firmware/WIFI_RAM_CODE ]; then
+    ln -s WIFI_RAM_CODE_8163 /usr/lib/firmware/WIFI_RAM_CODE
+fi
+
+# Permissions for owner-local inputs.
+if [ -d /root/.ssh ]; then
+    chmod 700 /root/.ssh
+    chmod 600 /root/.ssh/authorized_keys 2>/dev/null || true
+fi
+chmod 600 /etc/wpa_supplicant/wpa_supplicant-*.conf 2>/dev/null || true
+chmod 755 /usr/libexec/pinna/* /usr/bin/pinna* 2>/dev/null || true

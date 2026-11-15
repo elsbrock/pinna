@@ -1,0 +1,17 @@
+[Unit]
+Description=USB gadget: serial console and network over the micro-USB port
+DefaultDependencies=no
+Requires=sys-kernel-config.mount
+After=sys-kernel-config.mount systemd-udevd.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionDirectoryNotEmpty=/sys/class/udc
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/pinna/usb-gadget up
+ExecStop=/usr/libexec/pinna/usb-gadget down
+
+[Install]
+WantedBy=sysinit.target

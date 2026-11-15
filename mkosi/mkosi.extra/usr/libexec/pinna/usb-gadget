@@ -1,0 +1,55 @@
+#!/bin/sh
+# Composite USB gadget on the Echo's micro-USB port: CDC-ACM serial console
+# (host: /dev/ttyACM*) and CDC-NCM network (device side usb0, 10.42.0.1).
+set -eu
+G=/sys/kernel/config/usb_gadget/pinna
+
+stable_mac() {
+    # Locally administered MAC derived from the machine identity.
+    h=$( { cat /proc/idme/serial 2>/dev/null || cat /etc/machine-id; } | sha256sum)
+    printf '%s:%s:%s:%s:%s:%s' "$1" "$(echo "$h" | cut -c1-2)" "$(echo "$h" | cut -c3-4)" \
+        "$(echo "$h" | cut -c5-6)" "$(echo "$h" | cut -c7-8)" "$(echo "$h" | cut -c9-10)"
+}
+
+up() {
+    udc=$(ls /sys/class/udc | head -n1)
+    [ -n "$udc" ] || { echo "usb-gadget: no UDC"; exit 0; }
+    if [ -e "$G/UDC" ] && [ -n "$(cat "$G/UDC")" ]; then
+        echo "usb-gadget: already bound to $(cat "$G/UDC")"; exit 0
+    fi
+    mkdir -p "$G"
+    cd "$G"
+    echo 0x1d6b > idVendor          # Linux Foundation
+    echo 0x0104 > idProduct         # Multifunction Composite Gadget
+    echo 0x0100 > bcdDevice
+    echo 0x0200 > bcdUSB
+    echo 0xEF > bDeviceClass        # IAD, needed for ACM in a composite
+    echo 0x02 > bDeviceSubClass
+    echo 0x01 > bDeviceProtocol
+    mkdir -p strings/0x409
+    serial=$(cat /proc/idme/serial 2>/dev/null || cut -c1-16 /etc/machine-id)
+    echo "$serial" > strings/0x409/serialnumber
+    echo "Pinna" > strings/0x409/manufacturer
+    echo "Pinna (Echo Dot 2nd gen)" > strings/0x409/product
+    mkdir -p configs/c.1/strings/0x409
+    echo "serial console + network" > configs/c.1/strings/0x409/configuration
+    echo 250 > configs/c.1/MaxPower
+    mkdir -p functions/acm.GS0 functions/ncm.usb0
+    stable_mac 02 > functions/ncm.usb0/dev_addr
+    stable_mac 06 > functions/ncm.usb0/host_addr
+    [ -e configs/c.1/acm.GS0 ] || ln -s functions/acm.GS0 configs/c.1/
+    [ -e configs/c.1/ncm.usb0 ] || ln -s functions/ncm.usb0 configs/c.1/
+    echo "$udc" > UDC
+    echo "usb-gadget: bound to $udc"
+}
+
+down() {
+    [ -d "$G" ] || exit 0
+    echo "" > "$G/UDC" 2>/dev/null || true
+}
+
+case "${1:-}" in
+    up) up ;;
+    down) down ;;
+    *) echo "usage: $0 up|down" >&2; exit 2 ;;
+esac

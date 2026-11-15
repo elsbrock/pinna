@@ -1,0 +1,54 @@
+#!/bin/sh
+# MT8163 Wi-Fi bring-up, ported from LibreEcho's proven sequence
+# (LibreEcho-Platform tools/mt8163-arm32/initramfs/libreecho-init):
+# configure-only WMT init, exactly one one-shot command responder, then one
+# timed function-on write. The chip only tolerates one attempt per boot.
+set -u
+L=/usr/libexec/pinna
+log() { echo "pinna-wifi: $*"; }
+
+[ -c /dev/wmtWifi ]   || mknod /dev/wmtWifi c 153 0
+[ -c /dev/wmtdetect ] || mknod /dev/wmtdetect c 154 0
+[ -c /dev/stpwmt ]    || mknod /dev/stpwmt c 190 0
+[ -e /dev/wmt ]       || ln -s stpwmt /dev/wmt
+[ -c /dev/stpbt ]     || mknod /dev/stpbt c 192 0
+chmod 0660 /dev/wmtWifi /dev/wmtdetect /dev/stpwmt /dev/stpbt
+
+if [ -e /sys/class/net/wlan0 ]; then
+    log "wlan0 already present"
+    exit 0
+fi
+
+"$L/wmt_stock_compat" --device /dev/wmt --firmware-dir /lib/firmware --no-function-on \
+    || { log "wmt_stock_compat failed"; exit 1; }
+
+if pidof wmt_launcher >/dev/null 2>&1; then
+    kill -9 $(pidof wmt_launcher) 2>/dev/null
+    sleep 1
+fi
+
+"$L/wmt_launcher" --device /dev/wmt --ok --once &
+launcher=$!
+sleep 1
+[ "$(pidof wmt_launcher | wc -w)" -eq 1 ] || { kill -TERM "$launcher" 2>/dev/null; log "launcher not running exactly once"; exit 1; }
+
+timeout 30 sh -c "printf '1' > /dev/wmtWifi"
+on_rc=$?
+log "function-on rc=$on_rc"
+
+i=0
+while kill -0 "$launcher" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+if kill -0 "$launcher" 2>/dev/null; then
+    kill -TERM "$launcher"; sleep 1; kill -KILL "$launcher" 2>/dev/null
+    log "launcher did not exit"
+    exit 1
+fi
+wait "$launcher"
+launcher_rc=$?
+[ "$launcher_rc" -eq 0 ] || { log "launcher rc=$launcher_rc"; exit 1; }
+[ "$on_rc" -eq 0 ] || exit "$on_rc"
+
+i=0
+while [ "$i" -lt 30 ] && [ ! -e /sys/class/net/wlan0 ]; do sleep 1; i=$((i + 1)); done
+[ -e /sys/class/net/wlan0 ] || { log "wlan0 did not appear"; exit 1; }
+log "wlan0 is up"

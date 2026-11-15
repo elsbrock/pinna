@@ -1,0 +1,12 @@
+[Unit]
+Description=Pinna device daemon (LEDs, buttons, wake word, Home Assistant)
+After=network.target sound.target pinna-wifi.service
+
+[Service]
+ExecStart=/usr/bin/pinnad --config /etc/pinna/pinnad.toml
+Restart=always
+RestartSec=2
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

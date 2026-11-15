@@ -1,0 +1,15 @@
+[Unit]
+Description=Power up the MT8163 Wi-Fi function (WMT)
+After=local-fs.target systemd-udevd.service
+Before=network-pre.target
+Wants=network-pre.target
+ConditionFirmware=device-tree-compatible(mediatek,mt8163)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/pinna/wifi-up
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
