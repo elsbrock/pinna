@@ -176,6 +176,8 @@ message Interface {
   repeated string addresses = 4;
   // Set for a wireless interface that is associated.
   Wifi wifi = 5;
+  // A wireless interface, associated or not.
+  bool wireless = 6;
 }
 
 message GetNetworkResponse {
