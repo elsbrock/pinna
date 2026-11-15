@@ -1,0 +1,15 @@
+# The virtual Echo Dot (ADR 0014). In the x86_64 image only, pinnad layers this
+# over /etc/pinna/pinnad.toml (pinnad.service.d/vm.conf).
+
+[device]
+friendly_name = "Virtual Echo Dot"
+
+[audio]
+# The VM's PipeWire (/etc/pipewire/pipewire-vm.conf): dev_mic carries the
+# browser's microphone, dev_speaker goes back to the browser.
+backend = "pipewire"
+# By name: WirePlumber never makes a filter (the loopback) the default source.
+capture_target = "dev_mic"
+
+[dev]
+virtual_device = true

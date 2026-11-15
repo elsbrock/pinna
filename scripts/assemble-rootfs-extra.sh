@@ -10,6 +10,7 @@
 #   target/<gnu>/release/    libpinna_ladspa.so, glibc (`just ladspa`)
 #   dashboard/dist/          the dashboard's static files (`just web`)
 #   secrets/                 authorized_keys, wifi/wpa_supplicant-wlan0.conf
+#   mkosi/vm.extra/          the virtual Echo Dot (x86_64 only, ADR 0014)
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -92,10 +93,18 @@ if [ -s "$root/secrets/authorized_keys" ]; then
 else
   warn "no secrets/authorized_keys — SSH login will be impossible"
 fi
+# The virtual Echo Dot (x86_64): its PipeWire graph, pinnad's [dev] layer and
+# the unit drop-ins that turn them on.
+if [ "$device" = no ]; then
+  cp -r "$root/mkosi/vm.extra/." "$out/"
+fi
+
 # Owner-local device identity and Home Assistant API key: defaults only, seeded
 # to /var/lib/pinna on first boot (tmpfiles) so a re-flash keeps the same
-# Home Assistant device.
+# Home Assistant device. Not in the VM: it would join Home Assistant as the
+# owner's Echo Dot.
 for f in pinnad.toml esphome-key; do
+  [ "$device" = yes ] || break
   if [ -s "$root/secrets/device/$f" ]; then
     install -d "$out/usr/share/pinna/device"
     install -m0600 "$root/secrets/device/$f" "$out/usr/share/pinna/device/$f"
