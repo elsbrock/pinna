@@ -20,6 +20,7 @@ use crate::spectrum::{Analyzer, Spectrum};
 use crate::volume::volume_gain;
 use crate::{Backend, Error, Result, decode};
 use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -53,6 +54,9 @@ pub struct SpeakerConfig {
     /// Fixed gain on top of the volume curve, in dB (the speaker's
     /// loudness calibration).
     pub pre_gain_db: f32,
+    /// The playback PCM's `/proc/asound` status file (Echo Dot). The amp is
+    /// powered only once it reads `RUNNING`.
+    pub pcm_status: Option<PathBuf>,
 }
 
 impl SpeakerConfig {
@@ -70,9 +74,14 @@ impl SpeakerConfig {
             lead: Duration::from_millis(100),
             duck_db: -20.0,
             pre_gain_db: 0.0,
+            pcm_status: Some("/proc/asound/card0/pcm23p/sub0/status".into()),
         }
     }
 }
+
+/// How long the player may take to start the PCM before the amp is powered
+/// anyway (it takes ~1.2 s on the Dot).
+const PCM_START_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaybackState {
@@ -436,10 +445,10 @@ impl Session {
         }
     }
 
-    /// Restart the pacing clock at the current frame (pre-roll start).
-    fn restart_clock(&mut self, now: Instant) {
-        self.anchor_t = now;
-        self.anchor_frame = self.frames_written;
+    /// Start the pacing clock: the session's first frame sounds at `at`.
+    fn start_clock(&mut self, at: Instant) {
+        self.anchor_t = at;
+        self.anchor_frame = 0;
     }
 
     /// Pace by a new rate from the next frame on, without a jump.
@@ -470,6 +479,40 @@ impl Session {
         }
         self.frames_written += (bytes.len() / 4) as u64;
         Ok(())
+    }
+}
+
+/// Wait until the player has started the PCM (its status file reads
+/// `state: RUNNING`) and return when. Gives up, returning now, when the file
+/// cannot be read or after [`PCM_START_TIMEOUT`]; fails if the player exits.
+async fn wait_pcm_running(status: Option<&Path>, session: &mut Session) -> Result<Instant> {
+    let Some(path) = status else {
+        return Ok(Instant::now());
+    };
+    let deadline = Instant::now() + PCM_START_TIMEOUT;
+    loop {
+        match tokio::fs::read_to_string(path).await {
+            Ok(s) if s.starts_with("state: RUNNING") => return Ok(Instant::now()),
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("speaker status {}: {e}", path.display());
+                return Ok(Instant::now());
+            }
+        }
+        if let Sink::Process { child, .. } = &mut session.sink
+            && let Some(st) = child.try_wait()?
+        {
+            return Err(Error::Other(format!(
+                "player exited before the speaker started: {st}"
+            )));
+        }
+        if Instant::now() >= deadline {
+            tracing::warn!(
+                "speaker not running after {PCM_START_TIMEOUT:?}, powering the amp anyway"
+            );
+            return Ok(Instant::now());
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
@@ -781,7 +824,8 @@ impl Actor {
         }
     }
 
-    /// Mixer arm -> player process -> amp on -> prime silence -> unmute.
+    /// Mixer arm -> player process -> prime silence -> PCM running -> amp on
+    /// -> unmute.
     async fn open_session(&mut self) -> Result<Session> {
         let echo = self.cfg.backend.echo_dot_mixer();
         if echo
@@ -834,18 +878,23 @@ impl Actor {
             reference,
         };
         let result: Result<()> = async {
-            if echo {
-                self.cfg.mixer.apply(&mixer::playback_power()).await?;
-                tokio::time::sleep(AMP_SETTLE).await;
-            }
-            // Pre-roll: twice the lead of silence, written before the unmute.
-            session.restart_clock(Instant::now());
+            // Pre-roll: twice the lead of silence. The player starts the PCM
+            // once its buffer (128 ms on the Dot) is full, and the rest plays
+            // while the amp powers up.
+            session.start_clock(Instant::now());
             let silence = vec![0u8; CHUNK_FRAMES * 4];
             let prime_chunks = (self.cfg.lead.as_millis() as usize * 2).div_ceil(20).max(1);
             for _ in 0..prime_chunks {
                 session.write(&silence).await?;
             }
             if echo {
+                // The codec powers up while the player prepares the PCM. An
+                // amp that is already on plays that as a crack.
+                let started =
+                    wait_pcm_running(self.cfg.pcm_status.as_deref(), &mut session).await?;
+                session.start_clock(started);
+                self.cfg.mixer.apply(&mixer::playback_power()).await?;
+                tokio::time::sleep(AMP_SETTLE).await;
                 self.cfg.mixer.apply(&mixer::playback_unmute()).await?;
             }
             Ok(())
@@ -1298,10 +1347,10 @@ mod tests {
         .unwrap();
     }
 
-    #[tokio::test]
-    async fn mixer_sequence_runs_in_order_on_echodot() {
-        // Fake amixer logs its args; fake aplay swallows stdin.
-        let dir = std::env::temp_dir().join(format!("pinna-fakespk-{}", std::process::id()));
+    /// An Echo Dot speaker on a fake amixer (logs its args to `log`), a fake
+    /// aplay (swallows stdin) and a PCM status file that reads `state`.
+    fn fake_echodot(tag: &str, state: &str) -> (std::path::PathBuf, SpeakerConfig) {
+        let dir = std::env::temp_dir().join(format!("pinna-fakespk-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("log");
         let amixer = dir.join("amixer");
@@ -1316,10 +1365,19 @@ mod tests {
         for p in [&amixer, &aplay] {
             std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        std::fs::write(dir.join("status"), format!("state: {state}\n")).unwrap();
         let mut cfg = SpeakerConfig::new(Backend::EchoDot);
         cfg.mixer.bin = amixer.to_string_lossy().into();
         cfg.aplay_bin = aplay.to_string_lossy().into();
+        cfg.pcm_status = Some(dir.join("status"));
         cfg.idle_timeout = Duration::from_millis(200);
+        (dir, cfg)
+    }
+
+    #[tokio::test]
+    async fn mixer_sequence_runs_in_order_on_echodot() {
+        let (dir, cfg) = fake_echodot("seq", "RUNNING");
+        let log = dir.join("log");
         let sp = Speaker::new(cfg);
         sp.play_pcm(crate::tone::beep(440.0, 60, 0.5))
             .await
@@ -1341,6 +1399,37 @@ mod tests {
         );
         want.extend(["name=MFP Gpio Mute On", "name=Ext_Speaker_Amp_Switch Off"].map(String::from));
         assert_eq!(lines, want);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn amp_waits_for_the_running_pcm() {
+        let (dir, cfg) = fake_echodot("wait", "SETUP");
+        let (log, status) = (dir.join("log"), dir.join("status"));
+        let sp = Speaker::new(cfg);
+        let prepare = async {
+            // The codec is still powering up: the amp must stay off.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let before = std::fs::read_to_string(&log).unwrap_or_default();
+            std::fs::write(&status, "state: RUNNING\n").unwrap();
+            before
+        };
+        let (played, before) =
+            tokio::join!(sp.play_pcm(crate::tone::beep(440.0, 60, 0.5)), prepare);
+        played.unwrap();
+        assert!(
+            before.contains("name=Ext_Speaker_Amp_Switch Off"),
+            "{before}"
+        );
+        assert!(
+            !before.contains("name=Ext_Speaker_Amp_Switch On"),
+            "{before}"
+        );
+        assert!(!before.contains("name=MFP Gpio Mute Off"), "{before}");
+        let after = std::fs::read_to_string(&log).unwrap();
+        assert!(after.contains("name=Ext_Speaker_Amp_Switch On"), "{after}");
+        assert!(after.contains("name=MFP Gpio Mute Off"), "{after}");
+        drop(sp);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
