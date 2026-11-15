@@ -229,22 +229,47 @@ pub fn split_kernel_blob(blob: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     Ok((body[..zlen].to_vec(), body[zlen..].to_vec()))
 }
 
-/// A minimal newc cpio archive containing the given regular files.
-/// Used as a placeholder ramdisk: without an `/init` in it, the kernel falls
-/// through to mounting `root=` itself.
-pub fn newc_cpio(files: &[(&str, &[u8])]) -> Vec<u8> {
-    fn entry(out: &mut Vec<u8>, ino: u32, name: &str, mode: u32, data: &[u8]) {
+/// One member of a newc cpio archive (permissions in `perm`, type from the variant).
+#[derive(Debug, Clone, Copy)]
+pub enum CpioEntry<'a> {
+    File {
+        name: &'a str,
+        perm: u32,
+        data: &'a [u8],
+    },
+    Dir {
+        name: &'a str,
+        perm: u32,
+    },
+    CharDev {
+        name: &'a str,
+        perm: u32,
+        major: u32,
+        minor: u32,
+    },
+}
+
+/// A newc cpio archive, padded to 512 bytes.
+pub fn newc_cpio_entries(entries: &[CpioEntry]) -> Vec<u8> {
+    fn entry(
+        out: &mut Vec<u8>,
+        ino: u32,
+        name: &str,
+        mode: u32,
+        nlink: u32,
+        rdev: (u32, u32),
+        data: &[u8],
+    ) {
         let hdr = format!(
-            "070701{ino:08x}{mode:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
+            "070701{ino:08x}{mode:08x}{:08x}{:08x}{nlink:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
             0,
             0,
-            1,
             0,
             data.len(),
             0,
             0,
-            0,
-            0,
+            rdev.0,
+            rdev.1,
             name.len() + 1,
             0
         );
@@ -260,14 +285,64 @@ pub fn newc_cpio(files: &[(&str, &[u8])]) -> Vec<u8> {
         }
     }
     let mut out = Vec::new();
-    for (i, (name, data)) in files.iter().enumerate() {
-        entry(&mut out, i as u32 + 1, name, 0o100644, data);
+    for (i, e) in entries.iter().enumerate() {
+        let ino = i as u32 + 1;
+        match *e {
+            CpioEntry::File { name, perm, data } => {
+                entry(&mut out, ino, name, 0o100000 | perm, 1, (0, 0), data)
+            }
+            CpioEntry::Dir { name, perm } => {
+                entry(&mut out, ino, name, 0o040000 | perm, 2, (0, 0), &[])
+            }
+            CpioEntry::CharDev {
+                name,
+                perm,
+                major,
+                minor,
+            } => entry(&mut out, ino, name, 0o020000 | perm, 1, (major, minor), &[]),
+        }
     }
-    entry(&mut out, 0, "TRAILER!!!", 0, &[]);
+    entry(&mut out, 0, "TRAILER!!!", 0, 1, (0, 0), &[]);
     while !out.len().is_multiple_of(512) {
         out.push(0);
     }
     out
+}
+
+/// A minimal newc cpio archive containing the given regular files.
+/// Used as a placeholder ramdisk: without an `/init` in it, the kernel falls
+/// through to mounting `root=` itself.
+pub fn newc_cpio(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let entries: Vec<CpioEntry> = files
+        .iter()
+        .map(|&(name, data)| CpioEntry::File {
+            name,
+            perm: 0o644,
+            data,
+        })
+        .collect();
+    newc_cpio_entries(&entries)
+}
+
+/// The initramfs: `/init` (pinna-init), the mount points it uses and
+/// `/dev/console`, which the kernel opens for init's stdio.
+pub fn initramfs(init: &[u8]) -> Vec<u8> {
+    let mut entries: Vec<CpioEntry> = ["dev", "proc", "sys", "run", "sysroot"]
+        .into_iter()
+        .map(|name| CpioEntry::Dir { name, perm: 0o755 })
+        .collect();
+    entries.push(CpioEntry::CharDev {
+        name: "dev/console",
+        perm: 0o600,
+        major: 5,
+        minor: 1,
+    });
+    entries.push(CpioEntry::File {
+        name: "init",
+        perm: 0o755,
+        data: init,
+    });
+    newc_cpio_entries(&entries)
 }
 
 #[cfg(test)]
@@ -335,5 +410,27 @@ mod tests {
         let c = newc_cpio(&[("a", b"xyz")]);
         assert_eq!(c.len() % 512, 0);
         assert!(c.windows(10).any(|w| w == b"TRAILER!!!"));
+    }
+
+    #[test]
+    fn initramfs_members() {
+        let c = initramfs(b"\x7fELF-init");
+        let text = String::from_utf8_lossy(&c);
+        // mode field (2nd after the inode) per member
+        let mode_of = |name: &str| {
+            let at = text.find(&format!("{name}\0")).unwrap();
+            let hdr = &text[at - 110..at];
+            assert!(hdr.starts_with("070701"));
+            (
+                u32::from_str_radix(&hdr[14..22], 16).unwrap(),
+                u32::from_str_radix(&hdr[78..86], 16).unwrap(),
+                u32::from_str_radix(&hdr[86..94], 16).unwrap(),
+            )
+        };
+        assert_eq!(mode_of("init"), (0o100755, 0, 0));
+        assert_eq!(mode_of("sysroot"), (0o040755, 0, 0));
+        assert_eq!(mode_of("dev/console"), (0o020600, 5, 1));
+        assert!(text.contains("\x7fELF-init"));
+        assert_eq!(c.len() % 512, 0);
     }
 }

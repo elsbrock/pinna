@@ -36,6 +36,13 @@ enum Cmd {
     },
     /// Re-serialize an image and check it is byte-identical.
     Roundtrip { image: PathBuf },
+    /// Build the initramfs (newc cpio) around a static pinna-init.
+    Initramfs {
+        #[arg(long)]
+        init: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -108,6 +115,22 @@ fn main() -> Result<()> {
                 bytes.len(),
                 img.kernel.len(),
                 img.ramdisk.len()
+            );
+        }
+        Cmd::Initramfs { init, out } => {
+            let bin = fs::read(&init).with_context(|| format!("reading {}", init.display()))?;
+            ensure!(
+                bin.starts_with(b"\x7fELF"),
+                "{} is not an ELF binary",
+                init.display()
+            );
+            let cpio = initramfs(&bin);
+            fs::write(&out, &cpio)?;
+            println!(
+                "{}: {} bytes (init {} bytes)",
+                out.display(),
+                cpio.len(),
+                bin.len()
             );
         }
         Cmd::Roundtrip { image } => {
