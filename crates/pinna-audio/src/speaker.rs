@@ -396,7 +396,7 @@ pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
             .map(String::from)
             .to_vec(),
         )),
-        Backend::PipeWire => {
+        Backend::PipeWire | Backend::EchoDotPipeWire => {
             // `--raw`: otherwise pw-play expects a container on stdin.
             let mut a: Vec<String> = [
                 "--raw",
@@ -409,9 +409,13 @@ pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
             ]
             .map(String::from)
             .to_vec();
-            if let Some(t) = &cfg.pw_target {
+            let target = cfg
+                .pw_target
+                .clone()
+                .or_else(|| cfg.backend.pw_playback_target().map(String::from));
+            if let Some(t) = target {
                 a.push("--target".into());
-                a.push(t.clone());
+                a.push(t);
             }
             a.push("-".into());
             Some((cfg.pw_play_bin.clone(), a))
@@ -584,7 +588,7 @@ impl Actor {
 
     /// Mixer arm -> player process -> amp on -> prime silence -> unmute.
     async fn open_session(&mut self) -> Result<Session> {
-        let echo = self.cfg.backend == Backend::EchoDot;
+        let echo = self.cfg.backend.echo_dot_mixer();
         if echo
             && let Err(e) = self
                 .cfg
@@ -646,7 +650,7 @@ impl Actor {
 
     async fn close_session(&mut self) {
         if let Some(s) = self.session.take() {
-            let echo = self.cfg.backend == Backend::EchoDot;
+            let echo = self.cfg.backend.echo_dot_mixer();
             Self::close(s, echo.then_some(&self.cfg.mixer)).await;
         }
         self.session_open.store(false, Ordering::Relaxed);

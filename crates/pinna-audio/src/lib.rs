@@ -40,8 +40,35 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Backend {
     /// Echo Dot: alsa-utils against the MT8163 sound card.
     EchoDot,
+    /// Echo Dot through the device's PipeWire graph: the microphone front end
+    /// (beamformer) and echo cancellation run in PipeWire, so capture reads one
+    /// processed mono stream (`dot_mic_aec`) and playback goes to the echo-cancel
+    /// reference sink (`dot_out`). The amp and mic mixer sequences stay here.
+    EchoDotPipeWire,
     /// PipeWire tools (`pw-record` / `pw-play`) for laptops and VMs.
     PipeWire,
     /// Capture only: read a WAV file (tests).
     WavFile(std::path::PathBuf),
+}
+
+impl Backend {
+    /// Runs the Echo Dot codec/amp/mic mixer sequences.
+    pub fn echo_dot_mixer(&self) -> bool {
+        matches!(self, Backend::EchoDot | Backend::EchoDotPipeWire)
+    }
+
+    /// Streams through `pw-record` / `pw-play`.
+    pub fn pipewire(&self) -> bool {
+        matches!(self, Backend::PipeWire | Backend::EchoDotPipeWire)
+    }
+
+    /// Default PipeWire capture node for this backend.
+    pub fn pw_capture_target(&self) -> Option<&'static str> {
+        matches!(self, Backend::EchoDotPipeWire).then_some("dot_mic_aec")
+    }
+
+    /// Default PipeWire playback node for this backend.
+    pub fn pw_playback_target(&self) -> Option<&'static str> {
+        matches!(self, Backend::EchoDotPipeWire).then_some("dot_out")
+    }
 }

@@ -48,12 +48,22 @@ fn audio_backend(spec: &str) -> Option<Backend> {
     match spec {
         "none" => None,
         "echodot" => Some(Backend::EchoDot),
+        "echodot-pipewire" => Some(Backend::EchoDotPipeWire),
         "pipewire" => Some(Backend::PipeWire),
         s if s.starts_with("wav:") => Some(Backend::WavFile(PathBuf::from(&s[4..]))),
         _ => {
             let cards = std::fs::read_to_string("/proc/asound/cards").unwrap_or_default();
             if cards.contains("mt-snd-card") {
-                Some(Backend::EchoDot)
+                // The device's PipeWire graph (system service) when it runs,
+                // otherwise the sound card directly.
+                let socket = std::env::var_os("PIPEWIRE_RUNTIME_DIR")
+                    .map_or_else(|| PathBuf::from("/run/pipewire"), PathBuf::from)
+                    .join("pipewire-0");
+                if socket.exists() {
+                    Some(Backend::EchoDotPipeWire)
+                } else {
+                    Some(Backend::EchoDot)
+                }
             } else if std::env::var_os("XDG_RUNTIME_DIR")
                 .map(|d| PathBuf::from(d).join("pipewire-0").exists())
                 .unwrap_or(false)
@@ -248,6 +258,7 @@ async fn main() -> Result<()> {
     let audio_backend = match &backend {
         None => "none",
         Some(Backend::EchoDot) => "echodot",
+        Some(Backend::EchoDotPipeWire) => "echodot-pipewire",
         Some(Backend::PipeWire) => "pipewire",
         Some(Backend::WavFile(_)) => "wav",
     };

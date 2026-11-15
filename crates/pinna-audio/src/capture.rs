@@ -259,7 +259,7 @@ pub fn capture_command(cfg: &CaptureConfig) -> Option<(String, Vec<String>)> {
             .map(String::from)
             .to_vec(),
         )),
-        Backend::PipeWire => {
+        Backend::PipeWire | Backend::EchoDotPipeWire => {
             // `--raw`: without it pw-record writes a Sun AU container to stdout.
             let mut a: Vec<String> = [
                 "--raw",
@@ -272,9 +272,13 @@ pub fn capture_command(cfg: &CaptureConfig) -> Option<(String, Vec<String>)> {
             ]
             .map(String::from)
             .to_vec();
-            if let Some(t) = &cfg.pw_target {
+            let target = cfg
+                .pw_target
+                .clone()
+                .or_else(|| cfg.backend.pw_capture_target().map(String::from));
+            if let Some(t) = target {
                 a.push("--target".into());
-                a.push(t.clone());
+                a.push(t);
             }
             a.push("-".into());
             Some((cfg.pw_record_bin.clone(), a))
@@ -291,7 +295,7 @@ async fn run_process(
     restart: &Notify,
     stop: &mut watch::Receiver<bool>,
 ) -> RunEnd {
-    if cfg.backend == Backend::EchoDot
+    if cfg.backend.echo_dot_mixer()
         && let Err(e) = cfg.mixer.apply(&mixer::capture_setup(cfg.micpga)).await
     {
         return RunEnd::Died(format!("mixer setup: {e}"), false);
