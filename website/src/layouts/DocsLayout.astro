@@ -1,0 +1,186 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import DocsSidebar from "../components/DocsSidebar.astro";
+import Icon from "../components/Icon.astro";
+import Logo from "../components/Logo.astro";
+import { DOCS_FLAT, docEditHref, docHref, href, SITE } from "../lib/site";
+
+type Props = {
+  title: string;
+  description?: string;
+  /** Nav slug of this page ("" for the overview). */
+  slug: string;
+  /** Content file name, for the "edit this page" link. */
+  file: string;
+};
+
+const { title, description, slug, file } = Astro.props;
+
+const index = DOCS_FLAT.findIndex((item) => item.slug === slug);
+const previous = index > 0 ? DOCS_FLAT[index - 1] : undefined;
+const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
+---
+
+<BaseLayout title={`${title} — Docs`} description={description}>
+  <header
+    class="border-line bg-canvas/85 sticky top-0 z-30 border-b backdrop-blur"
+  >
+    <div class="mx-auto flex h-14 max-w-[88rem] items-center gap-3 px-4 lg:px-6">
+      <button
+        id="docs-nav-toggle"
+        class="btn btn-secondary -ml-1 px-2 lg:hidden"
+        aria-label="Toggle docs navigation"
+        aria-controls="docs-nav"
+        aria-expanded="false"
+      >
+        <span id="docs-nav-icon-menu"><Icon name="menu" size={18} /></span>
+        <span id="docs-nav-icon-close" class="hidden"
+          ><Icon name="close" size={18} /></span
+        >
+      </button>
+
+      <a href={href("/")} class="flex items-center gap-2.5">
+        <Logo class="text-accent h-6 w-6" />
+        <span class="text-ink font-semibold">Pinna</span>
+        <span class="text-faint text-sm">/ docs</span>
+      </a>
+
+      <div class="ml-auto flex items-center gap-2">
+        <a class="btn btn-secondary hidden sm:inline-flex" href={SITE.repo}>
+          <Icon name="github" size={16} />
+          GitHub
+        </a>
+        <a class="btn btn-secondary px-2.5 sm:hidden" href={SITE.repo} aria-label="Pinna on GitHub">
+          <Icon name="github" size={16} />
+        </a>
+        <a class="btn btn-secondary hidden sm:inline-flex" href={href("/")}>
+          Home
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <div class="mx-auto max-w-[88rem] px-4 lg:px-6">
+    <div class="lg:flex lg:gap-10">
+      <aside id="docs-nav" class="hidden lg:block lg:w-72 lg:shrink-0">
+        <div class="py-6 lg:sticky lg:top-14">
+          <DocsSidebar current={slug} />
+        </div>
+      </aside>
+
+      <main class="min-w-0 flex-1 py-8 lg:py-10">
+        <article class="max-w-3xl">
+          <div data-pagefind-body>
+            <h1
+              class="text-ink text-3xl font-semibold tracking-[-0.015em]"
+              data-pagefind-meta="title"
+            >
+              {title}
+            </h1>
+            {
+              description && (
+                <p class="text-muted mt-3 text-lg leading-7">{description}</p>
+              )
+            }
+            <div class="docs-content mt-8">
+              <slot />
+            </div>
+          </div>
+
+          <nav
+            class="border-line mt-14 grid gap-3 border-t pt-6 sm:grid-cols-2"
+            aria-label="Docs pages"
+          >
+            {
+              previous ? (
+                <a
+                  class="card hover:border-line-strong flex items-center gap-3 p-3.5 transition-colors"
+                  href={docHref(previous.slug)}
+                >
+                  <Icon name="arrow" size={16} class="text-faint rotate-180" />
+                  <span class="min-w-0">
+                    <span class="text-faint block text-xs">Previous</span>
+                    <span class="text-ink block truncate text-sm font-medium">
+                      {previous.title}
+                    </span>
+                  </span>
+                </a>
+              ) : (
+                <span />
+              )
+            }
+            {
+              next && (
+                <a
+                  class="card hover:border-line-strong flex items-center gap-3 p-3.5 transition-colors sm:justify-self-end sm:text-right"
+                  href={docHref(next.slug)}
+                >
+                  <span class="min-w-0">
+                    <span class="text-faint block text-xs">Next</span>
+                    <span class="text-ink block truncate text-sm font-medium">
+                      {next.title}
+                    </span>
+                  </span>
+                  <Icon name="arrow" size={16} class="text-faint" />
+                </a>
+              )
+            }
+          </nav>
+
+          <p class="border-line mt-10 flex items-center gap-1.5 border-t pt-6 text-sm">
+            <a
+              class="text-muted hover:text-ink inline-flex items-center gap-1.5"
+              href={docEditHref(file)}
+            >
+              Edit this page on GitHub
+              <Icon name="external" size={14} class="text-faint" />
+            </a>
+          </p>
+        </article>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const nav = document.getElementById("docs-nav");
+    const toggle = document.getElementById("docs-nav-toggle");
+    const menuIcon = document.getElementById("docs-nav-icon-menu");
+    const closeIcon = document.getElementById("docs-nav-icon-close");
+
+    if (nav && toggle) {
+      const setOpen = (open: boolean) => {
+        nav.classList.toggle("open", open);
+        toggle.setAttribute("aria-expanded", String(open));
+        menuIcon?.classList.toggle("hidden", open);
+        closeIcon?.classList.toggle("hidden", !open);
+        document.documentElement.classList.toggle("overflow-hidden", open);
+      };
+
+      toggle.addEventListener("click", () =>
+        setOpen(!nav.classList.contains("open")),
+      );
+      nav.addEventListener("click", (event) => {
+        if ((event.target as HTMLElement).closest("a")) setOpen(false);
+      });
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") setOpen(false);
+      });
+    }
+  </script>
+
+  <style>
+    @media (max-width: 1023.98px) {
+      #docs-nav.open {
+        display: block;
+        position: fixed;
+        inset: 0;
+        top: 3.5rem;
+        z-index: 40;
+        overflow-y: auto;
+        background: var(--color-canvas);
+        border-top: 1px solid var(--color-line);
+        padding: 1.25rem 1.25rem 4rem;
+      }
+    }
+  </style>
+</BaseLayout>

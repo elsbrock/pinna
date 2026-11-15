@@ -1,0 +1,59 @@
+---
+import Search from "./Search.astro";
+import { DOCS_NAV, docHref } from "../lib/site";
+
+type Props = { current?: string };
+
+const { current = "" } = Astro.props;
+---
+
+<nav aria-label="Docs">
+  <Search />
+
+  <div class="mt-6 space-y-7">
+    {
+      DOCS_NAV.map(({ group, items }) => (
+        <div>
+          <p class="eyebrow px-2">{group}</p>
+          <ul class="mt-2 space-y-0.5">
+            {items.map((item) => {
+              const active = item.slug === current;
+              return (
+                <li>
+                  <a
+                    href={docHref(item.slug)}
+                    aria-current={active ? "page" : undefined}
+                    class:list={[
+                      "block rounded-md px-2 py-1.5 text-sm transition-colors",
+                      active
+                        ? "bg-accent-soft text-accent font-medium"
+                        : "text-muted hover:bg-surface hover:text-ink",
+                    ]}
+                  >
+                    {item.title}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="border-line mt-8 border-t px-2 pt-5">
+    <p class="text-faint text-xs leading-5">
+      Pinna is early bring-up. Found a sharp edge?
+      <a
+        class="text-accent hover:underline"
+        href="https://github.com/elsbrock/pinna/issues">Open an issue</a
+      >.
+    </p>
+    <p class="text-faint mt-2 text-xs leading-5">
+      Tip: press <kbd
+        class="border-line bg-surface text-muted rounded border px-1 font-mono text-[0.7rem]"
+        >/</kbd
+      > to jump to search.
+    </p>
+  </div>
+</nav>

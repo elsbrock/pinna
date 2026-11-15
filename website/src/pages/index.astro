@@ -1,0 +1,779 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import Icon from "../components/Icon.astro";
+import { docHref, href, SITE } from "../lib/site";
+
+const steps = [
+  {
+    number: "01",
+    title: "Wake word on the device",
+    body: "openWakeWord detects “Alexa” locally — pure-Rust tract, parity-tested against onnxruntime to 3e-6. The microphone stream is local until the wake word fires.",
+  },
+  {
+    number: "02",
+    title: "Assist in your Home Assistant",
+    body: "Audio streams over the ESPHome native API into the Assist pipeline you configured. Speech-to-text, conversation agent, text-to-speech — your stack, your data.",
+  },
+  {
+    number: "03",
+    title: "Reply on the Dot",
+    body: "The answer plays on the speaker; the LED ring shows what is happening; timers, announcements, mute and volume stay available as Home Assistant entities.",
+  },
+];
+
+const features = [
+  {
+    icon: "mic",
+    title: "Wake word on-device",
+    body: "Detection runs on the Echo Dot itself. No audio leaves the device before the wake word, and nothing is ever sent to Amazon.",
+  },
+  {
+    icon: "broadcast",
+    title: "Home Assistant first",
+    body: "Speaks the ESPHome native API, plaintext or Noise-encrypted. Home Assistant discovers Pinna over mDNS and adopts it — no YAML.",
+  },
+  {
+    icon: "sliders",
+    title: "Entity names kept",
+    body: "The entity set matches the previous LibreEcho firmware, so existing dashboards, automations and voice pipelines keep working.",
+  },
+  {
+    icon: "ring",
+    title: "LED ring & buttons",
+    body: "The ring is a light entity with effects; the buttons surface as events; the privacy mute and volume are first-class controls.",
+  },
+  {
+    icon: "terminal",
+    title: "Local control API",
+    body: "A ConnectRPC DeviceService on localhost with a console client, pinnactl. Watch state, set volume, mute or run an LED test.",
+  },
+  {
+    icon: "shield",
+    title: "Recovery first",
+    body: "A fastboot guard arms an escape hatch on every boot, and restoring the previous firmware is one script with your backup.",
+  },
+];
+
+const entities: { entity: string; type: string; notes: string }[] = [
+  {
+    entity: "LED ring",
+    type: "light",
+    notes: "Effects: Solid, Pulse, Flash",
+  },
+  { entity: "Wake word", type: "switch", notes: "Turn detection on/off" },
+  {
+    entity: "Microphone mute",
+    type: "switch",
+    notes: "Mirrors the hardware mute",
+  },
+  { entity: "Volume · Reply volume", type: "number", notes: "0–100" },
+  {
+    entity: "Wake word sensitivity",
+    type: "number",
+    notes: "Maps to the detector threshold",
+  },
+  { entity: "LED brightness", type: "number", notes: "0–100" },
+  {
+    entity: "Cancel request",
+    type: "button",
+    notes: "Stops playback and the current request",
+  },
+  {
+    entity: "Voice assistant",
+    type: "event",
+    notes: "wake_word · listening · thinking · replying · finished · stopped",
+  },
+  {
+    entity: "Playback · Timer",
+    type: "event",
+    notes: "started/stopped · started/updated/cancelled/finished",
+  },
+  {
+    entity: "Volume up/down · Mute · Action",
+    type: "event",
+    notes: "press · long_press · double_press",
+  },
+  { entity: "Last wake word", type: "text sensor", notes: "e.g. “alexa”" },
+  {
+    entity: "Media player",
+    type: "media player",
+    notes: "Announcements, play/pause, volume",
+  },
+];
+
+const hardware: { device: string; soc: string; status: string; tone: string }[] =
+  [
+    {
+      device: "Echo Dot (2nd gen)",
+      soc: "MediaTek MT8163 · ARMv7 · ~480 MB RAM",
+      status: "Early bring-up — console only",
+      tone: "text-ink",
+    },
+    {
+      device: "Echo (2nd gen)",
+      soc: "Same MT8163 platform",
+      status: "Planned",
+      tone: "text-faint",
+    },
+  ];
+
+const works = [
+  "Kernel .deb, Debian erofs image and boot image all build",
+  "Boot gates pass in QEMU (armhf) and KVM (x86_64)",
+  "ESPHome API conformance-tested against aioesphomeapi",
+  "Wake word parity with onnxruntime to 3e-6",
+  "End-to-end voice flow against a simulated Home Assistant",
+];
+
+const edges = [
+  "Console only — no web UI, and bring-up on real hardware is in progress",
+  "Mic gain, speaker mixer sequence and LED direction still need on-device tuning",
+  "Wi-Fi/BT firmware and wake word models are owner-supplied, never committed",
+  "Kernel is a LibreEcho 6.1 fork; moving to Debian's 6.12 LTS is tracked separately",
+];
+---
+
+<BaseLayout>
+  <SiteHeader slot="header" />
+
+  <!-- Hero -->
+  <div class="hero-glow">
+    <section
+      class="mx-auto grid max-w-6xl items-center gap-14 px-4 pt-14 pb-16 sm:px-6 lg:grid-cols-[1.05fr_minmax(0,27rem)] lg:pt-20 lg:pb-24"
+    >
+      <div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="chip">
+            <span class="bg-ring h-1.5 w-1.5 rounded-full"></span>
+            Early bring-up · console only
+          </span>
+          <span class="chip">Echo Dot (2nd gen)</span>
+        </div>
+
+        <h1
+          class="text-ink mt-6 text-4xl leading-[1.1] font-semibold tracking-[-0.02em] sm:text-5xl"
+        >
+          A local voice satellite for your Echo&nbsp;Dot
+        </h1>
+
+        <p class="text-muted mt-5 max-w-xl text-lg leading-8">
+          Pinna is an open, image-based Linux system that turns the Echo Dot
+          (2nd gen) into a Home Assistant voice satellite. Wake word, LED ring
+          and buttons run on the device. Audio goes to your Home Assistant —
+          not to a cloud.
+        </p>
+
+        <div class="mt-8 flex flex-wrap items-center gap-3">
+          <a class="btn btn-primary" href={href("/docs/build/")}>
+            Get started
+            <Icon name="arrow" size={16} />
+          </a>
+          <a class="btn btn-secondary" href={SITE.repo}>
+            <Icon name="github" size={16} />
+            View on GitHub
+          </a>
+        </div>
+
+        <div class="mt-9 flex flex-wrap gap-2">
+          {["Debian trixie", "read-only erofs root", "systemd", "Rust", "ESPHome native API"].map(
+            (fact) => <span class="chip">{fact}</span>,
+          )}
+        </div>
+      </div>
+
+      <!-- Home Assistant device card -->
+      <div>
+        <div class="card overflow-hidden" aria-hidden="true">
+          <div class="border-line flex items-center gap-3 border-b px-4 py-3.5">
+            <div
+              class="bg-accent-soft text-accent grid h-9 w-9 shrink-0 place-items-center rounded-lg"
+            >
+              <Icon name="home" size={18} />
+            </div>
+            <div class="min-w-0">
+              <p class="text-ink truncate text-sm font-semibold">
+                Echo Dot (2nd gen)
+              </p>
+              <p class="text-faint text-xs">Pinna · ESPHome API</p>
+            </div>
+            <span class="text-ok ml-auto inline-flex items-center gap-1.5 text-xs">
+              <span class="bg-ok h-1.5 w-1.5 rounded-full"></span>
+              Connected
+            </span>
+          </div>
+
+          <ul class="divide-line divide-y">
+            <li class="flex items-center gap-3 px-4 py-2.5">
+              <Icon name="ring" size={16} class="text-faint shrink-0" />
+              <div class="min-w-0">
+                <p class="text-body text-sm">LED ring</p>
+                <p class="text-faint font-mono text-[0.7rem]">
+                  light · led_ring
+                </p>
+              </div>
+              <span class="text-muted ml-auto text-xs">80%</span>
+              <span
+                class="bg-accent relative ml-1 inline-flex h-5 w-9 shrink-0 items-center rounded-full"
+              >
+                <span
+                  class="absolute left-[18px] h-3.5 w-3.5 rounded-full bg-white"
+                ></span>
+              </span>
+            </li>
+
+            <li class="flex items-center gap-3 px-4 py-2.5">
+              <Icon name="mic" size={16} class="text-faint shrink-0" />
+              <div class="min-w-0">
+                <p class="text-body text-sm">Wake word</p>
+                <p class="text-faint font-mono text-[0.7rem]">
+                  switch · wake_word
+                </p>
+              </div>
+              <span
+                class="bg-accent relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full"
+              >
+                <span
+                  class="absolute left-[18px] h-3.5 w-3.5 rounded-full bg-white"
+                ></span>
+              </span>
+            </li>
+
+            <li class="flex items-center gap-3 px-4 py-2.5">
+              <Icon name="shield" size={16} class="text-faint shrink-0" />
+              <div class="min-w-0">
+                <p class="text-body text-sm">Microphone mute</p>
+                <p class="text-faint font-mono text-[0.7rem]">
+                  switch · mute
+                </p>
+              </div>
+              <span
+                class="bg-line-strong relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full"
+              >
+                <span
+                  class="absolute left-0.5 h-3.5 w-3.5 rounded-full bg-white shadow"
+                ></span>
+              </span>
+            </li>
+
+            <li class="flex items-center gap-3 px-4 py-2.5">
+              <Icon name="speaker" size={16} class="text-faint shrink-0" />
+              <div class="min-w-0">
+                <p class="text-body text-sm">Volume</p>
+                <p class="text-faint font-mono text-[0.7rem]">
+                  number · volume
+                </p>
+              </div>
+              <span
+                class="bg-line ml-auto hidden h-1.5 w-20 rounded-full sm:block"
+              >
+                <span class="bg-accent block h-1.5 w-[45%] rounded-full"
+                ></span>
+              </span>
+              <span class="text-muted ml-auto text-xs sm:ml-2">45%</span>
+            </li>
+
+            <li class="flex items-center gap-3 px-4 py-2.5">
+              <Icon name="sliders" size={16} class="text-faint shrink-0" />
+              <div class="min-w-0">
+                <p class="text-body text-sm">Wake word sensitivity</p>
+                <p class="text-faint font-mono text-[0.7rem]">
+                  number · wake_word_sensitivity
+                </p>
+              </div>
+              <span class="text-muted ml-auto text-xs">60%</span>
+            </li>
+
+            <li class="flex items-center gap-3 px-4 py-2.5">
+              <Icon name="bolt" size={16} class="text-faint shrink-0" />
+              <div class="min-w-0">
+                <p class="text-body text-sm">Last wake word</p>
+                <p class="text-faint font-mono text-[0.7rem]">
+                  text_sensor · last_wake_word
+                </p>
+              </div>
+              <span
+                class="chip ml-auto rounded-md px-1.5 py-0.5 text-[0.7rem]"
+                >“alexa”</span
+              >
+            </li>
+          </ul>
+
+          <div
+            class="border-line bg-surface text-faint border-t px-4 py-2.5 font-mono text-[0.7rem]"
+          >
+            discovered over mDNS · _esphomelib._tcp
+          </div>
+        </div>
+        <p class="text-faint mt-3 text-xs leading-5">
+          What Home Assistant sees after adopting Pinna — real entity names,
+          carried over from the previous firmware.
+        </p>
+      </div>
+    </section>
+  </div>
+
+  <!-- How it works -->
+  <section id="how" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">How it works</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        One request, three steps — none of them in the cloud
+      </h2>
+
+      <div class="mt-10 grid gap-8 md:grid-cols-3">
+        {
+          steps.map((step) => (
+            <div class="border-line border-t pt-5">
+              <p class="text-accent font-mono text-sm">{step.number}</p>
+              <h3 class="text-ink mt-2 font-semibold">{step.title}</h3>
+              <p class="text-muted mt-2 text-sm leading-6">{step.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Features</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        What's inside
+      </h2>
+
+      <div class="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          features.map((feature) => (
+            <div class="card p-5">
+              <div class="bg-accent-soft text-accent grid h-9 w-9 place-items-center rounded-lg">
+                <Icon name={feature.icon} size={18} />
+              </div>
+              <h3 class="text-ink mt-4 font-semibold">{feature.title}</h3>
+              <p class="text-muted mt-2 text-sm leading-6">{feature.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- Home Assistant -->
+  <section id="assistant" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Home Assistant</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        Native to Home Assistant, not bolted on
+      </h2>
+      <p class="text-muted mt-4 max-w-3xl leading-7">
+        Pinna speaks the ESPHome native API — the same protocol ESPHome
+        firmware uses. Home Assistant discovers the Dot over mDNS and adopts it
+        like any other ESPHome device: no YAML, no add-on, no app. Configure
+        your Assist pipeline and say the wake word.
+      </p>
+
+      <div class="card mt-8 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-surface text-faint text-xs tracking-wide uppercase">
+                <th class="px-4 py-3 text-left font-semibold">Entity</th>
+                <th class="px-4 py-3 text-left font-semibold">Type</th>
+                <th class="px-4 py-3 text-left font-semibold">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                entities.map((row) => (
+                  <tr class="border-line border-t">
+                    <td class="text-ink px-4 py-2.5 whitespace-nowrap">
+                      {row.entity}
+                    </td>
+                    <td class="px-4 py-2.5 font-mono text-xs text-muted">
+                      {row.type}
+                    </td>
+                    <td class="text-muted px-4 py-2.5">{row.notes}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="text-muted mt-5 flex max-w-3xl items-start gap-2.5 text-sm leading-6">
+        <Icon name="shield" size={16} class="text-accent mt-1 shrink-0" />
+        <span>
+          The API is plaintext until you set an encryption key; with one it is
+          Noise (NNpsk0). Home Assistant can rotate the key over the encrypted
+          connection. Details in
+          <a class="text-accent hover:underline" href={docHref("home-assistant")}
+            >Home Assistant setup</a
+          >.
+        </span>
+      </p>
+    </div>
+  </section>
+
+  <!-- Hardware -->
+  <section id="hardware" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Hardware</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        Made for the Echo (2nd gen)
+      </h2>
+      <p class="text-muted mt-4 max-w-3xl leading-7">
+        Pinna starts with the Echo Dot 2nd gen and builds on the LibreEcho
+        kernel's MT8163 board support. The boot image carries the known-good
+        DTB from your own device's <code class="font-mono text-sm"
+          >boot_a</code
+        >, and round-trips byte-identically.
+      </p>
+
+      <div class="card mt-8 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-surface text-faint text-xs tracking-wide uppercase">
+                <th class="px-4 py-3 text-left font-semibold">Device</th>
+                <th class="px-4 py-3 text-left font-semibold">Platform</th>
+                <th class="px-4 py-3 text-left font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                hardware.map((row) => (
+                  <tr class="border-line border-t">
+                    <td class="text-ink px-4 py-3 whitespace-nowrap font-medium">
+                      {row.device}
+                    </td>
+                    <td class="text-muted px-4 py-3">{row.soc}</td>
+                    <td class={`px-4 py-3 ${row.tone}`}>{row.status}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="mt-8 grid gap-5 md:grid-cols-3">
+        <div class="flex items-start gap-3">
+          <Icon name="board" size={18} class="text-accent mt-0.5 shrink-0" />
+          <p class="text-muted text-sm leading-6">
+            <span class="text-ink font-medium">Needs an unlocked device.</span>
+            Pinna sits next to LibreEcho on a Kaeru/amonet-unlocked Dot, and
+            fastboot (Volume Down + plug in) is always the way back.
+          </p>
+        </div>
+        <div class="flex items-start gap-3">
+          <Icon name="disk" size={18} class="text-accent mt-0.5 shrink-0" />
+          <p class="text-muted text-sm leading-6">
+            <span class="text-ink font-medium">You bring the blobs.</span>
+            Wi-Fi/BT firmware and the wake word models are never committed —
+            they come from your own device backup.
+          </p>
+        </div>
+        <div class="flex items-start gap-3">
+          <Icon name="home" size={18} class="text-accent mt-0.5 shrink-0" />
+          <p class="text-muted text-sm leading-6">
+            <span class="text-ink font-medium">One daemon, standard base.</span>
+            Debian trixie with systemd, a read-only erofs root and persistent
+            <code class="font-mono text-sm">/var</code>; Pinna's own code is
+            the <code class="font-mono text-sm">pinnad</code> daemon and small
+            tools.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Use cases -->
+  <section id="use-cases" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Use cases</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        Two ways to put a Dot to work
+      </h2>
+
+      <div class="mt-10 grid gap-5 lg:grid-cols-2">
+        <div class="card p-6">
+          <div class="flex items-center justify-between gap-3">
+            <div
+              class="bg-accent-soft text-accent grid h-9 w-9 place-items-center rounded-lg"
+            >
+              <Icon name="home" size={18} />
+            </div>
+            <span class="chip">
+              <span class="bg-ok h-1.5 w-1.5 rounded-full"></span>
+              Available today
+            </span>
+          </div>
+          <h3 class="text-ink mt-4 font-semibold">
+            Voice control for Home Assistant
+          </h3>
+          <p class="text-muted mt-2 text-sm leading-6">
+            This is what the device does right now: wake word on the Dot, an
+            Assist pipeline in your Home Assistant, the answer on the speaker.
+            Timers, announcements, mute and the LED ring stay available as
+            entities. Audio never leaves your network.
+          </p>
+        </div>
+
+        <div class="card p-6">
+          <div class="flex items-center justify-between gap-3">
+            <div
+              class="bg-accent-soft text-accent grid h-9 w-9 place-items-center rounded-lg"
+            >
+              <Icon name="speaker" size={18} />
+            </div>
+            <span class="chip">
+              <span class="bg-line-strong h-1.5 w-1.5 rounded-full"></span>
+              Planned
+            </span>
+          </div>
+          <h3 class="text-ink mt-4 font-semibold">
+            Standalone, open voice assistant
+          </h3>
+          <p class="text-muted mt-2 text-sm leading-6">
+            Planned: the same Dot as a self-contained, open voice assistant —
+            no Home Assistant instance required. Local wake word, local
+            pipeline, still inspectable and yours to change. The pieces are
+            being kept separable on purpose.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Get started -->
+  <section id="start" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Get started</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        Build, flash, adopt
+      </h2>
+
+      <div class="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <ol class="space-y-5">
+          <li class="flex gap-4">
+            <span class="text-accent font-mono text-sm">01</span>
+            <p class="text-muted text-sm leading-6">
+              <span class="text-ink block font-medium">Build the images</span>
+              A Nix dev shell plus <code class="font-mono text-sm">just</code
+              > builds the kernel, root filesystem and boot image.
+            </p>
+          </li>
+          <li class="flex gap-4">
+            <span class="text-accent font-mono text-sm">02</span>
+            <p class="text-muted text-sm leading-6">
+              <span class="text-ink block font-medium">Flash over fastboot</span
+              >
+              One script writes the root to
+              <code class="font-mono text-sm">system_a</code> and the boot
+              image to <code class="font-mono text-sm">boot_a</code>, and can
+              undo it with your backup.
+            </p>
+          </li>
+          <li class="flex gap-4">
+            <span class="text-accent font-mono text-sm">03</span>
+            <p class="text-muted text-sm leading-6">
+              <span class="text-ink block font-medium">Adopt in Home Assistant</span
+              >
+              The Dot announces itself over mDNS; point an Assist pipeline at
+              it and say “Alexa”.
+            </p>
+          </li>
+        </ol>
+
+        <div>
+          <div
+            class="border-line bg-sunken overflow-x-auto rounded-xl border px-4 py-3.5"
+          >
+            <pre
+              class="text-body font-mono text-[0.8125rem] leading-6"><span
+                class="text-faint"># build: kernel, models, root filesystem, boot image</span>
+nix develop
+just kernel models image bootimg
+
+<span class="text-faint"># flash: device in fastboot (Volume Down + plug in)</span>
+scripts/flash-dot.sh check
+scripts/flash-dot.sh root  <span class="text-faint"># erofs root → system_a</span>
+scripts/flash-dot.sh boot  <span class="text-faint"># boot image → boot_a + boot_b</span></pre>
+          </div>
+          <p class="mt-4 text-sm">
+            <a
+              class="text-accent inline-flex items-center gap-1.5 hover:underline"
+              href={docHref("flash")}
+            >
+              Full walkthrough: what gets written, and how to undo it
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Status -->
+  <section class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Status</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        Where the project is
+      </h2>
+
+      <div class="mt-10 grid gap-5 lg:grid-cols-2">
+        <div class="card p-6">
+          <p class="text-ink flex items-center gap-2 font-semibold">
+            <Icon name="check" size={16} class="text-ok" />
+            Working today
+          </p>
+          <ul class="mt-4 space-y-3">
+            {
+              works.map((item) => (
+                <li class="text-muted flex items-start gap-2.5 text-sm leading-6">
+                  <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
+                  {item}
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div class="card p-6">
+          <p class="text-ink flex items-center gap-2 font-semibold">
+            <span class="bg-ring h-2 w-2 rounded-full"></span>
+            Expect sharp edges
+          </p>
+          <ul class="mt-4 space-y-3">
+            {
+              edges.map((item) => (
+                <li class="text-muted flex items-start gap-2.5 text-sm leading-6">
+                  <span class="bg-line-strong mt-2.5 h-1 w-1 shrink-0 rounded-full" />
+                  {item}
+                </li>
+              ))
+            }
+          </ul>
+          <p class="mt-5 text-sm">
+            <a
+              class="text-accent inline-flex items-center gap-1.5 hover:underline"
+              href={docHref("status")}
+            >
+              Status &amp; roadmap
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How you can help -->
+  <section id="help" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Get involved</p>
+      <h2
+        class="text-ink mt-3 max-w-2xl text-2xl font-semibold tracking-[-0.015em] sm:text-3xl"
+      >
+        How you can help
+      </h2>
+      <p class="text-muted mt-4 max-w-3xl leading-7">
+        Pinna is a small project in an early phase, and most of the useful work
+        happens on real Dots. Three ways to pitch in, roughly in the order they
+        unblock the project:
+      </p>
+
+      <div class="mt-10 grid gap-5 md:grid-cols-3">
+        <div class="card flex flex-col p-5">
+          <div
+            class="bg-accent-soft text-accent grid h-9 w-9 place-items-center rounded-lg"
+          >
+            <Icon name="bug" size={18} />
+          </div>
+          <h3 class="text-ink mt-4 font-semibold">Report what breaks</h3>
+          <p class="text-muted mt-2 text-sm leading-6">
+            Bring-up misbehaves on physical units first. If a flash loops, the
+            ring stays dark or the wake word misses, open an issue with the
+            build you flashed and the logs
+            (<code class="font-mono text-sm">journalctl -u pinnad</code>).
+          </p>
+          <p class="mt-4 text-sm">
+            <a
+              class="text-accent inline-flex items-center gap-1.5 hover:underline"
+              href={`${SITE.repo}/issues`}
+            >
+              Open an issue
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+
+        <div class="card flex flex-col p-5">
+          <div
+            class="bg-accent-soft text-accent grid h-9 w-9 place-items-center rounded-lg"
+          >
+            <Icon name="code" size={18} />
+          </div>
+          <h3 class="text-ink mt-4 font-semibold">Send patches</h3>
+          <p class="text-muted mt-2 text-sm leading-6">
+            The workspace is small and the seams are deliberate: Rust daemons,
+            systemd units, a thin kernel. Rust, systemd and embedded audio
+            people are especially welcome — start with an issue so nobody
+            duplicates work.
+          </p>
+          <p class="mt-4 text-sm">
+            <a
+              class="text-accent inline-flex items-center gap-1.5 hover:underline"
+              href={SITE.repo}
+            >
+              Contribute on GitHub
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+
+        <div class="card flex flex-col p-5">
+          <div
+            class="bg-accent-soft text-accent grid h-9 w-9 place-items-center rounded-lg"
+          >
+            <Icon name="board" size={18} />
+          </div>
+          <h3 class="text-ink mt-4 font-semibold">
+            Add a device or generation
+          </h3>
+          <p class="text-muted mt-2 text-sm leading-6">
+            The Echo (2nd gen) shares the Dot's MT8163 platform; other
+            generations mean a new DTB, board quirks and a test unit. The boot
+            chain and the decisions behind it are written down in the ADRs.
+          </p>
+          <p class="mt-4 text-sm">
+            <a
+              class="text-accent inline-flex items-center gap-1.5 hover:underline"
+              href={docHref("architecture")}
+            >
+              Read the architecture
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

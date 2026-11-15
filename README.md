@@ -19,6 +19,7 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 | `kernel/` | Kernel config fragment and build (packaged as a Debian `.deb`) |
 | `mkosi/` | Debian trixie image definition |
 | `docs/` | Decision records and runbooks |
+| `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
 | `secrets/`, `blobs/` | Owner-local inputs (credentials, vendor firmware, models) — never committed |
 
 ## Development
@@ -35,4 +36,6 @@ just test        # everything: unit/lint, ESPHome conformance, wake word parity,
                  # end-to-end voice flow, armhf + x86_64 VM boot gates, A/B update + rollback
 ```
 
-See `docs/` for the platform design and the first-flash runbook.
+See `docs/` for the platform design and the first-flash runbook. The website
+lives in `website/` (`npm run dev`); it deploys to GitHub Pages from
+`.github/workflows/deploy-site.yml` — see `website/README.md`.

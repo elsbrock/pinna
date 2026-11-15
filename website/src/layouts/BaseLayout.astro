@@ -1,0 +1,58 @@
+---
+import "../styles/global.css";
+import Footer from "../components/Footer.astro";
+import { href, SITE } from "../lib/site";
+
+type Props = {
+  /** Page title, without the site suffix. */
+  title?: string;
+  description?: string;
+  footer?: boolean;
+};
+
+const {
+  title = SITE.tagline,
+  description = SITE.description,
+  footer = true,
+} = Astro.props;
+
+const pageTitle = title === SITE.tagline ? `${SITE.name} — ${title}` : `${title} · ${SITE.name}`;
+const canonical = new URL(Astro.url.pathname, Astro.site ?? SITE.repo);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href={href("/favicon.svg")} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary" />
+    <meta
+      name="theme-color"
+      content="#ffffff"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#17181b"
+      media="(prefers-color-scheme: dark)"
+    />
+    <slot name="head" />
+  </head>
+  <body class="flex min-h-dvh flex-col">
+    <slot name="header" />
+    <main class="flex-1">
+      <slot />
+    </main>
+    {footer && <Footer />}
+  </body>
+</html>

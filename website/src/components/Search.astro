@@ -1,0 +1,45 @@
+---
+import { href } from "../lib/site";
+---
+
+<div class="search-shell min-h-[40px]">
+  <pagefind-config bundle-path={href("/pagefind/")}></pagefind-config>
+  <pagefind-searchbox
+    placeholder="Search docs"
+    max-results="8"
+    show-sub-results
+    shortcut="/"
+  ></pagefind-searchbox>
+  {
+    import.meta.env.DEV && (
+      <input
+        class="border-line-strong bg-canvas text-faint h-[40px] w-full rounded-lg border px-3 text-base"
+        disabled
+        aria-label="Search (available in the production build)"
+        placeholder="Search (production build)"
+      />
+    )
+  }
+</div>
+<p id="docs-search-fallback" class="text-faint mt-2 hidden text-xs">
+  Search is indexed by <code class="font-mono">npm run build</code>.
+</p>
+
+<script>
+  // The /pagefind/ bundle only exists after a build, so the component UI
+  // assets are injected in production builds only (dev shows a placeholder).
+  if (import.meta.env.PROD) {
+    const base = import.meta.env.BASE_URL.replace(/\/+$/, "");
+    const bundle = `${base}/pagefind/`;
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = `${bundle}pagefind-component-ui.css`;
+
+    const script = document.createElement("script");
+    script.type = "module";
+    script.src = `${bundle}pagefind-component-ui.js`;
+
+    document.head.append(link, script);
+  }
+</script>

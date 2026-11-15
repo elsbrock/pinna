@@ -12,6 +12,12 @@
 result
 result-*
 
+# website (Astro)
+/website/node_modules/
+/website/dist/
+/website/.astro/
+/website/.playwright-cli/
+
 # owner-local, never committed
 /secrets/
 /blobs/
