@@ -1,56 +1,138 @@
 ---
-title: Control API
-description: pinnad's local ConnectRPC service on port 7470, and pinnactl, the console client that drives it.
+title: pinnactl and the control API
+description: Reference for the pinnactl command and the local ConnectRPC API that it uses.
 ---
 
-Besides the ESPHome API (which faces Home Assistant), the `pinnad` daemon
-serves a small **ConnectRPC** service for local control and diagnostics.
-
-- Service: `pinna.v1.DeviceService` (protos in `proto/pinna/v1/device.proto`)
-- Endpoint: `http://127.0.0.1:7470`
-- Authentication: none — it is bound to loopback only. Anything that can reach
-  the loopback interface can control the device; treat it like a local socket,
-  not like an API to expose.
+`pinnactl` controls a Pinna device from its own command line. It uses the
+control API, which `pinnad` serves on the device. Other programs on the device
+can use the same API.
 
 ## pinnactl
 
-`pinnactl` is the console client, shipped in the image and also usable from a
-dev machine against a VM or a device via SSH:
+Run `pinnactl` on the device, for example over SSH. By default, it connects to
+the API at `http://127.0.0.1:7470`. To use another address, add
+`--api <url>` before the command.
 
-```sh
-pinnactl status              # state: phase, mute, volume, HA connection, timers
-pinnactl status --json       # same, machine-readable
-pinnactl volume 40           # speaker volume, 0–100
-pinnactl mute on             # software microphone mute (on|off)
-pinnactl listen              # start a conversation, like the action button
-pinnactl stop                # stop conversation, announcement or timer alarm
-pinnactl led-test            # short LED ring animation
-pinnactl watch               # status again on every change
+| Command | What it does | Output |
+| --- | --- | --- |
+| `pinnactl status` | Shows the device's state | One line per value, see [Status](#status) |
+| `pinnactl status --json` | Shows the state as JSON | The `Status` message as JSON |
+| `pinnactl volume <0-100>` | Sets the volume | `volume 40%` |
+| `pinnactl mute on`, `pinnactl mute off` | Turns the microphones off or on in software | `software mute on` |
+| `pinnactl listen` | Starts a request, like the Action button | `listening` |
+| `pinnactl stop` | Stops a request, a reply, an announcement or a timer alarm | `stopped` |
+| `pinnactl led-test` | Shows the listening, thinking, speaking and muted animations, one second each | `LED test started` |
+| `pinnactl watch` | Prints a line each time the state changes, until you press Ctrl+C | See [Watch](#watch) |
+| `pinnactl watch --json` | The same, as JSON | One `Status` message per line |
+| `pinnactl update <manifest>` | Installs an update. See [Update Pinna](/docs/update/) | The steps of the update |
+
+`pinnactl update` doesn't use the API. It runs on the device as `root` and
+writes the update directly. It takes these options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--reboot` | Off | Restarts the device after the update is written |
+| `--tries <number>` | `3` | How many times the device tries to start the new version before it goes back |
+
+### Status
+
+`pinnactl status` prints the device's state. For example:
+
+```text
+device:     pinna-2a914e (00:fc:8b:2a:91:4e)
+version:    0.1.0
+uptime:     3h 12m 05s
+phase:      idle
+muted:      no
+volume:     40%
+home assistant: connected, voice subscribed
+wake word:  "Alexa" (armed)
+audio:      echodot
+leds:       is31
+timers:
+  Pasta: 4m 32s left of 10m 00s
 ```
 
-The API endpoint can be overridden for tests and VMs:
+- `version` is the version of `pinnad`, and `uptime` is the time since
+  `pinnad` started.
+- `phase` is `idle`, `listening`, `thinking` or `speaking`.
+- `muted` is `no`, `yes (hardware)`, `yes (software)` or
+  `yes (hardware, software)`.
+- `voice subscribed` means Home Assistant has an Assist pipeline for the
+  device.
+- The wake word is `armed` when the device listens for it right now: it's
+  idle, the microphones are on and Home Assistant is subscribed.
+- A paused timer shows `(paused)`.
 
-```sh
-pinnactl --api http://10.42.0.1:7470 status
+### Watch
+
+`pinnactl watch` prints one line per change:
+
+```text
+listening volume  40%  muted no  ha yes  voice yes  timers 0
+thinking  volume  40%  muted no  ha yes  voice yes  timers 0
+speaking  volume  40%  muted no  ha yes  voice yes  timers 0
+idle      volume  40%  muted no  ha yes  voice yes  timers 0
 ```
 
-## RPCs
+## Control API
 
-| RPC | Purpose |
-| --- | --- |
-| `GetStatus` | Version, node name, MAC, uptime, phase, mute sources, volume, HA connection, active timers, wake word state |
-| `SetVolume` | Speaker volume, 0–100 |
-| `SetMute` | Software mute (the hardware latch is read-only and reported separately) |
-| `StartConversation` | Equivalent to pressing the action button |
-| `StopConversation` | Stops the current conversation, announcement or timer alarm |
-| `LedTest` | Runs a short LED animation cycle |
-| `WatchStatus` | Server-streaming status: current state, then again on every change |
+The API is a [ConnectRPC](https://connectrpc.com/) service,
+`pinna.v1.DeviceService`, defined in
+[`proto/pinna/v1/device.proto`](https://github.com/elsbrock/pinna/blob/main/proto/pinna/v1/device.proto).
+You can call it with any Connect, gRPC or gRPC-Web client, or with plain HTTP
+and JSON.
 
-## Where it is used
+The API has no authentication: anyone who can reach it can control the
+device. That's why it listens on `127.0.0.1:7470`, which only programs on the
+device itself can reach. If you change the address with `[api] listen` in the
+[configuration](/docs/configure/#api), anyone on that network can control the
+device.
 
-- The image's **boot health check** — `pinna-boot-ok.service` asks `pinnactl`
-  whether the daemon is actually up before the fastboot guard is cleared.
-- Scripts and diagnostics on the device (`pinnactl watch` is a good "is
-  anything happening?" companion to `journalctl`).
-- A future web UI: the protos are ready to be used from a browser with
-  `connect-es`, so a small Svelte front end can reuse the same service.
+### Methods
+
+| Method | Request | What it does |
+| --- | --- | --- |
+| `GetStatus` | Empty | Returns the current `Status` |
+| `WatchStatus` | Empty | Streams the current `Status`, then a new one after each change |
+| `SetVolume` | `percent` (0–100) | Sets the volume. Values above 100 return `invalid_argument` |
+| `SetMute` | `muted` (bool) | Turns the software mute on or off. The hardware switch isn't affected |
+| `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings or a request is already running |
+| `StopConversation` | Empty | Stops a request, a reply, an announcement or a timer alarm |
+| `LedTest` | Empty | Runs the LED test |
+
+All methods except `LedTest` return the `Status` after the change.
+
+### Example
+
+To read the status with `curl` on the device:
+
+```sh
+curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
+  http://127.0.0.1:7470/pinna.v1.DeviceService/GetStatus
+```
+
+### Status
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `version` | string | The version of `pinnad` |
+| `name` | string | The device name in Home Assistant |
+| `mac` | string | The Wi-Fi MAC address, in lowercase |
+| `uptime_seconds` | uint64 | Seconds since `pinnad` started |
+| `phase` | `Phase` | `PHASE_IDLE`, `PHASE_LISTENING`, `PHASE_THINKING` or `PHASE_SPEAKING` |
+| `muted` | bool | The microphones are off, by either the button or software |
+| `hardware_muted` | bool | The hardware switch has turned the microphones off |
+| `software_muted` | bool | The software mute is on |
+| `volume` | uint32 | The volume, 0–100 |
+| `ha_connected` | bool | Home Assistant is connected |
+| `voice_subscribed` | bool | Home Assistant has an Assist pipeline for the device |
+| `wake_word` | `WakeWord` | `phrase`, and `enabled`: the device listens for the wake word right now |
+| `timers` | `Timer` list | Each with `id`, `name`, `seconds_left`, `total_seconds` and `active` |
+| `audio_backend` | string | `echodot`, `pipewire`, `wav` or `none` |
+| `led_backend` | string | `is31`, `mock` or `none` |
+
+## What's next
+
+- [Home Assistant entities](/docs/entities/)
+- [Troubleshooting](/docs/troubleshooting/)

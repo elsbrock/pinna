@@ -1,10 +1,10 @@
 export const SITE = {
   name: "Pinna",
-  tagline: "A local-first voice satellite OS for the Echo (2nd gen)",
+  tagline: "A voice satellite for Home Assistant on the Echo Dot (2nd gen)",
   description:
-    "Pinna is an open, image-based Linux system that turns the Echo Dot (2nd gen) " +
-    "into a Home Assistant voice satellite: on-device wake word, LED ring and " +
-    "buttons, ESPHome native API, nothing sent to a cloud.",
+    "Pinna is an open-source operating system for the Echo Dot (2nd gen). It turns " +
+    "the device into a voice satellite for Home Assistant, with the wake word " +
+    "detected on the device.",
   repo: "https://github.com/elsbrock/pinna",
   repoDocs: "https://github.com/elsbrock/pinna/tree/main/docs",
   adr: "https://github.com/elsbrock/pinna/tree/main/docs/adr",
@@ -25,28 +25,41 @@ export type DocGroup = { group: string; items: DocItem[] };
 /** Sidebar structure — also the order of the prev/next pager. */
 export const DOCS_NAV: DocGroup[] = [
   {
-    group: "Getting started",
+    group: "Get started",
     items: [
       { slug: "", title: "Overview" },
-      { slug: "build", title: "Build" },
-      { slug: "flash", title: "Flash the device" },
-      { slug: "recovery", title: "Recovery" },
+      { slug: "requirements", title: "What you need" },
+      { slug: "build", title: "Build Pinna" },
+      { slug: "flash", title: "Install Pinna" },
+      { slug: "home-assistant", title: "Connect to Home Assistant" },
+      { slug: "recovery", title: "Recover a device" },
     ],
   },
   {
-    group: "Using Pinna",
+    group: "Use Pinna",
     items: [
-      { slug: "home-assistant", title: "Home Assistant" },
-      { slug: "control-api", title: "Control API" },
+      { slug: "ring-and-buttons", title: "Light ring and buttons" },
+      { slug: "configure", title: "Configure Pinna" },
+      { slug: "update", title: "Update Pinna" },
+      { slug: "troubleshooting", title: "Troubleshooting" },
     ],
   },
   {
     group: "Reference",
     items: [
+      { slug: "entities", title: "Home Assistant entities" },
+      { slug: "control-api", title: "pinnactl and the control API" },
       { slug: "architecture", title: "Architecture" },
-      { slug: "crates", title: "Crates & layout" },
-      { slug: "development", title: "Development" },
-      { slug: "status", title: "Status & roadmap" },
+      { slug: "audio", title: "Audio" },
+      { slug: "crates", title: "Repository layout" },
+    ],
+  },
+  {
+    group: "Project",
+    items: [
+      { slug: "goals", title: "Goals" },
+      { slug: "status", title: "Status and roadmap" },
+      { slug: "development", title: "Contribute" },
     ],
   },
 ];

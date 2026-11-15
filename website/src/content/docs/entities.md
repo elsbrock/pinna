@@ -1,0 +1,76 @@
+---
+title: Home Assistant entities
+description: Every entity that a Pinna device adds to Home Assistant, with its type, values and effect on the device.
+---
+
+When you add a Pinna device to Home Assistant, it creates the entities on this
+page. Object IDs are shown in code font; Home Assistant adds the device name
+in front of them, for example `light.pinna_2a914e_led_ring`.
+
+## Controls
+
+| Entity | Object ID | Type | Values | What it does |
+| --- | --- | --- | --- | --- |
+| LED ring | `led_ring` | Light | Colour, brightness, effects Solid, Pulse and Flash | Uses the ring as a light while the device is idle. See [Light ring and buttons](/docs/ring-and-buttons/#use-the-ring-as-a-light) |
+| Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button |
+| Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The Action button still starts a request |
+| Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
+| Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements relative to the speaker volume. Replies are never louder than the speaker volume |
+| Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68 |
+| LED brightness | `led_brightness` | Number | 0 to 100, in % | Sets the brightness of the whole ring |
+| Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
+| Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
+
+Pinna saves the switch and number values on the device, so they survive a
+restart.
+
+## Sensors
+
+| Entity | Object ID | Type | Value |
+| --- | --- | --- | --- |
+| Last wake word | `last_wake_word` | Text sensor | The wake word heard most recently, for example `Alexa` |
+
+## Events
+
+Events don't have a state. Use them as triggers in automations.
+
+| Entity | Object ID | Event types | Fires when |
+| --- | --- | --- | --- |
+| Action | `action` | `press`, `double_press`, `long_press` | The Action button is pressed. `long_press` fires after holding it for 2 seconds |
+| Volume up | `volume_up` | `press`, `double_press` | The Volume up button is pressed |
+| Volume down | `volume_down` | `press`, `double_press` | The Volume down button is pressed |
+| Microphone mute | `microphone_mute` | `press`, `double_press` | The Microphone off button is pressed |
+| Voice assistant | `voice_assistant` | `wake_word`, `listening`, `thinking`, `replying`, `finished`, `stopped` | A voice request moves to the next step |
+| Playback | `playback` | `started`, `stopped` | The media player starts or stops playing |
+| Timer | `timer` | `started`, `updated`, `cancelled`, `finished` | A timer on the device changes |
+
+A `double_press` fires when you press the same button twice within 0.4
+seconds. The button still does its normal job for both presses.
+
+## Media player
+
+The media player plays two kinds of audio:
+
+- **Media**, such as music or a radio stream, from a URL. Pinna plays MP3,
+  WAV, FLAC and Ogg Vorbis. While the device listens, works on a request or
+  speaks, media gets quieter and comes back afterwards.
+- **Announcements**, from Home Assistant's announcement actions. An
+  announcement interrupts a running request. Home Assistant can ask the device
+  to listen for an answer after the announcement.
+
+It supports play, pause, stop, mute and volume. The volume up and down
+commands change the volume by 5.
+
+## Voice assistant and timers
+
+The device works as an Assist satellite. It uses the wake word **Alexa**, and
+it supports timers: when you set a timer by voice, the ring shows an amber arc
+while it runs. When the timer ends, an alarm plays until you press the Action
+button, use **Cancel request**, or 5 minutes pass.
+
+## What's next
+
+- To change the device name and other settings that aren't entities, see
+  [Configure Pinna](/docs/configure/).
+- To control the device from its command line, see
+  [pinnactl and the control API](/docs/control-api/).

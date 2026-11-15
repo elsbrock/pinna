@@ -1,61 +1,126 @@
 ---
 title: Architecture
-description: Boot chain, filesystem layout and the decisions behind Pinna — condensed from the ADRs in the repository.
+description: How Pinna starts, how its storage is laid out, which services run, and how a voice request flows through the system.
 ---
 
-Pinna is deliberately boring infrastructure: a standard Debian userland, a
-kernel that does exactly one board bring-up, and one Rust daemon that owns the
-device state. Two decision records spell this out in detail —
-[ADR 0001 (platform)](https://github.com/elsbrock/pinna/blob/main/docs/adr/0001-platform.md)
-and
-[ADR 0002 (userland)](https://github.com/elsbrock/pinna/blob/main/docs/adr/0002-userland.md).
+This page explains how Pinna is put together, from the bootloader to the
+voice request. The reasons behind each decision are in the decision records in
+[`docs/adr/`](https://github.com/elsbrock/pinna/tree/main/docs/adr).
 
-## Boot chain
+## Hardware
 
-- Amazon's LK always loads **`boot_a`**, whatever the A/B slot record says, so
-  that is the slot Pinna targets (and `boot_b` gets the same image as a manual
-  fallback).
-- LK appends its own `root=` to the kernel command line. Pinna compiles its
-  own command line in with `CONFIG_CMDLINE_FORCE`
-  (`root=PARTLABEL=system_a rootfstype=erofs …`), which overrides it — and
-  means **no initramfs** is needed. The boot image still carries a placeholder
-  cpio so LK stays happy.
-- The boot image is Android v0: kernel + the device's original known-good DTB,
-  packed by `pinna-bootimg`. Round-trips byte-identically against the backup.
-- The root filesystem is **erofs, read-only**, on `system_a`. Persistent state
-  lives on `userdata`, formatted as ext4 `/var` on first boot
-  (`x-systemd.makefs`).
+The Echo Dot (2nd gen) has a MediaTek MT8163 processor, which runs Pinna in
+32-bit ARM mode, and about 480 MB of memory. The parts that Pinna uses:
 
-## Userland
+- Seven microphones on top, and a speaker.
+- A ring of 12 RGB LEDs behind a white diffuser, driven by an IS31FL3236 LED
+  controller.
+- Four buttons, and a hardware switch that cuts the microphones.
+- Wi-Fi and Bluetooth in the MT8163.
+- A micro-USB port, which Pinna uses for a serial console and a network
+  connection to your computer.
 
-- Debian trixie armhf, built by mkosi. systemd owns the machine: networkd,
-  resolved (mDNS), wpa_supplicant, OpenSSH, journald, the watchdog and the USB
-  gadget (configfs).
-- **One daemon** — `pinnad` — runs the state machine: wake word / button →
-  Home Assistant Assist run → TTS, plus timers, announcements, mute, the LED
-  light entity and volume. `pinna-esphome`, `pinna-wakeword`, `pinna-hal` and
-  `pinna-audio` are crates *inside* it, with seams kept for splitting later.
-- Home Assistant integration is the **ESPHome native API**; OS-level mDNS
-  through systemd-resolved advertises it.
-- The **local control API** is ConnectRPC on `127.0.0.1:7470`, unauthenticated
-  by design and therefore loopback-only.
-- Audio goes straight to **ALSA** on the device for v0 (arecord/aplay). The
-  MT8163 sound card has no UCM profile yet, which is why PipeWire is installed
-  but unused; laptops and VMs use the PipeWire backend.
+## Start-up
 
-## Safety
+1. The bootloader always loads the boot image from `boot_a`. It contains the
+   Linux kernel (6.1, with board support for the MT8163), the device tree, and
+   a small initramfs.
+2. The kernel ignores the command line from the bootloader and uses its own.
+3. `pinna-init`, the program in the initramfs, reads the slot state from the
+   `misc` partition and chooses a root filesystem slot: `system_a` or
+   `system_b`. See [Updates](#updates).
+4. `pinna-init` checks the slot's signature, sets up dm-verity, and mounts the
+   root filesystem read-only.
+5. systemd starts. It formats the `userdata` partition as `/var` on the first
+   start, and starts Pinna's services.
+6. About 10 seconds after the start, `pinna-boot-ok` checks that `pinnad`
+   answers and SSH runs. If they do, it marks the slot as good and cancels the
+   fastboot request. If they don't within five minutes, it restarts the device.
 
-Dev images arm a one-shot `bootonce-bootloader` request in `misc` on every
-boot and clear it once sshd and `pinnad` are healthy. A hung boot followed by
-a power cycle therefore lands in fastboot instead of a boot loop. See
-[Recovery](/docs/recovery/).
+## Storage
 
-## Open design questions
+| Partition | Size | Contents |
+| --- | --- | --- |
+| `boot_a` | 16 MiB | Boot image: kernel, device tree, initramfs with `pinna-init` |
+| `boot_b` | 16 MiB | A copy of the boot image, as a manual fallback |
+| `system_a`, `system_b` | 768 MiB each | Two root filesystem slots |
+| `userdata` | The rest | `/var`: settings, the Wi-Fi configuration, keys, logs |
+| `misc` | 512 KiB | The bootloader command (the fastboot request) and Pinna's slot state |
 
-- **A/B root updates**: `system_a`/`system_b` need a per-slot kernel command
-  line; dm-verity would come in via `dm-mod.create=` and a slot-aware boot
-  image.
-- **Kernel**: board support currently lives in a LibreEcho-Linux 6.1 fork.
-  Porting the patches to Debian's 6.12 LTS is tracked separately.
-- **arm64**: the ATF runs 64-bit and `bootopt=64S3,…` exists; not pursued yet.
-- **Wi-Fi/BT firmware** is owner-supplied (`blobs/`), never committed.
+A root filesystem slot holds three parts:
+
+1. The root filesystem, as a read-only erofs image.
+2. A 4 KiB footer with the image version, the dm-verity parameters and an
+   Ed25519 signature.
+3. The dm-verity hash tree. The kernel checks every block it reads against
+   this tree, so a changed or damaged block can't be read unnoticed.
+
+The root filesystem never changes on the device. Everything that changes is in
+`/var`: Pinna's settings in `/var/lib/pinna`, SSH host keys, and the systemd
+journal.
+
+## Updates
+
+An update writes a new image into the slot that isn't running, and marks it
+for a trial start with three attempts. `pinna-init` takes one attempt each
+time it starts the trial slot. When the health check passes, the slot becomes
+good. When the attempts run out, `pinna-init` returns to the other slot. For
+the steps, see [Update Pinna](/docs/update/).
+
+The boot image has only one active copy, in `boot_a`, so updates don't change
+it. You install a new boot image from fastboot.
+
+## The fastboot request
+
+Pinna relies on Kaeru, a payload of the bootloader unlock, which opens fastboot
+when the `misc` partition contains the command `bootonce-bootloader`.
+
+Early in each start, Pinna writes that command, and it removes it once the
+health check passes. If a start hangs and you unplug the device, it opens
+fastboot instead of the broken system. During the trial start of an update,
+Pinna doesn't write the command, because the slot fallback already handles a
+failure.
+
+## Services
+
+Pinna is a Debian trixie system with systemd. Standard services do the generic
+work:
+
+| Service | Job |
+| --- | --- |
+| `systemd-networkd`, `wpa_supplicant@wlan0` | Wi-Fi, and the USB network to your computer |
+| `systemd-resolved` | Name resolution and mDNS, which Home Assistant uses to find the device |
+| `ssh` | Remote login with keys |
+| `systemd-journald` | Logs, kept in `/var/log/journal` |
+| `pinna-pipewire`, `pinna-wireplumber` | The microphone processing graph. See [Audio](/docs/audio/) |
+
+Pinna's own services:
+
+| Service | Job |
+| --- | --- |
+| `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons |
+| `pinna-wifi` | Powers up the Wi-Fi chip and loads its firmware |
+| `pinna-gadget` | Sets up the USB serial console and network |
+| `pinna-fastboot-guard` | Writes the fastboot request early in each start |
+| `pinna-boot-ok` | The health check that marks a start as good |
+
+## A voice request
+
+1. `pinnad` reads audio from the microphones in 20 ms frames and runs the wake
+   word detection on it.
+2. When it hears the wake word, it asks Home Assistant to start an Assist run,
+   and streams the audio, starting 200 milliseconds before the end of the wake
+   word.
+3. Home Assistant detects the end of speech, turns the speech into text,
+   handles the request, and sends a link to the spoken reply.
+4. `pinnad` downloads the reply, decodes it, and plays it on the speaker.
+5. If Home Assistant asks for a follow-up, the device listens again without
+   the wake word.
+
+At each step, `pinnad` sets the light ring and sends a `voice_assistant` event
+to Home Assistant.
+
+## What's next
+
+- [Audio](/docs/audio/): how the microphones and the speaker are processed.
+- [Repository layout](/docs/crates/): where each part lives in the code.

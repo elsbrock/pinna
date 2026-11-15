@@ -1,35 +1,57 @@
 ---
-title: Crates & layout
-description: The Rust workspace, the image and kernel directories, and what each piece is responsible for.
+title: Repository layout
+description: The folders of the Pinna repository and the Rust crates in it, with what each one is for.
 ---
 
-## Repository layout
+This page helps you find your way around the
+[Pinna repository](https://github.com/elsbrock/pinna).
 
-| Path | What |
+## Folders
+
+| Path | Contents |
 | --- | --- |
-| `crates/` | Rust workspace: the daemon, the ESPHome API, wake word, HAL, audio, boot tooling |
-| `kernel/` | Kernel config fragment and build (packaged as a Debian `.deb`) |
-| `mkosi/` | Debian trixie image definition |
-| `proto/` | ConnectRPC definition of the local control API |
-| `scripts/` | Flash, backup verification and model fetching |
-| `docs/` | Decision records and the first-flash runbook |
-| `secrets/`, `blobs/` | Owner-local inputs — never committed (except as documented templates) |
-| `website/` | This site (Astro + Tailwind, published on GitHub Pages) |
+| `crates/` | Pinna's Rust code, as one Cargo workspace. See [Crates](#crates) |
+| `proto/` | The definition of the control API (`pinna/v1/device.proto`) |
+| `kernel/` | The kernel source reference (`source.env`), Pinna's patches and configuration, and the build script that packages the kernel as a Debian package |
+| `mkosi/` | The image definition: Debian packages, configuration files and systemd units that go into the root filesystem |
+| `scripts/` | Build helpers, `flash-dot.sh` for installing over fastboot, `fetch-models.sh` and `push-dev.sh` |
+| `tools/wmt/` | Small C programs that power up the Wi-Fi and Bluetooth chip |
+| `keys/` | The public key that root filesystem images must be signed with |
+| `tests/` | Virtual machine tests (`vm/`), the end-to-end voice test (`e2e/`) and the hardware test (`device/`) |
+| `design/` | The design system for the website and the planned web interface |
+| `website/` | This website |
+| `docs/` | Decision records (`adr/`) and the first-flash runbook |
+| `secrets/`, `blobs/` | Your own files and the files from your device. Git ignores both. See [What you need](/docs/requirements/) |
 
 ## Crates
 
-| Crate | Role |
-| --- | --- |
-| `pinnad` | The daemon: state machine (wake word / button → Assist run → TTS), timers, announcements, mute, LED light entity, volume; serves the local control API |
-| `pinna-esphome` | ESPHome native API server — plaintext or Noise (NNpsk0, key provisioning by Home Assistant), conformance-tested against `aioesphomeapi` |
-| `pinna-api` | ConnectRPC `pinna.v1.DeviceService` (generated from `proto/` with `connectrpc-build` + `protox`) |
-| `pinnactl` | Console client for the control API — also the boot health check |
-| `pinna-wakeword` | openWakeWord v0.5.1 models on pure-Rust `tract`, matching onnxruntime to 3e-6 |
-| `pinna-hal` | IS31FL3236 LED ring (kernel sysfs), evdev buttons, privacy latch; mocks for tests |
-| `pinna-audio` | Capture/playback via `arecord`/`aplay` (device) or `pw-record`/`pw-play`; DSP front end, mixer sequences, decoding |
-| `pinna-bootctl` | Bootloader message (the fastboot guard) |
-| `pinna-bootimg` | Android boot image tooling (pack, info, round-trip verification) |
+### On the device
 
-The pure-Rust wake word removed the original reason for a separate voice
-process (C++ crash isolation), so one process runs everything for now — the
-crate boundaries keep the seams for splitting later.
+| Crate | Purpose |
+| --- | --- |
+| `pinnad` | The voice satellite: wake word, buttons, light ring, requests to Home Assistant, timers, announcements, media playback, mute and volume. Also serves the control API |
+| `pinna-esphome` | The server side of the ESPHome native API, with or without encryption |
+| `pinna-wakeword` | Wake word detection with the openWakeWord models, run on the `tract` inference library |
+| `pinna-audio` | Microphone capture and speaker playback, through ALSA or PipeWire, with mixing, ducking and audio decoding |
+| `pinna-ladspa` | The microphone beamformer, as a LADSPA plugin for PipeWire |
+| `pinna-hal` | Access to the LED ring, the buttons, the microphone privacy switch and the device identity, with mock versions for tests |
+| `pinna-api` | The control API service, generated from `proto/` |
+| `pinnactl` | The command-line client for the control API, and the update installer |
+| `pinna-bootctl` | The fastboot request and the A/B slot state in the `misc` partition |
+| `pinna-init` | The program in the initramfs: chooses a slot, checks its signature, sets up dm-verity and starts the system |
+| `pinna-update` | Writes a signed image into the inactive slot |
+
+### On your computer
+
+| Crate | Purpose |
+| --- | --- |
+| `pinna-image` | Seals and signs root filesystem images, creates signing keys and update manifests, and verifies images |
+| `pinna-bootimg` | Builds and inspects Android boot images, and builds the initramfs |
+
+`pinnad` runs everything on the device in one process. The crates keep the
+parts separate, so that they can run as separate processes later if needed.
+
+## What's next
+
+- How the parts fit together: [Architecture](/docs/architecture/)
+- How to build and test them: [Contribute](/docs/development/)

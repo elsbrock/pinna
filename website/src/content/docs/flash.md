@@ -1,100 +1,197 @@
 ---
-title: Flash the device
-description: What gets written to the Echo Dot, how to flash it over fastboot, and how to verify the first boot.
+title: Install Pinna
+description: Install Pinna on an Echo Dot (2nd gen) over fastboot, check that it works, and connect it to Wi-Fi.
 ---
 
-This walks an Echo Dot that currently runs LibreEcho to Pinna. Every step below
-says what it writes and how to undo it; nothing else on the device is touched.
+This guide installs Pinna on an Echo Dot (2nd gen) over fastboot. You install
+the root filesystem first, then try the new boot image from memory, and only
+write it to the device once it works. Every step says what it writes, and
+[Recover a device](/docs/recovery/) explains how to undo it.
+
+## Before you begin
+
+- Build the images, as described in [Build Pinna](/docs/build/). You need
+  `build/pinna-boot.img` and `build/pinna.root.img`.
+- Back up the device, as described in
+  [What you need](/docs/requirements/#backup-of-the-device). Installing Pinna
+  erases the data partition.
+- Run the commands in this guide from the repository folder, inside the
+  development shell (`nix develop`).
 
 ## What gets written
 
-| Partition | Before | After |
-| --- | --- | --- |
-| `boot_a` (p10) | LibreEcho boot image | Pinna boot image (`build/pinna-boot.img`) — the slot LK always loads |
-| `boot_b` (p11) | LibreEcho copy | Pinna boot image (manual fallback copy) |
-| `system_a` (p13) | Fire OS system (LibreEcho reads Wi-Fi firmware from it) | Pinna erofs root (`mkosi/mkosi.output/pinna.root-arm.raw`) |
-| `userdata` (p16) | LibreEcho `/data` | Wiped; Pinna formats it as `/var` on first boot |
+| Partition | After installation |
+| --- | --- |
+| `boot_a` | Pinna's boot image. The bootloader always starts this partition |
+| `boot_b` | A second copy of Pinna's boot image |
+| `system_a` | Pinna's root filesystem |
+| `system_b` | Cleared at the start. Pinna installs updates here |
+| `userdata` | Cleared at the start. Pinna creates its data partition (`/var`) here on first boot |
+| `misc` | Pinna stores its fastboot request and its update state here |
 
-Never written: preloader and boot areas, `lk_a`/`lk_b`, `tee1`/`tee2`,
-`expdb` (the Kaeru payload), `persist` (identity, calibration, MAC) and `misc`
-(only the bootloader command field, at runtime, by the fastboot guard).
+Pinna never writes the bootloader partitions (the preloader, `lk_a`, `lk_b`,
+`tee1` and `tee2`), `expdb`, which holds the Kaeru payload, or `persist`, which
+holds the device's identity, calibration data and MAC address.
 
-## 0. Back up first
+## Start fastboot
 
-Take a full backup of the device before the first write — `mmcblk0.img` plus
-per-partition images with checksums. The runbook in the repository
-(`docs/runbook-first-flash.md`) documents the exact layout used for the
-development device, and the restore script expects that layout.
+1. Unplug the Echo Dot.
+2. Hold **Volume Down**, and plug the micro-USB cable into the device and your
+   computer.
+3. When the light ring changes, release the button.
+4. Check that your computer sees the device:
 
-## 1. Enter fastboot
+   ```sh
+   fastboot devices
+   ```
 
-Unplug the Dot, hold **Volume Down**, plug the micro-USB cable in, and release
-when the ring changes.
+5. Check the device and the images:
+
+   ```sh
+   scripts/flash-dot.sh check
+   ```
+
+   The output shows the product name, which must be `BISCUIT`, the
+   partition sizes, and the checksums of the two images. This step writes
+   nothing.
+
+## Install the root filesystem
+
+1. Write the root filesystem:
+
+   ```sh
+   scripts/flash-dot.sh root
+   ```
+
+   The script checks the image signature against `keys/release.pub`, asks you
+   to confirm, writes `system_a`, and clears the start of `system_b` and
+   `userdata`. After this step, the data on `userdata` is gone.
+
+2. If fastboot rejects the image because it's larger than the device accepts
+   in one transfer, convert it to a sparse image and write that instead:
+
+   ```sh
+   img2simg build/pinna.root.img build/pinna.root.simg
+   ROOT_IMG=build/pinna.root.simg scripts/flash-dot.sh root
+   ```
+
+   The script can't check the signature of a sparse image. Convert only the
+   image that you built and that passed the check in step 1.
+
+## Try the boot image
+
+You can start Pinna's boot image from memory without writing it. If something
+goes wrong, unplug the device and start fastboot again: `boot_a` hasn't
+changed yet.
+
+1. Start the boot image from memory:
+
+   ```sh
+   scripts/flash-dot.sh try
+   ```
+
+   If your bootloader doesn't support starting an image from memory, skip to
+   [Install the boot image](#install-the-boot-image). Recovery works the same
+   way afterwards.
+
+2. Wait about 20 seconds. Your computer sees a new USB device named
+   **Pinna (Echo Dot 2nd gen)**, which provides a serial console and a network
+   connection.
+
+3. Log in. Use either connection:
+
+   - Over the network: your computer gets an address from the device
+     automatically. Run `ssh root@10.42.0.1` or `ssh root@pinna.local`. This
+     needs the SSH key from `secrets/authorized_keys`.
+   - Over the serial console: run `picocom -b 115200 /dev/ttyACM0`. You're
+     logged in as `root` without a password.
+
+4. Check that Pinna runs:
+
+   ```sh
+   pinnactl status
+   systemctl --failed
+   ```
+
+   `pinnactl status` shows the device's name, its state and its volume.
+   `systemctl --failed` lists no units.
+
+5. Check the LED ring and the speaker:
+
+   ```sh
+   pinnactl led-test
+   pinnactl volume 40
+   ```
+
+## Install the boot image
+
+1. Restart the device into fastboot. On the device, run:
+
+   ```sh
+   pinna-bootctl reboot-bootloader
+   ```
+
+   You can also unplug the device and start fastboot with **Volume Down**, as
+   before.
+
+2. On your computer, write the boot image:
+
+   ```sh
+   scripts/flash-dot.sh boot
+   ```
+
+   The script asks you to confirm, writes `boot_a` and `boot_b`, and restarts
+   the device. From now on, the device starts Pinna.
+
+## Connect to Wi-Fi
+
+If you put your Wi-Fi settings into `secrets/wifi/wpa_supplicant-wlan0.conf`
+before the build, the device connects on its own. To set up Wi-Fi on the
+device instead:
+
+1. Log in to the device over USB, as described in
+   [Try the boot image](#try-the-boot-image).
+2. Edit `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`. It's a standard
+   wpa_supplicant configuration file:
+
+   ```text
+   ctrl_interface=/run/wpa_supplicant
+   update_config=1
+
+   network={
+       ssid="Your network"
+       psk="Your password"
+   }
+   ```
+
+3. Restart the Wi-Fi client:
+
+   ```sh
+   systemctl restart wpa_supplicant@wlan0
+   ```
+
+4. Check the connection:
+
+   ```sh
+   ip addr show wlan0
+   ```
+
+The file on the device takes precedence over the file in the image. Updates
+don't change it.
+
+## Check that the installation is healthy
+
+After each start, Pinna checks itself: `pinnad` must answer and SSH must run
+within five minutes. When the check passes, Pinna marks the start as good. To
+see the result, run:
 
 ```sh
-fastboot devices
-scripts/flash-dot.sh check    # product must be BISCUIT
+pinna-bootctl slot-status
 ```
 
-## 2. Flash the root filesystem
+The output shows which root filesystem slot is running and whether it's
+marked `good`. If a check fails, see [Troubleshooting](/docs/troubleshooting/).
 
-```sh
-scripts/flash-dot.sh root     # system_a <- erofs root, userdata wiped
-```
+## What's next
 
-If LK rejects the ~150 MB raw image (`max-download-size`), convert it to a
-sparse image first and point the script at it:
-
-```sh
-img2simg mkosi/mkosi.output/pinna.root-arm.raw pinna.root.simg
-ROOT_IMG=pinna.root.simg scripts/flash-dot.sh root
-```
-
-## 3. Try the kernel from RAM (writes nothing)
-
-```sh
-scripts/flash-dot.sh try      # fastboot boot build/pinna-boot.img
-```
-
-If Kaeru does not support `fastboot boot`, skip to the next step; the recovery
-path is the same.
-
-Within about 20 seconds the host should see a new USB device, **"Pinna (Echo
-Dot 2nd gen)"**:
-
-- serial console: `/dev/ttyACM0` (root autologin) — `picocom -b 115200 /dev/ttyACM0`
-- network: the host gets a DHCP lease in `10.42.0.x`; `ssh root@10.42.0.1` (or `root@pinna.local`)
-
-Check the essentials:
-
-```sh
-pinnactl status
-systemctl --failed
-journalctl -b -u pinna-wifi -u wpa_supplicant@wlan0 -u pinnad
-ip addr show wlan0
-pinna-bootctl status
-pinnactl led-test             # ring animation
-pinnactl volume 40
-```
-
-## 4. Make it persistent
-
-From Pinna: `pinna-bootctl reboot-bootloader` (or Volume Down + replug), then
-
-```sh
-scripts/flash-dot.sh boot     # boot_a + boot_b <- Pinna, reboot
-```
-
-## 5. Adopt it in Home Assistant
-
-Pinna advertises `_esphomelib._tcp` via mDNS. Home Assistant should offer
-"Echo Dot" as a discovered ESPHome device. Add it, then point a voice assistant
-pipeline at it and say "Alexa…". See [Home Assistant](/docs/home-assistant/).
-
-## Things that may need tuning
-
-Mic gain, the wake word threshold, the speaker mixer sequence and LED
-direction are not testable off-device. Defaults live in
-`/etc/pinna/pinnad.toml`; `journalctl -u pinnad` logs wake word scores.
-
-To undo everything, see [Recovery](/docs/recovery/).
+[Connect the device to Home Assistant](/docs/home-assistant/).

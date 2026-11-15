@@ -1,62 +1,73 @@
 ---
-title: Status & roadmap
-description: An honest list of what works, what needs tuning, and what is not built yet.
+title: Status and roadmap
+description: What works in Pinna today, what is known to be missing or rough, and what is planned next.
 ---
 
-Pinna is an early bring-up project, not a product. This page exists so nobody
-flashes a device expecting a finished appliance.
+Pinna is in early development. You can build it, install it on an Echo Dot
+(2nd gen) and use it with Home Assistant, but there is no web interface, no
+prebuilt image, and parts of it are still being tuned on real hardware.
 
-> **Status: early bring-up.** Console only. Expect sharp edges.
+## What works
 
-## Working today
+These parts are covered by tests that run without hardware:
 
-- The kernel builds and is packaged as a Debian `.deb`; config assertions run
-  for every variant.
-- The mkosi image builds (Debian trixie armhf, erofs root) and boots in QEMU;
-  the x86_64 variant boots under KVM.
-- The boot image round-trips byte-identically against the device's original
-  `boot_a` backup.
-- The ESPHome API passes conformance against `aioesphomeapi` 46.2.0,
-  including Noise encryption and key rotation.
-- Wake word scoring matches onnxruntime to 3e-6, and the full voice flow
-  (wake word → ESPHome → simulated Home Assistant → TTS playback) runs in the
-  end-to-end test.
-- `pinnactl` drives the control API and acts as the boot health check.
+- The kernel, the signed root filesystem image and the boot image build from
+  the repository.
+- The image boots in a virtual machine, in both the ARM and the x86_64
+  version, and its services, SSH and the Home Assistant API come up.
+- An update installs into the second slot and starts on trial, and a broken
+  update rolls back to the previous slot automatically.
+- The Home Assistant connection passes tests with Home Assistant's own client
+  library, including encryption and key rotation.
+- The wake word detection gives the same results as the reference
+  implementation, within 0.001.
+- A complete voice request, from the wake word to the played reply, works
+  against a simulated Home Assistant.
 
-## Needs on-device tuning
+On the Echo Dot itself:
 
-These are not testable off-device and defaults may be wrong until someone with
-a Dot in hand tunes them:
+- The microphone path with beamforming and echo cancellation runs, and lowers
+  the device's own music by 32 to 44 dB. See [Audio](/docs/audio/).
+- A hardware test (`just test-device`) checks the speaker, the microphones,
+  the light ring and the Home Assistant connection on a running device.
 
-- microphone gain and the wake word threshold (`/etc/pinna/pinnad.toml`,
-  scores are logged by `pinnad`),
-- the speaker mixer sequence,
-- LED ring direction/ordering.
+## Known gaps
 
-## Not built yet
+- **No web interface.** You set up and control the device from its command
+  line and from Home Assistant.
+- **No prebuilt images.** You build your own images and sign them with your
+  own key.
+- **Backup and firmware.** Pinna doesn't yet provide a tool to back up the
+  device or to extract the Wi-Fi firmware from the backup.
+- **Tuning.** The microphone gain is fixed in the code. The direction in which
+  the ring's LEDs are numbered isn't confirmed on hardware yet.
+- **One wake word.** Pinna listens for "Alexa", with the openWakeWord model.
+  The model's licence doesn't allow commercial use.
+- **The boot image isn't updated automatically.** Updates replace the root
+  filesystem only. A new kernel needs fastboot.
+- **No automated test runs.** The tests run when contributors run them; there
+  is no CI for them yet.
 
-- A web UI. The control API protos are ready for `connect-es`, but the console
-  is the interface for now.
-- **Standalone mode.** Today the voice path goes through a Home Assistant
-  instance; using the Dot as a self-contained, open voice assistant is
-  planned.
-- A/B root updates: `system_a`/`system_b` with a per-slot kernel command line,
-  plus dm-verity.
-- A kernel on Debian's 6.12 LTS instead of the LibreEcho-Linux 6.1 fork.
-- arm64 (the ATF supports it; nobody started).
-- PipeWire on the device once the MT8163 card has a UCM profile.
+## Planned
 
-## How to help
+- **A web interface** on the device, for status and settings. The design
+  system for it is in the repository.
+- **The Echo (2nd gen)**, which uses the same platform as the Echo Dot.
+- **Standalone mode**: using the device as a voice assistant without Home
+  Assistant.
+- **A newer kernel**: moving the MT8163 board support to Debian's 6.12 LTS
+  kernel.
+- **64-bit ARM**: the processor supports it, but nobody has started on it.
 
-- **Bug reports.** This is early bring-up: it misbehaves on physical units
-  first. Report what breaks with the build you flashed and the logs
-  (`journalctl -u pinnad` shows wake word scores and pipeline state) at
-  [GitHub issues](https://github.com/elsbrock/pinna/issues). Measurements from
-  real hardware — mic gain, scores, mixer sequences — are welcome in any form.
-- **Contributions.** The workspace is small and deliberately seamed: Rust
-  daemons, systemd units, a thin kernel, a proto-first control API. Open an
-  issue first if you plan something larger, so nobody duplicates work.
-- **New devices and generations.** Supporting another Echo generation means a
-  board bring-up (DTB, clocks, audio, microphones, LED ring) and a test unit.
-  The [architecture](/docs/architecture/) page and the ADRs describe the boot
-  chain and the constraints; start a discussion with what hardware you have.
+These plans follow the project's [goals](/docs/goals/).
+
+## How you can help
+
+- **Test it on a device.** Problems show up on real hardware first. Report
+  what you see, with the image version, the output of `pinnactl status` and the
+  log (`journalctl -b -u pinnad`), in an
+  [issue](https://github.com/elsbrock/pinna/issues).
+- **Send changes.** See [Contribute](/docs/development/).
+- **Bring up a new device.** Supporting another Echo device means work on the
+  device tree, clocks, audio, microphones and LED ring, and a device to test
+  on. Open an issue with the hardware you have.
