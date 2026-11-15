@@ -6,8 +6,8 @@ description: Change the device name, audio, wake word, Home Assistant connection
 Most everyday settings, such as the volume, the wake word sensitivity and the
 ring brightness, are [entities in Home Assistant](/docs/entities/). This page
 covers the settings that aren't: the device name, the audio and LED hardware,
-the wake word model, and the network ports. They live in a configuration file
-for `pinnad`, the program that runs the voice satellite.
+the wake words on the first boot, and the network ports. They live in a
+configuration file for `pinnad`, the program that runs the voice satellite.
 
 ## Where the settings are
 
@@ -82,13 +82,24 @@ How the device introduces itself to Home Assistant.
 
 ### `[wake]`
 
+The wake words that Pinna listens for. It listens for two at once, at most.
+The ready-made words are Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy and Okay
+Nabu; each is offered when its model file is in the `models` folder.
+
+`keyword`, `id` and `phrase` name the word that listens on the first boot. After
+that, the choice is made in Home Assistant, or on the
+[dashboard](/docs/dashboard/) while Home Assistant isn't connected, and saved in
+`/var/lib/pinna/settings.toml`. A `[wake]` word whose `id` isn't one of the
+ready-made ones is offered too, if you put its model into the `models` folder
+yourself.
+
 | Setting | Default | Description |
 | --- | --- | --- |
 | `enabled` | `true` | Whether Pinna listens for the wake word |
-| `models` | `"/usr/share/pinna/models/openwakeword-0.5.1"` | The folder with the openWakeWord models |
-| `keyword` | `"alexa_v0.1.onnx"` | The wake word model file in that folder |
-| `id` | `"alexa_v0.1"` | The wake word ID that Home Assistant sees |
-| `phrase` | `"Alexa"` | The wake word that Home Assistant shows |
+| `models` | `"/usr/share/pinna/models/openwakeword-0.5.1"` | The folder with the wake word models |
+| `keyword` | `"alexa_v0.1.onnx"` | The model file of the first-boot wake word |
+| `id` | `"alexa_v0.1"` | The first-boot wake word's ID, as Home Assistant sees it |
+| `phrase` | `"Alexa"` | The first-boot wake word as Home Assistant shows it |
 | `threshold` | `0.55` | How sure the model must be, on the first boot. After that, the **Wake word sensitivity** entity in Home Assistant sets it |
 
 ### `[esphome]`
@@ -132,6 +143,9 @@ device has run:
 
 - The volume (`[audio] volume`)
 - The wake word sensitivity (`[wake] threshold`)
+- The wake words (`[wake] keyword`, `id` and `phrase` name only the first
+  boot's; after that the choice is Home Assistant's, or the dashboard's while
+  Home Assistant isn't connected)
 
 To start over with the values from `pinnad.toml`, delete
 `/var/lib/pinna/settings.toml` and restart Pinna. This also resets the other

@@ -41,8 +41,11 @@ On the Echo Dot itself:
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 - **No prebuilt images.** You build your own images and sign them with your
   own key.
-- **One wake word.** Pinna listens for "Alexa", with the openWakeWord model.
-  The model's licence doesn't allow commercial use.
+- **The wake words are fixed in the image.** Pinna listens for up to two of
+  Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy (openWakeWord) and Okay Nabu at
+  once, chosen in Home Assistant or on the dashboard. None of the models'
+  licences allows commercial use, and the dashboard can't accept extra models
+  yet.
 - **The boot image isn't updated automatically.** Updates replace the root
   filesystem only. A new kernel needs fastboot.
 - **No automated test runs.** The tests run when contributors run them; there
@@ -51,6 +54,8 @@ On the Echo Dot itself:
 ## Planned
 
 - **The Echo (2nd gen)**, which uses the same platform as the Echo Dot.
+- **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
+  model and naming its phrase (ADR 0013).
 - **Standalone mode**: using the device as a voice assistant without Home
   Assistant.
 - **64-bit ARM**: the processor supports it, but nobody has started on it.

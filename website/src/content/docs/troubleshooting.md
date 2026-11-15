@@ -108,7 +108,9 @@ If all lines look right:
   describes. The ring flashes green on every wake while it runs.
 
   The log shows the scores too, in the lines `wake word detected (score …)`
-  and `wake word near miss: peak score …`.
+  and `wake word near miss (Alexa): peak score …`, which names the word that
+  scored. With two wake words active they share one sensitivity, so raising it
+  affects both.
 
 ## The device wakes by itself
 

@@ -16,8 +16,8 @@ Pinna doesn't use Amazon's services.
 
 ## How it works
 
-1. Pinna listens for the wake word "Alexa" on the device. Until it hears the
-   wake word, no audio leaves the device.
+1. Pinna listens for a wake word on the device — Alexa unless you choose
+   others. Until it hears one, no audio leaves the device.
 2. It streams your request to Home Assistant over the ESPHome API. Your Assist
    pipeline turns the speech into text, handles the request and creates the
    spoken reply.

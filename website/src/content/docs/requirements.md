@@ -84,9 +84,13 @@ in the repository.
 
 ## Wake word models
 
-Pinna uses the openWakeWord models for "Alexa". `just models` downloads them
-during the build. The models are licensed under CC BY-NC-SA 4.0, which doesn't
-allow commercial use, so they aren't part of the repository.
+Pinna ships the openWakeWord models for **Alexa**, **Hey Jarvis**, **Hey
+Mycroft** and **Hey Rhasspy** (v0.5.1), and **Okay Nabu** from
+[`rhasspy/pyopen-wakeword`](https://github.com/rhasspy/pyopen-wakeword), pinned
+to a commit. `just models` downloads them during the build; they aren't part of
+the repository. The openWakeWord models are licensed under CC BY-NC-SA 4.0,
+which doesn't allow commercial use. Okay Nabu comes from a repository under
+Apache-2.0; the model itself carries no licence of its own.
 
 ## Home Assistant
 

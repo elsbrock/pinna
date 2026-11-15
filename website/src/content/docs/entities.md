@@ -14,7 +14,7 @@ a device named **Echo Dot**.
 | --- | --- | --- | --- | --- |
 | LED ring | `led_ring` | Light | Colour, brightness, effects Solid, Pulse and Flash | Uses the ring as a light while the device is idle. See [Light ring and buttons](/docs/ring-and-buttons/#use-the-ring-as-a-light) |
 | Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button |
-| Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The Action button still starts a request |
+| Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The words themselves are chosen with the **Wake word** and **Wake word 2** selectors on the device page. The Action button still starts a request |
 | Listening direction | `listening_direction` | Switch (configuration) | On, off | While the device listens, points the light ring at the person speaking. Off shows the plain listening ring. On by default |
 | Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | Notification | `notification` | Switch | On, off | Turn it on to show a waiting notification on the ring. It turns off when someone clears it on the device or the dashboard. See [Notifications](/docs/ring-and-buttons/#notifications) |
@@ -32,7 +32,7 @@ restart.
 
 | Entity | Object ID | Type | Value |
 | --- | --- | --- | --- |
-| Last wake word | `last_wake_word` | Text sensor | The wake word heard most recently, for example `Alexa` |
+| Last wake word | `last_wake_word` | Text sensor | The wake word heard most recently, for example `Hey Jarvis`. With two words active, it names the one that fired |
 
 ## Events
 
@@ -70,8 +70,10 @@ commands change the volume by 5.
 
 ## Voice assistant and timers
 
-The device works as an Assist satellite. It uses the wake word **Alexa**, and
-it supports timers: when you set a timer by voice, the ring shows an amber arc
+The device works as an Assist satellite. It listens for the wake words chosen
+in Home Assistant or on the [dashboard](/docs/dashboard/), up to two at once;
+see [Choose the wake words](/docs/home-assistant/#choose-the-wake-words). It
+supports timers: when you set a timer by voice, the ring shows an amber arc
 while it runs. When the timer ends, an alarm plays until you press the Action
 button, use **Cancel request**, or 5 minutes pass.
 

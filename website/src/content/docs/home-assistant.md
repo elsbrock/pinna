@@ -80,6 +80,24 @@ The light ring turns blue while the device listens, violet while Home
 Assistant works on the request, and cyan while the reply plays. See
 [Light ring and buttons](/docs/ring-and-buttons/).
 
+## Choose the wake words
+
+The device listens for two wake words at once, at most, and Home Assistant
+chooses which. Open the device page in **Settings > Devices & services >
+ESPHome**: under **Configuration**, the **Wake word** and **Wake word 2**
+selectors list every word the device has installed — Alexa, Hey Jarvis, Hey
+Mycroft, Hey Rhasspy and Okay Nabu on a standard image. Set one or both, or set
+both to **No wake word** to listen for none.
+
+While Home Assistant is connected, it owns this choice: the device's
+[dashboard](/docs/dashboard/) shows the active words but doesn't change them.
+The selectors read the device's words when Home Assistant connects; a word
+chosen there while Home Assistant was away is adopted only if it is the single
+active word, and otherwise shows as **No wake word** until you choose it here.
+The device keeps listening for its own words meanwhile, and the choice is saved
+on the device, so the satellite wakes without Home Assistant and survives
+restarts.
+
 ## Change the key later
 
 Once the connection is encrypted, Home Assistant can replace the key. Pinna
