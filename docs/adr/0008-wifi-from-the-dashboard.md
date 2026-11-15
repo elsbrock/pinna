@@ -1,14 +1,14 @@
-# ADR 0007: Wi-Fi from the dashboard, joined with confirm-or-revert
+# ADR 0008: Wi-Fi from the dashboard, joined with confirm-or-revert
 
 Status: proposed (2026-11-15). Builds on ADR 0005.
 
 ## Context
 
-- `wpa_supplicant@wlan0` reads `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`.
+- `wpa_supplicantwlan0` reads `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`.
   - On first boot, tmpfiles copies the file from the image (`secrets/wifi/`) if it doesn't exist yet. Edits on the device survive updates.
   - `/etc/wpa_supplicant/` links to it.
-- Nothing guarantees a `ctrl_interface`, and pinnad never touches the file. Changing networks is the one routine task that still needs SSH: edit the file, then restart `wpa_supplicant@wlan0`.
-- The MT8163 Wi-Fi chip powers up once per boot (`pinna-wifi.service`). Restarting `wpa_supplicant@wlan0` is fine; restarting `pinna-wifi` is not.
+- Nothing guarantees a `ctrl_interface`, and pinnad never touches the file. Changing networks is the one routine task that still needs SSH: edit the file, then restart `wpa_supplicantwlan0`.
+- The MT8163 Wi-Fi chip powers up once per boot (`pinna-wifi.service`). Restarting `wpa_supplicantwlan0` is fine; restarting `pinna-wifi` is not.
 - systemd-networkd runs DHCP on wlan0.
 - The USB link (NCM, `10.42.0.1`, with a DHCP server for the computer) is always there, and the dashboard answers on it.
 

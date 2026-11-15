@@ -1,6 +1,6 @@
-# ADR 0008: First-time setup in the dashboard, over USB
+# ADR 0009: First-time setup in the dashboard, over USB
 
-Status: proposed (2026-11-15). Needs ADR 0006 and ADR 0007; it is built after both.
+Status: proposed (2026-11-15). Needs ADR 0007 and ADR 0008; it is built after both.
 
 ## Context
 
@@ -10,8 +10,8 @@ Status: proposed (2026-11-15). Needs ADR 0006 and ADR 0007; it is built after bo
 ## Decision
 
 - When the satellite has no saved Wi-Fi network, the dashboard opens on a setup flow instead of the Overview:
-  1. Name the satellite (ADR 0006).
-  2. Join a Wi-Fi network (ADR 0007). The page then says the new address.
+  1. Name the satellite (ADR 0007).
+  2. Join a Wi-Fi network (ADR 0008). The page then says the new address.
   3. Say how Home Assistant finds it.
 - The USB link is the setup channel. No access point mode: it adds a second network stack and a captive portal for a step that already has a cable.
 - The flow can be left at any point. Every step is also in its normal section.

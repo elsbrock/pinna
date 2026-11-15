@@ -1,4 +1,4 @@
-# ADR 0009: A hostname per satellite, and a factory reset
+# ADR 0010: A hostname per satellite, and a factory reset
 
 Status: proposed (2026-11-15). Builds on ADR 0005; amends what ADR 0005 says about the hostname.
 
@@ -22,7 +22,7 @@ Status: proposed (2026-11-15). Builds on ADR 0005; amends what ADR 0005 says abo
   2. Early in the next boot, before pinnad and wpa_supplicant start, a one-shot unit deletes `/var/lib/pinna/` and the SSH host key.
   3. tmpfiles then seeds them again from the image.
 
-  The journal is kept, so a reset that goes wrong can be traced. The satellite comes back as the image built it, including any Wi-Fi network baked into the image. Without one, it comes back over USB only, at the setup flow (ADR 0008).
+  The journal is kept, so a reset that goes wrong can be traced. The satellite comes back as the image built it, including any Wi-Fi network baked into the image. Without one, it comes back over USB only, at the setup flow (ADR 0009).
 - Out of scope: SSH keys and the time zone stay baked into the image. Changing them from an unauthenticated page would hand out root access, or make the OS drift into a general-purpose one.
 
 ## Consequences

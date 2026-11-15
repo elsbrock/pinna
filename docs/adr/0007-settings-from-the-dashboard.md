@@ -1,4 +1,4 @@
-# ADR 0006: Settings the dashboard writes live in settings.toml
+# ADR 0007: Settings the dashboard writes live in settings.toml
 
 Status: proposed (2026-11-15). Builds on ADR 0005.
 
