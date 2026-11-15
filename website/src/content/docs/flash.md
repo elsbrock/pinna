@@ -98,10 +98,15 @@ firmware doesn't boot properly.
    **Pinna (Echo Dot 2nd gen)**, which provides a serial console and a network
    connection.
 
+   If the device is named **Pinna rescue** instead, Pinna found nothing it
+   can boot. Open `http://10.42.0.1` to see why. See
+   [Rescue mode](/docs/recovery/#rescue-mode). **Restart** on that page
+   boots the image in `boot_a` again, not the one you tried from memory. To
+   try again, open fastboot and run `scripts/flash-dot.sh try`.
+
    If no USB device appears within a minute, Pinna didn't boot. Unplug the
    device, open fastboot, and check that `scripts/flash-dot.sh root` finished
-   without errors. Pinna's early boot messages only go to the board's internal
-   serial port, not to USB.
+   without errors.
 
 2. Log in. Use either connection:
 

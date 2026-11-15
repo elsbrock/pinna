@@ -186,6 +186,32 @@ message Status {
   // A virtual Echo Dot in the development VM (ADR 0014): its microphone,
   // speaker, buttons and microphone switch are on the /virtual-device socket.
   bool virtual_device = 20;
+  // How the boot before this one ended, from pstore (ADR 0012).
+  LastBoot last_boot = 21;
+}
+
+// How the previous boot ended, as pinnad read it back from the pstore records
+// of the boot before this one.
+enum LastBootOutcome {
+  LAST_BOOT_OUTCOME_UNSPECIFIED = 0;
+  // No records: this is the first start, or the power was lost.
+  LAST_BOOT_OUTCOME_COLD_START = 1;
+  // A recorded, clean restart; `reason` says why ("update", "user", ...).
+  LAST_BOOT_OUTCOME_RESTARTED = 2;
+  // The boot ended in rescue mode; `reason` says why ("no-root", ...).
+  LAST_BOOT_OUTCOME_RESCUE = 3;
+  // A kernel panic or oops.
+  LAST_BOOT_OUTCOME_CRASHED = 4;
+  // Records without a shutdown marker: reset by the watchdog (or a power cut).
+  LAST_BOOT_OUTCOME_RESET = 5;
+}
+
+message LastBoot {
+  LastBootOutcome outcome = 1;
+  // The recorded reason where there is one, e.g. "update", "no-root".
+  string reason = 2;
+  // One line for people, e.g. "restarted (update)".
+  string summary = 3;
 }
 
 // Runtime settings, persisted on the satellite and shared with Home Assistant.

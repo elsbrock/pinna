@@ -1,0 +1,11 @@
+[package]
+name = "pinna-bootstages"
+description = "The boot-stage helper: USB, Wi-Fi and pinnad on the LED ring (ADR 0012)"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-bootctl = { path = "../pinna-bootctl" }
+libc.workspace = true

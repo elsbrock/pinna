@@ -6,7 +6,11 @@
 //! partition is touched; the slot record at 0x360 lives in a later sector.
 //! Pinna's own A/B slot state lives further up, see [`slot`].
 
+pub mod board;
+pub mod reboot;
+pub mod ring;
 pub mod slot;
+pub mod stages;
 
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};

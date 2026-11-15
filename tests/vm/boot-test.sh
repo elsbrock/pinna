@@ -134,6 +134,11 @@ if [ -n "${SSH_KEY:-}" ]; then
         -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR root@127.0.0.1 "$@"
   }
   ssh_vm 'systemctl is-system-running; systemctl --failed --no-legend; findmnt -no SOURCE,FSTYPE / /var; pinna-bootctl slot-status; ls /run/systemd/dnssd' | sed 's/^/     /' || fail "ssh"
+  if ssh_vm 'test -e /run/pinna/boot-protocol && test -e /run/pinna/ring && test -s /run/pinna/boot-ok && grep -qx "stage 6" /run/pinna/boot-stages'; then
+    pass "boot stages handed over, verdict recorded (boot-protocol, ring, boot-ok, stage 6)"
+  else
+    fail "boot stage handover files in /run/pinna"
+  fi
 fi
 
 log "stopping the VM and reading its journal from the userdata partition"
@@ -161,6 +166,14 @@ else
   pass "systemd not tainted by the kernel${taint:+ ($taint)}"
 fi
 jcheck "pinnad started" "Started pinnad.service"
+jcheck "root's boot protocol recorded" "pinna-init: root speaks boot protocol 1"
+jcheck "stage helper started" "pinna-bootstages: up"
+jcheck "stage helper skips the VM's USB" "skipping the USB stage"
+jcheck "stage helper skips the VM's Wi-Fi" "skipping the Wi-Fi stage"
+jcheck "stage helper reaches stage 6" "pinna-bootstages: stage 6 \(Pinna running\) at"
+jcheck "stage helper hands over to pinnad" "pinna-bootstages: pinnad claimed the ring at stage 6"
+jcheck "pinnad takes the boot stages over" "took the boot stages over from the stage helper"
+jcheck "pinnad reports a cold start" "last boot: no records: a cold start, or the power was lost"
 jcheck "mDNS service published" "published _esphomelib._tcp"
 jcheck "fastboot guard armed" "armed: next boot enters fastboot unless cleared"
 jcheck "slot a marked good by the health check" "slot a marked good \(version ${v_re}\)"

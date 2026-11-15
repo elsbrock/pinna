@@ -17,17 +17,18 @@ use pinna_api::{
     Calibration, CalibrationEvent, CalibrationEventKind, ClearNotificationRequest,
     ClearNotificationResponse, DeviceService, GetNetworkRequest, GetNetworkResponse,
     GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
-    InstallUpdateRequest, InstallUpdateResponse, LedTestRequest, LedTestResponse, RebootRequest,
-    RebootResponse, SetMuteRequest, SetMuteResponse, SetVolumeRequest, SetVolumeResponse,
-    StartCalibrationRequest, StartCalibrationResponse, StartConversationRequest,
-    StartConversationResponse, Status, StopCalibrationRequest, StopCalibrationResponse,
-    StopConversationRequest, StopConversationResponse, Timer, UpdateSettingsRequest,
-    UpdateSettingsResponse, WakeEvent, WakeWord, WakeWordOption, WatchInstallRequest,
-    WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchStatusRequest,
-    WatchStatusResponse,
+    InstallUpdateRequest, InstallUpdateResponse, LastBoot as LastBootMsg, LastBootOutcome,
+    LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetMuteRequest,
+    SetMuteResponse, SetVolumeRequest, SetVolumeResponse, StartCalibrationRequest,
+    StartCalibrationResponse, StartConversationRequest, StartConversationResponse, Status,
+    StopCalibrationRequest, StopCalibrationResponse, StopConversationRequest,
+    StopConversationResponse, Timer, UpdateSettingsRequest, UpdateSettingsResponse, WakeEvent,
+    WakeWord, WakeWordOption, WatchInstallRequest, WatchInstallResponse, WatchLogsRequest,
+    WatchLogsResponse, WatchStatusRequest, WatchStatusResponse,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::boot;
 use crate::updates::{Event, Updater, UpdaterPaths, stage_of};
 use crate::voice::{ApiCommand, ApiReply, Input, SettingsPatch, Snapshot};
 use crate::{logs, network};
@@ -44,6 +45,8 @@ pub struct Info {
     pub model: String,
     /// The development VM's virtual Echo Dot (ADR 0014).
     pub virtual_device: bool,
+    /// How the boot before this one ended (pstore, ADR 0012).
+    pub last_boot: boot::LastBoot,
 }
 
 pub struct DeviceApi {
@@ -178,6 +181,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         alarm_ringing: s.alarm_ringing,
         notification: s.settings.notification,
         virtual_device: info.virtual_device,
+        last_boot: MessageField::some(last_boot(&info.last_boot)),
         settings: MessageField::some(pinna_api::Settings {
             wake_word: s.settings.wake_word,
             wake_sensitivity: s.settings.wake_sensitivity.into(),
@@ -205,6 +209,23 @@ fn calibration_kind(kind: crate::calibration::EventKind) -> CalibrationEventKind
         EventKind::Unchanged(Unchanged::WouldUndo) => {
             CalibrationEventKind::CALIBRATION_EVENT_KIND_WOULD_UNDO
         }
+    }
+}
+
+/// The previous boot's verdict, as the API reports it.
+fn last_boot(lb: &boot::LastBoot) -> LastBootMsg {
+    let outcome = match lb.outcome {
+        boot::Outcome::Cold => LastBootOutcome::LAST_BOOT_OUTCOME_COLD_START,
+        boot::Outcome::Clean => LastBootOutcome::LAST_BOOT_OUTCOME_RESTARTED,
+        boot::Outcome::Rescue => LastBootOutcome::LAST_BOOT_OUTCOME_RESCUE,
+        boot::Outcome::Crashed => LastBootOutcome::LAST_BOOT_OUTCOME_CRASHED,
+        boot::Outcome::Reset => LastBootOutcome::LAST_BOOT_OUTCOME_RESET,
+    };
+    LastBootMsg {
+        outcome: buffa::EnumValue::Known(outcome),
+        reason: lb.reason.clone().unwrap_or_default(),
+        summary: lb.summary(),
+        ..Default::default()
     }
 }
 
@@ -582,6 +603,7 @@ mod tests {
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
             virtual_device: false,
+            last_boot: boot::LastBoot::cold(),
         };
         let addr = start(
             Arc::new(DeviceApi::with_updater(
@@ -1090,6 +1112,7 @@ mod tests {
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
             virtual_device: false,
+            last_boot: boot::LastBoot::cold(),
         };
         let mut snap = Snapshot::default();
         assert!(!render(&info, Instant::now(), &snap).alarm_ringing);

@@ -91,17 +91,19 @@ image-x86: rust-x86 ladspa web
     scripts/assemble-rootfs-extra.sh --arch x86_64
     scripts/build-root.sh --arch x86_64
 
-# initramfs with pinna-init (armv7: device and QEMU) -> build/initramfs.cpio
+# initramfs with pinna-init and busybox for rescue mode (armv7: device and QEMU) -> build/initramfs.cpio
 initramfs:
     cargo zigbuild --release --target {{target_arm}} -p pinna-init
     mkdir -p {{build}}
-    cargo run -q -p pinna-bootimg -- initramfs --init target/{{target_arm}}/release/pinna-init --out {{build}}/initramfs.cpio
+    cargo run -q -p pinna-bootimg -- initramfs --init target/{{target_arm}}/release/pinna-init \
+        --busybox "$(scripts/fetch-busybox.sh armhf)" --out {{build}}/initramfs.cpio
 
 # initramfs for the x86_64 VM -> build/initramfs-x86.cpio
 initramfs-x86:
     cargo zigbuild --release --target x86_64-unknown-linux-musl -p pinna-init
     mkdir -p {{build}}
-    cargo run -q -p pinna-bootimg -- initramfs --init target/x86_64-unknown-linux-musl/release/pinna-init --out {{build}}/initramfs-x86.cpio
+    cargo run -q -p pinna-bootimg -- initramfs --init target/x86_64-unknown-linux-musl/release/pinna-init \
+        --busybox "$(scripts/fetch-busybox.sh amd64)" --out {{build}}/initramfs-x86.cpio
 
 # boot image for boot_a: kernel + DTB from the kernel build + initramfs (pinna-init)
 # The Echo Dot (2nd gen) boots the radar-puffin device tree (the Echo 2nd gen's);
@@ -148,6 +150,14 @@ e2e:
 # boot the real image under QEMU and check it (needs: just kernel-qemu image)
 vm-test: initramfs
     tests/vm/boot-test.sh
+
+# rescue mode under QEMU: disks without a root or without slots stay in rescue (needs: just kernel-qemu)
+vm-rescue-test: initramfs
+    tests/vm/rescue-test.sh
+
+# the same on x86_64 (needs: just kernel-x86)
+vm-rescue-test-x86: initramfs-x86
+    ARCH=x86_64 tests/vm/rescue-test.sh
 
 # A/B update + rollback under QEMU: N -> N+1 -> broken N+2 rolls back (needs: just kernel-qemu image)
 vm-update-test: initramfs

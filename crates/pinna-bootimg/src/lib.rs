@@ -324,10 +324,11 @@ pub fn newc_cpio(files: &[(&str, &[u8])]) -> Vec<u8> {
     newc_cpio_entries(&entries)
 }
 
-/// The initramfs: `/init` (pinna-init), the mount points it uses and
-/// `/dev/console`, which the kernel opens for init's stdio.
-pub fn initramfs(init: &[u8]) -> Vec<u8> {
-    let mut entries: Vec<CpioEntry> = ["dev", "proc", "sys", "run", "sysroot"]
+/// The initramfs: `/init` (pinna-init), the mount points it uses,
+/// `/dev/console`, which the kernel opens for init's stdio, and optionally a
+/// static busybox at `/bin/busybox` for rescue mode (ADR 0012).
+pub fn initramfs(init: &[u8], busybox: Option<&[u8]>) -> Vec<u8> {
+    let mut entries: Vec<CpioEntry> = ["dev", "proc", "sys", "run", "sysroot", "bin"]
         .into_iter()
         .map(|name| CpioEntry::Dir { name, perm: 0o755 })
         .collect();
@@ -342,6 +343,13 @@ pub fn initramfs(init: &[u8]) -> Vec<u8> {
         perm: 0o755,
         data: init,
     });
+    if let Some(data) = busybox {
+        entries.push(CpioEntry::File {
+            name: "bin/busybox",
+            perm: 0o755,
+            data,
+        });
+    }
     newc_cpio_entries(&entries)
 }
 
@@ -414,7 +422,7 @@ mod tests {
 
     #[test]
     fn initramfs_members() {
-        let c = initramfs(b"\x7fELF-init");
+        let c = initramfs(b"\x7fELF-init", Some(b"\x7fELF-busybox"));
         let text = String::from_utf8_lossy(&c);
         // mode field (2nd after the inode) per member
         let mode_of = |name: &str| {
@@ -431,6 +439,10 @@ mod tests {
         assert_eq!(mode_of("sysroot"), (0o040755, 0, 0));
         assert_eq!(mode_of("dev/console"), (0o020600, 5, 1));
         assert!(text.contains("\x7fELF-init"));
+        assert_eq!(mode_of("bin/busybox"), (0o100755, 0, 0));
+        assert!(text.contains("\x7fELF-busybox"));
         assert_eq!(c.len() % 512, 0);
+        let without = String::from_utf8_lossy(&initramfs(b"\x7fELF-init", None)).into_owned();
+        assert!(!without.contains("bin/busybox"));
     }
 }

@@ -87,6 +87,49 @@ To go back to the other slot yourself:
    systemctl reboot
    ```
 
+## Rescue mode
+
+If Pinna can't find the storage's partitions, can't verify and mount the root
+filesystem in either slot, or can't start the system on it, it doesn't
+restart. It stays in rescue mode, so you can find out why. In rescue mode:
+
+- The light ring is green. It gets slowly brighter and dimmer until a
+  computer connects over USB, then it stays on.
+- Your computer sees a USB device named **Pinna rescue**. The device is at
+  `10.42.0.1`, and your computer gets an address between `10.42.0.10` and
+  `10.42.0.29`, as in normal operation.
+- `http://10.42.0.1` shows why the device is in rescue mode, what usually
+  fixes it, and Pinna's log from the start. **Download diagnostics** saves
+  every log in one text file: attach it when you
+  [report a problem](/docs/troubleshooting/#report-a-problem). **Restart**
+  boots the same way again, so it ends in rescue mode again unless something
+  changed.
+- The USB serial console has a root shell: `picocom -b 115200 /dev/ttyACM0`.
+  SSH doesn't run in rescue mode.
+
+Until USB is up, the ring flashes white instead, pauses and repeats. If it
+keeps flashing, USB didn't come up either. The number of flashes is the
+reason, and the page shows the same reason by name:
+
+| Flashes | Reason | What usually fixes it |
+| --- | --- | --- |
+| 1 | `no-storage`: Pinna didn't find the storage's partitions within 15 seconds | The kernel can't drive the storage. Write a boot image that worked before: `BOOT_IMG=<file> scripts/flash-dot.sh boot` |
+| 2 | `no-root`: neither slot holds a root filesystem that Pinna can verify and mount | Write a root filesystem and a boot image from the same build. If the log says the signature doesn't verify, the two were signed with different keys |
+| 3 | `no-system`: the root filesystem was mounted, but the system on it didn't start | Write the root filesystem again, and a boot image from the same build |
+
+A `crashed` reason means that Pinna's own start-up program failed. Write a
+boot image that worked before, and report the problem with the diagnostics.
+
+The same white flashes carry on past rescue mode: 4 is USB, 5 the Wi-Fi
+driver, 6 `pinnad`. Those don't mean the device is in rescue mode — Pinna is
+running; see [Light ring and buttons](/docs/ring-and-buttons/#while-the-device-starts)
+for what each step means.
+
+To write an image, [start fastboot](#start-fastboot) with **Volume Down**.
+Writing a boot image keeps your settings. Writing a root filesystem with
+`scripts/flash-dot.sh root` erases the data partition, as described in
+[Recover a device that doesn't start](#recover-a-device-that-doesnt-start).
+
 ## Recover a device that doesn't start
 
 If the device doesn't boot Pinna at all, install it again from fastboot.
@@ -118,12 +161,6 @@ connection to Home Assistant was encrypted, give the device its key again.
 
 For the details of each step, see [Install Pinna](/docs/flash/).
 
-If Pinna can't boot either root filesystem slot, it restarts after five
-seconds. In that case, Pinna can't ask for fastboot, because that happens
-later in the boot. Open fastboot with **Volume Down**. Pinna's messages from
-this early stage only go to the board's internal serial port, at 921600 baud,
-not to USB.
-
 ## Restore your backup
 
 To go back to the software that ran before Pinna, restore your backup from
@@ -149,4 +186,5 @@ contains it) and `userdata`, and restarts the device.
 - If the device starts but doesn't work as expected, see
   [Troubleshooting](/docs/troubleshooting/).
 - To report a problem, [open an issue](https://github.com/elsbrock/pinna/issues)
-  with the output of `pinna-bootctl slot-status` and `journalctl -b`.
+  with the output of `pinna-bootctl slot-status` and `journalctl -b`. In
+  rescue mode, attach the diagnostics file from `http://10.42.0.1` instead.

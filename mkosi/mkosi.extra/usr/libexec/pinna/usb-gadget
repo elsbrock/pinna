@@ -4,9 +4,18 @@
 set -eu
 G=/sys/kernel/config/usb_gadget/pinna
 
+# The device's serial number: from the bootloader's idme record in the device
+# tree (6.12), /proc/idme (the 6.1 kernel), else the machine id (VMs). Only
+# letters and digits, as rescue mode in pinna-init reads it.
+device_serial() {
+    s=$( { tr -d '\000' < /sys/firmware/devicetree/base/idme/serial/value ||
+           cat /proc/idme/serial || cut -c1-16 /etc/machine-id; } 2>/dev/null | tr -cd '[:alnum:]')
+    echo "${s:-pinna}"
+}
+
 stable_mac() {
-    # Locally administered MAC derived from the machine identity.
-    h=$( { cat /proc/idme/serial 2>/dev/null || cat /etc/machine-id; } | sha256sum)
+    # Locally administered MAC from the serial number, the same in rescue mode.
+    h=$(printf '%s' "$2" | sha256sum)
     printf '%s:%s:%s:%s:%s:%s' "$1" "$(echo "$h" | cut -c1-2)" "$(echo "$h" | cut -c3-4)" \
         "$(echo "$h" | cut -c5-6)" "$(echo "$h" | cut -c7-8)" "$(echo "$h" | cut -c9-10)"
 }
@@ -27,7 +36,7 @@ up() {
     echo 0x02 > bDeviceSubClass
     echo 0x01 > bDeviceProtocol
     mkdir -p strings/0x409
-    serial=$(cat /proc/idme/serial 2>/dev/null || cut -c1-16 /etc/machine-id)
+    serial=$(device_serial)
     echo "$serial" > strings/0x409/serialnumber
     echo "Pinna" > strings/0x409/manufacturer
     echo "Pinna (Echo Dot 2nd gen)" > strings/0x409/product
@@ -35,8 +44,8 @@ up() {
     echo "serial console + network" > configs/c.1/strings/0x409/configuration
     echo 250 > configs/c.1/MaxPower
     mkdir -p functions/acm.GS0 functions/ncm.usb0
-    stable_mac 02 > functions/ncm.usb0/dev_addr
-    stable_mac 06 > functions/ncm.usb0/host_addr
+    stable_mac 02 "$serial" > functions/ncm.usb0/dev_addr
+    stable_mac 06 "$serial" > functions/ncm.usb0/host_addr
     [ -e configs/c.1/acm.GS0 ] || ln -s functions/acm.GS0 configs/c.1/
     [ -e configs/c.1/ncm.usb0 ] || ln -s functions/ncm.usb0 configs/c.1/
     echo "$udc" > UDC

@@ -10,6 +10,7 @@ systemctl enable \
     ssh.service \
     pinna-gadget.service \
     pinna-wifi.service \
+    pinna-bootstages.service \
     pinnad.service \
     pinna-fastboot-guard.service \
     pinna-boot-ok.service \

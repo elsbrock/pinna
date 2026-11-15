@@ -40,6 +40,9 @@ enum Cmd {
     Initramfs {
         #[arg(long)]
         init: PathBuf,
+        /// A static busybox for rescue mode (scripts/fetch-busybox.sh).
+        #[arg(long)]
+        busybox: Option<PathBuf>,
         #[arg(long)]
         out: PathBuf,
     },
@@ -117,20 +120,26 @@ fn main() -> Result<()> {
                 img.ramdisk.len()
             );
         }
-        Cmd::Initramfs { init, out } => {
-            let bin = fs::read(&init).with_context(|| format!("reading {}", init.display()))?;
-            ensure!(
-                bin.starts_with(b"\x7fELF"),
-                "{} is not an ELF binary",
-                init.display()
-            );
-            let cpio = initramfs(&bin);
+        Cmd::Initramfs { init, busybox, out } => {
+            let elf = |p: &PathBuf| -> Result<Vec<u8>> {
+                let bin = fs::read(p).with_context(|| format!("reading {}", p.display()))?;
+                ensure!(
+                    bin.starts_with(b"\x7fELF"),
+                    "{} is not an ELF binary",
+                    p.display()
+                );
+                Ok(bin)
+            };
+            let bin = elf(&init)?;
+            let bb = busybox.as_ref().map(elf).transpose()?;
+            let cpio = initramfs(&bin, bb.as_deref());
             fs::write(&out, &cpio)?;
             println!(
-                "{}: {} bytes (init {} bytes)",
+                "{}: {} bytes (init {} bytes, busybox {} bytes)",
                 out.display(),
                 cpio.len(),
-                bin.len()
+                bin.len(),
+                bb.as_ref().map_or(0, Vec::len)
             );
         }
         Cmd::Roundtrip { image } => {

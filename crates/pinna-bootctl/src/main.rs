@@ -116,6 +116,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         Cmd::RebootBootloader => {
             anyhow::ensure!(kaeru_ok(cli)?, "refusing: no Kaeru payload");
             arm(&cli.misc)?;
+            let _ = reboot::record_at(&cli.run_dir, "bootloader");
             let status = std::process::Command::new("systemctl")
                 .arg("reboot")
                 .status()?;
@@ -159,6 +160,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             if old != Some(new) {
                 slot::write_state(&cli.misc, &new)?;
             }
+            // The verdict, for pinnad's stage 7 on the ring (ADR 0012) and for
+            // the next boot's "how the last boot ended".
+            let _ = std::fs::write(cli.run_dir.join("boot-ok"), "1\n");
             println!(
                 "slot {booted} marked good (version {}); active slot {}",
                 slot::booted_version(&cli.run_dir)?.unwrap_or_else(|| "?".into()),

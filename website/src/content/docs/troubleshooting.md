@@ -17,8 +17,16 @@ journalctl -b -u pinnad
 `pinnad` is the program that runs the voice satellite. Its log records what
 it does and any errors. The sections below quote the lines to look for.
 
+`pinnactl status` also says how the last start ended — `restarted (update)`,
+`crashed: a kernel panic or oops`, `reset without shutting down`, or
+`rescue mode (no-root)`. The dashboard's **System** page shows the same line
+under **Troubleshooting**.
+
 ## You can't log in
 
+- **In rescue mode:** if the USB device is named **Pinna rescue** or the ring
+  is green, Pinna couldn't start, and SSH doesn't run. See
+  [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
 - **Over USB:** check that the computer sees the USB device **Pinna (Echo Dot
   2nd gen)**. Use a cable that carries data. The device is at `10.42.0.1`, and
   your computer gets an address between `10.42.0.10` and `10.42.0.29`.
@@ -165,6 +173,13 @@ settings, which also removes a broken configuration.
 
 ## The device doesn't boot Pinna
 
+If the ring is green, or your computer sees a USB device named **Pinna
+rescue**, Pinna is in rescue mode: it couldn't start from the root
+filesystem. Open `http://10.42.0.1`, which says why, and download the
+diagnostics. If the ring keeps flashing white instead, USB didn't come up
+either, and the number of flashes says why. See
+[Rescue mode](/docs/recovery/#rescue-mode).
+
 If the ring stays dark, no USB device appears, or the device restarts over
 and over, Pinna doesn't get as far as its services:
 
@@ -172,9 +187,6 @@ and over, Pinna doesn't get as far as its services:
    [Recover a device](/docs/recovery/).
 2. Install the root filesystem and the boot image again with
    `scripts/flash-dot.sh root` and `scripts/flash-dot.sh boot`.
-
-Pinna's messages from early in the boot only go to the board's internal
-serial port, at 921600 baud, not to USB.
 
 After an update, the device goes back to the previous version on its own after
 three failed attempts. See
@@ -204,3 +216,8 @@ and include:
 - The output of `pinnactl status` and `pinna-bootctl slot-status`.
 - The log: `journalctl -b -u pinnad`.
 - The image version, from `/etc/os-release` (`IMAGE_VERSION`).
+
+In rescue mode, none of these commands run. Attach the file from
+**Download diagnostics** on `http://10.42.0.1` instead. Read it before you
+post it: issues are public, and the file holds the device's serial number
+and the kernel log.

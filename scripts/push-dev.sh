@@ -29,7 +29,7 @@ fi
 stage=$root/build/sysext/$name
 rm -rf "${stage:?}"
 install -d "$stage/usr/bin" "$stage/usr/lib/extension-release.d"
-for bin in pinnad pinnactl pinna-bootctl; do
+for bin in pinnad pinnactl pinna-bootctl pinna-bootstages; do
   install -m0755 "$root/target/$target/release/$bin" "$stage/usr/bin/$bin"
 done
 # Matches any Debian 13 image; the overlay is for development only.

@@ -61,9 +61,17 @@ pub fn parse_mac(s: &str) -> Option<[u8; 6]> {
     parts.try_into().ok()
 }
 
-/// The device MAC: wlan0 on the Echo; otherwise a stable, locally administered
-/// address derived from the machine id (VMs, laptops).
+/// The device MAC: the Wi-Fi MAC on the Echo, from the bootloader's idme
+/// record so that pinnad need not wait for Wi-Fi (wlan0 carries the same
+/// address), else wlan0's; otherwise a stable, locally administered address
+/// derived from the machine id (VMs, laptops).
 pub fn device_mac() -> [u8; 6] {
+    if let Some(mac) = pinna_hal::ident::idme_mac().and_then(|s| parse_mac(&s)) {
+        return mac;
+    }
+    if !pinna_hal::ident::board_model().is_empty() {
+        tracing::warn!("no idme mac_addr in the device tree; the device MAC comes from wlan0");
+    }
     if let Some(mac) = pinna_hal::ident::wlan0_mac().and_then(|s| parse_mac(&s)) {
         return mac;
     }

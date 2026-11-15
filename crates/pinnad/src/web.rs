@@ -191,6 +191,7 @@ mod tests {
 
     use super::*;
     use crate::api::Info;
+    use crate::boot;
     use crate::voice::Snapshot;
 
     fn hosts() -> Hosts {
@@ -264,6 +265,7 @@ mod tests {
             led_backend: "none".into(),
             model: String::new(),
             virtual_device: false,
+            last_boot: boot::LastBoot::cold(),
         };
         let api = Arc::new(DeviceApi::new(info, status_rx, in_tx));
         Fixture {
@@ -417,6 +419,7 @@ mod tests {
             led_backend: String::new(),
             model: String::new(),
             virtual_device: false,
+            last_boot: boot::LastBoot::cold(),
         };
         let api = Arc::new(DeviceApi::new(info, rx, tx));
         let cfg = Web {

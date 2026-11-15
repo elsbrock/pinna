@@ -83,6 +83,8 @@ fn update(args: UpdateArgs) -> Result<()> {
     let installed = pinna_update::install(&opts, &args.manifest, &mut |line| println!("{line}"))?;
     if args.reboot {
         println!("rebooting into slot {}", installed.slot);
+        // The next boot reports "restarted (update)" (ADR 0012). Best effort.
+        let _ = pinna_bootctl::reboot::record_at(&opts.run_dir, "update");
         let status = std::process::Command::new("systemctl")
             .arg("reboot")
             .status()?;
@@ -137,6 +139,9 @@ fn render(s: &Status) -> String {
     let _ = writeln!(out, "device:     {} ({})", s.name, s.mac);
     let _ = writeln!(out, "version:    {}", s.version);
     let _ = writeln!(out, "uptime:     {}", duration(s.uptime_seconds));
+    if let Some(boot) = s.last_boot.as_option() {
+        let _ = writeln!(out, "last start: {}", boot.summary);
+    }
     let _ = writeln!(out, "phase:      {}", phase_name(s));
     let _ = writeln!(out, "muted:      {}", muted_text(s));
     let _ = writeln!(out, "volume:     {}%", s.volume);

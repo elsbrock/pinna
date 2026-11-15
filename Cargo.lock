@@ -1990,6 +1990,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinna-bootstages"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "pinna-bootctl",
+]
+
+[[package]]
 name = "pinna-esphome"
 version = "0.1.0"
 dependencies = [
@@ -2040,6 +2048,8 @@ dependencies = [
  "libc",
  "pinna-bootctl",
  "pinna-image",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]
@@ -2107,6 +2117,7 @@ dependencies = [
  "connectrpc",
  "fastrand",
  "futures",
+ "libc",
  "pinna-api",
  "pinna-audio",
  "pinna-bootctl",
@@ -2117,6 +2128,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "toml",
  "tower",

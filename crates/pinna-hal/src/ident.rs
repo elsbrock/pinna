@@ -1,4 +1,4 @@
-//! Device identity: wlan0 MAC and per-microphone calibration factors.
+//! Device identity: Wi-Fi MAC and per-microphone calibration factors.
 
 use std::path::Path;
 
@@ -8,6 +8,32 @@ const IDME_DIR: &str = "/proc/idme";
 const DT_IDME_DIR: &str = "/sys/firmware/devicetree/base/idme";
 const DT_COMPATIBLE: &str = "/sys/firmware/devicetree/base/compatible";
 const WLAN0_ADDRESS: &str = "/sys/class/net/wlan0/address";
+const DT_IDME_MAC: &str = "/sys/firmware/devicetree/base/idme/mac_addr/value";
+
+/// The Wi-Fi MAC from the bootloader's idme record (device tree
+/// `idme/mac_addr`, 12 hex digits), lowercase colon-separated. The Wi-Fi
+/// driver gives wlan0 this address; reading it here does not wait for Wi-Fi.
+pub fn idme_mac() -> Option<String> {
+    idme_mac_from(Path::new(DT_IDME_MAC))
+}
+
+pub fn idme_mac_from(path: &Path) -> Option<String> {
+    let raw = std::fs::read(path).ok()?;
+    let s = std::str::from_utf8(&raw)
+        .ok()?
+        .trim_end_matches('\0')
+        .trim();
+    let ok = s.len() == 12
+        && s.bytes().all(|b| b.is_ascii_hexdigit())
+        && s.bytes().any(|b| b != b'0')
+        && !s.eq_ignore_ascii_case("ffffffffffff");
+    if !ok {
+        return None;
+    }
+    let s = s.to_ascii_lowercase();
+    let octets: Vec<&str> = (0..6).map(|i| &s[2 * i..2 * i + 2]).collect();
+    Some(octets.join(":"))
+}
 
 /// MAC address of wlan0, lowercase colon-separated.
 pub fn wlan0_mac() -> Option<String> {
@@ -158,6 +184,25 @@ mod tests {
         fs::write(&f, "acme,board\0").unwrap();
         assert_eq!(board_model_from(&f), "");
         assert_eq!(board_model_from(&d.join("missing")), "");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn idme_mac_parsing() {
+        let d = tmp("idme-mac");
+        let f = d.join("value");
+        fs::write(&f, "40B4CDE32A7F\0").unwrap();
+        assert_eq!(idme_mac_from(&f).as_deref(), Some("40:b4:cd:e3:2a:7f"));
+        for junk in [
+            "000000000000\0",
+            "FFFFFFFFFFFF\0",
+            "40B4CDE32A\0",
+            "40B4CDE32AZZ",
+        ] {
+            fs::write(&f, junk).unwrap();
+            assert_eq!(idme_mac_from(&f), None, "{junk:?}");
+        }
+        assert_eq!(idme_mac_from(&d.join("missing")), None);
         fs::remove_dir_all(&d).unwrap();
     }
 

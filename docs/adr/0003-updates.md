@@ -49,14 +49,15 @@ All integers little-endian, rest zero. The signing key is a hex seed in
 committed and compiled into pinna-init, pinna-bootctl and pinnactl.
 
 **Boot.** The boot image's ramdisk is an initramfs with one static binary,
-`pinna-init` (PID 1): mount devtmpfs/proc/sysfs/tmpfs; find `misc`,
+`pinna-init` (PID 1), and a static busybox for its rescue mode (ADR 0012): mount devtmpfs/proc/sysfs/tmpfs; find `misc`,
 `system_a`, `system_b` by `PARTNAME` (up to 15 s); choose the slot from the
 state in misc; check that slot's footer signature and the top hash block;
 create the read-only dm-verity device `root` through the device-mapper
 ioctls; mount it (erofs) on /sysroot and check for `/sbin/init`. If any of
 that fails, try the other slot and record the first as unbootable. Then write
 `/run/pinna/boot-slot` and `boot-version`, move the API mounts, switch root and
-exec `/sbin/init`. Nothing bootable: log, wait 5 s, reboot (until fastboot).
+exec `/sbin/init`. Nothing bootable: rescue mode (ADR 0012; it used to be a
+reboot loop until fastboot).
 Everything goes to /dev/kmsg as `pinna-init: …`. The kernel command line is
 unchanged; its `root=` only matters for a boot image without pinna-init, which
 mounts `system_a` as plain erofs (no verity, no slot choice; `mark-good` then
@@ -117,7 +118,7 @@ needs no partition renames and no boot loader support.
 - `boot_a` (kernel + initramfs) is not A/B: kernel and pinna-init updates are a
   manual `fastboot flash`. Changing the release key means flashing `boot_a`
   and `system_a` together by hand: a new pinna-init rejects slots signed with
-  the old key (and reboots until fastboot), and the running updater only
+  the old key (and stays in rescue mode, ADR 0012), and the running updater only
   accepts images signed with the key it was built with.
 - Root images carry ~0.8 % hash tree + 4 KiB. `flash-dot.sh root` clears the
   head of `system_b` so a fresh flash boots slot a whatever misc says.

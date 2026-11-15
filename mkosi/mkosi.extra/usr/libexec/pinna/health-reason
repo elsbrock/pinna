@@ -1,0 +1,12 @@
+#!/bin/sh
+# The health check stopped without a clean result — it failed or timed out:
+# leave the reason for the shutdown hook (ADR 0012), which writes it to pstore.
+# systemd sets $SERVICE_RESULT for ExecStopPost.
+set -u
+case "${SERVICE_RESULT:-}" in
+    success | "") exit 0 ;;
+    timeout) reason="health check timed out" ;;
+    *) reason="health check failed (${SERVICE_RESULT})" ;;
+esac
+mkdir -p /run/pinna
+printf '%s\n' "$reason" > /run/pinna/reboot-reason

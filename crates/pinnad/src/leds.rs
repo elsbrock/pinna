@@ -126,15 +126,17 @@ impl Default for LedState {
 
 /// `music`: the band levels sounding now, if music is playing. `speech`: the
 /// reply's smoothed level (0..=1) while it is heard; without it the speaking
-/// ring breathes.
+/// ring breathes. `boot`: the boot-stage frame while the start is still on the
+/// ring (ADR 0012); it shows only where the plain idle ring would.
 pub fn frame_for(
     state: &LedState,
     music: Option<&Bands>,
     base_since: Instant,
     now: Instant,
     speech: Option<f32>,
+    boot: Option<Frame>,
 ) -> Frame {
-    let mut frame = unscaled_frame(state, music, base_since, now, speech);
+    let mut frame = unscaled_frame(state, music, base_since, now, speech, boot);
     if state.brightness < 100 {
         let k = f32::from(state.brightness) / 100.0;
         for px in &mut frame {
@@ -150,6 +152,7 @@ fn unscaled_frame(
     base_since: Instant,
     now: Instant,
     speech: Option<f32>,
+    boot: Option<Frame>,
 ) -> Frame {
     if let Some((effect, since)) = state.overlay {
         let t = now.saturating_duration_since(since);
@@ -169,7 +172,8 @@ fn unscaled_frame(
         }
         // A running timer was asked of this device just now: its arc shows
         // above a notification, which shows above the light, which shows above
-        // the music.
+        // the music. The boot stages (ADR 0012) show only where the plain
+        // idle ring would, so everything the device is doing wins over them.
         Effect::Idle | Effect::Boot => {
             if let Some(frac) = state.timer {
                 render(Effect::Timer(frac), t)
@@ -179,6 +183,8 @@ fn unscaled_frame(
                 [scale(rgb, state.light_effect.level(t)); RING_PIXELS]
             } else if let Some(bands) = music {
                 render(Effect::Equalizer(*bands), t)
+            } else if let Some(frame) = boot {
+                frame
             } else {
                 render(Effect::Idle, t)
             }
@@ -242,11 +248,13 @@ impl Talker {
 
 /// Drive the ring from `state` (and `music`, the speaker's spectrum) until the
 /// sender is dropped. The speaking ring follows `voice`, the speaker's level.
+/// `boot` drives the boot stages while the start is still on the ring.
 pub async fn run(
     leds: Option<LedHandle>,
     mut state: watch::Receiver<LedState>,
     music: Option<Spectrum>,
     voice: Option<VoiceLevel>,
+    mut boot: Option<crate::boot::BootRing>,
 ) {
     let Some(leds) = leds else {
         // No ring: just log transitions.
@@ -293,12 +301,14 @@ pub async fn run(
                 None
             }
         };
+        let boot_frame = boot.as_mut().and_then(|b| b.frame(now));
         leds.show(&frame_for(
             &current,
             bands.as_ref(),
             base_since,
             now,
             speech,
+            boot_frame,
         ));
     }
 }
@@ -320,9 +330,15 @@ mod tests {
             light: Some(green),
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, None, now, now, None), [green; RING_PIXELS]);
+        assert_eq!(
+            frame_for(&s, None, now, now, None, None),
+            [green; RING_PIXELS]
+        );
         s.base = Effect::Muted;
-        assert_ne!(frame_for(&s, None, now, now, None), [green; RING_PIXELS]);
+        assert_ne!(
+            frame_for(&s, None, now, now, None, None),
+            [green; RING_PIXELS]
+        );
     }
 
     #[test]
@@ -339,20 +355,20 @@ mod tests {
             brightness: 50,
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, None, now, now, None)[0].r, 100);
+        assert_eq!(frame_for(&s, None, now, now, None, None)[0].r, 100);
         s.brightness = 100;
         s.light_effect = LightEffect::Flash;
         assert_eq!(
-            frame_for(&s, None, now, now + Duration::from_millis(100), None)[0].r,
+            frame_for(&s, None, now, now + Duration::from_millis(100), None, None)[0].r,
             200
         );
         assert_eq!(
-            frame_for(&s, None, now, now + Duration::from_millis(600), None)[0].r,
+            frame_for(&s, None, now, now + Duration::from_millis(600), None, None)[0].r,
             0
         );
         s.light_effect = LightEffect::Pulse;
-        let low = frame_for(&s, None, now, now, None)[0].r;
-        let high = frame_for(&s, None, now, now + Duration::from_secs(1), None)[0].r;
+        let low = frame_for(&s, None, now, now, None, None)[0].r;
+        let high = frame_for(&s, None, now, now + Duration::from_secs(1), None, None)[0].r;
         assert!(low < 50 && high == 200, "{low} {high}");
         assert_eq!(LightEffect::from_name("Flash"), Some(LightEffect::Flash));
         assert_eq!(LightEffect::Pulse.name(), "Pulse");
@@ -450,28 +466,31 @@ mod tests {
             base: Effect::Idle,
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, Some(&bands), now, now, None), eq);
-        assert_eq!(frame_for(&s, None, now, now, None), [Rgb::OFF; RING_PIXELS]);
+        assert_eq!(frame_for(&s, Some(&bands), now, now, None, None), eq);
+        assert_eq!(
+            frame_for(&s, None, now, now, None, None),
+            [Rgb::OFF; RING_PIXELS]
+        );
         // A running timer and the light win over the equalizer.
         s.timer = Some(0.5);
         assert_eq!(
-            frame_for(&s, Some(&bands), now, now, None),
+            frame_for(&s, Some(&bands), now, now, None, None),
             render(Effect::Timer(0.5), Duration::ZERO)
         );
         s.light = Some(Rgb::new(0, 0, 200));
         assert_eq!(
-            frame_for(&s, Some(&bands), now, now, None),
+            frame_for(&s, Some(&bands), now, now, None, None),
             render(Effect::Timer(0.5), Duration::ZERO)
         );
         s.timer = None;
         assert_eq!(
-            frame_for(&s, Some(&bands), now, now, None),
+            frame_for(&s, Some(&bands), now, now, None, None),
             [Rgb::new(0, 0, 200); RING_PIXELS]
         );
         // So do the voice states.
         s.base = Effect::Thinking;
         assert_eq!(
-            frame_for(&s, Some(&bands), now, now, None),
+            frame_for(&s, Some(&bands), now, now, None, None),
             render(Effect::Thinking, Duration::ZERO)
         );
     }
@@ -484,8 +503,8 @@ mod tests {
             overlay: Some((Effect::Volume(50), now)),
             ..Default::default()
         };
-        let during = frame_for(&s, None, now, now + Duration::from_millis(100), None);
-        let after = frame_for(&s, None, now, now + Duration::from_secs(10), None);
+        let during = frame_for(&s, None, now, now + Duration::from_millis(100), None, None);
+        let after = frame_for(&s, None, now, now + Duration::from_secs(10), None, None);
         assert_ne!(during, after);
         assert_eq!(after, render(Effect::Idle, Duration::from_secs(10)));
     }
@@ -504,12 +523,12 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            frame_for(&s, None, now, now, None),
+            frame_for(&s, None, now, now, None, None),
             render(Effect::Timer(0.5), Duration::ZERO)
         );
         s.timer = None;
         assert_eq!(
-            frame_for(&s, None, now, now, None)[0],
+            frame_for(&s, None, now, now, None, None)[0],
             Rgb {
                 r: 0,
                 g: 200,
@@ -528,7 +547,7 @@ mod tests {
         };
         // No level (still downloading, no speaker): the breathing.
         assert_eq!(
-            frame_for(&s, None, now, now, None),
+            frame_for(&s, None, now, now, None, None),
             frame_for(
                 &LedState {
                     brightness: 100,
@@ -537,26 +556,27 @@ mod tests {
                 None,
                 now,
                 now,
+                None,
                 None
             )
             .map(|p| scale(p, 0.5))
         );
         assert_eq!(
-            frame_for(&s, None, now, now, Some(1.0)),
+            frame_for(&s, None, now, now, Some(1.0), None),
             [scale(speaking(1.0)[0], 0.5); 12]
         );
         // A transient overlay still wins.
         s.overlay = Some((Effect::Volume(50), now));
         assert_eq!(
-            frame_for(&s, None, now, now, Some(1.0)),
-            frame_for(&s, None, now, now, None)
+            frame_for(&s, None, now, now, Some(1.0), None),
+            frame_for(&s, None, now, now, None, None)
         );
         // Only the speaking ring follows the voice.
         s.overlay = None;
         s.base = Effect::Thinking;
         assert_eq!(
-            frame_for(&s, None, now, now, Some(1.0)),
-            frame_for(&s, None, now, now, None)
+            frame_for(&s, None, now, now, Some(1.0), None),
+            frame_for(&s, None, now, now, None, None)
         );
     }
 
@@ -593,24 +613,60 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            frame_for(&s, None, now, now, None),
+            frame_for(&s, None, now, now, None, None),
             render(Effect::Timer(0.5), Duration::ZERO)
         );
         s.timer = None;
         assert_eq!(
-            frame_for(&s, None, now, now, None),
+            frame_for(&s, None, now, now, None, None),
             render(Effect::Notification, Duration::ZERO)
         );
         // Anything the device is doing, or muted, shows instead.
         for base in [Effect::Muted, Effect::Listening, Effect::TimerRinging] {
             s.base = base;
             assert_eq!(
-                frame_for(&s, None, now, now, None),
+                frame_for(&s, None, now, now, None, None),
                 render(base, Duration::ZERO)
             );
         }
         s.base = Effect::Idle;
         s.notification = false;
-        assert_eq!(frame_for(&s, None, now, now, None), [green; RING_PIXELS]);
+        assert_eq!(
+            frame_for(&s, None, now, now, None, None),
+            [green; RING_PIXELS]
+        );
+    }
+
+    #[test]
+    fn boot_stages_show_where_the_idle_ring_would() {
+        let now = Instant::now();
+        let green = Rgb {
+            r: 0,
+            g: 200,
+            b: 40,
+        };
+        let arc = [Rgb::new(0, 0x30, 0xff); RING_PIXELS];
+        let s = LedState {
+            base: Effect::Idle,
+            ..Default::default()
+        };
+        // Idle: the arc shows instead of the dark ring.
+        assert_eq!(frame_for(&s, None, now, now, None, Some(arc)), arc);
+        // Anything the device is doing wins: the light, music, a timer, a
+        // notification.
+        let mut lit = s.clone();
+        lit.light = Some(green);
+        assert_ne!(frame_for(&lit, None, now, now, None, Some(arc)), arc);
+        let bands = [1.0; 12];
+        assert_eq!(
+            frame_for(&s, Some(&bands), now, now, None, Some(arc)),
+            render(Effect::Equalizer(bands), Duration::ZERO)
+        );
+        let mut timed = s.clone();
+        timed.timer = Some(0.5);
+        assert_ne!(frame_for(&timed, None, now, now, None, Some(arc)), arc);
+        let mut notified = s.clone();
+        notified.notification = true;
+        assert_ne!(frame_for(&notified, None, now, now, None, Some(arc)), arc);
     }
 }

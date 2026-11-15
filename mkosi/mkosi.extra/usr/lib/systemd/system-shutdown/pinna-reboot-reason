@@ -1,0 +1,9 @@
+#!/bin/sh
+# Why this boot ended (ADR 0012): whatever asked for the reboot already wrote
+# /run/pinna/reboot-reason; the next boot reads this line back from pstore and
+# reports how the last one ended. "not recorded" covers a plain
+# `systemctl reboot` and power-offs.
+set -u
+reason=$(cat /run/pinna/reboot-reason 2>/dev/null) || reason=
+printf 'pinna: reboot (%s)\n' "${reason:-not recorded}" > /dev/pmsg0 2>/dev/null || true
+exit 0

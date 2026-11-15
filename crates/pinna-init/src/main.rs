@@ -6,13 +6,13 @@
 //! 4. check that slot's signed footer with the compiled-in release key; on
 //!    failure use the other slot
 //! 5. dm-verity device `root` over the slot, erofs read-only on /sysroot
-//! 6. /run/pinna/boot-slot + boot-version, move /dev /proc /sys /run, switch
-//!    root, exec /sbin/init with our argv
+//! 6. /run/pinna/boot-slot + boot-version + the root's boot protocol marker,
+//!    move /dev /proc /sys /run, switch root, exec /sbin/init with our argv
 //!
-//! Everything is logged to /dev/kmsg as `pinna-init: …`. If no slot can be
-//! booted: log, wait 5 s, reboot.
-
-mod dm;
+//! Everything is logged to /dev/kmsg as `pinna-init: …`, and to pstore's
+//! /dev/pmsg0 so that it survives a warm reset. The LED ring shows boot
+//! stages 1-3 (ADR 0012). If there is nothing to boot, pinna-init stays up in
+//! rescue mode ([`rescue`]) instead of rebooting.
 
 use std::collections::HashMap;
 use std::ffi::{CString, OsString};
@@ -20,30 +20,78 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use pinna_bootctl::slot::{self, Slot, SlotState};
+use pinna_bootctl::stages;
 use pinna_image::{Footer, keys};
+
+use crate::rescue::{Failure, Reason};
+use crate::ring::Ring;
 
 const SYSROOT: &str = "/sysroot";
 const DM_NAME: &str = "root";
 const PART_TIMEOUT: Duration = Duration::from_secs(15);
 
+#[macro_export]
 macro_rules! log {
-    ($($arg:tt)*) => { kmsg(&format!($($arg)*)) };
+    ($($arg:tt)*) => { $crate::kmsg(&format!($($arg)*)) };
+}
+
+mod dm;
+mod http;
+mod rescue;
+mod ring;
+
+/// Everything logged so far, for the rescue page (bounded).
+static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+const LOG_LINES: usize = 2000;
+
+/// Seconds since boot, as the kernel log prints them.
+fn boottime() -> f64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: valid pointer.
+    unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) };
+    ts.tv_sec as f64 + ts.tv_nsec as f64 / 1e9
+}
+
+/// Append a line to pstore's message log: it survives a warm reset and is
+/// read back after the next boot.
+pub fn pmsg(line: &str) {
+    if let Ok(mut f) = fs::OpenOptions::new().write(true).open("/dev/pmsg0") {
+        let _ = f.write_all(format!("{line}\n").as_bytes());
+    }
+}
+
+/// pinna-init's log lines so far, with kernel timestamps.
+pub fn log_lines() -> Vec<String> {
+    LOG.lock().map(|l| l.clone()).unwrap_or_default()
 }
 
 /// One record per write; a fresh open each time avoids the per-open
-/// ratelimit on /dev/kmsg.
-fn kmsg(msg: &str) {
-    let line = format!("<5>pinna-init: {msg}\n");
+/// ratelimit on /dev/kmsg. Mirrored to pstore (the kernel command line's
+/// loglevel=4 keeps these level 5 lines out of console-ramoops) and kept for
+/// the rescue page.
+pub fn kmsg(msg: &str) {
+    let line = format!("pinna-init: {msg}");
     match fs::OpenOptions::new().write(true).open("/dev/kmsg") {
         Ok(mut f) => {
-            let _ = f.write_all(line.as_bytes());
+            let _ = f.write_all(format!("<5>{line}\n").as_bytes());
         }
-        Err(_) => eprintln!("pinna-init: {msg}"),
+        Err(_) => eprintln!("{line}"),
+    }
+    pmsg(&line);
+    if let Ok(mut l) = LOG.lock() {
+        if l.len() >= LOG_LINES {
+            l.remove(0);
+        }
+        l.push(format!("[{:12.6}] {line}", boottime()));
     }
 }
 
@@ -51,7 +99,7 @@ fn cstr(s: &str) -> CString {
     CString::new(s).expect("no NUL in paths")
 }
 
-fn mount(
+pub fn mount(
     src: &str,
     target: &str,
     fstype: Option<&str>,
@@ -78,7 +126,7 @@ fn mount(
     Ok(())
 }
 
-fn early_mounts() -> Result<()> {
+pub fn early_mounts() -> Result<()> {
     let nosuid = libc::MS_NOSUID;
     let api = libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC;
     for (src, target, fstype, flags, data) in [
@@ -187,6 +235,24 @@ fn wait_for_parts(names: &[&str]) -> HashMap<String, Part> {
     }
 }
 
+/// The A/B slot state in misc, for the rescue diagnostics.
+pub fn slot_summary() -> String {
+    let parts = scan_parts();
+    let Some(misc) = parts.get("misc") else {
+        return "no misc partition\n".into();
+    };
+    match slot::read_state(&misc.path()) {
+        Ok(Some(st)) => format!(
+            "active: {}\na: {}\nb: {}\n",
+            st.active,
+            st.describe(Slot::A),
+            st.describe(Slot::B)
+        ),
+        Ok(None) => "no slot state (first flash: slot a counts as good)\n".into(),
+        Err(e) => format!("unreadable: {e:#}\n"),
+    }
+}
+
 fn persist(misc: Option<&Part>, state: &SlotState) {
     let res = misc
         .context("no misc partition")
@@ -255,8 +321,20 @@ fn try_slot(part: &Part) -> Result<Footer> {
 }
 
 /// Choose, check and mount a slot. Returns what booted.
-fn bring_up_root() -> Result<(Slot, Footer)> {
+fn bring_up_root(ring: &Ring) -> Result<(Slot, Footer), Failure> {
     let parts = wait_for_parts(&["misc", Slot::A.partname(), Slot::B.partname()]);
+    if !parts.contains_key(Slot::A.partname()) && !parts.contains_key(Slot::B.partname()) {
+        return Err(Failure::new(
+            Reason::NoStorage,
+            anyhow!(
+                "no {} or {} partition after {} s",
+                Slot::A.partname(),
+                Slot::B.partname(),
+                PART_TIMEOUT.as_secs()
+            ),
+        ));
+    }
+    ring.done(stages::STORAGE);
     let misc = parts.get("misc");
     let state = match misc.map(|m| slot::read_state(&m.path())) {
         Some(Ok(s)) => s,
@@ -272,9 +350,11 @@ fn bring_up_root() -> Result<(Slot, Footer)> {
         persist(misc, p);
     }
     let state = d.persist.or(state);
+    let mut why = Vec::new();
     for s in [d.slot, d.slot.other()] {
         let Some(part) = parts.get(s.partname()) else {
             log!("slot {s}: no {} partition", s.partname());
+            why.push(format!("slot {s}: no {} partition", s.partname()));
             continue;
         };
         match try_slot(part) {
@@ -286,12 +366,19 @@ fn bring_up_root() -> Result<(Slot, Footer)> {
                     );
                     persist(misc, &slot::after_bad_image(state, d.slot));
                 }
+                ring.done(stages::ROOT);
                 return Ok((s, footer));
             }
-            Err(e) => log!("slot {s} ({}): not bootable: {e:#}", part.devname),
+            Err(e) => {
+                log!("slot {s} ({}): not bootable: {e:#}", part.devname);
+                why.push(format!("slot {s}: {e:#}"));
+            }
         }
     }
-    bail!("no bootable slot")
+    Err(Failure::new(
+        Reason::NoRoot,
+        anyhow!("no bootable slot ({})", why.join("; ")),
+    ))
 }
 
 fn switch_root(argv: &[OsString]) -> Result<()> {
@@ -299,8 +386,10 @@ fn switch_root(argv: &[OsString]) -> Result<()> {
         mount(m, &format!("{SYSROOT}{m}"), None, libc::MS_MOVE, None)?;
     }
     std::env::set_current_dir(SYSROOT)?;
-    // The initramfs stays in memory unless emptied; /init is all there is.
+    // The initramfs stays in memory unless emptied: /init and busybox (for
+    // rescue mode) are all there is.
     let _ = fs::remove_file("/init");
+    rescue::release_busybox();
     mount(".", "/", None, libc::MS_MOVE, None)?;
     // SAFETY: plain chroot/chdir on valid paths.
     ensure!(
@@ -322,38 +411,89 @@ fn switch_root(argv: &[OsString]) -> Result<()> {
     bail!("exec /sbin/init: {}", io::Error::last_os_error())
 }
 
-fn reboot_after_failure(e: &anyhow::Error) -> ! {
-    log!("cannot boot: {e:#}; rebooting in 5 s");
-    sleep(Duration::from_secs(5));
-    // SAFETY: plain sync + reboot; we are PID 1.
-    unsafe {
-        libc::sync();
-        libc::reboot(libc::RB_AUTOBOOT);
-    }
-    loop {
-        sleep(Duration::from_secs(60));
-    }
+/// What the root says it can do (ADR 0012): `/usr/lib/pinna/boot-protocol`
+/// holds the version of the boot protocol it speaks — it runs the stage helper
+/// and (later) resets the boot counter. A root without the marker is neither
+/// counted nor timed: it may be older than the boot image after a rollback.
+fn root_protocol(sysroot: &Path) -> Option<u8> {
+    fs::read_to_string(sysroot.join("usr/lib/pinna/boot-protocol"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
-fn main() {
-    let argv: Vec<OsString> = std::env::args_os().collect();
-    std::panic::set_hook(Box::new(|info| log!("panic: {info}")));
-    let res = std::panic::catch_unwind(|| -> Result<()> {
-        early_mounts()?;
-        let (s, footer) = bring_up_root()?;
+/// Boot the root. Returns only when that is not possible.
+fn boot(argv: &[OsString], ring: &Ring) -> Failure {
+    let (s, footer) = match bring_up_root(ring) {
+        Ok(booted) => booted,
+        Err(f) => return f,
+    };
+    let protocol = root_protocol(Path::new(SYSROOT));
+    let recorded = (|| -> Result<()> {
         fs::create_dir_all(Path::new(slot::RUN_DIR))?;
         fs::write(Path::new(slot::RUN_DIR).join("boot-slot"), format!("{s}\n"))?;
         fs::write(
             Path::new(slot::RUN_DIR).join("boot-version"),
             format!("{}\n", footer.version),
         )?;
-        log!("booting slot {s}, version {}", footer.version);
-        switch_root(&argv)
-    });
-    let err = match res {
-        Ok(Ok(())) => anyhow::anyhow!("switch root returned"),
-        Ok(Err(e)) => e,
-        Err(_) => anyhow::anyhow!("panicked"),
+        // Best effort: the stage helper only reads it, and its absence means
+        // "no stages 4-6", not a failed boot.
+        if protocol == Some(1) {
+            let _ = fs::write(Path::new(slot::RUN_DIR).join("boot-protocol"), "1\n");
+        }
+        Ok(())
+    })();
+    if let Err(e) = recorded {
+        return Failure::new(Reason::NoSystem, e.context("recording the booted slot"));
+    }
+    match protocol {
+        Some(1) => log!("root speaks boot protocol 1: the stage helper shows stages 4-6"),
+        Some(v) => log!("root speaks unknown boot protocol {v}; ignoring its marker"),
+        None => log!("root has no boot protocol marker: no stages 4-6"),
+    }
+    log!("booting slot {s}, version {}", footer.version);
+    // Stage 3: the system starts. The still frame stays on the ring until
+    // the root takes it over.
+    ring.hold(stages::SYSTEM);
+    let e = match switch_root(argv) {
+        Ok(()) => anyhow!("switch root returned"),
+        Err(e) => e,
     };
-    reboot_after_failure(&err)
+    Failure::new(Reason::NoSystem, e.context("switching to the root"))
+}
+
+fn main() {
+    let argv: Vec<OsString> = std::env::args_os().collect();
+    std::panic::set_hook(Box::new(|info| log!("panic: {info}")));
+    if let Err(e) = early_mounts() {
+        log!("early mounts: {e:#}");
+    }
+    let ring = Ring::start();
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| boot(&argv, &ring)))
+        .unwrap_or_else(|_| {
+            Failure::new(
+                Reason::Crashed(ring.in_progress()),
+                anyhow!("pinna-init panicked (the panic is in its log)"),
+            )
+        });
+    rescue::run(failure, &ring)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_root_protocol_comes_from_its_marker() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(root_protocol(d.path()), None);
+        fs::create_dir_all(d.path().join("usr/lib/pinna")).unwrap();
+        fs::write(d.path().join("usr/lib/pinna/boot-protocol"), "1\n").unwrap();
+        assert_eq!(root_protocol(d.path()), Some(1));
+        fs::write(d.path().join("usr/lib/pinna/boot-protocol"), "2").unwrap();
+        assert_eq!(root_protocol(d.path()), Some(2));
+        fs::write(d.path().join("usr/lib/pinna/boot-protocol"), "soon").unwrap();
+        assert_eq!(root_protocol(d.path()), None);
+    }
 }

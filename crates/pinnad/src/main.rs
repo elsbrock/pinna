@@ -5,6 +5,7 @@
 //! Home Assistant adopts the device as a voice satellite.
 
 mod api;
+mod boot;
 mod calibration;
 mod config;
 mod identity;
@@ -28,6 +29,7 @@ use bytes::Bytes;
 use clap::Parser;
 use pinna_audio::{Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle, WakeWordInfo};
+use pinna_hal::anim::Effect;
 use pinna_hal::led::{Is31Sysfs, LedHandle, MockLeds};
 use tokio::sync::{mpsc, watch};
 
@@ -346,6 +348,9 @@ async fn main() -> Result<()> {
     dc.max_active_wake_words = wakewords::MAX_ACTIVE as u32;
     pinna_esphome::echo_dot_entities(&mut dc);
     dc.encryption_key = identity::load_encryption_key(&cfg.esphome)?;
+    // How the previous boot ended (ADR 0012), for the dashboard and the log.
+    let last_boot = boot::LastBoot::read(std::path::Path::new(pinna_bootctl::slot::RUN_DIR));
+    tracing::info!("last boot: {}", last_boot.summary());
     tracing::info!(
         "ESPHome API encryption: {}",
         if dc.encryption_key.is_some() {
@@ -369,8 +374,13 @@ async fn main() -> Result<()> {
     let (esp, mut ha) = pinna_esphome::serve(dc).await?;
     tracing::info!("ESPHome API listening on {}", esp.local_addr());
 
-    // LEDs.
+    // LEDs. With the stage helper in charge (its handover exists), the boot
+    // stages show instead of the startup effect, so the base starts idle.
+    let staged = PathBuf::from(pinna_bootctl::slot::RUN_DIR)
+        .join("boot-stages")
+        .exists();
     let (led_tx, led_rx) = watch::channel(LedState {
+        base: if staged { Effect::Idle } else { Effect::Boot },
         brightness: initial.led_brightness,
         ..Default::default()
     });
@@ -413,13 +423,9 @@ async fn main() -> Result<()> {
             }
             Arc::new(Speaker::new(sc))
         });
-    // The ring shows music as an equalizer and follows the voice while speaking.
-    tokio::spawn(leds::run(
-        ring,
-        led_rx,
-        speaker.as_ref().map(|s| s.spectrum()),
-        speaker.as_ref().map(|s| s.voice_level()),
-    ));
+    // The ring shows music as an equalizer and follows the voice while
+    // speaking. It is spawned once the control API answers, below: until then
+    // the stage helper keeps drawing the boot stages (ADR 0012).
 
     let shared = Arc::new(Shared::default());
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);
@@ -562,12 +568,28 @@ async fn main() -> Result<()> {
                 pinna_hal::ident::board_model().into()
             },
             virtual_device: virt.is_some(),
+            last_boot,
         },
         status_rx,
         in_tx.clone(),
     ));
     let api_addr = api::start(device_api.clone(), &cfg.api.listen).await?;
     tracing::info!("control API listening on {api_addr}");
+
+    // Pinna runs (ADR 0012, stage 6): take the boot-stage ring over from the
+    // helper and let it end the arc with stage 7, the health verdict.
+    let boot = boot::BootRing::claim();
+    if boot.is_some() {
+        tracing::info!("took the boot stages over from the stage helper");
+    }
+    tokio::spawn(leds::run(
+        ring,
+        led_rx,
+        speaker.as_ref().map(|s| s.spectrum()),
+        speaker.as_ref().map(|s| s.voice_level()),
+        boot,
+    ));
+
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
     match web::start(device_api, &cfg.web, virt).await {
         Ok(Some(addr)) => tracing::info!("dashboard listening on http://{addr}"),

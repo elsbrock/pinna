@@ -102,6 +102,7 @@ Pinna's own services:
 | `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons. Serves the dashboard and the control API on port 80, and the control API on `127.0.0.1:7470` for `pinnactl` and the health check |
 | `pinna-wifi` | Powers up the Wi-Fi chip and loads its firmware |
 | `pinna-gadget` | Sets up the USB serial console and network |
+| `pinna-bootstages` | Shows the start-up steps on the ring after the system starts (USB, Wi-Fi, `pinnad`), then hands the ring to `pinnad` |
 | `pinna-fastboot-guard` | Writes the fastboot request early in each boot |
 | `pinna-boot-ok` | The health check that marks a boot as good |
 

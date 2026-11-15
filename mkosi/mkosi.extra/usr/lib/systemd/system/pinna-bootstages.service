@@ -1,0 +1,16 @@
+# The boot stages after pinna-init (ADR 0012): USB ready, the Wi-Fi driver and
+# pinnad, then the handover to pinnad (stage 6). A root without the boot
+# protocol marker — an older root, e.g. after a rollback — is left alone.
+[Unit]
+Description=Boot stages on the LED ring (USB, Wi-Fi, pinnad)
+DefaultDependencies=no
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/usr/lib/pinna/boot-protocol
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/pinna-bootstages
+
+[Install]
+WantedBy=sysinit.target

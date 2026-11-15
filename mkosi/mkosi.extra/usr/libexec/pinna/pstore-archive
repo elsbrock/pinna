@@ -1,0 +1,25 @@
+#!/bin/sh
+# One pstore archive per boot (ADR 0012).
+#
+# systemd-pstore stores each boot's records under fixed names, so the next boot
+# overwrites the last one's. Run it with the archive directory of the boot
+# that left the records instead: that is the previous boot, and the state file
+# holds its id, written when that boot started. /run/pinna/previous-pstore
+# points pinnad (and later the support bundle) at the records.
+set -eu
+state=/var/lib/pinna/pstore-boot-id
+archive=/var/lib/systemd/pstore
+prev=$(cat "$state" 2>/dev/null || true)
+if [ -n "$prev" ]; then
+    target=$archive/$prev
+else
+    # No id recorded yet: the first boot with this script, or an upgrade from
+    # an image without it. Keep those records under a stable name.
+    target=$archive/previous
+fi
+mkdir -p "$target" "$(dirname "$state")"
+mkdir -p /run/pinna 2>/dev/null || true
+printf '%s\n' "$target" > /run/pinna/previous-pstore 2>/dev/null || true
+if /usr/lib/systemd/systemd-pstore /sys/fs/pstore "$target"; then
+    printf '%s\n' "$(cat /proc/sys/kernel/random/boot_id)" > "$state"
+fi

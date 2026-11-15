@@ -8,12 +8,26 @@ the four buttons on top control it. This page describes both.
 
 ## Light ring
 
+### While the device starts
+
+| What you see | Meaning |
+| --- | --- |
+| A blue arc that grows clockwise from the Action button | Pinna is starting. The arc grows with each step: the storage, the root filesystem, the system, USB, the Wi-Fi driver, `pinnad` |
+| The whole ring fills, then fades out | Pinna started and passed its health check |
+| Green, slowly getting brighter and dimmer, or steady | Pinna is in rescue mode: it couldn't start. See [Rescue mode](/docs/recovery/#rescue-mode) |
+| White, flashing a few times, then a pause, repeating | A start-up step didn't finish in time. Count the flashes: 4 is USB, 5 the Wi-Fi driver, 6 `pinnad`; 1 to 3 belong to rescue mode, where the page names them. The flashes stay while the device is idle, until the next restart |
+
+If a step flashes, the device keeps running — nothing restarts itself. The
+number says what to look at first; [Troubleshooting](/docs/troubleshooting/)
+has the next steps.
+
+### Once Pinna runs
+
 The ring shows one state at a time. When two states apply, the higher one in
 this table wins:
 
 | What you see | Meaning |
 | --- | --- |
-| A blue light that runs around the ring, briefly | Pinna is starting |
 | Solid red | The microphones are off |
 | Amber, pulsing twice a second | A timer has finished. Press the Action button to stop it |
 | Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch in Home Assistant |

@@ -189,6 +189,8 @@ impl Updater {
         let [program, args @ ..] = self.paths.reboot.as_slice() else {
             bail!("no reboot command");
         };
+        // Remember why, for the next boot's report (ADR 0012). Best effort.
+        let _ = pinna_bootctl::reboot::record_at(&self.paths.run_dir, "user");
         let status =
             tokio::time::timeout(REBOOT_TIMEOUT, Command::new(program).args(args).status())
                 .await

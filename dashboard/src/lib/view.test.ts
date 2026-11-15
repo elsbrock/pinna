@@ -10,6 +10,8 @@ const wakeWord = (over: Partial<WakeWord> = {}): WakeWord => ({
   $typeName: "pinna.v1.WakeWord",
   phrase: "",
   enabled: false,
+  threshold: 0,
+  recent: [],
   available: [],
   ...over,
 });

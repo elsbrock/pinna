@@ -38,6 +38,14 @@
   </Group>
 
   <Group title="Troubleshooting">
+    {#if s.lastBoot}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label">Last start</span>
+          <span class="pn-row-hint">{s.lastBoot.summary}</span>
+        </div>
+      </div>
+    {/if}
     <a class="pn-row" href="#/system/logs">
       <span class="pn-row-icon"><Icon name="logs" /></span>
       <span class="pn-row-text">

@@ -22,6 +22,9 @@ ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6; do /usr/bin/pinnactl status >/dev
 ExecStartPre=/bin/systemctl is-active --quiet ssh.service
 ExecStart=/usr/bin/pinna-bootctl mark-good
 ExecStart=/usr/bin/pinna-bootctl guard-clear
+# A failed check reboots (FailureAction): leave the reason for the pstore
+# record (ADR 0012). A clean result, or a stop without one, leaves it alone.
+ExecStopPost=/usr/libexec/pinna/health-reason
 
 [Install]
 WantedBy=multi-user.target
