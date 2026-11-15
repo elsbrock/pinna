@@ -1,0 +1,17 @@
+[package]
+name = "pinna-hal"
+description = "Hardware access (LED ring, buttons, mic privacy, identity) with real and mock backends"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "io-std", "io-util", "fs"] }
+tracing.workspace = true
+evdev = { version = "0.13", features = ["tokio"] }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tracing-subscriber.workspace = true
