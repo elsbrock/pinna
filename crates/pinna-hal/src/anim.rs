@@ -29,10 +29,25 @@ const ERROR_FLASH: Duration = Duration::from_millis(250);
 const ERROR_FLASHES: u32 = 3;
 const BOOT_DURATION: Duration = Duration::from_millis(1200);
 
+// Listening direction cue (LibreEcho ledd.c, PATTERN_DIRECTION). Pixel i sits
+// at (45 + 30 * i) degrees clockwise from the front, so the front-centre pair
+// 10/11 is at -15/+15 degrees.
+const PIXEL_ZERO_DEG: u32 = 45;
+const PIXEL_STEP_DEG: u32 = 30;
+/// The rest of the ring stays at this share of the Listening colour.
+const DIRECTION_BASE_PERCENT: u32 = 40;
+/// The segment's centre is the Listening colour this far towards white.
+const DIRECTION_POINTER_PERCENT: u32 = 85;
+/// Half the segment's width; brightness falls linearly to the base at the edges.
+const DIRECTION_HALF_WIDTH_DEG: u32 = 50;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Effect {
     Idle,
     Listening,
+    /// Listening, with a brighter segment pointing at the talker (azimuth in
+    /// degrees, 0 = front, clockwise from above).
+    ListeningAt(u16),
     Thinking,
     Speaking,
     Error,
@@ -90,6 +105,7 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
     match effect {
         Effect::Idle => solid(Rgb::OFF),
         Effect::Listening => solid(LISTENING.scaled(0.3 + 0.7 * wave(t, 1.6))),
+        Effect::ListeningAt(azimuth) => direction(LISTENING, u32::from(azimuth) % 360),
         Effect::Thinking => spin(THINKING, t, 1.2, 5.0),
         Effect::Speaking => solid(SPEAKING.scaled(0.25 + 0.55 * wave(t, 2.4))),
         Effect::Error => {
@@ -133,6 +149,29 @@ fn equalizer(bands: &[f32; RING_PIXELS]) -> Frame {
         let c = colour.scaled(bands[2 * k].max(bands[2 * k + 1]));
         f[(FRONT_CENTRE[1] + k) % RING_PIXELS] = c;
         f[(FRONT_CENTRE[0] + RING_PIXELS - k) % RING_PIXELS] = c;
+    }
+    f
+}
+
+/// Angle of pixel `i`, degrees clockwise from the front.
+fn pixel_angle(i: usize) -> u32 {
+    (PIXEL_ZERO_DEG + PIXEL_STEP_DEG * i as u32) % 360
+}
+
+/// A dim ring with a brighter segment at `azimuth`, interpolated across
+/// neighbouring pixels so twelve pixels still read as a direction. Integer
+/// arithmetic as in ledd.c, so the frames match LibreEcho's.
+fn direction(colour: Rgb, azimuth: u32) -> Frame {
+    let base = |c: u8| u32::from(c) * DIRECTION_BASE_PERCENT / 100;
+    let pointer = |c: u8| u32::from(c) + (255 - u32::from(c)) * DIRECTION_POINTER_PERCENT / 100;
+    let mut f = [Rgb::OFF; RING_PIXELS];
+    for (i, p) in f.iter_mut().enumerate() {
+        let d = pixel_angle(i).abs_diff(azimuth);
+        let distance = if d > 180 { 360 - d } else { d };
+        let level =
+            DIRECTION_HALF_WIDTH_DEG.saturating_sub(distance) * 100 / DIRECTION_HALF_WIDTH_DEG;
+        let mix = |c: u8| (base(c) + (pointer(c) - base(c)) * level / 100) as u8;
+        *p = Rgb::new(mix(colour.r), mix(colour.g), mix(colour.b));
     }
     f
 }
@@ -251,6 +290,29 @@ mod tests {
     }
 
     #[test]
+    fn listening_points_at_the_talker() {
+        let base = Rgb::new(28, 74, 102);
+        let front = render(Effect::ListeningAt(0), ms(0));
+        // 0 degrees falls between the front-centre pair, 15 degrees off each.
+        assert_eq!(front[10], front[11]);
+        assert_eq!(front[11], Rgb::new(167, 193, 209));
+        // 45 degrees off: still inside the 50-degree half width.
+        assert_eq!(front[0], Rgb::new(47, 91, 117));
+        assert_eq!(front[9], front[0]);
+        assert!(front[1..9].iter().all(|p| *p == base), "{front:?}");
+        // Pixel 0 sits at 45 degrees: the segment's full brightness.
+        let right = render(Effect::ListeningAt(45), ms(0));
+        assert_eq!(right[0], Rgb::new(227, 244, 255));
+        assert_eq!(right[0], render(Effect::ListeningAt(405), ms(0))[0]);
+        // Behind the device (195 degrees): pixel 5.
+        let back = render(Effect::ListeningAt(195), ms(0));
+        assert_eq!(back[5], right[0]);
+        assert_eq!(back[11], base);
+        // Static: the cue does not animate.
+        assert_eq!(back, render(Effect::ListeningAt(195), ms(777)));
+    }
+
+    #[test]
     fn speaking_breathes() {
         let lo = render(Effect::Speaking, ms(0))[0];
         let hi = render(Effect::Speaking, ms(1200))[0];
@@ -282,6 +344,7 @@ mod tests {
         for e in [
             Effect::Idle,
             Effect::Listening,
+            Effect::ListeningAt(90),
             Effect::Thinking,
             Effect::Speaking,
             Effect::Muted,

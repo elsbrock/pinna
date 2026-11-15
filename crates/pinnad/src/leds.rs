@@ -2,6 +2,7 @@
 
 use std::time::{Duration, Instant};
 
+use pinna_audio::beamview::BeamSnapshot;
 use pinna_audio::{Bands, Spectrum};
 use pinna_hal::anim::{Effect, render};
 use pinna_hal::led::{Frame, LedHandle, RING_PIXELS, Rgb};
@@ -140,6 +141,40 @@ fn unscaled_frame(
     }
 }
 
+/// Point the listening ring only when the strongest beam stands this far above
+/// the average beam; a diffuse field (noise, nobody talking) gives about 0 dB.
+pub const TALKER_MIN_CONTRAST_DB: f64 = 2.0;
+/// Move the segment only when the talker's beam moves at least this far.
+pub const TALKER_MOVE_DEG: u16 = 12;
+
+/// Where the listening ring points after a beam snapshot, given where it
+/// points now (LibreEcho's esphomed rule). A confident reading points or moves
+/// the segment; anything else keeps the current direction, so once the ring
+/// has pointed it does not fall back to the plain pulse during the turn.
+pub fn follow_talker(current: Option<u16>, snapshot: Option<&BeamSnapshot>) -> Option<u16> {
+    let Some(s) = snapshot.filter(|s| s.contrast_db() >= TALKER_MIN_CONTRAST_DB) else {
+        return current;
+    };
+    let Ok(azimuth) = u16::try_from(s.selected_deg) else {
+        return current;
+    };
+    if azimuth >= 360 {
+        return current;
+    }
+    match current {
+        Some(now) => {
+            let d = now.abs_diff(azimuth);
+            let distance = if d > 180 { 360 - d } else { d };
+            Some(if distance >= TALKER_MOVE_DEG {
+                azimuth
+            } else {
+                now
+            })
+        }
+        None => Some(azimuth),
+    }
+}
+
 /// Drive the ring from `state` (and `music`, the speaker's spectrum) until the
 /// sender is dropped.
 pub async fn run(
@@ -237,6 +272,44 @@ mod tests {
         assert!(low < 50 && high == 200, "{low} {high}");
         assert_eq!(LightEffect::from_name("Flash"), Some(LightEffect::Flash));
         assert_eq!(LightEffect::Pulse.name(), "Pulse");
+    }
+
+    fn beams(selected_deg: i32, contrast: bool) -> BeamSnapshot {
+        let mut power = [1e4f32; 12];
+        if contrast {
+            power[0] = 1e6;
+        }
+        BeamSnapshot {
+            beam_count: 12,
+            azimuth_deg: [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330],
+            power,
+            selected_deg,
+            age: Duration::ZERO,
+        }
+    }
+
+    #[test]
+    fn follows_the_talker_only_when_confident() {
+        // No graph, or a diffuse field: no direction yet, and a latched one stays.
+        assert_eq!(follow_talker(None, None), None);
+        assert_eq!(follow_talker(None, Some(&beams(90, false))), None);
+        assert_eq!(follow_talker(Some(90), None), Some(90));
+        assert_eq!(follow_talker(Some(90), Some(&beams(270, false))), Some(90));
+        // A confident reading points, and moves the segment.
+        assert_eq!(follow_talker(None, Some(&beams(90, true))), Some(90));
+        assert_eq!(follow_talker(Some(90), Some(&beams(270, true))), Some(270));
+        // Across 0 degrees: 30 degrees apart.
+        assert_eq!(follow_talker(Some(345), Some(&beams(15, true))), Some(15));
+        // Out-of-range azimuths are ignored.
+        assert_eq!(follow_talker(Some(90), Some(&beams(-30, true))), Some(90));
+        assert_eq!(follow_talker(None, Some(&beams(360, true))), None);
+    }
+
+    #[test]
+    fn small_moves_keep_the_segment_still() {
+        assert_eq!(follow_talker(Some(90), Some(&beams(101, true))), Some(90));
+        assert_eq!(follow_talker(Some(90), Some(&beams(102, true))), Some(102));
+        assert_eq!(follow_talker(Some(5), Some(&beams(354, true))), Some(5));
     }
 
     #[test]

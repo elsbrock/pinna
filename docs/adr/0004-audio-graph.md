@@ -66,3 +66,12 @@ the beamformer output; the graph runs without underruns; PipeWire ~10% CPU.
   the graph fails.
 - The first seconds of new audio are not fully cancelled while WebRTC adapts.
 - Laptops/VMs keep using the plain `PipeWire` backend.
+- The beamformer runs in PipeWire's process, so pinnad cannot ask it which
+  beam it follows. After every cycle the plugin writes a seqlock snapshot
+  (selected beam, per-beam power) to `/run/pipewire/pinna-beam`
+  (`pinna_audio::beamview`), and pinnad maps it read-only to point the
+  listening ring at the talker. The file only ever grows, so a reader's mapping
+  stays valid when PipeWire restarts. A snapshot older than 500 ms means the
+  graph has stopped. The ring shows the plain listening pulse until a
+  confident snapshot arrives in the turn; after that it keeps the last
+  direction until the turn stops listening.

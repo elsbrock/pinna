@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
+use pinna_audio::beamview::{self, BeamViewReader};
 use pinna_audio::{MediaPhase, MediaState, Speaker, tone};
 use pinna_esphome::{
     DeviceEvent, EsphomeHandle, HaCommand, MediaPlayerCommand, MediaPlayerStateKind,
@@ -17,7 +18,7 @@ use pinna_hal::buttons::{Button, ButtonEvent};
 use pinna_hal::led::Rgb;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::leds::{LedState, LightEffect};
+use crate::leds::{self, LedState, LightEffect};
 use crate::settings::{Settings, Store};
 
 /// Flags shared with the capture task.
@@ -222,6 +223,13 @@ pub struct Brain {
     boot_done: bool,
     /// Running LED test animation (started by the API).
     led_test: Option<Instant>,
+
+    /// The beamformer's state, published by the PipeWire graph on the Dot.
+    beams: BeamViewReader,
+    /// Where the listening ring points, once the talker's direction is known.
+    talker: Option<u16>,
+    /// When the speaker last stopped playing a chime, reply or announcement.
+    speaker_quiet_since: Instant,
 }
 
 const START_TIMEOUT: Duration = Duration::from_secs(5);
@@ -238,6 +246,9 @@ const LED_TEST_EFFECTS: [Effect; 4] = [
     Effect::Muted,
 ];
 const MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
+/// The beam selector hears the speaker (echo cancellation comes after it) and
+/// smooths over ~200 ms, so ignore it while pinnad plays and for this long after.
+const SELF_SOUND_HOLD: Duration = Duration::from_millis(300);
 
 impl Brain {
     pub fn new(
@@ -298,6 +309,9 @@ impl Brain {
             booted_at: Instant::now(),
             boot_done: false,
             led_test: None,
+            beams: BeamViewReader::new(beamview::PATH),
+            talker: None,
+            speaker_quiet_since: Instant::now(),
         }
     }
 
@@ -1013,6 +1027,9 @@ impl Brain {
         self.tts_started = false;
         self.tts_url = None;
         self.phase = Phase::Starting(Instant::now());
+        // The wake word was just spoken: read its direction before the chime.
+        self.talker = None;
+        self.track_talker();
         tracing::info!("starting Assist run {}", self.conversation_id);
         self.send(DeviceEvent::VoiceStart {
             conversation_id: self.conversation_id.clone(),
@@ -1104,6 +1121,7 @@ impl Brain {
 
     fn stop_playback(&mut self) {
         if let Some((_, kind, task)) = self.playback.take() {
+            self.speaker_quiet_since = Instant::now();
             task.abort();
             if kind == PlaybackKind::MediaAnnounce {
                 self.update_media_state();
@@ -1164,6 +1182,7 @@ impl Brain {
         }
         let kind = kind.clone();
         self.playback = None;
+        self.speaker_quiet_since = Instant::now();
         match kind {
             PlaybackKind::Tts => {
                 // ESPHome devices report the end of the reply this way too;
@@ -1230,6 +1249,29 @@ impl Brain {
         {
             self.led_test = None;
         }
+        self.track_talker();
+    }
+
+    /// While listening, point the ring at the talker's beam (LibreEcho's
+    /// directional listening ring). Called at run start and every tick.
+    fn track_talker(&mut self) {
+        if !matches!(self.phase, Phase::Starting(_) | Phase::Listening(_)) {
+            self.talker = None;
+            return;
+        }
+        // Our own chime or reply would point the ring at the Dot or a wall.
+        if self.playback.is_some() || self.speaker_quiet_since.elapsed() < SELF_SOUND_HOLD {
+            return;
+        }
+        let snapshot = self.beams.read();
+        if let Some(s) = &snapshot {
+            tracing::debug!(
+                selected_deg = s.selected_deg,
+                contrast_db = format!("{:.1}", s.contrast_db()),
+                "talker beam"
+            );
+        }
+        self.talker = leds::follow_talker(self.talker, snapshot.as_ref());
     }
 
     fn overlay(&mut self, effect: Effect) {
@@ -1255,7 +1297,9 @@ impl Brain {
         } else {
             match self.phase {
                 Phase::Idle => Effect::Idle,
-                Phase::Starting(_) | Phase::Listening(_) => Effect::Listening,
+                Phase::Starting(_) | Phase::Listening(_) => {
+                    self.talker.map_or(Effect::Listening, Effect::ListeningAt)
+                }
                 Phase::Thinking(_) => Effect::Thinking,
                 Phase::Speaking => Effect::Speaking,
             }

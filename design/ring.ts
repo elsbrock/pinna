@@ -21,6 +21,7 @@ export const LED = {
 export type Effect =
   | "idle"
   | "listening"
+  | "listening-at"
   | "thinking"
   | "speaking"
   | "error"
@@ -76,6 +77,23 @@ function arc(c: Rgb, fraction: number): Frame {
 }
 
 /**
+ * Listening with a brighter segment at `azimuth` (degrees clockwise from the
+ * front): the ring at 40% of the colour, the segment's centre 85% towards
+ * white, falling off linearly over 50 degrees. Integer maths as in anim.rs.
+ */
+function direction(c: Rgb, azimuth: number): Frame {
+  const base = (v: number) => Math.floor((v * 40) / 100);
+  const pointer = (v: number) => v + Math.floor(((255 - v) * 85) / 100);
+  return Array.from({ length: RING_PIXELS }, (_, i) => {
+    const d = Math.abs(((45 + 30 * i) % 360) - azimuth);
+    const distance = d > 180 ? 360 - d : d;
+    const level = Math.floor((Math.max(0, 50 - distance) * 100) / 50);
+    const mix = (v: number) => base(v) + Math.floor(((pointer(v) - base(v)) * level) / 100);
+    return { c: [mix(c[0]), mix(c[1]), mix(c[2])] as const, level: 1 };
+  });
+}
+
+/**
  * The bands in pairs (the louder of each) as six, mirrored either side of the
  * front centre (pixels 10 and 11): bass at the front, treble at the back.
  */
@@ -93,7 +111,8 @@ function equalizer(bands: readonly number[]): Frame {
 /**
  * The frame the satellite shows `tMs` after `effect` started.
  * `value`: volume 0..100 for "volume", fraction of the timer left 0..1 for
- * "timer", the 12 band levels 0..1 (bass first) for "equalizer".
+ * "timer", the 12 band levels 0..1 (bass first) for "equalizer", the
+ * talker's azimuth in degrees (0 = front, clockwise) for "listening-at".
  */
 export function ringFrame(effect: Effect, tMs: number, value?: number | readonly number[]): Frame {
   const t = tMs / 1000;
@@ -101,6 +120,8 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
   switch (effect) {
     case "listening":
       return solid(LED.listening, 0.3 + 0.7 * wave(t, 1.6));
+    case "listening-at":
+      return direction(LED.listening, (((n ?? 0) % 360) + 360) % 360);
     case "thinking":
       return spin(LED.thinking, t, 1.2, 5);
     case "speaking":

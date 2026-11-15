@@ -27,7 +27,9 @@ microphones' native 16 kHz:
 
 1. **Beamformer.** A LADSPA plugin, `pinna_beam`, combines the microphones
    into one channel with a fixed beamforming design, which reduces room noise.
-   It also applies the microphones' calibration and gain.
+   It also applies the microphones' calibration and gain. It shares which
+   direction it is listening in with `pinnad`, which points the light ring at
+   the person speaking.
 2. **Echo cancellation.** PipeWire's WebRTC echo canceller removes the
    device's own playback from that channel. As a reference, it uses a copy of
    everything `pinnad` plays.

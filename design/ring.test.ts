@@ -23,6 +23,24 @@ test("listening pulses between bounds", () => {
   assert.ok(lo > 0 && lo < hi);
 });
 
+test("listening points at the talker", () => {
+  const base = [28, 74, 102];
+  const front = ringFrame("listening-at", 0, 0);
+  // 0 degrees falls between the front-centre pair, 15 degrees off each.
+  assert.deepEqual(front[10], front[11]);
+  assert.deepEqual(front[11].c, [167, 193, 209]);
+  assert.deepEqual(front[0].c, [47, 91, 117]);
+  assert.deepEqual(front[9], front[0]);
+  for (let i = 1; i < 9; i++) assert.deepEqual(front[i].c, base, `pixel ${i}`);
+  const right = ringFrame("listening-at", 0, 45);
+  assert.deepEqual(right[0].c, [227, 244, 255]);
+  assert.deepEqual(right[0], ringFrame("listening-at", 0, 405)[0]);
+  const back = ringFrame("listening-at", 0, 195);
+  assert.deepEqual(back[5], right[0]);
+  assert.deepEqual(back[11].c, base);
+  assert.deepEqual(back, ringFrame("listening-at", 777, 195));
+});
+
 test("thinking spins with the head at pixel 0 at t=0", () => {
   const a = ringFrame("thinking", 0);
   assert.ok(full(a, 0, LED.thinking));
