@@ -7,6 +7,7 @@ pub mod buttons;
 pub mod ident;
 pub mod led;
 pub mod privacy;
+pub mod virt;
 
 use std::io;
 
