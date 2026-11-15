@@ -63,7 +63,7 @@ How the device introduces itself to Home Assistant.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `name` | `""` | The device name on the network and in Home Assistant. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
+| `name` | `""` | The device name in Home Assistant and in mDNS discovery. It doesn't change the hostname, which is always `pinna`. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
 | `friendly_name` | `"Echo Dot"` | The name that Home Assistant shows |
 | `model` | `"Echo Dot (2nd Gen)"` | The model that Home Assistant shows |
 | `manufacturer` | `"Pinna"` | The manufacturer that Home Assistant shows |

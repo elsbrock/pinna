@@ -12,15 +12,18 @@ from the device itself.
 
 Open one of these addresses in a browser on the same network as the device:
 
-- `http://pinna.local/`, if your computer resolves `.local` names (macOS,
-  most Linux desktops, Windows 10 and later, iOS and Android).
+- `http://pinna.local/`, if your computer resolves `.local` names. macOS, iOS,
+  Windows 10 and later, and most Linux desktops do. On Android, use the IP
+  address if the name doesn't work.
 - `http://<address>/`, with the device's IP address from your router.
 - In Home Assistant, open the device under **Settings > Devices & services >
   ESPHome** and select **Visit**.
 - Over the USB cable: `http://10.42.0.1/`. This works when the Wi-Fi doesn't.
 
-If two devices are both called `pinna`, mDNS renames one of them, for example
-to `pinna-2.local`.
+Every Pinna device has the hostname `pinna`. With two devices on the network,
+mDNS renames one of them by adding a number, for example to `pinna2.local`. To
+tell them apart, use their IP addresses or the **Visit** link in Home
+Assistant.
 
 ## What the dashboard shows
 
@@ -40,14 +43,21 @@ See [Configure Pinna](/docs/configure/).
 The dashboard has no login. **Anyone on your network can use it.** That
 includes restarting the device and installing an update. Only an update that
 is signed with your release key installs, and the device goes back to the
-previous version if the new one doesn't start.
+previous version if the new one doesn't start. An older release that you
+signed installs too, so someone with a copy of it can downgrade the device.
 
-To turn the dashboard off, add this to `/var/lib/pinna/pinnad.toml` on the
-device and restart it:
+To turn the dashboard off, set `listen` to an empty string under `[web]` in
+`/var/lib/pinna/pinnad.toml`. If the file has no `[web]` section yet, add one:
 
 ```toml
 [web]
 listen = ""
+```
+
+Then restart `pinnad`. See [Change a setting](/docs/configure/#change-a-setting).
+
+```sh
+systemctl restart pinnad
 ```
 
 `pinnactl` and the boot health check keep working, because they use the
@@ -56,11 +66,12 @@ control API on `127.0.0.1:7470`.
 ## Open the dashboard by another name
 
 The dashboard answers to IP addresses, to `localhost`, to names that end in
-`.local` and to the device's hostname. That stops other web sites from
-reaching it through your browser. If you open it by another name, for example
-one that your router's DNS gives the device, the dashboard shows
-`This satellite does not answer to the name`. Add the name to
-`/var/lib/pinna/pinnad.toml`:
+`.local` and to the hostname `pinna`. That stops other web sites from reaching
+it through your browser. If you open it by another name, for example one that
+your router's DNS gives the device, the browser shows a short message from the
+device, such as
+`This satellite does not answer to the name "kitchen.home.arpa".` Add the name
+under `[web]` in `/var/lib/pinna/pinnad.toml`:
 
 ```toml
 [web]
