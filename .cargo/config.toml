@@ -1,3 +1,7 @@
 [target.armv7-unknown-linux-musleabihf]
 # Echo Dot / Echo 2nd gen: MT8163 = 4x Cortex-A53 running AArch32.
 rustflags = ["-C", "target-cpu=cortex-a53", "-C", "target-feature=+neon"]
+
+[target.armv7-unknown-linux-gnueabihf]
+# The LADSPA plugin runs inside Debian's PipeWire (glibc) on the same SoC.
+rustflags = ["-C", "target-cpu=cortex-a53", "-C", "target-feature=+neon"]

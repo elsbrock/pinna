@@ -18,6 +18,11 @@ check:
 rust-arm:
     cargo zigbuild --release --target {{target_arm}} --workspace --bins
 
+# glibc LADSPA plugin for Debian's PipeWire (armhf device + x86_64 VM)
+ladspa:
+    cargo zigbuild --release -p pinna-ladspa --target armv7-unknown-linux-gnueabihf.2.36
+    cargo zigbuild --release -p pinna-ladspa --target x86_64-unknown-linux-gnu.2.36
+
 # hardware gate against a running device (PINNA_HOST, PINNA_SSH, PINNA_API_KEY, THROUGHPUT_URL)
 test-device:
     tests/device/test-device.sh
@@ -51,12 +56,12 @@ keygen:
     cargo run -q -p pinna-image -- keygen --secret secrets/release.key --public keys/release.pub
 
 # root filesystem: erofs via mkosi, sealed into a signed slot image build/pinna.root.img
-image: wmt rust-arm
+image: wmt rust-arm ladspa
     scripts/assemble-rootfs-extra.sh
     scripts/build-root.sh
 
 # x86_64 image for KVM smoke tests (same userland, x86_64 binaries) -> build/pinna-x86.root.img
-image-x86: rust-x86
+image-x86: rust-x86 ladspa
     scripts/assemble-rootfs-extra.sh --arch x86_64
     scripts/build-root.sh --arch x86_64
 

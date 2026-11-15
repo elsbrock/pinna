@@ -1946,6 +1946,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinna-ladspa"
+version = "0.1.0"
+dependencies = [
+ "pinna-audio",
+ "pinna-hal",
+]
+
+[[package]]
 name = "pinna-update"
 version = "0.1.0"
 dependencies = [

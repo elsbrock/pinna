@@ -7,6 +7,7 @@
 #   blobs/models/            openWakeWord models (CC BY-NC-SA, fetched by `just models`)
 #   build/wmt/               static WMT helpers (`just wmt`)
 #   target/<arm>/release/    pinnad, pinnactl, pinna-bootctl (`just rust-arm`)
+#   target/<gnu>/release/    libpinna_ladspa.so, glibc (`just ladspa`)
 #   secrets/                 authorized_keys, wifi/wpa_supplicant-wlan0.conf
 set -euo pipefail
 
@@ -19,10 +20,12 @@ esac
 if [ "$target_arch" = x86_64 ]; then
   out=$root/build/rootfs-extra-x86
   arm=$root/target/x86_64-unknown-linux-musl/release
+  ladspa=$root/target/x86_64-unknown-linux-gnu/release/libpinna_ladspa.so
   device=no
 else
   out=$root/build/rootfs-extra
   arm=$root/target/armv7-unknown-linux-musleabihf/release
+  ladspa=$root/target/armv7-unknown-linux-gnueabihf/release/libpinna_ladspa.so
   device=yes
 fi
 
@@ -60,6 +63,13 @@ for bin in pinnad pinnactl pinna-bootctl; do
     warn "$bin not built for $target_arch (just rust-arm / rust-x86)"
   fi
 done
+
+# PipeWire LADSPA plugin (glibc, loaded by Debian's PipeWire)
+if [ -f "$ladspa" ]; then
+  install -Dm0644 "$ladspa" "$out/usr/lib/ladspa/pinna-beam.so"
+else
+  warn "pinna-beam.so not built for $target_arch (just ladspa)"
+fi
 
 # Wake word models
 if [ -d "$root/blobs/models" ]; then
