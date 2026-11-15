@@ -4,10 +4,10 @@ import { docHref, SITE } from "../lib/site";
 
 const docs = [
   { slug: "", title: "Overview" },
-  { slug: "build", title: "Build" },
-  { slug: "flash", title: "Flash the device" },
-  { slug: "home-assistant", title: "Home Assistant" },
-  { slug: "control-api", title: "Control API" },
+  { slug: "requirements", title: "What you need" },
+  { slug: "flash", title: "Install Pinna" },
+  { slug: "home-assistant", title: "Connect to Home Assistant" },
+  { slug: "goals", title: "Goals" },
 ];
 
 const project = [
@@ -24,12 +24,12 @@ const project = [
       <div>
         <Logo size={24} />
         <p class="text-ink-muted mt-3 max-w-sm text-body">
-          An open, image-based Linux system that turns the Echo Dot (2nd gen)
-          into a local Home Assistant voice satellite. No cloud, no account.
+          Pinna is an open-source operating system that turns the Echo Dot
+          (2nd gen) into a voice satellite for Home Assistant.
         </p>
         <p class="text-ink-muted mt-4 max-w-sm text-caption">
-          Not affiliated with Amazon. Echo and Alexa are trademarks of
-          Amazon.com, Inc.
+          Pinna is an independent project and isn't affiliated with Amazon.
+          Echo and Alexa are trademarks of Amazon.com, Inc.
         </p>
       </div>
 
@@ -81,7 +81,7 @@ const project = [
       </p>
       <p>
         <a class="text-ink-muted hover:text-ink" href={docHref("status")}
-          >Status &amp; roadmap →</a
+          >Status and roadmap</a
         >
       </p>
     </div>

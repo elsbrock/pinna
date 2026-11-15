@@ -7,7 +7,7 @@ export const RING_PIXELS = 12;
 
 export type Rgb = readonly [number, number, number];
 
-/** LibreEcho's esphomed theme colours, as in anim.rs. */
+/** The ring colours, as in anim.rs. */
 export const LED = {
   listening: [72, 185, 255],
   thinking: [168, 115, 239],
