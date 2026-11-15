@@ -1,14 +1,17 @@
 [package]
 name = "pinna-bootctl"
-description = "Bootloader message control (fastboot fallback) for the MT8163 Echo devices"
+description = "Bootloader message (fastboot fallback) and A/B slot state for the MT8163 Echo devices"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+pinna-image = { path = "../pinna-image" }
 anyhow.workspace = true
 clap.workspace = true
+crc32fast.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

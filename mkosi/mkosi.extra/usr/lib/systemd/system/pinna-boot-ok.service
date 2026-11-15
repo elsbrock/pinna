@@ -1,15 +1,26 @@
+# The boot health check. Healthy (pinnad answers its API, sshd is up) marks
+# the booted A/B slot good and clears the fastboot guard. A failed check, or no
+# verdict within 5 minutes of boot, reboots: during the trial boot of a new
+# slot that counts down its tries and rolls back to the previous slot (see
+# ADR 0003); on a slot that is already good, the armed fastboot guard (dev
+# images) turns the reboot into fastboot.
 [Unit]
-Description=Mark this boot healthy (clear the fastboot fallback)
-Requires=ssh.service
+Description=Boot health check: mark the slot good, clear the fastboot fallback
+Wants=ssh.service
 After=ssh.service pinnad.service network.target
-ConditionPathExists=/etc/pinna/fastboot-guard
+# Counts from when the job is queued at boot.
+JobTimeoutSec=5min
+JobTimeoutAction=reboot
+FailureAction=reboot
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Give pinnad a moment to crash-loop if it is going to.
+# Give pinnad a moment to crash-loop if it is going to, then up to 30 s to answer.
 ExecStartPre=/bin/sleep 10
-ExecStartPre=/usr/bin/pinnactl status
+ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6; do /usr/bin/pinnactl status >/dev/null 2>&1 && exit 0; sleep 5; done; exec /usr/bin/pinnactl status'
+ExecStartPre=/bin/systemctl is-active --quiet ssh.service
+ExecStart=/usr/bin/pinna-bootctl mark-good
 ExecStart=/usr/bin/pinna-bootctl guard-clear
 
 [Install]

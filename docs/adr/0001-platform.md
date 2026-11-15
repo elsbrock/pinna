@@ -1,6 +1,8 @@
-# ADR 0001: Platform — Debian image, own kernel command line, no initramfs
+# ADR 0001: Platform — Debian image, own kernel command line
 
-Status: accepted (2026-11-15)
+Status: accepted (2026-11-15). Boot path amended by ADR 0003: the boot image
+now carries an initramfs (pinna-init) that picks the A/B slot and mounts the
+root through dm-verity; the forced command line stays.
 
 ## Context
 
@@ -21,23 +23,26 @@ Device facts that constrain the design:
 ## Decision
 
 - **Userland:** Debian trixie armhf built with mkosi; read-only **erofs** root
-  on `system_a`, persistent `/var` (ext4, `x-systemd.makefs`) on `userdata`.
-  systemd, networkd, resolved (mDNS), wpa_supplicant, OpenSSH.
+  on `system_a` (since ADR 0003: signed A/B slots `system_a`/`system_b`),
+  persistent `/var` (ext4, `x-systemd.makefs`) on `userdata`. systemd,
+  networkd, resolved (mDNS), wpa_supplicant, OpenSSH.
 - **Kernel:** LibreEcho-Linux release/0.14.5 + patches in `kernel/patches`,
   plus `kernel/pinna.config`; packaged as a `.deb`. `CONFIG_CMDLINE_FORCE` sets
   our own command line (`root=PARTLABEL=system_a rootfstype=erofs …`), so LK's
-  injected root is ignored and **no initramfs is needed**. The boot image
-  carries a placeholder cpio without `/init` so LK still sees a ramdisk.
+  injected root is ignored. Originally no initramfs: the boot image carried a
+  placeholder cpio without `/init` so LK still saw a ramdisk. Since ADR 0003
+  the ramdisk is the pinna-init initramfs (slot choice, dm-verity).
 - **Boot image:** Android v0, built by `pinna-bootimg` with the known-good DTB
   from the device's original `boot_a` (byte-identical round-trip verified).
 - **Safety net:** a one-shot `bootonce-bootloader` in `misc` armed early each
-  boot and cleared once healthy (dev images).
+  boot and cleared once healthy (dev images); since ADR 0003 not during the
+  trial boot of a new slot that has a good fallback.
 
 ## Consequences
 
-- Kernel updates are separate from root updates; A/B for the root
-  (`system_a`/`system_b`) needs a per-slot command line (later: dm-verity via
-  `dm-mod.create=` and a slot-aware boot image).
+- Kernel updates are separate from root updates. A/B for the root
+  (`system_a`/`system_b`) with dm-verity: ADR 0003 (the initramfs chooses the
+  slot, so the command line stays fixed).
 - Wi-Fi/BT firmware is owner-supplied (`blobs/`), never committed.
 - Moving to Debian's kernel source (6.12 LTS) means porting the board patches;
   tracked separately.

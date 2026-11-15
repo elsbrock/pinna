@@ -2,6 +2,8 @@
 # early as possible. pinna-boot-ok.service clears it once the system is
 # healthy, so a boot that hangs (followed by a power cycle) lands in fastboot
 # instead of looping. Enabled by the presence of /etc/pinna/fastboot-guard.
+# Not armed during the trial boot of a new A/B slot with a good fallback: there
+# a failed boot rolls back instead (ADR 0003).
 [Unit]
 Description=Arm the fastboot fallback for this boot
 DefaultDependencies=no

@@ -1,0 +1,17 @@
+[package]
+name = "pinna-image"
+description = "Signed, dm-verity protected slot images (erofs root + footer + hash tree)"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+sha2.workspace = true
+ed25519-dalek.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

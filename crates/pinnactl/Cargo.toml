@@ -1,6 +1,6 @@
 [package]
 name = "pinnactl"
-description = "Console client for pinnad's local control API"
+description = "Console client for pinnad's local control API, and the A/B updater"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -8,6 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 pinna-api = { path = "../pinna-api" }
+pinna-bootctl = { path = "../pinna-bootctl" }
+pinna-update = { path = "../pinna-update" }
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true

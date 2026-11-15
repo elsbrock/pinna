@@ -1,0 +1,13 @@
+[package]
+name = "pinna-init"
+description = "Initramfs init: choose an A/B slot, verify its signed image, dm-verity root, switch root"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-image = { path = "../pinna-image" }
+pinna-bootctl = { path = "../pinna-bootctl" }
+anyhow.workspace = true
+libc.workspace = true

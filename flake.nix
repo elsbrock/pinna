@@ -39,6 +39,8 @@
           zstd
           util-linux
           gptfdisk
+          # veritysetup: cross-checks pinna-image's dm-verity hash tree
+          cryptsetup
 
           # kernel build — gcc 15, the series that built the known-good
           # LibreEcho 6.1 kernel (gcc 16 is untested against this tree)
