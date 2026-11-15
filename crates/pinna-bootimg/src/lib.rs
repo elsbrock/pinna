@@ -92,7 +92,10 @@ impl BootImage {
         let ramdisk_size = u32_at(data, 16) as usize;
         let second_size = u32_at(data, 24) as usize;
         let page = u32_at(data, 36) as usize;
-        ensure!(page.is_power_of_two() && page >= 2048, "bad page size {page}");
+        ensure!(
+            page.is_power_of_two() && page >= 2048,
+            "bad page size {page}"
+        );
         let header = Header {
             kernel_addr: u32_at(data, 12),
             ramdisk_addr: u32_at(data, 20),

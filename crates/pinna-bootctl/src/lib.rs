@@ -107,7 +107,6 @@ pub fn clear(misc: &Path) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write as _;
 
     fn misc_with(cmd: &[u8]) -> tempfile::NamedTempFile {
         let mut f = tempfile::NamedTempFile::new().unwrap();
@@ -122,10 +121,7 @@ mod tests {
     fn arm_and_clear_roundtrip() {
         let f = misc_with(b"");
         arm(f.path()).unwrap();
-        assert_eq!(
-            read_command(f.path()).unwrap(),
-            Command::BootonceBootloader
-        );
+        assert_eq!(read_command(f.path()).unwrap(), Command::BootonceBootloader);
         arm(f.path()).unwrap(); // idempotent
         assert!(clear(f.path()).unwrap());
         assert_eq!(read_command(f.path()).unwrap(), Command::Empty);

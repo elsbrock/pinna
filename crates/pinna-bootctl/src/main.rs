@@ -75,7 +75,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         Cmd::RebootBootloader => {
             anyhow::ensure!(kaeru_ok(cli)?, "refusing: no Kaeru payload");
             arm(&cli.misc)?;
-            let status = std::process::Command::new("systemctl").arg("reboot").status()?;
+            let status = std::process::Command::new("systemctl")
+                .arg("reboot")
+                .status()?;
             anyhow::ensure!(status.success(), "systemctl reboot failed");
         }
     }
