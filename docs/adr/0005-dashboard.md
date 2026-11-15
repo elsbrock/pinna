@@ -52,13 +52,36 @@ Constraints:
 - **Discovery.** pinnad reports the web port as ESPHome
   `DeviceInfo.webserver_port`, so Home Assistant shows a "Visit" link on the
   device page.
+- **What the dashboard can do.** Everything is in `DeviceService`:
+  - status and controls
+  - settings (wake word, sensitivity, ring brightness), through the same paths
+    as Home Assistant's entities
+  - the network (read-only)
+  - pinnad's journal at info level and above (debug lines can carry transcripts)
+  - the A/B slots
+  - installing an update
+  - restarting.
+- **Updates run in pinnad.** pinnad runs `pinnactl update -- <manifest>` itself
+  (http and https manifests only) and keeps its output, so a browser that goes
+  away cannot interrupt an install. Signature and dm-verity checks and the
+  rollback stay as in ADR 0003.
 
 ## Consequences
 
-- Anyone on the LAN can change the volume, switch the microphones off and on in
-  software, start a conversation and stop an alarm. The hardware microphone
-  switch stays out of reach. This is the same exposure as a plaintext ESPHome
-  API. An owner who doesn't want it sets `[web] listen = ""` in
+- Anyone on the LAN can do all of the following:
+  - change the volume, the settings and the software microphone switch (the
+    hardware microphone switch stays out of reach)
+  - start a conversation and stop an alarm
+  - read pinnad's log and the network details
+  - restart the satellite
+  - install an update.
+
+  Only images signed with the owner's release key install. The satellite falls
+  back to the previous slot if the new one fails. An older signed release
+  installs too, if someone has a copy.
+
+  Short of restarting and installing, this is the exposure of a plaintext
+  ESPHome API. An owner who doesn't want it sets `[web] listen = ""` in
   `/var/lib/pinna/pinnad.toml`.
 - A satellite opened by a custom DNS name (not `.local`) needs that name in
   `[web] allowed_hosts`. The 421 response says so.
