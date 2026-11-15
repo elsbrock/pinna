@@ -12,7 +12,7 @@ use pinna_esphome::{DeviceEvent, EsphomeHandle, HaCommand, TimerEventType, Voice
 use pinna_hal::anim::Effect;
 use pinna_hal::buttons::{Button, ButtonEvent};
 use pinna_hal::led::Rgb;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::leds::LedState;
 
@@ -34,6 +34,60 @@ pub enum Input {
     Privacy(bool),
     Wake { score: f32 },
     PlaybackDone { token: u64, ok: bool },
+    Api(ApiCommand),
+}
+
+/// Answer to an API command: the state right after it was applied, or why it was refused.
+pub type ApiReply = oneshot::Sender<Result<Snapshot, String>>;
+
+#[derive(Debug)]
+pub enum ApiCommand {
+    SetVolume(u8, ApiReply),
+    SetMute(bool, ApiReply),
+    StartConversation(ApiReply),
+    StopConversation(ApiReply),
+    LedTest(ApiReply),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimerSnapshot {
+    pub id: String,
+    pub name: String,
+    pub total: u32,
+    /// Seconds left at `at`.
+    pub left: u32,
+    pub active: bool,
+    pub at: Instant,
+}
+
+/// What the brain publishes for the API. Holds nothing that changes every
+/// second (uptime, countdowns): readers derive those from `at`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Snapshot {
+    pub phase: pinna_api::Phase,
+    pub hw_muted: bool,
+    pub sw_muted: bool,
+    pub volume: u8,
+    pub ha_connected: bool,
+    pub voice_subscribed: bool,
+    /// The wake word detector is armed.
+    pub wake_enabled: bool,
+    pub timers: Vec<TimerSnapshot>,
+}
+
+impl Default for Snapshot {
+    fn default() -> Self {
+        Self {
+            phase: pinna_api::Phase::PHASE_IDLE,
+            hw_muted: false,
+            sw_muted: false,
+            volume: 0,
+            ha_connected: false,
+            voice_subscribed: false,
+            wake_enabled: false,
+            timers: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -58,6 +112,7 @@ enum PlaybackKind {
 }
 
 struct HaTimer {
+    name: String,
     total: u32,
     left: u32,
     active: bool,
@@ -77,6 +132,8 @@ impl HaTimer {
 
 pub struct Options {
     pub wake_phrase: String,
+    /// Startup volume, reported while there is no speaker.
+    pub volume: u8,
     pub wake_sound: bool,
     pub has_hw_privacy: bool,
 }
@@ -86,6 +143,7 @@ pub struct Brain {
     speaker: Option<Arc<Speaker>>,
     shared: Arc<Shared>,
     leds: watch::Sender<LedState>,
+    status: watch::Sender<Snapshot>,
     self_tx: mpsc::Sender<Input>,
     http: reqwest::Client,
     opts: Options,
@@ -113,6 +171,8 @@ pub struct Brain {
     next_token: u64,
     booted_at: Instant,
     boot_done: bool,
+    /// Running LED test animation (started by the API).
+    led_test: Option<Instant>,
 }
 
 const START_TIMEOUT: Duration = Duration::from_secs(5);
@@ -120,6 +180,14 @@ const LISTEN_TIMEOUT: Duration = Duration::from_secs(15);
 const THINK_TIMEOUT: Duration = Duration::from_secs(30);
 const RING_TIMEOUT: Duration = Duration::from_secs(300);
 const BOOT_ANIMATION: Duration = Duration::from_millis(1200);
+/// LED test: one effect per step.
+const LED_TEST_STEP: Duration = Duration::from_millis(1000);
+const LED_TEST_EFFECTS: [Effect; 4] = [
+    Effect::Listening,
+    Effect::Thinking,
+    Effect::Speaking,
+    Effect::Muted,
+];
 const MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
 
 impl Brain {
@@ -128,6 +196,7 @@ impl Brain {
         speaker: Option<Arc<Speaker>>,
         shared: Arc<Shared>,
         leds: watch::Sender<LedState>,
+        status: watch::Sender<Snapshot>,
         self_tx: mpsc::Sender<Input>,
         opts: Options,
     ) -> Self {
@@ -140,6 +209,7 @@ impl Brain {
             speaker,
             shared,
             leds,
+            status,
             self_tx,
             http,
             opts,
@@ -162,6 +232,7 @@ impl Brain {
             next_token: 1,
             booted_at: Instant::now(),
             boot_done: false,
+            led_test: None,
         }
     }
 
@@ -207,6 +278,90 @@ impl Brain {
             }
             Input::PlaybackDone { token, ok } => self.playback_done(token, ok).await,
             Input::Ha(cmd) => self.ha(cmd).await,
+            Input::Api(cmd) => self.api(cmd).await,
+        }
+    }
+
+    // --- API ------------------------------------------------------------------
+
+    async fn api(&mut self, cmd: ApiCommand) {
+        let (result, reply) = match cmd {
+            ApiCommand::SetVolume(percent, reply) => {
+                let v = percent.min(100);
+                if let Some(speaker) = &self.speaker {
+                    speaker.set_volume(v);
+                }
+                self.opts.volume = v;
+                self.overlay(Effect::Volume(v));
+                (Ok(()), reply)
+            }
+            ApiCommand::SetMute(on, reply) => {
+                self.sw_muted = on;
+                self.apply_mute().await;
+                (Ok(()), reply)
+            }
+            ApiCommand::StartConversation(reply) => {
+                let result = if self.ringing.is_some() || self.phase != Phase::Idle {
+                    Err("a conversation or timer alarm is already active".to_string())
+                } else if self.muted() {
+                    Err("the microphone is muted".to_string())
+                } else if !self.voice_subscribed {
+                    Err("Home Assistant has not subscribed to voice assistant runs".to_string())
+                } else {
+                    self.start_run(None).await;
+                    Ok(())
+                };
+                (result, reply)
+            }
+            ApiCommand::StopConversation(reply) => {
+                if self.ringing.is_some() {
+                    self.ringing = None;
+                    self.stop_playback();
+                } else if self.phase != Phase::Idle {
+                    self.abort_run(true).await;
+                }
+                (Ok(()), reply)
+            }
+            ApiCommand::LedTest(reply) => {
+                self.led_test = Some(Instant::now());
+                (Ok(()), reply)
+            }
+        };
+        self.refresh();
+        let _ = reply.send(result.map(|()| self.snapshot()));
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        let mut timers: Vec<TimerSnapshot> = self
+            .timers
+            .iter()
+            .map(|(id, t)| TimerSnapshot {
+                id: id.clone(),
+                name: t.name.clone(),
+                total: t.total,
+                left: t.left,
+                active: t.active,
+                at: t.at,
+            })
+            .collect();
+        timers.sort_by(|a, b| a.id.cmp(&b.id));
+        Snapshot {
+            phase: match self.phase {
+                Phase::Idle => pinna_api::Phase::PHASE_IDLE,
+                Phase::Starting(_) | Phase::Listening(_) => pinna_api::Phase::PHASE_LISTENING,
+                Phase::Thinking(_) => pinna_api::Phase::PHASE_THINKING,
+                Phase::Speaking => pinna_api::Phase::PHASE_SPEAKING,
+            },
+            hw_muted: self.hw_muted,
+            sw_muted: self.sw_muted,
+            volume: self
+                .speaker
+                .as_ref()
+                .map_or(self.opts.volume, |s| s.volume()),
+            ha_connected: self.clients > 0,
+            voice_subscribed: self.voice_subscribed,
+            wake_enabled: self.shared.wake_enabled.load(Ordering::Relaxed),
+            timers,
         }
     }
 
@@ -382,6 +537,7 @@ impl Brain {
                 self.timers.insert(
                     id,
                     HaTimer {
+                        name,
                         total: total.max(1),
                         left,
                         active,
@@ -655,6 +811,12 @@ impl Brain {
         if !self.boot_done && now - self.booted_at > BOOT_ANIMATION {
             self.boot_done = true;
         }
+        if self
+            .led_test
+            .is_some_and(|t| now - t >= LED_TEST_STEP * LED_TEST_EFFECTS.len() as u32)
+        {
+            self.led_test = None;
+        }
     }
 
     fn overlay(&mut self, effect: Effect) {
@@ -665,7 +827,13 @@ impl Brain {
     /// Recompute derived outputs (LED state, wake word gate) from the state.
     fn refresh(&mut self) {
         let muted = self.muted();
-        let base = if !self.boot_done {
+        let led_test = self.led_test.map(|t| {
+            let step = (t.elapsed().as_millis() / LED_TEST_STEP.as_millis()) as usize;
+            LED_TEST_EFFECTS[step.min(LED_TEST_EFFECTS.len() - 1)]
+        });
+        let base = if let Some(effect) = led_test {
+            effect
+        } else if !self.boot_done {
             Effect::Boot
         } else if muted {
             Effect::Muted
@@ -708,6 +876,12 @@ impl Brain {
             && self.ringing.is_none()
             && self.boot_done;
         self.shared.wake_enabled.store(wake, Ordering::SeqCst);
+        let snapshot = self.snapshot();
+        self.status.send_if_modified(|s| {
+            let changed = *s != snapshot;
+            *s = snapshot;
+            changed
+        });
     }
 }
 

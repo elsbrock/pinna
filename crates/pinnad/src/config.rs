@@ -11,6 +11,7 @@ pub struct Config {
     pub wake: Wake,
     pub esphome: Esphome,
     pub leds: Leds,
+    pub api: Api,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,6 +68,13 @@ pub struct Leds {
     pub brightness: u8,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Api {
+    /// Local control API (ConnectRPC over HTTP). No authentication: keep it on loopback.
+    pub listen: String,
+}
+
 impl Default for Device {
     fn default() -> Self {
         Self {
@@ -121,6 +129,14 @@ impl Default for Leds {
     }
 }
 
+impl Default for Api {
+    fn default() -> Self {
+        Self {
+            listen: "127.0.0.1:7470".into(),
+        }
+    }
+}
+
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         match std::fs::read_to_string(path) {
@@ -154,6 +170,7 @@ mod tests {
         assert_eq!(c.device.friendly_name, "Kitchen");
         assert_eq!(c.wake.threshold, 0.6);
         assert_eq!(c.esphome.port, 6053);
+        assert_eq!(c.api.listen, "127.0.0.1:7470");
     }
 
     #[test]

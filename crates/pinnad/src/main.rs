@@ -4,6 +4,7 @@
 //! speaker), the on-device wake word detector and the ESPHome native API, so
 //! Home Assistant adopts the device as a voice satellite.
 
+mod api;
 mod config;
 mod identity;
 mod leds;
@@ -24,7 +25,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::config::Config;
 use crate::leds::LedState;
-use crate::voice::{Brain, Input, Options, Shared};
+use crate::voice::{Brain, Input, Options, Shared, Snapshot};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -201,16 +202,29 @@ async fn main() -> Result<()> {
     {
         tracing::warn!("mDNS: {e:#}");
     }
+    let (dc_name, dc_mac) = (dc.name.clone(), dc.mac_string());
     let (esp, mut ha) = pinna_esphome::serve(dc).await?;
     tracing::info!("ESPHome API listening on {}", esp.local_addr());
 
     // LEDs.
     let (led_tx, led_rx) = watch::channel(LedState::default());
-    tokio::spawn(leds::run(led_ring(&cfg.leds)?, led_rx));
+    let ring = led_ring(&cfg.leds)?;
+    let led_backend = match (&ring, cfg.leds.backend.as_str()) {
+        (None, _) => "none",
+        (Some(_), "mock") => "mock",
+        (Some(_), _) => "is31",
+    };
+    tokio::spawn(leds::run(ring, led_rx));
 
     // Audio.
     let backend = audio_backend(&cfg.audio.backend);
     tracing::info!("audio backend: {backend:?}");
+    let audio_backend = match &backend {
+        None => "none",
+        Some(Backend::EchoDot) => "echodot",
+        Some(Backend::PipeWire) => "pipewire",
+        Some(Backend::WavFile(_)) => "wav",
+    };
     let speaker = backend
         .clone()
         .filter(|b| !matches!(b, Backend::WavFile(_)))
@@ -294,14 +308,35 @@ async fn main() -> Result<()> {
         }
     });
 
+    // Local control API.
+    let (status_tx, status_rx) = watch::channel(Snapshot::default());
+    let api_addr = api::start(
+        api::DeviceApi::new(
+            api::Info {
+                name: dc_name,
+                mac: dc_mac,
+                wake_phrase: cfg.wake.phrase.clone(),
+                audio_backend: audio_backend.into(),
+                led_backend: led_backend.into(),
+            },
+            status_rx,
+            in_tx.clone(),
+        ),
+        &cfg.api.listen,
+    )
+    .await?;
+    tracing::info!("control API listening on {api_addr}");
+
     let brain = Brain::new(
         esp,
         speaker,
         shared,
         led_tx,
+        status_tx,
         in_tx,
         Options {
             wake_phrase: cfg.wake.phrase.clone(),
+            volume: cfg.audio.volume,
             wake_sound: cfg.audio.wake_sound,
             has_hw_privacy,
         },
