@@ -18,6 +18,11 @@ check:
 rust-arm:
     cargo zigbuild --release --target {{target_arm}} --workspace --bins
 
+# glibc LADSPA plugin for Debian's PipeWire (armhf device + x86_64 VM)
+ladspa:
+    cargo zigbuild --release -p pinna-ladspa --target armv7-unknown-linux-gnueabihf.2.36
+    cargo zigbuild --release -p pinna-ladspa --target x86_64-unknown-linux-gnu.2.36
+
 # hardware gate against a running device (PINNA_HOST, PINNA_SSH, PINNA_API_KEY, THROUGHPUT_URL)
 test-device:
     tests/device/test-device.sh
@@ -47,7 +52,7 @@ wmt:
     done
 
 # root filesystem image (erofs) via mkosi
-image: wmt rust-arm
+image: wmt rust-arm ladspa
     scripts/assemble-rootfs-extra.sh
     # mkosi bootstraps its Debian tools tree with the host's keyring; NixOS has none in /usr/share.
     install -Dm0644 -t mkosi/mkosi.sandbox/usr/share/keyrings "$PINNA_DEBIAN_KEYRINGS"/*.gpg
@@ -55,7 +60,7 @@ image: wmt rust-arm
     cd mkosi && mkosi --machine-id "$(cat ../secrets/machine-id)" -f build
 
 # x86_64 image for KVM smoke tests (same userland, x86_64 binaries)
-image-x86: rust-x86
+image-x86: rust-x86 ladspa
     scripts/assemble-rootfs-extra.sh --arch x86_64
     install -Dm0644 -t mkosi/mkosi.sandbox/usr/share/keyrings "$PINNA_DEBIAN_KEYRINGS"/*.gpg
     install -Dm0644 mkosi/apt-sources.sources mkosi/mkosi.sandbox/etc/apt/sources.list.d/mkosi.sources
