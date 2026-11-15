@@ -1,0 +1,30 @@
+{
+  "name": "pinna-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node ../design/build.mjs --check && vite build",
+    "preview": "vite preview",
+    "generate": "buf generate",
+    "check": "node ../design/build.mjs --check && buf generate && git diff --exit-code -- src/gen && node --test src/lib/*.test.ts ../design/ring.test.ts && svelte-check --fail-on-warnings"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.17.0",
+    "@connectrpc/connect": "^2.3.0",
+    "@connectrpc/connect-web": "^2.3.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.75.0",
+    "@bufbuild/protoc-gen-es": "^2.17.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^24.19.2",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.8"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

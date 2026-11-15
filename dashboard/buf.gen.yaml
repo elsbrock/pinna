@@ -1,0 +1,9 @@
+# TypeScript for proto/pinna/v1 (protobuf-es v2). `npm run generate`; the output
+# is committed and `npm run check` fails when it is stale.
+version: v2
+inputs:
+  - directory: ../proto
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt: target=ts
