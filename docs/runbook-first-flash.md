@@ -20,8 +20,7 @@ state at offset 0x40000 (ADR 0003).
 
 The Wi-Fi firmware that used to come from `system_a` is baked into the Pinna
 root (`blobs/firmware/`, extracted from the backup). The microphone FPGA
-bitstream `blobs/firmware/i2s_to_spi_v34.bin` (LibreEcho-Linux carries it as
-`firmware/i2s_to_spi_v34.bin`) is built into the kernel.
+bitstream is in the repository (`kernel/firmware/`) and built into the kernel.
 
 ## 0. Owner-local inputs and build
 

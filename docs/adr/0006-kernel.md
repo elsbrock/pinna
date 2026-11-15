@@ -32,9 +32,11 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 - **Device tree:** the boot image keeps using `libreecho-radar-puffin.dtb`
   from this kernel build (ADR 0001); the 6.12 build decompiles to the same
   tree as the DTB in the known-good LibreEcho `boot_a`.
-- **The FPGA bitstream stays owner-supplied** (`blobs/firmware/i2s_to_spi_v34.bin`,
-  like the Wi-Fi firmware) and is built in with `CONFIG_EXTRA_FIRMWARE`: the
-  SPI microphone driver loads it at probe, before the root is mounted.
+- **The microphone FPGA bitstream is committed** (`kernel/firmware/`, 31 KB)
+  and built in with `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it
+  at probe, before the root is mounted, so the device kernel cannot be built
+  without it, and LibreEcho-Linux is its only public source. It is the one
+  vendor file in the repository.
 - **Config from allnoconfig + fragments.** `common.config` holds what every
   variant needs: the systemd requirements (README, v257), erofs/ext4/overlay,
   dm-verity, networking. `device.config`, `qemu.config` and `x86.config` add
