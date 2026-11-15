@@ -1,6 +1,7 @@
 //! Fake Pinna device for manual testing and the conformance test.
 //!
-//! Usage: `demo [port]` (default 6053, 0 picks a free port). Prints one JSON object per
+//! Usage: `demo [port] [--key <base64>]` (default port 6053, 0 picks a free port; with a key
+//! the API is Noise encrypted). Prints one JSON object per
 //! line on stdout (`ready`, `command`, `sent`); logs go to stderr. Commands on stdin:
 //! `voice [wake word phrase]` starts a voice run, `stop` aborts the run, `time` requests the time, `quit` exits.
 
@@ -8,7 +9,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use pinna_esphome::{
-    DeviceConfig, DeviceEvent, HaCommand, LightConfig, LightState, WakeWordInfo, serve,
+    DeviceConfig, DeviceEvent, HaCommand, LightConfig, LightState, WakeWordInfo,
+    parse_encryption_key, serve,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -35,11 +37,16 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .init();
-    let port: u16 = std::env::args()
-        .nth(1)
-        .map(|a| a.parse())
-        .transpose()?
-        .unwrap_or(6053);
+    let mut args = std::env::args().skip(1);
+    let mut port = 6053;
+    let mut key = None;
+    while let Some(a) = args.next() {
+        if a == "--key" {
+            key = Some(parse_encryption_key(&args.next().unwrap_or_default())?);
+        } else {
+            port = a.parse()?;
+        }
+    }
 
     let mut cfg = DeviceConfig::new("pinna-demo", [0x02, 0x00, 0x00, 0x00, 0x00, 0x42]);
     cfg.friendly_name = "Pinna Demo".into();
@@ -65,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         effects: vec!["Spin".into(), "Pulse".into()],
     });
     cfg.mute_switch = true;
+    cfg.encryption_key = key;
 
     let (handle, mut cmds) = serve(cfg).await?;
     handle.send(DeviceEvent::MuteState(false)).await?;
@@ -155,6 +163,7 @@ async fn main() -> anyhow::Result<()> {
                     HaCommand::ClientConnected { peer } => out(json!({"command": "client_connected", "peer": peer})),
                     HaCommand::ClientDisconnected => out(json!({"command": "client_disconnected"})),
                     HaCommand::VoiceSubscribed(s) => out(json!({"command": "voice_subscribed", "subscribed": s})),
+                    HaCommand::EncryptionKeySet(k) => out(json!({"command": "encryption_key_set", "key": k.to_vec()})),
                 }
             }
         }

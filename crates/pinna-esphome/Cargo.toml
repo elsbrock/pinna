@@ -8,8 +8,10 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+base64 = "0.23.1"
 bytes = "1"
 prost = "0.14"
+snow = "0.10.0"
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -21,7 +21,7 @@ use tokio::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    frame::{Frame, FrameCodec, Plaintext},
+    frame::{Frame, FrameCodec, HandshakeStep, NoiseHandshake, Plaintext},
     proto::{ApiMessage, proto},
     types::{
         DeviceConfig, DeviceEvent, ESPHOME_VERSION, HaCommand, LightState, TimerEventType,
@@ -56,6 +56,7 @@ enum Input {
     Connected {
         id: u64,
         peer: String,
+        encrypted: bool,
         out: mpsc::Sender<(u32, Bytes)>,
     },
     Frame {
@@ -100,13 +101,23 @@ pub async fn serve(
     info!(%addr, name = %cfg.name, "esphome api listening");
     let (in_tx, in_rx) = mpsc::channel(1024);
     let (cmd_tx, cmd_rx) = mpsc::channel(64);
-    let actor = Actor::new(cfg, cmd_tx);
+    let key = Arc::new(Mutex::new(cfg.encryption_key));
+    let ident = (cfg.name.clone(), cfg.mac);
+    let actor = Actor::new(cfg, cmd_tx, key.clone());
     tokio::spawn(actor.run(in_rx));
-    tokio::spawn(accept_loop(listener, in_tx.clone()));
+    tokio::spawn(accept_loop(listener, in_tx.clone(), key, ident));
     Ok((EsphomeHandle { tx: in_tx, addr }, cmd_rx))
 }
 
-async fn accept_loop(listener: TcpListener, inputs: mpsc::Sender<Input>) {
+/// Encryption key shared between the actor (which updates it) and the accept loop.
+type SharedKey = Arc<Mutex<Option<[u8; 32]>>>;
+
+async fn accept_loop(
+    listener: TcpListener,
+    inputs: mpsc::Sender<Input>,
+    key: SharedKey,
+    ident: (String, [u8; 6]),
+) {
     let live = Arc::new(AtomicUsize::new(0));
     let mut next_id = 0u64;
     loop {
@@ -130,21 +141,36 @@ async fn accept_loop(listener: TcpListener, inputs: mpsc::Sender<Input>) {
         let id = next_id;
         let inputs = inputs.clone();
         let live = live.clone();
+        let noise = key.lock().ok().and_then(|k| *k).map(|psk| {
+            let m = ident.1;
+            let mac = format!(
+                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                m[0], m[1], m[2], m[3], m[4], m[5]
+            );
+            NoiseHandshake::new(psk, &ident.0, &mac)
+        });
         tokio::spawn(async move {
             let _ = stream.set_nodelay(true);
-            run_client(id, stream, peer, inputs).await;
+            run_client(id, stream, peer, noise, inputs).await;
             live.fetch_sub(1, Ordering::SeqCst);
         });
     }
 }
 
 /// Per-connection I/O: framing, idle detection and keep-alive pings.
-async fn run_client(id: u64, mut stream: TcpStream, peer: SocketAddr, inputs: mpsc::Sender<Input>) {
+async fn run_client(
+    id: u64,
+    mut stream: TcpStream,
+    peer: SocketAddr,
+    mut noise: Option<NoiseHandshake>,
+    inputs: mpsc::Sender<Input>,
+) {
     let (out_tx, mut out_rx) = mpsc::channel::<(u32, Bytes)>(OUT_QUEUE);
     if inputs
         .send(Input::Connected {
             id,
             peer: peer.to_string(),
+            encrypted: noise.is_some(),
             out: out_tx.clone(),
         })
         .await
@@ -172,6 +198,22 @@ async fn run_client(id: u64, mut stream: TcpStream, peer: SocketAddr, inputs: mp
                     Err(e) => { debug!(id, "read error: {e}"); break; }
                 }
                 last_seen = Instant::now();
+                if let Some(hs) = noise.as_mut() {
+                    wbuf.clear();
+                    let step = hs.feed(&mut rbuf, &mut wbuf);
+                    if !wbuf.is_empty() && stream.write_all(&wbuf).await.is_err() {
+                        break;
+                    }
+                    match step {
+                        Ok(HandshakeStep::Pending) => continue,
+                        Ok(HandshakeStep::Done(c)) => {
+                            codec = Box::new(c);
+                            noise = None;
+                        }
+                        Ok(HandshakeStep::Rejected) => break,
+                        Err(e) => { warn!(id, "noise handshake error: {e}"); break; }
+                    }
+                }
                 loop {
                     match codec.decode(&mut rbuf) {
                         Ok(Some(frame)) => {
@@ -220,6 +262,7 @@ async fn run_client(id: u64, mut stream: TcpStream, peer: SocketAddr, inputs: mp
 struct Client {
     out: mpsc::Sender<(u32, Bytes)>,
     peer: String,
+    encrypted: bool,
     hello: bool,
     states: bool,
 }
@@ -227,6 +270,7 @@ struct Client {
 struct Actor {
     cfg: DeviceConfig,
     cmds: mpsc::Sender<HaCommand>,
+    key: SharedKey,
     clients: HashMap<u64, Client>,
     voice_owner: Option<u64>,
     run_active: bool,
@@ -236,11 +280,12 @@ struct Actor {
 }
 
 impl Actor {
-    fn new(cfg: DeviceConfig, cmds: mpsc::Sender<HaCommand>) -> Self {
+    fn new(cfg: DeviceConfig, cmds: mpsc::Sender<HaCommand>, key: SharedKey) -> Self {
         let active_wake = cfg.active_wake_words.clone();
         Self {
             cfg,
             cmds,
+            key,
             clients: HashMap::new(),
             voice_owner: None,
             run_active: false,
@@ -254,12 +299,18 @@ impl Actor {
         while let Some(input) = rx.recv().await {
             match input {
                 Input::Device(ev) => self.device_event(ev),
-                Input::Connected { id, peer, out } => {
+                Input::Connected {
+                    id,
+                    peer,
+                    encrypted,
+                    out,
+                } => {
                     self.clients.insert(
                         id,
                         Client {
                             out,
                             peer,
+                            encrypted,
                             hello: false,
                             states: false,
                         },
@@ -490,6 +541,27 @@ impl Actor {
                 // Queue is drained before the connection task sees the close.
                 self.drop_client(id);
             }
+            proto::NoiseEncryptionSetKeyRequest::ID => {
+                let r = parse!(proto::NoiseEncryptionSetKeyRequest);
+                let encrypted = self.clients.get(&id).is_some_and(|c| c.encrypted);
+                // Only over an encrypted connection, so the key is never sent in clear.
+                let key = <[u8; 32]>::try_from(&r.key[..]).ok().filter(|_| encrypted);
+                if let Some(key) = key {
+                    if let Ok(mut k) = self.key.lock() {
+                        *k = Some(key);
+                    }
+                    self.cfg.encryption_key = Some(key);
+                    self.command(HaCommand::EncryptionKeySet(key));
+                } else {
+                    warn!(id, "rejecting encryption key");
+                }
+                self.send(
+                    id,
+                    &proto::NoiseEncryptionSetKeyResponse {
+                        success: key.is_some(),
+                    },
+                );
+            }
             proto::DeviceInfoRequest::ID => self.device_info(id),
             proto::ListEntitiesRequest::ID => self.list_entities(id),
             proto::SubscribeStatesRequest::ID => {
@@ -652,6 +724,7 @@ impl Actor {
             friendly_name: c.friendly_name.clone(),
             suggested_area: c.suggested_area.clone().unwrap_or_default(),
             voice_assistant_feature_flags: VOICE_FEATURE_FLAGS,
+            api_encryption_supported: true,
             ..Default::default()
         };
         self.send(id, &m);

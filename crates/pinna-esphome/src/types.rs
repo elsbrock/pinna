@@ -4,6 +4,8 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use bytes::Bytes;
 
+use crate::frame::NOISE_PROTOCOL;
+
 /// ESPHome version reported to Home Assistant.
 pub const ESPHOME_VERSION: &str = "2026.9.0";
 /// `voice_assistant_feature_flags`: VOICE_ASSISTANT | API_AUDIO | TIMERS | ANNOUNCE | START_CONVERSATION.
@@ -46,6 +48,20 @@ pub struct DeviceConfig {
     pub max_active_wake_words: u32,
     pub light: Option<LightConfig>,
     pub mute_switch: bool,
+    /// Noise pre-shared key. `None` serves the plaintext API.
+    pub encryption_key: Option<[u8; 32]>,
+}
+
+/// The encryption key is not base64 of exactly 32 bytes.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("encryption key must be base64 of 32 bytes")]
+pub struct InvalidKey;
+
+/// Decode an ESPHome `api: encryption: key:` value (base64 of 32 bytes).
+pub fn parse_encryption_key(s: &str) -> Result<[u8; 32], InvalidKey> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let raw = STANDARD.decode(s.trim()).map_err(|_| InvalidKey)?;
+    raw.try_into().map_err(|_| InvalidKey)
 }
 
 impl DeviceConfig {
@@ -68,6 +84,7 @@ impl DeviceConfig {
             max_active_wake_words: 1,
             light: None,
             mute_switch: false,
+            encryption_key: None,
         }
     }
 
@@ -83,7 +100,7 @@ impl DeviceConfig {
 
 /// TXT records for the `_esphomelib._tcp` mDNS service (publishing is up to the caller).
 pub fn mdns_txt(cfg: &DeviceConfig) -> Vec<(String, String)> {
-    [
+    let mut txt = vec![
         ("version", ESPHOME_VERSION.to_owned()),
         ("mac", cfg.mac_string()),
         ("platform", cfg.manufacturer.clone()),
@@ -92,10 +109,11 @@ pub fn mdns_txt(cfg: &DeviceConfig) -> Vec<(String, String)> {
         ("friendly_name", cfg.friendly_name.clone()),
         ("project_name", cfg.project_name.clone()),
         ("project_version", cfg.project_version.clone()),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.to_owned(), v))
-    .collect()
+    ];
+    if cfg.encryption_key.is_some() {
+        txt.push(("api_encryption", NOISE_PROTOCOL.to_owned()));
+    }
+    txt.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }
 
 /// Current state of the light, as last reported by the device.
@@ -191,6 +209,9 @@ pub enum HaCommand {
     ClientDisconnected,
     /// The voice-assistant subscription changed (only the subscribing client counts).
     VoiceSubscribed(bool),
+    /// Home Assistant pushed a new encryption key over an encrypted connection. The server
+    /// already uses it for new connections; the caller should persist it.
+    EncryptionKeySet([u8; 32]),
 }
 
 macro_rules! wire_enum {
@@ -250,5 +271,19 @@ mod tests {
         assert!(txt.contains(&("mac".into(), "02:00:00:00:AB:01".into())));
         assert!(txt.contains(&("version".into(), "2026.9.0".into())));
         assert!(!txt.iter().any(|(k, _)| k == "api_encryption"));
+        let mut cfg = cfg;
+        cfg.encryption_key = Some([1; 32]);
+        assert!(mdns_txt(&cfg).contains(&(
+            "api_encryption".into(),
+            "Noise_NNpsk0_25519_ChaChaPoly_SHA256".into()
+        )));
+    }
+
+    #[test]
+    fn key_parsing() {
+        let k = parse_encryption_key("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=").unwrap();
+        assert_eq!(k, [1; 32]);
+        assert_eq!(parse_encryption_key("AQE="), Err(InvalidKey));
+        assert_eq!(parse_encryption_key("not base64!"), Err(InvalidKey));
     }
 }

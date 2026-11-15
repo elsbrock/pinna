@@ -1,4 +1,4 @@
-//! Server side of the ESPHome native API (plaintext), so Home Assistant adopts Pinna as
+//! Server side of the ESPHome native API (plaintext or Noise), so Home Assistant adopts Pinna as
 //! an ESPHome device with a voice assistant, an RGB light and a microphone-mute switch.
 //!
 //! # API
@@ -23,8 +23,11 @@
 //!   forwarded between `VoiceStart` and `VoiceAudioEnd`/`VoiceStop`.
 //! * At most two clients are served; idle ones are pinged after 60 s and dropped after 120 s.
 //! * [`mdns_txt`] returns the TXT records for `_esphomelib._tcp`; publishing is the caller's job.
-//! * Framing is behind [`frame::FrameCodec`]; only plaintext is implemented. Noise
-//!   (`Noise_NNpsk0_25519_ChaChaPoly_SHA256`) is not implemented yet.
+//! * Framing is behind [`frame::FrameCodec`]. With `cfg.encryption_key` set the server speaks
+//!   only Noise (`Noise_NNpsk0_25519_ChaChaPoly_SHA256`) and [`mdns_txt`] advertises it; without
+//!   a key it is plaintext. A key pushed by Home Assistant over an encrypted connection is
+//!   used for new connections at once and reported as [`HaCommand::EncryptionKeySet`] so
+//!   the caller can persist it.
 
 pub mod frame;
 pub mod proto;
@@ -33,6 +36,7 @@ mod types;
 
 pub use server::{EsphomeHandle, LIGHT_KEY, MUTE_KEY, Stopped, serve};
 pub use types::{
-    DeviceConfig, DeviceEvent, ESPHOME_VERSION, HaCommand, LightConfig, LightState, TimerEventType,
-    VOICE_FEATURE_FLAGS, VoiceEventType, WakeWordInfo, mdns_txt,
+    DeviceConfig, DeviceEvent, ESPHOME_VERSION, HaCommand, InvalidKey, LightConfig, LightState,
+    TimerEventType, VOICE_FEATURE_FLAGS, VoiceEventType, WakeWordInfo, mdns_txt,
+    parse_encryption_key,
 };
