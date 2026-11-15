@@ -31,12 +31,18 @@
 
 <div class="shell">
   <aside class="side">
-    <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
+    <a class="home" href="#/" aria-label="Pinna, overview">
+      {#if s}
+        <Logo><Ring effect={ring} size={24} label="Ring: {ring.replace('-', ' ')}" /></Logo>
+      {:else}
+        <Logo />
+      {/if}
+    </a>
     {#if s}
       <div class="pn-ident">
-        <Ring effect={ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
+        <Device model={s.model} effect="idle" width={48} label="Ring: {ring.replace('-', ' ')}" />
         <span class="pn-ident-name">{s.name}</span>
-        <span class="pn-health" data-tone={line.tone}>{line.text}</span>
+        <span class="pn-health" data-tone={line.tone}>{line.tone === "ok" ? "Home Assistant" : line.text}</span>
       </div>
     {:else}
       <span class="pn-skeleton ident-skeleton"></span>

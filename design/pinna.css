@@ -279,7 +279,7 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* ---------- Identity (the satellite at the top of the nav) ---------- */
 .pn-ident { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 12px; padding: 12px; border-radius: var(--radius-md); background: var(--surface-sunken); }
-.pn-ident > .pn-ring { grid-row: span 2; }
+.pn-ident > .pn-ring, .pn-ident > .pn-drawing { grid-row: span 2; }
 .pn-ident-name { font-weight: 700; overflow-wrap: break-word; min-width: 0; }
 .pn-ident .pn-health { font-size: 13px; line-height: 18px; }
 

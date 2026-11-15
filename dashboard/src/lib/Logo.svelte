@@ -1,6 +1,10 @@
-<!-- The mark (design/mark.svg: the ring's boot frame) and the wordmark. -->
+<!-- The mark (design/mark.svg: the ring's boot frame) and the wordmark. A child
+     (the live ring) takes the mark's place. -->
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import mark from "../../../design/mark.svg?raw";
+
+  let { children }: { children?: Snippet } = $props();
 
   // Inline, the mark takes its colours from the tokens; its own <style> only serves the favicon.
   const svg = mark
@@ -11,7 +15,7 @@
 </script>
 
 <span class="pn-logo">
-  <span class="mark">{@html svg}</span>
+  <span class="mark">{#if children}{@render children()}{:else}{@html svg}{/if}</span>
   <span class="pn-logo-word">Pinna</span>
 </span>
 
