@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file pinna/v1/device.proto.
  */
 export const file_pinna_v1_device: GenFile = /*@__PURE__*/
-  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIisKCFdha2VXb3JkEg4KBnBocmFzZRgBIAEoCRIPCgdlbmFibGVkGAIgASgIIvYCCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRIMCgRuYW1lGAIgASgJEgsKA21hYxgDIAEoCRIWCg51cHRpbWVfc2Vjb25kcxgEIAEoBBIeCgVwaGFzZRgFIAEoDjIPLnBpbm5hLnYxLlBoYXNlEg0KBW11dGVkGAYgASgIEhYKDmhhcmR3YXJlX211dGVkGAcgASgIEhYKDnNvZnR3YXJlX211dGVkGAggASgIEg4KBnZvbHVtZRgJIAEoDRIUCgxoYV9jb25uZWN0ZWQYCiABKAgSGAoQdm9pY2Vfc3Vic2NyaWJlZBgLIAEoCBIlCgl3YWtlX3dvcmQYDCABKAsyEi5waW5uYS52MS5XYWtlV29yZBIfCgZ0aW1lcnMYDSADKAsyDy5waW5uYS52MS5UaW1lchIVCg1hdWRpb19iYWNrZW5kGA4gASgJEhMKC2xlZF9iYWNrZW5kGA8gASgJEhUKDWFsYXJtX3JpbmdpbmcYECABKAgiEgoQR2V0U3RhdHVzUmVxdWVzdCI1ChFHZXRTdGF0dXNSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiIwoQU2V0Vm9sdW1lUmVxdWVzdBIPCgdwZXJjZW50GAEgASgNIjUKEVNldFZvbHVtZVJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIfCg5TZXRNdXRlUmVxdWVzdBINCgVtdXRlZBgBIAEoCCIzCg9TZXRNdXRlUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhoKGFN0YXJ0Q29udmVyc2F0aW9uUmVxdWVzdCI9ChlTdGFydENvbnZlcnNhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIZChdTdG9wQ29udmVyc2F0aW9uUmVxdWVzdCI8ChhTdG9wQ29udmVyc2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhAKDkxlZFRlc3RSZXF1ZXN0IhEKD0xlZFRlc3RSZXNwb25zZSIUChJXYXRjaFN0YXR1c1JlcXVlc3QiNwoTV2F0Y2hTdGF0dXNSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMqawoFUGhhc2USFQoRUEhBU0VfVU5TUEVDSUZJRUQQABIOCgpQSEFTRV9JRExFEAESEwoPUEhBU0VfTElTVEVOSU5HEAISEgoOUEhBU0VfVEhJTktJTkcQAxISCg5QSEFTRV9TUEVBS0lORxAEMqIECg1EZXZpY2VTZXJ2aWNlEkQKCUdldFN0YXR1cxIaLnBpbm5hLnYxLkdldFN0YXR1c1JlcXVlc3QaGy5waW5uYS52MS5HZXRTdGF0dXNSZXNwb25zZRJECglTZXRWb2x1bWUSGi5waW5uYS52MS5TZXRWb2x1bWVSZXF1ZXN0GhsucGlubmEudjEuU2V0Vm9sdW1lUmVzcG9uc2USPgoHU2V0TXV0ZRIYLnBpbm5hLnYxLlNldE11dGVSZXF1ZXN0GhkucGlubmEudjEuU2V0TXV0ZVJlc3BvbnNlElwKEVN0YXJ0Q29udmVyc2F0aW9uEiIucGlubmEudjEuU3RhcnRDb252ZXJzYXRpb25SZXF1ZXN0GiMucGlubmEudjEuU3RhcnRDb252ZXJzYXRpb25SZXNwb25zZRJZChBTdG9wQ29udmVyc2F0aW9uEiEucGlubmEudjEuU3RvcENvbnZlcnNhdGlvblJlcXVlc3QaIi5waW5uYS52MS5TdG9wQ29udmVyc2F0aW9uUmVzcG9uc2USPgoHTGVkVGVzdBIYLnBpbm5hLnYxLkxlZFRlc3RSZXF1ZXN0GhkucGlubmEudjEuTGVkVGVzdFJlc3BvbnNlEkwKC1dhdGNoU3RhdHVzEhwucGlubmEudjEuV2F0Y2hTdGF0dXNSZXF1ZXN0Gh0ucGlubmEudjEuV2F0Y2hTdGF0dXNSZXNwb25zZTABYgZwcm90bzM");
+  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIisKCFdha2VXb3JkEg4KBnBocmFzZRgBIAEoCRIPCgdlbmFibGVkGAIgASgIIpwDCgZTdGF0dXMSDwoHdmVyc2lvbhgBIAEoCRIMCgRuYW1lGAIgASgJEgsKA21hYxgDIAEoCRIWCg51cHRpbWVfc2Vjb25kcxgEIAEoBBIeCgVwaGFzZRgFIAEoDjIPLnBpbm5hLnYxLlBoYXNlEg0KBW11dGVkGAYgASgIEhYKDmhhcmR3YXJlX211dGVkGAcgASgIEhYKDnNvZnR3YXJlX211dGVkGAggASgIEg4KBnZvbHVtZRgJIAEoDRIUCgxoYV9jb25uZWN0ZWQYCiABKAgSGAoQdm9pY2Vfc3Vic2NyaWJlZBgLIAEoCBIlCgl3YWtlX3dvcmQYDCABKAsyEi5waW5uYS52MS5XYWtlV29yZBIfCgZ0aW1lcnMYDSADKAsyDy5waW5uYS52MS5UaW1lchIVCg1hdWRpb19iYWNrZW5kGA4gASgJEhMKC2xlZF9iYWNrZW5kGA8gASgJEhUKDWFsYXJtX3JpbmdpbmcYECABKAgSJAoIc2V0dGluZ3MYESABKAsyEi5waW5uYS52MS5TZXR0aW5ncyJlCghTZXR0aW5ncxIUCgxyZXBseV92b2x1bWUYASABKA0SEQoJd2FrZV93b3JkGAIgASgIEhgKEHdha2Vfc2Vuc2l0aXZpdHkYAyABKA0SFgoObGVkX2JyaWdodG5lc3MYBCABKA0iEgoQR2V0U3RhdHVzUmVxdWVzdCI1ChFHZXRTdGF0dXNSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiIwoQU2V0Vm9sdW1lUmVxdWVzdBIPCgdwZXJjZW50GAEgASgNIjUKEVNldFZvbHVtZVJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIfCg5TZXRNdXRlUmVxdWVzdBINCgVtdXRlZBgBIAEoCCIzCg9TZXRNdXRlUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhoKGFN0YXJ0Q29udmVyc2F0aW9uUmVxdWVzdCI9ChlTdGFydENvbnZlcnNhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIZChdTdG9wQ29udmVyc2F0aW9uUmVxdWVzdCI8ChhTdG9wQ29udmVyc2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhAKDkxlZFRlc3RSZXF1ZXN0IhEKD0xlZFRlc3RSZXNwb25zZSIUChJXYXRjaFN0YXR1c1JlcXVlc3QiNwoTV2F0Y2hTdGF0dXNSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMizQEKFVVwZGF0ZVNldHRpbmdzUmVxdWVzdBIZCgxyZXBseV92b2x1bWUYASABKA1IAIgBARIWCgl3YWtlX3dvcmQYAiABKAhIAYgBARIdChB3YWtlX3NlbnNpdGl2aXR5GAMgASgNSAKIAQESGwoObGVkX2JyaWdodG5lc3MYBCABKA1IA4gBAUIPCg1fcmVwbHlfdm9sdW1lQgwKCl93YWtlX3dvcmRCEwoRX3dha2Vfc2Vuc2l0aXZpdHlCEQoPX2xlZF9icmlnaHRuZXNzIjoKFlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhMKEUdldE5ldHdvcmtSZXF1ZXN0IlMKBFdpZmkSDAoEc3NpZBgBIAEoCRISCgpzaWduYWxfZGJtGAIgASgFEhUKDWZyZXF1ZW5jeV9taHoYAyABKA0SEgoKdHhfYml0cmF0ZRgEIAEoCSJjCglJbnRlcmZhY2USDAoEbmFtZRgBIAEoCRILCgNtYWMYAiABKAkSCgoCdXAYAyABKAgSEQoJYWRkcmVzc2VzGAQgAygJEhwKBHdpZmkYBSABKAsyDi5waW5uYS52MS5XaWZpIk8KEkdldE5ldHdvcmtSZXNwb25zZRIQCghob3N0bmFtZRgBIAEoCRInCgppbnRlcmZhY2VzGAIgAygLMhMucGlubmEudjEuSW50ZXJmYWNlIhIKEFdhdGNoTG9nc1JlcXVlc3QiSgoHTG9nTGluZRIPCgd1bml4X21zGAEgASgEEg0KBWxldmVsGAIgASgJEg4KBnRhcmdldBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjQKEVdhdGNoTG9nc1Jlc3BvbnNlEh8KBGxpbmUYASABKAsyES5waW5uYS52MS5Mb2dMaW5lIhMKEUdldFVwZGF0ZXNSZXF1ZXN0ImgKBFNsb3QSDAoEbmFtZRgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg0KBXN0YXRlGAMgASgJEhIKCnRyaWVzX2xlZnQYBCABKA0SDgoGYWN0aXZlGAUgASgIEg4KBmJvb3RlZBgGIAEoCCKOAQoSR2V0VXBkYXRlc1Jlc3BvbnNlEhEKCWF2YWlsYWJsZRgBIAEoCBIaChJ1bmF2YWlsYWJsZV9yZWFzb24YAiABKAkSFgoOYm9vdGVkX3ZlcnNpb24YAyABKAkSHQoFc2xvdHMYBCADKAsyDi5waW5uYS52MS5TbG90EhIKCmluc3RhbGxpbmcYBSABKAgiKAoUSW5zdGFsbFVwZGF0ZVJlcXVlc3QSEAoIbWFuaWZlc3QYASABKAkiPwoVSW5zdGFsbFVwZGF0ZVJlc3BvbnNlEgwKBGxpbmUYASABKAkSDAoEZG9uZRgCIAEoCBIKCgJvaxgDIAEoCCIPCg1SZWJvb3RSZXF1ZXN0IhAKDlJlYm9vdFJlc3BvbnNlKmsKBVBoYXNlEhUKEVBIQVNFX1VOU1BFQ0lGSUVEEAASDgoKUEhBU0VfSURMRRABEhMKD1BIQVNFX0xJU1RFTklORxACEhIKDlBIQVNFX1RISU5LSU5HEAMSEgoOUEhBU0VfU1BFQUtJTkcQBDLiBwoNRGV2aWNlU2VydmljZRJECglHZXRTdGF0dXMSGi5waW5uYS52MS5HZXRTdGF0dXNSZXF1ZXN0GhsucGlubmEudjEuR2V0U3RhdHVzUmVzcG9uc2USRAoJU2V0Vm9sdW1lEhoucGlubmEudjEuU2V0Vm9sdW1lUmVxdWVzdBobLnBpbm5hLnYxLlNldFZvbHVtZVJlc3BvbnNlEj4KB1NldE11dGUSGC5waW5uYS52MS5TZXRNdXRlUmVxdWVzdBoZLnBpbm5hLnYxLlNldE11dGVSZXNwb25zZRJcChFTdGFydENvbnZlcnNhdGlvbhIiLnBpbm5hLnYxLlN0YXJ0Q29udmVyc2F0aW9uUmVxdWVzdBojLnBpbm5hLnYxLlN0YXJ0Q29udmVyc2F0aW9uUmVzcG9uc2USWQoQU3RvcENvbnZlcnNhdGlvbhIhLnBpbm5hLnYxLlN0b3BDb252ZXJzYXRpb25SZXF1ZXN0GiIucGlubmEudjEuU3RvcENvbnZlcnNhdGlvblJlc3BvbnNlEj4KB0xlZFRlc3QSGC5waW5uYS52MS5MZWRUZXN0UmVxdWVzdBoZLnBpbm5hLnYxLkxlZFRlc3RSZXNwb25zZRJMCgtXYXRjaFN0YXR1cxIcLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVxdWVzdBodLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVzcG9uc2UwARJTCg5VcGRhdGVTZXR0aW5ncxIfLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVxdWVzdBogLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USRwoKR2V0TmV0d29yaxIbLnBpbm5hLnYxLkdldE5ldHdvcmtSZXF1ZXN0GhwucGlubmEudjEuR2V0TmV0d29ya1Jlc3BvbnNlEkYKCVdhdGNoTG9ncxIaLnBpbm5hLnYxLldhdGNoTG9nc1JlcXVlc3QaGy5waW5uYS52MS5XYXRjaExvZ3NSZXNwb25zZTABEkcKCkdldFVwZGF0ZXMSGy5waW5uYS52MS5HZXRVcGRhdGVzUmVxdWVzdBocLnBpbm5hLnYxLkdldFVwZGF0ZXNSZXNwb25zZRJSCg1JbnN0YWxsVXBkYXRlEh4ucGlubmEudjEuSW5zdGFsbFVwZGF0ZVJlcXVlc3QaHy5waW5uYS52MS5JbnN0YWxsVXBkYXRlUmVzcG9uc2UwARI7CgZSZWJvb3QSFy5waW5uYS52MS5SZWJvb3RSZXF1ZXN0GhgucGlubmEudjEuUmVib290UmVzcG9uc2ViBnByb3RvMw");
 
 /**
  * @generated from message pinna.v1.Timer
@@ -172,6 +172,11 @@ export type Status = Message<"pinna.v1.Status"> & {
    * @generated from field: bool alarm_ringing = 16;
    */
   alarmRinging: boolean;
+
+  /**
+   * @generated from field: pinna.v1.Settings settings = 17;
+   */
+  settings?: Settings | undefined;
 };
 
 /**
@@ -180,6 +185,48 @@ export type Status = Message<"pinna.v1.Status"> & {
  */
 export const StatusSchema: GenMessage<Status> = /*@__PURE__*/
   messageDesc(file_pinna_v1_device, 2);
+
+/**
+ * Runtime settings, persisted on the satellite and shared with Home Assistant.
+ *
+ * @generated from message pinna.v1.Settings
+ */
+export type Settings = Message<"pinna.v1.Settings"> & {
+  /**
+   * Replies and announcements 0..=100, never louder than `volume`.
+   *
+   * @generated from field: uint32 reply_volume = 1;
+   */
+  replyVolume: number;
+
+  /**
+   * Wake word detection on or off.
+   *
+   * @generated from field: bool wake_word = 2;
+   */
+  wakeWord: boolean;
+
+  /**
+   * Wake word sensitivity 0..=100: higher wakes more easily.
+   *
+   * @generated from field: uint32 wake_sensitivity = 3;
+   */
+  wakeSensitivity: number;
+
+  /**
+   * LED ring brightness 0..=100.
+   *
+   * @generated from field: uint32 led_brightness = 4;
+   */
+  ledBrightness: number;
+};
+
+/**
+ * Describes the message pinna.v1.Settings.
+ * Use `create(SettingsSchema)` to create a new message.
+ */
+export const SettingsSchema: GenMessage<Settings> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 3);
 
 /**
  * @generated from message pinna.v1.GetStatusRequest
@@ -192,7 +239,7 @@ export type GetStatusRequest = Message<"pinna.v1.GetStatusRequest"> & {
  * Use `create(GetStatusRequestSchema)` to create a new message.
  */
 export const GetStatusRequestSchema: GenMessage<GetStatusRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 3);
+  messageDesc(file_pinna_v1_device, 4);
 
 /**
  * @generated from message pinna.v1.GetStatusResponse
@@ -209,7 +256,7 @@ export type GetStatusResponse = Message<"pinna.v1.GetStatusResponse"> & {
  * Use `create(GetStatusResponseSchema)` to create a new message.
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 4);
+  messageDesc(file_pinna_v1_device, 5);
 
 /**
  * @generated from message pinna.v1.SetVolumeRequest
@@ -228,7 +275,7 @@ export type SetVolumeRequest = Message<"pinna.v1.SetVolumeRequest"> & {
  * Use `create(SetVolumeRequestSchema)` to create a new message.
  */
 export const SetVolumeRequestSchema: GenMessage<SetVolumeRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 5);
+  messageDesc(file_pinna_v1_device, 6);
 
 /**
  * @generated from message pinna.v1.SetVolumeResponse
@@ -245,7 +292,7 @@ export type SetVolumeResponse = Message<"pinna.v1.SetVolumeResponse"> & {
  * Use `create(SetVolumeResponseSchema)` to create a new message.
  */
 export const SetVolumeResponseSchema: GenMessage<SetVolumeResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 6);
+  messageDesc(file_pinna_v1_device, 7);
 
 /**
  * @generated from message pinna.v1.SetMuteRequest
@@ -262,7 +309,7 @@ export type SetMuteRequest = Message<"pinna.v1.SetMuteRequest"> & {
  * Use `create(SetMuteRequestSchema)` to create a new message.
  */
 export const SetMuteRequestSchema: GenMessage<SetMuteRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 7);
+  messageDesc(file_pinna_v1_device, 8);
 
 /**
  * @generated from message pinna.v1.SetMuteResponse
@@ -279,7 +326,7 @@ export type SetMuteResponse = Message<"pinna.v1.SetMuteResponse"> & {
  * Use `create(SetMuteResponseSchema)` to create a new message.
  */
 export const SetMuteResponseSchema: GenMessage<SetMuteResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 8);
+  messageDesc(file_pinna_v1_device, 9);
 
 /**
  * @generated from message pinna.v1.StartConversationRequest
@@ -292,7 +339,7 @@ export type StartConversationRequest = Message<"pinna.v1.StartConversationReques
  * Use `create(StartConversationRequestSchema)` to create a new message.
  */
 export const StartConversationRequestSchema: GenMessage<StartConversationRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 9);
+  messageDesc(file_pinna_v1_device, 10);
 
 /**
  * @generated from message pinna.v1.StartConversationResponse
@@ -309,7 +356,7 @@ export type StartConversationResponse = Message<"pinna.v1.StartConversationRespo
  * Use `create(StartConversationResponseSchema)` to create a new message.
  */
 export const StartConversationResponseSchema: GenMessage<StartConversationResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 10);
+  messageDesc(file_pinna_v1_device, 11);
 
 /**
  * @generated from message pinna.v1.StopConversationRequest
@@ -322,7 +369,7 @@ export type StopConversationRequest = Message<"pinna.v1.StopConversationRequest"
  * Use `create(StopConversationRequestSchema)` to create a new message.
  */
 export const StopConversationRequestSchema: GenMessage<StopConversationRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 11);
+  messageDesc(file_pinna_v1_device, 12);
 
 /**
  * @generated from message pinna.v1.StopConversationResponse
@@ -339,7 +386,7 @@ export type StopConversationResponse = Message<"pinna.v1.StopConversationRespons
  * Use `create(StopConversationResponseSchema)` to create a new message.
  */
 export const StopConversationResponseSchema: GenMessage<StopConversationResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 12);
+  messageDesc(file_pinna_v1_device, 13);
 
 /**
  * @generated from message pinna.v1.LedTestRequest
@@ -352,7 +399,7 @@ export type LedTestRequest = Message<"pinna.v1.LedTestRequest"> & {
  * Use `create(LedTestRequestSchema)` to create a new message.
  */
 export const LedTestRequestSchema: GenMessage<LedTestRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 13);
+  messageDesc(file_pinna_v1_device, 14);
 
 /**
  * @generated from message pinna.v1.LedTestResponse
@@ -365,7 +412,7 @@ export type LedTestResponse = Message<"pinna.v1.LedTestResponse"> & {
  * Use `create(LedTestResponseSchema)` to create a new message.
  */
 export const LedTestResponseSchema: GenMessage<LedTestResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 14);
+  messageDesc(file_pinna_v1_device, 15);
 
 /**
  * @generated from message pinna.v1.WatchStatusRequest
@@ -378,7 +425,7 @@ export type WatchStatusRequest = Message<"pinna.v1.WatchStatusRequest"> & {
  * Use `create(WatchStatusRequestSchema)` to create a new message.
  */
 export const WatchStatusRequestSchema: GenMessage<WatchStatusRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 15);
+  messageDesc(file_pinna_v1_device, 16);
 
 /**
  * @generated from message pinna.v1.WatchStatusResponse
@@ -395,7 +442,424 @@ export type WatchStatusResponse = Message<"pinna.v1.WatchStatusResponse"> & {
  * Use `create(WatchStatusResponseSchema)` to create a new message.
  */
 export const WatchStatusResponseSchema: GenMessage<WatchStatusResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 16);
+  messageDesc(file_pinna_v1_device, 17);
+
+/**
+ * Only the fields that are set change.
+ *
+ * @generated from message pinna.v1.UpdateSettingsRequest
+ */
+export type UpdateSettingsRequest = Message<"pinna.v1.UpdateSettingsRequest"> & {
+  /**
+   * @generated from field: optional uint32 reply_volume = 1;
+   */
+  replyVolume?: number | undefined;
+
+  /**
+   * @generated from field: optional bool wake_word = 2;
+   */
+  wakeWord?: boolean | undefined;
+
+  /**
+   * @generated from field: optional uint32 wake_sensitivity = 3;
+   */
+  wakeSensitivity?: number | undefined;
+
+  /**
+   * @generated from field: optional uint32 led_brightness = 4;
+   */
+  ledBrightness?: number | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.UpdateSettingsRequest.
+ * Use `create(UpdateSettingsRequestSchema)` to create a new message.
+ */
+export const UpdateSettingsRequestSchema: GenMessage<UpdateSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 18);
+
+/**
+ * @generated from message pinna.v1.UpdateSettingsResponse
+ */
+export type UpdateSettingsResponse = Message<"pinna.v1.UpdateSettingsResponse"> & {
+  /**
+   * @generated from field: pinna.v1.Status status = 1;
+   */
+  status?: Status | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.UpdateSettingsResponse.
+ * Use `create(UpdateSettingsResponseSchema)` to create a new message.
+ */
+export const UpdateSettingsResponseSchema: GenMessage<UpdateSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 19);
+
+/**
+ * @generated from message pinna.v1.GetNetworkRequest
+ */
+export type GetNetworkRequest = Message<"pinna.v1.GetNetworkRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.GetNetworkRequest.
+ * Use `create(GetNetworkRequestSchema)` to create a new message.
+ */
+export const GetNetworkRequestSchema: GenMessage<GetNetworkRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 20);
+
+/**
+ * @generated from message pinna.v1.Wifi
+ */
+export type Wifi = Message<"pinna.v1.Wifi"> & {
+  /**
+   * @generated from field: string ssid = 1;
+   */
+  ssid: string;
+
+  /**
+   * Received signal strength in dBm (negative; closer to 0 is stronger).
+   *
+   * @generated from field: int32 signal_dbm = 2;
+   */
+  signalDbm: number;
+
+  /**
+   * @generated from field: uint32 frequency_mhz = 3;
+   */
+  frequencyMhz: number;
+
+  /**
+   * As `iw` reports it, e.g. "72.2 MBit/s".
+   *
+   * @generated from field: string tx_bitrate = 4;
+   */
+  txBitrate: string;
+};
+
+/**
+ * Describes the message pinna.v1.Wifi.
+ * Use `create(WifiSchema)` to create a new message.
+ */
+export const WifiSchema: GenMessage<Wifi> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 21);
+
+/**
+ * @generated from message pinna.v1.Interface
+ */
+export type Interface = Message<"pinna.v1.Interface"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string mac = 2;
+   */
+  mac: string;
+
+  /**
+   * @generated from field: bool up = 3;
+   */
+  up: boolean;
+
+  /**
+   * Addresses with prefix length, e.g. "192.168.1.20/24".
+   *
+   * @generated from field: repeated string addresses = 4;
+   */
+  addresses: string[];
+
+  /**
+   * Set for a wireless interface that is associated.
+   *
+   * @generated from field: pinna.v1.Wifi wifi = 5;
+   */
+  wifi?: Wifi | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.Interface.
+ * Use `create(InterfaceSchema)` to create a new message.
+ */
+export const InterfaceSchema: GenMessage<Interface> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 22);
+
+/**
+ * @generated from message pinna.v1.GetNetworkResponse
+ */
+export type GetNetworkResponse = Message<"pinna.v1.GetNetworkResponse"> & {
+  /**
+   * @generated from field: string hostname = 1;
+   */
+  hostname: string;
+
+  /**
+   * @generated from field: repeated pinna.v1.Interface interfaces = 2;
+   */
+  interfaces: Interface[];
+};
+
+/**
+ * Describes the message pinna.v1.GetNetworkResponse.
+ * Use `create(GetNetworkResponseSchema)` to create a new message.
+ */
+export const GetNetworkResponseSchema: GenMessage<GetNetworkResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 23);
+
+/**
+ * @generated from message pinna.v1.WatchLogsRequest
+ */
+export type WatchLogsRequest = Message<"pinna.v1.WatchLogsRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.WatchLogsRequest.
+ * Use `create(WatchLogsRequestSchema)` to create a new message.
+ */
+export const WatchLogsRequestSchema: GenMessage<WatchLogsRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 24);
+
+/**
+ * @generated from message pinna.v1.LogLine
+ */
+export type LogLine = Message<"pinna.v1.LogLine"> & {
+  /**
+   * Milliseconds since the Unix epoch.
+   *
+   * @generated from field: uint64 unix_ms = 1;
+   */
+  unixMs: bigint;
+
+  /**
+   * "ERROR", "WARN", "INFO", "DEBUG" or "TRACE".
+   *
+   * @generated from field: string level = 2;
+   */
+  level: string;
+
+  /**
+   * Module the line comes from, e.g. "pinnad::voice".
+   *
+   * @generated from field: string target = 3;
+   */
+  target: string;
+
+  /**
+   * The message with its fields, e.g. "esphome api listening addr=0.0.0.0:6053".
+   *
+   * @generated from field: string message = 4;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message pinna.v1.LogLine.
+ * Use `create(LogLineSchema)` to create a new message.
+ */
+export const LogLineSchema: GenMessage<LogLine> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 25);
+
+/**
+ * @generated from message pinna.v1.WatchLogsResponse
+ */
+export type WatchLogsResponse = Message<"pinna.v1.WatchLogsResponse"> & {
+  /**
+   * @generated from field: pinna.v1.LogLine line = 1;
+   */
+  line?: LogLine | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.WatchLogsResponse.
+ * Use `create(WatchLogsResponseSchema)` to create a new message.
+ */
+export const WatchLogsResponseSchema: GenMessage<WatchLogsResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 26);
+
+/**
+ * @generated from message pinna.v1.GetUpdatesRequest
+ */
+export type GetUpdatesRequest = Message<"pinna.v1.GetUpdatesRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.GetUpdatesRequest.
+ * Use `create(GetUpdatesRequestSchema)` to create a new message.
+ */
+export const GetUpdatesRequestSchema: GenMessage<GetUpdatesRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 27);
+
+/**
+ * @generated from message pinna.v1.Slot
+ */
+export type Slot = Message<"pinna.v1.Slot"> & {
+  /**
+   * "a" or "b".
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * Version of the signed image in the slot; empty when there is none.
+   *
+   * @generated from field: string version = 2;
+   */
+  version: string;
+
+  /**
+   * "good", "trial" (tries_left boots before rollback) or "unbootable".
+   *
+   * @generated from field: string state = 3;
+   */
+  state: string;
+
+  /**
+   * @generated from field: uint32 tries_left = 4;
+   */
+  triesLeft: number;
+
+  /**
+   * The slot boots next.
+   *
+   * @generated from field: bool active = 5;
+   */
+  active: boolean;
+
+  /**
+   * The running system booted from this slot.
+   *
+   * @generated from field: bool booted = 6;
+   */
+  booted: boolean;
+};
+
+/**
+ * Describes the message pinna.v1.Slot.
+ * Use `create(SlotSchema)` to create a new message.
+ */
+export const SlotSchema: GenMessage<Slot> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 28);
+
+/**
+ * @generated from message pinna.v1.GetUpdatesResponse
+ */
+export type GetUpdatesResponse = Message<"pinna.v1.GetUpdatesResponse"> & {
+  /**
+   * A/B updates work here (started through pinna-init on a slot image).
+   *
+   * @generated from field: bool available = 1;
+   */
+  available: boolean;
+
+  /**
+   * Why not, when `available` is false.
+   *
+   * @generated from field: string unavailable_reason = 2;
+   */
+  unavailableReason: string;
+
+  /**
+   * @generated from field: string booted_version = 3;
+   */
+  bootedVersion: string;
+
+  /**
+   * @generated from field: repeated pinna.v1.Slot slots = 4;
+   */
+  slots: Slot[];
+
+  /**
+   * An InstallUpdate is running.
+   *
+   * @generated from field: bool installing = 5;
+   */
+  installing: boolean;
+};
+
+/**
+ * Describes the message pinna.v1.GetUpdatesResponse.
+ * Use `create(GetUpdatesResponseSchema)` to create a new message.
+ */
+export const GetUpdatesResponseSchema: GenMessage<GetUpdatesResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 29);
+
+/**
+ * @generated from message pinna.v1.InstallUpdateRequest
+ */
+export type InstallUpdateRequest = Message<"pinna.v1.InstallUpdateRequest"> & {
+  /**
+   * Release manifest: http(s) URL, file:// URL or path on the satellite.
+   *
+   * @generated from field: string manifest = 1;
+   */
+  manifest: string;
+};
+
+/**
+ * Describes the message pinna.v1.InstallUpdateRequest.
+ * Use `create(InstallUpdateRequestSchema)` to create a new message.
+ */
+export const InstallUpdateRequestSchema: GenMessage<InstallUpdateRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 30);
+
+/**
+ * @generated from message pinna.v1.InstallUpdateResponse
+ */
+export type InstallUpdateResponse = Message<"pinna.v1.InstallUpdateResponse"> & {
+  /**
+   * One line of progress, as `pinnactl update` prints it.
+   *
+   * @generated from field: string line = 1;
+   */
+  line: string;
+
+  /**
+   * Last message: the install finished, successfully or not.
+   *
+   * @generated from field: bool done = 2;
+   */
+  done: boolean;
+
+  /**
+   * @generated from field: bool ok = 3;
+   */
+  ok: boolean;
+};
+
+/**
+ * Describes the message pinna.v1.InstallUpdateResponse.
+ * Use `create(InstallUpdateResponseSchema)` to create a new message.
+ */
+export const InstallUpdateResponseSchema: GenMessage<InstallUpdateResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 31);
+
+/**
+ * @generated from message pinna.v1.RebootRequest
+ */
+export type RebootRequest = Message<"pinna.v1.RebootRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.RebootRequest.
+ * Use `create(RebootRequestSchema)` to create a new message.
+ */
+export const RebootRequestSchema: GenMessage<RebootRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 32);
+
+/**
+ * @generated from message pinna.v1.RebootResponse
+ */
+export type RebootResponse = Message<"pinna.v1.RebootResponse"> & {
+};
+
+/**
+ * Describes the message pinna.v1.RebootResponse.
+ * Use `create(RebootResponseSchema)` to create a new message.
+ */
+export const RebootResponseSchema: GenMessage<RebootResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 33);
 
 /**
  * @generated from enum pinna.v1.Phase
@@ -510,6 +974,66 @@ export const DeviceService: GenService<{
     methodKind: "server_streaming";
     input: typeof WatchStatusRequestSchema;
     output: typeof WatchStatusResponseSchema;
+  },
+  /**
+   * Change runtime settings; the same as changing them in Home Assistant.
+   *
+   * @generated from rpc pinna.v1.DeviceService.UpdateSettings
+   */
+  updateSettings: {
+    methodKind: "unary";
+    input: typeof UpdateSettingsRequestSchema;
+    output: typeof UpdateSettingsResponseSchema;
+  },
+  /**
+   * Network interfaces, addresses and Wi-Fi link.
+   *
+   * @generated from rpc pinna.v1.DeviceService.GetNetwork
+   */
+  getNetwork: {
+    methodKind: "unary";
+    input: typeof GetNetworkRequestSchema;
+    output: typeof GetNetworkResponseSchema;
+  },
+  /**
+   * pinnad's recent log lines, then new ones as they are written.
+   *
+   * @generated from rpc pinna.v1.DeviceService.WatchLogs
+   */
+  watchLogs: {
+    methodKind: "server_streaming";
+    input: typeof WatchLogsRequestSchema;
+    output: typeof WatchLogsResponseSchema;
+  },
+  /**
+   * The A/B slots and the running version.
+   *
+   * @generated from rpc pinna.v1.DeviceService.GetUpdates
+   */
+  getUpdates: {
+    methodKind: "unary";
+    input: typeof GetUpdatesRequestSchema;
+    output: typeof GetUpdatesResponseSchema;
+  },
+  /**
+   * Install a release into the inactive slot (`pinnactl update`), with progress.
+   *
+   * @generated from rpc pinna.v1.DeviceService.InstallUpdate
+   */
+  installUpdate: {
+    methodKind: "server_streaming";
+    input: typeof InstallUpdateRequestSchema;
+    output: typeof InstallUpdateResponseSchema;
+  },
+  /**
+   * Restart the satellite.
+   *
+   * @generated from rpc pinna.v1.DeviceService.Reboot
+   */
+  reboot: {
+    methodKind: "unary";
+    input: typeof RebootRequestSchema;
+    output: typeof RebootResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_pinna_v1_device, 0);

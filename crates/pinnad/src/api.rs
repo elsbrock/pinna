@@ -13,14 +13,17 @@ use buffa::MessageField;
 use connectrpc::{ConnectError, RequestContext, Response, Router, Server, ServiceRequest};
 use connectrpc::{ServiceResult, ServiceStream};
 use pinna_api::{
-    DeviceService, GetStatusRequest, GetStatusResponse, LedTestRequest, LedTestResponse,
-    SetMuteRequest, SetMuteResponse, SetVolumeRequest, SetVolumeResponse, StartConversationRequest,
+    DeviceService, GetNetworkRequest, GetNetworkResponse, GetStatusRequest, GetStatusResponse,
+    GetUpdatesRequest, GetUpdatesResponse, InstallUpdateRequest, InstallUpdateResponse,
+    LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetMuteRequest,
+    SetMuteResponse, SetVolumeRequest, SetVolumeResponse, StartConversationRequest,
     StartConversationResponse, Status, StopConversationRequest, StopConversationResponse, Timer,
-    WakeWord, WatchStatusRequest, WatchStatusResponse,
+    UpdateSettingsRequest, UpdateSettingsResponse, WakeWord, WatchLogsRequest, WatchLogsResponse,
+    WatchStatusRequest, WatchStatusResponse,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::voice::{ApiCommand, ApiReply, Input, Snapshot};
+use crate::voice::{ApiCommand, ApiReply, Input, SettingsPatch, Snapshot};
 
 /// What does not change while pinnad runs.
 #[derive(Debug, Clone)]
@@ -107,6 +110,13 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         audio_backend: info.audio_backend.clone(),
         led_backend: info.led_backend.clone(),
         alarm_ringing: s.alarm_ringing,
+        settings: MessageField::some(pinna_api::Settings {
+            reply_volume: s.settings.reply_volume().into(),
+            wake_word: s.settings.wake_word,
+            wake_sensitivity: s.settings.wake_sensitivity.into(),
+            led_brightness: s.settings.led_brightness.into(),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }
@@ -214,6 +224,80 @@ impl DeviceService for DeviceApi {
             }
         });
         Response::ok(Box::pin(stream))
+    }
+
+    async fn update_settings(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, UpdateSettingsRequest>,
+    ) -> ServiceResult<UpdateSettingsResponse> {
+        let percent = |name: &str, v: Option<u32>| match v {
+            Some(v) if v > 100 => Err(ConnectError::invalid_argument(format!(
+                "{name} must be between 0 and 100"
+            ))),
+            v => Ok(v.map(|v| v as u8)),
+        };
+        let patch = SettingsPatch {
+            reply_volume: percent("reply_volume", request.reply_volume)?,
+            wake_word: request.wake_word,
+            wake_sensitivity: percent("wake_sensitivity", request.wake_sensitivity)?,
+            led_brightness: percent("led_brightness", request.led_brightness)?,
+        };
+        let snap = self
+            .command(|r| ApiCommand::UpdateSettings(patch, r))
+            .await?;
+        Response::ok(UpdateSettingsResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn get_network(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, GetNetworkRequest>,
+    ) -> ServiceResult<GetNetworkResponse> {
+        Err(ConnectError::unimplemented(
+            "GetNetwork is not implemented yet",
+        ))
+    }
+
+    async fn watch_logs(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, WatchLogsRequest>,
+    ) -> ServiceResult<ServiceStream<WatchLogsResponse>> {
+        Err(ConnectError::unimplemented(
+            "WatchLogs is not implemented yet",
+        ))
+    }
+
+    async fn get_updates(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, GetUpdatesRequest>,
+    ) -> ServiceResult<GetUpdatesResponse> {
+        Err(ConnectError::unimplemented(
+            "GetUpdates is not implemented yet",
+        ))
+    }
+
+    async fn install_update(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, InstallUpdateRequest>,
+    ) -> ServiceResult<ServiceStream<InstallUpdateResponse>> {
+        Err(ConnectError::unimplemented(
+            "InstallUpdate is not implemented yet",
+        ))
+    }
+
+    async fn reboot(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, RebootRequest>,
+    ) -> ServiceResult<RebootResponse> {
+        Err(ConnectError::unimplemented("Reboot is not implemented yet"))
     }
 }
 
@@ -405,6 +489,50 @@ mod tests {
         .unwrap()
         .expect("stream ended");
         msg.to_owned_message().status.into_option().unwrap()
+    }
+
+    #[tokio::test]
+    async fn update_settings_round_trip() {
+        let (c, _inputs) = start_device().await;
+        let settings = |s: Status| s.settings.into_option().unwrap();
+        let before = settings(status(&c).await);
+        assert!(before.wake_word);
+
+        let s = c
+            .update_settings(pinna_api::UpdateSettingsRequest {
+                wake_sensitivity: Some(70),
+                led_brightness: Some(40),
+                wake_word: Some(false),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message()
+            .status
+            .into_option()
+            .unwrap();
+        let after = settings(s);
+        assert_eq!(
+            (
+                after.wake_sensitivity,
+                after.led_brightness,
+                after.wake_word
+            ),
+            (70, 40, false)
+        );
+        // Unset fields stay as they were.
+        assert_eq!(after.reply_volume, before.reply_volume);
+
+        let err = c
+            .update_settings(pinna_api::UpdateSettingsRequest {
+                led_brightness: Some(101),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        assert_eq!(settings(status(&c).await).led_brightness, 40);
     }
 
     #[test]

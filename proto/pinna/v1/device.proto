@@ -20,6 +20,18 @@ service DeviceService {
   rpc LedTest(LedTestRequest) returns (LedTestResponse);
   // Current state, then again on every change.
   rpc WatchStatus(WatchStatusRequest) returns (stream WatchStatusResponse);
+  // Change runtime settings; the same as changing them in Home Assistant.
+  rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+  // Network interfaces, addresses and Wi-Fi link.
+  rpc GetNetwork(GetNetworkRequest) returns (GetNetworkResponse);
+  // pinnad's recent log lines, then new ones as they are written.
+  rpc WatchLogs(WatchLogsRequest) returns (stream WatchLogsResponse);
+  // The A/B slots and the running version.
+  rpc GetUpdates(GetUpdatesRequest) returns (GetUpdatesResponse);
+  // Install a release into the inactive slot (`pinnactl update`), with progress.
+  rpc InstallUpdate(InstallUpdateRequest) returns (stream InstallUpdateResponse);
+  // Restart the satellite.
+  rpc Reboot(RebootRequest) returns (RebootResponse);
 }
 
 enum Phase {
@@ -69,6 +81,19 @@ message Status {
   string led_backend = 15;
   // A finished timer's alarm is sounding; StopConversation silences it.
   bool alarm_ringing = 16;
+  Settings settings = 17;
+}
+
+// Runtime settings, persisted on the satellite and shared with Home Assistant.
+message Settings {
+  // Replies and announcements 0..=100, never louder than `volume`.
+  uint32 reply_volume = 1;
+  // Wake word detection on or off.
+  bool wake_word = 2;
+  // Wake word sensitivity 0..=100: higher wakes more easily.
+  uint32 wake_sensitivity = 3;
+  // LED ring brightness 0..=100.
+  uint32 led_brightness = 4;
 }
 
 message GetStatusRequest {}
@@ -115,3 +140,102 @@ message WatchStatusRequest {}
 message WatchStatusResponse {
   Status status = 1;
 }
+
+// Only the fields that are set change.
+message UpdateSettingsRequest {
+  optional uint32 reply_volume = 1;
+  optional bool wake_word = 2;
+  optional uint32 wake_sensitivity = 3;
+  optional uint32 led_brightness = 4;
+}
+
+message UpdateSettingsResponse {
+  Status status = 1;
+}
+
+message GetNetworkRequest {}
+
+message Wifi {
+  string ssid = 1;
+  // Received signal strength in dBm (negative; closer to 0 is stronger).
+  int32 signal_dbm = 2;
+  uint32 frequency_mhz = 3;
+  // As `iw` reports it, e.g. "72.2 MBit/s".
+  string tx_bitrate = 4;
+}
+
+message Interface {
+  string name = 1;
+  string mac = 2;
+  bool up = 3;
+  // Addresses with prefix length, e.g. "192.168.1.20/24".
+  repeated string addresses = 4;
+  // Set for a wireless interface that is associated.
+  Wifi wifi = 5;
+}
+
+message GetNetworkResponse {
+  string hostname = 1;
+  repeated Interface interfaces = 2;
+}
+
+message WatchLogsRequest {}
+
+message LogLine {
+  // Milliseconds since the Unix epoch.
+  uint64 unix_ms = 1;
+  // "ERROR", "WARN", "INFO", "DEBUG" or "TRACE".
+  string level = 2;
+  // Module the line comes from, e.g. "pinnad::voice".
+  string target = 3;
+  // The message with its fields, e.g. "esphome api listening addr=0.0.0.0:6053".
+  string message = 4;
+}
+
+message WatchLogsResponse {
+  LogLine line = 1;
+}
+
+message GetUpdatesRequest {}
+
+message Slot {
+  // "a" or "b".
+  string name = 1;
+  // Version of the signed image in the slot; empty when there is none.
+  string version = 2;
+  // "good", "trial" (tries_left boots before rollback) or "unbootable".
+  string state = 3;
+  uint32 tries_left = 4;
+  // The slot boots next.
+  bool active = 5;
+  // The running system booted from this slot.
+  bool booted = 6;
+}
+
+message GetUpdatesResponse {
+  // A/B updates work here (started through pinna-init on a slot image).
+  bool available = 1;
+  // Why not, when `available` is false.
+  string unavailable_reason = 2;
+  string booted_version = 3;
+  repeated Slot slots = 4;
+  // An InstallUpdate is running.
+  bool installing = 5;
+}
+
+message InstallUpdateRequest {
+  // Release manifest: http(s) URL, file:// URL or path on the satellite.
+  string manifest = 1;
+}
+
+message InstallUpdateResponse {
+  // One line of progress, as `pinnactl update` prints it.
+  string line = 1;
+  // Last message: the install finished, successfully or not.
+  bool done = 2;
+  bool ok = 3;
+}
+
+message RebootRequest {}
+
+message RebootResponse {}

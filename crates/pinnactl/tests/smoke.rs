@@ -103,6 +103,55 @@ impl DeviceService for Fake {
         };
         Response::ok(Box::pin(futures::stream::iter([msg(10), msg(20)])))
     }
+
+    // pinnactl does not use the dashboard's RPCs.
+    async fn update_settings(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, UpdateSettingsRequest>,
+    ) -> ServiceResult<UpdateSettingsResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn get_network(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, GetNetworkRequest>,
+    ) -> ServiceResult<GetNetworkResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn watch_logs(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, WatchLogsRequest>,
+    ) -> ServiceResult<ServiceStream<WatchLogsResponse>> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn get_updates(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, GetUpdatesRequest>,
+    ) -> ServiceResult<GetUpdatesResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn install_update(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, InstallUpdateRequest>,
+    ) -> ServiceResult<ServiceStream<InstallUpdateResponse>> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn reboot(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, RebootRequest>,
+    ) -> ServiceResult<RebootResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
 }
 
 async fn pinnactl(addr: std::net::SocketAddr, args: &[&str]) -> (bool, String, String) {
