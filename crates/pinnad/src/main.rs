@@ -324,6 +324,20 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Media lane state (playing, paused, ended) for the Home Assistant media player.
+    if let Some(s) = &speaker {
+        let mut state = s.media().state();
+        let tx = in_tx.clone();
+        tokio::spawn(async move {
+            while state.changed().await.is_ok() {
+                let s = state.borrow_and_update().clone();
+                if tx.send(Input::Media(s)).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
     // Home Assistant commands.
     let tx = in_tx.clone();
     tokio::spawn(async move {

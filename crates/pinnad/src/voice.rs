@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use pinna_audio::{Speaker, tone};
+use pinna_audio::{MediaPhase, MediaState, Speaker, tone};
 use pinna_esphome::{
     DeviceEvent, EsphomeHandle, HaCommand, MediaPlayerCommand, MediaPlayerStateKind,
     TimerEventType, VoiceEventType,
@@ -38,8 +38,15 @@ pub enum Input {
     Ha(HaCommand),
     Button(ButtonEvent),
     Privacy(bool),
-    Wake { score: f32 },
-    PlaybackDone { token: u64, ok: bool },
+    Wake {
+        score: f32,
+    },
+    PlaybackDone {
+        token: u64,
+        ok: bool,
+    },
+    /// The media lane changed state (playing, paused, ended, failed).
+    Media(MediaState),
     Api(ApiCommand),
 }
 
@@ -117,8 +124,6 @@ enum PlaybackKind {
     },
     /// Media player `play_media` with `announcement` set.
     MediaAnnounce,
-    /// Media player `play_media`.
-    Media,
     Alarm,
     Cue,
 }
@@ -190,6 +195,9 @@ pub struct Brain {
     last_press: HashMap<Button, Instant>,
     media_state: MediaPlayerStateKind,
     media_muted: bool,
+    /// Last state reported by the media lane.
+    media_phase: MediaPhase,
+    ducked: bool,
 
     timers: HashMap<String, HaTimer>,
     ringing: Option<(String, Instant)>,
@@ -264,6 +272,8 @@ impl Brain {
             last_press: HashMap::new(),
             media_state: MediaPlayerStateKind::Idle,
             media_muted: false,
+            media_phase: MediaPhase::Idle,
+            ducked: false,
             timers: HashMap::new(),
             ringing: None,
             playback: None,
@@ -278,6 +288,7 @@ impl Brain {
         let mut tick = tokio::time::interval(Duration::from_millis(250));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         self.shared.muted.store(self.muted(), Ordering::SeqCst);
+        self.apply_reply_volume();
         self.refresh();
         let mut sent_media = (self.media_state, self.settings.volume, self.media_muted);
         loop {
@@ -339,6 +350,14 @@ impl Brain {
                 self.apply_mute().await;
             }
             Input::PlaybackDone { token, ok } => self.playback_done(token, ok).await,
+            Input::Media(state) => {
+                if let Some(e) = &state.error {
+                    tracing::warn!("media: {e}");
+                }
+                self.media_phase = state.phase;
+                self.media_muted = state.muted;
+                self.update_media_state();
+            }
             Input::Ha(cmd) => self.ha(cmd).await,
             Input::Api(cmd) => self.api(cmd).await,
         }
@@ -776,9 +795,10 @@ impl Brain {
     async fn set_volume(&mut self, v: u8) {
         let v = v.min(100);
         if let Some(s) = &self.speaker {
-            s.set_volume(if self.media_muted { 0 } else { v });
+            s.set_volume(v);
         }
         self.settings.volume = v;
+        self.apply_reply_volume();
         self.store.save(&self.settings);
         self.send(DeviceEvent::NumberState {
             object_id: "volume".into(),
@@ -802,7 +822,10 @@ impl Brain {
                 self.overlay(Effect::Volume(v));
                 return;
             }
-            "reply_volume" => self.settings.reply_volume = Some(v),
+            "reply_volume" => {
+                self.settings.reply_volume = Some(v);
+                self.apply_reply_volume();
+            }
             "wake_word_sensitivity" => {
                 self.settings.wake_sensitivity = v;
                 let t = self.settings.wake_threshold();
@@ -823,6 +846,34 @@ impl Brain {
         .await;
     }
 
+    /// Replies and announcements play on the voice lane under the master volume,
+    /// so the reply volume is applied as a voice-lane gain relative to it (a
+    /// reply cannot be louder than the main volume).
+    fn apply_reply_volume(&self) {
+        let Some(s) = &self.speaker else { return };
+        let master = pinna_audio::volume::volume_gain(self.settings.volume);
+        let reply = pinna_audio::volume::volume_gain(self.settings.reply_volume());
+        let pct = if master > 0.0 {
+            (reply / master * 100.0).round().clamp(0.0, 100.0) as u8
+        } else {
+            0
+        };
+        s.set_voice_gain(pct);
+    }
+
+    /// The Home Assistant media player state from the media lane and the voice lane.
+    fn update_media_state(&mut self) {
+        self.media_state = if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) {
+            MediaPlayerStateKind::Announcing
+        } else {
+            match self.media_phase {
+                MediaPhase::Idle => MediaPlayerStateKind::Idle,
+                MediaPhase::Buffering | MediaPhase::Playing => MediaPlayerStateKind::Playing,
+                MediaPhase::Paused => MediaPlayerStateKind::Paused,
+            }
+        };
+    }
+
     /// "Cancel request": dismiss an alarm, abort a run, or stop what is playing.
     async fn cancel(&mut self) {
         if self.ringing.is_some() {
@@ -832,6 +883,9 @@ impl Brain {
             self.abort_run(true).await;
         } else {
             self.stop_playback();
+            if let Some(s) = &self.speaker {
+                s.media().stop();
+            }
         }
     }
 
@@ -849,31 +903,46 @@ impl Brain {
             self.set_volume((v * 100.0).round().clamp(0.0, 100.0) as u8)
                 .await;
         }
+        let media = self.speaker.as_ref().map(|s| s.media());
         if let Some(url) = media_url.filter(|u| !u.is_empty()) {
             if announcement {
+                // Announcements play on the voice lane, which ducks the music.
                 if self.phase != Phase::Idle {
                     self.abort_run(true).await;
                 }
                 self.play_urls(vec![url], PlaybackKind::MediaAnnounce);
-                self.media_state = MediaPlayerStateKind::Announcing;
-            } else {
-                self.play_urls(vec![url], PlaybackKind::Media);
-                self.media_state = MediaPlayerStateKind::Playing;
+                self.update_media_state();
+            } else if let Some(media) = media.clone() {
+                tokio::spawn(async move {
+                    if let Err(e) = media.play_url(&url).await {
+                        tracing::warn!("media {url}: {e:#}");
+                    }
+                });
             }
         }
         match command {
-            Some(MediaPlayerCommand::Stop | MediaPlayerCommand::Pause) => {
-                if matches!(
-                    self.playback,
-                    Some((_, PlaybackKind::Media | PlaybackKind::MediaAnnounce, _))
-                ) {
+            Some(MediaPlayerCommand::Stop) => {
+                if let Some(m) = &media {
+                    m.stop();
+                }
+                if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) {
                     self.stop_playback();
                 }
             }
+            Some(MediaPlayerCommand::Pause) => {
+                if let Some(m) = &media {
+                    m.pause();
+                }
+            }
+            Some(MediaPlayerCommand::Play) => {
+                if let Some(m) = &media {
+                    m.resume();
+                }
+            }
             Some(MediaPlayerCommand::Mute) | Some(MediaPlayerCommand::Unmute) => {
-                self.media_muted = command == Some(MediaPlayerCommand::Mute);
-                let v = self.settings.volume;
-                self.set_volume(v).await;
+                if let Some(m) = &media {
+                    m.set_muted(command == Some(MediaPlayerCommand::Mute));
+                }
             }
             Some(MediaPlayerCommand::VolumeUp) => {
                 let v = self.settings.volume.saturating_add(5).min(100);
@@ -994,10 +1063,10 @@ impl Brain {
 
     fn stop_playback(&mut self) {
         if let Some((_, kind, task)) = self.playback.take() {
-            if matches!(kind, PlaybackKind::Media | PlaybackKind::MediaAnnounce) {
-                self.media_state = MediaPlayerStateKind::Idle;
-            }
             task.abort();
+            if kind == PlaybackKind::MediaAnnounce {
+                self.update_media_state();
+            }
             if let Some(s) = &self.speaker {
                 s.stop();
             }
@@ -1080,9 +1149,7 @@ impl Brain {
                     }
                 }
             }
-            PlaybackKind::Media | PlaybackKind::MediaAnnounce => {
-                self.media_state = MediaPlayerStateKind::Idle;
-            }
+            PlaybackKind::MediaAnnounce => self.update_media_state(),
             PlaybackKind::Cue => {}
         }
     }
@@ -1178,6 +1245,16 @@ impl Brain {
             s.brightness = brightness;
             changed
         });
+        let duck = matches!(
+            self.phase,
+            Phase::Starting(_) | Phase::Listening(_) | Phase::Thinking(_)
+        ) || self.ringing.is_some();
+        if duck != self.ducked {
+            self.ducked = duck;
+            if let Some(s) = &self.speaker {
+                s.duck(duck);
+            }
+        }
         let wake = self.phase == Phase::Idle
             && !muted
             && self.settings.wake_word
