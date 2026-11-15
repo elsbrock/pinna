@@ -29,7 +29,8 @@ What was tried on the device and rejected:
 ## Decision
 
 PipeWire and WirePlumber run as system services on the device
-(`pinna-pipewire.service`, `pinna-wireplumber.service`, only on MT8163), with a
+(`pinna-pipewire.service`, `pinna-wireplumber.service`, only on MT8163; the
+x86_64 image runs them with a virtual graph instead, ADR 0014), with a
 static microphone graph (`/etc/pipewire/pipewire.conf.d/10-echo-dot.conf`, no
 device monitors) at the microphone's native 16 kHz:
 
