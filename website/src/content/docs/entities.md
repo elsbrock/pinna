@@ -15,6 +15,7 @@ in front of them, for example `light.pinna_2a914e_led_ring`.
 | Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button |
 | Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The Action button still starts a request |
 | Listening direction | `listening_direction` | Switch (configuration) | On, off | While the device listens, points the light ring at the person speaking. Off shows the plain listening ring. On by default |
+| Notification | `notification` | Switch | On, off | Shows that a notification is waiting. Turns off when someone clears it on the device. See [Notifications](/docs/ring-and-buttons/#notifications) |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
 | Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements relative to the speaker volume. Replies are never louder than the speaker volume |
 | Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68 |
@@ -44,6 +45,7 @@ Events don't have a state. Use them as triggers in automations.
 | Voice assistant | `voice_assistant` | `wake_word`, `listening`, `thinking`, `replying`, `finished`, `stopped` | A voice request moves to the next step |
 | Playback | `playback` | `started`, `stopped` | The media player starts or stops playing |
 | Timer | `timer` | `started`, `updated`, `cancelled`, `finished` | A timer on the device changes |
+| Notification | `notification` | `cleared` | Someone clears the notification with the Action button or on the dashboard. It doesn't fire when Home Assistant turns the switch off |
 
 A `double_press` fires when you press the same button twice within 0.4
 seconds. The button still does its normal job for both presses.

@@ -18,6 +18,9 @@ service DeviceService {
   rpc StopConversation(StopConversationRequest) returns (StopConversationResponse);
   // Run a short LED animation cycle.
   rpc LedTest(LedTestRequest) returns (LedTestResponse);
+  // Clear a pending notification, like pressing the action button while the
+  // ring shows it: Home Assistant sees the switch turn off and a `cleared` event.
+  rpc ClearNotification(ClearNotificationRequest) returns (ClearNotificationResponse);
   // Current state, then again on every change.
   rpc WatchStatus(WatchStatusRequest) returns (stream WatchStatusResponse);
   // Change runtime settings; the same as changing them in Home Assistant.
@@ -89,6 +92,9 @@ message Status {
   // Which hardware this is, as a stable id for the dashboard's drawing:
   // "echo-dot-2" for the Echo Dot (2nd gen); empty when unknown (QEMU, a PC).
   string model = 18;
+  // A notification is pending (Home Assistant's "Notification" switch); the ring
+  // pulses while idle. ClearNotification clears it.
+  bool notification = 19;
 }
 
 // Runtime settings, persisted on the satellite and shared with Home Assistant.
@@ -141,6 +147,12 @@ message StopConversationResponse {
 message LedTestRequest {}
 
 message LedTestResponse {}
+
+message ClearNotificationRequest {}
+
+message ClearNotificationResponse {
+  Status status = 1;
+}
 
 message WatchStatusRequest {}
 

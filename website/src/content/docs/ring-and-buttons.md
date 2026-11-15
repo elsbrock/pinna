@@ -20,6 +20,7 @@ this table wins:
 | A violet light that runs around the ring | Home Assistant is working on your request |
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | An amber arc | A timer is running. The arc shows how much time is left |
+| Yellow, the whole ring slowly getting brighter and dimmer | A notification is waiting. See [Notifications](#notifications) |
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |
 | Off | The device is idle |
 
@@ -41,11 +42,114 @@ its colour, its brightness and one of three effects:
 
 The light shows only while the device is idle. When the device listens, works
 on a request or speaks, the ring shows that state, and the light comes back
-afterwards. While a timer runs, the ring shows the timer arc instead of the
-light. The light takes the place of the music lights.
+afterwards. While a timer runs or a notification is waiting, the ring shows
+that instead of the light. The light takes the place of the music lights.
 
 **LED brightness** in Home Assistant sets the brightness of the whole ring,
 including the states above.
+
+### Notifications
+
+The ring can tell you that something happened, like the yellow ring on an
+Echo. While a notification is waiting and the device is idle, the whole ring
+slowly gets brighter and dimmer in yellow.
+
+The **Notification** switch in Home Assistant controls it. Turn it on from an
+automation, for example when the washing machine finishes. The notification
+stays until one of these clears it:
+
+- You press the Action button while the ring shows the notification. This
+  press doesn't start a request. Press again to talk.
+- You select **Clear** on the [dashboard](/docs/dashboard/).
+- Home Assistant turns the switch off.
+
+When you clear it with the Action button or on the dashboard, the
+**Notification** event fires with the type `cleared`, so an automation can
+tell you what the notification was. When Home Assistant turns the switch off,
+the event doesn't fire.
+
+The notification doesn't show while the microphones are off, while the device
+listens, works on a request or speaks, or while a timer runs. It comes back
+afterwards. While the ring shows something else, the Action button does what
+it normally does. A waiting notification survives a restart of the device.
+
+#### Hear what the notification was
+
+The switch only says that something happened. To keep the message, store it
+in Home Assistant. The examples use a device named `pinna_2a914e`.
+
+1. In Home Assistant, create a **Text** helper named `Pinna notification`
+   (`input_text.pinna_notification`) and set its maximum length to 255.
+
+2. In the automation that reports the event, add the message and turn the
+   switch on:
+
+   ```yaml
+   actions:
+     - action: input_text.set_value
+       target:
+         entity_id: input_text.pinna_notification
+       data:
+         value: >-
+           {{ (states('input_text.pinna_notification') ~ ' The washing machine is done.') | trim }}
+     - action: switch.turn_on
+       target:
+         entity_id: switch.pinna_2a914e_notification
+   ```
+
+3. Add an automation that answers "Alexa, what are my notifications?" and
+   clears them:
+
+   ```yaml
+   triggers:
+     - trigger: conversation
+       command:
+         - "what are my notifications"
+         - "read my notifications"
+   actions:
+     - set_conversation_response: >-
+         {{ states('input_text.pinna_notification') or 'You have no notifications.' }}
+     - action: switch.turn_off
+       target:
+         entity_id: switch.pinna_2a914e_notification
+     - action: input_text.set_value
+       target:
+         entity_id: input_text.pinna_notification
+       data:
+         value: ""
+   ```
+
+4. Add an automation that reads the message when you clear the notification
+   with the Action button or on the dashboard:
+
+   ```yaml
+   triggers:
+     - trigger: state
+       entity_id: event.pinna_2a914e_notification
+       not_from: unavailable
+   conditions:
+     - condition: template
+       value_template: >-
+         {{ trigger.to_state.attributes.event_type == 'cleared'
+            and states('input_text.pinna_notification') != '' }}
+   actions:
+     - action: assist_satellite.announce
+       target:
+         entity_id: assist_satellite.pinna_2a914e_assist_satellite
+       data:
+         message: "{{ states('input_text.pinna_notification') }}"
+     - action: input_text.set_value
+       target:
+         entity_id: input_text.pinna_notification
+       data:
+         value: ""
+   ```
+
+With more than one device, list every device's switch in steps 2 and 3, so
+that clearing the notification on one device clears it on all of them.
+
+If Home Assistant isn't connected when you clear a notification on the device,
+Home Assistant sees the switch turn off but gets no `cleared` event.
 
 ## Buttons
 
@@ -58,7 +162,7 @@ Seen from above, with the front of the device towards you, the buttons are:
 
 | Button | Press | Hold |
 | --- | --- | --- |
-| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While a timer rings, stops it | Sends a `long_press` event to Home Assistant after 2 seconds |
+| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While a timer rings, stops it. While the ring shows a notification, clears it | Sends a `long_press` event to Home Assistant after 2 seconds |
 | Volume up | Raises the volume by 5 | Keeps raising the volume |
 | Volume down | Lowers the volume by 5 | Keeps lowering the volume |
 | Microphone off | Turns the microphones off or on | Nothing |

@@ -21,6 +21,9 @@ pub struct Settings {
     pub muted: bool,
     /// Point the listening ring at the talker ("Listening direction" switch).
     pub listening_direction: bool,
+    /// A notification is pending ("Notification" switch). Persisted so an
+    /// update, a crash or a power cut doesn't lose it before anyone saw it.
+    pub notification: bool,
 }
 
 impl Default for Settings {
@@ -33,6 +36,7 @@ impl Default for Settings {
             wake_word: true,
             muted: false,
             listening_direction: true,
+            notification: false,
         }
     }
 }
@@ -132,6 +136,7 @@ mod tests {
             volume: 33,
             reply_volume: Some(70),
             wake_word: false,
+            notification: true,
             ..Default::default()
         };
         store.save(&changed);

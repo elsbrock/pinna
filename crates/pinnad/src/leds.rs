@@ -99,11 +99,13 @@ pub struct LedState {
     /// Transient effect shown on top until it finishes (Error, Volume).
     pub overlay: Option<(Effect, Instant)>,
     /// Home Assistant light entity: shown while the base effect is Idle and
-    /// no timer runs.
+    /// neither a timer nor a notification is.
     pub light: Option<Rgb>,
     pub light_effect: LightEffect,
     /// Remaining fraction of the soonest timer, shown while idle.
     pub timer: Option<f32>,
+    /// A notification is pending: shown while idle and no timer runs.
+    pub notification: bool,
     /// Overall ring brightness 0..=100 ("LED brightness" number).
     pub brightness: u8,
 }
@@ -116,6 +118,7 @@ impl Default for LedState {
             light: None,
             light_effect: LightEffect::Solid,
             timer: None,
+            notification: false,
             brightness: 100,
         }
     }
@@ -165,10 +168,13 @@ fn unscaled_frame(
             render(Effect::Boot, t)
         }
         // A running timer was asked of this device just now: its arc shows
-        // above the light, which shows above the music.
+        // above a notification, which shows above the light, which shows above
+        // the music.
         Effect::Idle | Effect::Boot => {
             if let Some(frac) = state.timer {
                 render(Effect::Timer(frac), t)
+            } else if state.notification {
+                render(Effect::Notification, t)
             } else if let Some(rgb) = state.light {
                 [scale(rgb, state.light_effect.level(t)); RING_PIXELS]
             } else if let Some(bands) = music {
@@ -569,5 +575,42 @@ mod tests {
         let down = e.update(0.0, ms(33));
         assert!(down > 0.7 && down < 0.8, "{down}");
         assert!(e.update(0.0, ms(1000)) < 0.01);
+    }
+
+    #[test]
+    fn notification_between_timer_arc_and_light() {
+        let now = Instant::now();
+        let green = Rgb {
+            r: 0,
+            g: 200,
+            b: 40,
+        };
+        let mut s = LedState {
+            base: Effect::Idle,
+            light: Some(green),
+            timer: Some(0.5),
+            notification: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            frame_for(&s, None, now, now, None),
+            render(Effect::Timer(0.5), Duration::ZERO)
+        );
+        s.timer = None;
+        assert_eq!(
+            frame_for(&s, None, now, now, None),
+            render(Effect::Notification, Duration::ZERO)
+        );
+        // Anything the device is doing, or muted, shows instead.
+        for base in [Effect::Muted, Effect::Listening, Effect::TimerRinging] {
+            s.base = base;
+            assert_eq!(
+                frame_for(&s, None, now, now, None),
+                render(base, Duration::ZERO)
+            );
+        }
+        s.base = Effect::Idle;
+        s.notification = false;
+        assert_eq!(frame_for(&s, None, now, now, None), [green; RING_PIXELS]);
     }
 }

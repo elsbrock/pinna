@@ -104,6 +104,7 @@ device. `pinnad` serves it in two places:
 | `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings or a request is already running |
 | `StopConversation` | Empty | Stops a request, a reply, an announcement or a timer alarm |
 | `LedTest` | Empty | Runs the LED test |
+| `ClearNotification` | Empty | Clears a waiting notification, like the Action button: the **Notification** switch turns off and the `cleared` event fires |
 | `UpdateSettings` | Any of `wake_word` (bool), `wake_sensitivity` and `led_brightness` (0–100) | Changes those settings, as Home Assistant's entities do. Values above 100 return `invalid_argument` |
 | `GetNetwork` | Empty | Returns the hostname and each interface: name, MAC, addresses, and for Wi-Fi the network, signal, band and bitrate |
 | `WatchLogs` | Empty | Streams the last 1000 lines of `pinnad`'s journal, then new lines. Debug and trace lines are left out |
@@ -112,8 +113,8 @@ device. `pinnad` serves it in two places:
 | `WatchInstall` | Empty | Streams the output of the running or last install, and ends with a message that has `done` set |
 | `Reboot` | Empty | Restarts the device |
 
-`SetVolume`, `SetMute`, `StartConversation`, `StopConversation` and
-`UpdateSettings` return the `Status` after the change.
+`SetVolume`, `SetMute`, `StartConversation`, `StopConversation`,
+`ClearNotification` and `UpdateSettings` return the `Status` after the change.
 
 ### Example
 
@@ -144,6 +145,7 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `audio_backend` | string | `echodot`, `pipewire`, `wav` or `none` |
 | `led_backend` | string | `is31`, `mock` or `none` |
 | `alarm_ringing` | bool | A finished timer's alarm rings. `StopConversation` stops it |
+| `notification` | bool | A notification is waiting. `ClearNotification` clears it |
 | `settings` | `Settings` | `wake_word`, `wake_sensitivity` and `led_brightness` |
 
 ## What's next

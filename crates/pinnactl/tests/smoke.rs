@@ -87,6 +87,13 @@ impl DeviceService for Fake {
     ) -> ServiceResult<LedTestResponse> {
         Response::ok(LedTestResponse::default())
     }
+    async fn clear_notification(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ClearNotificationRequest>,
+    ) -> ServiceResult<ClearNotificationResponse> {
+        status_reply!(ClearNotificationResponse, self)
+    }
     async fn watch_status(
         &self,
         _: RequestContext,

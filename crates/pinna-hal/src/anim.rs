@@ -22,6 +22,9 @@ pub const EQUALIZER: [Rgb; RING_PIXELS / 2] = [
     Rgb::new(40, 215, 215),
     Rgb::new(70, 120, 255),
 ];
+/// Pending notification: Alexa's yellow, greener than the timers' amber.
+/// To be settled by eye on the device, next to a running timer arc.
+pub const NOTIFICATION: Rgb = Rgb::new(255, 215, 0);
 
 /// How long the volume meter is held.
 pub const VOLUME_HOLD: Duration = Duration::from_millis(1500);
@@ -57,6 +60,8 @@ pub enum Effect {
     /// Fraction of the timer remaining, 0.0..=1.0.
     Timer(f32),
     TimerRinging,
+    /// A notification is pending: the whole ring pulses slowly.
+    Notification,
     Boot,
     /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
     Equalizer([f32; RING_PIXELS]),
@@ -131,6 +136,8 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
             // Two pulses per second.
             solid(AMBER.scaled(0.15 + 0.85 * wave(t, 0.5)))
         }
+        // One slow pulse every 3 s: motion, not hue, tells it from a timer.
+        Effect::Notification => solid(NOTIFICATION.scaled(0.1 + 0.9 * wave(t, 3.0))),
         Effect::Boot => {
             if effect.is_finished(t) {
                 return solid(Rgb::OFF);
@@ -361,6 +368,19 @@ mod tests {
     }
 
     #[test]
+    fn notification_pulses_slowly() {
+        let dim = render(Effect::Notification, ms(0))[0];
+        let bright = render(Effect::Notification, ms(1500))[0];
+        assert_eq!(bright, NOTIFICATION);
+        assert!(dim.r > 0 && dim.r < 30, "{dim:?}");
+        assert_eq!(
+            render(Effect::Notification, ms(400)),
+            render(Effect::Notification, ms(3400))
+        );
+        assert_ne!(NOTIFICATION, AMBER);
+    }
+
+    #[test]
     fn speech_level_maps_loudness() {
         let rms = |dbfs: f32| 32768.0 * 10f32.powf(dbfs / 20.0);
         assert_eq!(speech_level(0.0), 0.0);
@@ -389,6 +409,7 @@ mod tests {
             Effect::Muted,
             Effect::TimerRinging,
             Effect::Equalizer([1.0; 12]),
+            Effect::Notification,
         ] {
             assert!(!e.is_finished(Duration::from_secs(3600)));
         }

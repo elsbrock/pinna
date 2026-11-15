@@ -14,14 +14,14 @@ use connectrpc::{ConnectError, RequestContext, Response, Router, Server, Service
 use connectrpc::{ServiceResult, ServiceStream};
 use futures::{Stream, StreamExt};
 use pinna_api::{
-    DeviceService, GetNetworkRequest, GetNetworkResponse, GetStatusRequest, GetStatusResponse,
-    GetUpdatesRequest, GetUpdatesResponse, InstallUpdateRequest, InstallUpdateResponse,
-    LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetMuteRequest,
-    SetMuteResponse, SetVolumeRequest, SetVolumeResponse, StartConversationRequest,
-    StartConversationResponse, Status, StopConversationRequest, StopConversationResponse, Timer,
-    UpdateSettingsRequest, UpdateSettingsResponse, WakeWord, WatchInstallRequest,
-    WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchStatusRequest,
-    WatchStatusResponse,
+    ClearNotificationRequest, ClearNotificationResponse, DeviceService, GetNetworkRequest,
+    GetNetworkResponse, GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
+    InstallUpdateRequest, InstallUpdateResponse, LedTestRequest, LedTestResponse, RebootRequest,
+    RebootResponse, SetMuteRequest, SetMuteResponse, SetVolumeRequest, SetVolumeResponse,
+    StartConversationRequest, StartConversationResponse, Status, StopConversationRequest,
+    StopConversationResponse, Timer, UpdateSettingsRequest, UpdateSettingsResponse, WakeWord,
+    WatchInstallRequest, WatchInstallResponse, WatchLogsRequest, WatchLogsResponse,
+    WatchStatusRequest, WatchStatusResponse,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -127,6 +127,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         audio_backend: info.audio_backend.clone(),
         led_backend: info.led_backend.clone(),
         alarm_ringing: s.alarm_ringing,
+        notification: s.settings.notification,
         settings: MessageField::some(pinna_api::Settings {
             wake_word: s.settings.wake_word,
             wake_sensitivity: s.settings.wake_sensitivity.into(),
@@ -215,6 +216,18 @@ impl DeviceService for DeviceApi {
     ) -> ServiceResult<LedTestResponse> {
         self.command(ApiCommand::LedTest).await?;
         Response::ok(LedTestResponse::default())
+    }
+
+    async fn clear_notification(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ClearNotificationRequest>,
+    ) -> ServiceResult<ClearNotificationResponse> {
+        let snap = self.command(ApiCommand::ClearNotification).await?;
+        Response::ok(ClearNotificationResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
     }
 
     async fn watch_status(
@@ -410,7 +423,7 @@ mod tests {
 
     use connectrpc::client::{ClientConfig, HttpClient};
     use pinna_api::{DeviceServiceClient, Phase};
-    use pinna_esphome::{DeviceConfig, HaCommand};
+    use pinna_esphome::{DeviceConfig, HaCommand, TimerEventType};
 
     use super::*;
     use crate::leds::LedState;
@@ -560,6 +573,91 @@ mod tests {
         assert_eq!(status(&c).await.phase, Phase::PHASE_IDLE);
 
         c.led_test(LedTestRequest::default()).await.unwrap();
+    }
+
+    /// Set the software mute through the brain: also orders after earlier inputs.
+    async fn set_mute(c: &Client, muted: bool) -> Status {
+        c.set_mute(pinna_api::SetMuteRequest {
+            muted,
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .into_view()
+        .to_owned_message()
+        .status
+        .into_option()
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn notification_clears_on_what_the_ring_shows() {
+        use pinna_hal::buttons::{Button, ButtonEvent};
+        let (c, inputs) = start_device().await;
+        let on = Input::Ha(HaCommand::Switch {
+            object_id: "notification".into(),
+            on: true,
+        });
+        let action = || Input::Button(ButtonEvent::Press(Button::Action));
+
+        inputs.send(on).await.unwrap();
+        assert!(set_mute(&c, false).await.notification);
+
+        // Muted, the ring is red: the press doesn't clear what it hides.
+        set_mute(&c, true).await;
+        inputs.send(action()).await.unwrap();
+        assert!(set_mute(&c, false).await.notification);
+
+        // A running timer's arc shows above it: the press doesn't clear it.
+        inputs
+            .send(Input::Ha(HaCommand::Timer {
+                event: TimerEventType::Started,
+                id: "t1".into(),
+                name: String::new(),
+                total_seconds: 60,
+                seconds_left: 60,
+                is_active: true,
+            }))
+            .await
+            .unwrap();
+        inputs.send(action()).await.unwrap();
+        assert!(set_mute(&c, false).await.notification);
+        inputs
+            .send(Input::Ha(HaCommand::Timer {
+                event: TimerEventType::Cancelled,
+                id: "t1".into(),
+                name: String::new(),
+                total_seconds: 60,
+                seconds_left: 60,
+                is_active: false,
+            }))
+            .await
+            .unwrap();
+
+        // Shown: the press clears it instead of starting a request.
+        inputs.send(action()).await.unwrap();
+        let s = set_mute(&c, false).await;
+        assert!(!s.notification);
+        assert_eq!(s.phase, Phase::PHASE_IDLE);
+
+        // From the dashboard.
+        inputs
+            .send(Input::Ha(HaCommand::Switch {
+                object_id: "notification".into(),
+                on: true,
+            }))
+            .await
+            .unwrap();
+        let s = c
+            .clear_notification(ClearNotificationRequest::default())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message()
+            .status
+            .into_option()
+            .unwrap();
+        assert!(!s.notification);
     }
 
     async fn next<B>(

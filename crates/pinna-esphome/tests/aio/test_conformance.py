@@ -167,7 +167,7 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    assert len(by_key) == len(entities) == 3 + 1 + 4 + 1 + 7 + 1 + 1
+    assert len(by_key) == len(entities) == 2 + 3 + 4 + 1 + 8 + 1 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -273,6 +273,7 @@ async def test_event_entities_and_unknown_type_dropped(client, demo):
         ),
         "Playback": ("playback", "", ["started", "stopped"]),
         "Timer": ("timer", "", ["started", "updated", "cancelled", "finished"]),
+        "Notification": ("notification", "", ["cleared"]),
     }
     assert set(events) == set(expected)
     for name, (oid, cls, types) in expected.items():
@@ -396,6 +397,22 @@ async def test_wake_word_switch(client, demo):
     cmd = await demo.wait(demo.cmd("switch"), "switch command")
     assert cmd["object_id"] == "wake_word" and cmd["state"] is True
     await eventually(lambda: states[ww.key].state is True, "echoed wake word switch")
+
+
+@pytest.mark.asyncio
+async def test_notification_switch(client, demo):
+    switches = await infos(client, SwitchInfo)
+    n = switches["Notification"]
+    assert n.object_id == "notification" and n.icon == "mdi:bell-ring"
+    assert int(n.entity_category) == 0  # a control, not config
+    assert n.key not in (MUTE_KEY, switches["Wake word"].key)
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: n.key in states, "initial notification switch state")
+    client.switch_command(n.key, True)
+    cmd = await demo.wait(demo.cmd("switch"), "switch command")
+    assert cmd["object_id"] == "notification" and cmd["state"] is True
+    await eventually(lambda: states[n.key].state is True, "echoed notification switch")
 
 
 @pytest.mark.asyncio

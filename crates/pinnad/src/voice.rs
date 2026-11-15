@@ -62,6 +62,7 @@ pub enum ApiCommand {
     StopConversation(ApiReply),
     LedTest(ApiReply),
     UpdateSettings(SettingsPatch, ApiReply),
+    ClearNotification(ApiReply),
 }
 
 /// Settings to change from the API; `None` leaves a setting as it is.
@@ -435,6 +436,10 @@ impl Brain {
                 self.led_test = Some(Instant::now());
                 (Ok(()), reply)
             }
+            ApiCommand::ClearNotification(reply) => {
+                self.clear_notification().await;
+                (Ok(()), reply)
+            }
             ApiCommand::UpdateSettings(patch, reply) => {
                 // The same paths as Home Assistant's entities, so it sees the change.
                 if let Some(v) = patch.wake_sensitivity {
@@ -505,6 +510,11 @@ impl Brain {
                 self.send(DeviceEvent::SwitchState {
                     object_id: "listening_direction".into(),
                     on: self.settings.listening_direction,
+                })
+                .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "notification".into(),
+                    on: self.settings.notification,
                 })
                 .await;
                 self.send_media_state().await;
@@ -599,6 +609,9 @@ impl Brain {
                 self.settings.listening_direction = on;
                 self.store.save(&self.settings);
                 self.send(DeviceEvent::SwitchState { object_id, on }).await;
+            }
+            HaCommand::Switch { object_id, on } if object_id == "notification" => {
+                self.set_notification(on).await;
             }
             HaCommand::Button { object_id } if object_id == "cancel_request" => {
                 tracing::info!("cancel requested by Home Assistant");
@@ -787,6 +800,7 @@ impl Brain {
                     self.play_pcm(tone::beep(880.0, 40, 0.3), PlaybackKind::Cue);
                 }
             }
+            // Acts on what the ring shows.
             ButtonEvent::Press(Button::Action) => {
                 if self.ringing.is_some() {
                     tracing::info!("timer alarm dismissed");
@@ -795,10 +809,12 @@ impl Brain {
                 } else if self.phase != Phase::Idle {
                     tracing::info!("run cancelled by button");
                     self.abort_run(true).await;
-                } else if !self.muted() {
-                    self.start_run(None).await;
-                } else {
+                } else if self.muted() {
                     self.error_feedback();
+                } else if self.notification_shown() {
+                    self.clear_notification().await;
+                } else {
+                    self.start_run(None).await;
                 }
             }
             ButtonEvent::Press(Button::Mute) if !self.opts.has_hw_privacy => {
@@ -867,6 +883,41 @@ impl Brain {
             })
             .await;
         }
+    }
+
+    /// The ring shows the pending notification (see `leds.rs`): idle, and no
+    /// timer arc or media player announcement above it. Muted and a ringing
+    /// alarm are checked by the caller.
+    fn notification_shown(&self) -> bool {
+        self.settings.notification
+            && self.phase == Phase::Idle
+            && !self.timers.values().any(|t| t.active)
+            && !matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _)))
+    }
+
+    /// The "Notification" switch, from Home Assistant: no `cleared` event.
+    async fn set_notification(&mut self, on: bool) {
+        if self.settings.notification != on {
+            tracing::info!("notification: {on}");
+            self.settings.notification = on;
+            self.store.save(&self.settings);
+        }
+        self.send(DeviceEvent::SwitchState {
+            object_id: "notification".into(),
+            on,
+        })
+        .await;
+    }
+
+    /// Someone cleared the notification at the device (Action button,
+    /// dashboard): Home Assistant sees the switch turn off and a `cleared`
+    /// event, so it can tell this from turning the switch off itself.
+    async fn clear_notification(&mut self) {
+        if !self.settings.notification {
+            return;
+        }
+        self.set_notification(false).await;
+        self.event("notification", "cleared").await;
     }
 
     async fn set_wake_word(&mut self, on: bool) {
@@ -1340,15 +1391,18 @@ impl Brain {
             .map(|t| t.remaining(now) as f32 / t.total as f32)
             .reduce(f32::min);
         let (effect, brightness) = (self.light_effect, self.settings.led_brightness);
+        let notification = self.settings.notification;
         self.leds.send_if_modified(|s| {
             let changed = s.base != base
                 || s.light != light
                 || s.timer != timer
+                || s.notification != notification
                 || s.light_effect != effect
                 || s.brightness != brightness;
             s.base = base;
             s.light = light;
             s.timer = timer;
+            s.notification = notification;
             s.light_effect = effect;
             s.brightness = brightness;
             changed

@@ -72,6 +72,14 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             icon: "mdi:compass-outline".into(),
             entity_category: EntityCategory::Config,
         },
+        // Pending notification: the ring pulses until the Action button, the
+        // dashboard or Home Assistant clears it.
+        SwitchConfig {
+            object_id: "notification".into(),
+            name: "Notification".into(),
+            icon: "mdi:bell-ring".into(),
+            entity_category: EntityCategory::None,
+        },
     ];
     cfg.numbers = vec![
         number("volume", "Volume", Some("%"), "mdi:volume-high"),
@@ -130,6 +138,9 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             None,
             &["started", "updated", "cancelled", "finished"],
         ),
+        // Someone cleared the notification at the device or the dashboard
+        // (not when Home Assistant turns the switch off).
+        event("notification", "Notification", None, &["cleared"]),
     ];
     cfg.text_sensors = vec![TextSensorConfig {
         object_id: "last_wake_word".into(),
