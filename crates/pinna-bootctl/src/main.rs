@@ -39,7 +39,7 @@ enum Cmd {
     RebootBootloader,
     /// Show the A/B slot state, the images in the slots and the booted slot.
     SlotStatus,
-    /// Mark the booted slot good (after the health check).
+    /// Mark the booted slot good (after the health check); a no-op without pinna-init.
     MarkGood,
     /// Boot a slot next, as a trial with a number of tries.
     SetActive {
@@ -145,12 +145,15 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             }
         }
         Cmd::MarkGood => {
-            let booted = slot::booted_slot(&cli.run_dir)?.with_context(|| {
-                format!(
-                    "no {}/boot-slot: not started through pinna-init",
+            // Booted by the kernel's root= (a boot image without pinna-init):
+            // no slot to mark, and no reason to fail the health check.
+            let Some(booted) = slot::booted_slot(&cli.run_dir)? else {
+                println!(
+                    "not started through pinna-init (no {}/boot-slot): no slot to mark",
                     cli.run_dir.display()
-                )
-            })?;
+                );
+                return Ok(());
+            };
             let old = slot::read_state(&cli.misc)?;
             let new = slot::mark_good(old, booted);
             if old != Some(new) {
