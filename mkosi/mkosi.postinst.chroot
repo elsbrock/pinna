@@ -17,7 +17,7 @@ systemctl enable \
 # wpa_supplicant and the USB serial getty are started by udev when wlan0 /
 # ttyGS0 appear (see 90-pinna.rules), never by a static dependency on a device
 # that may not exist (QEMU, Wi-Fi bring-up failure).
-systemctl disable wpa_supplicant.service 2>/dev/null || true
+systemctl mask wpa_supplicant.service
 
 # No VT, no package management on a read-only image, no gpt-auto.
 systemctl mask \

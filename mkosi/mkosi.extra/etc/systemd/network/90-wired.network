@@ -1,0 +1,7 @@
+# Wired Ethernet: not present on the Echo, used by QEMU boot tests.
+[Match]
+Name=eth* en*
+
+[Network]
+DHCP=yes
+MulticastDNS=yes
