@@ -33,13 +33,13 @@ phone they are in a bar at the bottom.
 | Section | What you can do |
 | --- | --- |
 | **Overview** | See the device with its light ring, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, and see the timers. **Identify** runs the ring's test pattern, to find the device among others |
-| **Voice & sound** | Turn the wake word on or off and set its sensitivity, turn the microphones on or off, and set the volume and the ring brightness. Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
+| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off and set its **Sensitivity**, turn the microphones on or off, and set the volume and the ring brightness. Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
 | **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device. Copy the host and port to add the device by hand |
 | **Network** | See the Wi-Fi network, the signal strength, the addresses and the hostname. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies |
 | **System** | See which version runs from which slot, install an update and follow its steps, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad` as it is written. Debug lines are left out, because they can contain what was said |
 
-You change the Wi-Fi network and the wake word over SSH, not in the dashboard.
-See [Configure Pinna](/docs/configure/).
+You change the Wi-Fi network and the wake word model over SSH, not in the
+dashboard. See [Configure Pinna](/docs/configure/).
 
 ## Who can use the dashboard
 

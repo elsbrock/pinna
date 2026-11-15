@@ -91,7 +91,8 @@ To give the new version more or fewer attempts than three, add
 
 The [dashboard](/docs/dashboard/) runs the same update as `pinnactl update`.
 
-1. Build and serve the update files, as in steps 1 and 2 above.
+1. Check [Before you begin](#before-you-begin), then build and serve the update
+   files, as in steps 1 and 2 above.
 2. In the dashboard, open **System**. If it says **This version is on trial**,
    wait until the running slot is marked **Good**, within 5 minutes of the last
    restart.
