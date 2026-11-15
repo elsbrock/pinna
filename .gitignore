@@ -1,0 +1,21 @@
+# build outputs
+/target/
+/build/
+/mkosi/mkosi.output/
+/mkosi/mkosi.cache/
+/mkosi/mkosi.builddir/
+/mkosi/mkosi.tools/
+/mkosi/packages/
+*.img
+*.erofs
+*.deb
+result
+result-*
+
+# owner-local, never committed
+/secrets/
+/blobs/
+
+# python
+__pycache__/
+.venv/
