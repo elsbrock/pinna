@@ -11,3 +11,6 @@ tested against), path `esphome/components/api/`.
 
 `build.rs` compiles them with `protox` (pure Rust, no `protoc`) and `prost-build`,
 and derives the message-id table from the `(id)` message option.
+
+License: ESPHome publishes everything except its C/C++ runtime sources under the
+MIT license (see the repository LICENSE); these `.proto` files are MIT.
