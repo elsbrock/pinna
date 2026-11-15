@@ -65,6 +65,9 @@
           # tests (aioesphomeapi, onnxruntime parity)
           python3
           uv
+
+          # dashboard and website (build time only; nothing runs Node on the device)
+          nodejs_24
         ];
 
         shellHook = ''
