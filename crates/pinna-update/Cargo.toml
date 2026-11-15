@@ -1,0 +1,22 @@
+[package]
+name = "pinna-update"
+description = "Install a signed slot image into the inactive A/B slot"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-image = { path = "../pinna-image" }
+pinna-bootctl = { path = "../pinna-bootctl" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+libc.workspace = true
+url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+
+[dev-dependencies]
+tempfile = "3"
+ed25519-dalek.workspace = true

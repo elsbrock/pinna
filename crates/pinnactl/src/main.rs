@@ -48,6 +48,47 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Install a release into the inactive A/B slot (as root, on the device).
+    Update(UpdateArgs),
+}
+
+#[derive(clap::Args)]
+struct UpdateArgs {
+    /// Manifest: http(s) URL, file:// URL or path.
+    manifest: String,
+    /// Reboot into the new slot when installed.
+    #[arg(long)]
+    reboot: bool,
+    /// Boot attempts the new slot gets before rolling back.
+    #[arg(long, default_value_t = pinna_bootctl::slot::DEFAULT_TRIES,
+          value_parser = clap::value_parser!(u8).range(1..))]
+    tries: u8,
+    #[arg(long, default_value = "/dev/disk/by-partlabel/misc", hide = true)]
+    misc: std::path::PathBuf,
+    #[arg(long, default_value = "/dev/disk/by-partlabel", hide = true)]
+    partdir: std::path::PathBuf,
+    #[arg(long, default_value = pinna_bootctl::slot::RUN_DIR, hide = true)]
+    run_dir: std::path::PathBuf,
+}
+
+/// Blocking (no tokio): the download uses reqwest's blocking client.
+fn update(args: UpdateArgs) -> Result<()> {
+    let opts = pinna_update::Options {
+        tries: args.tries,
+        misc: args.misc,
+        partdir: args.partdir,
+        run_dir: args.run_dir,
+        ..Default::default()
+    };
+    let installed = pinna_update::install(&opts, &args.manifest, &mut |line| println!("{line}"))?;
+    if args.reboot {
+        println!("rebooting into slot {}", installed.slot);
+        let status = std::process::Command::new("systemctl")
+            .arg("reboot")
+            .status()?;
+        anyhow::ensure!(status.success(), "systemctl reboot failed");
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -218,13 +259,23 @@ async fn run(client: &Client, command: Command) -> Result<()> {
                 }
             }
         }
+        Command::Update(_) => unreachable!("handled before the runtime starts"),
     }
     Ok(())
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Command::Update(args) = cli.command {
+        return update(args).context("update");
+    }
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(api_main(cli))
+}
+
+async fn api_main(cli: Cli) -> Result<()> {
     let config = ClientConfig::new(
         cli.api
             .parse()
