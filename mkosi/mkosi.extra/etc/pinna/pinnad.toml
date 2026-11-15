@@ -24,6 +24,10 @@ threshold = 0.55
 [esphome]
 port = 6053
 mdns = true
+# Noise encryption: base64 of 32 bytes, empty = plaintext. Home Assistant can
+# also provision/rotate a key; it is then stored in key_file and wins.
+encryption_key = ""
+key_file = "/var/lib/pinna/esphome-key"
 
 [leds]
 backend = "auto"

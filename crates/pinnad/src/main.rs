@@ -191,6 +191,15 @@ async fn main() -> Result<()> {
         effects: Vec::new(),
     });
     dc.mute_switch = true;
+    dc.encryption_key = identity::load_encryption_key(&cfg.esphome)?;
+    tracing::info!(
+        "ESPHome API encryption: {}",
+        if dc.encryption_key.is_some() {
+            "Noise"
+        } else {
+            "none (plaintext)"
+        }
+    );
     tracing::info!(
         "pinnad {} as {} ({})",
         env!("CARGO_PKG_VERSION"),
@@ -335,6 +344,7 @@ async fn main() -> Result<()> {
         status_tx,
         in_tx,
         Options {
+            key_file: cfg.esphome.key_file.clone(),
             wake_phrase: cfg.wake.phrase.clone(),
             volume: cfg.audio.volume,
             wake_sound: cfg.audio.wake_sound,

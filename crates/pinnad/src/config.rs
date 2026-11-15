@@ -57,6 +57,11 @@ pub struct Esphome {
     pub port: u16,
     /// Publish `_esphomelib._tcp` via systemd-resolved (writes /run/systemd/dnssd).
     pub mdns: bool,
+    /// Noise encryption key (base64 of 32 bytes). Empty = plaintext API.
+    /// A key stored in `key_file` (e.g. pushed by Home Assistant) takes precedence.
+    pub encryption_key: String,
+    /// Where a key provisioned by Home Assistant is persisted.
+    pub key_file: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -116,6 +121,8 @@ impl Default for Esphome {
         Self {
             port: 6053,
             mdns: true,
+            encryption_key: String::new(),
+            key_file: "/var/lib/pinna/esphome-key".into(),
         }
     }
 }

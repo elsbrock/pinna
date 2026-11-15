@@ -131,6 +131,8 @@ impl HaTimer {
 }
 
 pub struct Options {
+    /// Where a Noise key pushed by Home Assistant is persisted.
+    pub key_file: std::path::PathBuf,
     pub wake_phrase: String,
     /// Startup volume, reported while there is no speaker.
     pub volume: u8,
@@ -453,6 +455,15 @@ impl Brain {
                 self.apply_mute().await;
             }
             HaCommand::SetActiveWakeWords(ids) => tracing::info!("active wake words: {ids:?}"),
+            HaCommand::EncryptionKeySet(key) => {
+                match crate::identity::store_encryption_key(&self.opts.key_file, &key) {
+                    Ok(()) => tracing::info!(
+                        "Home Assistant provisioned an encryption key; stored in {}",
+                        self.opts.key_file.display()
+                    ),
+                    Err(e) => tracing::error!("could not persist the encryption key: {e:#}"),
+                }
+            }
             other => tracing::debug!("ignored: {other:?}"),
         }
     }

@@ -4,7 +4,52 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use pinna_esphome::{DeviceConfig, mdns_txt};
+use pinna_esphome::{DeviceConfig, mdns_txt, parse_encryption_key};
+
+use crate::config;
+
+/// The Noise key: the persisted key file (provisioned by Home Assistant) wins
+/// over the configured key; neither = plaintext.
+pub fn load_encryption_key(cfg: &config::Esphome) -> Result<Option<[u8; 32]>> {
+    if let Ok(text) = std::fs::read_to_string(&cfg.key_file) {
+        let key = parse_encryption_key(text.trim())
+            .map_err(|e| anyhow::anyhow!("{}: {e:?}", cfg.key_file.display()))?;
+        return Ok(Some(key));
+    }
+    let configured = cfg.encryption_key.trim();
+    if configured.is_empty() {
+        return Ok(None);
+    }
+    let key = parse_encryption_key(configured)
+        .map_err(|e| anyhow::anyhow!("esphome.encryption_key: {e:?}"))?;
+    Ok(Some(key))
+}
+
+/// Persist a key pushed by Home Assistant (mode 0600) so it survives restarts.
+pub fn store_encryption_key(path: &Path, key: &[u8; 32]) -> Result<()> {
+    use base64::Engine as _;
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&tmp)
+        .with_context(|| format!("writing {}", tmp.display()))?;
+    writeln!(
+        f,
+        "{}",
+        base64::engine::general_purpose::STANDARD.encode(key)
+    )?;
+    f.sync_all()?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
 
 pub fn parse_mac(s: &str) -> Option<[u8; 6]> {
     let parts: Vec<u8> = s
@@ -93,6 +138,27 @@ mod tests {
             Some([0xaa, 0xbb, 0xcc, 0, 0x11, 0x22])
         );
         assert_eq!(parse_mac("nope"), None);
+    }
+
+    #[test]
+    fn key_file_wins_and_round_trips() {
+        let dir = std::env::temp_dir().join(format!("pinnad-key-{}", std::process::id()));
+        let file = dir.join("esphome-key");
+        let mut cfg = config::Esphome {
+            key_file: file.clone(),
+            ..Default::default()
+        };
+        assert_eq!(load_encryption_key(&cfg).unwrap(), None);
+        cfg.encryption_key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=".into();
+        let configured = load_encryption_key(&cfg).unwrap().unwrap();
+        assert_eq!(configured[1], 1);
+        let pushed = [7u8; 32];
+        store_encryption_key(&file, &pushed).unwrap();
+        assert_eq!(load_encryption_key(&cfg).unwrap(), Some(pushed));
+        cfg.encryption_key = "not base64".into();
+        std::fs::remove_file(&file).unwrap();
+        assert!(load_encryption_key(&cfg).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

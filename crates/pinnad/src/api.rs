@@ -262,6 +262,7 @@ mod tests {
             status_tx,
             in_tx.clone(),
             Options {
+                key_file: std::env::temp_dir().join("pinnad-api-test-key"),
                 wake_phrase: "Alexa".into(),
                 volume: 40,
                 wake_sound: false,
