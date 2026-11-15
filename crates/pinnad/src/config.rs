@@ -36,6 +36,10 @@ pub struct Audio {
     pub speaker_profile: String,
     /// Play a short chime when the wake word is detected.
     pub wake_sound: bool,
+    /// Digital gain on the captured (mono) stream before the wake word and Home
+    /// Assistant, in dB. Unset: +12 dB on the Echo Dot's PipeWire graph (the echo
+    /// canceller's output is far below what the wake word model expects), 0 otherwise.
+    pub capture_gain_db: Option<f32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,6 +103,7 @@ impl Default for Audio {
             volume: 50,
             speaker_profile: "Flat".into(),
             wake_sound: false,
+            capture_gain_db: None,
         }
     }
 }

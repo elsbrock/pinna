@@ -105,8 +105,19 @@ fn frame_bytes(frame: &[i16]) -> Bytes {
 
 /// Microphone → (wake word | Home Assistant). Keeps 200 ms of pre-roll so the
 /// start of the utterance right after the wake word is not lost.
+/// Saturating gain in place.
+fn apply_gain(frame: &mut [i16], gain: f32) {
+    if (gain - 1.0).abs() < f32::EPSILON {
+        return;
+    }
+    for s in frame.iter_mut() {
+        *s = (f32::from(*s) * gain).round().clamp(-32768.0, 32767.0) as i16;
+    }
+}
+
 async fn capture_loop(
     backend: Backend,
+    gain: f32,
     mut detector: Option<pinna_wakeword::Detector>,
     shared: Arc<Shared>,
     esp: EsphomeHandle,
@@ -122,7 +133,12 @@ async fn capture_loop(
     tracing::info!("microphone running");
     let mut preroll: VecDeque<Bytes> = VecDeque::with_capacity(10);
     let mut was_streaming = false;
-    while let Some(frame) = stream.recv().await {
+    // Peak detector score of the current utterance, for near-miss logging.
+    let mut peak = 0.0f32;
+    let mut peak_at = std::time::Instant::now();
+    let mut detected_at: Option<std::time::Instant> = None;
+    while let Some(mut frame) = stream.recv().await {
+        apply_gain(&mut frame, gain);
         if let Some(d) = detector.as_mut() {
             let t = f32::from_bits(shared.threshold.load(Ordering::Relaxed));
             if t > 0.0 && t != d.threshold() {
@@ -159,7 +175,28 @@ async fn capture_loop(
             // Always feed the detector so it keeps its audio context (it needs
             // ~2 s of history); only act on detections while wake is enabled.
             if let Some(d) = detector.as_mut() {
-                let detections = tokio::task::block_in_place(|| d.push(&frame));
+                let detections = tokio::task::block_in_place(|| {
+                    d.push_with(&frame, |b| {
+                        if b.score > peak {
+                            peak = b.score;
+                            peak_at = std::time::Instant::now();
+                        }
+                    })
+                });
+                // A near miss (scored, but not detected) once the utterance is over:
+                // the score only, never audio.
+                if !detections.is_empty() {
+                    detected_at = Some(std::time::Instant::now());
+                    peak = 0.0;
+                } else if peak_at.elapsed() > std::time::Duration::from_secs(2) {
+                    // The rest of a detected utterance is not a near miss.
+                    let after_detection = detected_at
+                        .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
+                    if peak >= 0.2 && !after_detection {
+                        tracing::info!("wake word near miss: peak score {peak:.2}");
+                    }
+                    peak = 0.0;
+                }
                 if shared.wake_enabled.load(Ordering::Relaxed) {
                     for det in detections {
                         let _ = inputs.send(Input::Wake { score: det.score }).await;
@@ -295,8 +332,15 @@ async fn main() -> Result<()> {
         } else {
             None
         };
+        let gain_db = cfg.audio.capture_gain_db.unwrap_or(match b {
+            Backend::EchoDotPipeWire => 12.0,
+            _ => 0.0,
+        });
+        tracing::info!("capture gain: {gain_db:+.1} dB");
+        let gain = 10f32.powf(gain_db / 20.0);
         tokio::spawn(capture_loop(
             b,
+            gain,
             detector,
             shared.clone(),
             esp.clone(),
