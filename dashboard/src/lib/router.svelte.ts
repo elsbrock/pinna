@@ -11,7 +11,10 @@ export type Path = (typeof PAGES)[number]["path"];
 
 const parse = (): Path => {
   const p = location.hash.replace(/^#/, "") || "/";
-  return PAGES.some((x) => x.path === p) ? (p as Path) : "/";
+  if (PAGES.some((x) => x.path === p)) return p as Path;
+  // An unknown section: show the overview and say so in the address bar too.
+  history.replaceState(null, "", "#/");
+  return "/";
 };
 
 class Router {

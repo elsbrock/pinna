@@ -18,19 +18,32 @@
     const where = page.path === "/" ? "" : `${page.title} · `;
     document.title = s ? `${where}${s.name} · Pinna` : "Pinna";
   });
+
+  // A command's error belongs to the page it was made on.
+  $effect(() => {
+    void router.path;
+    device.error = null;
+  });
+
+  // On a phone the tab row scrolls: keep the current section in view.
+  let nav = $state<HTMLElement>();
+  $effect(() => {
+    void router.path;
+    nav?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
 </script>
 
 <header class="top">
   <div class="bar">
     <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
-    <nav aria-label="Sections">
+    <nav aria-label="Sections" bind:this={nav}>
       {#each PAGES as p (p.path)}
         <a href="#{p.path}" aria-current={p.path === router.path ? "page" : undefined}>{p.title}</a>
       {/each}
     </nav>
     {#if s}
       <span class="pill pn-health" data-tone={line.tone} title={line.text}>
-        <span class="pn-type-data">{s.name}</span>
+        <span class="pn-type-data">{s.name}</span><span class="sr">: {line.text}</span>
       </span>
     {/if}
   </div>
@@ -42,15 +55,16 @@
   </div>
 {:else if device.link === "offline"}
   <div class="strip" role="status">
-    <span class="wrap">{line.text}. Trying again…</span>
+    <p class="wrap">
+      {line.text}. Check that it has power and Wi-Fi; over USB it is at
+      <code class="pn-code">http://10.42.0.1/</code>. This page keeps trying.
+    </p>
   </div>
 {/if}
 
 <main class="wrap">
   {#if !s}
-    <p class="connecting" role="status">
-      {device.link === "offline" ? "Can't reach the satellite. Trying again…" : "Connecting…"}
-    </p>
+    {#if device.link === "connecting"}<p class="connecting" role="status">Connecting…</p>{/if}
   {:else if page.path === "/"}
     <Overview />
   {:else}
@@ -129,6 +143,15 @@
   nav a:hover {
     color: var(--ink);
   }
+  @media (max-width: 899px) {
+    /* The row scrolls sideways; fade its right edge so that is visible. */
+    nav {
+      mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+    }
+    nav a {
+      padding: 0 var(--space-2);
+    }
+  }
   nav a[aria-current="page"] {
     color: var(--ink);
     border-bottom-color: var(--signal);
@@ -148,7 +171,20 @@
     background: var(--danger-soft);
     color: var(--danger);
     font-weight: 650;
-    padding: var(--space-2) 0;
+  }
+  .strip p {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .strip.neutral {
     background: var(--surface-sunken);

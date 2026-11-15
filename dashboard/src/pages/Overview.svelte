@@ -8,13 +8,23 @@
   import { badge, health, ringEffect } from "../lib/view.ts";
 
   const s = $derived(device.status);
+  // Phones get the small ring, so Volume and Microphones stay near the top.
+  const phone = matchMedia("(max-width: 599px)");
+  let small = $state(phone.matches);
+  $effect(() => {
+    const update = () => (small = phone.matches);
+    phone.addEventListener("change", update);
+    return () => phone.removeEventListener("change", update);
+  });
+  // Over USB the page's own host isn't one Home Assistant can reach.
+  const haHost = location.hostname === "10.42.0.1" ? "pinna.local" : location.hostname;
   const ring = $derived(ringEffect(s, device.link));
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
 </script>
 
 {#if s}
   <section class="hero">
-    <Ring effect={ring} size={176} label="Ring: {ring.replace('-', ' ')}" />
+    <Ring effect={ring} size={small ? 64 : 176} label="Ring: {ring.replace('-', ' ')}" />
     <div class="who">
       <h1 class="pn-type-display-l">{s.name}</h1>
       <div class="state">
@@ -25,7 +35,7 @@
         <p class="next">
           Home Assistant usually finds the satellite on its own under Settings › Devices &amp; services.
           If it doesn't, add the ESPHome integration with host
-          <code class="pn-code">{location.hostname}</code> and port <code class="pn-code">6053</code>.
+          <code class="pn-code">{haHost}</code> and port <code class="pn-code">6053</code>.
         </p>
       {/if}
     </div>
@@ -42,8 +52,13 @@
   .hero {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-6);
+    align-items: flex-start;
+    gap: var(--space-4) var(--space-6);
+  }
+  @media (min-width: 600px) {
+    .hero {
+      align-items: center;
+    }
   }
   .who {
     display: flex;

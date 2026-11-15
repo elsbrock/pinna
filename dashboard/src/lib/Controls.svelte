@@ -44,7 +44,7 @@
     <button
       class="pn-btn pn-btn-primary pn-btn-lg"
       disabled={!!startReason || device.busy}
-      aria-describedby="start-reason"
+      aria-describedby={startReason && !stoppable ? "start-reason" : undefined}
       onclick={() => device.startConversation()}
     >
       Start conversation

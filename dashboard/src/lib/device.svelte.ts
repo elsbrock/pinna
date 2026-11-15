@@ -125,14 +125,16 @@ class Device {
   stop() {
     return this.#command(() => client.stopConversation({}));
   }
-  async restart() {
+  /** Ask for a restart; returns why it failed, for the caller to show. */
+  async restart(): Promise<string | null> {
     this.busy = true;
+    this.restarting = true;
     try {
       await client.reboot({});
-      this.restarting = true;
-      this.error = null;
+      return null;
     } catch (e) {
-      this.error = sentence(ConnectError.from(e).rawMessage);
+      this.restarting = false;
+      return sentence(ConnectError.from(e).rawMessage);
     } finally {
       this.busy = false;
     }

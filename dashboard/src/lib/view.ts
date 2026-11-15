@@ -95,13 +95,21 @@ export function hhmm(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** The Wake word switch's hint: what the detector is doing, without guessing why. */
+/**
+ * The Wake word switch's hint: what the detector does and, when it is paused,
+ * why. The reasons mirror pinnad's own gate (idle, unmuted, a voice pipeline,
+ * no alarm), so they are facts, not guesses.
+ */
 export function wakeHint(s: Status): string {
-  const phrase = s.wakeWord?.phrase || "the wake word";
-  const quoted = s.wakeWord?.phrase ? `"${phrase}"` : phrase;
+  const phrase = s.wakeWord?.phrase ? `"${s.wakeWord.phrase}"` : "the wake word";
   if (!s.settings?.wakeWord) return "Off. Press the action button to talk.";
-  if (s.wakeWord?.enabled) return `Listening for ${quoted}`;
-  return `Not listening for ${quoted} right now`;
+  if (s.wakeWord?.enabled) return `Listening for ${phrase}`;
+  if (s.muted) return `Not listening for ${phrase} while the microphones are off`;
+  if (!s.haConnected || !s.voiceSubscribed)
+    return `Not listening for ${phrase} until Home Assistant has a voice pipeline for this satellite`;
+  if (s.alarmRinging) return `Not listening for ${phrase} while the alarm rings`;
+  if (s.phase !== 1 && s.phase !== 0) return `Not listening for ${phrase} during the conversation`;
+  return `Not listening for ${phrase} yet`;
 }
 
 /** The project's documentation (the dashboard works offline; these are plain links). */

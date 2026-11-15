@@ -100,10 +100,13 @@ test("clock and uptime formats", () => {
   assert.equal(uptime(3 * 86400 + 4 * 3600 + 59), "3d 4h");
 });
 
-test("wake word hint says what the detector does, not why", () => {
+test("wake word hint names pinnad's reason for pausing", () => {
   assert.equal(wakeHint(status()), 'Listening for "Alexa"');
   const idle = { phrase: "Alexa", enabled: false } as Status["wakeWord"];
-  assert.equal(wakeHint(status({ wakeWord: idle })), 'Not listening for "Alexa" right now');
+  assert.match(wakeHint(status({ wakeWord: idle, muted: true })), /while the microphones are off/);
+  assert.match(wakeHint(status({ wakeWord: idle, voiceSubscribed: false })), /voice pipeline/);
+  assert.match(wakeHint(status({ wakeWord: idle, alarmRinging: true })), /alarm rings/);
+  assert.match(wakeHint(status({ wakeWord: idle, phase: 3 })), /during the conversation/);
   const off = { wakeWord: false, wakeSensitivity: 50, ledBrightness: 100 } as Status["settings"];
   assert.equal(wakeHint(status({ settings: off })), "Off. Press the action button to talk.");
 });

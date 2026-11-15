@@ -17,11 +17,16 @@
 
   let editing = $state<number | null>(null);
   const shown = $derived(editing ?? value);
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
-  async function release() {
-    if (editing === null) return;
-    await commit(editing);
-    editing = null;
+  // Arrow keys fire a change per press: send the value once they settle.
+  function release() {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (editing === null) return;
+      await commit(editing);
+      editing = null;
+    }, 350);
   }
 </script>
 

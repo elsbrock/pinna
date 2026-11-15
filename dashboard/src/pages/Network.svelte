@@ -2,7 +2,7 @@
   import { ConnectError } from "@connectrpc/connect";
 
   import type { GetNetworkResponse } from "../gen/pinna/v1/device_pb.ts";
-  import { client } from "../lib/device.svelte.ts";
+  import { client, device } from "../lib/device.svelte.ts";
   import External from "../lib/External.svelte";
   import Icon from "../lib/Icon.svelte";
   import { band, interfaceLabel, signalWord, wifiIssue } from "../lib/view.ts";
@@ -94,7 +94,7 @@
     Wi-Fi is set in <code class="pn-code">/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf</code> over SSH, so a
     mistake here can't take the satellite off the network.
   </p>
-{:else if error}
+{:else if error && device.link === "live"}
   <p class="pn-field-error" role="alert"><Icon name="alert" />Can't read the network: {error}</p>
 {:else}
   <p class="muted" role="status">Reading the network…</p>

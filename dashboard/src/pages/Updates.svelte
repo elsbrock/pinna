@@ -8,14 +8,19 @@
   import { DOCS, slotWord, targetSlot, updatePhase } from "../lib/view.ts";
 
   const STORE = "pinna.manifest";
+  const REFRESH_MS = 10_000;
 
   let u = $state<GetUpdatesResponse | null>(null);
   let error = $state<string | null>(null);
   let manifest = $state(read());
+  let urlError = $state<string | null>(null);
   let lines = $state<string[]>([]);
   let result = $state<{ ok: boolean } | null>(null);
   let starting = $state(false);
+  let restartError = $state<string | null>(null);
   let watching: AbortController | null = null;
+  // The install whose output is on screen, by when it finished.
+  let shown: bigint | null = null;
 
   function read(): string {
     try {
@@ -29,35 +34,50 @@
     try {
       u = await client.getUpdates({}, { timeoutMs: 10_000 });
       error = null;
-      if (!manifest && u.suggestedManifest) manifest = u.suggestedManifest;
-      // A running or finished install: pick up its output (also after a reload).
-      if ((u.installing || u.lastInstall) && !watching) void watch();
     } catch (e) {
       error = ConnectError.from(e).rawMessage;
+      return;
+    }
+    if (!manifest && u.suggestedManifest) manifest = u.suggestedManifest;
+    if (watching) return;
+    if (u.installing) {
+      void watch();
+    } else if (u.lastInstall && u.lastInstall.finishedUnixMs !== shown) {
+      // A finished install: replay its output once, unless this page saw it live.
+      shown = u.lastInstall.finishedUnixMs;
+      if (!result) void watch();
     }
   }
 
   async function watch() {
-    watching = new AbortController();
+    const abort = (watching = new AbortController());
     const seen: string[] = [];
+    let live = false;
     try {
-      for await (const m of client.watchInstall({}, { signal: watching.signal })) {
+      for await (const m of client.watchInstall({}, { signal: abort.signal })) {
         if (m.done) {
           result = { ok: m.ok };
           break;
         }
         seen.push(m.line);
         lines = [...seen];
+        live ||= !!u?.installing;
       }
     } catch {
       // The page went away or the satellite restarted; GetUpdates tells the rest.
     }
     watching = null;
-    void refresh();
+    // After a live install, read the slots once to show what changed.
+    if (live && !abort.signal.aborted) void refresh();
   }
 
   async function install() {
     const url = manifest.trim();
+    if (!/^https?:\/\/\S+$/.test(url)) {
+      urlError = "Start the address with http:// or https://.";
+      return;
+    }
+    urlError = null;
     try {
       localStorage.setItem(STORE, url);
     } catch {
@@ -77,21 +97,40 @@
     }
   }
 
+  async function restart() {
+    restartError = await device.restart();
+  }
+
+  // Read now, every 10 s, and again when the satellite is back after a restart.
   $effect(() => {
     void refresh();
-    return () => watching?.abort();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible" && device.link === "live") void refresh();
+    }, REFRESH_MS);
+    return () => {
+      clearInterval(timer);
+      watching?.abort();
+    };
+  });
+  let wasLive = device.link === "live";
+  $effect(() => {
+    const live = device.link === "live";
+    if (live && !wasLive) void refresh();
+    wasLive = live;
   });
 
   const phase = $derived(u ? updatePhase(u) : null);
   const booted = $derived(u?.slots.find((s) => s.booted));
+  const next = $derived(u?.slots.find((s) => s.active));
   const target = $derived(u ? targetSlot(u) : undefined);
   const live = $derived(device.link === "live");
-  const validUrl = $derived(/^https?:\/\/\S+$/.test(manifest.trim()));
+  // While unreachable, the header strip says so; a raw transport error adds nothing.
+  const shownError = $derived(live ? error : null);
 </script>
 
 {#if !u}
-  {#if error}
-    <p class="pn-field-error" role="alert"><Icon name="alert" />Can't read the update state: {error}</p>
+  {#if shownError}
+    <p class="pn-field-error" role="alert"><Icon name="alert" />Can't read the update state: {shownError}</p>
   {:else}
     <p class="muted" role="status">Reading the slots…</p>
   {/if}
@@ -146,14 +185,19 @@
       <Icon name="info" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
         <p class="pn-notice-title">
-          Version {u.slots.find((s) => s.active)?.version || "?"} is ready in slot {u.slots.find((s) => s.active)?.name}
+          Version {next?.version || "?"} is ready in slot {next?.name}
         </p>
         <p>It starts on the next restart, as a trial. If it doesn't come up, the satellite returns to this version.</p>
         <p>
-          <button class="pn-btn pn-btn-primary" disabled={!live || device.busy} onclick={() => device.restart()}>
-            Restart now
+          <button
+            class="pn-btn pn-btn-primary"
+            disabled={!live || device.busy || device.restarting}
+            onclick={restart}
+          >
+            {device.restarting ? "Restarting…" : "Restart now"}
           </button>
         </p>
+        {#if restartError}<p class="pn-field-error" role="alert"><Icon name="alert" />{restartError}</p>{/if}
       </div>
     </div>
   {/if}
@@ -181,7 +225,7 @@
         class="pn-field"
         onsubmit={(e) => {
           e.preventDefault();
-          if (validUrl) void install();
+          void install();
         }}
       >
         <label class="pn-field-label" for="manifest">Release manifest</label>
@@ -196,7 +240,10 @@
           bind:value={manifest}
           disabled={phase === "installing"}
           aria-describedby="manifest-hint"
+          aria-invalid={urlError ? "true" : undefined}
+          oninput={() => (urlError = null)}
         />
+        {#if urlError}<span class="pn-field-error" role="alert"><Icon name="alert" />{urlError}</span>{/if}
         <span id="manifest-hint" class="pn-field-hint">
           Build a release with <code class="pn-code">just release</code>, then serve it from your computer with
           <code class="pn-code">python3 -m http.server 8000 --directory build/release</code>.
@@ -205,7 +252,7 @@
           <button
             class="pn-btn pn-btn-primary"
             type="submit"
-            disabled={!validUrl || !live || starting || phase === "installing"}
+            disabled={!manifest.trim() || !live || starting || phase === "installing"}
           >
             {phase === "installing" ? "Installing…" : "Install update"}
           </button>
@@ -223,23 +270,34 @@
       <!-- the pending notice above says what to do next -->
     {:else if result && !result.ok}
       <p class="pn-field-error" role="alert">
-        <Icon name="alert" />The update was not installed. The satellite keeps running {u.bootedVersion}.
+        <Icon name="alert" />The update was not installed: {u.lastInstall?.lastLine || "see the steps above"}. The
+        satellite keeps running {u.bootedVersion}.
       </p>
     {/if}
   {/if}
 
-  {#if error}
-    <p class="pn-field-error" role="alert"><Icon name="alert" />{error.charAt(0).toUpperCase() + error.slice(1)}.</p>
+  {#if shownError}
+    <p class="pn-field-error" role="alert">
+      <Icon name="alert" />{shownError.charAt(0).toUpperCase() + shownError.slice(1)}.
+    </p>
   {/if}
 
   <section class="panel" aria-labelledby="restart-title">
     <h2 id="restart-title" class="pn-type-heading">Restart</h2>
-    <p class="muted">Restarting takes a minute or two. This page reconnects on its own.</p>
+    <p class="muted">
+      Restarting takes a minute or two. This page reconnects on its own.
+      {#if phase === "trial"}This version is on trial: a restart now uses one of its tries.{/if}
+    </p>
     <div>
-      <button class="pn-btn" disabled={!live || device.busy || phase === "installing"} onclick={() => device.restart()}>
-        Restart the satellite
+      <button
+        class="pn-btn"
+        disabled={!live || device.busy || device.restarting || phase === "installing"}
+        onclick={restart}
+      >
+        {device.restarting ? "Restarting…" : "Restart the satellite"}
       </button>
     </div>
+    {#if restartError}<p class="pn-field-error" role="alert"><Icon name="alert" />{restartError}</p>{/if}
   </section>
 {/if}
 
