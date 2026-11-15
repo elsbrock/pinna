@@ -23,6 +23,7 @@ Status: proposed (2026-11-15). Builds on ADR 0005.
   - pinnad checks the value and rejects a bad one with `InvalidArgument` and a sentence the dashboard can show.
 - **Every setting is also a Home Assistant entity**, through the same code path, unless Home Assistant has its own way to do the same thing.
 - **Writes are durable:** write a temporary file, fsync it, rename it, then fsync the directory.
+- **`settings.toml` ignores keys it doesn't know.** After a rollback to an older image, a key that only the newer pinnad writes must not reset the other settings, mute included. The two `pinnad.toml` files keep refusing unknown keys.
 - **First settings:**
   - `friendly_name`, the name Home Assistant shows. It is read when Home Assistant connects, so pinnad closes the API connection after a change and Home Assistant reconnects with the new name.
   - `wake_sound`, the chime when listening starts. It takes effect on the next request.

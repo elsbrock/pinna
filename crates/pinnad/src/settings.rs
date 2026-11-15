@@ -4,8 +4,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// Unknown keys are ignored, not refused: after a rollback to an older image,
+/// a key only the newer pinnad wrote must not reset the rest (mute included).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Settings {
     /// Speaker volume 0..=100 ("Volume" number, media player volume).
     pub volume: u8,
@@ -141,6 +143,15 @@ mod tests {
         };
         store.save(&changed);
         assert_eq!(Store::load(&path, Settings::default()).1, changed);
+        // A key from a newer pinnad (after a rollback) keeps everything else.
+        std::fs::write(
+            &path,
+            "muted = true\nvolume = 20\nsetting_from_the_future = [1, 2]\n",
+        )
+        .unwrap();
+        let rolled_back = Store::load(&path, Settings::default()).1;
+        assert!(rolled_back.muted);
+        assert_eq!(rolled_back.volume, 20);
         std::fs::write(&path, "garbage = [").unwrap();
         assert_eq!(
             Store::load(&path, Settings::default()).1,
