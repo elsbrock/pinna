@@ -5,6 +5,10 @@
 //! beamformed mono signal. PipeWire hands over floats in [-1, 1]; `x * 32768`
 //! is the i16 value the integer front end in `pinna-audio` works on.
 //!
+//! After every cycle the plugin publishes the beamformer's state to
+//! `/run/pipewire/pinna-beam` (`pinna_audio::beamview`), which pinnad reads to
+//! point the listening ring at the talker.
+//!
 //! The LADSPA 1.1 header is small enough to mirror by hand ([`ladspa`]).
 
 pub mod ladspa;

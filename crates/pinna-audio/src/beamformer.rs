@@ -545,6 +545,15 @@ impl Beamformer {
         }
     }
 
+    /// Azimuth of beam `b` in degrees (0 when out of range).
+    pub fn beam_azimuth(&self, b: usize) -> i32 {
+        if b < self.beam_count {
+            self.azimuth_deg[b]
+        } else {
+            0
+        }
+    }
+
     /// Azimuth of the beam currently selected.
     pub fn selected_azimuth(&self) -> i32 {
         self.azimuth_deg[self.selected]

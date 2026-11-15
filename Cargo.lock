@@ -1938,8 +1938,11 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "hound",
+ "libc",
+ "memmap2",
  "reqwest",
  "symphonia",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",

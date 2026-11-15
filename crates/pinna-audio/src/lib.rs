@@ -4,6 +4,7 @@
 //! `amixer` from alsa-utils on the device, `pw-record`/`pw-play` on a laptop).
 
 pub mod beamformer;
+pub mod beamview;
 pub mod capture;
 pub mod clock;
 pub mod decode;

@@ -1,11 +1,13 @@
 use crate::ladspa::*;
 use pinna_audio::beamformer::{Beamformer, DEFAULT_BEAMS as BF_DEFAULT_BEAMS, MAX_BEAMS};
+use pinna_audio::beamview::{self, BeamViewWriter};
 use pinna_audio::dsp::{
     Calibration, DIGITAL_GAIN_MAX, DIGITAL_GAIN_UNITY, HighPass, LOGICAL_CHANNELS, MIC_MASK_ALL,
     MIC_MASK_BEAM, apply_digital_gain, saturate_s16,
 };
 use std::os::raw::{c_char, c_int, c_ulong};
 use std::panic::catch_unwind;
+use std::path::Path;
 use std::ptr;
 
 /// The only supported sample rate.
@@ -138,6 +140,9 @@ struct Plugin {
     highpass: HighPass,
     gain_db: f32,
     gain_hundredths: u32,
+    /// Beam snapshot for pinnad's listening ring; `None` where the file
+    /// cannot be created (PipeWire outside the device).
+    view: Option<BeamViewWriter>,
 }
 
 /// `100 * 10^(db / 20)`, rounded and clamped to the integer gain stage's range.
@@ -171,6 +176,7 @@ unsafe extern "C" fn instantiate(_d: *const Descriptor, rate: c_ulong) -> Handle
             highpass: HighPass::new(),
             gain_db: DEFAULT_GAIN_DB,
             gain_hundredths: gain_hundredths(DEFAULT_GAIN_DB),
+            view: BeamViewWriter::create(Path::new(beamview::PATH)).ok(),
         });
         Box::into_raw(plugin).cast()
     })
@@ -246,6 +252,9 @@ unsafe extern "C" fn run(h: Handle, n: c_ulong) {
         apply_digital_gain(&mut y, p.gain_hundredths);
         // SAFETY: as above.
         unsafe { *out.add(i) = f32::from(y[0]) / 32768.0 };
+    }
+    if let Some(view) = &p.view {
+        view.publish(&p.beamformer);
     }
 }
 
