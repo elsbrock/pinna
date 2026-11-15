@@ -2,8 +2,9 @@ syntax = "proto3";
 
 package pinna.v1;
 
-// Local control API of pinnad. Served on 127.0.0.1:7470 without authentication:
-// anyone who can reach the loopback interface can control the device.
+// Control API of pinnad, without authentication. Served on 127.0.0.1:7470 for
+// pinnactl, and with the dashboard on the LAN (`[web]`, ADR 0005): anyone who can
+// reach either listener can control the device.
 service DeviceService {
   // Current state of the device.
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
