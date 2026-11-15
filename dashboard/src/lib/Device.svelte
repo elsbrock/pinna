@@ -3,18 +3,21 @@
      Ring. One still frame under reduced motion. -->
 <script lang="ts">
   import { drawingFor } from "../../../design/devices/index.ts";
-  import { STILL_MS, displayLevel, ringFrame, type Effect } from "../../../design/ring.ts";
+  import { STILL_MS, displayLevel, ringFrame, type Effect, type Frame } from "../../../design/ring.ts";
   import Ring from "./Ring.svelte";
 
   let {
     model,
     effect: shown,
+    frame: given = null,
     width,
     label,
     halo = false,
   }: {
     model: string;
     effect: Effect;
+    /** The ring as the satellite drew it (the virtual Echo Dot); `effect` still picks the halo. */
+    frame?: Frame | null;
     /** Rendered width in px; the flat Ring fallback takes the nearest ring size below. */
     width: number;
     label: string;
@@ -46,6 +49,7 @@
   $effect(() => {
     const el = root;
     const e = shown;
+    const fixed = given;
     const glow = drawing?.glow ?? 0.6;
     void svg;
     if (!el) return;
@@ -54,7 +58,7 @@
     const started = performance.now();
     let raf = 0;
     const draw = () => {
-      const frame = ringFrame(e, reduceMotion.matches ? (STILL_MS[e] ?? 0) : performance.now() - started);
+      const frame = fixed ?? ringFrame(e, reduceMotion.matches ? (STILL_MS[e] ?? 0) : performance.now() - started);
       let sum = 0;
       frame.forEach((p, i) => {
         const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
@@ -69,7 +73,7 @@
         el.style.setProperty("--halo", `var(${HALO[e] ?? "--signal"})`);
         el.style.setProperty("--ring-a", (sum / frame.length).toFixed(3));
       }
-      if (!reduceMotion.matches && !STATIC.has(e)) raf = requestAnimationFrame(draw);
+      if (!fixed && !reduceMotion.matches && !STATIC.has(e)) raf = requestAnimationFrame(draw);
     };
     draw();
     return () => cancelAnimationFrame(raf);

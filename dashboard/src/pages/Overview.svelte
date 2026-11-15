@@ -10,6 +10,8 @@
   import SignalBars from "../lib/SignalBars.svelte";
   import StatTile from "../lib/StatTile.svelte";
   import Timers from "../lib/Timers.svelte";
+  import VirtualDevice from "../lib/VirtualDevice.svelte";
+  import { virtualDot } from "../lib/virtual.svelte.ts";
   import {
     badge,
     band,
@@ -66,7 +68,14 @@
 
 {#if s}
   <section class="hero">
-    <Device model={s.model} effect={ring} width={small ? 200 : 250} label="Ring: {ring.replace('-', ' ')}" halo />
+    <Device
+      model={s.model}
+      effect={ring}
+      frame={s.virtualDevice ? virtualDot.ring : null}
+      width={small ? 200 : 250}
+      label="Ring: {ring.replace('-', ' ')}"
+      halo
+    />
     <div class="who">
       {#if modelName}<span class="pn-eyebrow">{modelName}</span>{/if}
       <h1 class="pn-type-display-l">{s.name}</h1>
@@ -177,6 +186,7 @@
   </div>
 
   <div class="cols">
+    {#if s.virtualDevice}<VirtualDevice />{/if}
     <Controls />
     <Timers />
   </div>
