@@ -34,6 +34,7 @@ the device up first and every step says how to undo it.
 ```sh
 nix develop      # the supported environment (x86_64 Linux): toolchains, keyrings, fastboot
 just             # list tasks
+                 # first: the owner inputs in secrets/ (docs/runbook-first-flash.md, step 2)
 just keygen      # once: release signing key (secrets/release.key, keys/release.pub)
 just all         # kernel, wake word models, root filesystem (sealed slot image), boot image
 just release     # build/release/: root image, boot image, update manifest

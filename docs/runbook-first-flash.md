@@ -1,7 +1,8 @@
 # First flash: Echo Dot (2nd gen) → Pinna
 
 Moves an Echo Dot that currently runs LibreEcho (Kaeru/amonet-unlocked) to
-Pinna. Every step says what it writes and how to undo it.
+Pinna. Every step says what it writes; Recovery (at the end) undoes all of
+them from the step 1 backup.
 
 ## What gets written
 
@@ -22,6 +23,17 @@ The Wi-Fi firmware that used to come from `system_a` is baked into the Pinna
 root (`firmware/` in the repository). The microphone FPGA bitstream is in the
 repository too (`kernel/firmware/`) and built into the kernel.
 
+## 0. Tools
+
+```sh
+git clone <this repository> pinna && cd pinna
+nix develop          # the supported environment (x86_64 Linux); needs flakes:
+                     # nix --extra-experimental-features 'nix-command flakes' develop
+adb devices          # must list the Echo Dot (LibreEcho running, USB connected)
+```
+
+All later commands run inside this shell, from the repository root.
+
 ## 1. Back up, and save what Home Assistant knows (LibreEcho still running)
 
 Step 4 overwrites `system_a` and wipes `userdata`, and recovery restores from
@@ -31,7 +43,8 @@ this backup. Do not continue without it.
 scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
 ```
 
-This pulls the whole eMMC and its boot areas over adb (~4 GB), compares every
+It needs about 8 GB free. It pulls the whole eMMC and its boot areas over
+adb (~4 GB), compares every
 partition except `userdata` with the device, and cuts `partitions/*.img` with
 `SHA256SUMS`, the layout `scripts/flash-dot.sh restore` takes. Copy the
 directory somewhere safe. `scripts/verify-backup.sh <dir>` repeats the
@@ -39,15 +52,24 @@ comparison later, as long as LibreEcho still runs.
 
 **Taking over the LibreEcho device in Home Assistant** (keeps its entities,
 automations and scripts; see step 7): `userdata` holds LibreEcho's API key and
-node name, so read them now:
+node name, so save them now:
 
 ```sh
-adb shell cat /data/libreecho/config/web-config.json
+mkdir -p secrets/device
+adb shell cat /data/libreecho/config/web-config.json | tr -d '\r' > secrets/libreecho-web-config.json
+python3 - secrets/libreecho-web-config.json <<'EOF'
+import json, sys
+c = json.load(open(sys.argv[1]))
+open("secrets/device/esphome-key", "w").write(c["esphome_noise_key"] + "\n")
+open("secrets/device/pinnad.toml", "w").write('[device]\nname = "%s"\n' % c.get("hostname", "libreecho"))
+EOF
+cat secrets/device/pinnad.toml
 ```
 
-Put `esphome_noise_key` into `secrets/device/esphome-key` and `hostname`
-(LibreEcho's node name, `libreecho` if unset) into `[device] name` in
-`secrets/device/pinnad.toml`.
+`hostname` is LibreEcho's node name (`libreecho` if it was never set).
+`secrets/device/pinnad.toml` must be valid TOML: pinnad refuses to start on
+an error or an unknown key, and on a first flash that ends in fastboot (see
+Recovery).
 
 ## 2. Owner-local inputs and build
 
@@ -59,7 +81,7 @@ Put `esphome_noise_key` into `secrets/device/esphome-key` and `hostname`
 | `secrets/machine-id` | yes | image machine id | `systemd-id128 new > secrets/machine-id` |
 | `secrets/authorized_keys` | for SSH | `/root/.ssh/authorized_keys` | your SSH public key(s) |
 | `secrets/wifi/wpa_supplicant-wlan0.conf` | for Wi-Fi | default for `/var/lib/pinna/wifi/` (first boot; edit on the device afterwards) | see below |
-| `secrets/device/pinnad.toml` | no | default for `/var/lib/pinna/pinnad.toml` — device identity, e.g. `[device] name = "echodot2"` | by hand |
+| `secrets/device/pinnad.toml` | no | default for `/var/lib/pinna/pinnad.toml` — device identity: a `[device]` table with e.g. `name = "echodot2"` on its own line | step 1, or by hand |
 | `secrets/device/esphome-key` | no | default for `/var/lib/pinna/esphome-key` — the Home Assistant API key (base64, 32 bytes) | `head -c32 /dev/urandom \| base64`, or LibreEcho's (step 1) |
 
 Without an API key the ESPHome API is plaintext and Home Assistant adds the
@@ -68,7 +90,7 @@ reachable over USB only. A minimal Wi-Fi file:
 
 ```
 ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev
-country=DE
+country=DE          # your country code
 
 network={
     ssid="your-network"
@@ -81,7 +103,9 @@ The `/var` defaults are copied only when missing, so a re-flash (which wipes
 `/var`) comes back as the same Home Assistant device on the same network.
 
 ```sh
-nix develop                     # the supported build environment (x86_64 Linux)
+mkdir -p secrets/device secrets/wifi
+systemd-id128 new > secrets/machine-id
+cat ~/.ssh/id_*.pub > secrets/authorized_keys
 just keygen                     # once: secrets/release.key signs root images
 just all                        # kernel, wake word models, root image, boot image
 ```
@@ -90,15 +114,12 @@ just all                        # kernel, wake word models, root image, boot ima
 only images signed with the key in `keys/release.pub` (compiled into the boot
 image's pinna-init) boot. After changing the key, flash the new boot image and
 a root signed with the new key together (steps 4 and 5): `pinnactl update`
-cannot cross a key change. Keep your `keys/release.pub` when pulling: a
-different key in the tree builds a pinna-init that rejects your root images.
+cannot cross a key change.
 
 ## 3. Enter fastboot
 
 Unplug, hold **Volume Down**, plug the micro-USB cable in, release when the
-ring changes. (On Kaeru units the Action button does nothing.) From a running
-Pinna, `pinna-bootctl reboot-bootloader` does the same without touching the
-device.
+ring changes. (On Kaeru units the Action button does nothing.)
 
 ```sh
 fastboot devices
@@ -115,14 +136,15 @@ The script checks the image's signature first. LK accepts 109 MiB per download
 (`max-download-size` 0x6d00000); fastboot splits the larger root image into
 sparse chunks by itself.
 
+Undo: Recovery. From here until step 5, LibreEcho no longer boots properly.
+
 ## 5. Flash the boot image
 
 ```sh
 scripts/flash-dot.sh boot      # boot_a + boot_b <- Pinna, reboot
 ```
 
-(`scripts/flash-dot.sh try` would boot the image from RAM without writing it,
-but Kaeru on the Echo Dot answers `fastboot boot` with `unknown command`.)
+Undo: Recovery.
 
 ## 6. First boot checks
 
@@ -155,16 +177,18 @@ If it does not come up, see Recovery below.
 
 ## 7. Home Assistant
 
-Pinna advertises `_esphomelib._tcp` via mDNS. Home Assistant should show
-"Echo Dot" as a discovered ESPHome device. Add it, then configure the voice
-assistant pipeline for the device. Say "Alexa…".
+Pinna advertises `_esphomelib._tcp` via mDNS.
 
-**Taking over a LibreEcho device entry**: Pinna exposes LibreEcho's entity set
-under the same names (Home Assistant's unique ids are
-`{mac}/0/{platform}/{name}`), so the existing entities, automations and
-scripts keep working, provided the image carries LibreEcho's node name and
-API key (step 1). Reload the ESPHome config entry once so Home Assistant
-rebuilds the platforms from Pinna's device info.
+- **New device**: Home Assistant shows "Echo Dot" as a discovered ESPHome
+  device. Add it; if `secrets/device/esphome-key` was set, it asks for that
+  key. Then configure the voice assistant pipeline for the device.
+- **Taking over LibreEcho's entry** (step 1): do not add a new device. Pinna
+  exposes LibreEcho's entity set under the same names, so the existing
+  entities, automations and scripts keep working. Reload the existing ESPHome
+  config entry once so Home Assistant rebuilds the platforms from Pinna's
+  device info.
+
+Say "Alexa…".
 
 The API is plaintext until a key is set: put a base64 32-byte key in
 `/var/lib/pinna/esphome-key` (or `[esphome] encryption_key` in
@@ -188,18 +212,22 @@ just release                   # build/release/{pinna-<version>.root.img, pinna-
 cd build/release && python3 -m http.server 8000
 ```
 
-On the device (as root). If you used `just push`, first run
-`scripts/push-dev.sh --remove` from the build machine: the dev overlay would
-otherwise keep shadowing the new image's binaries.
+If you used `just push`, first remove the dev overlay; it would otherwise
+keep shadowing the new image's binaries:
+`PINNA_HOST=root@10.42.0.1 scripts/push-dev.sh --remove`.
+
+Then, from the build machine, tunnel the server over the device's SSH session
+and update:
 
 ```sh
-pinnactl update http://<host>:8000/manifest.json --reboot
+ssh -R 8000:localhost:8000 root@10.42.0.1 \
+  pinnactl update http://127.0.0.1:8000/manifest.json --reboot
 ```
 
-If the build machine's firewall blocks port 8000, tunnel it over the SSH
-session instead: `ssh -R 8000:localhost:8000 root@10.42.0.1 pinnactl update
-http://127.0.0.1:8000/manifest.json --reboot` (on the Echo Dot over USB:
-download, write and full verification of a 153 MiB root take ~47 s).
+On the Echo Dot over USB, download, write and full verification of a 153 MiB
+root take ~47 s. With the device on Wi-Fi, `pinnactl update
+http://<build machine's LAN address>:8000/manifest.json --reboot` on the
+device works too, if the build machine's firewall lets port 8000 in.
 
 This writes the image into the slot that is not booted (refusing while the
 booted slot is still on trial), checks size and sha256 while writing, reads
@@ -212,12 +240,18 @@ pinna-init goes back to the previous slot. `pinna-bootctl slot-status` shows
 the state and the image version in each slot; `pinna-bootctl set-active a`
 switches by hand (as a trial).
 
-`boot_a` (kernel, initramfs) is not A/B: a new kernel or pinna-init is
-flashed with `scripts/flash-dot.sh boot` as before.
+`boot_a` (kernel, initramfs) is not A/B and `pinnactl update` does not
+touch it. When `kernel/` or `crates/pinna-init/` changed, also flash the new
+boot image once the updated slot is marked good: `pinna-bootctl
+reboot-bootloader` on the device, then `scripts/flash-dot.sh boot` (step 5).
+When the release key changed, `pinnactl update` cannot help: flash root and
+boot together (steps 3–5). Keep your `keys/release.pub` when pulling: a
+different key in the tree builds a pinna-init that rejects your root images.
 
 ## Recovery
 
-Any time, from fastboot (Volume Down + plug in):
+Any time, from fastboot (Volume Down + plug in, or `pinna-bootctl
+reboot-bootloader` on a running Pinna):
 
 ```sh
 scripts/flash-dot.sh restore <backup dir>/partitions
@@ -246,7 +280,7 @@ fastboot.
 
 ```sh
 PINNA_HOST=root@10.42.0.1 just push          # fresh binaries as a sysext overlay, pinnad restarted
-scripts/push-dev.sh --remove                 # back to the image's binaries (before an update)
+PINNA_HOST=root@10.42.0.1 scripts/push-dev.sh --remove  # back to the image's binaries (before an update)
 PINNA_HOST=root@10.42.0.1 PINNA_API_KEY=secrets/device/esphome-key \
   THROUGHPUT_URL=http://<lan-host>/<file> just test-device
 ```
