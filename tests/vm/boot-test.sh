@@ -1,33 +1,41 @@
 #!/usr/bin/env bash
-# Boot a real Pinna image (GPT disk: misc + expdb + system_a + userdata) under
-# QEMU with a Pinna kernel variant and check that it comes up healthy:
+# Boot a real Pinna image under QEMU with a Pinna kernel variant and the
+# pinna-init initramfs, from a test disk laid out like the device (misc, expdb,
+# system_a = the sealed slot image, system_b empty, userdata), and check that it
+# comes up healthy:
 #
 #  - from the host, while it runs: pinnad answers Home Assistant's ESPHome client;
 #  - from the VM's own journal (read off its userdata partition after power-off):
-#    erofs root, /var formatted and mounted, multi-user reached, no failed units,
-#    pinnad started and published mDNS, fastboot guard armed and cleared, boot
-#    marked healthy; and misc's bootloader command is empty again.
+#    pinna-init chose slot a, verified it and booted it through dm-verity (dm-0),
+#    /var formatted and mounted, multi-user reached, no failed units, pinnad
+#    started and published mDNS, fastboot guard armed and cleared, slot a marked
+#    good by the health check;
+#  - from misc: bootloader command empty again, slot state "active a, a good".
 #
-#   tests/vm/boot-test.sh                      # armhf: mkosi.output/pinna.raw, QEMU virt (TCG)
-#   ARCH=x86_64 tests/vm/boot-test.sh          # x86_64: mkosi.output/pinna-x86.raw, KVM
+#   tests/vm/boot-test.sh                      # armhf: build/pinna.root.img, QEMU virt (TCG)
+#   ARCH=x86_64 tests/vm/boot-test.sh          # x86_64: build/pinna-x86.root.img, KVM
 #   SSH_KEY=~/.ssh/key tests/vm/boot-test.sh   # also run checks over ssh
 #   KEEP=1 tests/vm/boot-test.sh               # leave the VM running
 #
-# Needs: just kernel-qemu image (or kernel-x86 image-x86); sgdisk, debugfs,
-# journalctl on the host.
+# Needs: just kernel-qemu image initramfs (or kernel-x86 image-x86
+# initramfs-x86); sgdisk, debugfs, journalctl on the host.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# shellcheck source=lib.sh
+source "$root/tests/vm/lib.sh"
 arch=${ARCH:-armhf}
 case "$arch" in
   armhf)
     work=${WORK:-$root/build/vm}
     kernel=$root/build/kernel-qemu/arch/arm/boot/zImage
-    image=$root/mkosi/mkosi.output/pinna.raw ;;
+    initrd=$root/build/initramfs.cpio
+    image=$root/build/pinna.root.img ;;
   x86_64)
     work=${WORK:-$root/build/vm-x86}
     kernel=$root/build/kernel-x86/arch/x86/boot/bzImage
-    image=$root/mkosi/mkosi.output/pinna-x86.raw ;;
+    initrd=$root/build/initramfs-x86.cpio
+    image=$root/build/pinna-x86.root.img ;;
   *) echo "unknown ARCH=$arch" >&2; exit 2 ;;
 esac
 ssh_port=${SSH_PORT:-2222}
@@ -35,53 +43,13 @@ api_port=${API_PORT:-16053}
 timeout_s=${BOOT_TIMEOUT:-600}
 
 mkdir -p "$work"
-cp --sparse=always "$image" "$work/disk.raw"
+version=$(cargo run -q --manifest-path "$root/Cargo.toml" -p pinna-image -- info "$image" | sed -n 's/^version: //p')
+make_disk "$work/disk.raw" "$image"
 rm -f "$work/console.log"
 
-# Partition by GPT name -> "first last" sector.
-part_range() {
-  local n
-  n=$(sgdisk -p "$work/disk.raw" | awk -v name="$1" '$NF==name {print $1}')
-  [ -n "$n" ] || { echo "no partition $1" >&2; return 1; }
-  sgdisk -i "$n" "$work/disk.raw" | awk '/First sector/{f=$3} /Last sector/{l=$3} END{print f, l}'
-}
-
-# A fake Kaeru LK payload header in expdb, so the fastboot guard arms like on
-# the device (MTK image magic, then the image name "LK").
-read -r expdb_first _ <<<"$(part_range expdb)"
-printf '\x88\x16\x88\x58\x00\x00\x00\x00LK\x00' |
-  dd of="$work/disk.raw" bs=512 seek="$expdb_first" conv=notrunc status=none
-
-log() { printf '\033[1m==> %s\033[0m\n' "$*"; }
-status=0
-fail() { printf '\033[31mFAIL: %s\033[0m\n' "$*"; status=1; }
-pass() { printf '\033[32mok\033[0m   %s\n' "$*"; }
-
 netdev="user,id=n0,hostfwd=tcp:127.0.0.1:${ssh_port}-:22,hostfwd=tcp:127.0.0.1:${api_port}-:6053"
-log "booting $(basename "$image") ($arch) under QEMU"
-if [ "$arch" = armhf ]; then
-  qemu-system-arm \
-    -M virt,highmem=off -cpu max -smp 2 -m 512 \
-    -kernel "$kernel" \
-    -drive if=none,file="$work/disk.raw",format=raw,id=hd0 \
-    -device virtio-blk-device,drive=hd0 \
-    -netdev "$netdev" -device virtio-net-device,netdev=n0 \
-    -device virtio-rng-device \
-    -display none -serial file:"$work/console.log" \
-    -pidfile "$work/qemu.pid" -daemonize
-else
-  accel=tcg
-  [ -w /dev/kvm ] && accel=kvm
-  qemu-system-x86_64 \
-    -M q35,accel="$accel" -cpu max -smp 2 -m 1024 \
-    -kernel "$kernel" \
-    -drive if=none,file="$work/disk.raw",format=raw,id=hd0 \
-    -device virtio-blk-pci,drive=hd0 \
-    -netdev "$netdev" -device virtio-net-pci,netdev=n0 \
-    -device virtio-rng-pci \
-    -display none -serial file:"$work/console.log" \
-    -pidfile "$work/qemu.pid" -daemonize
-fi
+log "booting $(basename "$image") (version $version, $arch) under QEMU"
+qemu_start "$arch" "$kernel" "$initrd" "$work/disk.raw" "$work/console.log" "$work/qemu.pid" "$netdev"
 
 cleanup() {
   if [ -z "${KEEP:-}" ] && [ -f "$work/qemu.pid" ]; then
@@ -89,8 +57,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-
-console() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$work/console.log" 2>/dev/null; }
 
 log "waiting for pinnad's ESPHome API (boot takes a few minutes under TCG)"
 for _ in $(seq 1 $((timeout_s / 5))); do
@@ -133,35 +99,39 @@ if [ -n "${SSH_KEY:-}" ]; then
     ssh -p "$ssh_port" -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR root@127.0.0.1 "$@"
   }
-  ssh_vm 'systemctl is-system-running; systemctl --failed --no-legend; findmnt -no SOURCE,FSTYPE / /var; ls /run/systemd/dnssd' | sed 's/^/     /' || fail "ssh"
+  ssh_vm 'systemctl is-system-running; systemctl --failed --no-legend; findmnt -no SOURCE,FSTYPE / /var; pinna-bootctl slot-status; ls /run/systemd/dnssd' | sed 's/^/     /' || fail "ssh"
 fi
 
 log "stopping the VM and reading its journal from the userdata partition"
 kill "$(cat "$work/qemu.pid")" 2>/dev/null || true
 sleep 2
-read -r first last <<<"$(part_range userdata)"
-dd if="$work/disk.raw" of="$work/userdata.ext4" bs=512 skip="$first" count=$((last - first + 1)) status=none
-# The VM was killed, not shut down: replay ext4's own journal on the copy.
-e2fsck -fy "$work/userdata.ext4" >/dev/null 2>&1 || true
-rm -rf "${work:?}/journal"
-mkdir -p "$work/journal"
-debugfs -c -R "rdump /log/journal $work/journal" "$work/userdata.ext4" >/dev/null 2>&1 || true
-journalctl --directory="$work/journal/journal" --no-pager -o cat > "$work/journal.txt" 2>/dev/null || true
+extract_journal "$work/disk.raw" "$work"
+journalctl --directory="$work/journal/journal" --no-pager -o short-monotonic > "$work/journal.txt" 2>/dev/null || true
 jcheck() { if grep -qE "$2" "$work/journal.txt"; then pass "$1"; else fail "$1"; fi; }
-jcheck "kernel mounted the erofs root" "Mounted root \(erofs"
+v_re=${version//./\\.}
+jcheck "pinna-init: no slot state yet, slot a" "pinna-init: no slot state \(first flash\): slot a"
+jcheck "pinna-init booted slot a, version $version" "pinna-init: booting slot a, version ${v_re}$"
+jcheck "root is the dm-verity device dm-0" "pinna-init: slot [a-z0-9]+ -> dm-0 \(dm-verity, root hash"
+jcheck "kernel: erofs mounted from dm-0" "erofs: \(device dm-0\): mounted"
 jcheck "/var formatted on first boot" "successfully formatted as ext4"
 jcheck "/var mounted" "Mounted var.mount"
 jcheck "multi-user.target reached" "Reached target multi-user.target"
 jcheck "pinnad started" "Started pinnad.service"
 jcheck "mDNS service published" "published _esphomelib._tcp"
 jcheck "fastboot guard armed" "armed: next boot enters fastboot unless cleared"
+jcheck "slot a marked good by the health check" "slot a marked good \(version ${v_re}\)"
 jcheck "fastboot guard cleared by the health check" "cleared: boot marked healthy"
-jcheck "boot marked healthy" "Finished pinna-boot-ok.service"
-read -r misc_first _ <<<"$(part_range misc)"
-if [ -z "$(dd if="$work/disk.raw" bs=512 skip="$misc_first" count=1 status=none | head -c 32 | tr -d '\0')" ]; then
-  pass "misc bootloader command empty after boot"
+jcheck "health check finished" "Finished pinna-boot-ok.service"
+read -r misc_first _ <<<"$(part_range "$work/disk.raw" misc)"
+cmd=$(dd if="$work/disk.raw" bs=512 skip="$misc_first" count=1 status=none | head -c 32 | tr -d '\0')
+if [ -z "$cmd" ]; then pass "misc bootloader command empty after boot"; else fail "misc bootloader command left set: $cmd"; fi
+slot_status "$work/disk.raw" "$work" > "$work/slot-status.txt"
+sed 's/^/     /' "$work/slot-status.txt"
+if grep -qx "state: valid" "$work/slot-status.txt" && grep -qx "active: a" "$work/slot-status.txt" &&
+   grep -q "^a: good" "$work/slot-status.txt"; then
+  pass "misc slot state: active a, a good"
 else
-  fail "misc bootloader command left set: $(dd if="$work/disk.raw" bs=512 skip="$misc_first" count=1 status=none | head -c 32 | tr -d '\0')"
+  fail "misc slot state"
 fi
 failed=$(grep -E "failed with result|Failed to start" "$work/journal.txt" || true)
 if [ -z "$failed" ]; then pass "no failed units"; else fail "failed units:"; echo "$failed" | sed 's/^/     /'; fi
