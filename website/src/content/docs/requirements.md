@@ -62,7 +62,7 @@ the individual partitions.
 
 ## Files from your device
 
-Put these files into the repository after you clone it:
+Put this file into the repository after you clone it:
 
 - **Wi-Fi and Bluetooth firmware** in `blobs/firmware/`. The firmware is
   proprietary and isn't distributed with Pinna. It's in the system partition
@@ -77,16 +77,6 @@ Put these files into the repository after you clone it:
   ```
 
   Without the firmware, the build continues, but the device has no Wi-Fi.
-- **The device tree** in `blobs/boot/libreecho-biscuit.dtb`. The boot image
-  uses it to describe the Echo Dot's hardware to the kernel. It's required:
-  the build stops without it. It must be a device tree for Linux 6.1 with
-  MT8163 board support; the device tree of the stock firmware doesn't work.
-  If the `boot_a` image in your backup contains one, extract it:
-
-  ```sh
-  cargo run -q -p pinna-bootimg -- unpack <backup>/boot_a.img /tmp/boot_a
-  cp /tmp/boot_a/dtb blobs/boot/libreecho-biscuit.dtb
-  ```
 
 ## Your own files
 

@@ -68,7 +68,6 @@ the root filesystem again from fastboot.
    | Path | Contents |
    | --- | --- |
    | `blobs/firmware/` | Wi-Fi and Bluetooth firmware from your backup |
-   | `blobs/boot/libreecho-biscuit.dtb` | The device tree for the Echo Dot (2nd gen) |
    | `secrets/machine-id` | A machine ID for the image |
    | `secrets/authorized_keys` | Your SSH public key, for logging in to the device |
    | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network (optional) |
@@ -81,8 +80,8 @@ the root filesystem again from fastboot.
 
    This puts the openWakeWord models into `blobs/models/`.
 
-The build stops if the signing key or the device tree is missing. For the
-other files, it prints a warning and continues. Read the warnings: without
+The build stops if the signing key is missing. For the other files, it
+prints a warning and continues. Read the warnings: without
 Wi-Fi firmware the device has no Wi-Fi, and without `authorized_keys` you
 can't log in over SSH.
 
