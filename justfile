@@ -18,6 +18,10 @@ check:
 rust-arm:
     cargo zigbuild --release --target {{target_arm}} --workspace --bins
 
+# put fresh binaries on a running device as a sysext overlay and restart pinnad
+push: rust-arm
+    scripts/push-dev.sh
+
 # x86_64 static binaries for the VM smoke-test image
 rust-x86:
     cargo zigbuild --release --target x86_64-unknown-linux-musl --workspace --bins
