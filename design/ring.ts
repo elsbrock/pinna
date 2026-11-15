@@ -28,7 +28,18 @@ export type Effect =
   | "volume"
   | "timer"
   | "timer-ringing"
-  | "boot";
+  | "boot"
+  | "equalizer";
+
+/** Music equalizer, bass to treble. */
+export const EQUALIZER: readonly Rgb[] = [
+  [255, 40, 110],
+  [255, 90, 30],
+  [255, 170, 0],
+  [110, 230, 50],
+  [40, 215, 215],
+  [70, 120, 255],
+];
 
 /** Effects with a natural end, in ms; the rest run until replaced. */
 export const EFFECT_DURATION_MS = { error: 250 * 2 * 3, volume: 1500, boot: 1200 } as const;
@@ -65,11 +76,28 @@ function arc(c: Rgb, fraction: number): Frame {
 }
 
 /**
- * The frame the satellite shows `tMs` after `effect` started.
- * `value`: volume 0..100 for "volume", fraction of the timer left 0..1 for "timer".
+ * The bands in pairs (the louder of each) as six, mirrored either side of the
+ * front centre (pixels 10 and 11): bass at the front, treble at the back.
  */
-export function ringFrame(effect: Effect, tMs: number, value?: number): Frame {
+function equalizer(bands: readonly number[]): Frame {
+  const f = dark();
+  EQUALIZER.forEach((c, k) => {
+    const level = clamp(Math.max(bands[2 * k] ?? 0, bands[2 * k + 1] ?? 0), 0, 1);
+    const p = { c: level > 0 ? c : null, level };
+    f[(11 + k) % RING_PIXELS] = p;
+    f[(10 - k + RING_PIXELS) % RING_PIXELS] = { ...p };
+  });
+  return f;
+}
+
+/**
+ * The frame the satellite shows `tMs` after `effect` started.
+ * `value`: volume 0..100 for "volume", fraction of the timer left 0..1 for
+ * "timer", the 12 band levels 0..1 (bass first) for "equalizer".
+ */
+export function ringFrame(effect: Effect, tMs: number, value?: number | readonly number[]): Frame {
   const t = tMs / 1000;
+  const n = typeof value === "number" ? value : undefined;
   switch (effect) {
     case "listening":
       return solid(LED.listening, 0.3 + 0.7 * wave(t, 1.6));
@@ -84,14 +112,16 @@ export function ringFrame(effect: Effect, tMs: number, value?: number): Frame {
       return solid(LED.muted, 1);
     case "volume":
       if (tMs >= EFFECT_DURATION_MS.volume) return dark();
-      return arc(LED.volume, Math.min(value ?? 0, 100) / 100);
+      return arc(LED.volume, Math.min(n ?? 0, 100) / 100);
     case "timer":
-      return arc(LED.amber, clamp(value ?? 1, 0, 1));
+      return arc(LED.amber, clamp(n ?? 1, 0, 1));
     case "timer-ringing":
       return solid(LED.amber, 0.15 + 0.85 * wave(t, 0.5));
     case "boot":
       if (tMs >= EFFECT_DURATION_MS.boot) return dark();
       return spin(LED.listening, t, 0.6, 6);
+    case "equalizer":
+      return equalizer(Array.isArray(value) ? value : []);
     default:
       return dark();
   }

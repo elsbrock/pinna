@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LED, RING_PIXELS, pixelAngle, ringFrame, type Frame } from "./ring.ts";
+import { EQUALIZER, LED, RING_PIXELS, pixelAngle, ringFrame, type Frame } from "./ring.ts";
 
 const lit = (f: Frame) => f.filter((p) => p.c !== null && p.level > 0).length;
 const full = (f: Frame, i: number, c: readonly number[]) => f[i].c === c && f[i].level === 1;
@@ -57,6 +57,22 @@ test("timer ringing pulses at 2 Hz", () => {
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);
+});
+
+test("equalizer mirrors pairs, bass at the front", () => {
+  assert.equal(lit(ringFrame("equalizer", 0, Array(12).fill(0))), 0);
+  const bands = Array(12).fill(0);
+  bands[1] = 1; // bass pair -> pixels 10 and 11
+  bands[10] = 0.5; // treble pair -> pixels 4 and 5, half level
+  const f = ringFrame("equalizer", 0, bands);
+  assert.ok(full(f, 10, EQUALIZER[0]) && full(f, 11, EQUALIZER[0]));
+  assert.ok(f[4].c === EQUALIZER[5] && f[4].level === 0.5 && f[5].level === 0.5);
+  assert.equal(lit(f), 4);
+  const g = Array(12).fill(0);
+  g[4] = 1; // pair 2 -> pixels 1 and 8
+  const h = ringFrame("equalizer", 0, g);
+  assert.ok(full(h, 1, EQUALIZER[2]) && full(h, 8, EQUALIZER[2]));
+  assert.equal(lit(h), 2);
 });
 
 test("pixels 10 and 11 straddle the front (bottom)", () => {

@@ -20,6 +20,7 @@ this table wins:
 | A violet light that runs around the ring | Home Assistant is working on your request |
 | Cyan, slowly getting brighter and dimmer | The device is playing the reply |
 | An amber arc | A timer is running. The arc shows how much time is left |
+| Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |
 | Off | The device is idle |
 
 Two short signals appear on top of these states:
@@ -40,7 +41,8 @@ its colour, its brightness and one of three effects:
 
 The light shows only while the device is idle. When the device listens, works
 on a request or speaks, the ring shows that state, and the light comes back
-afterwards. The light also takes the place of the timer arc.
+afterwards. The light also takes the place of the timer arc and the music
+lights.
 
 **LED brightness** in Home Assistant sets the brightness of the whole ring,
 including the states above.

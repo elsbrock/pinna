@@ -1130,6 +1130,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn spectrum_moves_while_music_sounds_then_goes_quiet() {
+        let rig = rig(Duration::from_secs(5));
+        let f = rig.dir.join("clip.wav");
+        std::fs::write(&f, wav(48000, 2, &sine(48000, 2, 1500, 9000.0))).unwrap();
+        let spectrum = rig.speaker.spectrum();
+        let m = rig.speaker.media();
+        m.play_url(&f.to_string_lossy()).await.unwrap();
+        let lit = || {
+            spectrum
+                .at(Instant::now())
+                .is_some_and(|b| b.iter().any(|&l| l > 0.5))
+        };
+        assert!(until(Duration::from_secs(2), lit).await, "never lit");
+        wait_phase(&m, MediaPhase::Idle, Duration::from_secs(3)).await;
+        assert!(
+            until(Duration::from_secs(1), || spectrum
+                .at(Instant::now())
+                .is_none())
+            .await,
+            "still showing after the music ended"
+        );
+    }
+
+    #[tokio::test]
     async fn pause_stops_audio_and_resume_continues() {
         let srv = serve(vec![]).await;
         let rig = rig(Duration::from_secs(5));

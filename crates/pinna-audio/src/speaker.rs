@@ -13,9 +13,10 @@
 //! [`Speaker::duck`] is held.
 
 use crate::decode::{OUT_RATE, Pcm};
-use crate::media::{Decoder, MediaHandle, MediaLane, MediaState};
+use crate::media::{Decoder, MediaHandle, MediaLane, MediaPhase, MediaState};
 use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
+use crate::spectrum::{Analyzer, Spectrum};
 use crate::volume::volume_gain;
 use crate::{Backend, Error, Result, decode};
 use std::collections::VecDeque;
@@ -107,6 +108,7 @@ struct Inner {
     voice_gain: Arc<AtomicU8>,
     held_duck: Arc<AtomicBool>,
     media: MediaHandle,
+    spectrum: Spectrum,
     state: watch::Receiver<PlaybackState>,
     session_open: Arc<AtomicBool>,
 }
@@ -128,6 +130,7 @@ impl Speaker {
         let held_duck = Arc::new(AtomicBool::new(false));
         let (media_tx, media_rx) = watch::channel(MediaState::default());
         let media = MediaHandle::new(tx.clone(), media_rx);
+        let spectrum = Spectrum::default();
         let actor = Actor {
             feeder: Feeder::new(cfg.duck_db),
             // Only the Echo Dot's own sound card has the two clocks to track.
@@ -143,6 +146,8 @@ impl Speaker {
             finishing: VecDeque::new(),
             session: None,
             idle_since: Instant::now(),
+            analyzer: Analyzer::new(OUT_RATE),
+            spectrum: spectrum.clone(),
         };
         tokio::spawn(actor.run());
         Speaker {
@@ -152,6 +157,7 @@ impl Speaker {
                 voice_gain,
                 held_duck,
                 media,
+                spectrum,
                 state: state_rx,
                 session_open,
             }),
@@ -219,6 +225,11 @@ impl Speaker {
         self.inner.media.clone()
     }
 
+    /// Band levels of the media lane as it sounds (the ring's equalizer).
+    pub fn spectrum(&self) -> Spectrum {
+        self.inner.spectrum.clone()
+    }
+
     /// Drop everything queued and playing in the voice lane; the session stays
     /// open until idle. Media is stopped with [`MediaHandle::stop`].
     pub fn stop(&self) {
@@ -250,6 +261,8 @@ struct Feeder {
     held_duck: bool,
     ducker: Ducker,
     media: MediaLane,
+    /// The last chunk's media lane as mono (before ducking and gain).
+    media_mono: Vec<f32>,
 }
 
 impl Default for Feeder {
@@ -273,6 +286,7 @@ impl Feeder {
             held_duck: false,
             ducker: Ducker::new(duck_db),
             media: MediaLane::default(),
+            media_mono: Vec::new(),
         }
     }
 
@@ -285,6 +299,7 @@ impl Feeder {
     /// gain ramped linearly to `target_gain` across the chunk.
     fn next_chunk(&mut self, frames: usize, target_gain: f32, out: &mut Vec<u8>) -> Vec<Ended> {
         out.clear();
+        self.media_mono.clear();
         let mut ended = Vec::new();
         let start_gain = self.gain;
         for f in 0..frames {
@@ -307,6 +322,7 @@ impl Feeder {
             let vg = self.voice_gain.tick();
             let (vl, vr) = voice.unwrap_or((0.0, 0.0));
             let (ml, mr) = self.media.pull();
+            self.media_mono.push((ml + mr) * 0.5);
             let t = f as f32 / frames as f32;
             let g = start_gain + (target_gain - start_gain) * t;
             for (v, m) in [(vl, ml), (vr, mr)] {
@@ -479,6 +495,8 @@ struct Actor {
     finishing: VecDeque<(u64, oneshot::Sender<Result<()>>)>,
     session: Option<Session>,
     idle_since: Instant,
+    analyzer: Analyzer,
+    spectrum: Spectrum,
 }
 
 /// Player command line.
@@ -681,6 +699,13 @@ impl Actor {
             self.feeder.held_duck = self.held_duck.load(Ordering::Relaxed);
             let ended = self.feeder.next_chunk(CHUNK_FRAMES, gain, &mut chunk);
             let base = s.frames_written;
+            if self.feeder.media.phase() == MediaPhase::Playing {
+                if gain <= 0.0 {
+                    self.feeder.media_mono.fill(0.0); // volume 0: nothing sounds
+                }
+                let bands = self.analyzer.process(&self.feeder.media_mono);
+                self.spectrum.push(s.time_of(base), bands);
+            }
             if let Err(e) = s.write(&chunk).await {
                 tracing::error!("speaker write failed: {e}");
                 self.feeder.fail_all("speaker process died");

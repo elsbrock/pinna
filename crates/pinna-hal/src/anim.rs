@@ -1,6 +1,6 @@
 //! Time-based LED effects as pure functions of elapsed time.
 
-use crate::led::{Frame, RING_PIXELS, Rgb};
+use crate::led::{FRONT_CENTRE, Frame, RING_PIXELS, Rgb};
 use std::f32::consts::TAU;
 use std::time::Duration;
 
@@ -13,6 +13,15 @@ pub const SPEAKING: Rgb = Rgb::new(90, 220, 230);
 pub const AMBER: Rgb = Rgb::new(255, 160, 0);
 /// Volume meter colour (buttond.c show_meter on unmute).
 pub const VOLUME: Rgb = Rgb::new(120, 200, 255);
+/// Music equalizer, bass to treble.
+pub const EQUALIZER: [Rgb; RING_PIXELS / 2] = [
+    Rgb::new(255, 40, 110),
+    Rgb::new(255, 90, 30),
+    Rgb::new(255, 170, 0),
+    Rgb::new(110, 230, 50),
+    Rgb::new(40, 215, 215),
+    Rgb::new(70, 120, 255),
+];
 
 /// How long the volume meter is held.
 pub const VOLUME_HOLD: Duration = Duration::from_millis(1500);
@@ -34,6 +43,8 @@ pub enum Effect {
     Timer(f32),
     TimerRinging,
     Boot,
+    /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
+    Equalizer([f32; RING_PIXELS]),
 }
 
 impl Effect {
@@ -110,7 +121,20 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
             }
             spin(LISTENING, t, 0.6, 6.0)
         }
+        Effect::Equalizer(bands) => equalizer(&bands),
     }
+}
+
+/// The bands in pairs (the louder of each) as six, mirrored either side of the
+/// front centre: bass at the front, treble at the back.
+fn equalizer(bands: &[f32; RING_PIXELS]) -> Frame {
+    let mut f = [Rgb::OFF; RING_PIXELS];
+    for (k, colour) in EQUALIZER.iter().enumerate() {
+        let c = colour.scaled(bands[2 * k].max(bands[2 * k + 1]));
+        f[(FRONT_CENTRE[1] + k) % RING_PIXELS] = c;
+        f[(FRONT_CENTRE[0] + RING_PIXELS - k) % RING_PIXELS] = c;
+    }
+    f
 }
 
 /// Meter / countdown arc starting at pixel 0, with a fractional last pixel and
@@ -234,6 +258,26 @@ mod tests {
     }
 
     #[test]
+    fn equalizer_mirrors_pairs_bass_at_the_front() {
+        assert_eq!(lit(&render(Effect::Equalizer([0.0; 12]), ms(0))), 0);
+        let mut bands = [0.0; 12];
+        bands[1] = 1.0; // bass pair (0, 1) -> pixels 10 and 11
+        bands[10] = 0.5; // treble pair (10, 11) -> pixels 4 and 5, half level
+        let f = render(Effect::Equalizer(bands), ms(0));
+        assert_eq!(f[10], EQUALIZER[0]);
+        assert_eq!(f[11], EQUALIZER[0]);
+        assert_eq!(f[4], EQUALIZER[5].scaled(0.5));
+        assert_eq!(f[5], EQUALIZER[5].scaled(0.5));
+        assert_eq!(lit(&f), 4);
+        // Pair k sits at 11 + k and 10 - k.
+        let mut bands = [0.0; 12];
+        bands[4] = 1.0;
+        let f = render(Effect::Equalizer(bands), ms(0));
+        assert_eq!((f[1], f[8]), (EQUALIZER[2], EQUALIZER[2]));
+        assert_eq!(lit(&f), 2);
+    }
+
+    #[test]
     fn open_ended_effects_do_not_finish() {
         for e in [
             Effect::Idle,
@@ -242,6 +286,7 @@ mod tests {
             Effect::Speaking,
             Effect::Muted,
             Effect::TimerRinging,
+            Effect::Equalizer([1.0; 12]),
         ] {
             assert!(!e.is_finished(Duration::from_secs(3600)));
         }

@@ -13,6 +13,7 @@ pub(crate) mod mix;
 pub mod mixer;
 pub mod refsink;
 pub mod speaker;
+pub mod spectrum;
 pub mod tone;
 pub mod volume;
 
@@ -22,6 +23,7 @@ pub use capture::{CaptureConfig, CaptureStatus, CaptureStream, start_capture};
 pub use decode::{Pcm, decode};
 pub use media::{MediaHandle, MediaPhase, MediaState};
 pub use speaker::{PlaybackState, Speaker, SpeakerConfig};
+pub use spectrum::{Bands, Spectrum};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

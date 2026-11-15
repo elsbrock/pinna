@@ -2,6 +2,7 @@
 
 use std::time::{Duration, Instant};
 
+use pinna_audio::{Bands, Spectrum};
 use pinna_hal::anim::{Effect, render};
 use pinna_hal::led::{Frame, LedHandle, RING_PIXELS, Rgb};
 use tokio::sync::watch;
@@ -88,8 +89,14 @@ impl Default for LedState {
     }
 }
 
-pub fn frame_for(state: &LedState, base_since: Instant, now: Instant) -> Frame {
-    let mut frame = unscaled_frame(state, base_since, now);
+/// `music`: the band levels sounding now, if music is playing.
+pub fn frame_for(
+    state: &LedState,
+    music: Option<&Bands>,
+    base_since: Instant,
+    now: Instant,
+) -> Frame {
+    let mut frame = unscaled_frame(state, music, base_since, now);
     if state.brightness < 100 {
         let k = f32::from(state.brightness) / 100.0;
         for px in &mut frame {
@@ -99,7 +106,12 @@ pub fn frame_for(state: &LedState, base_since: Instant, now: Instant) -> Frame {
     frame
 }
 
-fn unscaled_frame(state: &LedState, base_since: Instant, now: Instant) -> Frame {
+fn unscaled_frame(
+    state: &LedState,
+    music: Option<&Bands>,
+    base_since: Instant,
+    now: Instant,
+) -> Frame {
     if let Some((effect, since)) = state.overlay {
         let t = now.saturating_duration_since(since);
         if !effect.is_finished(t) {
@@ -118,6 +130,8 @@ fn unscaled_frame(state: &LedState, base_since: Instant, now: Instant) -> Frame 
                 [scale(rgb, state.light_effect.level(t)); RING_PIXELS]
             } else if let Some(frac) = state.timer {
                 render(Effect::Timer(frac), t)
+            } else if let Some(bands) = music {
+                render(Effect::Equalizer(*bands), t)
             } else {
                 render(Effect::Idle, t)
             }
@@ -126,8 +140,13 @@ fn unscaled_frame(state: &LedState, base_since: Instant, now: Instant) -> Frame 
     }
 }
 
-/// Drive the ring from `state` until the sender is dropped.
-pub async fn run(leds: Option<LedHandle>, mut state: watch::Receiver<LedState>) {
+/// Drive the ring from `state` (and `music`, the speaker's spectrum) until the
+/// sender is dropped.
+pub async fn run(
+    leds: Option<LedHandle>,
+    mut state: watch::Receiver<LedState>,
+    music: Option<Spectrum>,
+) {
     let Some(leds) = leds else {
         // No ring: just log transitions.
         let mut last = None;
@@ -159,7 +178,9 @@ pub async fn run(leds: Option<LedHandle>, mut state: watch::Receiver<LedState>) 
             }
             _ = tick.tick() => {}
         }
-        leds.show(&frame_for(&current, base_since, Instant::now()));
+        let now = Instant::now();
+        let bands = music.as_ref().and_then(|m| m.at(now));
+        leds.show(&frame_for(&current, bands.as_ref(), base_since, now));
     }
 }
 
@@ -180,9 +201,9 @@ mod tests {
             light: Some(green),
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, now, now), [green; RING_PIXELS]);
+        assert_eq!(frame_for(&s, None, now, now), [green; RING_PIXELS]);
         s.base = Effect::Muted;
-        assert_ne!(frame_for(&s, now, now), [green; RING_PIXELS]);
+        assert_ne!(frame_for(&s, None, now, now), [green; RING_PIXELS]);
     }
 
     #[test]
@@ -199,20 +220,53 @@ mod tests {
             brightness: 50,
             ..Default::default()
         };
-        assert_eq!(frame_for(&s, now, now)[0].r, 100);
+        assert_eq!(frame_for(&s, None, now, now)[0].r, 100);
         s.brightness = 100;
         s.light_effect = LightEffect::Flash;
         assert_eq!(
-            frame_for(&s, now, now + Duration::from_millis(100))[0].r,
+            frame_for(&s, None, now, now + Duration::from_millis(100))[0].r,
             200
         );
-        assert_eq!(frame_for(&s, now, now + Duration::from_millis(600))[0].r, 0);
+        assert_eq!(
+            frame_for(&s, None, now, now + Duration::from_millis(600))[0].r,
+            0
+        );
         s.light_effect = LightEffect::Pulse;
-        let low = frame_for(&s, now, now)[0].r;
-        let high = frame_for(&s, now, now + Duration::from_secs(1))[0].r;
+        let low = frame_for(&s, None, now, now)[0].r;
+        let high = frame_for(&s, None, now, now + Duration::from_secs(1))[0].r;
         assert!(low < 50 && high == 200, "{low} {high}");
         assert_eq!(LightEffect::from_name("Flash"), Some(LightEffect::Flash));
         assert_eq!(LightEffect::Pulse.name(), "Pulse");
+    }
+
+    #[test]
+    fn music_shows_only_instead_of_the_dark_idle_ring() {
+        let now = Instant::now();
+        let bands = [1.0; 12];
+        let eq = render(Effect::Equalizer(bands), Duration::ZERO);
+        let mut s = LedState {
+            base: Effect::Idle,
+            ..Default::default()
+        };
+        assert_eq!(frame_for(&s, Some(&bands), now, now), eq);
+        assert_eq!(frame_for(&s, None, now, now), [Rgb::OFF; RING_PIXELS]);
+        // A running timer and the light win over the equalizer.
+        s.timer = Some(0.5);
+        assert_eq!(
+            frame_for(&s, Some(&bands), now, now),
+            render(Effect::Timer(0.5), Duration::ZERO)
+        );
+        s.light = Some(Rgb::new(0, 0, 200));
+        assert_eq!(
+            frame_for(&s, Some(&bands), now, now),
+            [Rgb::new(0, 0, 200); RING_PIXELS]
+        );
+        // So do the voice states.
+        s.base = Effect::Thinking;
+        assert_eq!(
+            frame_for(&s, Some(&bands), now, now),
+            render(Effect::Thinking, Duration::ZERO)
+        );
     }
 
     #[test]
@@ -223,8 +277,8 @@ mod tests {
             overlay: Some((Effect::Volume(50), now)),
             ..Default::default()
         };
-        let during = frame_for(&s, now, now + Duration::from_millis(100));
-        let after = frame_for(&s, now, now + Duration::from_secs(10));
+        let during = frame_for(&s, None, now, now + Duration::from_millis(100));
+        let after = frame_for(&s, None, now, now + Duration::from_secs(10));
         assert_ne!(during, after);
         assert_eq!(after, render(Effect::Idle, Duration::from_secs(10)));
     }

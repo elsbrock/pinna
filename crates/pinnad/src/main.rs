@@ -297,7 +297,6 @@ async fn main() -> Result<()> {
         (Some(_), "mock") => "mock",
         (Some(_), _) => "is31",
     };
-    tokio::spawn(leds::run(ring, led_rx));
 
     // Audio.
     let backend = audio_backend(&cfg.audio.backend);
@@ -324,6 +323,11 @@ async fn main() -> Result<()> {
             }
             Arc::new(Speaker::new(sc))
         });
+    tokio::spawn(leds::run(
+        ring,
+        led_rx,
+        speaker.as_ref().map(|s| s.spectrum()),
+    ));
 
     let shared = Arc::new(Shared::default());
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);

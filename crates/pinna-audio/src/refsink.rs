@@ -13,7 +13,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-/// Second-order high-pass (RBJ cookbook), one per channel.
+/// Second-order filter (RBJ cookbook), one per channel.
 #[derive(Clone, Debug)]
 pub struct Biquad {
     b0: f32,
@@ -37,6 +37,25 @@ impl Biquad {
             b0: (1.0 + cos) / 2.0 / a0,
             b1: -(1.0 + cos) / a0,
             b2: (1.0 + cos) / 2.0 / a0,
+            a1: -2.0 * cos / a0,
+            a2: (1.0 - alpha) / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    /// Band-pass with 0 dB gain at `freq`.
+    pub fn bandpass(rate: f32, freq: f32, q: f32) -> Self {
+        let w0 = 2.0 * std::f32::consts::PI * freq / rate;
+        let (sin, cos) = w0.sin_cos();
+        let alpha = sin / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: alpha / a0,
+            b1: 0.0,
+            b2: -alpha / a0,
             a1: -2.0 * cos / a0,
             a2: (1.0 - alpha) / a0,
             x1: 0.0,
