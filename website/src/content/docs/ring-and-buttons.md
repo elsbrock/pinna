@@ -59,7 +59,8 @@ automation, for example when the washing machine finishes. The notification
 stays until one of these clears it:
 
 - You press the Action button while the ring shows the notification. This
-  press doesn't start a request. Press again to talk.
+  press doesn't start a request. Press again to talk. The Action button's
+  `press` event still fires.
 - You select **Clear** on the [dashboard](/docs/dashboard/).
 - Home Assistant turns the switch off.
 
@@ -68,50 +69,66 @@ When you clear it with the Action button or on the dashboard, the
 tell you what the notification was. When Home Assistant turns the switch off,
 the event doesn't fire.
 
-The notification doesn't show while the microphones are off, while the device
-listens, works on a request or speaks, or while a timer runs. It comes back
-afterwards. While the ring shows something else, the Action button does what
-it normally does. A waiting notification survives a restart of the device.
+The notification doesn't show while the microphones are off, while a timer
+alarm rings, while the device listens, works on a request or speaks, or while
+a timer runs. It comes back afterwards. While the ring shows something else,
+the Action button does what it normally does. A waiting notification survives
+a restart of the device.
 
 #### Hear what the notification was
 
 The switch only says that something happened. To keep the message, store it
-in Home Assistant. The examples use a device named `pinna_2a914e`.
+in a Home Assistant helper.
 
-1. In Home Assistant, create a **Text** helper named `Pinna notification`
-   (`input_text.pinna_notification`) and set its maximum length to 255.
+The examples use the entity IDs of a device named **Echo Dot**, such as
+`switch.echo_dot_notification`. To find your device's entity IDs, go to
+**Settings > Devices & services > ESPHome** and select the device. To add an
+automation, go to **Settings > Automations & scenes > Create automation >
+Create new automation**, open the menu, select **Edit in YAML**, and paste it.
 
-2. In the automation that reports the event, add the message and turn the
-   switch on:
+1. Go to **Settings > Devices & services > Helpers > Create helper > Text**.
+   Name it `Pinna notification`. Under **More options**, set **Maximum
+   length** to 255.
+
+2. Add these two actions to the `actions:` of the automation that tells you
+   the washing machine is done. They add the message to the helper, or start
+   a new message if no notification is waiting, and turn the switch on:
 
    ```yaml
-   actions:
-     - action: input_text.set_value
-       target:
-         entity_id: input_text.pinna_notification
-       data:
-         value: >-
-           {{ (states('input_text.pinna_notification') ~ ' The washing machine is done.') | trim }}
-     - action: switch.turn_on
-       target:
-         entity_id: switch.pinna_2a914e_notification
+   - action: input_text.set_value
+     target:
+       entity_id: input_text.pinna_notification
+     data:
+       value: >-
+         {% set old = states('input_text.pinna_notification')
+            if is_state('switch.echo_dot_notification', 'on')
+               and has_value('input_text.pinna_notification') else '' %}
+         {{ ((old ~ ' The washing machine is done.') | trim)[-255:] }}
+   - action: switch.turn_on
+     target:
+       entity_id: switch.echo_dot_notification
    ```
 
 3. Add an automation that answers "Alexa, what are my notifications?" and
    clears them:
 
    ```yaml
+   alias: Read Pinna notifications
    triggers:
      - trigger: conversation
        command:
          - "what are my notifications"
          - "read my notifications"
    actions:
-     - set_conversation_response: >-
-         {{ states('input_text.pinna_notification') or 'You have no notifications.' }}
+     - variables:
+         message: >-
+           {{ states('input_text.pinna_notification')
+              if is_state('switch.echo_dot_notification', 'on')
+                 and has_value('input_text.pinna_notification') else '' }}
+     - set_conversation_response: "{{ message or 'You have no notifications.' }}"
      - action: switch.turn_off
        target:
-         entity_id: switch.pinna_2a914e_notification
+         entity_id: switch.echo_dot_notification
      - action: input_text.set_value
        target:
          entity_id: input_text.pinna_notification
@@ -119,23 +136,30 @@ in Home Assistant. The examples use a device named `pinna_2a914e`.
          value: ""
    ```
 
+   Home Assistant matches these sentences itself. If your voice assistant
+   uses an AI conversation agent, turn on **Prefer handling commands
+   locally** for it.
+
 4. Add an automation that reads the message when you clear the notification
    with the Action button or on the dashboard:
 
    ```yaml
+   alias: Read a Pinna notification when it's cleared
    triggers:
      - trigger: state
-       entity_id: event.pinna_2a914e_notification
+       entity_id: event.echo_dot_notification
        not_from: unavailable
+       not_to: unavailable
    conditions:
      - condition: template
        value_template: >-
          {{ trigger.to_state.attributes.event_type == 'cleared'
+            and has_value('input_text.pinna_notification')
             and states('input_text.pinna_notification') != '' }}
    actions:
      - action: assist_satellite.announce
        target:
-         entity_id: assist_satellite.pinna_2a914e_assist_satellite
+         entity_id: assist_satellite.echo_dot_assist_satellite
        data:
          message: "{{ states('input_text.pinna_notification') }}"
      - action: input_text.set_value
@@ -145,11 +169,23 @@ in Home Assistant. The examples use a device named `pinna_2a914e`.
          value: ""
    ```
 
-With more than one device, list every device's switch in steps 2 and 3, so
-that clearing the notification on one device clears it on all of them.
-
 If Home Assistant isn't connected when you clear a notification on the device,
-Home Assistant sees the switch turn off but gets no `cleared` event.
+Home Assistant sees the switch turn off but gets no `cleared` event, and
+nothing is read out. The next notification starts a new message.
+
+With more than one device, change the automations so that clearing the
+notification on one device clears it on all of them:
+
+- In steps 2 and 3, list every device's switch under `entity_id`.
+- In step 4, list every device's event under `entity_id` in the trigger, add
+  a `switch.turn_off` action for every device's switch, and read the message
+  on the device that was cleared:
+
+  ```yaml
+  entity_id: >-
+    {{ device_entities(device_id(trigger.entity_id))
+       | select('match', 'assist_satellite') | first }}
+  ```
 
 ## Buttons
 
