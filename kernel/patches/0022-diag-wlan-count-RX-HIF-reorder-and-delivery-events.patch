@@ -1,0 +1,505 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 12:05:08 +0100
+Subject: [PATCH 22/27] diag(wlan): count RX HIF, reorder and delivery events
+
+Sustained downlink stalls for seconds while ping works, ss shows about
+half the TCP segments arriving out of order, and the reorder miss
+timeout from 0001 never fires. Nothing in the driver says where frames
+wait or get reordered.
+
+Count, in the driver main thread, what happens to every received
+frame and print a summary every two seconds while frames arrive:
+
+  ECHO_WLAN_RXSTAT: hif ...  enhanced status reads, status reads that
+      report RX lengths with no RX DONE bit (nicProcessIST_impl()
+      ignores those), port reads and frames per read, frames left in
+      the port for lack of SW_RFBs, >16 or truncated, HIF header length
+      vs status length mismatches, QM low-RFB drops.
+  ECHO_WLAN_RXSTAT: ba ...   frames entering reordering, fall-within,
+      arrivals that left frames behind a hole, fall-ahead and BAR
+      window moves with the sequence numbers they gave up, fall-behind
+      retries dropped / frames passed up out of order, duplicates,
+      miss-timeout skips, longest wait in a reorder queue and frames
+      that waited >= 100 ms, deepest queue, unicast data frames without
+      the reorder flag.
+  ECHO_WLAN_RXSTAT: ind ...  delivery batches, batches delivered on a
+      different CPU than the previous one, and batches delivered while
+      that CPU's ksoftirqd was runnable (netif_rx() then defers NET_RX
+      to it, so frames from consecutive batches can reach TCP out of
+      order).
+
+Each anomaly also logs a rate-limited ECHO_WLAN_RXHIF / ECHO_WLAN_RX_BA
+line. The summary timer arms on the first call because jiffies starts
+just below its wrap. No behaviour change.
+---
+ .../mt_wifi/wlan/include/nic/nic_rx.h         |   3 +
+ .../mt_wifi/wlan/include/nic/que_mgt.h        |  49 +++++++
+ .../conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c  |  10 ++
+ .../drv_wlan/mt_wifi/wlan/nic/nic_rx.c        |  30 +++-
+ .../drv_wlan/mt_wifi/wlan/nic/que_mgt.c       | 132 +++++++++++++++++-
+ .../drv_wlan/mt_wifi/wlan/os/linux/gl_kal.c   |  21 +++
+ 6 files changed, 240 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/nic_rx.h b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/nic_rx.h
+index 9fa879eda..e6ff4936a 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/nic_rx.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/nic_rx.h
+@@ -273,6 +273,9 @@ struct _SW_RFB_T {
+ 	ENUM_TRAFFIC_CLASS_INDEX_T eTC;	/* only valid when eDst == FORWARD */
+ 
+ 	UINT_64 rRxTime;
++
++	/* kalGetTimeTick() when the frame entered RX reordering */
++	OS_SYSTIME rEchoBaTime;
+ };
+ 
+ /*! RX configuration type structure */
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h
+index 6f961d943..6e4c49599 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/nic/que_mgt.h
+@@ -955,6 +955,55 @@ VOID qmFreeAllByNetType(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYPE_INDEX_T e
+ 
+ UINT_32 qmGetRxReorderQueuedBufferCount(IN P_ADAPTER_T prAdapter);
+ 
++/*
++ * ECHO_WLAN_RXSTAT: RX path counters (HIF read, reordering, delivery to the
++ * stack).  All writers run in the driver main thread; a summary is printed
++ * every two seconds while frames are received.
++ */
++typedef struct _ECHO_WLAN_RX_STAT_T {
++	/* HIF */
++	UINT_32 u4IntStatusRead;	/* enhanced WHISR status reads */
++	UINT_32 u4RxLenNoIntBit;	/* status reads with RX lengths but RX0/RX1 DONE clear */
++	UINT_32 u4RxPortRead;		/* RX port (WRDR0/1) reads */
++	UINT_32 u4RxPortPkt;		/* frames taken from RX port reads */
++	UINT_32 u4RxPortPktMax;		/* most frames in one read (since last summary) */
++	UINT_32 u4RxRfbShortSkip;	/* frames not read: too few free SW_RFBs */
++	UINT_32 u4RxOver16Skip;		/* frames not read: count > 16 */
++	UINT_32 u4RxTruncSkip;		/* frames not read: zero length or buffer full */
++	UINT_32 u4RxLenMismatch;	/* HIF header length != status length */
++	UINT_32 u4FreeRfbMin;		/* fewest free SW_RFBs seen (since last summary) */
++	UINT_32 u4QmLowRfbDrop;		/* data frames dropped by QM: too few free SW_RFBs */
++	/* reordering */
++	UINT_32 u4BaIn;			/* frames handed to reordering */
++	UINT_32 u4BaNoEntry;		/* reorder flag but no BA agreement */
++	UINT_32 u4BaWithin;
++	UINT_32 u4BaHeld;		/* arrivals that left frames waiting behind a hole */
++	UINT_32 u4BaAhead;
++	UINT_32 u4BaAheadSkip;		/* sequence numbers given up by fall-ahead */
++	UINT_32 u4BaBehindDrop;		/* fall-behind retries dropped */
++	UINT_32 u4BaBehindPass;		/* fall-behind frames passed up out of order */
++	UINT_32 u4BaDup;
++	UINT_32 u4BaBar;
++	UINT_32 u4BaBarSkip;		/* sequence numbers given up by BAR */
++	UINT_32 u4BaTimeoutSkip;	/* holes given up by the miss timeout */
++	UINT_32 u4BaRelease;		/* frames released from a reorder queue */
++	UINT_32 u4BaHoldMaxMs;		/* longest wait in a reorder queue (since last summary) */
++	UINT_32 u4BaHold100;		/* frames that waited >= 100 ms */
++	UINT_32 u4BaDepthMax;		/* deepest reorder queue (since last summary) */
++	UINT_32 u4NoReorder;		/* unicast data frames without the reorder flag */
++	/* delivery */
++	UINT_32 u4IndBatch;
++	UINT_32 u4IndPkt;
++	UINT_32 u4IndCpuSwitch;		/* batches on a different CPU than the previous one */
++	UINT_32 u4IndSoftirqdBusy;	/* batches while this CPU's ksoftirqd was runnable */
++} ECHO_WLAN_RX_STAT_T;
++
++extern ECHO_WLAN_RX_STAT_T g_rEchoRxStat;
++
++VOID echoWlanRxStatTick(VOID);
++
++VOID echoWlanRxStatHold(IN P_SW_RFB_T prSwRfb);
++
+ /*******************************************************************************
+ *                              F U N C T I O N S
+ ********************************************************************************
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+index edd87e34e..4eda0aad1 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+@@ -1032,6 +1032,16 @@ VOID nicSDIOReadIntStatus(IN P_ADAPTER_T prAdapter, OUT PUINT_32 pu4IntStatus)
+ 		return;
+ 	}
+ 
++	g_rEchoRxStat.u4IntStatusRead++;
++	if ((prSDIOCtrl->u4WHISR & (WHISR_RX0_DONE_INT | WHISR_RX1_DONE_INT)) == 0 &&
++	    (prSDIOCtrl->rRxInfo.u.u2NumValidRx0Len || prSDIOCtrl->rRxInfo.u.u2NumValidRx1Len)) {
++		/* nicProcessIST_impl() only reads the RX ports when a DONE bit is set */
++		g_rEchoRxStat.u4RxLenNoIntBit++;
++		pr_info_ratelimited("ECHO_WLAN_RXHIF: RX lengths without RX done bit WHISR=0x%08x rx0=%u rx1=%u\n",
++				    prSDIOCtrl->u4WHISR, prSDIOCtrl->rRxInfo.u.u2NumValidRx0Len,
++				    prSDIOCtrl->rRxInfo.u.u2NumValidRx1Len);
++	}
++
+ 	/* workaround */
+ 	if ((prSDIOCtrl->u4WHISR & WHISR_TX_DONE_INT) == 0 &&
+ 	    (prSDIOCtrl->rTxInfo.au4WTSR[0] | prSDIOCtrl->rTxInfo.au4WTSR[1])) {
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic_rx.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic_rx.c
+index 46df920d8..1e0280c8a 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic_rx.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic_rx.c
+@@ -2725,6 +2725,8 @@ VOID nicRxProcessRFBs(IN P_ADAPTER_T prAdapter)
+ #endif
+ 	}
+ 
++	echoWlanRxStatTick();
++
+ }				/* end of nicRxProcessRFBs() */
+ 
+ #if !CFG_SDIO_INTR_ENHANCE
+@@ -3102,8 +3104,12 @@ VOID nicRxSDIOAggReceiveRFBs(IN P_ADAPTER_T prAdapter)
+ 			/* if this assertion happened, it is most likely a F/W bug */
+ 			ASSERT(u2RxPktNum <= 16);
+ 
+-			if (u2RxPktNum > 16)
++			if (u2RxPktNum > 16) {
++				g_rEchoRxStat.u4RxOver16Skip += u2RxPktNum;
++				pr_info_ratelimited("ECHO_WLAN_RXHIF: rx%u reports %u frames, not read\n",
++						    rxNum, u2RxPktNum);
+ 				continue;
++			}
+ 
+ 			if (u2RxPktNum == 0)
+ 				continue;
+@@ -3114,6 +3120,8 @@ VOID nicRxSDIOAggReceiveRFBs(IN P_ADAPTER_T prAdapter)
+ #endif
+ 
+ 			u4CurrAvailFreeRfbCnt = prRxCtrl->rFreeSwRfbList.u4NumElem;
++			if (u4CurrAvailFreeRfbCnt < g_rEchoRxStat.u4FreeRfbMin)
++				g_rEchoRxStat.u4FreeRfbMin = u4CurrAvailFreeRfbCnt;
+ 
+ 			/* if SwRfb is not enough, abort reading this time */
+ 			if (u4CurrAvailFreeRfbCnt < u2RxPktNum) {
+@@ -3123,6 +3131,9 @@ VOID nicRxSDIOAggReceiveRFBs(IN P_ADAPTER_T prAdapter)
+ 				DbgPrint("Queued Count: %d / Dequeud Count: %d\n", prRxCtrl->u4QueuedCnt,
+ 					 prRxCtrl->u4DequeuedCnt);
+ #endif
++				g_rEchoRxStat.u4RxRfbShortSkip += u2RxPktNum;
++				pr_info_ratelimited("ECHO_WLAN_RXHIF: rx%u %u frames not read, %u free SW_RFBs\n",
++						    rxNum, u2RxPktNum, u4CurrAvailFreeRfbCnt);
+ 				continue;
+ 			}
+ #if CFG_SDIO_RX_ENHANCE
+@@ -3164,6 +3175,16 @@ VOID nicRxSDIOAggReceiveRFBs(IN P_ADAPTER_T prAdapter)
+ 			/* DBGLOG(RX, INFO, ("u4RxAggCount = %d, u4RxAggLength = %d\n", */
+ 			/* u4RxAggCount, u4RxAggLength)); */
+ 
++			if (u4RxAggCount < u2RxPktNum) {
++				g_rEchoRxStat.u4RxTruncSkip += u2RxPktNum - u4RxAggCount;
++				pr_info_ratelimited("ECHO_WLAN_RXHIF: rx%u reads %u of %u frames\n",
++						    rxNum, u4RxAggCount, u2RxPktNum);
++			}
++			g_rEchoRxStat.u4RxPortRead++;
++			g_rEchoRxStat.u4RxPortPkt += u4RxAggCount;
++			if (u4RxAggCount > g_rEchoRxStat.u4RxPortPktMax)
++				g_rEchoRxStat.u4RxPortPktMax = u4RxAggCount;
++
+ 			HAL_READ_RX_PORT(prAdapter,
+ 					 rxNum,
+ 					 u4RxAggLength, prRxCtrl->pucRxCoalescingBufPtr, CFG_RX_COALESCING_BUFFER_SIZE);
+@@ -3200,6 +3221,13 @@ VOID nicRxSDIOAggReceiveRFBs(IN P_ADAPTER_T prAdapter)
+ 
+ 				prSwRfb->ucStaRecIdx = (UINT_8) (prHifRxHdr->ucStaRecIdx);
+ 
++				if (prHifRxHdr->u2PacketLen != u2PktLength) {
++					g_rEchoRxStat.u4RxLenMismatch++;
++					pr_info_ratelimited("ECHO_WLAN_RXHIF: rx%u frame %u/%u header len %u status len %u type %u\n",
++							    rxNum, i, u4RxAggCount, prHifRxHdr->u2PacketLen,
++							    u2PktLength, prSwRfb->ucPacketType);
++				}
++
+ 				KAL_ACQUIRE_SPIN_LOCK(prAdapter, SPIN_LOCK_RX_QUE);
+ 				QUEUE_INSERT_TAIL(&prRxCtrl->rReceivedRfbList, &prSwRfb->rQueEntry);
+ 				RX_INC_CNT(prRxCtrl, RX_MPDU_TOTAL_COUNT);
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+index bac5b58bd..1135e767f 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+@@ -482,10 +482,81 @@ Add per station flow control when STA is in PS
+ */
+ OS_SYSTIME g_arMissTimeout[CFG_STA_REC_NUM][CFG_RX_MAX_BA_TID_NUM];
+ 
++ECHO_WLAN_RX_STAT_T g_rEchoRxStat = {
++	.u4FreeRfbMin = ~0U,
++};
++
+ /*******************************************************************************
+ *                           P R I V A T E   D A T A
+ ********************************************************************************
+ */
++static ECHO_WLAN_RX_STAT_T g_rEchoRxStatLast;
++static unsigned long g_ulEchoRxStatJiffies;
++static BOOLEAN g_fgEchoRxStatStarted;
++
++/*----------------------------------------------------------------------------*/
++/*!
++* \brief Account for a frame leaving a reorder queue.
++*/
++/*----------------------------------------------------------------------------*/
++VOID echoWlanRxStatHold(IN P_SW_RFB_T prSwRfb)
++{
++	UINT_32 u4HoldMs = (UINT_32) (kalGetTimeTick() - prSwRfb->rEchoBaTime);
++
++	g_rEchoRxStat.u4BaRelease++;
++	if (u4HoldMs > g_rEchoRxStat.u4BaHoldMaxMs)
++		g_rEchoRxStat.u4BaHoldMaxMs = u4HoldMs;
++	if (u4HoldMs >= 100)
++		g_rEchoRxStat.u4BaHold100++;
++}
++
++/*----------------------------------------------------------------------------*/
++/*!
++* \brief Print the RX counters accumulated over the last two seconds.
++*
++* Called from the RX path, so nothing is printed while no frames arrive.
++* jiffies starts close to its wrap, so the first call only arms the interval.
++*/
++/*----------------------------------------------------------------------------*/
++VOID echoWlanRxStatTick(VOID)
++{
++	ECHO_WLAN_RX_STAT_T *s = &g_rEchoRxStat, *l = &g_rEchoRxStatLast;
++	unsigned long ulNow = jiffies;
++
++	if (!g_fgEchoRxStatStarted) {
++		g_fgEchoRxStatStarted = TRUE;
++		g_ulEchoRxStatJiffies = ulNow;
++		*l = *s;
++		return;
++	}
++	if (time_before(ulNow, g_ulEchoRxStatJiffies + 2 * HZ))
++		return;
++
++#define ECHO_D(_f) (s->_f - l->_f)
++	pr_info("ECHO_WLAN_RXSTAT: hif dt=%ums stat=%u lenNoBit=%u rd=%u pkt=%u maxPkt=%u rfbSkip=%u over16=%u trunc=%u lenErr=%u freeMin=%u qmDrop=%u\n",
++		jiffies_to_msecs(ulNow - g_ulEchoRxStatJiffies),
++		ECHO_D(u4IntStatusRead), ECHO_D(u4RxLenNoIntBit), ECHO_D(u4RxPortRead),
++		ECHO_D(u4RxPortPkt), s->u4RxPortPktMax, ECHO_D(u4RxRfbShortSkip),
++		ECHO_D(u4RxOver16Skip), ECHO_D(u4RxTruncSkip), ECHO_D(u4RxLenMismatch),
++		s->u4FreeRfbMin, ECHO_D(u4QmLowRfbDrop));
++	pr_info("ECHO_WLAN_RXSTAT: ba in=%u noBa=%u within=%u held=%u ahead=%u aheadSkip=%u behindDrop=%u behindPass=%u dup=%u bar=%u barSkip=%u tmoSkip=%u rel=%u holdMax=%ums hold100=%u depthMax=%u noReorder=%u\n",
++		ECHO_D(u4BaIn), ECHO_D(u4BaNoEntry), ECHO_D(u4BaWithin), ECHO_D(u4BaHeld),
++		ECHO_D(u4BaAhead), ECHO_D(u4BaAheadSkip), ECHO_D(u4BaBehindDrop),
++		ECHO_D(u4BaBehindPass), ECHO_D(u4BaDup), ECHO_D(u4BaBar), ECHO_D(u4BaBarSkip),
++		ECHO_D(u4BaTimeoutSkip), ECHO_D(u4BaRelease), s->u4BaHoldMaxMs, ECHO_D(u4BaHold100),
++		s->u4BaDepthMax, ECHO_D(u4NoReorder));
++	pr_info("ECHO_WLAN_RXSTAT: ind batch=%u pkt=%u cpuSwitch=%u softirqdBusy=%u cpu=%u\n",
++		ECHO_D(u4IndBatch), ECHO_D(u4IndPkt), ECHO_D(u4IndCpuSwitch),
++		ECHO_D(u4IndSoftirqdBusy), raw_smp_processor_id());
++#undef ECHO_D
++
++	s->u4RxPortPktMax = 0;
++	s->u4FreeRfbMin = ~0U;
++	s->u4BaHoldMaxMs = 0;
++	s->u4BaDepthMax = 0;
++	*l = *s;
++	g_ulEchoRxStatJiffies = ulNow;
++}
+ 
+ /*******************************************************************************
+ *                                 M A C R O S
+@@ -2748,6 +2819,7 @@ P_SW_RFB_T qmHandleRxPackets(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfbList
+ 			} else {
+ 				/* Dont not occupy other SW RFB */
+ 				DBGLOG(QM, WARN, "Mark NULL the Packet for less Free Sw Rfb\n");
++				g_rEchoRxStat.u4QmLowRfbDrop++;
+ 				prCurrSwRfb->eDst = RX_PKT_DESTINATION_NULL;
+ 				QUEUE_INSERT_TAIL(&rReturnedQue, (P_QUE_ENTRY_T) prCurrSwRfb);
+ 				continue;
+@@ -2778,6 +2850,8 @@ P_SW_RFB_T qmHandleRxPackets(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfbList
+ 		}
+ 		/* Reordering is not required for this packet, return it without buffering */
+ 		else if (!HIF_RX_HDR_GET_REORDER_FLAG(prHifRxHdr) || fgIsBMC) {
++			if (!fgIsBMC && !HIF_RX_HDR_GET_80211_FLAG(prHifRxHdr))
++				g_rEchoRxStat.u4NoReorder++;
+ #if 0
+ 			if (!HIF_RX_HDR_GET_80211_FLAG(prHifRxHdr)) {
+ 				UINT_8 ucNetTypeIdx;
+@@ -2848,6 +2922,7 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 	P_QUE_T prReorderQue;
+ 	/* P_SW_RFB_T prReorderedSwRfb; */
+ 	BOOLEAN fgIsBaTimeout;
++	UINT_32 u4QueuedBefore;
+ 
+ 	DEBUGFUNC("qmProcessPktWithReordering");
+ 
+@@ -2892,6 +2967,7 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 		/* TODO: (Tehuang) Handle the Host-FW sync issue. */
+ 		prSwRfb->eDst = RX_PKT_DESTINATION_NULL;
+ 		QUEUE_INSERT_TAIL(prReturnedQue, (P_QUE_ENTRY_T) prSwRfb);
++		g_rEchoRxStat.u4BaNoEntry++;
+ 		DBGLOG(QM, WARN, "Reordering for a NULL ReorderQueParm\n");
+ 		/* ASSERT(0); */
+ 		return;
+@@ -2903,6 +2979,9 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 	u4WinStart = (UINT_32) (prReorderQueParm->u2WinStart);
+ 	u4WinEnd = (UINT_32) (prReorderQueParm->u2WinEnd);
+ 
++	g_rEchoRxStat.u4BaIn++;
++	prSwRfb->rEchoBaTime = kalGetTimeTick();
++
+ 	/* Debug */
+ 	/* DbgPrint("QM:(R)[%d](%ld){%ld,%ld}\n", prSwRfb->ucTid, u4SeqNo, u4WinStart, u4WinEnd); */
+ 
+@@ -2928,8 +3007,14 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 		}
+ #endif
+ 
+-		if (qmPopOutDueToFallWithin(prReorderQueParm, prReturnedQue, &fgIsBaTimeout) == FALSE)
++		g_rEchoRxStat.u4BaWithin++;
++		if (prReorderQue->u4NumElem > g_rEchoRxStat.u4BaDepthMax)
++			g_rEchoRxStat.u4BaDepthMax = prReorderQue->u4NumElem;
++
++		if (qmPopOutDueToFallWithin(prReorderQueParm, prReturnedQue, &fgIsBaTimeout) == FALSE) {
+ 			STATS_RX_REORDER_HOLE_INC(prStaRec);	/* record hole count */
++			g_rEchoRxStat.u4BaHeld++;
++		}
+ 		STATS_RX_REORDER_HOLE_TIMEOUT_INC(prStaRec, fgIsBaTimeout);
+ 	}
+ 	/* Case 2: Fall ahead */
+@@ -2952,6 +3037,7 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 			prReorderQueParm->fgIsWaitingForPktWithSsn = FALSE;
+ #endif
+ 
++		u4QueuedBefore = prReorderQue->u4NumElem;
+ 		qmInsertFallAheadReorderPkt(prSwRfb, prReorderQueParm, prReturnedQue);
+ 
+ 		/* Advance the window after inserting a new tail */
+@@ -2964,6 +3050,21 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ 
+ 		STATS_RX_REORDER_FALL_AHEAD_INC(prStaRec);
+ 
++		/* sequence numbers passed minus frames released = holes given up */
++		{
++			UINT_32 u4Passed = (prReorderQueParm->u2WinStart + MAX_SEQ_NO_COUNT - u4WinStart) %
++					   MAX_SEQ_NO_COUNT;
++			UINT_32 u4Released = u4QueuedBefore + 1 - prReorderQue->u4NumElem;
++			UINT_32 u4Skip = (u4Passed > u4Released) ? (u4Passed - u4Released) : 0;
++
++			g_rEchoRxStat.u4BaAhead++;
++			g_rEchoRxStat.u4BaAheadSkip += u4Skip;
++			if (u4Skip)
++				pr_info_ratelimited("ECHO_WLAN_RX_BA: fall-ahead sn=%u gave up %u sn tid=%u win %u->%u queued=%u\n",
++						    u4SeqNo, u4Skip, prReorderQueParm->ucTid, u4WinStart,
++						    prReorderQueParm->u2WinStart, prReorderQue->u4NumElem);
++		}
++
+ 	}
+ 	/* Case 3: Fall behind */
+ 	else {
+@@ -2979,10 +3080,15 @@ VOID qmProcessPktWithReordering(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb,
+ #endif
+ #endif
+ 
+-		if (HIF_RX_HDR_GET_RETRY_FLAG(prHifRxHdr))
++		if (HIF_RX_HDR_GET_RETRY_FLAG(prHifRxHdr)) {
+ 			prSwRfb->eDst = RX_PKT_DESTINATION_NULL;
+-		else
++			g_rEchoRxStat.u4BaBehindDrop++;
++			pr_info_ratelimited("ECHO_WLAN_RX_BA: fall-behind retry dropped sn=%u tid=%u win=%u-%u\n",
++					    u4SeqNo, prSwRfb->ucTid, u4WinStart, u4WinEnd);
++		} else {
+ 			STATS_RX_REORDER_FALL_BEHIND_INC(prStaRec);
++			g_rEchoRxStat.u4BaBehindPass++;
++		}
+ 		/* always indicate to kernel, even we received a fall behind packet,
+ 			let kernel check it. to avoid some IOT issue */
+ 		QUEUE_INSERT_TAIL(prReturnedQue, (P_QUE_ENTRY_T) prSwRfb);
+@@ -3054,7 +3160,11 @@ VOID qmProcessBarFrame(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb, OUT P_QU
+ 	u4WinStart = (UINT_32) (prReorderQueParm->u2WinStart);
+ 	u4WinEnd = (UINT_32) (prReorderQueParm->u2WinEnd);
+ 
++	g_rEchoRxStat.u4BaBar++;
+ 	if (qmCompareSnIsLessThan(u4WinStart, u4SSN)) {
++		UINT_32 u4QueuedBefore = prReorderQue->u4NumElem;
++		UINT_32 u4Passed, u4Released;
++
+ 		prReorderQueParm->u2WinStart = (UINT_16) u4SSN;
+ 		prReorderQueParm->u2WinEnd =
+ 		    ((prReorderQueParm->u2WinStart) + (prReorderQueParm->u2WinSize) - 1) % MAX_SEQ_NO_COUNT;
+@@ -3062,6 +3172,15 @@ VOID qmProcessBarFrame(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfb, OUT P_QU
+ 		       "QM:(BAR)[%d](%u){%d,%d}\n", prSwRfb->ucTid, u4SSN, prReorderQueParm->u2WinStart,
+ 			prReorderQueParm->u2WinEnd);
+ 		qmPopOutDueToFallAhead(prReorderQueParm, prReturnedQue);
++
++		/* frames below the BAR SSN that never arrived are given up */
++		u4Passed = (u4SSN + MAX_SEQ_NO_COUNT - u4WinStart) % MAX_SEQ_NO_COUNT;
++		u4Released = u4QueuedBefore - prReorderQue->u4NumElem;
++		if (u4Passed > u4Released) {
++			g_rEchoRxStat.u4BaBarSkip += u4Passed - u4Released;
++			pr_info_ratelimited("ECHO_WLAN_RX_BA: BAR ssn=%u gave up %u sn tid=%u win_start was %u\n",
++					    u4SSN, u4Passed - u4Released, prSwRfb->ucTid, u4WinStart);
++		}
+ 	} else {
+ 		DBGLOG(QM, TRACE, "QM:(BAR)(%d)(%u){%u,%u}\n", prSwRfb->ucTid, u4SSN, u4WinStart, u4WinEnd);
+ 	}
+@@ -3095,6 +3214,7 @@ VOID qmInsertFallWithinReorderPkt(IN P_SW_RFB_T prSwRfb, IN P_RX_BA_ENTRY_T prRe
+ 			if (((prExaminedQueuedSwRfb->u2SSN) == (prSwRfb->u2SSN))) {
+ 				prSwRfb->eDst = RX_PKT_DESTINATION_NULL;
+ 				QUEUE_INSERT_TAIL(prReturnedQue, (P_QUE_ENTRY_T) prSwRfb);
++				g_rEchoRxStat.u4BaDup++;
+ 				return;
+ 			}
+ 
+@@ -3226,6 +3346,7 @@ qmPopOutDueToFallWithin(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prRetur
+ 				(((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext)->prPrev = NULL;
+ 			}
+ 			prReorderQue->u4NumElem--;
++			echoWlanRxStatHold(prReorderedSwRfb);
+ 			/* DbgPrint("QM: [%d] %d (%d)\n",
+ 				prReorderQueParm->ucTid,
+ 				prReorderedSwRfb->u2PacketLen,
+@@ -3234,9 +3355,11 @@ qmPopOutDueToFallWithin(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prRetur
+ 		}
+ 	}
+ 
+-	if (u4Skipped)
++	if (u4Skipped) {
++		g_rEchoRxStat.u4BaTimeoutSkip += u4Skipped;
+ 		pr_info_ratelimited("ECHO_WLAN_RX_BA: timeout released %u hole(s) tid=%u win_start=%u\n",
+ 				    u4Skipped, prReorderQueParm->ucTid, prReorderQueParm->u2WinStart);
++	}
+ 
+ 	if (QUEUE_IS_EMPTY(prReorderQue))
+ 		*prMissTimeout = 0;
+@@ -3295,6 +3418,7 @@ VOID qmPopOutDueToFallAhead(IN P_RX_BA_ENTRY_T prReorderQueParm, OUT P_QUE_T prR
+ 				(((P_QUE_ENTRY_T) prReorderedSwRfb)->prNext)->prPrev = NULL;
+ 			}
+ 			prReorderQue->u4NumElem--;
++			echoWlanRxStatHold(prReorderedSwRfb);
+ 			/* DbgPrint("QM: [%d] %d (%d)\n", */
+ 			/* prReorderQueParm->ucTid, prReorderedSwRfb->u2PacketLen, prReorderedSwRfb->u2SSN); */
+ 			QUEUE_INSERT_TAIL(prReturnedQue, (P_QUE_ENTRY_T) prReorderedSwRfb);
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_kal.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_kal.c
+index 589413c9f..1378b9284 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_kal.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_kal.c
+@@ -1480,6 +1480,27 @@ WLAN_STATUS kalRxIndicatePkts(IN P_GLUE_INFO_T prGlueInfo, IN PVOID apvPkts[], I
+ 	UINT_32 i;
+ #endif
+ 
++	if (ucPktNum) {
++		static int s_iEchoLastCpu = -1;
++		int iCpu = get_cpu();
++
++		g_rEchoRxStat.u4IndBatch++;
++		g_rEchoRxStat.u4IndPkt += ucPktNum;
++		if (s_iEchoLastCpu >= 0 && s_iEchoLastCpu != iCpu)
++			g_rEchoRxStat.u4IndCpuSwitch++;
++		s_iEchoLastCpu = iCpu;
++#ifndef MODULE
++		/* netif_rx() defers NET_RX to ksoftirqd while it is runnable */
++		{
++			struct task_struct *prSoftirqd = per_cpu(ksoftirqd, iCpu);
++
++			if (prSoftirqd && task_is_running(prSoftirqd))
++				g_rEchoRxStat.u4IndSoftirqdBusy++;
++		}
++#endif
++		put_cpu();
++	}
++
+ 	for (ucIdx = 0; ucIdx < ucPktNum; ucIdx++) {
+ 		prSkb = apvPkts[ucIdx];
+ #if DBG

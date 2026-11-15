@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 12:09:58 +0100
+Subject: [PATCH 26/27] feat(wlan): optionally read RX ports when the status
+ reports RX lengths
+
+nicProcessIST_impl() reads the RX ports only when WHISR carries
+RX0_DONE/RX1_DONE. The enhanced status read also returns the RX
+length FIFO; when it reports lengths without a DONE bit, those frames
+are not read in this pass. If the hardware does not raise DONE again
+for frames already queued, they wait for the next arrival; if the read
+popped their lengths, the port and the length list fall out of step.
+The vendor code already forces TX_DONE and the mailbox bit the same way
+when their counters are non-zero.
+
+The previous patches count this as lenNoBit in ECHO_WLAN_RXSTAT. If
+that counter moves while downloads stall, enable
+
+  echo 1 > /sys/module/wlan_mt/parameters/rx_len_sets_done
+
+to set the DONE bit for any port that reports lengths. Off by default.
+---
+ .../conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c      | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+index 637bd40ec..6035c4683 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+@@ -1006,6 +1006,14 @@ VOID nicSDIOInit(IN P_ADAPTER_T prAdapter)
+ *
+ */
+ /*----------------------------------------------------------------------------*/
++/*
++ * Experiment: treat RX lengths in the enhanced status as pending RX even
++ * when WHISR has no RX DONE bit (counted as lenNoBit in ECHO_WLAN_RXSTAT).
++ */
++static bool rx_len_sets_done;
++module_param(rx_len_sets_done, bool, 0644);
++MODULE_PARM_DESC(rx_len_sets_done, "read the RX ports whenever the enhanced status reports RX lengths");
++
+ VOID nicSDIOReadIntStatus(IN P_ADAPTER_T prAdapter, OUT PUINT_32 pu4IntStatus)
+ {
+ 	P_SDIO_CTRL_T prSDIOCtrl;
+@@ -1040,6 +1048,13 @@ VOID nicSDIOReadIntStatus(IN P_ADAPTER_T prAdapter, OUT PUINT_32 pu4IntStatus)
+ 		pr_info_ratelimited("ECHO_WLAN_RXHIF: RX lengths without RX done bit WHISR=0x%08x rx0=%u rx1=%u\n",
+ 				    prSDIOCtrl->u4WHISR, prSDIOCtrl->rRxInfo.u.u2NumValidRx0Len,
+ 				    prSDIOCtrl->rRxInfo.u.u2NumValidRx1Len);
++		/* same treatment the TX status and mailbox get below */
++		if (READ_ONCE(rx_len_sets_done)) {
++			if (prSDIOCtrl->rRxInfo.u.u2NumValidRx0Len)
++				prSDIOCtrl->u4WHISR |= WHISR_RX0_DONE_INT;
++			if (prSDIOCtrl->rRxInfo.u.u2NumValidRx1Len)
++				prSDIOCtrl->u4WHISR |= WHISR_RX1_DONE_INT;
++		}
+ 	}
+ 
+ 	/* workaround */

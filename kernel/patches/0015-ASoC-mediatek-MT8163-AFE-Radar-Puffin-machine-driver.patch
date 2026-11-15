@@ -1,0 +1,4314 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 13:46:21 +0100
+Subject: [PATCH 15/27] ASoC: mediatek: MT8163 AFE, Radar-Puffin machine driver
+ and FPGA SPI capture
+
+Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
+---
+ sound/soc/mediatek/Kconfig                    |   32 +
+ sound/soc/mediatek/Makefile                   |    2 +
+ sound/soc/mediatek/mt8163-amzn-spi/Makefile   |    2 +
+ .../mt8163-amzn-spi/amzn-fpga-oracle-tail.h   |  123 ++
+ .../mt8163-amzn-spi/amzn-mt-spi-pcm.c         |  880 +++++++++++
+ .../mt8163-amzn-spi/amzn-mt-spi-pcm.h         |   33 +
+ sound/soc/mediatek/mt8163-amzn-spi/dough.h    |   43 +
+ sound/soc/mediatek/mt8163/Makefile            |    7 +
+ sound/soc/mediatek/mt8163/mt8163-afe.c        | 1332 +++++++++++++++++
+ sound/soc/mediatek/mt8163/mt8163-afe.h        |   16 +
+ sound/soc/mediatek/mt8163/mt8163-mclk.c       |  443 ++++++
+ sound/soc/mediatek/mt8163/mt8163-mclk.h       |   12 +
+ .../soc/mediatek/mt8163/mt8163-radar-puffin.c | 1268 ++++++++++++++++
+ 13 files changed, 4193 insertions(+)
+ create mode 100644 sound/soc/mediatek/mt8163-amzn-spi/Makefile
+ create mode 100644 sound/soc/mediatek/mt8163-amzn-spi/amzn-fpga-oracle-tail.h
+ create mode 100644 sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
+ create mode 100644 sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.h
+ create mode 100644 sound/soc/mediatek/mt8163-amzn-spi/dough.h
+ create mode 100644 sound/soc/mediatek/mt8163/Makefile
+ create mode 100644 sound/soc/mediatek/mt8163/mt8163-afe.c
+ create mode 100644 sound/soc/mediatek/mt8163/mt8163-afe.h
+ create mode 100644 sound/soc/mediatek/mt8163/mt8163-mclk.c
+ create mode 100644 sound/soc/mediatek/mt8163/mt8163-mclk.h
+ create mode 100644 sound/soc/mediatek/mt8163/mt8163-radar-puffin.c
+
+diff --git a/sound/soc/mediatek/Kconfig b/sound/soc/mediatek/Kconfig
+index 3033e2d3f..3e8ebc6df 100644
+--- a/sound/soc/mediatek/Kconfig
++++ b/sound/soc/mediatek/Kconfig
+@@ -3,6 +3,38 @@ config SND_SOC_MEDIATEK
+ 	tristate
+ 	select REGMAP_MMIO
+ 
++config SND_SOC_AMZN_MT8163_SPI_AUDIO
++	tristate "Amazon Radar-Puffin FPGA SPI audio capture"
++	depends on SPI && GPIOLIB && OF
++	depends on ARCH_MEDIATEK || COMPILE_TEST
++	help
++	  Enable the FPGA-backed, nine-channel SPI capture interface used by
++	  Amazon Radar-Puffin MT8163 devices.  The driver loads
++	  i2s_to_spi_v34.bin into the FPGA during probe.
++
++config SND_SOC_MT8163
++	tristate "ASoC support for MediaTek MT8163 Radar-Puffin"
++	depends on ARCH_MEDIATEK || COMPILE_TEST
++	depends on COMMON_CLK && OF
++	select MFD_SYSCON
++	select REGMAP_MMIO
++	help
++	  Enable the MT8163 AFE DL1 memory interface, I2S output and board
++	  master-clock support used by Amazon Radar-Puffin devices.
++
++config SND_SOC_MT8163_RADAR_PUFFIN
++	tristate "ASoC machine driver for Amazon Radar-Puffin"
++	depends on SND_SOC_MT8163
++	depends on SND_SOC_AMZN_MT8163_SPI_AUDIO
++	depends on I2C && SPI
++	select SND_SOC_TLV320AIC32X4_I2C
++	select SND_SOC_TLV320AIC3101_AMAZON
++	select SND_SOC_8_MICS
++	help
++	  Enable the Radar-Puffin sound card with its TLV320AIC32x4 speaker
++	  DAC, aggregate TLV320ADC3101 microphone component and FPGA SPI
++	  capture path.
++
+ config SND_SOC_MT2701
+ 	tristate "ASoC support for Mediatek MT2701 chip"
+ 	depends on ARCH_MEDIATEK
+diff --git a/sound/soc/mediatek/Makefile b/sound/soc/mediatek/Makefile
+index 4b55434f2..bf76e22db 100644
+--- a/sound/soc/mediatek/Makefile
++++ b/sound/soc/mediatek/Makefile
+@@ -1,5 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ obj-$(CONFIG_SND_SOC_MEDIATEK) += common/
++obj-$(CONFIG_SND_SOC_AMZN_MT8163_SPI_AUDIO) += mt8163-amzn-spi/
++obj-$(CONFIG_SND_SOC_MT8163) += mt8163/
+ obj-$(CONFIG_SND_SOC_MT2701) += mt2701/
+ obj-$(CONFIG_SND_SOC_MT6797) += mt6797/
+ obj-$(CONFIG_SND_SOC_MT7986) += mt7986/
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/Makefile b/sound/soc/mediatek/mt8163-amzn-spi/Makefile
+new file mode 100644
+index 000000000..537c69ab1
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163-amzn-spi/Makefile
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: GPL-2.0-only
++obj-$(CONFIG_SND_SOC_AMZN_MT8163_SPI_AUDIO) += amzn-mt-spi-pcm.o
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/amzn-fpga-oracle-tail.h b/sound/soc/mediatek/mt8163-amzn-spi/amzn-fpga-oracle-tail.h
+new file mode 100644
+index 000000000..15e32a5a5
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163-amzn-spi/amzn-fpga-oracle-tail.h
+@@ -0,0 +1,123 @@
++/* Recovered from the matching Linux 3.18 oracle's firmware over-read tail.
++ * This is an experiment only; do not treat it as a firmware-format contract.
++ */
++#ifndef AMZN_FPGA_ORACLE_TAIL_H
++#define AMZN_FPGA_ORACLE_TAIL_H
++
++static const u8 amzn_fpga_oracle_tail[] = {
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x0c, 0x0c,
++    0x08, 0x0c, 0x0c, 0x0c, 0x10, 0x10, 0x10, 0x18, 0x18, 0x08, 0x14, 0x14, 0x0c, 0x0c, 0x10, 0x14,
++    0x10, 0x00, 0x00, 0x00, 0x73, 0x6f, 0x63, 0x6b, 0x5f, 0x72, 0x65, 0x67, 0x69, 0x73, 0x74, 0x65,
++    0x72, 0x00, 0x00, 0x00, 0x73, 0x6f, 0x63, 0x6b, 0x5f, 0x72, 0x65, 0x6c, 0x65, 0x61, 0x73, 0x65,
++    0x00, 0x00, 0x00, 0x00, 0x73, 0x74, 0x61, 0x74, 0x69, 0x63, 0x5f, 0x6b, 0x65, 0x79, 0x5f, 0x73,
++    0x6c, 0x6f, 0x77, 0x5f, 0x69, 0x6e, 0x63, 0x00, 0x73, 0x74, 0x61, 0x74, 0x69, 0x63, 0x5f, 0x6b,
++    0x65, 0x79, 0x5f, 0x73, 0x6c, 0x6f, 0x77, 0x5f, 0x64, 0x65, 0x63, 0x00, 0x73, 0x6f, 0x63, 0x6b,
++    0x5f, 0x73, 0x65, 0x74, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x6f, 0x75, 0x74, 0x00, 0x00, 0x00, 0x00,
++    0x5f, 0x5f, 0x73, 0x6b, 0x5f, 0x66, 0x72, 0x65, 0x65, 0x00, 0x00, 0x00, 0x61, 0x73, 0x73, 0x69,
++    0x67, 0x6e, 0x5f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x5f, 0x69, 0x64, 0x78, 0x00, 0x00, 0x00, 0x00,
++    0x70, 0x72, 0x6f, 0x74, 0x6f, 0x5f, 0x72, 0x65, 0x67, 0x69, 0x73, 0x74, 0x65, 0x72, 0x00, 0x00,
++    0x73, 0x6f, 0x63, 0x6b, 0x5f, 0x77, 0x61, 0x72, 0x6e, 0x5f, 0x6f, 0x62, 0x73, 0x6f, 0x6c, 0x65,
++    0x74, 0x65, 0x5f, 0x62, 0x73, 0x64, 0x69, 0x73, 0x6d, 0x00, 0x00, 0x00, 0x73, 0x6b, 0x62, 0x5f,
++    0x6f, 0x76, 0x65, 0x72, 0x5f, 0x70, 0x61, 0x6e, 0x69, 0x63, 0x00, 0x00, 0x73, 0x6b, 0x62, 0x5f,
++    0x75, 0x6e, 0x64, 0x65, 0x72, 0x5f, 0x70, 0x61, 0x6e, 0x69, 0x63, 0x00, 0x73, 0x74, 0x61, 0x74,
++    0x69, 0x63, 0x5f, 0x6b, 0x65, 0x79, 0x5f, 0x73, 0x6c, 0x6f, 0x77, 0x5f, 0x69, 0x6e, 0x63, 0x00,
++    0x73, 0x74, 0x61, 0x74, 0x69, 0x63, 0x5f, 0x6b, 0x65, 0x79, 0x5f, 0x73, 0x6c, 0x6f, 0x77, 0x5f,
++    0x64, 0x65, 0x63, 0x00, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x5f, 0x64, 0x65, 0x76, 0x69,
++    0x63, 0x65, 0x5f, 0x65, 0x78, 0x69, 0x74, 0x00, 0x73, 0x74, 0x61, 0x74, 0x69, 0x63, 0x5f, 0x6b,
++    0x65, 0x79, 0x5f, 0x73, 0x6c, 0x6f, 0x77, 0x5f, 0x69, 0x6e, 0x63, 0x00, 0x73, 0x74, 0x61, 0x74,
++    0x69, 0x63, 0x5f, 0x6b, 0x65, 0x79, 0x5f, 0x73, 0x6c, 0x6f, 0x77, 0x5f, 0x64, 0x65, 0x63, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x6f, 0x6c, 0x6c,
++    0x62, 0x61, 0x63, 0x6b, 0x5f, 0x72, 0x65, 0x67, 0x69, 0x73, 0x74, 0x65, 0x72, 0x65, 0x64, 0x5f,
++    0x6d, 0x61, 0x6e, 0x79, 0x00, 0x00, 0x00, 0x00, 0x6e, 0x65, 0x74, 0x64, 0x65, 0x76, 0x5f, 0x66,
++    0x69, 0x78, 0x5f, 0x66, 0x65, 0x61, 0x74, 0x75, 0x72, 0x65, 0x73, 0x00, 0x5f, 0x5f, 0x6e, 0x65,
++    0x74, 0x64, 0x65, 0x76, 0x5f, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x5f, 0x66, 0x65, 0x61, 0x74,
++    0x75, 0x72, 0x65, 0x73, 0x00, 0x00, 0x00, 0x00, 0x5f, 0x5f, 0x6e, 0x65, 0x74, 0x64, 0x65, 0x76,
++    0x5f, 0x61, 0x64, 0x6a, 0x61, 0x63, 0x65, 0x6e, 0x74, 0x5f, 0x64, 0x65, 0x76, 0x5f, 0x72, 0x65,
++    0x6d, 0x6f, 0x76, 0x65, 0x00, 0x00, 0x00, 0x00, 0x5f, 0x5f, 0x6e, 0x65, 0x74, 0x64, 0x65, 0x76,
++    0x5f, 0x61, 0x64, 0x6a, 0x61, 0x63, 0x65, 0x6e, 0x74, 0x5f, 0x64, 0x65, 0x76, 0x5f, 0x69, 0x6e,
++    0x73, 0x65, 0x72, 0x74, 0x00, 0x00, 0x00, 0x00, 0x5f, 0x5f, 0x6e, 0x65, 0x74, 0x64, 0x65, 0x76,
++    0x5f, 0x75, 0x70, 0x70, 0x65, 0x72, 0x5f, 0x64, 0x65, 0x76, 0x5f, 0x6c, 0x69, 0x6e, 0x6b, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x3a, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x73,
++    0x63, 0x61, 0x74, 0x74, 0x65, 0x72, 0x2d, 0x67, 0x61, 0x74, 0x68, 0x65, 0x72, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x63,
++    0x68, 0x65, 0x63, 0x6b, 0x73, 0x75, 0x6d, 0x2d, 0x69, 0x70, 0x76, 0x34, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x63,
++    0x68, 0x65, 0x63, 0x6b, 0x73, 0x75, 0x6d, 0x2d, 0x69, 0x70, 0x2d, 0x67, 0x65, 0x6e, 0x65, 0x72,
++    0x69, 0x63, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x63,
++    0x68, 0x65, 0x63, 0x6b, 0x73, 0x75, 0x6d, 0x2d, 0x69, 0x70, 0x76, 0x36, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x68, 0x69, 0x67, 0x68,
++    0x64, 0x6d, 0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x73,
++    0x63, 0x61, 0x74, 0x74, 0x65, 0x72, 0x2d, 0x67, 0x61, 0x74, 0x68, 0x65, 0x72, 0x2d, 0x66, 0x72,
++    0x61, 0x67, 0x6c, 0x69, 0x73, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x76,
++    0x6c, 0x61, 0x6e, 0x2d, 0x68, 0x77, 0x2d, 0x69, 0x6e, 0x73, 0x65, 0x72, 0x74, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x76,
++    0x6c, 0x61, 0x6e, 0x2d, 0x68, 0x77, 0x2d, 0x70, 0x61, 0x72, 0x73, 0x65, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x76,
++    0x6c, 0x61, 0x6e, 0x2d, 0x66, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76, 0x6c, 0x61, 0x6e,
++    0x2d, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x67,
++    0x65, 0x6e, 0x65, 0x72, 0x69, 0x63, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74,
++    0x69, 0x6f, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x6c,
++    0x6f, 0x63, 0x6b, 0x6c, 0x65, 0x73, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6e, 0x65, 0x74, 0x6e,
++    0x73, 0x2d, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x67,
++    0x72, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x6c,
++    0x72, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x74,
++    0x63, 0x70, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x75,
++    0x64, 0x70, 0x2d, 0x66, 0x72, 0x61, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x67,
++    0x73, 0x6f, 0x2d, 0x72, 0x6f, 0x62, 0x75, 0x73, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x74,
++    0x63, 0x70, 0x2d, 0x65, 0x63, 0x6e, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74,
++    0x69, 0x6f, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x74,
++    0x63, 0x70, 0x36, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x66,
++    0x63, 0x6f, 0x65, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x67,
++    0x72, 0x65, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x69,
++    0x70, 0x69, 0x70, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x73,
++    0x69, 0x74, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x75,
++    0x64, 0x70, 0x5f, 0x74, 0x6e, 0x6c, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74,
++    0x69, 0x6f, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x6d,
++    0x70, 0x6c, 0x73, 0x2d, 0x73, 0x65, 0x67, 0x6d, 0x65, 0x6e, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x63,
++    0x68, 0x65, 0x63, 0x6b, 0x73, 0x75, 0x6d, 0x2d, 0x66, 0x63, 0x6f, 0x65, 0x2d, 0x63, 0x72, 0x63,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x63,
++    0x68, 0x65, 0x63, 0x6b, 0x73, 0x75, 0x6d, 0x2d, 0x73, 0x63, 0x74, 0x70, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x66, 0x63, 0x6f, 0x65,
++    0x2d, 0x6d, 0x74, 0x75, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x6e,
++    0x74, 0x75, 0x70, 0x6c, 0x65, 0x2d, 0x66, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x68,
++    0x61, 0x73, 0x68, 0x69, 0x6e, 0x67, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x63,
++    0x68, 0x65, 0x63, 0x6b, 0x73, 0x75, 0x6d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x6e,
++    0x6f, 0x63, 0x61, 0x63, 0x68, 0x65, 0x2d, 0x63, 0x6f, 0x70, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6c, 0x6f, 0x6f, 0x70,
++    0x62, 0x61, 0x63, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x66,
++    0x63, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x78, 0x2d, 0x61,
++    0x6c, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x78, 0x2d, 0x76,
++    0x6c, 0x61, 0x6e, 0x2d, 0x73, 0x74, 0x61, 0x67, 0x2d, 0x68, 0x77, 0x2d,
++};
++
++#endif
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
+new file mode 100644
+index 000000000..d0b5b82f7
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
+@@ -0,0 +1,880 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Amazon Radar-Puffin FPGA SPI audio capture driver
++ *
++ * Copyright (c) 2016 Amazon.com, Inc. or its affiliates.
++ */
++
++#include <linux/build_bug.h>
++#include <linux/delay.h>
++#include <linux/dma-mapping.h>
++#include <linux/firmware.h>
++#include <linux/gpio/consumer.h>
++#include <linux/io.h>
++#include <linux/ktime.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/pinctrl/consumer.h>
++#include <linux/platform_device.h>
++#include <linux/printk.h>
++#include <linux/sched.h>
++#include <linux/slab.h>
++#include <linux/spi/spi.h>
++#include <linux/spinlock.h>
++#include <linux/uaccess.h>
++#include <linux/workqueue.h>
++
++#include <sound/core.h>
++#include <sound/pcm.h>
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++
++#include "amzn-mt-spi-pcm.h"
++#include "amzn-fpga-oracle-tail.h"
++
++/* Diagnostic-only register snapshot of the SPI controller and the pin-53-56
++ * MODE registers, to compare against the known-good Linux 3.18 oracle values
++ * (CFG0=0x03030101 CFG1=0x03ff0503 CMD=0x00033300 PAD_SEL=0x00000000,
++ *  MODE 0x6a0=0x00001200 MODE 0x6b0=0x00000249). Read-only; no writes. */
++static void amzn_spi_dump_regs(struct device *dev)
++{
++	void __iomem *spi_base;
++	void __iomem *pctl_base;
++
++	spi_base = ioremap(0x1100a000, 0x40);
++	if (!spi_base) {
++		dev_info(dev, "FPGA regdiag: ioremap SPI failed\n");
++		return;
++	}
++	dev_info(dev,
++		 "FPGA regdiag SPI CFG0=0x%08x CFG1=0x%08x CMD=0x%08x PAD_SEL=0x%08x\n",
++		 readl_relaxed(spi_base + 0x00), readl_relaxed(spi_base + 0x04),
++		 readl_relaxed(spi_base + 0x18), readl_relaxed(spi_base + 0x24));
++	iounmap(spi_base);
++
++	pctl_base = ioremap(0x10005000, 0x1000);
++	if (!pctl_base) {
++		dev_info(dev, "FPGA regdiag: ioremap pinctrl failed\n");
++		return;
++	}
++	dev_info(dev,
++		 "FPGA regdiag PIN MODE 0x6a0=0x%08x 0x6b0=0x%08x DIN(0x530)=0x%08x DOUT(0x430)=0x%08x\n",
++		 readl_relaxed(pctl_base + 0x6a0), readl_relaxed(pctl_base + 0x6b0),
++		 readl_relaxed(pctl_base + 0x530), readl_relaxed(pctl_base + 0x430));
++	dev_info(dev,
++		 "FPGA regdiag I2S MODE 0x6e0(p70-74)=0x%08x DIN(0x540 p64-79)=0x%08x\n",
++		 readl_relaxed(pctl_base + 0x6e0), readl_relaxed(pctl_base + 0x540));
++	iounmap(pctl_base);
++}
++
++static_assert(sizeof(struct dough_status_frame) == 27);
++static_assert(offsetof(struct dough_status_frame, fpga_rev) == 26);
++static_assert(sizeof(struct dough_frame) == 6912);
++static_assert(sizeof(amzn_fpga_oracle_tail) == 1804);
++
++struct amzn_spi_priv {
++	struct spi_device *spi;
++	struct gpio_desc *reset_gpio;
++	struct pinctrl *pinctrl;
++	struct pinctrl_state *i2s_mode0;
++	struct pinctrl_state *i2s_mode1;
++	struct pinctrl_state *mclk;
++	struct workqueue_struct *spi_wq;
++	struct work_struct spi_work;
++	struct snd_pcm_substream *substream;
++	spinlock_t state_lock; /* protects running */
++	spinlock_t write_lock; /* protects cur_write_offset */
++	size_t cur_write_offset;
++	size_t elapsed;
++	size_t kernel_overruns;
++	size_t fpga_overruns;
++	bool running;
++};
++
++static const struct snd_pcm_hardware amzn_mt_spi_pcm_hardware = {
++	.info = SNDRV_PCM_INFO_INTERLEAVED,
++	.formats = SNDRV_PCM_FMTBIT_S24_3LE,
++	.rates = SNDRV_PCM_RATE_16000,
++	.rate_min = SAMPLING_RATE,
++	.rate_max = SAMPLING_RATE,
++	.channels_min = SPI_N_CHANNELS,
++	.channels_max = SPI_N_CHANNELS,
++	.buffer_bytes_max = SPI_BUFFER_BYTES_MAX,
++	.period_bytes_max = SPI_PERIOD_BYTES_MAX,
++	.period_bytes_min = SPI_PERIOD_BYTES_MIN,
++	.periods_min = SPI_N_PERIODS_MIN,
++	.periods_max = SPI_N_PERIODS_MAX,
++};
++
++static const char * const spi_timestamp_texts[] = { "Off", "On" };
++static SOC_ENUM_SINGLE_EXT_DECL(spi_timestamp_enum, spi_timestamp_texts);
++static bool transfer_timestamps;
++
++static int transfer_timestamps_get(struct snd_kcontrol *kcontrol,
++				   struct snd_ctl_elem_value *ucontrol)
++{
++	ucontrol->value.enumerated.item[0] = transfer_timestamps;
++	return 0;
++}
++
++static int transfer_timestamps_set(struct snd_kcontrol *kcontrol,
++				   struct snd_ctl_elem_value *ucontrol)
++{
++	unsigned int value = ucontrol->value.enumerated.item[0];
++
++	if (value >= ARRAY_SIZE(spi_timestamp_texts))
++		return -EINVAL;
++
++	if (transfer_timestamps == value)
++		return 0;
++
++	transfer_timestamps = value;
++	return 1;
++}
++
++static const struct snd_kcontrol_new amzn_mt_spi_controls[] = {
++	SOC_ENUM_EXT("SpiTimeStamps", spi_timestamp_enum,
++		     transfer_timestamps_get, transfer_timestamps_set),
++};
++
++static int amzn_spi_txrx(struct amzn_spi_priv *priv, const void *tx,
++			 void *rx, size_t len)
++{
++	struct spi_transfer xfer = {
++		.tx_buf = tx,
++		.rx_buf = rx,
++		.len = len,
++		.bits_per_word = 8,
++		.speed_hz = SPI_SPEED_HZ,
++	};
++	struct spi_message msg;
++
++	spi_message_init(&msg);
++	spi_message_add_tail(&xfer, &msg);
++
++	return spi_sync(priv->spi, &msg);
++}
++
++static int amzn_spi_probe_txrx(struct amzn_spi_priv *priv, const void *tx,
++			       void *rx, size_t len, const char *stage)
++{
++	struct spi_transfer xfer = {
++		.tx_buf = tx,
++		.rx_buf = rx,
++		.len = len,
++		.bits_per_word = 8,
++		.speed_hz = SPI_SPEED_HZ,
++	};
++	struct spi_message msg;
++	ktime_t started;
++	int ret;
++
++	spi_message_init(&msg);
++	spi_message_add_tail(&xfer, &msg);
++	started = ktime_get();
++	ret = spi_sync(priv->spi, &msg);
++	dev_info(&priv->spi->dev,
++		 "FPGA probe diag stage=%s tx=%u rx=%u len=%zu actual=%u ret=%d status=%d elapsed_us=%lld\n",
++		 stage, !!tx, !!rx, len, msg.actual_length, ret, msg.status,
++		 (long long)ktime_us_delta(ktime_get(), started));
++
++	return ret;
++}
++
++static void amzn_spi_log_fpga_status(struct amzn_spi_priv *priv,
++				     const struct dough_frame *rx_frame)
++{
++	const u8 *bytes = (const u8 *)rx_frame;
++	size_t dump_len = min_t(size_t, sizeof(*rx_frame), 64);
++	size_t nonzero = 0;
++	size_t rev34_count = 0;
++	int first_nonzero = -1;
++	int first_rev34 = -1;
++	size_t i;
++
++	for (i = 0; i < sizeof(*rx_frame); i++) {
++		if (bytes[i]) {
++			nonzero++;
++			if (first_nonzero < 0)
++				first_nonzero = i;
++		}
++		if (bytes[i] == 34) {
++			rev34_count++;
++			if (first_rev34 < 0)
++				first_rev34 = i;
++		}
++	}
++
++	dev_info(&priv->spi->dev,
++		 "FPGA status diag len=%zu nonzero=%zu first_nonzero=%d rev34_count=%zu first_rev34=%d fpga_rev=%u\n",
++		 sizeof(*rx_frame), nonzero, first_nonzero, rev34_count,
++		 first_rev34, rx_frame->dsf.fpga_rev);
++	print_hex_dump(KERN_INFO, "amzn-fpga-status: ", DUMP_PREFIX_OFFSET,
++		       16, 1, bytes, dump_len, false);
++}
++
++static bool amzn_spi_valid_fpga_rev(struct device *dev, u8 revision)
++{
++	if (revision < DOUGH_FPGA_REV_MIN ||
++	    revision > DOUGH_FPGA_REV_MAX) {
++		dev_err(dev, "unrecognized FPGA revision %u\n", revision);
++		return false;
++	}
++
++	return true;
++}
++
++static void amzn_spi_set_running(struct amzn_spi_priv *priv, bool running)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->state_lock, flags);
++	priv->running = running;
++	spin_unlock_irqrestore(&priv->state_lock, flags);
++}
++
++static bool amzn_spi_is_running(struct amzn_spi_priv *priv)
++{
++	unsigned long flags;
++	bool running;
++
++	spin_lock_irqsave(&priv->state_lock, flags);
++	running = priv->running;
++	spin_unlock_irqrestore(&priv->state_lock, flags);
++
++	return running;
++}
++
++static unsigned long amzn_spi_ktime_diff_us(ktime_t lhs, ktime_t rhs)
++{
++	if (ktime_before(lhs, rhs))
++		return SPI_READ_WAIT_MIN_US;
++
++	return ktime_to_us(ktime_sub(lhs, rhs));
++}
++
++static void amzn_spi_data_read(struct work_struct *work)
++{
++	struct amzn_spi_priv *priv =
++		container_of(work, struct amzn_spi_priv, spi_work);
++	struct snd_pcm_substream *substream = priv->substream;
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	struct dough_frame *tx_frame;
++	struct dough_frame *rx_frame;
++	u8 *timestamp_frame;
++	unsigned long wakeup_min = ULONG_MAX;
++	unsigned long wakeup_max = 0;
++	unsigned long elapsed_us = 0;
++	unsigned int flushed = 0;
++	u32 previous_fpga_ts = 0;
++	bool active_regdiag_dumped = false;
++	ktime_t current_time;
++	ktime_t previous_time;
++
++	tx_frame = kzalloc(sizeof(*tx_frame), GFP_KERNEL | GFP_DMA);
++	rx_frame = kzalloc(sizeof(*rx_frame), GFP_KERNEL | GFP_DMA);
++	timestamp_frame = kmalloc(SPI_BYTES_PER_PERIOD, GFP_KERNEL);
++	if (!tx_frame || !rx_frame || !timestamp_frame) {
++		dev_err(&priv->spi->dev, "failed to allocate SPI frame buffers\n");
++		goto out;
++	}
++
++	priv->elapsed = 0;
++	priv->cur_write_offset = 0;
++	priv->kernel_overruns = 0;
++	priv->fpga_overruns = 0;
++	amzn_spi_set_running(priv, true);
++	sched_set_fifo(current);
++
++	current_time = ktime_get_raw();
++	previous_time = current_time;
++
++	while (amzn_spi_is_running(priv)) {
++		size_t frame_count;
++		size_t bytes_left;
++		size_t copied = 0;
++		const u8 *source;
++		int ret;
++
++		ret = amzn_spi_txrx(priv, tx_frame, rx_frame,
++				    sizeof(*rx_frame));
++		if (ret) {
++			dev_err(&priv->spi->dev, "SPI audio receive failed: %d\n",
++				ret);
++			break;
++		}
++
++		if (!active_regdiag_dumped) {
++			/* Capture the controller state after a real audio transfer,
++			 * not only after FPGA setup.  This is read-only diagnostic data
++			 * for comparison with the 3.18 controller oracle. */
++			amzn_spi_dump_regs(&priv->spi->dev);
++			dev_info(&priv->spi->dev,
++				 "FPGA active frame mode=%u frames=%u timestamp=%u overrun=%u rev=%u\n",
++				 rx_frame->dsf.mode,
++				 le16_to_cpu(rx_frame->dsf.num_audio_frames),
++				 le32_to_cpu(rx_frame->dsf.timestamp_48mhz),
++				 rx_frame->dsf.overrun,
++				 rx_frame->dsf.fpga_rev);
++			active_regdiag_dumped = true;
++		}
++
++		if (!amzn_spi_valid_fpga_rev(&priv->spi->dev,
++					     rx_frame->dsf.fpga_rev))
++			goto delay;
++
++		if (rx_frame->dsf.overrun) {
++			ktime_t after_spi = ktime_get_raw();
++			unsigned long cycle_us;
++
++			if (flushed < MAX_FLUSHED_CYCLES)
++				goto delay;
++
++			cycle_us = amzn_spi_ktime_diff_us(after_spi, previous_time);
++			dev_err_ratelimited(&priv->spi->dev,
++					    "FPGA overrun: mode=%u frames=%u timestamp=%u delta=%u cycle_us=%lu total=%zu\n",
++					    rx_frame->dsf.mode,
++					    le16_to_cpu(rx_frame->dsf.num_audio_frames),
++					    le32_to_cpu(rx_frame->dsf.timestamp_48mhz),
++					    le32_to_cpu(rx_frame->dsf.timestamp_48mhz) -
++						previous_fpga_ts,
++					    cycle_us,
++					    ++priv->fpga_overruns);
++		}
++
++		if (!amzn_spi_is_running(priv))
++			break;
++
++		previous_fpga_ts =
++			le32_to_cpu(rx_frame->dsf.timestamp_48mhz);
++		frame_count = le16_to_cpu(rx_frame->dsf.num_audio_frames);
++		if (frame_count > DOUGH_AUDIO_FRAME_BUF) {
++			dev_err_ratelimited(&priv->spi->dev,
++					    "invalid FPGA frame count %zu\n",
++					    frame_count);
++			goto delay;
++		}
++
++		if (transfer_timestamps) {
++			/*
++			 * Userspace expects one 27-byte pseudo audio frame carrying
++			 * the 26-byte FPGA status header, followed by real frames.
++			 * Build that representation explicitly instead of reading one
++			 * byte past struct dough_frame at the maximum frame count.
++			 */
++			memset(timestamp_frame, 0, SPI_BYTES_PER_FRAME);
++			memcpy(timestamp_frame, &rx_frame->dsf,
++			       sizeof(rx_frame->dsf));
++			memcpy(timestamp_frame + SPI_BYTES_PER_FRAME,
++			       rx_frame->daf,
++			       frame_count * SPI_BYTES_PER_FRAME);
++			frame_count++;
++			source = timestamp_frame;
++		} else {
++			source = (const u8 *)rx_frame->daf;
++		}
++		bytes_left = frame_count * SPI_BYTES_PER_FRAME;
++
++		while (bytes_left) {
++			unsigned long flags;
++			size_t bytes;
++
++			bytes = min(runtime->dma_bytes - priv->cur_write_offset,
++				    bytes_left);
++			memcpy(runtime->dma_area + priv->cur_write_offset,
++			       source + copied, bytes);
++
++			spin_lock_irqsave(&priv->write_lock, flags);
++			priv->cur_write_offset =
++				(priv->cur_write_offset + bytes) %
++				runtime->dma_bytes;
++			spin_unlock_irqrestore(&priv->write_lock, flags);
++
++			bytes_left -= bytes;
++			copied += bytes;
++		}
++
++		priv->elapsed += copied;
++		while (priv->elapsed >= SPI_BYTES_PER_PERIOD) {
++			priv->elapsed -= SPI_BYTES_PER_PERIOD;
++			snd_pcm_period_elapsed(substream);
++		}
++
++delay:
++		if (flushed < MAX_FLUSHED_CYCLES)
++			flushed++;
++
++		current_time = ktime_get_raw();
++		elapsed_us = amzn_spi_ktime_diff_us(current_time,
++						    previous_time);
++		if (elapsed_us < SPI_READ_WAIT_MIN_US - MARGIN_US &&
++		    !rx_frame->dsf.overrun) {
++			usleep_range(SPI_READ_WAIT_MIN_US - elapsed_us,
++				     SPI_READ_WAIT_MAX_US - elapsed_us);
++			previous_time = ktime_get_raw();
++		} else {
++			previous_time = current_time;
++		}
++
++		wakeup_min = min(wakeup_min, elapsed_us);
++		wakeup_max = max(wakeup_max, elapsed_us);
++	}
++
++out:
++	kfree(timestamp_frame);
++	kfree(rx_frame);
++	kfree(tx_frame);
++	amzn_spi_set_running(priv, false);
++	dev_dbg(&priv->spi->dev, "capture stopped, cycle range %lu-%lu us\n",
++		wakeup_min, wakeup_max);
++}
++
++static int amzn_spi_start_workqueue(struct amzn_spi_priv *priv,
++				     struct snd_pcm_substream *substream)
++{
++	if (priv->spi_wq)
++		return 0;
++
++	priv->spi_wq = alloc_workqueue("amznspi",
++				       WQ_HIGHPRI | WQ_MEM_RECLAIM, 1);
++	if (!priv->spi_wq)
++		return -ENOMEM;
++
++	priv->cur_write_offset = 0;
++	priv->elapsed = 0;
++	priv->substream = substream;
++	INIT_WORK(&priv->spi_work, amzn_spi_data_read);
++	return 0;
++}
++
++static int amzn_mt_spi_pcm_open(struct snd_soc_component *component,
++				struct snd_pcm_substream *substream)
++{
++	struct amzn_spi_priv *priv = snd_soc_component_get_drvdata(component);
++	int ret;
++
++	if (substream->stream != SNDRV_PCM_STREAM_CAPTURE)
++		return -EINVAL;
++
++	snd_soc_set_runtime_hwparams(substream, &amzn_mt_spi_pcm_hardware);
++	ret = snd_pcm_hw_constraint_single(substream->runtime,
++					   SNDRV_PCM_HW_PARAM_RATE,
++					   SAMPLING_RATE);
++	if (ret)
++		return ret;
++
++	ret = snd_pcm_hw_constraint_integer(substream->runtime,
++					    SNDRV_PCM_HW_PARAM_PERIODS);
++	if (ret)
++		return ret;
++
++	return amzn_spi_start_workqueue(priv, substream);
++}
++
++static int amzn_mt_spi_pcm_close(struct snd_soc_component *component,
++				 struct snd_pcm_substream *substream)
++{
++	struct amzn_spi_priv *priv = snd_soc_component_get_drvdata(component);
++
++	amzn_spi_set_running(priv, false);
++	if (priv->spi_wq) {
++		destroy_workqueue(priv->spi_wq);
++		priv->spi_wq = NULL;
++	}
++	priv->substream = NULL;
++
++	return 0;
++}
++
++static int amzn_mt_spi_pcm_hw_params(struct snd_soc_component *component,
++				     struct snd_pcm_substream *substream,
++				     struct snd_pcm_hw_params *params)
++{
++	return snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(params));
++}
++
++static int amzn_mt_spi_pcm_hw_free(struct snd_soc_component *component,
++				   struct snd_pcm_substream *substream)
++{
++	struct amzn_spi_priv *priv = snd_soc_component_get_drvdata(component);
++
++	amzn_spi_set_running(priv, false);
++	if (priv->spi_wq)
++		flush_workqueue(priv->spi_wq);
++
++	return snd_pcm_lib_free_pages(substream);
++}
++
++static int amzn_mt_spi_pcm_trigger(struct snd_soc_component *component,
++				   struct snd_pcm_substream *substream, int cmd)
++{
++	struct amzn_spi_priv *priv = snd_soc_component_get_drvdata(component);
++
++	dev_info(&priv->spi->dev,
++		 "capture trigger cmd=%d stream=%d workqueue=%s\n", cmd,
++		 substream->stream, priv->spi_wq ? "present" : "missing");
++
++	switch (cmd) {
++	case SNDRV_PCM_TRIGGER_START:
++	case SNDRV_PCM_TRIGGER_RESUME:
++	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
++		if (!priv->spi_wq)
++			return -EPIPE;
++		queue_work(priv->spi_wq, &priv->spi_work);
++		return 0;
++	case SNDRV_PCM_TRIGGER_STOP:
++	case SNDRV_PCM_TRIGGER_SUSPEND:
++	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
++		amzn_spi_set_running(priv, false);
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++static snd_pcm_uframes_t
++amzn_mt_spi_pcm_pointer(struct snd_soc_component *component,
++			struct snd_pcm_substream *substream)
++{
++	struct amzn_spi_priv *priv = snd_soc_component_get_drvdata(component);
++	unsigned long flags;
++	snd_pcm_uframes_t frames;
++
++	spin_lock_irqsave(&priv->write_lock, flags);
++	frames = bytes_to_frames(substream->runtime, priv->cur_write_offset);
++	spin_unlock_irqrestore(&priv->write_lock, flags);
++
++	if (frames >= substream->runtime->buffer_size)
++		frames = 0;
++
++	return frames;
++}
++
++static int amzn_mt_spi_pcm_copy(struct snd_soc_component *component,
++				struct snd_pcm_substream *substream,
++				int channel, unsigned long pos,
++				struct iov_iter *dst, unsigned long bytes)
++{
++	struct amzn_spi_priv *priv = snd_soc_component_get_drvdata(component);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	size_t end = pos + bytes;
++
++	if (pos >= runtime->dma_bytes || bytes > runtime->dma_bytes - pos)
++		return -EINVAL;
++
++	if (priv->cur_write_offset > pos && priv->cur_write_offset < end) {
++		priv->kernel_overruns++;
++		dev_err_ratelimited(&priv->spi->dev,
++				    "kernel capture overrun, total=%zu\n",
++				    priv->kernel_overruns);
++	}
++
++	if (copy_to_iter(runtime->dma_area + pos, bytes, dst) != bytes)
++		return -EFAULT;
++
++	return 0;
++}
++
++static int amzn_mt_spi_pcm_construct(struct snd_soc_component *component,
++				     struct snd_soc_pcm_runtime *rtd)
++{
++	int ret;
++
++	if (!component->dev->dma_mask)
++		component->dev->dma_mask = &component->dev->coherent_dma_mask;
++	ret = dma_set_mask_and_coherent(component->dev, DMA_BIT_MASK(32));
++	if (ret)
++		return dev_err_probe(component->dev, ret,
++				     "failed to configure PCM DMA mask\n");
++
++	snd_pcm_set_managed_buffer_all(rtd->pcm, SNDRV_DMA_TYPE_DEV,
++				       component->dev, SPI_DMA_BYTES_MAX,
++				       SPI_DMA_BYTES_MAX);
++	return 0;
++}
++
++static const struct snd_soc_component_driver amzn_mt_spi_component = {
++	.name = AMZN_MT_SPI_PCM,
++	.controls = amzn_mt_spi_controls,
++	.num_controls = ARRAY_SIZE(amzn_mt_spi_controls),
++	.open = amzn_mt_spi_pcm_open,
++	.close = amzn_mt_spi_pcm_close,
++	.hw_params = amzn_mt_spi_pcm_hw_params,
++	.hw_free = amzn_mt_spi_pcm_hw_free,
++	.trigger = amzn_mt_spi_pcm_trigger,
++	.pointer = amzn_mt_spi_pcm_pointer,
++	.copy = amzn_mt_spi_pcm_copy,
++	.pcm_construct = amzn_mt_spi_pcm_construct,
++	.use_dai_pcm_id = true,
++	.legacy_dai_naming = 1,
++};
++
++static int amzn_mt_spi_dai_startup(struct snd_pcm_substream *substream,
++				   struct snd_soc_dai *dai)
++{
++	return amzn_spi_start_workqueue(snd_soc_dai_get_drvdata(dai), substream);
++}
++
++static const struct snd_soc_dai_ops amzn_mt_spi_dai_ops = {
++	.startup = amzn_mt_spi_dai_startup,
++};
++
++static struct snd_soc_dai_driver amzn_mt_spi_dai = {
++	.name = AMZN_MT_SPI_PCM,
++	.ops = &amzn_mt_spi_dai_ops,
++	.capture = {
++		.stream_name = "SPI Capture",
++		.channels_min = SPI_N_CHANNELS,
++		.channels_max = SPI_N_CHANNELS,
++		.rates = SNDRV_PCM_RATE_16000,
++		.formats = SNDRV_PCM_FMTBIT_S24_3LE,
++	},
++};
++
++static int amzn_mt_spi_load_fpga(struct amzn_spi_priv *priv)
++{
++	const struct firmware *firmware;
++	struct dough_frame *tx_frame;
++	struct dough_frame *rx_frame;
++	size_t transfer_bytes;
++	u8 setup[SPI_SETUP_BUF_SIZE] = {};
++	u8 *firmware_buf;
++	int ret;
++
++	tx_frame = kzalloc(sizeof(*tx_frame), GFP_KERNEL | GFP_DMA);
++	rx_frame = kzalloc(sizeof(*rx_frame), GFP_KERNEL | GFP_DMA);
++	firmware_buf = kzalloc(FIRMWARE_MAX_BYTES, GFP_KERNEL | GFP_DMA);
++	if (!tx_frame || !rx_frame || !firmware_buf) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	setup[0] = dough_fw_off;
++	ret = amzn_spi_probe_txrx(priv, setup, NULL, sizeof(setup), "off");
++	if (ret)
++		goto out;
++
++	ret = gpiod_direction_output(priv->reset_gpio, 0);
++	if (ret) {
++		dev_err(&priv->spi->dev, "failed to configure FPGA reset GPIO: %d\n",
++			ret);
++		goto out;
++	}
++
++	ret = pinctrl_select_state(priv->pinctrl, priv->i2s_mode0);
++	if (ret) {
++		dev_err(&priv->spi->dev, "failed to select audi2s1-mode0: %d\n",
++			ret);
++		goto out;
++	}
++
++	gpiod_set_value_cansleep(priv->reset_gpio, 0);
++	msleep(FPGA_DELAY_MS);
++	gpiod_set_value_cansleep(priv->reset_gpio, 1);
++	msleep(FPGA_DELAY_MS);
++
++	ret = request_firmware(&firmware, FPGA_FIRMWARE_NAME, &priv->spi->dev);
++	if (ret) {
++		dev_err(&priv->spi->dev, "failed to request FPGA firmware %s: %d\n",
++			FPGA_FIRMWARE_NAME, ret);
++		goto out;
++	}
++
++	transfer_bytes = roundup(firmware->size, 1024) + 1024;
++	if (transfer_bytes > FIRMWARE_MAX_BYTES) {
++		dev_err(&priv->spi->dev, "FPGA firmware is too large\n");
++		ret = -EFBIG;
++		goto release_firmware;
++	}
++
++	memcpy(firmware_buf, firmware->data, firmware->size);
++	if (transfer_bytes - firmware->size == sizeof(amzn_fpga_oracle_tail)) {
++		/* Experimental compatibility test against the exact 3.18 oracle
++		 * transfer.  The legacy driver over-read adjacent .rodata here;
++		 * use the recovered bytes explicitly rather than reproducing UB. */
++		memcpy(firmware_buf + firmware->size, amzn_fpga_oracle_tail,
++		       sizeof(amzn_fpga_oracle_tail));
++		dev_info(&priv->spi->dev,
++			 "FPGA probe diag using recovered oracle tail bytes=%zu\n",
++			 sizeof(amzn_fpga_oracle_tail));
++	} else if (transfer_bytes > firmware->size) {
++		memset(firmware_buf + firmware->size, 0,
++		       transfer_bytes - firmware->size);
++	}
++	dev_info(&priv->spi->dev,
++		 "FPGA probe diag firmware_size=%zu transfer_bytes=%zu reset=%d\n",
++		 firmware->size, transfer_bytes,
++		 gpiod_get_value_cansleep(priv->reset_gpio));
++	ret = amzn_spi_probe_txrx(priv, firmware_buf, NULL, transfer_bytes,
++				    "firmware");
++	if (ret)
++		goto release_firmware;
++
++	msleep(FPGA_DELAY_MS);
++	/* Retry the status read with progressively longer delays: the FPGA may
++	 * need extra time after the firmware load before it drives MISO. */
++	{
++		int attempt;
++		static const int retry_delay_ms[] = { 100, 250, 500, 1000 };
++
++		for (attempt = 0; attempt < ARRAY_SIZE(retry_delay_ms); attempt++) {
++			if (attempt)
++				msleep(retry_delay_ms[attempt]);
++			ret = amzn_spi_probe_txrx(priv, tx_frame, rx_frame,
++						  sizeof(*rx_frame), "status");
++			if (ret)
++				goto release_firmware;
++			dev_info(&priv->spi->dev,
++				 "FPGA status attempt=%d rev=%u\n", attempt,
++				 rx_frame->dsf.fpga_rev);
++			if (amzn_spi_valid_fpga_rev(&priv->spi->dev,
++						    rx_frame->dsf.fpga_rev))
++				break;
++		}
++	}
++	amzn_spi_log_fpga_status(priv, rx_frame);
++	amzn_spi_dump_regs(&priv->spi->dev);
++	if (!amzn_spi_valid_fpga_rev(&priv->spi->dev,
++				     rx_frame->dsf.fpga_rev)) {
++		ret = -EINVAL;
++		goto release_firmware;
++	}
++
++	dev_info(&priv->spi->dev, "FPGA revision %u\n",
++		 rx_frame->dsf.fpga_rev);
++
++	ret = pinctrl_select_state(priv->pinctrl, priv->mclk);
++	if (ret) {
++		dev_err(&priv->spi->dev, "failed to select cmmclk-mclk: %d\n",
++			ret);
++		goto release_firmware;
++	}
++
++	ret = pinctrl_select_state(priv->pinctrl, priv->i2s_mode1);
++	if (ret) {
++		dev_err(&priv->spi->dev, "failed to select audi2s1-mode1: %d\n",
++			ret);
++		goto release_firmware;
++	}
++	msleep(PINCTRL_DELAY_MS);
++
++	memset(setup, 0, sizeof(setup));
++	setup[0] = dough_fw_i2s;
++	ret = amzn_spi_txrx(priv, setup, NULL, sizeof(setup));
++
++release_firmware:
++	release_firmware(firmware);
++out:
++	kfree(firmware_buf);
++	kfree(rx_frame);
++	kfree(tx_frame);
++	return ret;
++}
++
++static int amzn_mt_spi_probe(struct spi_device *spi)
++{
++	struct device *dev = &spi->dev;
++	struct amzn_spi_priv *priv;
++	int ret;
++
++	dev_info(dev, "Radar-Puffin FPGA SPI probe entered\n");
++	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
++	priv->spi = spi;
++	spin_lock_init(&priv->state_lock);
++	spin_lock_init(&priv->write_lock);
++	spi_set_drvdata(spi, priv);
++
++	priv->reset_gpio = devm_gpiod_get(dev, NULL, GPIOD_ASIS);
++	if (IS_ERR(priv->reset_gpio)) {
++		ret = PTR_ERR(priv->reset_gpio);
++		dev_err(dev, "failed to get FPGA reset GPIO: %d\n", ret);
++		return ret;
++	}
++	dev_info(dev, "FPGA reset GPIO acquired\n");
++
++	priv->pinctrl = devm_pinctrl_get(dev);
++	if (IS_ERR(priv->pinctrl)) {
++		ret = PTR_ERR(priv->pinctrl);
++		dev_err(dev, "failed to get audio pinctrl: %d\n", ret);
++		return ret;
++	}
++
++	priv->i2s_mode0 = pinctrl_lookup_state(priv->pinctrl,
++					       "audi2s1-mode0");
++	if (IS_ERR(priv->i2s_mode0)) {
++		ret = PTR_ERR(priv->i2s_mode0);
++		dev_err(dev, "missing audi2s1-mode0 pinctrl state: %d\n", ret);
++		return ret;
++	}
++
++	priv->i2s_mode1 = pinctrl_lookup_state(priv->pinctrl,
++					       "audi2s1-mode1");
++	if (IS_ERR(priv->i2s_mode1)) {
++		ret = PTR_ERR(priv->i2s_mode1);
++		dev_err(dev, "missing audi2s1-mode1 pinctrl state: %d\n", ret);
++		return ret;
++	}
++
++	priv->mclk = pinctrl_lookup_state(priv->pinctrl, "cmmclk-mclk");
++	if (IS_ERR(priv->mclk)) {
++		ret = PTR_ERR(priv->mclk);
++		dev_err(dev, "missing cmmclk-mclk pinctrl state: %d\n", ret);
++		return ret;
++	}
++	dev_info(dev, "FPGA audio pinctrl states acquired\n");
++
++	spi->mode = SPI_MODE_3;
++	spi->bits_per_word = 8;
++	spi->max_speed_hz = SPI_SPEED_HZ;
++	ret = spi_setup(spi);
++	if (ret) {
++		dev_err(dev, "SPI setup failed: %d\n", ret);
++		return ret;
++	}
++
++	dev_info(dev, "starting FPGA initialization\n");
++	ret = amzn_mt_spi_load_fpga(priv);
++	if (ret) {
++		dev_err(dev, "FPGA initialization failed: %d\n", ret);
++		return ret;
++	}
++	dev_info(dev, "FPGA initialization complete\n");
++
++	/*
++	 * The SPI child owns the shared audio pins only while bootstrapping the
++	 * FPGA.  Hand them to the AFE after the final I2S state is programmed;
++	 * otherwise the AFE cannot claim I2S_DATA_IN and its component never
++	 * registers.
++	 */
++	devm_pinctrl_put(priv->pinctrl);
++	priv->pinctrl = NULL;
++	dev_info(dev, "FPGA boot pinctrl ownership handed to AFE\n");
++
++	ret = devm_snd_soc_register_component(dev, &amzn_mt_spi_component,
++					       &amzn_mt_spi_dai, 1);
++	dev_info(dev, "FPGA SPI component registration returned %d\n", ret);
++	return ret;
++}
++
++static const struct of_device_id amzn_mt_spi_of_match[] = {
++	{ .compatible = "amzn-mtk,spi-audio-pltfm" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, amzn_mt_spi_of_match);
++
++static struct spi_driver amzn_mt_spi_driver = {
++	.driver = {
++		.name = "amzn-mt8163-spi-audio",
++		.of_match_table = amzn_mt_spi_of_match,
++	},
++	.probe = amzn_mt_spi_probe,
++};
++module_spi_driver(amzn_mt_spi_driver);
++
++MODULE_FIRMWARE(FPGA_FIRMWARE_NAME);
++MODULE_AUTHOR("Amazon Lab126 Inc.");
++MODULE_DESCRIPTION("Amazon Radar-Puffin FPGA SPI audio capture driver");
++MODULE_LICENSE("GPL");
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.h b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.h
+new file mode 100644
+index 000000000..0939233ac
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.h
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __SND_SOC_AMZN_MT8163_SPI_PCM_H
++#define __SND_SOC_AMZN_MT8163_SPI_PCM_H
++
++#include "dough.h"
++
++#define AMZN_MT_SPI_PCM		"amzn-mt-spi-pcm"
++#define FPGA_FIRMWARE_NAME	"i2s_to_spi_v34.bin"
++#define FIRMWARE_MAX_BYTES	(10 * 4096)
++
++#define SPI_SPEED_HZ		50000000
++#define SPI_READ_WAIT_MIN_US	6000
++#define SPI_READ_WAIT_MAX_US	7000
++#define FPGA_DELAY_MS		100
++#define PINCTRL_DELAY_MS	100
++#define MARGIN_US		500
++
++#define SAMPLING_RATE		16000
++#define SPI_N_CHANNELS		DOUGH_AUDIO_NUM_CHANNELS
++#define SPI_BYTES_PER_FRAME	(SPI_N_CHANNELS * DOUGH_AUDIO_SAMPLE_WIDTH)
++#define SPI_BYTES_PER_PERIOD	(SPI_BYTES_PER_FRAME * \
++				 (DOUGH_AUDIO_FRAME_BUF + 1))
++#define SPI_N_PERIODS_MIN	1
++#define SPI_N_PERIODS_MAX	10
++#define SPI_PERIOD_BYTES_MIN	(SPI_BYTES_PER_PERIOD * SPI_N_PERIODS_MIN)
++#define SPI_PERIOD_BYTES_MAX	(SPI_BYTES_PER_PERIOD * SPI_N_PERIODS_MAX)
++#define SPI_BUFFER_BYTES_MAX	SPI_PERIOD_BYTES_MAX
++#define SPI_DMA_BYTES_MAX	(SPI_PERIOD_BYTES_MAX * 2)
++
++#define SPI_SETUP_BUF_SIZE	32
++#define MAX_FLUSHED_CYCLES	10
++
++#endif
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/dough.h b/sound/soc/mediatek/mt8163-amzn-spi/dough.h
+new file mode 100644
+index 000000000..03eb10f3c
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163-amzn-spi/dough.h
+@@ -0,0 +1,43 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __SND_SOC_AMZN_MT8163_DOUGH_H
++#define __SND_SOC_AMZN_MT8163_DOUGH_H
++
++#include <linux/types.h>
++
++#define DOUGH_AUDIO_SAMPLE_WIDTH	3
++#define DOUGH_AUDIO_NUM_CHANNELS	9
++#define DOUGH_AUDIO_FRAME_BUF		255
++#define DOUGH_AUDIO_FRAME_BYTES		(DOUGH_AUDIO_SAMPLE_WIDTH * \
++					 DOUGH_AUDIO_NUM_CHANNELS)
++#define DOUGH_FPGA_REV_MIN		30
++#define DOUGH_FPGA_REV_MAX		251
++
++enum dough_fw_cmd {
++	dough_fw_nop = 0,
++	dough_fw_off = 0x80,
++	dough_fw_i2s = 0x81,
++	dough_fw_tpg = 0x83,
++};
++
++struct dough_audio_frame {
++	u8 audio_data[DOUGH_AUDIO_FRAME_BYTES];
++};
++
++struct dough_status_frame {
++	u8 rsvd0[15];
++	__le32 timestamp_48mhz;
++	__le16 num_audio_frames;
++	u8 rsvd1;
++	u8 mode;
++	u8 dac_inactive;
++	u8 i2s_inactive;
++	u8 overrun;
++	u8 fpga_rev;
++} __packed;
++
++struct dough_frame {
++	struct dough_status_frame dsf;
++	struct dough_audio_frame daf[DOUGH_AUDIO_FRAME_BUF];
++} __packed;
++
++#endif
+diff --git a/sound/soc/mediatek/mt8163/Makefile b/sound/soc/mediatek/mt8163/Makefile
+new file mode 100644
+index 000000000..a2d47184e
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163/Makefile
+@@ -0,0 +1,7 @@
++# SPDX-License-Identifier: GPL-2.0
++
++snd-soc-mt8163-objs := mt8163-afe.o mt8163-mclk.o
++obj-$(CONFIG_SND_SOC_MT8163) += snd-soc-mt8163.o
++obj-$(CONFIG_SND_SOC_MT8163_RADAR_PUFFIN) += snd-soc-mt8163-radar-puffin.o
++
++snd-soc-mt8163-radar-puffin-objs := mt8163-radar-puffin.o
+diff --git a/sound/soc/mediatek/mt8163/mt8163-afe.c b/sound/soc/mediatek/mt8163/mt8163-afe.c
+new file mode 100644
+index 000000000..aac4a5e5c
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163/mt8163-afe.c
+@@ -0,0 +1,1332 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Narrow MT8163 AFE support for the Radar-Puffin DL1 playback path.
++ *
++ * The register programming follows the MT8163 vendor DL1/I2S1 path.  This
++ * deliberately does not register the unrelated modem, Bluetooth, FM or HDMI
++ * front ends present in the vendor tree.
++ */
++
++#include <linux/clk.h>
++#include <linux/debugfs.h>
++#include <linux/err.h>
++#include <linux/gpio/consumer.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/mfd/mt6323/registers.h>
++#include <linux/mfd/syscon.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_platform.h>
++#include <linux/pinctrl/consumer.h>
++#include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
++#include <linux/regmap.h>
++#include <linux/uaccess.h>
++
++#include <sound/pcm.h>
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++
++#include "mt8163-afe.h"
++
++#define MT8163_DL1_DAI_NAME		"mt-soc-dl1dai-driver"
++#define MT8163_AFE_COMPONENT_NAME	"mt-soc-i2s0dl1-pcm"
++
++#define AUDIO_TOP_CON0			0x0000
++#define AFE_DAC_CON0			0x0010
++#define AFE_DAC_CON1			0x0014
++#define AFE_I2S_CON1			0x0034
++#define AFE_CONN0			0x0020
++#define AFE_CONN1			0x0024
++#define AFE_CONN2			0x0028
++#define AFE_DL1_BASE			0x0040
++#define AFE_DL1_CUR			0x0044
++#define AFE_DL1_END			0x0048
++#define AFE_I2S_CON3			0x004c
++#define AFE_CONN_24BIT			0x006c
++#define AFE_ADDA_DL_SRC2_CON0		0x0108
++#define AFE_ADDA_DL_SRC2_CON1		0x010c
++#define AFE_ADDA_UL_DL_CON0		0x0124
++#define AFE_ADDA_PREDIS_CON0		0x0260
++#define AFE_ADDA_PREDIS_CON1		0x0264
++#define AFE_SGEN_CON0			0x01f0
++#define FPGA_CFG1			0x04c4
++#define AFE_IRQ_MCU_CON			0x03a0
++#define AFE_IRQ_STATUS			0x03a4
++#define AFE_IRQ_CLR			0x03a8
++#define AFE_IRQ_CNT1			0x03ac
++#define AFE_MEMIF_PBUF_SIZE		0x03d8
++
++#define MT8163_POWER_TOP_OFFSET		0x029c
++#define MT8163_POWER_TOP_AUDIO		0x0000000d
++#define AFE_RATE_48K			10
++#define AFE_BUS_INIT			BIT(14)
++/* AFE gates used by the fixed-function DL1 speaker path.  The 3.18
++ * AudDrv_I2S_Clk_On path explicitly ungates AUDIO_TOP_CON0 bit 6; keep
++ * that separate I2S engine gate in the 6.1 sequence as well. */
++#define AFE_CLOCK_GATE_MASK		(BIT(2) | BIT(6) | BIT(25) | BIT(26))
++#define AFE_24M_ENABLE			BIT(9)
++#define AFE_GLOBAL_ENABLE		BIT(0)
++#define AFE_DL1_ENABLE			BIT(1)
++#define AFE_I2S_DAC_ENABLE		BIT(13)
++#define AFE_I2S_OUT2_ENABLE		BIT(17)
++#define AFE_OTHER_MEMIF_ENABLE_MASK	(GENMASK(10, 2) | \
++					 AFE_I2S_DAC_ENABLE | AFE_I2S_OUT2_ENABLE)
++#define AFE_DL1_RATE_MASK		GENMASK(3, 0)
++#define AFE_I2S_RATE_MASK		GENMASK(11, 8)
++#define AFE_DL1_MONO			BIT(21)
++#define AFE_DL1_FORMAT_MASK		GENMASK(17, 16)
++/* DL1 fetch format (3.18 SetMemIfFetchFormatPerSample): 16-bit, 24 bits in
++ * the low bits of a 32-bit word (S24_LE), or 24 bits in the high bits with a
++ * zero low byte (S32_LE). */
++#define AFE_DL1_FORMAT_16BIT		0
++#define AFE_DL1_FORMAT_24BIT_LSB	(1 << 16)
++#define AFE_DL1_FORMAT_24BIT_MSB	(3 << 16)
++#define AFE_IRQ1_ENABLE			BIT(0)
++#define AFE_I2S_ENABLE			BIT(0)
++#define AFE_I2S_FORMAT_I2S		BIT(3)
++#define AFE_I2S_WORD_32			BIT(1)
++#define AFE_I2S_LOW_JITTER		BIT(12)
++#define AFE_I05_TO_O00			BIT(5)
++#define AFE_I06_TO_O01			BIT(22)
++#define AFE_I05_TO_O03			BIT(21)
++#define AFE_I06_TO_O04			BIT(6)
++#define AFE_OUTPUT_FORMAT_24BIT_MASK	(BIT(0) | BIT(1) | BIT(3) | BIT(4))
++/*
++ * Match the working 3.18 playback oracle.  The board has two related but
++ * distinct I2S engines: I2S_CON1 feeds the internal DAC/ADDA bridge and
++ * I2S_CON3 drives the external codec pins.  With the working 3.18 config
++ * (CONFIG_MTK_16BIT_IN_24BIT_OUT unset), SetI2SDacOut() programs CON1 for
++ * 16-bit words (0x0a08), while the external output remains 32-bit slots
++ * (0x0a0a).  Do not apply the external slot width to the internal DAC.
++ * CONFIG_SND_I2S_MCLK is disabled in the legacy normal path.  The exposed
++ * low-jitter control selects the optional bit; its default is off to match
++ * the working 3.18 transaction.
++ */
++#define AFE_I2S_DAC_CONFIG		((AFE_RATE_48K << 8) | \
++					 AFE_I2S_FORMAT_I2S)
++#define AFE_ADDA_DL_SRC2_48K		0x83001802
++#define AFE_ADDA_DL_SRC2_COEFF		0xf74f0000
++#define AFE_FPGA_DAC_MUX_MASK		BIT(4)
++#define MT6323_CLKSQ_EN_AUD		BIT(0)
++#define AUDIO_CLK_CFG_6			0x00a0
++#define AUDIO_CLK_AUDDIV_0		0x05a0
++#define AUDIO_CLK_AUDDIV_1		0x05a4
++#define AFE_APLL2_DIV0_PDN		BIT(1)
++#define AFE_APLL2_DIV0_SEL_MASK	GENMASK(30, 28)
++#define AFE_APLL2_DIV0_SEL_4		(3 << 28)
++#define AFE_APLL2_CFG6_MASK		(BIT(24) | BIT(31))
++#define AFE_APLL2_CFG6_VALUE		BIT(24)
++#define AFE_I2S_SRC_MASK			(BIT(9) | BIT(11))
++#define AFE_I2S_DIV_POWER_MASK		(BIT(1) | BIT(3) | BIT(5))
++#define AFE_I2S_DIV1_I2S1_MASK	GENMASK(14, 8)
++#define AFE_I2S_DIV1_I2S3_MASK	GENMASK(30, 24)
++#define AFE_I2S_DIV1_I2S1_VALUE	(15 << 8)
++#define AFE_I2S_DIV1_I2S3_VALUE	(15 << 24)
++#define AFE_I2S_DIV1_ACTIVE_MASK	(AFE_I2S_DIV1_I2S1_MASK | \
++					 AFE_I2S_DIV1_I2S3_MASK)
++#define AFE_I2S_DIV1_ACTIVE_VALUE	(AFE_I2S_DIV1_I2S1_VALUE | \
++					 AFE_I2S_DIV1_I2S3_VALUE)
++
++#define MT8163_PCM_RATE			48000
++#define MT8163_PCM_BUFFER_MAX		0x6000
++#define MT8163_PCM_ALIGN			64
++#define MT8163_PCM_FORMATS		(SNDRV_PCM_FMTBIT_S16_LE | \
++					 SNDRV_PCM_FMTBIT_S24_LE | \
++					 SNDRV_PCM_FMTBIT_S32_LE)
++
++enum mt8163_pin {
++	MT8163_PIN_PMIC_IDLE,
++	MT8163_PIN_PMIC_ACTIVE,
++	MT8163_PIN_I2S_IDLE,
++	MT8163_PIN_I2S_ACTIVE,
++	MT8163_PIN_AMP_ON,
++	MT8163_PIN_AMP_OFF,
++	MT8163_PIN_MCLK,
++	MT8163_PIN_DAC_ON,
++	MT8163_PIN_DAC_OFF,
++	MT8163_PIN_NUM,
++};
++
++static const char * const mt8163_pin_names[MT8163_PIN_NUM] = {
++	[MT8163_PIN_PMIC_IDLE] = "audpmicclk-speaker-mode0",
++	[MT8163_PIN_PMIC_ACTIVE] = "audpmicclk-speaker-mode1",
++	[MT8163_PIN_I2S_IDLE] = "audi2s1-speaker-mode0",
++	[MT8163_PIN_I2S_ACTIVE] = "audi2s1-speaker-mode1",
++	[MT8163_PIN_AMP_ON] = "extamp-pullhigh",
++	[MT8163_PIN_AMP_OFF] = "extamp-pulllow",
++	[MT8163_PIN_MCLK] = "cmmclk-mclk",
++	[MT8163_PIN_DAC_ON] = "extamp-dacmux-pullhigh",
++	[MT8163_PIN_DAC_OFF] = "extamp-dacmux-pulllow",
++};
++
++struct mt8163_afe {
++	struct device *dev;
++	struct regmap *regmap;
++	struct regmap *topckgen;
++	void __iomem *topckgen_base;
++	void __iomem *sram;
++	dma_addr_t sram_phys;
++	size_t sram_size;
++	struct clk *infra;
++	struct clk *audio_mux;
++	struct clk *audio_intbus_mux;
++	struct clk *aud_mux2;
++	struct clk *apll2;
++	struct clk *audio_24m;
++	struct regmap *pmic_regmap;
++	struct pinctrl *pinctrl;
++	struct pinctrl_state *pins[MT8163_PIN_NUM];
++	struct gpio_desc *amp_gpiod;
++	struct gpio_desc *dac_gpiod;
++	struct snd_pcm_substream *substream;
++	struct mutex lock;
++	spinlock_t irq_lock;
++	int irq;
++	bool clocks_enabled;
++	bool pmic_clock_enabled;
++	bool running;
++	bool low_jitter;
++	bool pcm_data_logged;
++	bool pcm_start_logged;
++	struct dentry *debugfs_dir;
++};
++
++static const struct snd_pcm_hardware mt8163_pcm_hardware = {
++	.info = SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_BLOCK_TRANSFER,
++	.formats = MT8163_PCM_FORMATS,
++	.rates = SNDRV_PCM_RATE_48000,
++	.rate_min = MT8163_PCM_RATE,
++	.rate_max = MT8163_PCM_RATE,
++	.channels_min = 1,
++	.channels_max = 2,
++	.buffer_bytes_max = MT8163_PCM_BUFFER_MAX,
++	.period_bytes_min = MT8163_PCM_ALIGN,
++	.period_bytes_max = MT8163_PCM_BUFFER_MAX / 2,
++	.periods_min = 2,
++	.periods_max = MT8163_PCM_BUFFER_MAX / MT8163_PCM_ALIGN,
++};
++
++static int mt8163_afe_pin(struct mt8163_afe *afe, enum mt8163_pin pin)
++{
++	if (!afe || !afe->pinctrl || IS_ERR_OR_NULL(afe->pins[pin]))
++		return -ENODEV;
++
++	return pinctrl_select_state(afe->pinctrl, afe->pins[pin]);
++}
++
++static struct mt8163_afe *mt8163_afe_from_dev(struct device *dev)
++{
++	if (!dev)
++		return NULL;
++	return dev_get_drvdata(dev);
++}
++
++int mt8163_afe_select_i2s(struct device *dev, bool enable)
++{
++	struct mt8163_afe *afe = mt8163_afe_from_dev(dev);
++
++	/* Match the 3.18 AudDrv_GPIO_I2S_Select() state exactly. */
++	return mt8163_afe_pin(afe, enable ? MT8163_PIN_I2S_ACTIVE :
++				      MT8163_PIN_I2S_IDLE);
++}
++EXPORT_SYMBOL_GPL(mt8163_afe_select_i2s);
++
++int mt8163_afe_set_low_jitter(struct device *dev, bool enable)
++{
++	struct mt8163_afe *afe = mt8163_afe_from_dev(dev);
++
++	if (!afe)
++		return -ENODEV;
++	mutex_lock(&afe->lock);
++	afe->low_jitter = enable;
++	mutex_unlock(&afe->lock);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(mt8163_afe_set_low_jitter);
++
++int mt8163_afe_select_pmic(struct device *dev, bool enable)
++{
++	struct mt8163_afe *afe = mt8163_afe_from_dev(dev);
++
++	/* Match the 3.18 AudDrv_GPIO_PMIC_Select() state exactly. */
++	return mt8163_afe_pin(afe, enable ? MT8163_PIN_PMIC_ACTIVE :
++				      MT8163_PIN_PMIC_IDLE);
++}
++EXPORT_SYMBOL_GPL(mt8163_afe_select_pmic);
++
++int mt8163_afe_select_amp(struct device *dev, bool enable)
++{
++	struct mt8163_afe *afe = mt8163_afe_from_dev(dev);
++
++	if (afe && afe->amp_gpiod) {
++		gpiod_set_value_cansleep(afe->amp_gpiod, enable);
++		return 0;
++	}
++
++	return mt8163_afe_pin(afe, enable ? MT8163_PIN_AMP_ON :
++			     MT8163_PIN_AMP_OFF);
++}
++EXPORT_SYMBOL_GPL(mt8163_afe_select_amp);
++
++int mt8163_afe_select_dac(struct device *dev, bool enable)
++{
++	struct mt8163_afe *afe = mt8163_afe_from_dev(dev);
++
++	if (afe && afe->dac_gpiod) {
++		gpiod_set_value_cansleep(afe->dac_gpiod, enable);
++		return 0;
++	}
++	/* The working 3.18 EVT DTB has no DAC-mux pinctrl states.  Its board
++	 * callbacks call DacMux_Select(), ignore the failed lookup, and continue
++	 * with the speaker route.  Keep the descriptor-free 6.1 DT variant
++	 * compatible with that behavior. */
++	if (!afe || IS_ERR_OR_NULL(afe->pins[MT8163_PIN_DAC_ON]) ||
++	    IS_ERR_OR_NULL(afe->pins[MT8163_PIN_DAC_OFF]))
++		return 0;
++
++	return mt8163_afe_pin(afe, enable ? MT8163_PIN_DAC_ON :
++			     MT8163_PIN_DAC_OFF);
++}
++EXPORT_SYMBOL_GPL(mt8163_afe_select_dac);
++
++int mt8163_afe_select_mclk(struct device *dev)
++{
++	/* Match the 3.18 AudDrv_GPIO_MCLK_Select() state exactly. */
++	return mt8163_afe_pin(mt8163_afe_from_dev(dev), MT8163_PIN_MCLK);
++}
++EXPORT_SYMBOL_GPL(mt8163_afe_select_mclk);
++
++static int mt8163_afe_safe(struct mt8163_afe *afe)
++{
++	int ret, first = 0;
++
++	ret = mt8163_afe_select_pmic(afe->dev, false);
++	if (ret)
++		first = ret;
++	ret = mt8163_afe_select_amp(afe->dev, false);
++	if (ret && !first)
++		first = ret;
++	ret = mt8163_afe_select_dac(afe->dev, false);
++	if (ret && !first)
++		first = ret;
++	ret = mt8163_afe_select_i2s(afe->dev, false);
++	if (ret && !first)
++		first = ret;
++	return first;
++}
++
++static int mt8163_afe_analog_clock(struct mt8163_afe *afe, bool enable)
++{
++	int ret;
++
++	if (!afe->pmic_regmap)
++		return -ENODEV;
++	if (afe->pmic_clock_enabled == enable)
++		return 0;
++
++	/* 3.18 AudDrv_ANA_Clk_On/Off: upmu_set_rg_clksq_en_aud(). */
++	ret = regmap_update_bits(afe->pmic_regmap, MT6323_TOP_CKPDN0,
++				 MT6323_CLKSQ_EN_AUD,
++				 enable ? MT6323_CLKSQ_EN_AUD : 0);
++	if (!ret)
++		afe->pmic_clock_enabled = enable;
++	return ret;
++}
++
++static int mt8163_afe_topckgen_snapshot(struct mt8163_afe *afe,
++						const char *stage, bool active);
++
++static int mt8163_afe_topckgen_update(struct mt8163_afe *afe,
++					      unsigned int reg, unsigned int mask,
++					      unsigned int value, bool verify)
++{
++	u32 old, next, readback;
++	int ret = 0;
++
++	old = readl(afe->topckgen_base + reg);
++	next = (old & ~mask) | (value & mask);
++	dev_info(afe->dev,
++		 "topckgen update reg=%04x old=%08x mask=%08x value=%08x next=%08x verify=%u\n",
++		 reg, old, mask, value, next, verify);
++	writel(next, afe->topckgen_base + reg);
++	mb();
++	readback = readl(afe->topckgen_base + reg);
++	if (verify && (readback & mask) != (value & mask))
++		ret = -EIO;
++	dev_info(afe->dev,
++		 "topckgen result reg=%04x readback=%08x ret=%d\n",
++		 reg, readback, ret);
++	return ret;
++}
++
++static int mt8163_afe_clocks_enable(struct mt8163_afe *afe)
++{
++	int ret;
++
++	if (afe->clocks_enabled)
++		return 0;
++
++	ret = pm_runtime_resume_and_get(afe->dev);
++	if (ret < 0)
++		return ret;
++	ret = clk_prepare_enable(afe->infra);
++	if (ret)
++		goto put_pm;
++	ret = clk_prepare_enable(afe->audio_intbus_mux);
++	if (ret)
++		goto disable_infra;
++	ret = clk_prepare_enable(afe->audio_mux);
++	if (ret)
++		goto disable_intbus;
++	ret = regmap_update_bits(afe->regmap, AUDIO_TOP_CON0,
++				 AFE_BUS_INIT, AFE_BUS_INIT);
++	if (ret)
++		goto disable_audio;
++	ret = regmap_update_bits(afe->regmap, AUDIO_TOP_CON0,
++				 AFE_CLOCK_GATE_MASK, 0);
++	if (ret)
++		goto disable_audio;
++	/*
++	 * The codec is clocked from the AFE I2S branch, not from the generic
++	 * top_mux_audio parent.  Select the 48-kHz-family APLL before enabling
++	 * aud_2_sel; otherwise the APLL remains at zero consumers while the
++	 * I2S source stays on clk26m.
++	 */
++	ret = clk_set_parent(afe->aud_mux2, afe->apll2);
++	if (ret) {
++		dev_err(afe->dev, "TOPCKGEN step=clk_set_parent ret=%d\n", ret);
++		goto disable_audio;
++	}
++	ret = clk_prepare_enable(afe->aud_mux2);
++	if (ret) {
++		dev_err(afe->dev, "TOPCKGEN step=enable_aud_mux2 ret=%d\n", ret);
++		goto disable_audio;
++	}
++	ret = mt8163_afe_topckgen_snapshot(afe, "before-program", false);
++	if (ret)
++		goto disable_aud_mux2;
++	/* Match the vendor EnableApll2() sequence: program auddiv0 to
++	 * APLL2/4 = 24.576 MHz while powered down, then enable the audio
++	 * 24-MHz gate before releasing the divider. */
++	ret = mt8163_afe_topckgen_update(afe, AUDIO_CLK_CFG_6,
++				 AFE_APLL2_CFG6_MASK, AFE_APLL2_CFG6_VALUE, true);
++	if (ret)
++		goto disable_aud_mux2;
++	ret = mt8163_afe_topckgen_update(afe, AUDIO_CLK_AUDDIV_0,
++				 AFE_APLL2_DIV0_SEL_MASK | AFE_I2S_SRC_MASK |
++				 AFE_I2S_DIV_POWER_MASK,
++				 AFE_APLL2_DIV0_SEL_4 | AFE_I2S_DIV_POWER_MASK,
++				 false);
++	if (ret)
++		goto disable_aud_mux2;
++	ret = mt8163_afe_topckgen_update(afe, AUDIO_CLK_AUDDIV_1,
++				 AFE_I2S_DIV1_ACTIVE_MASK,
++				 AFE_I2S_DIV1_ACTIVE_VALUE, false);
++	if (ret)
++		goto disable_aud_mux2;
++	ret = clk_prepare_enable(afe->audio_24m);
++	if (ret) {
++		dev_err(afe->dev, "TOPCKGEN step=enable_audio_24m ret=%d\n", ret);
++		goto disable_aud_mux2;
++	}
++	ret = regmap_update_bits(afe->regmap, AUDIO_TOP_CON0,
++				 AFE_24M_ENABLE, 0);
++	if (ret)
++		goto disable_audio_24m;
++	ret = mt8163_afe_topckgen_update(afe, AUDIO_CLK_AUDDIV_0,
++				 AFE_I2S_DIV_POWER_MASK, 0, false);
++	if (ret)
++		goto disable_audio_24m;
++	ret = mt8163_afe_topckgen_snapshot(afe, "after-program", true);
++	if (ret)
++		goto disable_apll2;
++	afe->clocks_enabled = true;
++	return 0;
++
++disable_apll2:
++	mt8163_afe_topckgen_update(afe, AUDIO_CLK_AUDDIV_0,
++			   AFE_I2S_DIV_POWER_MASK, AFE_I2S_DIV_POWER_MASK, false);
++	mt8163_afe_topckgen_update(afe, AUDIO_CLK_AUDDIV_1,
++			   AFE_I2S_DIV1_ACTIVE_MASK, 0, false);
++disable_audio_24m:
++	clk_disable_unprepare(afe->audio_24m);
++disable_aud_mux2:
++	clk_disable_unprepare(afe->aud_mux2);
++disable_audio:
++	clk_disable_unprepare(afe->audio_mux);
++disable_intbus:
++	clk_disable_unprepare(afe->audio_intbus_mux);
++disable_infra:
++	clk_disable_unprepare(afe->infra);
++put_pm:
++	pm_runtime_put_sync(afe->dev);
++	return ret;
++}
++
++static int mt8163_afe_topckgen_snapshot(struct mt8163_afe *afe,
++						const char *stage, bool active)
++{
++	unsigned int cfg6, div0, div1, afe_div0 = 0, afe_div1 = 0;
++	unsigned int dac_con0 = 0, dac_con1 = 0, i2s_con1 = 0, i2s_con3 = 0;
++	unsigned int conn0 = 0, conn1 = 0, conn2 = 0;
++	unsigned int adda0 = 0, adda1 = 0, fpga = 0, top0 = 0;
++	int afe_ret0, afe_ret1;
++	int state_ret;
++
++	cfg6 = readl(afe->topckgen_base + AUDIO_CLK_CFG_6);
++	div0 = readl(afe->topckgen_base + AUDIO_CLK_AUDDIV_0);
++	div1 = readl(afe->topckgen_base + AUDIO_CLK_AUDDIV_1);
++	afe_ret0 = regmap_read(afe->regmap, AUDIO_CLK_AUDDIV_0, &afe_div0);
++	afe_ret1 = regmap_read(afe->regmap, AUDIO_CLK_AUDDIV_1, &afe_div1);
++	state_ret = regmap_read(afe->regmap, AFE_DAC_CON0, &dac_con0);
++	state_ret |= regmap_read(afe->regmap, AFE_DAC_CON1, &dac_con1);
++	state_ret |= regmap_read(afe->regmap, AFE_I2S_CON1, &i2s_con1);
++	state_ret |= regmap_read(afe->regmap, AFE_I2S_CON3, &i2s_con3);
++	state_ret |= regmap_read(afe->regmap, AFE_CONN0, &conn0);
++	state_ret |= regmap_read(afe->regmap, AFE_CONN1, &conn1);
++	state_ret |= regmap_read(afe->regmap, AFE_CONN2, &conn2);
++	state_ret |= regmap_read(afe->regmap, AFE_ADDA_DL_SRC2_CON0, &adda0);
++	state_ret |= regmap_read(afe->regmap, AFE_ADDA_DL_SRC2_CON1, &adda1);
++	state_ret |= regmap_read(afe->regmap, FPGA_CFG1, &fpga);
++	state_ret |= regmap_read(afe->regmap, AUDIO_TOP_CON0, &top0);
++
++	dev_info(afe->dev,
++		 "topckgen stage=%s cfg6=%08x auddiv0=%08x auddiv1=%08x\n",
++		 stage, cfg6, div0, div1);
++	dev_info(afe->dev,
++		 "auddiv dual stage=%s afe[05a0]=%08x ret=%d afe[05a4]=%08x ret=%d "
++		 "topckgen[05a0]=%08x topckgen[05a4]=%08x\n",
++		 stage, afe_div0, afe_ret0, afe_div1, afe_ret1, div0, div1);
++	dev_info(afe->dev,
++		 "afe state stage=%s ret=%d dac_con0=%08x dac_con1=%08x "
++		 "i2s_con1=%08x i2s_con3=%08x conn0=%08x conn1=%08x conn2=%08x "
++		 "adda0=%08x adda1=%08x fpga_cfg1=%08x top_con0=%08x\n",
++		 stage, state_ret, dac_con0, dac_con1, i2s_con1, i2s_con3,
++		 conn0, conn1, conn2, adda0, adda1, fpga, top0);
++	if (!active)
++		return 0;
++
++	if ((cfg6 & AFE_APLL2_CFG6_MASK) != AFE_APLL2_CFG6_VALUE) {
++		dev_err(afe->dev,
++			"TOPCKGEN active readback mismatch stage=%s cfg6=%08x "
++			"auddiv0=%08x auddiv1=%08x\n",
++			stage, cfg6, div0, div1);
++		return -EIO;
++	}
++	dev_warn(afe->dev,
++		 "TOPCKGEN AUDDIV readback is diagnostic only stage=%s "
++		 "auddiv0=%08x auddiv1=%08x\n", stage, div0, div1);
++	return 0;
++}
++
++static void mt8163_afe_clocks_disable(struct mt8163_afe *afe)
++{
++	if (!afe->clocks_enabled)
++		return;
++
++	regmap_update_bits(afe->regmap, AUDIO_TOP_CON0,
++			   AFE_CLOCK_GATE_MASK | AFE_24M_ENABLE,
++			   AFE_CLOCK_GATE_MASK | AFE_24M_ENABLE);
++	mt8163_afe_topckgen_update(afe, AUDIO_CLK_AUDDIV_0,
++			   AFE_I2S_DIV_POWER_MASK, AFE_I2S_DIV_POWER_MASK, false);
++	mt8163_afe_topckgen_update(afe, AUDIO_CLK_AUDDIV_1,
++			   AFE_I2S_DIV1_ACTIVE_MASK, 0, false);
++	mt8163_afe_topckgen_snapshot(afe, "after-clock-disable", false);
++	clk_disable_unprepare(afe->audio_24m);
++	clk_disable_unprepare(afe->aud_mux2);
++	clk_disable_unprepare(afe->audio_mux);
++	clk_disable_unprepare(afe->audio_intbus_mux);
++	clk_disable_unprepare(afe->infra);
++	pm_runtime_put_sync(afe->dev);
++	afe->clocks_enabled = false;
++}
++
++static void mt8163_afe_record_error(int *first, int ret)
++{
++	if (ret && !*first)
++		*first = ret;
++}
++
++static int mt8163_afe_preserve_error(struct mt8163_afe *afe, int primary,
++				     int cleanup, const char *operation)
++{
++	if (cleanup && primary)
++		dev_err(afe->dev,
++			"%s cleanup failed: primary=%d cleanup=%d\n",
++			operation, primary, cleanup);
++	return primary ? primary : cleanup;
++}
++
++/*
++ * The 3.18 TI_DAC_Playback path has two distinct output stages.  I2S_OUT_2
++ * drives the board I2S pins, while I2S_OUT_DAC enables the internal DAC/ADDA
++ * bridge that feeds that output.  The 6.1 candidate originally programmed
++ * only DL1 and I2S_OUT_2's format, leaving the latter stage gated and muted.
++ */
++static bool mt8163_pcm_format_wide(snd_pcm_format_t format)
++{
++	return format == SNDRV_PCM_FORMAT_S24_LE ||
++	       format == SNDRV_PCM_FORMAT_S32_LE;
++}
++
++/*
++ * 16-bit streams keep the 3.18 oracle's 16-bit internal DAC words; 24-bit
++ * streams use 32-bit words there too, as 3.18 does for its 24-bit path.  The
++ * external I2S_OUT_2 slots are 32-bit either way (BCLK = 64 fs).
++ */
++static int mt8163_afe_i2s_dac_config(struct mt8163_afe *afe, bool wide)
++{
++	int first = 0;
++	int ret;
++
++	/* Match SetI2SDacOut()/SetDLSrc2(48000) from the working 3.18 path. */
++	ret = regmap_write(afe->regmap, AFE_ADDA_PREDIS_CON0, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_write(afe->regmap, AFE_ADDA_PREDIS_CON1, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_write(afe->regmap, AFE_ADDA_DL_SRC2_CON0,
++			   AFE_ADDA_DL_SRC2_48K);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_write(afe->regmap, AFE_ADDA_DL_SRC2_CON1,
++			   AFE_ADDA_DL_SRC2_COEFF);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_write(afe->regmap, AFE_I2S_CON1,
++			   AFE_I2S_DAC_CONFIG |
++			   (wide ? AFE_I2S_WORD_32 : 0) |
++			   (afe->low_jitter ? AFE_I2S_LOW_JITTER : 0));
++	mt8163_afe_record_error(&first, ret);
++
++	return first;
++}
++
++static int mt8163_afe_i2s_dac_enable(struct mt8163_afe *afe, bool enable)
++{
++	int first = 0;
++	int ret;
++
++	ret = regmap_update_bits(afe->regmap, AFE_ADDA_DL_SRC2_CON0,
++				 BIT(0), enable ? BIT(0) : 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_I2S_CON1, BIT(0),
++				 enable ? BIT(0) : 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_ADDA_UL_DL_CON0, BIT(0),
++				 enable ? BIT(0) : 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, FPGA_CFG1,
++				 AFE_FPGA_DAC_MUX_MASK,
++				 enable ? 0 : AFE_FPGA_DAC_MUX_MASK);
++	mt8163_afe_record_error(&first, ret);
++
++	return first;
++}
++
++static int mt8163_afe_quiesce(struct mt8163_afe *afe)
++{
++	unsigned long flags;
++	unsigned int val;
++	int first = 0;
++	int ret;
++
++	spin_lock_irqsave(&afe->irq_lock, flags);
++	afe->running = false;
++	spin_unlock_irqrestore(&afe->irq_lock, flags);
++
++	ret = regmap_update_bits(afe->regmap, AFE_IRQ_MCU_CON,
++				 AFE_IRQ1_ENABLE, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_write(afe->regmap, AFE_IRQ_CLR, AFE_IRQ1_ENABLE);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_DAC_CON0,
++				 AFE_DL1_ENABLE, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_CONN0,
++				 AFE_I05_TO_O00 | AFE_I06_TO_O01, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_CONN1,
++				 AFE_I05_TO_O03, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_CONN2,
++				 AFE_I06_TO_O04, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_I2S_CON3,
++				 AFE_I2S_ENABLE, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = mt8163_afe_i2s_dac_enable(afe, false);
++	mt8163_afe_record_error(&first, ret);
++	/* The legacy driver disconnects the AFE sine generator on every stop. */
++	ret = regmap_write(afe->regmap, AFE_SGEN_CON0, 0xf0000000);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_update_bits(afe->regmap, AFE_DAC_CON0,
++				 AFE_I2S_DAC_ENABLE | AFE_I2S_OUT2_ENABLE, 0);
++	mt8163_afe_record_error(&first, ret);
++	ret = regmap_read(afe->regmap, AFE_DAC_CON0, &val);
++	mt8163_afe_record_error(&first, ret);
++	if (!ret && !(val & AFE_OTHER_MEMIF_ENABLE_MASK)) {
++		ret = regmap_update_bits(afe->regmap, AFE_DAC_CON0,
++					 AFE_GLOBAL_ENABLE, 0);
++		mt8163_afe_record_error(&first, ret);
++	}
++	return first;
++}
++
++/* One-shot bring-up diagnostic: prove that userspace data reaches the AFE
++ * SRAM, and that the DL1 engine is pointed at the same buffer. */
++static void mt8163_afe_log_sram(struct mt8163_afe *afe, const char *stage,
++				unsigned long pos, unsigned long bytes)
++{
++	u32 base = 0, cur = 0, end = 0;
++
++	regmap_read(afe->regmap, AFE_DL1_BASE, &base);
++	regmap_read(afe->regmap, AFE_DL1_CUR, &cur);
++	regmap_read(afe->regmap, AFE_DL1_END, &end);
++	dev_info(afe->dev,
++		 "PCM SRAM %s pos=%lu bytes=%lu words=%08x,%08x,%08x,%08x dl1=%08x/%08x-%08x\n",
++		 stage, pos, bytes, readl(afe->sram), readl(afe->sram + 4),
++		 readl(afe->sram + 8), readl(afe->sram + 12), cur, base, end);
++}
++
++static ssize_t mt8163_afe_sgen_write(struct file *file,
++					 const char __user *buf, size_t count,
++					 loff_t *ppos)
++{
++	struct mt8163_afe *afe = file->private_data;
++	char input[32];
++	u32 value;
++	int ret;
++
++	if (!count || count >= sizeof(input))
++		return -EINVAL;
++	if (copy_from_user(input, buf, count))
++		return -EFAULT;
++	input[count] = '\0';
++	if (kstrtou32(strim(input), 0, &value))
++		return -EINVAL;
++
++	mutex_lock(&afe->lock);
++	ret = regmap_write(afe->regmap, AFE_SGEN_CON0, value);
++	mutex_unlock(&afe->lock);
++	return ret ? ret : count;
++}
++
++static const struct file_operations mt8163_afe_sgen_fops = {
++	.owner = THIS_MODULE,
++	.open = simple_open,
++	.write = mt8163_afe_sgen_write,
++};
++
++static int mt8163_afe_stop(struct mt8163_afe *afe)
++{
++	int ret;
++	int safe_ret;
++
++	ret = mt8163_afe_quiesce(afe);
++	safe_ret = mt8163_afe_safe(afe);
++	return mt8163_afe_preserve_error(afe, ret, safe_ret, "stop");
++}
++
++/*
++ * The Radar-Puffin DAI links are registered nonatomic, so the PCM stream
++ * lock taken by snd_pcm_period_elapsed() is a mutex, not a spinlock.  Period
++ * completion therefore cannot run in the hard IRQ handler: doing so schedules
++ * inside interrupt context ("scheduling while atomic"), the handler returns
++ * with interrupts enabled, and the kernel panics with a fatal exception in
++ * interrupt.  Keep the primary handler to the register read/ack only and
++ * report the period from the threaded handler, which runs in process context
++ * where the nonatomic PCM lock is legal.  IRQF_ONESHOT holds the AFE line
++ * masked until the thread handler completes, so the primary handler can never
++ * re-enable interrupts or be re-entered before the period is acknowledged.
++ */
++static irqreturn_t mt8163_afe_irq(int irq, void *data)
++{
++	struct mt8163_afe *afe = data;
++	unsigned int status;
++
++	if (regmap_read(afe->regmap, AFE_IRQ_STATUS, &status))
++		return IRQ_NONE;
++	if (!(status & AFE_IRQ1_ENABLE))
++		return IRQ_NONE;
++
++	regmap_write(afe->regmap, AFE_IRQ_CLR, AFE_IRQ1_ENABLE);
++	return IRQ_WAKE_THREAD;
++}
++
++static irqreturn_t mt8163_afe_irq_thread(int irq, void *data)
++{
++	struct mt8163_afe *afe = data;
++	struct snd_pcm_substream *substream = NULL;
++	unsigned long flags;
++
++	spin_lock_irqsave(&afe->irq_lock, flags);
++	if (afe->running)
++		substream = afe->substream;
++	spin_unlock_irqrestore(&afe->irq_lock, flags);
++	if (substream)
++		snd_pcm_period_elapsed(substream);
++	return IRQ_HANDLED;
++}
++
++static int mt8163_pcm_open(struct snd_soc_component *component,
++			   struct snd_pcm_substream *substream)
++{
++	struct mt8163_afe *afe = snd_soc_component_get_drvdata(component);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	int ret;
++
++	if (substream->stream != SNDRV_PCM_STREAM_PLAYBACK)
++		return -EINVAL;
++
++	mutex_lock(&afe->lock);
++	if (afe->substream) {
++		ret = -EBUSY;
++		goto unlock;
++	}
++	/* Match the legacy order: analog audio clock before APLL/divider setup. */
++	ret = mt8163_afe_analog_clock(afe, true);
++	if (ret)
++		goto unlock;
++	ret = mt8163_afe_clocks_enable(afe);
++	if (ret) {
++		mt8163_afe_analog_clock(afe, false);
++		goto unlock;
++	}
++
++	runtime->hw = mt8163_pcm_hardware;
++	runtime->dma_area = (void *)afe->sram;
++	runtime->dma_addr = afe->sram_phys;
++	runtime->dma_bytes = afe->sram_size;
++	ret = snd_pcm_hw_constraint_step(runtime, 0,
++					 SNDRV_PCM_HW_PARAM_BUFFER_BYTES,
++					 MT8163_PCM_ALIGN);
++	if (!ret)
++		ret = snd_pcm_hw_constraint_step(runtime, 0,
++						 SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
++						 MT8163_PCM_ALIGN);
++	if (ret) {
++		mt8163_afe_analog_clock(afe, false);
++		mt8163_afe_clocks_disable(afe);
++		goto unlock;
++	}
++	afe->substream = substream;
++unlock:
++	mutex_unlock(&afe->lock);
++	return ret;
++}
++
++static int mt8163_pcm_close(struct snd_soc_component *component,
++			    struct snd_pcm_substream *substream)
++{
++	struct mt8163_afe *afe = snd_soc_component_get_drvdata(component);
++	unsigned long flags;
++
++	mutex_lock(&afe->lock);
++	mt8163_afe_stop(afe);
++	synchronize_irq(afe->irq);
++	spin_lock_irqsave(&afe->irq_lock, flags);
++	afe->substream = NULL;
++	spin_unlock_irqrestore(&afe->irq_lock, flags);
++	mt8163_afe_safe(afe);
++	mt8163_afe_analog_clock(afe, false);
++	mt8163_afe_clocks_disable(afe);
++	mutex_unlock(&afe->lock);
++	return 0;
++}
++
++static int mt8163_pcm_hw_params(struct snd_soc_component *component,
++				struct snd_pcm_substream *substream,
++				struct snd_pcm_hw_params *params)
++{
++	struct mt8163_afe *afe = snd_soc_component_get_drvdata(component);
++	size_t bytes = params_buffer_bytes(params);
++
++	if (params_rate(params) != MT8163_PCM_RATE ||
++	    params_channels(params) < 1 || params_channels(params) > 2 ||
++	    (params_format(params) != SNDRV_PCM_FORMAT_S16_LE &&
++	     !mt8163_pcm_format_wide(params_format(params))) ||
++	    !bytes || bytes > afe->sram_size ||
++	    bytes > MT8163_PCM_BUFFER_MAX ||
++	    !IS_ALIGNED(bytes, MT8163_PCM_ALIGN))
++		return -EINVAL;
++
++	substream->runtime->dma_area = (void *)afe->sram;
++	substream->runtime->dma_addr = afe->sram_phys;
++	substream->runtime->dma_bytes = bytes;
++	regmap_write(afe->regmap, AFE_DL1_BASE, (u32)afe->sram_phys);
++	return regmap_write(afe->regmap, AFE_DL1_END,
++			    (u32)(afe->sram_phys + bytes - 1));
++}
++
++static int mt8163_pcm_prepare(struct snd_soc_component *component,
++			      struct snd_pcm_substream *substream)
++{
++	struct mt8163_afe *afe = snd_soc_component_get_drvdata(component);
++	unsigned int i2s_ext = (AFE_RATE_48K << 8) |
++			       AFE_I2S_FORMAT_I2S | AFE_I2S_WORD_32 |
++			       (afe->low_jitter ? AFE_I2S_LOW_JITTER : 0);
++	bool mono = substream->runtime->channels == 1;
++	snd_pcm_format_t format = substream->runtime->format;
++	bool wide = mt8163_pcm_format_wide(format);
++	unsigned int fetch = format == SNDRV_PCM_FORMAT_S32_LE ?
++			     AFE_DL1_FORMAT_24BIT_MSB :
++			     format == SNDRV_PCM_FORMAT_S24_LE ?
++			     AFE_DL1_FORMAT_24BIT_LSB : AFE_DL1_FORMAT_16BIT;
++	int safe_ret;
++	int ret;
++
++	WRITE_ONCE(afe->pcm_data_logged, false);
++	WRITE_ONCE(afe->pcm_start_logged, false);
++	memset_io(afe->sram, 0, substream->runtime->dma_bytes);
++	/*
++	 * Clear any state left by an interrupted/previous stream before selecting
++	 * active pins or programming the next serializer transaction.  The old
++	 * 3.18 path has no reset between its prepare-time output configuration and
++	 * EnableAfe(true); keep that sequence uninterrupted here.
++	 */
++	ret = mt8163_afe_quiesce(afe);
++	if (ret)
++		goto safe;
++	ret = mt8163_afe_select_i2s(afe->dev, true);
++	if (ret)
++		goto safe;
++	ret = mt8163_afe_select_mclk(afe->dev);
++	if (ret)
++		goto safe;
++	ret = mt8163_afe_select_dac(afe->dev, false);
++	if (ret)
++		goto safe;
++
++	ret = regmap_update_bits(afe->regmap, AFE_MEMIF_PBUF_SIZE,
++				 AFE_DL1_FORMAT_MASK, fetch);
++	if (ret)
++		goto safe;
++	ret = regmap_update_bits(afe->regmap, AFE_DAC_CON1,
++				 AFE_DL1_RATE_MASK, AFE_RATE_48K);
++	if (ret)
++		goto safe;
++	/* SetSampleRate(MEM_I2S, 48000) from the working 3.18 path. */
++	ret = regmap_update_bits(afe->regmap, AFE_DAC_CON1,
++				 AFE_I2S_RATE_MASK, AFE_RATE_48K << 8);
++	if (ret)
++		goto safe;
++	/* Match 3.18 SetChannels(): bit 21 is set only for a mono stream. */
++	ret = regmap_update_bits(afe->regmap, AFE_DAC_CON1, AFE_DL1_MONO,
++				 mono ? AFE_DL1_MONO : 0);
++	if (ret)
++		goto safe;
++	ret = regmap_update_bits(afe->regmap, AFE_CONN_24BIT,
++				 AFE_OUTPUT_FORMAT_24BIT_MASK,
++				 wide ? AFE_OUTPUT_FORMAT_24BIT_MASK : 0);
++	if (ret)
++		goto safe;
++	ret = mt8163_afe_i2s_dac_config(afe, wide);
++	if (ret)
++		goto safe;
++	ret = regmap_write(afe->regmap, AFE_I2S_CON3, i2s_ext);
++	if (ret)
++		goto safe;
++	ret = regmap_write(afe->regmap, AFE_IRQ_CNT1,
++			   (u32)substream->runtime->period_size);
++	if (ret)
++		goto safe;
++	ret = regmap_update_bits(afe->regmap, AFE_IRQ_MCU_CON,
++					 GENMASK(7, 4), AFE_RATE_48K << 4);
++	if (ret)
++		goto safe;
++	/*
++	 * The working 3.18 path brings the ADDA/I2S bridge, external I2S
++	 * serializer, routes, and AFE global gate up in prepare(), before the
++	 * codec unmute and trigger callbacks.  Leave DL1 and IRQ1 quiescent; the
++	 * trigger still enables the DL1 engine immediately before streaming.
++	 */
++	ret = mt8163_afe_i2s_dac_enable(afe, true);
++	if (ret)
++		goto safe;
++	ret = regmap_update_bits(afe->regmap, AFE_I2S_CON3,
++				 AFE_I2S_ENABLE, AFE_I2S_ENABLE);
++	if (ret)
++		goto safe;
++	/*
++	 * Match the working 3.18 mtk_pcm_I2S0dl1_prepare() ordering: route
++	 * DL1 to both the external I2S outputs and the internal DAC bridge
++	 * before the AFE global gate is enabled.  The 6.1 candidate used to
++	 * create these routes from trigger(), after the codec had been
++	 * unmuted; that ordering is not equivalent at the serializer start
++	 * boundary even when the final register values match.
++	 */
++	ret = regmap_update_bits(afe->regmap, AFE_CONN0,
++				 AFE_I05_TO_O00 | AFE_I06_TO_O01,
++				 AFE_I05_TO_O00 | AFE_I06_TO_O01);
++	if (ret)
++		goto safe;
++	ret = regmap_update_bits(afe->regmap, AFE_CONN1,
++				 AFE_I05_TO_O03, AFE_I05_TO_O03);
++	if (ret)
++		goto safe;
++	ret = regmap_update_bits(afe->regmap, AFE_CONN2,
++				 AFE_I06_TO_O04, AFE_I06_TO_O04);
++	if (ret)
++		goto safe;
++	ret = regmap_update_bits(afe->regmap, AFE_DAC_CON0,
++				 AFE_GLOBAL_ENABLE, AFE_GLOBAL_ENABLE);
++	if (ret)
++		goto safe;
++	if (!ret)
++		return 0;
++safe:
++	safe_ret = mt8163_afe_safe(afe);
++	return mt8163_afe_preserve_error(afe, ret, safe_ret, "prepare");
++}
++
++static int mt8163_pcm_trigger(struct snd_soc_component *component,
++			      struct snd_pcm_substream *substream, int cmd)
++{
++	struct mt8163_afe *afe = snd_soc_component_get_drvdata(component);
++	unsigned long flags;
++	int safe_ret;
++	int ret;
++
++	switch (cmd) {
++	case SNDRV_PCM_TRIGGER_START:
++	case SNDRV_PCM_TRIGGER_RESUME:
++		/* Keep the legacy digital output blocks enabled through prepare(). */
++		ret = mt8163_afe_i2s_dac_enable(afe, true);
++		if (ret)
++			goto fail;
++		ret = regmap_write(afe->regmap, AFE_IRQ_CLR,
++					AFE_IRQ1_ENABLE);
++		if (ret)
++			goto fail;
++		ret = regmap_update_bits(afe->regmap, AFE_I2S_CON3,
++					 AFE_I2S_ENABLE, AFE_I2S_ENABLE);
++		if (ret)
++			goto fail;
++	ret = regmap_update_bits(afe->regmap, AFE_DAC_CON0,
++					 AFE_DL1_ENABLE, AFE_DL1_ENABLE);
++		if (ret)
++			goto fail;
++		/* 3.18 asserts the external amp after DL1 is live and before AFE on. */
++		ret = mt8163_afe_select_amp(afe->dev, true);
++		if (ret)
++			goto fail;
++		ret = regmap_update_bits(afe->regmap, AFE_IRQ_MCU_CON,
++					 AFE_IRQ1_ENABLE, AFE_IRQ1_ENABLE);
++		if (!ret)
++			ret = mt8163_afe_select_pmic(afe->dev, true);
++		if (!ret)
++			ret = regmap_update_bits(afe->regmap, AFE_DAC_CON0,
++						 AFE_GLOBAL_ENABLE,
++						 AFE_GLOBAL_ENABLE);
++		if (ret)
++			goto fail;
++		ret = mt8163_afe_topckgen_snapshot(afe, "after-start", true);
++		if (ret)
++			goto fail;
++		spin_lock_irqsave(&afe->irq_lock, flags);
++		afe->running = true;
++		spin_unlock_irqrestore(&afe->irq_lock, flags);
++		if (!READ_ONCE(afe->pcm_start_logged)) {
++			WRITE_ONCE(afe->pcm_start_logged, true);
++			mt8163_afe_log_sram(afe, "after-start",
++					     0, substream->runtime->dma_bytes);
++		}
++		return 0;
++fail:
++		safe_ret = mt8163_afe_stop(afe);
++		return mt8163_afe_preserve_error(afe, ret, safe_ret,
++						 "start");
++	case SNDRV_PCM_TRIGGER_STOP:
++	case SNDRV_PCM_TRIGGER_SUSPEND:
++		ret = mt8163_afe_stop(afe);
++		safe_ret = mt8163_afe_topckgen_snapshot(afe, "after-stop", true);
++		return ret ? ret : safe_ret;
++	default:
++		return -EINVAL;
++	}
++}
++
++static snd_pcm_uframes_t
++mt8163_pcm_pointer(struct snd_soc_component *component,
++		   struct snd_pcm_substream *substream)
++{
++	struct mt8163_afe *afe = snd_soc_component_get_drvdata(component);
++	unsigned int ptr;
++	u32 base = (u32)afe->sram_phys;
++	u32 bytes = (u32)substream->runtime->dma_bytes;
++
++	if (regmap_read(afe->regmap, AFE_DL1_CUR, &ptr) ||
++	    ptr < base || ptr >= base + bytes)
++		return 0;
++	return bytes_to_frames(substream->runtime, ptr - base);
++}
++
++static int mt8163_pcm_copy(struct snd_soc_component *component,
++			   struct snd_pcm_substream *substream,
++			   int channel, unsigned long pos,
++			   struct iov_iter *iter, unsigned long bytes)
++{
++	struct mt8163_afe *afe = snd_soc_component_get_drvdata(component);
++	size_t first;
++	void *bounce;
++
++	if (!bytes || pos >= substream->runtime->dma_bytes ||
++	    bytes > substream->runtime->dma_bytes)
++		return -EINVAL;
++	bounce = kmalloc(bytes, GFP_KERNEL);
++	if (!bounce)
++		return -ENOMEM;
++	if (copy_from_iter(bounce, bytes, iter) != bytes) {
++		kfree(bounce);
++		return -EFAULT;
++	}
++	first = min_t(size_t, bytes, substream->runtime->dma_bytes - pos);
++	memcpy_toio(afe->sram + pos, bounce, first);
++	if (first < bytes)
++		memcpy_toio(afe->sram, bounce + first, bytes - first);
++	if (!READ_ONCE(afe->pcm_data_logged)) {
++		WRITE_ONCE(afe->pcm_data_logged, true);
++		mt8163_afe_log_sram(afe, "after-copy", pos, bytes);
++	}
++	kfree(bounce);
++	return 0;
++}
++
++static const struct snd_soc_component_driver mt8163_afe_component = {
++	.name = MT8163_AFE_COMPONENT_NAME,
++	.open = mt8163_pcm_open,
++	.close = mt8163_pcm_close,
++	.hw_params = mt8163_pcm_hw_params,
++	.prepare = mt8163_pcm_prepare,
++	.trigger = mt8163_pcm_trigger,
++	.pointer = mt8163_pcm_pointer,
++	.copy = mt8163_pcm_copy,
++	.use_dai_pcm_id = true,
++	.legacy_dai_naming = true,
++};
++
++static struct snd_soc_dai_driver mt8163_afe_dai = {
++	.name = MT8163_DL1_DAI_NAME,
++	.playback = {
++		.stream_name = "DL1 Playback",
++		.channels_min = 1,
++		.channels_max = 2,
++		.rates = SNDRV_PCM_RATE_48000,
++		.formats = MT8163_PCM_FORMATS,
++	},
++};
++
++static const struct regmap_config mt8163_afe_regmap_config = {
++	.reg_bits = 32,
++	.reg_stride = 4,
++	.val_bits = 32,
++	.max_register = 0x9000 - 4,
++	.cache_type = REGCACHE_NONE,
++};
++
++static int mt8163_afe_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct resource *sram_res;
++	struct regmap *scpsys;
++	struct device_node *pmic_np;
++	struct device_node *topckgen_np;
++	struct platform_device *pmic_pdev;
++	struct mt8163_afe *afe;
++	void __iomem *base;
++	int i, ret;
++
++	dev_info(dev, "MT8163 AFE probe entered\n");
++	afe = devm_kzalloc(dev, sizeof(*afe), GFP_KERNEL);
++	if (!afe)
++		return -ENOMEM;
++	afe->dev = dev;
++	mutex_init(&afe->lock);
++	spin_lock_init(&afe->irq_lock);
++
++	base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(base))
++		return PTR_ERR(base);
++	afe->regmap = devm_regmap_init_mmio(dev, base,
++					    &mt8163_afe_regmap_config);
++	if (IS_ERR(afe->regmap))
++		return PTR_ERR(afe->regmap);
++
++	afe->topckgen = syscon_regmap_lookup_by_compatible(
++		"mediatek,mt8163-topckgen");
++	if (IS_ERR(afe->topckgen))
++		return dev_err_probe(dev, PTR_ERR(afe->topckgen),
++				     "cannot find TOPCKGEN regmap\n");
++	topckgen_np = of_find_compatible_node(NULL, NULL,
++						"mediatek,mt8163-topckgen");
++	if (!topckgen_np)
++		return dev_err_probe(dev, -ENODEV,
++				     "cannot find TOPCKGEN node\n");
++	afe->topckgen_base = devm_of_iomap(dev, topckgen_np, 0, NULL);
++	of_node_put(topckgen_np);
++	if (IS_ERR(afe->topckgen_base))
++		return dev_err_probe(dev, PTR_ERR(afe->topckgen_base),
++				     "cannot map TOPCKGEN\n");
++
++	scpsys = syscon_regmap_lookup_by_compatible("mediatek,mt8163-scpsys");
++	if (IS_ERR(scpsys))
++		return dev_err_probe(dev, PTR_ERR(scpsys),
++				     "cannot find SCPSYS regmap\n");
++	ret = regmap_write(scpsys, MT8163_POWER_TOP_OFFSET,
++			   MT8163_POWER_TOP_AUDIO);
++	if (ret)
++		return ret;
++
++	sram_res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++	if (!sram_res)
++		return -ENODEV;
++	afe->sram_size = min_t(size_t, resource_size(sram_res),
++			       MT8163_PCM_BUFFER_MAX);
++	afe->sram = devm_ioremap_resource(dev, sram_res);
++	if (IS_ERR(afe->sram))
++		return PTR_ERR(afe->sram);
++	afe->sram_phys = sram_res->start;
++
++	afe->infra = devm_clk_get(dev, "aud_infra_clk");
++	if (IS_ERR(afe->infra))
++		return dev_err_probe(dev, PTR_ERR(afe->infra),
++				     "missing aud_infra_clk\n");
++	afe->audio_mux = devm_clk_get(dev, "top_mux_audio");
++	if (IS_ERR(afe->audio_mux))
++		return dev_err_probe(dev, PTR_ERR(afe->audio_mux),
++				     "missing top_mux_audio\n");
++	afe->audio_intbus_mux = devm_clk_get(dev, "top_mux_audio_intbus");
++	if (IS_ERR(afe->audio_intbus_mux))
++		return dev_err_probe(dev, PTR_ERR(afe->audio_intbus_mux),
++				     "missing top_mux_audio_intbus\n");
++	afe->aud_mux2 = devm_clk_get(dev, "aud_mux2_clk");
++	if (IS_ERR(afe->aud_mux2))
++		return dev_err_probe(dev, PTR_ERR(afe->aud_mux2),
++				     "missing aud_mux2_clk\n");
++	afe->apll2 = devm_clk_get(dev, "apmixed_apll2_clk");
++	if (IS_ERR(afe->apll2))
++		return dev_err_probe(dev, PTR_ERR(afe->apll2),
++				     "missing apmixed_apll2_clk\n");
++	afe->audio_24m = devm_clk_get(dev, "aud_24m_clk");
++	if (IS_ERR(afe->audio_24m))
++		return dev_err_probe(dev, PTR_ERR(afe->audio_24m),
++				     "missing aud_24m_clk\n");
++	dev_info(dev, "MT8163 AFE clocks acquired\n");
++
++	/* The 3.18 driver reaches the MT6323 through the pwrap regmap. */
++	pmic_np = of_parse_phandle(dev->of_node, "mediatek,pmic", 0);
++	if (!pmic_np)
++		return dev_err_probe(dev, -ENODEV,
++				     "missing mediatek,pmic phandle\n");
++	pmic_pdev = of_find_device_by_node(pmic_np);
++	if (!pmic_pdev) {
++		of_node_put(pmic_np);
++		return dev_err_probe(dev, -EPROBE_DEFER,
++				     "MT6323 PMIC device is not ready\n");
++	}
++	afe->pmic_regmap = dev_get_regmap(pmic_pdev->dev.parent, NULL);
++	put_device(&pmic_pdev->dev);
++	of_node_put(pmic_np);
++	if (!afe->pmic_regmap)
++		return dev_err_probe(dev, -EPROBE_DEFER,
++				     "MT6323 PMIC regmap is not ready\n");
++
++	afe->pinctrl = devm_pinctrl_get(dev);
++	if (IS_ERR(afe->pinctrl))
++		return dev_err_probe(dev, PTR_ERR(afe->pinctrl),
++				     "missing audio pinctrl\n");
++	for (i = 0; i < MT8163_PIN_NUM; i++) {
++		afe->pins[i] = pinctrl_lookup_state(afe->pinctrl,
++						    mt8163_pin_names[i]);
++		if (IS_ERR(afe->pins[i])) {
++			if (i == MT8163_PIN_DAC_ON || i == MT8163_PIN_DAC_OFF) {
++				dev_dbg(dev, "optional pinctrl state %s is absent\n",
++					mt8163_pin_names[i]);
++				continue;
++			}
++			return dev_err_probe(dev, PTR_ERR(afe->pins[i]),
++					     "missing pinctrl state %s\n",
++					     mt8163_pin_names[i]);
++		}
++	}
++
++	/* Keep amp/DAC descriptors optional.  The old 3.18 external-amp path
++	 * selects extamp-pullhigh/low, which this DT variant restores by omitting
++	 * extamp-gpios.  Its DAC-mux state lookup was absent and ignored, so the
++	 * corresponding 6.1 state/descriptor is optional as well. */
++	afe->amp_gpiod = devm_gpiod_get_optional(dev, "extamp", GPIOD_OUT_LOW);
++	if (IS_ERR(afe->amp_gpiod))
++		return dev_err_probe(dev, PTR_ERR(afe->amp_gpiod),
++				     "missing external amp GPIO\n");
++	afe->dac_gpiod = devm_gpiod_get_optional(dev, "dacmux", GPIOD_OUT_LOW);
++	if (IS_ERR(afe->dac_gpiod))
++		return dev_err_probe(dev, PTR_ERR(afe->dac_gpiod),
++				     "missing DAC mux GPIO\n");
++	dev_info(dev, "MT8163 AFE pinctrl states acquired\n");
++
++	afe->irq = platform_get_irq(pdev, 0);
++	if (afe->irq < 0)
++		return afe->irq;
++	ret = devm_request_threaded_irq(dev, afe->irq, mt8163_afe_irq,
++					mt8163_afe_irq_thread, IRQF_ONESHOT,
++					"mt8163-afe", afe);
++	if (ret)
++		return ret;
++
++	platform_set_drvdata(pdev, afe);
++	pm_runtime_enable(dev);
++	ret = mt8163_afe_safe(afe);
++	if (ret)
++		goto disable_pm;
++
++	ret = devm_snd_soc_register_component(dev, &mt8163_afe_component,
++					      &mt8163_afe_dai, 1);
++	if (ret) {
++		dev_err(dev, "MT8163 AFE component registration failed: %d\n", ret);
++		goto disable_pm;
++	}
++	/* Temporary bring-up hook: the vendor AFE has a hardware sine generator
++	 * that isolates the codec/I2S output chain from the DL1 PCM buffer. */
++	afe->debugfs_dir = debugfs_create_dir(dev_name(dev), NULL);
++	if (afe->debugfs_dir)
++		debugfs_create_file("sgen", 0600, afe->debugfs_dir, afe,
++				    &mt8163_afe_sgen_fops);
++	dev_info(dev, "MT8163 AFE component registered\n");
++	return 0;
++
++disable_pm:
++	pm_runtime_disable(dev);
++	return ret;
++}
++
++static void mt8163_afe_remove(struct platform_device *pdev)
++{
++	struct mt8163_afe *afe = platform_get_drvdata(pdev);
++
++	debugfs_remove_recursive(afe->debugfs_dir);
++	mt8163_afe_safe(afe);
++	mt8163_afe_analog_clock(afe, false);
++	mt8163_afe_clocks_disable(afe);
++	pm_runtime_disable(&pdev->dev);
++}
++
++static const struct of_device_id mt8163_afe_of_match[] = {
++	{ .compatible = "mediatek,mt8163-soc-pcm-dl1" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, mt8163_afe_of_match);
++
++static struct platform_driver mt8163_afe_driver = {
++	.probe = mt8163_afe_probe,
++	.remove = mt8163_afe_remove,
++	.driver = {
++		.name = "mt8163-afe",
++		.of_match_table = mt8163_afe_of_match,
++	},
++};
++module_platform_driver(mt8163_afe_driver);
++
++MODULE_DESCRIPTION("MediaTek MT8163 narrow DL1/I2S AFE driver");
++MODULE_LICENSE("GPL");
+diff --git a/sound/soc/mediatek/mt8163/mt8163-afe.h b/sound/soc/mediatek/mt8163/mt8163-afe.h
+new file mode 100644
+index 000000000..193cdaf45
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163/mt8163-afe.h
+@@ -0,0 +1,16 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __SND_SOC_MT8163_AFE_H
++#define __SND_SOC_MT8163_AFE_H
++
++#include <linux/types.h>
++
++struct device;
++
++int mt8163_afe_select_i2s(struct device *dev, bool enable);
++int mt8163_afe_set_low_jitter(struct device *dev, bool enable);
++int mt8163_afe_select_pmic(struct device *dev, bool enable);
++int mt8163_afe_select_amp(struct device *dev, bool enable);
++int mt8163_afe_select_dac(struct device *dev, bool enable);
++int mt8163_afe_select_mclk(struct device *dev);
++
++#endif
+diff --git a/sound/soc/mediatek/mt8163/mt8163-mclk.c b/sound/soc/mediatek/mt8163/mt8163-mclk.c
+new file mode 100644
+index 000000000..1dd949163
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163/mt8163-mclk.c
+@@ -0,0 +1,443 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Radar-Puffin codec MCLK.
++ *
++ * The board routes the MT8163 SENINF test clock to the audio MCLK pin.  A
++ * 48 MHz parent divided by five produces the 9.6 MHz clock used by the stock
++ * TLV320 configuration.
++ */
++
++#include <linux/clk.h>
++#include <linux/io.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++#include <linux/pm_domain.h>
++#include <linux/pm_runtime.h>
++
++#include "mt8163-mclk.h"
++
++#define MT8163_MCLK_RATE		9600000U
++
++#define SENINF_TOP_CTRL			0x0000
++#define SENINF1_CTRL			0x0100
++#define SENINF1_MUX_CTRL		0x0120
++#define SENINF_TG1_PH_CNT		0x0200
++#define SENINF_TG1_SEN_CK		0x0204
++
++#define SENINF1_ENABLE			BIT(0)
++#define SENINF1_MUX_ENABLE		BIT(31)
++#define SENINF12_PCLK_CLEAR_MASK	GENMASK(11, 10)
++#define SENINF12_PCLK_ROUTE_MASK	GENMASK(9, 8)
++#define SENINF12_PCLK_ROUTE_VALUE	GENMASK(9, 8)
++#define SENINF12_PCLK_STATE_MASK	GENMASK(11, 8)
++#define SENINF12_PCLK_STATE_VALUE	0x00000300
++#define SENINF_CLK_FALL_MASK		GENMASK(5, 0)
++#define SENINF_CLK_RISE_MASK		GENMASK(13, 8)
++#define SENINF_CLK_COUNT_MASK		GENMASK(21, 16)
++#define SENINF_TGCLK_SEL_MASK		GENMASK(1, 0)
++#define SENINF_FALL_POLARITY		BIT(2)
++#define SENINF_PADCLK_INVERT		BIT(6)
++#define SENINF_CLK_POLARITY		BIT(28)
++#define SENINF_PHASE_COUNTER_ENABLE	BIT(31)
++#define SENINF_OUTPUT_ENABLE		BIT(29)
++
++struct mt8163_mclk {
++	struct device *dev;
++	struct platform_device *isp;
++	struct platform_device *camera;
++	void __iomem *base;
++	/* MM_SMI_COMMON belongs to the disabled mmsys node on Radar-Puffin. */
++	struct clk *smi_common;
++	struct clk *sen_tg;
++	struct clk *sen_cam;
++	struct clk *larb2_smi;
++	struct clk *camtg;
++	struct clk *parent_48m;
++	struct clk *saved_parent;
++	struct mutex lock;
++	unsigned int users;
++	bool isp_powered;
++	bool smi_common_enabled;
++	bool sen_tg_enabled;
++	bool sen_cam_enabled;
++	bool larb2_smi_enabled;
++	bool parent_changed;
++	bool camtg_enabled;
++	bool isp_domain_attached;
++	bool isp_pm_enabled;
++};
++
++static struct platform_device *mt8163_find_pdev(struct device *dev,
++						const char *compatible)
++{
++	struct platform_device *pdev;
++	struct device_node *np;
++
++	np = of_find_compatible_node(NULL, NULL, compatible);
++	if (!np) {
++		dev_err(dev, "MCLK DT node missing for %s\n", compatible);
++		return NULL;
++	}
++	pdev = of_find_device_by_node(np);
++	if (!pdev)
++		dev_err(dev, "MCLK DT node %pOF has no platform device for %s\n",
++			np, compatible);
++	else
++		dev_info(dev, "MCLK platform device found: %s for %s\n",
++			dev_name(&pdev->dev), compatible);
++	of_node_put(np);
++	return pdev;
++}
++
++static void mt8163_mclk_update_bits(struct mt8163_mclk *mclk,
++				    u32 reg, u32 mask, u32 val)
++{
++	u32 tmp = readl(mclk->base + reg);
++
++	writel((tmp & ~mask) | (val & mask), mclk->base + reg);
++}
++
++static int mt8163_mclk_program(struct mt8163_mclk *mclk)
++{
++	u32 top_ctrl;
++	u32 ph_cnt;
++	u32 sen_ck;
++	u32 mux_ctrl;
++	u32 seninf_ctrl;
++
++	/* 48 MHz / (4 + 1), with a symmetric-enough 2/3 duty cycle. */
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_PH_CNT,
++				SENINF_PHASE_COUNTER_ENABLE,
++				SENINF_PHASE_COUNTER_ENABLE);
++	mt8163_mclk_update_bits(mclk, SENINF_TOP_CTRL,
++				SENINF12_PCLK_CLEAR_MASK | SENINF12_PCLK_ROUTE_MASK,
++				SENINF12_PCLK_ROUTE_VALUE);
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_SEN_CK,
++				SENINF_CLK_FALL_MASK, 2);
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_SEN_CK,
++				SENINF_CLK_RISE_MASK, 0);
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_SEN_CK,
++				SENINF_CLK_COUNT_MASK, 4 << 16);
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_PH_CNT,
++				SENINF_TGCLK_SEL_MASK, 1);
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_PH_CNT,
++				SENINF_FALL_POLARITY, SENINF_FALL_POLARITY);
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_PH_CNT,
++				SENINF_PADCLK_INVERT | SENINF_CLK_POLARITY, 0);
++	mt8163_mclk_update_bits(mclk, SENINF1_MUX_CTRL,
++				SENINF1_MUX_ENABLE, SENINF1_MUX_ENABLE);
++	mt8163_mclk_update_bits(mclk, SENINF1_CTRL,
++				SENINF1_ENABLE, SENINF1_ENABLE);
++	mt8163_mclk_update_bits(mclk, SENINF_TG1_PH_CNT,
++				SENINF_OUTPUT_ENABLE, SENINF_OUTPUT_ENABLE);
++
++	top_ctrl = readl(mclk->base + SENINF_TOP_CTRL);
++	ph_cnt = readl(mclk->base + SENINF_TG1_PH_CNT);
++	sen_ck = readl(mclk->base + SENINF_TG1_SEN_CK);
++	mux_ctrl = readl(mclk->base + SENINF1_MUX_CTRL);
++	seninf_ctrl = readl(mclk->base + SENINF1_CTRL);
++	dev_info(mclk->dev,
++		 "MCLK state top=%#010x ph=%#010x sen_ck=%#010x mux=%#010x ctrl=%#010x\n",
++		top_ctrl, ph_cnt, sen_ck, mux_ctrl, seninf_ctrl);
++
++	if ((top_ctrl & SENINF12_PCLK_STATE_MASK) !=
++	    SENINF12_PCLK_STATE_VALUE) {
++		dev_err(mclk->dev,
++			"MCLK SENINF_TOP_CTRL invalid: %#010x\n", top_ctrl);
++		return -EIO;
++	}
++	if ((sen_ck & SENINF_CLK_COUNT_MASK) != (4U << 16) ||
++	    (sen_ck & SENINF_CLK_FALL_MASK) != 2 ||
++	    (sen_ck & SENINF_CLK_RISE_MASK) != 0) {
++		dev_err(mclk->dev, "MCLK divider invalid: SEN_CK=%#010x\n",
++			sen_ck);
++		return -EIO;
++	}
++	if (!(ph_cnt & SENINF_PHASE_COUNTER_ENABLE) ||
++	    !(ph_cnt & SENINF_OUTPUT_ENABLE) ||
++	    !(mux_ctrl & SENINF1_MUX_ENABLE) ||
++	    !(seninf_ctrl & SENINF1_ENABLE)) {
++		dev_err(mclk->dev,
++			"MCLK output incomplete: ph=%#x mux=%#x ctrl=%#x\n",
++			ph_cnt, mux_ctrl, seninf_ctrl);
++		return -EIO;
++	}
++
++	return 0;
++}
++
++static void mt8163_mclk_disable_locked(struct mt8163_mclk *mclk)
++{
++	if (mclk->base)
++		mt8163_mclk_update_bits(mclk, SENINF_TG1_PH_CNT,
++					SENINF_OUTPUT_ENABLE, 0);
++	if (mclk->camtg_enabled) {
++		clk_disable_unprepare(mclk->camtg);
++		mclk->camtg_enabled = false;
++	}
++	if (mclk->parent_changed && mclk->saved_parent) {
++		if (!clk_set_parent(mclk->camtg, mclk->saved_parent))
++			mclk->parent_changed = false;
++	}
++	if (mclk->larb2_smi_enabled) {
++		clk_disable_unprepare(mclk->larb2_smi);
++		mclk->larb2_smi_enabled = false;
++	}
++	if (mclk->sen_cam_enabled) {
++		clk_disable_unprepare(mclk->sen_cam);
++		mclk->sen_cam_enabled = false;
++	}
++	if (mclk->sen_tg_enabled) {
++		clk_disable_unprepare(mclk->sen_tg);
++		mclk->sen_tg_enabled = false;
++	}
++	if (mclk->smi_common_enabled) {
++		clk_disable_unprepare(mclk->smi_common);
++		mclk->smi_common_enabled = false;
++	}
++	if (mclk->isp_powered) {
++		pm_runtime_put_sync(&mclk->isp->dev);
++		mclk->isp_powered = false;
++	}
++}
++
++int mt8163_mclk_enable(struct mt8163_mclk *mclk)
++{
++	int ret;
++
++	if (!mclk)
++		return -ENODEV;
++
++	mutex_lock(&mclk->lock);
++	if (mclk->users++) {
++		mutex_unlock(&mclk->lock);
++		return 0;
++	}
++
++	ret = pm_runtime_resume_and_get(&mclk->isp->dev);
++	if (ret < 0)
++		goto fail_users;
++	mclk->isp_powered = true;
++	if (mclk->smi_common) {
++		ret = clk_prepare_enable(mclk->smi_common);
++		if (ret)
++			goto fail;
++		mclk->smi_common_enabled = true;
++	}
++	ret = clk_prepare_enable(mclk->sen_tg);
++	if (ret)
++		goto fail;
++	mclk->sen_tg_enabled = true;
++	ret = clk_prepare_enable(mclk->sen_cam);
++	if (ret)
++		goto fail;
++	mclk->sen_cam_enabled = true;
++	ret = clk_prepare_enable(mclk->larb2_smi);
++	if (ret)
++		goto fail;
++	mclk->larb2_smi_enabled = true;
++
++	mclk->saved_parent = clk_get_parent(mclk->camtg);
++	if (!mclk->saved_parent) {
++		ret = -ENODEV;
++		goto fail;
++	}
++	if (mclk->saved_parent != mclk->parent_48m) {
++		ret = clk_set_parent(mclk->camtg, mclk->parent_48m);
++		if (ret)
++			goto fail;
++		mclk->parent_changed = true;
++	}
++	ret = clk_prepare_enable(mclk->camtg);
++	if (ret)
++		goto fail;
++	mclk->camtg_enabled = true;
++
++	ret = mt8163_mclk_program(mclk);
++	if (ret)
++		goto fail;
++	mutex_unlock(&mclk->lock);
++	return 0;
++
++fail:
++	mt8163_mclk_disable_locked(mclk);
++fail_users:
++	mclk->users = 0;
++	mutex_unlock(&mclk->lock);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(mt8163_mclk_enable);
++
++void mt8163_mclk_disable(struct mt8163_mclk *mclk)
++{
++	if (!mclk)
++		return;
++
++	mutex_lock(&mclk->lock);
++	if (mclk->users && !--mclk->users)
++		mt8163_mclk_disable_locked(mclk);
++	mutex_unlock(&mclk->lock);
++}
++EXPORT_SYMBOL_GPL(mt8163_mclk_disable);
++
++static void mt8163_mclk_release(void *data)
++{
++	struct mt8163_mclk *mclk = data;
++
++	mutex_lock(&mclk->lock);
++	mclk->users = 0;
++	mt8163_mclk_disable_locked(mclk);
++	mutex_unlock(&mclk->lock);
++	if (mclk->isp_pm_enabled) {
++		pm_runtime_disable(&mclk->isp->dev);
++		mclk->isp_pm_enabled = false;
++	}
++	if (mclk->isp_domain_attached) {
++		dev_pm_domain_detach(&mclk->isp->dev, true);
++		mclk->isp_domain_attached = false;
++	}
++	if (mclk->base)
++		iounmap(mclk->base);
++	if (mclk->parent_48m)
++		clk_put(mclk->parent_48m);
++	if (mclk->camtg)
++		clk_put(mclk->camtg);
++	if (mclk->sen_cam)
++		clk_put(mclk->sen_cam);
++	if (mclk->sen_tg)
++		clk_put(mclk->sen_tg);
++	if (mclk->larb2_smi)
++		clk_put(mclk->larb2_smi);
++	if (mclk->smi_common)
++		clk_put(mclk->smi_common);
++	if (mclk->camera)
++		put_device(&mclk->camera->dev);
++	if (mclk->isp)
++		put_device(&mclk->isp->dev);
++}
++
++struct mt8163_mclk *mt8163_mclk_get(struct device *dev)
++{
++	struct mt8163_mclk *mclk;
++	int ret;
++
++	mclk = devm_kzalloc(dev, sizeof(*mclk), GFP_KERNEL);
++	if (!mclk)
++		return ERR_PTR(-ENOMEM);
++	mclk->dev = dev;
++	mutex_init(&mclk->lock);
++
++	mclk->isp = mt8163_find_pdev(dev, "mediatek,mt8163-ispsys");
++	if (!mclk->isp) {
++		dev_err(dev,
++			"MCLK ISP provider DT node exists but platform device is not ready; deferring\n");
++		return ERR_PTR(-EPROBE_DEFER);
++	}
++	mclk->camera = mt8163_find_pdev(dev, "mediatek,mt8163-camera_hw");
++	if (!mclk->camera) {
++		dev_err(dev,
++			"MCLK camera provider DT node exists but platform device is not ready; deferring\n");
++		put_device(&mclk->isp->dev);
++		return ERR_PTR(-EPROBE_DEFER);
++	}
++	dev_info(dev, "MCLK providers ready: isp=%s camera=%s\n",
++		 dev_name(&mclk->isp->dev), dev_name(&mclk->camera->dev));
++	ret = dev_pm_domain_attach(&mclk->isp->dev, true);
++	dev_info(dev, "MCLK ISP PM-domain attach returned %d\n", ret);
++	if (ret == -ENOENT) {
++		/*
++		 * MT8163's ISP domain is powered by the SoC bring-up path on
++		 * this board.  Some 6.1 DT variants do not expose a matching
++		 * genpd provider to this late-created helper, although the ISP
++		 * platform device and its clocks are usable (the 3.18 path has
++		 * the same assumption).  Do not make codec registration depend
++		 * on an optional PM-domain attachment in that case.
++		 */
++		dev_warn(dev,
++			 "ISP PM-domain unavailable (%d); continuing without attachment\n",
++			 ret);
++		ret = 0;
++	} else if (ret) {
++		dev_err(dev, "ISP PM-domain attach failed: %d\n", ret);
++		goto fail;
++	} else {
++		mclk->isp_domain_attached = true;
++	}
++	pm_runtime_enable(&mclk->isp->dev);
++	mclk->isp_pm_enabled = true;
++
++	mclk->base = of_iomap(mclk->camera->dev.of_node, 0);
++	if (!mclk->base) {
++		dev_err(dev, "MCLK camera register mapping failed\n");
++		ret = -ENOMEM;
++		goto fail;
++	}
++	dev_info(dev, "MCLK camera register mapping ready\n");
++	/*
++	 * The stock Radar-Puffin DT keeps mmsys disabled, so its
++	 * MM_SMI_COMMON entry is absent even though the ISP clock provider is
++	 * present.  3.18 does not require this unrelated display/MM gate for
++	 * the SENINF MCLK path.  Keep using it when a DT variant exposes it,
++	 * but never make codec registration depend on it.
++	 */
++	mclk->smi_common = clk_get_optional(&mclk->isp->dev, "MM_SMI_COMMON");
++	if (IS_ERR(mclk->smi_common)) {
++		ret = PTR_ERR(mclk->smi_common);
++		dev_err(dev, "optional MM_SMI_COMMON clock lookup failed: %d\n", ret);
++		mclk->smi_common = NULL;
++		goto fail;
++	}
++	mclk->sen_tg = clk_get(&mclk->isp->dev, "IMG_SEN_TG");
++	if (IS_ERR(mclk->sen_tg)) {
++		ret = PTR_ERR(mclk->sen_tg);
++		dev_err(dev, "IMG_SEN_TG clock lookup failed: %d\n", ret);
++		mclk->sen_tg = NULL;
++		goto fail;
++	}
++	mclk->sen_cam = clk_get(&mclk->isp->dev, "IMG_SEN_CAM");
++	if (IS_ERR(mclk->sen_cam)) {
++		ret = PTR_ERR(mclk->sen_cam);
++		dev_err(dev, "IMG_SEN_CAM clock lookup failed: %d\n", ret);
++		mclk->sen_cam = NULL;
++		goto fail;
++	}
++	mclk->larb2_smi = clk_get(&mclk->isp->dev, "IMG_LARB2_SMI");
++	if (IS_ERR(mclk->larb2_smi)) {
++		ret = PTR_ERR(mclk->larb2_smi);
++		dev_err(dev, "IMG_LARB2_SMI clock lookup failed: %d\n", ret);
++		mclk->larb2_smi = NULL;
++		goto fail;
++	}
++	mclk->camtg = clk_get(&mclk->camera->dev, "TOP_CAMTG_SEL");
++	if (IS_ERR(mclk->camtg)) {
++		ret = PTR_ERR(mclk->camtg);
++		dev_err(dev, "TOP_CAMTG_SEL clock lookup failed: %d\n", ret);
++		mclk->camtg = NULL;
++		goto fail;
++	}
++	mclk->parent_48m = clk_get(&mclk->camera->dev, "TOP_UNIVPLL_D26");
++	if (IS_ERR(mclk->parent_48m)) {
++		ret = PTR_ERR(mclk->parent_48m);
++		dev_err(dev, "TOP_UNIVPLL_D26 clock lookup failed: %d\n", ret);
++		mclk->parent_48m = NULL;
++		goto fail;
++	}
++
++	ret = devm_add_action_or_reset(dev, mt8163_mclk_release, mclk);
++	if (ret)
++		return ERR_PTR(ret);
++	dev_dbg(dev, "Radar-Puffin codec MCLK configured for %u Hz\n",
++		MT8163_MCLK_RATE);
++	return mclk;
++
++fail:
++	mt8163_mclk_release(mclk);
++	return ERR_PTR(ret);
++}
++EXPORT_SYMBOL_GPL(mt8163_mclk_get);
++
++MODULE_DESCRIPTION("MediaTek MT8163 Radar-Puffin codec MCLK");
++MODULE_LICENSE("GPL");
+diff --git a/sound/soc/mediatek/mt8163/mt8163-mclk.h b/sound/soc/mediatek/mt8163/mt8163-mclk.h
+new file mode 100644
+index 000000000..89cb0b2f6
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163/mt8163-mclk.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __SND_SOC_MT8163_MCLK_H
++#define __SND_SOC_MT8163_MCLK_H
++
++struct device;
++struct mt8163_mclk;
++
++struct mt8163_mclk *mt8163_mclk_get(struct device *dev);
++int mt8163_mclk_enable(struct mt8163_mclk *mclk);
++void mt8163_mclk_disable(struct mt8163_mclk *mclk);
++
++#endif
+diff --git a/sound/soc/mediatek/mt8163/mt8163-radar-puffin.c b/sound/soc/mediatek/mt8163/mt8163-radar-puffin.c
+new file mode 100644
+index 000000000..ef5b46198
+--- /dev/null
++++ b/sound/soc/mediatek/mt8163/mt8163-radar-puffin.c
+@@ -0,0 +1,1268 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Amazon Radar-Puffin MT8163 sound card.
++ *
++ * Keep the three board links that are present in the release product:
++ * external DAC playback, FPGA SPI microphone capture, and the raw I2S1
++ * playback endpoint.  Link IDs intentionally retain the stock PCM device
++ * numbers without registering the unused voice/FM/HDMI links.
++ */
++
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++#include <linux/workqueue.h>
++
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++#include <sound/soc-dapm.h>
++
++#include "mt8163-afe.h"
++#include "mt8163-mclk.h"
++
++#define RADAR_CARD_NAME			"mt-snd-card"
++#define RADAR_AFE_COMPATIBLE		"mediatek,mt8163-soc-pcm-dl1"
++#define RADAR_SPI_COMPATIBLE		"amzn-mtk,spi-audio-pltfm"
++#define RADAR_DAC_COMPATIBLE		"ti,tlv320aic32x4"
++#define RADAR_ADC_COMPATIBLE		"ti,tlv320aic3101"
++
++#define RADAR_DL1_DAI			"mt-soc-dl1dai-driver"
++#define RADAR_SPI_DAI			"amzn-mt-spi-pcm"
++#define RADAR_DAC_DAI			"tlv320aic32x4-hifi"
++#define RADAR_ADC_DAI			"tlv320aic3101-codec"
++
++#define RADAR_MCLK_RATE			9600000U
++
++#define RADAR_ADC_PLL_BCLK		1
++#define RADAR_ADC_PLL_MCLK		2
++
++/* TLV320AIC32x4 page-zero registers used by stock board controls. */
++#define RADAR_DAC_DOUTCTL		53
++#define RADAR_DAC_PROCESSING_BLOCK	60
++#define RADAR_DAC_SETUP			63
++#define RADAR_DAC_MUTE			RADAR_AIC32X4_REG(0, 64)
++#define RADAR_DAC_OUTPWR		RADAR_AIC32X4_REG(1, 9)
++#define RADAR_DRC_CTRL1			68
++#define RADAR_PUFFIN_DAC_PROCESSING_BLOCK 2
++#define RADAR_DRC_DISABLED		0x0f
++#define RADAR_DAC_HEADSTART		RADAR_AIC32X4_REG(1, 20)
++#define RADAR_HP_AMP_SOFT_STARTUP	0x1d
++#define RADAR_DAC_GAIN_APPLIED		RADAR_AIC32X4_REG(1, 63)
++#define RADAR_HP_GAIN_APPLIED_STEREO	(BIT(7) | BIT(6))
++#define RADAR_GAIN_APPLIED_POLL_MS	50
++#define RADAR_GAIN_APPLIED_RETRIES	80
++/*
++ * HP analog output driver gain/mute registers.  Bit 6 is the analog mute:
++ * the codec resets with HPLGAIN/HPRGAIN=0x40 (muted).  The 6.1 machine
++ * applies the production stereo-container release policy below.
++ */
++#define RADAR_HPLGAIN			RADAR_AIC32X4_REG(1, 16)
++#define RADAR_HPRGAIN			RADAR_AIC32X4_REG(1, 17)
++#define RADAR_HP_DRIVER_MUTE		BIT(6)
++/* DAC digital volume registers: 0x00 is 0 dB; DACMUTE is the mute control. */
++#define RADAR_LDACVOL			RADAR_AIC32X4_REG(0, 65)
++#define RADAR_RDACVOL			RADAR_AIC32X4_REG(0, 66)
++/* DACSETUP soft-stepping bit retained from the 3.18 profile. */
++#define RADAR_DAC_SOFT_STEP		0x02
++#define RADAR_DAC_MFP2_GPIO		BIT(2)
++#define RADAR_DAC_MFP2_MUTE		(RADAR_DAC_MFP2_GPIO | BIT(0))
++#define RADAR_AIC32X4_REG(_page, _reg)	(((_page) * 128) + (_reg))
++#define RADAR_PUFFIN_PROFILE(_page, _reg, _value)	\
++	{ .reg = RADAR_AIC32X4_REG(_page, _reg), .def = (_value) }
++
++static unsigned int radar_codec_debug_read(struct snd_soc_component *component,
++						unsigned int reg)
++{
++	int ret;
++
++	ret = snd_soc_component_read(component, reg);
++	return ret < 0 ? 0xff : ret;
++}
++
++static void radar_log_codec_state(struct snd_soc_component *component,
++					  const char *stage)
++{
++	dev_info(component->dev,
++		 "audio-stage=%s p0[r4=%02x r5=%02x r6=%02x r11=%02x r12=%02x "
++		 "r18=%02x r19=%02x r30=%02x r36=%02x r37=%02x r38=%02x "
++		 "r60=%02x r61=%02x r63=%02x r64=%02x] "
++		 "p1[r9=%02x r12=%02x r13=%02x r16=%02x r17=%02x r20=%02x r63=%02x]\n",
++		 stage,
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 4)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 5)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 6)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 11)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 12)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 18)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 19)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 30)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 36)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 37)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 38)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 60)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 61)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 63)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(0, 64)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(1, 9)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(1, 12)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(1, 13)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(1, 16)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(1, 17)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(1, 20)),
++		 radar_codec_debug_read(component, RADAR_AIC32X4_REG(1, 63)));
++}
++
++/*
++ * Stock radar_puffin ext_speaker_output profile recovered from the final
++ * Linux 3.18 audio_device.xml path.  The engine duplicates its mono speaker
++ * bus into both I2S channels; these coefficients then high-pass HPL for the
++ * tweeter and low-pass HPR for the larger cone, with the stock DRC settings.
++ */
++static const struct reg_sequence radar_puffin_ext_speaker_profile[] = {
++	RADAR_PUFFIN_PROFILE(44, 12, 122),
++	RADAR_PUFFIN_PROFILE(44, 13, 248),
++	RADAR_PUFFIN_PROFILE(44, 14, 206),
++	RADAR_PUFFIN_PROFILE(44, 16, 133),
++	RADAR_PUFFIN_PROFILE(44, 17, 7),
++	RADAR_PUFFIN_PROFILE(44, 18, 50),
++	RADAR_PUFFIN_PROFILE(44, 20, 122),
++	RADAR_PUFFIN_PROFILE(44, 21, 248),
++	RADAR_PUFFIN_PROFILE(44, 22, 206),
++	RADAR_PUFFIN_PROFILE(44, 24, 83),
++	RADAR_PUFFIN_PROFILE(44, 25, 31),
++	RADAR_PUFFIN_PROFILE(44, 26, 201),
++	RADAR_PUFFIN_PROFILE(44, 28, 202),
++	RADAR_PUFFIN_PROFILE(44, 29, 4),
++	RADAR_PUFFIN_PROFILE(44, 30, 191),
++	RADAR_PUFFIN_PROFILE(44, 32, 87),
++	RADAR_PUFFIN_PROFILE(44, 33, 14),
++	RADAR_PUFFIN_PROFILE(44, 34, 180),
++	RADAR_PUFFIN_PROFILE(44, 36, 168),
++	RADAR_PUFFIN_PROFILE(44, 37, 241),
++	RADAR_PUFFIN_PROFILE(44, 38, 76),
++	RADAR_PUFFIN_PROFILE(44, 40, 87),
++	RADAR_PUFFIN_PROFILE(44, 41, 14),
++	RADAR_PUFFIN_PROFILE(44, 42, 180),
++	RADAR_PUFFIN_PROFILE(44, 44, 83),
++	RADAR_PUFFIN_PROFILE(44, 45, 31),
++	RADAR_PUFFIN_PROFILE(44, 46, 201),
++	RADAR_PUFFIN_PROFILE(44, 48, 202),
++	RADAR_PUFFIN_PROFILE(44, 49, 4),
++	RADAR_PUFFIN_PROFILE(44, 50, 191),
++	RADAR_PUFFIN_PROFILE(44, 52, 127),
++	RADAR_PUFFIN_PROFILE(44, 53, 255),
++	RADAR_PUFFIN_PROFILE(44, 54, 255),
++	RADAR_PUFFIN_PROFILE(44, 56, 128),
++	RADAR_PUFFIN_PROFILE(44, 57, 49),
++	RADAR_PUFFIN_PROFILE(44, 58, 110),
++	RADAR_PUFFIN_PROFILE(44, 60, 127),
++	RADAR_PUFFIN_PROFILE(44, 61, 162),
++	RADAR_PUFFIN_PROFILE(44, 62, 193),
++	RADAR_PUFFIN_PROFILE(44, 64, 127),
++	RADAR_PUFFIN_PROFILE(44, 65, 206),
++	RADAR_PUFFIN_PROFILE(44, 66, 146),
++	RADAR_PUFFIN_PROFILE(44, 68, 128),
++	RADAR_PUFFIN_PROFILE(44, 69, 93),
++	RADAR_PUFFIN_PROFILE(44, 70, 63),
++	RADAR_PUFFIN_PROFILE(45, 20, 127),
++	RADAR_PUFFIN_PROFILE(45, 21, 116),
++	RADAR_PUFFIN_PROFILE(45, 22, 152),
++	RADAR_PUFFIN_PROFILE(45, 24, 128),
++	RADAR_PUFFIN_PROFILE(45, 25, 139),
++	RADAR_PUFFIN_PROFILE(45, 26, 104),
++	RADAR_PUFFIN_PROFILE(45, 28, 127),
++	RADAR_PUFFIN_PROFILE(45, 29, 116),
++	RADAR_PUFFIN_PROFILE(45, 30, 152),
++	RADAR_PUFFIN_PROFILE(45, 32, 127),
++	RADAR_PUFFIN_PROFILE(45, 33, 116),
++	RADAR_PUFFIN_PROFILE(45, 34, 1),
++	RADAR_PUFFIN_PROFILE(45, 36, 129),
++	RADAR_PUFFIN_PROFILE(45, 37, 21),
++	RADAR_PUFFIN_PROFILE(45, 38, 161),
++	RADAR_PUFFIN_PROFILE(45, 40, 3),
++	RADAR_PUFFIN_PROFILE(45, 41, 238),
++	RADAR_PUFFIN_PROFILE(45, 42, 235),
++	RADAR_PUFFIN_PROFILE(45, 44, 3),
++	RADAR_PUFFIN_PROFILE(45, 45, 238),
++	RADAR_PUFFIN_PROFILE(45, 46, 235),
++	RADAR_PUFFIN_PROFILE(45, 48, 3),
++	RADAR_PUFFIN_PROFILE(45, 49, 238),
++	RADAR_PUFFIN_PROFILE(45, 50, 235),
++	RADAR_PUFFIN_PROFILE(45, 52, 83),
++	RADAR_PUFFIN_PROFILE(45, 53, 31),
++	RADAR_PUFFIN_PROFILE(45, 54, 201),
++	RADAR_PUFFIN_PROFILE(45, 56, 202),
++	RADAR_PUFFIN_PROFILE(45, 57, 4),
++	RADAR_PUFFIN_PROFILE(45, 58, 191),
++	RADAR_PUFFIN_PROFILE(45, 60, 3),
++	RADAR_PUFFIN_PROFILE(45, 61, 238),
++	RADAR_PUFFIN_PROFILE(45, 62, 235),
++	RADAR_PUFFIN_PROFILE(45, 64, 3),
++	RADAR_PUFFIN_PROFILE(45, 65, 238),
++	RADAR_PUFFIN_PROFILE(45, 66, 235),
++	RADAR_PUFFIN_PROFILE(45, 68, 3),
++	RADAR_PUFFIN_PROFILE(45, 69, 238),
++	RADAR_PUFFIN_PROFILE(45, 70, 235),
++	RADAR_PUFFIN_PROFILE(45, 72, 83),
++	RADAR_PUFFIN_PROFILE(45, 73, 31),
++	RADAR_PUFFIN_PROFILE(45, 74, 201),
++	RADAR_PUFFIN_PROFILE(45, 76, 202),
++	RADAR_PUFFIN_PROFILE(45, 77, 4),
++	RADAR_PUFFIN_PROFILE(45, 78, 191),
++	RADAR_PUFFIN_PROFILE(46, 52, 127),
++	RADAR_PUFFIN_PROFILE(46, 53, 255),
++	RADAR_PUFFIN_PROFILE(46, 54, 255),
++	RADAR_PUFFIN_PROFILE(46, 55, 0),
++	RADAR_PUFFIN_PROFILE(46, 56, 0),
++	RADAR_PUFFIN_PROFILE(46, 57, 0),
++	RADAR_PUFFIN_PROFILE(46, 58, 0),
++	RADAR_PUFFIN_PROFILE(46, 59, 0),
++	RADAR_PUFFIN_PROFILE(46, 60, 0),
++	RADAR_PUFFIN_PROFILE(46, 61, 0),
++	RADAR_PUFFIN_PROFILE(46, 62, 0),
++	RADAR_PUFFIN_PROFILE(46, 63, 0),
++	RADAR_PUFFIN_PROFILE(46, 64, 127),
++	RADAR_PUFFIN_PROFILE(46, 65, 255),
++	RADAR_PUFFIN_PROFILE(46, 66, 255),
++	RADAR_PUFFIN_PROFILE(46, 67, 0),
++	RADAR_PUFFIN_PROFILE(46, 68, 0),
++	RADAR_PUFFIN_PROFILE(46, 69, 0),
++	RADAR_PUFFIN_PROFILE(46, 70, 0),
++	RADAR_PUFFIN_PROFILE(46, 71, 0),
++	RADAR_PUFFIN_PROFILE(46, 72, 0),
++	RADAR_PUFFIN_PROFILE(46, 73, 0),
++	RADAR_PUFFIN_PROFILE(46, 74, 0),
++	RADAR_PUFFIN_PROFILE(46, 75, 0),
++	RADAR_PUFFIN_PROFILE(0, 68, 7),
++	RADAR_PUFFIN_PROFILE(0, 69, 0),
++	RADAR_PUFFIN_PROFILE(0, 70, 198),
++};
++
++enum radar_link_id {
++	RADAR_LINK_DAC,
++	RADAR_LINK_CAPTURE,
++	RADAR_LINK_I2S1,
++	RADAR_LINK_NUM,
++};
++
++struct radar_card {
++	struct snd_soc_card card;
++	struct snd_soc_dai_link links[RADAR_LINK_NUM];
++	struct snd_soc_dai_link_component cpus[RADAR_LINK_NUM];
++	struct snd_soc_dai_link_component platforms[RADAR_LINK_NUM];
++	struct snd_soc_dai_link_component codecs[RADAR_LINK_NUM];
++	struct device_node *afe_np;
++	struct device_node *spi_np;
++	struct device_node *dac_np;
++	struct device_node *adc_np;
++	struct platform_device *afe_pdev;
++	struct mt8163_mclk *mclk;
++	struct snd_soc_pcm_runtime *speaker_rtd;
++	unsigned int low_jitter;
++	unsigned int channel_config;
++	unsigned int linein_adc;
++	unsigned int amp_fault_enable;
++	unsigned int codec_mute;
++	unsigned int amp_enable;
++	unsigned int dac_route;
++	unsigned int right_only;
++	unsigned int hd_output;
++	unsigned int ignore_ramp;
++	unsigned int speaker_profile;
++	bool speaker_mclk_enabled;
++	bool speaker_release_pending;
++	unsigned int speaker_release_retries;
++	struct delayed_work speaker_release_work;
++};
++
++static const char * const radar_on_off[] = { "Off", "On" };
++static SOC_ENUM_SINGLE_EXT_DECL(radar_on_off_enum, radar_on_off);
++
++/*
++ * Codec DAC biquad profile loaded on every speaker prepare.  "Radar" is the
++ * stock radar_puffin two-way crossover (default, unchanged).  "Flat" loads
++ * unity biquads for one-driver boards such as the Echo Dot (biscuit), whose
++ * stock audio_device.xml programs identity coefficients: the Radar crossover
++ * low-passes the Dot's single speaker channel and removes everything above
++ * ~3 kHz.  The kernel cannot tell the boards apart (shared DT), so the image's
++ * audio engine selects the profile before opening the speaker PCM.
++ */
++enum radar_speaker_profile {
++	RADAR_SPEAKER_PROFILE_RADAR = 0,
++	RADAR_SPEAKER_PROFILE_FLAT = 1,
++};
++static const char * const radar_speaker_profiles[] = { "Radar", "Flat" };
++static SOC_ENUM_SINGLE_EXT_DECL(radar_speaker_profile_enum,
++				radar_speaker_profiles);
++
++static const char * const radar_channel_config[] = {
++	"Stereo", "MonoLeft", "MonoRight"
++};
++static SOC_ENUM_SINGLE_EXT_DECL(radar_channel_enum, radar_channel_config);
++
++static struct radar_card *radar_kcontrol_priv(struct snd_kcontrol *kcontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++
++	return snd_soc_card_get_drvdata(card);
++}
++
++static int radar_low_jitter_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *value)
++{
++	value->value.enumerated.item[0] =
++		radar_kcontrol_priv(kcontrol)->low_jitter;
++	return 0;
++}
++
++static int radar_low_jitter_put(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *value)
++{
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);
++	unsigned int requested = value->value.enumerated.item[0];
++
++	if (requested >= ARRAY_SIZE(radar_on_off))
++		return -EINVAL;
++	if (priv->low_jitter == requested)
++		return 0;
++	if (!priv->afe_pdev)
++		return -ENODEV;
++	if (mt8163_afe_set_low_jitter(&priv->afe_pdev->dev, requested))
++		return -EIO;
++	priv->low_jitter = requested;
++	return 1;
++}
++
++static int radar_channel_get(struct snd_kcontrol *kcontrol,
++			     struct snd_ctl_elem_value *value)
++{
++	value->value.enumerated.item[0] =
++		radar_kcontrol_priv(kcontrol)->channel_config;
++	return 0;
++}
++
++static int radar_channel_put(struct snd_kcontrol *kcontrol,
++			     struct snd_ctl_elem_value *value)
++{
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);
++	unsigned int requested = value->value.enumerated.item[0];
++
++	if (requested >= ARRAY_SIZE(radar_channel_config))
++		return -EINVAL;
++	if (priv->channel_config == requested)
++		return 0;
++	priv->channel_config = requested;
++	return 1;
++}
++
++#define RADAR_STATE_CONTROL_FUNCS(_name, _field)				\
++static int radar_##_name##_get(struct snd_kcontrol *kcontrol,		\
++			       struct snd_ctl_elem_value *value)		\
++{									\
++	value->value.enumerated.item[0] =					\
++		radar_kcontrol_priv(kcontrol)->_field;			\
++	return 0;								\
++}									\
++static int radar_##_name##_put(struct snd_kcontrol *kcontrol,		\
++			       struct snd_ctl_elem_value *value)		\
++{									\
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);		\
++	unsigned int requested = value->value.enumerated.item[0];		\
++	if (requested >= ARRAY_SIZE(radar_on_off))				\
++		return -EINVAL;							\
++	if (priv->_field == requested)					\
++		return 0;							\
++	priv->_field = requested;						\
++	return 1;								\
++}
++
++RADAR_STATE_CONTROL_FUNCS(linein, linein_adc)
++RADAR_STATE_CONTROL_FUNCS(amp_fault, amp_fault_enable)
++RADAR_STATE_CONTROL_FUNCS(hd_output, hd_output)
++RADAR_STATE_CONTROL_FUNCS(ignore_ramp, ignore_ramp)
++
++static int radar_speaker_profile_get(struct snd_kcontrol *kcontrol,
++				     struct snd_ctl_elem_value *value)
++{
++	value->value.enumerated.item[0] =
++		radar_kcontrol_priv(kcontrol)->speaker_profile;
++	return 0;
++}
++
++/* Takes effect at the next speaker prepare, which rewrites the biquads. */
++static int radar_speaker_profile_put(struct snd_kcontrol *kcontrol,
++				     struct snd_ctl_elem_value *value)
++{
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);
++	unsigned int requested = value->value.enumerated.item[0];
++
++	if (requested >= ARRAY_SIZE(radar_speaker_profiles))
++		return -EINVAL;
++	if (priv->speaker_profile == requested)
++		return 0;
++	priv->speaker_profile = requested;
++	return 1;
++}
++
++static int radar_right_only_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *value)
++{
++	value->value.enumerated.item[0] =
++		radar_kcontrol_priv(kcontrol)->right_only;
++	return 0;
++}
++
++static int radar_right_only_put(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *value)
++{
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);
++	unsigned int requested = value->value.enumerated.item[0];
++
++	if (requested >= ARRAY_SIZE(radar_on_off))
++		return -EINVAL;
++	if (priv->right_only == requested)
++		return 0;
++	/*
++	 * This is a legacy mute/channel-state control.  The codec DAI owns
++	 * DACSETUP serial-slot routing and derives it from the actual PCM
++	 * channel count in aic32x4_hw_params(); changing this control must not
++	 * overwrite that route while a stream is active.
++	 */
++	priv->right_only = requested;
++	return 1;
++}
++
++static int radar_amp_get(struct snd_kcontrol *kcontrol,
++			 struct snd_ctl_elem_value *value)
++{
++	value->value.enumerated.item[0] =
++		radar_kcontrol_priv(kcontrol)->amp_enable;
++	return 0;
++}
++
++static int radar_amp_put(struct snd_kcontrol *kcontrol,
++			 struct snd_ctl_elem_value *value)
++{
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);
++	unsigned int requested = value->value.enumerated.item[0];
++	int ret;
++
++	if (requested >= ARRAY_SIZE(radar_on_off))
++		return -EINVAL;
++	if (priv->amp_enable == requested)
++		return 0;
++	ret = mt8163_afe_select_amp(&priv->afe_pdev->dev, requested);
++	if (ret)
++		return ret;
++	priv->amp_enable = requested;
++	return 1;
++}
++
++static int radar_dac_route_get(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *value)
++{
++	value->value.enumerated.item[0] =
++		radar_kcontrol_priv(kcontrol)->dac_route;
++	return 0;
++}
++
++static int radar_dac_route_put(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *value)
++{
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);
++	unsigned int requested = value->value.enumerated.item[0];
++	int ret;
++
++	if (requested >= ARRAY_SIZE(radar_on_off))
++		return -EINVAL;
++	if (priv->dac_route == requested)
++		return 0;
++	ret = mt8163_afe_select_dac(&priv->afe_pdev->dev, requested);
++	if (ret)
++		return ret;
++	priv->dac_route = requested;
++	return 1;
++}
++
++static int radar_codec_mute_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *value)
++{
++	value->value.enumerated.item[0] =
++		radar_kcontrol_priv(kcontrol)->codec_mute;
++	return 0;
++}
++
++static int radar_codec_mute_put(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *value)
++{
++	struct radar_card *priv = radar_kcontrol_priv(kcontrol);
++	unsigned int requested = value->value.enumerated.item[0];
++	struct snd_soc_dai *codec_dai;
++	int ret;
++
++	if (requested >= ARRAY_SIZE(radar_on_off))
++		return -EINVAL;
++	if (!priv->speaker_rtd)
++		return -ENODEV;
++	if (priv->codec_mute == requested)
++		return 0;
++
++	codec_dai = snd_soc_rtd_to_codec(priv->speaker_rtd, 0);
++	ret = snd_soc_component_write(codec_dai->component,
++				      RADAR_DAC_DOUTCTL,
++				      requested ? RADAR_DAC_MFP2_MUTE :
++				      RADAR_DAC_MFP2_GPIO);
++	if (ret < 0)
++		return ret;
++	priv->codec_mute = requested;
++	return 1;
++}
++
++static const struct snd_kcontrol_new radar_controls[] = {
++	SOC_ENUM_EXT("I2S low Jitter function", radar_on_off_enum,
++		     radar_low_jitter_get, radar_low_jitter_put),
++	SOC_ENUM_EXT("Audio_I2S0dl1_hd_Switch", radar_on_off_enum,
++		     radar_hd_output_get, radar_hd_output_put),
++	SOC_ENUM_EXT("Board Channel Config", radar_channel_enum,
++		     radar_channel_get, radar_channel_put),
++	SOC_ENUM_EXT("LineIn ADC", radar_on_off_enum,
++		     radar_linein_get, radar_linein_put),
++	SOC_ENUM_EXT("Amp Fault Enable", radar_on_off_enum,
++		     radar_amp_fault_get, radar_amp_fault_put),
++	SOC_ENUM_EXT("MFP Gpio Mute", radar_on_off_enum,
++		     radar_codec_mute_get, radar_codec_mute_put),
++	SOC_ENUM_EXT("Ext_Speaker_Amp_Switch", radar_on_off_enum,
++		     radar_amp_get, radar_amp_put),
++	SOC_ENUM_EXT("Audio_DacMux_Setting", radar_on_off_enum,
++		     radar_dac_route_get, radar_dac_route_put),
++	SOC_ENUM_EXT("Right Channel Only", radar_on_off_enum,
++		     radar_right_only_get, radar_right_only_put),
++	SOC_ENUM_EXT("Ignore Ramp Up", radar_on_off_enum,
++		     radar_ignore_ramp_get, radar_ignore_ramp_put),
++	SOC_ENUM_EXT("Speaker Codec Profile", radar_speaker_profile_enum,
++		     radar_speaker_profile_get, radar_speaker_profile_put),
++};
++
++static int radar_speaker_init(struct snd_soc_pcm_runtime *rtd)
++{
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
++	int ret;
++
++	priv->speaker_rtd = rtd;
++	priv->codec_mute = 1;
++	ret = snd_soc_dai_digital_mute(codec_dai, 1,
++				       SNDRV_PCM_STREAM_PLAYBACK);
++	if (ret && ret != -ENOTSUPP)
++		return ret;
++	ret = snd_soc_component_write(codec_dai->component,
++				      RADAR_DAC_DOUTCTL, RADAR_DAC_MFP2_MUTE);
++	if (ret < 0)
++		return ret;
++	ret = mt8163_afe_select_amp(&priv->afe_pdev->dev, false);
++	if (ret)
++		return ret;
++	ret = mt8163_afe_select_dac(&priv->afe_pdev->dev, false);
++	if (ret)
++		return ret;
++	ret = mt8163_afe_select_i2s(&priv->afe_pdev->dev, false);
++	if (ret)
++		return ret;
++	/*
++	 * The working 3.18 link initializer brought the physical 9.6 MHz
++	 * codec MCLK up before the first AIC32X4 bias/stream transition and kept
++	 * it alive for the lifetime of the card.  6.1 previously deferred this
++	 * until PCM startup, leaving the codec's initial analogue bootstrap
++	 * without its external clock.  Establish the same lifetime here; the
++	 * normal startup path will retain the reference rather than toggle it.
++	 */
++	ret = mt8163_afe_select_mclk(&priv->afe_pdev->dev);
++	if (ret)
++		return ret;
++	ret = mt8163_mclk_enable(priv->mclk);
++	if (ret)
++		return ret;
++	priv->speaker_mclk_enabled = true;
++	return 0;
++}
++
++static void radar_record_error(int *first, int ret)
++{
++	if (ret && !*first)
++		*first = ret;
++}
++
++static int radar_speaker_enable_clocks(struct radar_card *priv)
++{
++	int idle_ret;
++	int ret;
++
++	ret = mt8163_afe_select_i2s(&priv->afe_pdev->dev, true);
++	if (ret)
++		return ret;
++	ret = mt8163_afe_select_mclk(&priv->afe_pdev->dev);
++	if (ret)
++		goto idle_i2s;
++	if (!priv->speaker_mclk_enabled) {
++		ret = mt8163_mclk_enable(priv->mclk);
++		if (ret)
++			goto idle_i2s;
++		priv->speaker_mclk_enabled = true;
++	}
++	return 0;
++
++idle_i2s:
++	idle_ret = mt8163_afe_select_i2s(&priv->afe_pdev->dev, false);
++	if (idle_ret)
++		dev_err(priv->card.dev,
++			"Speaker clock rollback failed: primary=%d cleanup=%d\n",
++			ret, idle_ret);
++	return ret ? ret : idle_ret;
++}
++
++static int radar_speaker_safe(struct radar_card *priv)
++{
++	struct snd_soc_dai *codec_dai =
++		snd_soc_rtd_to_codec(priv->speaker_rtd, 0);
++	int first = 0;
++	int ret;
++
++	priv->speaker_release_pending = false;
++	cancel_delayed_work_sync(&priv->speaker_release_work);
++
++	ret = snd_soc_dai_digital_mute(codec_dai, 1,
++				       SNDRV_PCM_STREAM_PLAYBACK);
++	if (ret == -ENOTSUPP)
++		ret = 0;
++	radar_record_error(&first, ret);
++	/* Re-mute the HP analog output drivers to prevent pops and restore
++	 * the codec's reset state (bit 6 set on HPLGAIN/HPRGAIN). */
++	ret = snd_soc_component_update_bits(codec_dai->component,
++					    RADAR_HPLGAIN,
++					    RADAR_HP_DRIVER_MUTE,
++					    RADAR_HP_DRIVER_MUTE);
++	radar_record_error(&first, ret);
++	ret = snd_soc_component_update_bits(codec_dai->component,
++					    RADAR_HPRGAIN,
++					    RADAR_HP_DRIVER_MUTE,
++					    RADAR_HP_DRIVER_MUTE);
++	radar_record_error(&first, ret);
++	/* DACMUTE and the analogue/external gates provide the shutdown mute.
++	 * Leave LDACVOL/RDACVOL untouched so the user's configured PCM volume
++	 * survives close/reopen instead of being reset to 0 dB. */
++	ret = snd_soc_component_write(codec_dai->component,
++				      RADAR_DAC_DOUTCTL, RADAR_DAC_MFP2_MUTE);
++	radar_record_error(&first, ret);
++	if (!ret)
++		priv->codec_mute = 1;
++	ret = mt8163_afe_select_amp(&priv->afe_pdev->dev, false);
++	radar_record_error(&first, ret);
++	if (!ret)
++		priv->amp_enable = 0;
++	ret = mt8163_afe_select_dac(&priv->afe_pdev->dev, false);
++	radar_record_error(&first, ret);
++	if (!ret)
++		priv->dac_route = 0;
++	/*
++	 * The codec MCLK is acquired for the lifetime of the sound card during
++	 * probe.  Do not release that card-lifetime reference from stream safe
++	 * handling: doing so powers down SENINF/ISP and the next capture reopen
++	 * can see an unpowered register window.  mt8163_mclk_release() owns the
++	 * final teardown when the card device is removed.
++	 */
++	ret = mt8163_afe_select_i2s(&priv->afe_pdev->dev, false);
++	radar_record_error(&first, ret);
++	return first;
++}
++
++static int radar_speaker_fail_safe(struct radar_card *priv, int primary,
++				   const char *operation)
++{
++	int safe_ret;
++
++	safe_ret = radar_speaker_safe(priv);
++	if (safe_ret)
++		dev_err(priv->card.dev,
++			"Speaker %s rollback failed: primary=%d cleanup=%d\n",
++			operation, primary, safe_ret);
++	return primary ? primary : safe_ret;
++}
++
++static void radar_speaker_release_work(struct work_struct *work)
++{
++	struct radar_card *priv = container_of(to_delayed_work(work),
++						      struct radar_card,
++						      speaker_release_work);
++	struct snd_soc_component *component;
++	int status;
++	int ret;
++
++	if (!priv->speaker_release_pending || !priv->speaker_rtd)
++		return;
++
++	component = snd_soc_rtd_to_codec(priv->speaker_rtd, 0)->component;
++	status = snd_soc_component_read(component, RADAR_DAC_GAIN_APPLIED);
++	if (status < 0) {
++		dev_err(component->dev,
++			"cannot read DAC gain-applied status: %d\n", status);
++		priv->speaker_release_pending = false;
++		return;
++	}
++	/* The production transport is duplicated mono in a stereo container, so
++	 * both headphone-driver gains must be applied before releasing the amp. */
++	if (!(status & RADAR_HP_GAIN_APPLIED_STEREO)) {
++		if (priv->speaker_release_retries++ <
++		    RADAR_GAIN_APPLIED_RETRIES) {
++			schedule_delayed_work(&priv->speaker_release_work,
++					      msecs_to_jiffies(
++						RADAR_GAIN_APPLIED_POLL_MS));
++			return;
++		}
++		dev_err(component->dev,
++			"DAC gain-applied status timed out: 0x%02x\n", status);
++		priv->speaker_release_pending = false;
++		return;
++	}
++	/* Keep MFP2 and the external amplifier muted until the codec confirms
++	 * that the analog HP gain ramp has completed. */
++	ret = snd_soc_component_write(component, RADAR_DAC_DOUTCTL,
++				      RADAR_DAC_MFP2_GPIO);
++	if (ret < 0) {
++		dev_err(component->dev, "cannot release codec MFP2 mute: %d\n", ret);
++		priv->speaker_release_pending = false;
++		return;
++	}
++	priv->codec_mute = 0;
++	ret = mt8163_afe_select_amp(&priv->afe_pdev->dev, true);
++	if (ret) {
++		dev_err(component->dev, "cannot enable speaker amplifier: %d\n", ret);
++		/* Leave the codec MFP2 gate muted if the external amp did not start. */
++		snd_soc_component_write(component, RADAR_DAC_DOUTCTL,
++					RADAR_DAC_MFP2_MUTE);
++		priv->codec_mute = 1;
++		priv->speaker_release_pending = false;
++		return;
++	}
++	priv->amp_enable = 1;
++	priv->speaker_release_pending = false;
++	dev_info(component->dev,
++		 "speaker gain applied after %u ms; MFP2/amp released\n",
++		 priv->speaker_release_retries * RADAR_GAIN_APPLIED_POLL_MS);
++}
++
++static int radar_speaker_startup(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	int ret;
++
++	ret = mt8163_afe_select_amp(&priv->afe_pdev->dev, false);
++	if (ret)
++		return ret;
++	priv->amp_enable = 0;
++	/* Stock Puffin ext_speaker_output uses the board DacMux Off path. */
++	ret = mt8163_afe_select_dac(&priv->afe_pdev->dev, false);
++	if (ret)
++		return ret;
++	priv->dac_route = 0;
++	ret = radar_speaker_enable_clocks(priv);
++	if (ret)
++		return ret;
++	return 0;
++}
++
++static void radar_speaker_shutdown(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	int ret;
++
++	ret = radar_speaker_safe(priv);
++	if (ret)
++		dev_err(priv->card.dev, "Speaker shutdown cleanup failed: %d\n",
++			ret);
++}
++
++/*
++ * Unity value for one profile register.  DAC buffer-A biquads are five
++ * 24-bit coefficients (N0 N1 N2 D1 D2) in 4-register slots, 20 registers per
++ * biquad: left from page 44 reg 12, right from page 45 reg 20.  Unity is
++ * N0 = 0x7fffff with every other coefficient zero.  Registers outside those
++ * two biquad blocks (page 46) keep the stock profile value.
++ */
++static unsigned int radar_flat_profile_value(unsigned int reg,
++					     unsigned int stock)
++{
++	static const unsigned char n0[3] = { 0x7f, 0xff, 0xff };
++	unsigned int page = reg / 128, r = reg % 128, base, off;
++
++	if (page == 44)
++		base = 12;
++	else if (page == 45)
++		base = 20;
++	else
++		return stock;
++	if (r < base)
++		return stock;
++	off = (r - base) % 20;
++	return off < 3 ? n0[off] : 0;
++}
++
++static int radar_speaker_apply_profile(struct snd_soc_component *component,
++				       unsigned int profile)
++{
++	size_t i;
++	int ret;
++
++	for (i = 0; i < ARRAY_SIZE(radar_puffin_ext_speaker_profile); i++) {
++		unsigned int reg = radar_puffin_ext_speaker_profile[i].reg;
++		unsigned int val = radar_puffin_ext_speaker_profile[i].def;
++
++		if (profile == RADAR_SPEAKER_PROFILE_FLAT)
++			val = radar_flat_profile_value(reg, val);
++		ret = snd_soc_component_write(component, reg, val);
++		if (ret < 0) {
++			dev_err(component->dev,
++				"Puffin speaker profile write %zu failed: %d\n",
++				i, ret);
++			return ret;
++		}
++	}
++
++	/* The working 3.18 sequence applies this after the coefficient table. */
++	ret = snd_soc_component_write(component, RADAR_DRC_CTRL1,
++				      RADAR_DRC_DISABLED);
++	if (ret < 0)
++		dev_err(component->dev,
++			"Puffin speaker DRC disable failed: %d\n", ret);
++	return ret;
++}
++
++static int radar_speaker_hw_params(struct snd_pcm_substream *substream,
++				   struct snd_pcm_hw_params *params)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
++	int ret;
++
++	ret = radar_speaker_enable_clocks(priv);
++	if (ret)
++		return radar_speaker_fail_safe(priv, ret, "hw_params");
++	radar_log_codec_state(codec_dai->component, "machine-hw_params-entry");
++	if (params_rate(params) != 48000 ||
++	    params_channels(params) != 2 ||
++	    (params_format(params) != SNDRV_PCM_FORMAT_S16_LE &&
++	     params_format(params) != SNDRV_PCM_FORMAT_S24_LE &&
++	     params_format(params) != SNDRV_PCM_FORMAT_S32_LE)) {
++		dev_err(codec_dai->dev,
++			"Radar-Puffin speaker requires duplicated-stereo PCM: "
++			"rate=%u channels=%u format=%u\n",
++			params_rate(params), params_channels(params),
++			params_format(params));
++		ret = -EINVAL;
++		goto fail;
++	}
++
++	/* The codec is the clock/frame consumer; the MT8163 AFE provides the
++	 * speaker-link BCLK/LRCLK.  Use the explicit 6.1 provider/consumer name
++	 * so this cannot be confused with the deprecated CBS_CFS alias. */
++	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
++				  SND_SOC_DAIFMT_NB_NF |
++				  SND_SOC_DAIFMT_BC_FC);
++	if (ret)
++		goto fail;
++	ret = snd_soc_dai_set_sysclk(codec_dai, 0, RADAR_MCLK_RATE,
++				     SND_SOC_CLOCK_IN);
++	if (!ret) {
++		radar_log_codec_state(codec_dai->component,
++						 "machine-hw_params-end");
++		return 0;
++	}
++fail:
++	return radar_speaker_fail_safe(priv, ret, "hw_params");
++}
++
++static int radar_speaker_hw_free(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++
++	return radar_speaker_safe(priv);
++}
++
++static int radar_speaker_prepare(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_component *component =
++		snd_soc_rtd_to_codec(rtd, 0)->component;
++	int ret;
++
++	ret = radar_speaker_enable_clocks(priv);
++	if (ret)
++		return radar_speaker_fail_safe(priv, ret, "prepare");
++	radar_log_codec_state(component, "machine-prepare-entry");
++	/*
++	 * Keep PLL/divider programming exclusively in the AIC32x4 CCF
++	 * provider.  The machine driver must not write rate fields behind
++	 * CCF's back: doing so leaves cached rates describing one tuple while
++	 * the codec hardware contains another, breaking the next open.
++	 *
++	 * Step 1: Select PRB_P2 and load the board's calibrated biquad
++	 * coefficients.  The non-zero profile is required: zeroing it
++	 * (an earlier experiment) silenced the output entirely.
++	 */
++	ret = snd_soc_component_write(component, RADAR_DAC_PROCESSING_BLOCK,
++				      RADAR_PUFFIN_DAC_PROCESSING_BLOCK);
++	if (ret < 0)
++		goto fail;
++	ret = radar_speaker_apply_profile(component, priv->speaker_profile);
++	if (ret)
++		goto fail;
++	/*
++	 * Step 3: HP amp soft-route startup delay (0x1d), matching 3.18.
++	 */
++	ret = snd_soc_component_write(component, RADAR_DAC_HEADSTART,
++				      RADAR_HP_AMP_SOFT_STARTUP);
++	if (ret < 0)
++		goto fail;
++	/*
++	 * Step 4: Enable DAC soft-stepping after PRB/profile/HEADSTART, as
++	 * in the working 3.18 codec hw_params sequence.  The ordering matters
++	 * to the codec's live gain-application state even when the final value
++	 * of DACSETUP is identical.
++	 */
++	ret = snd_soc_component_update_bits(component, RADAR_DAC_SETUP,
++					    RADAR_DAC_SOFT_STEP,
++					    RADAR_DAC_SOFT_STEP);
++	if (ret < 0)
++		goto fail;
++	/*
++	 * Step 5: Unmute both HP analog output drivers (bit 6).  The
++	 * Radar-Puffin PRB_P2 profile sends the left DAC through HPL to the
++	 * tweeter and the right DAC through HPR to the woofer.  The production
++	 * engine therefore duplicates its mono programme into a two-channel
++	 * container with normal left/right DAC routing; both physical HP
++	 * outputs must remain active.
++	 */
++	ret = snd_soc_component_update_bits(component, RADAR_HPLGAIN,
++					    RADAR_HP_DRIVER_MUTE, 0);
++	if (ret < 0)
++		goto fail;
++	ret = snd_soc_component_update_bits(component, RADAR_HPRGAIN,
++					    RADAR_HP_DRIVER_MUTE, 0);
++	if (ret < 0)
++		goto fail;
++	/*
++	 * The codec's PCM volume is user-controlled.  Keep it unchanged while
++	 * enabling the speaker path; the safety mute is applied below and during
++	 * teardown.
++	 */
++	radar_log_codec_state(component, "machine-prepare-end");
++	return 0;
++fail:
++	return radar_speaker_fail_safe(priv, ret, "prepare");
++}
++
++static int radar_speaker_trigger(struct snd_pcm_substream *substream, int cmd)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_component *component =
++		snd_soc_rtd_to_codec(rtd, 0)->component;
++
++	if (cmd != SNDRV_PCM_TRIGGER_START &&
++	    cmd != SNDRV_PCM_TRIGGER_RESUME) {
++		priv->speaker_release_pending = false;
++		cancel_delayed_work_sync(&priv->speaker_release_work);
++		return 0;
++	}
++	radar_log_codec_state(component, "machine-trigger-entry");
++
++	/*
++	 * The codec PLL/divider/profile/volume programming is complete in
++	 * prepare().  The working 3.18 machine driver has no link trigger
++	 * callback, so do not rewrite the codec clock tree after ASoC has
++	 * unmuted the DAC.  A second PLL/divider transaction at this boundary
++	 * can perturb the live DAC clock/gain engine even when the final register
++	 * dump is identical.
++	 */
++	/* ASoC already performs the codec unmute from soc_pcm_prepare(), matching
++	 * the 3.18 core.  Do not repeat that transaction here: the trigger runs
++	 * after prepare and the duplicate unmute perturbs the AIC32X4 DAC gain
++	 * engine on 6.1.  The physical amp GPIO is asserted by the MT8163 AFE
++	 * trigger after DL1/routes are live, matching the old I2S-start boundary.
++	 * Keep the machine-visible control state in sync here. */
++	priv->amp_enable = 1;
++	priv->speaker_release_pending = false;
++	radar_log_codec_state(component, "machine-trigger-end");
++
++	return 0;
++}
++
++static const struct snd_soc_ops radar_speaker_ops = {
++	.startup = radar_speaker_startup,
++	.shutdown = radar_speaker_shutdown,
++	.hw_params = radar_speaker_hw_params,
++	.hw_free = radar_speaker_hw_free,
++	.prepare = radar_speaker_prepare,
++	.trigger = radar_speaker_trigger,
++};
++
++static int radar_i2s1_startup(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	int ret;
++
++	ret = mt8163_afe_select_i2s(&priv->afe_pdev->dev, true);
++	if (ret)
++		return ret;
++	ret = mt8163_afe_select_mclk(&priv->afe_pdev->dev);
++	if (ret)
++		goto idle_i2s;
++	ret = mt8163_mclk_enable(priv->mclk);
++	if (ret)
++		goto idle_i2s;
++	return 0;
++
++idle_i2s:
++	mt8163_afe_select_i2s(&priv->afe_pdev->dev, false);
++	return ret;
++}
++
++static void radar_i2s1_shutdown(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++
++	mt8163_afe_select_amp(&priv->afe_pdev->dev, false);
++	mt8163_mclk_disable(priv->mclk);
++	mt8163_afe_select_i2s(&priv->afe_pdev->dev, false);
++}
++
++static const struct snd_soc_ops radar_i2s1_ops = {
++	.startup = radar_i2s1_startup,
++	.shutdown = radar_i2s1_shutdown,
++};
++
++static int radar_capture_hw_params(struct snd_pcm_substream *substream,
++				   struct snd_pcm_hw_params *params)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
++	unsigned int rx_mask;
++	int slot_width;
++	int ret;
++
++	if (params_rate(params) != 16000 ||
++	    params_channels(params) != 9 ||
++	    params_format(params) != SNDRV_PCM_FORMAT_S24_3LE)
++		return -EINVAL;
++
++	ret = snd_soc_dai_set_pll(codec_dai, RADAR_ADC_PLL_BCLK,
++				  RADAR_ADC_PLL_MCLK, RADAR_MCLK_RATE,
++				  params_rate(params));
++	if (ret)
++		return ret;
++	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_B |
++				  SND_SOC_DAIFMT_NB_NF |
++				  SND_SOC_DAIFMT_CBM_CFM);
++	if (ret)
++		return ret;
++
++	rx_mask = priv->linein_adc ? 0x40 : 0x7f;
++	slot_width = priv->linein_adc ? 0 : snd_pcm_format_width(params_format(params));
++	return snd_soc_dai_set_tdm_slot(codec_dai, 0, rx_mask,
++					params_channels(params), slot_width);
++}
++
++static int radar_capture_startup(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++	int ret;
++
++	ret = mt8163_afe_select_mclk(&priv->afe_pdev->dev);
++	if (ret)
++		return ret;
++	return mt8163_mclk_enable(priv->mclk);
++}
++
++static void radar_capture_shutdown(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct radar_card *priv = snd_soc_card_get_drvdata(rtd->card);
++
++	mt8163_mclk_disable(priv->mclk);
++}
++
++static const struct snd_soc_ops radar_capture_ops = {
++	.startup = radar_capture_startup,
++	.shutdown = radar_capture_shutdown,
++	.hw_params = radar_capture_hw_params,
++};
++
++static void radar_put_nodes(void *data)
++{
++	struct radar_card *priv = data;
++
++	if (priv->afe_pdev)
++		put_device(&priv->afe_pdev->dev);
++	of_node_put(priv->afe_np);
++	of_node_put(priv->spi_np);
++	of_node_put(priv->dac_np);
++	of_node_put(priv->adc_np);
++}
++
++static int radar_find_components(struct device *dev, struct radar_card *priv)
++{
++	int ret;
++
++	priv->afe_np = of_find_compatible_node(NULL, NULL,
++					       RADAR_AFE_COMPATIBLE);
++	priv->spi_np = of_find_compatible_node(NULL, NULL,
++					       RADAR_SPI_COMPATIBLE);
++	priv->dac_np = of_find_compatible_node(NULL, NULL,
++					       RADAR_DAC_COMPATIBLE);
++	priv->adc_np = of_find_compatible_node(NULL, NULL,
++					       RADAR_ADC_COMPATIBLE);
++	dev_info(dev, "component lookup: afe=%pOF spi=%pOF dac=%pOF adc=%pOF\n",
++		 priv->afe_np, priv->spi_np, priv->dac_np, priv->adc_np);
++	if (!priv->afe_np || !priv->spi_np || !priv->dac_np || !priv->adc_np) {
++		dev_err(dev, "component lookup incomplete; deferring\n");
++		ret = -EPROBE_DEFER;
++		goto put_nodes;
++	}
++
++	priv->afe_pdev = of_find_device_by_node(priv->afe_np);
++	if (!priv->afe_pdev) {
++		dev_err(dev, "AFE node exists but has no platform device; deferring\n");
++		ret = -EPROBE_DEFER;
++		goto put_nodes;
++	}
++	dev_info(dev, "AFE platform device is present: %s\n",
++		 dev_name(&priv->afe_pdev->dev));
++	return devm_add_action_or_reset(dev, radar_put_nodes, priv);
++
++put_nodes:
++	radar_put_nodes(priv);
++	return ret;
++}
++
++static void radar_setup_link(struct radar_card *priv, int index,
++			     const char *name, const char *stream, int pcm_id,
++			     struct device_node *cpu_np, const char *cpu_dai,
++			     struct device_node *codec_np, const char *codec_dai)
++{
++	struct snd_soc_dai_link *link = &priv->links[index];
++
++	priv->cpus[index].of_node = cpu_np;
++	priv->cpus[index].dai_name = cpu_dai;
++	priv->platforms[index].of_node = cpu_np;
++	priv->codecs[index].of_node = codec_np;
++	priv->codecs[index].dai_name = codec_dai;
++	link->name = name;
++	link->stream_name = stream;
++	link->id = pcm_id;
++	link->cpus = &priv->cpus[index];
++	link->num_cpus = 1;
++	link->platforms = &priv->platforms[index];
++	link->num_platforms = 1;
++	link->codecs = &priv->codecs[index];
++	link->num_codecs = 1;
++}
++
++static int radar_card_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct radar_card *priv;
++	int ret;
++
++	dev_info(dev, "Radar-Puffin machine probe entered\n");
++
++	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++	/* Puffin's DT audiosys node declares channel-type=MonoRight. */
++	priv->channel_config = 2;
++	priv->right_only = 1;
++	INIT_DELAYED_WORK(&priv->speaker_release_work,
++			  radar_speaker_release_work);
++	ret = radar_find_components(dev, priv);
++	if (ret)
++		return ret;
++	dev_info(dev, "component lookup complete; acquiring MCLK\n");
++	priv->mclk = mt8163_mclk_get(dev);
++	if (IS_ERR(priv->mclk)) {
++		ret = PTR_ERR(priv->mclk);
++		dev_err(dev, "cannot acquire codec MCLK: %d (%pe)\n", ret,
++			priv->mclk);
++		return ret;
++	}
++
++	radar_setup_link(priv, RADAR_LINK_DAC, "TI_DAC_Playback",
++			 "TLV320AIC3204 Playback", 23, priv->afe_np,
++			 RADAR_DL1_DAI, priv->dac_np, RADAR_DAC_DAI);
++	priv->links[RADAR_LINK_DAC].playback_only = 1;
++	priv->links[RADAR_LINK_DAC].nonatomic = 1;
++	priv->links[RADAR_LINK_DAC].ignore_pmdown_time = 1;
++	priv->links[RADAR_LINK_DAC].init = radar_speaker_init;
++	priv->links[RADAR_LINK_DAC].ops = &radar_speaker_ops;
++
++	radar_setup_link(priv, RADAR_LINK_CAPTURE, "AMZN_SPI_Capture",
++			 "TLV320AIC3101 Capture", 24, priv->spi_np,
++			 RADAR_SPI_DAI, priv->adc_np, RADAR_ADC_DAI);
++	priv->links[RADAR_LINK_CAPTURE].capture_only = 1;
++	priv->links[RADAR_LINK_CAPTURE].ignore_pmdown_time = 1;
++	priv->links[RADAR_LINK_CAPTURE].ops = &radar_capture_ops;
++
++	radar_setup_link(priv, RADAR_LINK_I2S1, "I2S1_Playback",
++			 "I2S1_Playback", 25, priv->afe_np, RADAR_DL1_DAI,
++			 NULL, "snd-soc-dummy-dai");
++	priv->codecs[RADAR_LINK_I2S1].name = "snd-soc-dummy";
++	priv->links[RADAR_LINK_I2S1].playback_only = 1;
++	priv->links[RADAR_LINK_I2S1].nonatomic = 1;
++	priv->links[RADAR_LINK_I2S1].ignore_pmdown_time = 1;
++	priv->links[RADAR_LINK_I2S1].ops = &radar_i2s1_ops;
++
++	priv->card.name = RADAR_CARD_NAME;
++	priv->card.owner = THIS_MODULE;
++	priv->card.dev = dev;
++	priv->card.dai_link = priv->links;
++	priv->card.num_links = ARRAY_SIZE(priv->links);
++	priv->card.controls = radar_controls;
++	priv->card.num_controls = ARRAY_SIZE(radar_controls);
++	snd_soc_card_set_drvdata(&priv->card, priv);
++	platform_set_drvdata(pdev, priv);
++
++	ret = devm_snd_soc_register_card(dev, &priv->card);
++	if (ret) {
++		dev_err(dev, "cannot register Radar-Puffin card: %d\n", ret);
++		return ret;
++	}
++	dev_info(dev, "Radar-Puffin machine card registered\n");
++	return 0;
++}
++
++static const struct of_device_id radar_card_of_match[] = {
++	{ .compatible = "mediatek,mt8163-soc-codec-63xx" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, radar_card_of_match);
++
++static struct platform_driver radar_card_driver = {
++	.probe = radar_card_probe,
++	.driver = {
++		.name = "mt8163-radar-puffin-audio",
++		.of_match_table = radar_card_of_match,
++	},
++};
++module_platform_driver(radar_card_driver);
++
++MODULE_DESCRIPTION("Amazon Radar-Puffin MT8163 ASoC machine driver");
++MODULE_LICENSE("GPL");

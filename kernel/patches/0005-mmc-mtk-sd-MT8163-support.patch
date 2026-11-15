@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 13:46:18 +0100
+Subject: [PATCH 05/27] mmc: mtk-sd: MT8163 support
+
+Ported from LibreEcho-Linux release/0.14.5 (Linux 6.1.178) to Linux 6.12.
+---
+ drivers/mmc/host/mtk-sd.c | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/drivers/mmc/host/mtk-sd.c b/drivers/mmc/host/mtk-sd.c
+index dde19a381..91b88113a 100644
+--- a/drivers/mmc/host/mtk-sd.c
++++ b/drivers/mmc/host/mtk-sd.c
+@@ -407,6 +407,7 @@ struct mtk_mmc_compatible {
+ 	bool enhance_rx;
+ 	bool support_64g;
+ 	bool use_internal_cd;
++	bool broken_runtime_pm;
+ };
+ 
+ struct msdc_tune_para {
+@@ -475,6 +476,7 @@ struct msdc_host {
+ 	bool hs400_tuning;	/* hs400 mode online tuning */
+ 	bool internal_cd;	/* Use internal card-detect logic */
+ 	bool cqhci;		/* support eMMC hw cmdq */
++	bool runtime_pm_held;
+ 	struct msdc_save_para save_para; /* used when gate HCLK */
+ 	struct msdc_tune_para def_tune_para; /* default tune setting */
+ 	struct msdc_tune_para saved_tune_para; /* tune result of CMD21/CMD19 */
+@@ -586,6 +588,20 @@ static const struct mtk_mmc_compatible mt8135_compat = {
+ 	.support_64g = false,
+ };
+ 
++static const struct mtk_mmc_compatible mt8163_compat = {
++	.clk_div_bits = 12,
++	.recheck_sdio_irq = true,
++	.hs400_tune = false,
++	.pad_tune_reg = MSDC_PAD_TUNE0,
++	.async_fifo = true,
++	.data_tune = true,
++	.busy_check = false,
++	.stop_clk_fix = false,
++	.enhance_rx = false,
++	.support_64g = false,
++	.broken_runtime_pm = true,
++};
++
+ static const struct mtk_mmc_compatible mt8173_compat = {
+ 	.clk_div_bits = 8,
+ 	.recheck_sdio_irq = true,
+@@ -632,6 +648,7 @@ static const struct of_device_id msdc_of_ids[] = {
+ 	{ .compatible = "mediatek,mt7622-mmc", .data = &mt7622_compat},
+ 	{ .compatible = "mediatek,mt7986-mmc", .data = &mt7986_compat},
+ 	{ .compatible = "mediatek,mt8135-mmc", .data = &mt8135_compat},
++	{ .compatible = "mediatek,mt8163-mmc", .data = &mt8163_compat},
+ 	{ .compatible = "mediatek,mt8173-mmc", .data = &mt8173_compat},
+ 	{ .compatible = "mediatek,mt8183-mmc", .data = &mt8183_compat},
+ 	{ .compatible = "mediatek,mt8516-mmc", .data = &mt8516_compat},
+@@ -2936,6 +2953,20 @@ static int msdc_drv_probe(struct platform_device *pdev)
+ 	pm_runtime_set_autosuspend_delay(host->dev, MTK_MMC_AUTOSUSPEND_DELAY);
+ 	pm_runtime_use_autosuspend(host->dev);
+ 	pm_runtime_enable(host->dev);
++	if (host->dev_comp->broken_runtime_pm &&
++	    (mmc->caps & MMC_CAP_NONREMOVABLE)) {
++		/*
++		 * MT8163 restores enough state to enumerate and parse GPT before
++		 * the first autosuspend, but the non-removable eMMC then loses
++		 * CMD18 completion after the 50 ms runtime clock gate. Keep only
++		 * this SoC's soldered eMMC active; removable and SDIO hosts retain
++		 * the normal runtime-PM path.
++		 */
++		pm_runtime_get_noresume(host->dev);
++		host->runtime_pm_held = true;
++		dev_info(host->dev,
++			 "MT8163 non-removable eMMC runtime PM held active\n");
++	}
+ 	ret = mmc_add_host(mmc);
+ 
+ 	if (ret)
+@@ -2943,6 +2974,8 @@ static int msdc_drv_probe(struct platform_device *pdev)
+ 
+ 	return 0;
+ end:
++	if (host->runtime_pm_held)
++		pm_runtime_put_noidle(host->dev);
+ 	pm_runtime_disable(host->dev);
+ release:
+ 	msdc_deinit_hw(host);
+@@ -2978,6 +3011,8 @@ static void msdc_drv_remove(struct platform_device *pdev)
+ 	msdc_deinit_hw(host);
+ 	msdc_gate_clock(host);
+ 
++	if (host->runtime_pm_held)
++		pm_runtime_put_noidle(host->dev);
+ 	pm_runtime_disable(host->dev);
+ 	pm_runtime_put_noidle(host->dev);
+ 	dma_free_coherent(&pdev->dev,

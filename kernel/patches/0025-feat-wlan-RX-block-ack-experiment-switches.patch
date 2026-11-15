@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 12:09:17 +0100
+Subject: [PATCH 25/27] feat(wlan): RX block-ack experiment switches
+
+Ping works but A-MPDU downlink (RX BA session on TID 0, WinSize 20)
+stalls. Add runtime switches to take the BA/reorder path out of the
+picture one piece at a time, under /sys/module/wlan_mt/parameters/:
+
+rx_ba_reorder (default 1)
+    0 passes every frame up in arrival order, as if the firmware had
+    not set the reorder flag. The AP keeps aggregating; TCP sees
+    whatever order the air and the firmware produce. Takes effect
+    immediately.
+
+rx_ba_win (default 0)
+    Sent with CMD_ID_SET_RX_BA_WIN_SIZE when the AIS BSS becomes
+    connected. The vendor code sends 0x12 ("Fix Rx BA Size to 2") on
+    2.4 GHz for Amazon's abh123/abc123/abd123 projects - abh123 is the
+    project carrying the Echo's tlv320aic32x4 tuning - but this kernel
+    has CONFIG_ARCH_MTK_PROJECT="radar", so that workaround never ran
+    under LibreEcho or Pinna. 0x12 reproduces Amazon's setting.
+
+rx_ba_reject (default 0)
+    Sends CMD_ID_ADDBA_REJECT on association so the firmware declines
+    ADDBA and the AP sends single MPDUs (no RX BA, no reordering).
+
+rx_ba_win and rx_ba_reject apply on the next association, before the
+AP's ADDBA request; clearing them sends the default again once.
+Each command logs a rate-limited ECHO_WLAN_RX_BA line; whether an RX BA
+session exists shows as "QM: +RxBA(...)" in dmesg after association.
+---
+ .../conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c  | 52 +++++++++++++++++++
+ .../drv_wlan/mt_wifi/wlan/nic/que_mgt.c       | 10 +++-
+ 2 files changed, 61 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+index 4eda0aad1..637bd40ec 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+@@ -1980,6 +1980,56 @@ WLAN_STATUS nicDeactivateNetwork(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYPE_
+ }
+ 
+ /* BSS-INFO */
++/*
++ * RX block-ack experiments (Pinna).  Applied whenever the AIS BSS is updated,
++ * i.e. on association, before the AP sends its ADDBA request; a change takes
++ * effect on the next (re)association.
++ *
++ * rx_ba_win:    sent to the firmware with CMD_ID_SET_RX_BA_WIN_SIZE, the
++ *               command the vendor code sends with 0x12 ("Fix Rx BA Size to
++ *               2") on 2.4 GHz for Amazon's abh123/abc123/abd123 projects.
++ *               This kernel uses CONFIG_ARCH_MTK_PROJECT="radar", so that
++ *               workaround never runs.  0 = firmware default.
++ * rx_ba_reject: send CMD_ID_ADDBA_REJECT so the firmware declines ADDBA and
++ *               the AP sends single MPDUs.
++ */
++static unsigned int rx_ba_win;
++module_param(rx_ba_win, uint, 0644);
++MODULE_PARM_DESC(rx_ba_win, "firmware RX BA window set on association (0 = default, 0x12 = Amazon 2.4 GHz value)");
++
++static bool rx_ba_reject;
++module_param(rx_ba_reject, bool, 0644);
++MODULE_PARM_DESC(rx_ba_reject, "ask the firmware to reject ADDBA (no A-MPDU RX) on association");
++
++static VOID nicEchoApplyRxBaParams(IN P_ADAPTER_T prAdapter, IN P_BSS_INFO_T prBssInfo)
++{
++	static BOOLEAN fgWinSent, fgRejectSent;
++	UINT_32 u4Win = READ_ONCE(rx_ba_win);
++	BOOLEAN fgReject = READ_ONCE(rx_ba_reject);
++
++	if (prBssInfo->eConnectionState != PARAM_MEDIA_STATE_CONNECTED)
++		return;
++
++	/* once a value was sent, keep the firmware in sync when it is cleared */
++	if (u4Win || fgWinSent) {
++		nicQmSetRxBASize(prAdapter, u4Win != 0, u4Win);
++		fgWinSent = (u4Win != 0);
++		pr_info_ratelimited("ECHO_WLAN_RX_BA: firmware RX BA window enable=%u size=0x%x band=%u\n",
++				    u4Win != 0, u4Win, prBssInfo->eBand);
++	}
++
++	if (fgReject || fgRejectSent) {
++		CMD_ADDBA_REJECT_T rAddbaReject;
++
++		kalMemZero(&rAddbaReject, sizeof(rAddbaReject));
++		rAddbaReject.fgEnable = fgReject;
++		wlanSendSetQueryCmd(prAdapter, CMD_ID_ADDBA_REJECT, TRUE, FALSE, FALSE, NULL, NULL,
++				    sizeof(rAddbaReject), (PUINT_8) &rAddbaReject, NULL, 0);
++		fgRejectSent = fgReject;
++		pr_info_ratelimited("ECHO_WLAN_RX_BA: firmware ADDBA reject=%u\n", fgReject);
++	}
++}
++
+ /*----------------------------------------------------------------------------*/
+ /*!
+ * @brief This utility function is used to sync bss info with firmware
+@@ -2097,6 +2147,8 @@ WLAN_STATUS nicUpdateBss(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYPE_INDEX_T
+ 		} else {
+ 			nicQmSetRxBASize(prAdapter, FALSE, 0);
+ 		}
++	} else if (prBssInfo->ucNetTypeIndex == NETWORK_TYPE_AIS_INDEX) {
++		nicEchoApplyRxBaParams(prAdapter, prBssInfo);
+ 	}
+ 
+ 	u4Status = wlanSendSetQueryCmd(prAdapter,
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+index 06f12f0e8..795ef169c 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/que_mgt.c
+@@ -506,6 +506,14 @@ MODULE_PARM_DESC(rx_reorder_timeout_ms, "ms a frame may wait behind an RX reorde
+ 
+ static TIMER_T g_rRxReorderTimer;
+ 
++/*
++ * Experiment: rx_ba_reorder=0 passes every frame up in arrival order, as if
++ * the firmware had not set the reorder flag (the AP still aggregates).
++ */
++static bool rx_ba_reorder = true;
++module_param(rx_ba_reorder, bool, 0644);
++MODULE_PARM_DESC(rx_ba_reorder, "reorder RX block-ack frames in the driver (0 = pass up in arrival order)");
++
+ static UINT_32 qmRxReorderTimeoutMs(VOID)
+ {
+ 	UINT_32 u4Ms = READ_ONCE(rx_reorder_timeout_ms);
+@@ -2875,7 +2883,7 @@ P_SW_RFB_T qmHandleRxPackets(IN P_ADAPTER_T prAdapter, IN P_SW_RFB_T prSwRfbList
+ 			qmProcessBarFrame(prAdapter, prCurrSwRfb, &rReturnedQue);
+ 		}
+ 		/* Reordering is not required for this packet, return it without buffering */
+-		else if (!HIF_RX_HDR_GET_REORDER_FLAG(prHifRxHdr) || fgIsBMC) {
++		else if (!HIF_RX_HDR_GET_REORDER_FLAG(prHifRxHdr) || fgIsBMC || !READ_ONCE(rx_ba_reorder)) {
+ 			if (!fgIsBMC && !HIF_RX_HDR_GET_80211_FLAG(prHifRxHdr))
+ 				g_rEchoRxStat.u4NoReorder++;
+ #if 0

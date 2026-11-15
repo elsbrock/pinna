@@ -44,6 +44,10 @@ esphome-conformance:
 kernel:
     kernel/build.sh
 
+# kernel with kernel/debug.config (ftrace, debugfs, sysrq, core dumps) for dev images
+kernel-debug:
+    DEBUG=1 kernel/build.sh
+
 # static MT8163 WMT helpers (Wi-Fi/BT power-up)
 wmt:
     mkdir -p {{build}}/wmt
@@ -91,7 +95,7 @@ initramfs-x86:
 bootimg: initramfs
     cargo run -q -p pinna-bootimg -- pack \
         --zimage {{build}}/kernel/arch/arm/boot/zImage \
-        --dtb {{build}}/kernel/arch/arm/boot/dts/libreecho-radar-puffin.dtb \
+        --dtb {{build}}/kernel/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dtb \
         --ramdisk {{build}}/initramfs.cpio \
         --out {{build}}/pinna-boot.img
     cargo run -q -p pinna-bootimg -- info {{build}}/pinna-boot.img

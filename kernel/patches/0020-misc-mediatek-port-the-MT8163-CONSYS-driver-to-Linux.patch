@@ -1,0 +1,219 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 13:50:00 +0100
+Subject: [PATCH 20/27] misc: mediatek: port the MT8163 CONSYS driver to Linux
+ 6.12
+
+- class_create(THIS_MODULE, name) -> class_create(name) (7 files)
+- platform_driver.remove returns void (btif, consys_hw, wlan platform)
+- no_llseek removed: drop .llseek, unseekable is the 6.12 default (compat/wmt_detect_abi.c)
+- hci_dev.dev_type / HCI_PRIMARY gone: drop the primary-type assignment
+- sched_clock() needs <linux/sched/clock.h> (wlan stats.c)
+---
+ .../mt8163-connectivity/btif/common/btif_audio_ts.c        | 2 +-
+ .../mediatek/mt8163-connectivity/btif/common/mtk_btif.c    | 7 +++----
+ .../mediatek/mt8163-connectivity/compat/wmt_detect_abi.c   | 3 +--
+ .../conn_soc/common/linux/pri/wmt_dev.c                    | 2 +-
+ .../conn_soc/common/linux/pub/stp_chrdev_bt.c              | 3 +--
+ .../conn_soc/common/linux/pub/stp_chrdev_gps.c             | 2 +-
+ .../conn_soc/common/linux/pub/wmt_chrdev_wifi.c            | 2 +-
+ .../conn_soc/common/mt8163/mtk_wcn_consys_hw.c             | 6 ++----
+ .../conn_soc/drv_wlan/mt_wifi/wlan/mgmt/stats.c            | 1 +
+ .../conn_soc/drv_wlan/mt_wifi/wlan/os/linux/platform.c     | 5 ++---
+ 10 files changed, 14 insertions(+), 19 deletions(-)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/btif/common/btif_audio_ts.c b/drivers/misc/mediatek/mt8163-connectivity/btif/common/btif_audio_ts.c
+index d340098e5..71aeb25e7 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/btif/common/btif_audio_ts.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/btif/common/btif_audio_ts.c
+@@ -203,7 +203,7 @@ int btif_ts_init(void)
+ 	}
+ 
+ 	/* Register the device class */
+-	g_dev_class = class_create(THIS_MODULE, CLASS_NAME);
++	g_dev_class = class_create(CLASS_NAME);
+ 	if (IS_ERR(g_dev_class)) {
+ 		unregister_chrdev(g_major_num, DEVICE_NAME);
+ 		pr_alert("BTTS: failed to register device class\n");
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/btif/common/mtk_btif.c b/drivers/misc/mediatek/mt8163-connectivity/btif/common/mtk_btif.c
+index 19bcdc438..69df6f04b 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/btif/common/mtk_btif.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/btif/common/mtk_btif.c
+@@ -25,7 +25,7 @@
+ 
+ /*-----------static function declearation----------------*/
+ static int mtk_btif_probe(struct platform_device *pdev);
+-static int mtk_btif_remove(struct platform_device *pdev);
++static void mtk_btif_remove(struct platform_device *pdev);
+ static int mtk_btif_suspend(struct platform_device *pdev, pm_message_t state);
+ static int mtk_btif_resume(struct platform_device *pdev);
+ static int mtk_btif_drv_resume(struct device *dev);
+@@ -246,13 +246,12 @@ static int mtk_btif_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int mtk_btif_remove(struct platform_device *pdev)
++static void mtk_btif_remove(struct platform_device *pdev)
+ {
+ /*Chaozhong: ToDo: to be implement*/
+ 	BTIF_INFO_FUNC("DO BTIF REMOVE\n");
+ 	platform_set_drvdata(pdev, NULL);
+ 	g_btif[0].private_data = NULL;
+-	return 0;
+ }
+ 
+ int _btif_suspend(p_mtk_btif p_btif)
+@@ -482,7 +481,7 @@ static int btif_chrdev_init(void)
+ 	}
+ 	BTIF_INFO_FUNC("add btif dev to kernel succeed\n");
+ 
+-	p_btif_class = class_create(THIS_MODULE, p_btif_dev_name);
++	p_btif_class = class_create(p_btif_dev_name);
+ 	if (IS_ERR(p_btif_class)) {
+ 		BTIF_ERR_FUNC("error happened when doing class_create\n");
+ 		unregister_chrdev_region(btif_dev, 1);
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/compat/wmt_detect_abi.c b/drivers/misc/mediatek/mt8163-connectivity/compat/wmt_detect_abi.c
+index 791443325..c8b6cf8ab 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/compat/wmt_detect_abi.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/compat/wmt_detect_abi.c
+@@ -80,7 +80,6 @@ static const struct file_operations wmt_detect_fops = {
+ 	.read = wmt_detect_read,
+ 	.write = wmt_detect_write,
+ 	.unlocked_ioctl = wmt_detect_ioctl,
+-	.llseek = no_llseek,
+ };
+ 
+ static int __init wmt_detect_abi_init(void)
+@@ -98,7 +97,7 @@ static int __init wmt_detect_abi_init(void)
+ 	if (ret)
+ 		goto unregister_region;
+ 
+-	wmt_detect_class = class_create(THIS_MODULE, WMT_DETECT_NAME);
++	wmt_detect_class = class_create(WMT_DETECT_NAME);
+ 	if (IS_ERR(wmt_detect_class)) {
+ 		ret = PTR_ERR(wmt_detect_class);
+ 		wmt_detect_class = NULL;
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pri/wmt_dev.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pri/wmt_dev.c
+index c0f2d9ac6..b5fd5718b 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pri/wmt_dev.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pri/wmt_dev.c
+@@ -2581,7 +2581,7 @@ static int WMT_init(void)
+ 	WMT_INFO_FUNC("driver(major %d) installed\n", gWmtMajor);
+ 
+ #if WMT_CREATE_NODE_DYNAMIC
+-	wmt_class = class_create(THIS_MODULE, "stpwmt");
++	wmt_class = class_create("stpwmt");
+ 	if (IS_ERR(wmt_class))
+ 		goto error;
+ 	wmt_dev = device_create(wmt_class, NULL, devID, NULL, "stpwmt");
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c
+index 36d6a13eb..3fdf670c8 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c
+@@ -275,7 +275,6 @@ static int mtk_bt_hci_init(void)
+ 		return -ENOMEM;
+ 
+ 	mtk_hci.hdev->bus = HCI_VIRTUAL;
+-	mtk_hci.hdev->dev_type = HCI_PRIMARY;
+ 	set_bit(HCI_QUIRK_DEFERRED_SETUP, &mtk_hci.hdev->quirks);
+ 	/* The MT8163 BTIF firmware advertises extended LMP features but returns
+ 	 * a non-success status for Read Local Extended Features.  Those optional
+@@ -790,7 +789,7 @@ static int BT_init(void)
+ 		goto error;
+ 
+ #if WMT_CREATE_NODE_DYNAMIC
+-	stpbt_class = class_create(THIS_MODULE, "stpbt");
++	stpbt_class = class_create("stpbt");
+ 	if (IS_ERR(stpbt_class))
+ 		goto error;
+ 	stpbt_dev = device_create(stpbt_class, NULL, dev, NULL, "stpbt");
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_gps.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_gps.c
+index 4d1d57775..45867a1ee 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_gps.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_gps.c
+@@ -469,7 +469,7 @@ static int GPS_init(void)
+ 		goto error;
+ 
+ #if WMT_CREATE_NODE_DYNAMIC
+-	gps_class = class_create(THIS_MODULE, "stpgps");
++	gps_class = class_create("stpgps");
+ 	if (IS_ERR(gps_class))
+ 		goto error;
+ 	gps_dev = device_create(gps_class, NULL, dev, NULL, "stpgps");
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/wmt_chrdev_wifi.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/wmt_chrdev_wifi.c
+index 8fdbe8704..0548b899c 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/wmt_chrdev_wifi.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/wmt_chrdev_wifi.c
+@@ -578,7 +578,7 @@ static int WIFI_init(void)
+ 		goto error;
+ 
+ #if WMT_CREATE_NODE_DYNAMIC	/* mknod replace */
+-	wmtwifi_class = class_create(THIS_MODULE, "wmtWifi");
++	wmtwifi_class = class_create("wmtWifi");
+ 	if (IS_ERR(wmtwifi_class))
+ 		goto error;
+ 	wmtwifi_dev = device_create(wmtwifi_class, NULL, dev, NULL, "wmtWifi");
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/mt8163/mtk_wcn_consys_hw.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/mt8163/mtk_wcn_consys_hw.c
+index dc5a41206..96b1f132a 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/mt8163/mtk_wcn_consys_hw.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/mt8163/mtk_wcn_consys_hw.c
+@@ -70,7 +70,7 @@
+ ********************************************************************************
+ */
+ static INT32 mtk_wmt_probe(struct platform_device *pdev);
+-static INT32 mtk_wmt_remove(struct platform_device *pdev);
++static void mtk_wmt_remove(struct platform_device *pdev);
+ 
+ 
+ /*******************************************************************************
+@@ -339,11 +339,9 @@ static INT32 mtk_wmt_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static INT32 mtk_wmt_remove(struct platform_device *pdev)
++static void mtk_wmt_remove(struct platform_device *pdev)
+ {
+ 	pm_runtime_disable(&pdev->dev);
+-
+-	return 0;
+ }
+ 
+ INT32 mtk_wcn_consys_power_on(VOID)
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/stats.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/stats.c
+index c7c6617eb..462fc7f77 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/stats.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/stats.c
+@@ -23,6 +23,7 @@
+  *						E X T E R N A L	R E F E R E N C E S
+  ********************************************************************************
+  */
++#include <linux/sched/clock.h>
+ #include "precomp.h"
+ 
+ #if (CFG_SUPPORT_STATISTICS == 1)
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/platform.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/platform.c
+index ad2a22776..18a7b7753 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/platform.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/platform.c
+@@ -153,7 +153,7 @@
+ static atomic_t fgSuspendFlag = ATOMIC_INIT(0);
+ static atomic_t fgIndicateWoW = ATOMIC_INIT(0);
+ static int wlan_probe(struct platform_device *pdev);
+-static int wlan_remove(struct platform_device *pdev);
++static void wlan_remove(struct platform_device *pdev);
+ static int wlan_suspend(struct platform_device *pdev, pm_message_t state);
+ static int wlan_resume(struct platform_device *pdev);
+ static void wlan_release(struct device *dev);
+@@ -433,11 +433,10 @@ static int wlan_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
+-static int wlan_remove(struct platform_device *pdev)
++static void wlan_remove(struct platform_device *pdev)
+ {
+ 	platform_set_drvdata(pdev, NULL);
+ 	DBGLOG(INIT, INFO, "wlan platform driver remove\n");
+-	return 0;
+ }
+ 
+ static void wlan_shutdown(struct platform_device *pdev)

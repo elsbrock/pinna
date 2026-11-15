@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 15 Nov 2026 13:49:59 +0100
+Subject: [PATCH 19/27] Bluetooth, wext: core hooks for the MT8163 CONSYS
+ driver
+
+---
+ include/net/bluetooth/hci.h | 10 ++++++++++
+ net/bluetooth/hci_sock.c    |  4 +++-
+ net/wireless/wext-core.c    | 24 +++++++++++++++++-------
+ 3 files changed, 30 insertions(+), 8 deletions(-)
+
+diff --git a/include/net/bluetooth/hci.h b/include/net/bluetooth/hci.h
+index 4a3c99d1a..2f919e21e 100644
+--- a/include/net/bluetooth/hci.h
++++ b/include/net/bluetooth/hci.h
+@@ -376,6 +376,16 @@ enum {
+ 	 * This quirk must be set before hci_register_dev is called.
+ 	 */
+ 	HCI_QUIRK_BROKEN_READ_PAGE_SCAN_TYPE,
++
++	/*
++	 * When this quirk is set, setup work is intentionally deferred until
++	 * userspace has completed transport-specific preparation.  The
++	 * management layer may submit SET_POWERED while HCI_SETUP remains set;
++	 * the normal HCI setup sequence then clears HCI_SETUP on success.
++	 *
++	 * This quirk must be set before hci_register_dev is called.
++	 */
++	HCI_QUIRK_DEFERRED_SETUP,
+ };
+ 
+ /* HCI device flags */
+diff --git a/net/bluetooth/hci_sock.c b/net/bluetooth/hci_sock.c
+index 7ee5670f1..5b448ee6d 100644
+--- a/net/bluetooth/hci_sock.c
++++ b/net/bluetooth/hci_sock.c
+@@ -1686,7 +1686,9 @@ static int hci_mgmt_cmd(struct hci_mgmt_chan *chan, struct sock *sk,
+ 			goto done;
+ 		}
+ 
+-		if (hci_dev_test_flag(hdev, HCI_SETUP) ||
++		if ((hci_dev_test_flag(hdev, HCI_SETUP) &&
++		     !(opcode == MGMT_OP_SET_POWERED &&
++		       test_bit(HCI_QUIRK_DEFERRED_SETUP, &hdev->quirks))) ||
+ 		    hci_dev_test_flag(hdev, HCI_CONFIG) ||
+ 		    hci_dev_test_flag(hdev, HCI_USER_CHANNEL)) {
+ 			err = mgmt_cmd_status(sk, index, opcode,
+diff --git a/net/wireless/wext-core.c b/net/wireless/wext-core.c
+index 73a29ee3e..d62cd5672 100644
+--- a/net/wireless/wext-core.c
++++ b/net/wireless/wext-core.c
+@@ -702,6 +702,8 @@ static iw_handler get_handler(struct net_device *dev, unsigned int cmd)
+ 	/* Don't "optimise" the following variable, it will crash */
+ 	unsigned int	index;		/* *MUST* be unsigned */
+ 	const struct iw_handler_def *handlers = NULL;
++	const struct iw_handler_def *cfg_handlers = NULL;
++	iw_handler handler = NULL;
+ 
+ #ifdef CONFIG_CFG80211_WEXT
+ 	if (dev->ieee80211_ptr && dev->ieee80211_ptr->wiphy) {
+@@ -709,7 +711,7 @@ static iw_handler get_handler(struct net_device *dev, unsigned int cmd)
+ 		if (dev->ieee80211_ptr->wiphy->flags & (WIPHY_FLAG_SUPPORTS_MLO |
+ 							WIPHY_FLAG_DISABLE_WEXT))
+ 			return NULL;
+-		handlers = dev->ieee80211_ptr->wiphy->wext;
++		cfg_handlers = dev->ieee80211_ptr->wiphy->wext;
+ 	}
+ #endif
+ #ifdef CONFIG_WIRELESS_EXT
+@@ -717,18 +719,26 @@ static iw_handler get_handler(struct net_device *dev, unsigned int cmd)
+ 		handlers = dev->wireless_handlers;
+ #endif
+ 
+-	if (!handlers)
++	if (!handlers && !cfg_handlers)
+ 		return NULL;
+ 
+-	/* Try as a standard command */
++	/* Prefer a device standard handler, then use cfg80211 compatibility.
++	 * Some drivers expose only private WEXT handlers on the netdev while
++	 * implementing standard scan/connect operations through cfg80211.
++	 */
+ 	index = IW_IOCTL_IDX(cmd);
+-	if (index < handlers->num_standard)
+-		return handlers->standard[index];
++	if (handlers && index < handlers->num_standard)
++		handler = handlers->standard[index];
++	if (handler)
++		return handler;
++	if (cfg_handlers && cfg_handlers != handlers &&
++	    index < cfg_handlers->num_standard)
++		return cfg_handlers->standard[index];
+ 
+ #ifdef CONFIG_WEXT_PRIV
+-	/* Try as a private command */
++	/* Private commands remain owned by the device handler table. */
+ 	index = cmd - SIOCIWFIRSTPRIV;
+-	if (index < handlers->num_private)
++	if (handlers && index < handlers->num_private)
+ 		return handlers->private[index];
+ #endif
+ 

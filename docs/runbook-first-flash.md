@@ -19,7 +19,9 @@ runtime: the bootloader command field (fastboot guard) and Pinna's A/B slot
 state at offset 0x40000 (ADR 0003).
 
 The Wi-Fi firmware that used to come from `system_a` is baked into the Pinna
-root (`blobs/firmware/`, extracted from the backup).
+root (`blobs/firmware/`, extracted from the backup). The microphone FPGA
+bitstream `blobs/firmware/i2s_to_spi_v34.bin` (LibreEcho-Linux carries it as
+`firmware/i2s_to_spi_v34.bin`) is built into the kernel.
 
 ## 0. Owner-local inputs and build
 
@@ -230,7 +232,7 @@ quiet room; `PINNA_ACOUSTIC=0` skips it.
 
 ## Known limitations
 
-- **Wi-Fi**: the vendor driver's receive path (patches 0004–0009) reaches
+- **Wi-Fi**: the vendor driver's receive path (kernel patches 0021–0027) reaches
   1–1.7 MB/s, but on a busy 2.4 GHz channel downloads still stall for seconds
   at times. Speech and TTS are small; long streams may glitch.
 - **Echo cancellation** needs a few seconds of playback to converge; the first

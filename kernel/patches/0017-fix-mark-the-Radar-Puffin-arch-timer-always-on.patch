@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 14 Nov 2026 23:27:30 +0100
+Subject: [PATCH 17/27] fix: mark the Radar-Puffin arch timer always-on
+
+Without always-on the armv8 timer driver flags the per-CPU timer
+CLOCK_EVT_FEAT_C3STOP, so switching to oneshot needs a broadcast
+device, and this board registers none. The kernel therefore stays in
+periodic low-res mode for its whole uptime: Tick Device mode 0,
+hrtimer resolution 10 ms, 100 arch_timer IRQ/s on every idle CPU,
+despite CONFIG_HIGH_RES_TIMERS=y and CONFIG_NO_HZ_IDLE=y.
+
+In that mode every hrtimer wakeup (nanosleep, poll/epoll timeouts,
+usleep_range) is expired from the tick immediately before
+scheduler_tick() runs calc_global_load_tick(), so each loadavg sample
+counts every task the tick just woke. On an idle device the sampled
+active count swung 2..7 (mean ~4.4) against a time-averaged ~1.9,
+which is the persistent ~4.5 load average.
+
+CONFIG_CPU_IDLE is not built, so CPUs only execute WFI and the core
+timer never stops: always-on is accurate for this configuration. Pin
+that pairing in a contract test so enabling cpuidle has to revisit it.
+---
+ arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts b/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
+index a382d02e7..d035c6279 100644
+--- a/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
++++ b/arch/arm/boot/dts/mediatek/libreecho-radar-puffin.dts
+@@ -339,6 +339,12 @@ timer {
+ 		 * timer registers, as required by the ARM32 binding for this case.
+ 		 */
+ 		arm,cpu-registers-not-fw-configured;
++		/*
++		 * No cpuidle driver is built (CONFIG_CPU_IDLE=n): CPUs only WFI, so the per-CPU
++		 * timer never stops.  Without this it is C3STOP, and with no broadcast device the
++		 * tick never leaves periodic low-res mode (10 ms hrtimers, no NO_HZ idle).
++		 */
++		always-on;
+ 	};
+ 
+ 	soc {

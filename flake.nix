@@ -8,8 +8,7 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
-      # Cross toolchain for the ARM32 kernel (same toolchain family that built
-      # the known-good LibreEcho 6.1 kernel).
+      # Cross toolchain for the ARM32 kernel.
       armCross = pkgs.pkgsCross.armv7l-hf-multiplatform.buildPackages;
     in
     {
@@ -42,8 +41,7 @@
           # veritysetup: cross-checks pinna-image's dm-verity hash tree
           cryptsetup
 
-          # kernel build — gcc 15, the series that built the known-good
-          # LibreEcho 6.1 kernel (gcc 16 is untested against this tree)
+          # kernel build — gcc 15 (gcc 16 is untested against the kernel tree)
           armCross.gcc15
           armCross.binutils
           gnumake

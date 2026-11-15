@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 14 Nov 2026 23:26:11 +0100
+Subject: [PATCH 16/27] fix: pace the amznspi capture loop in TASK_IDLE
+
+amzn_spi_data_read() is an always-on capture loop while the wakeword
+pipeline holds the SPI PCM open. Its inter-frame pacing sleep used
+usleep_range(), which sleeps TASK_UNINTERRUPTIBLE, so the healthy loop
+showed as a permanently D-state kworker (kworker/0:xH+amznspi,
+wchan=amzn_spi_data_read) and added a constant 1.0 to the load average.
+
+Use usleep_idle_range() so the pacing sleep is TASK_IDLE: same wakeup
+behaviour, but not reported as D and not counted as load. Add a source
+contract test that pins the TASK_IDLE pacing sleep.
+---
+ sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
+index d0b5b82f7..b0c240971 100644
+--- a/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
++++ b/sound/soc/mediatek/mt8163-amzn-spi/amzn-mt-spi-pcm.c
+@@ -409,8 +409,8 @@ static void amzn_spi_data_read(struct work_struct *work)
+ 						    previous_time);
+ 		if (elapsed_us < SPI_READ_WAIT_MIN_US - MARGIN_US &&
+ 		    !rx_frame->dsf.overrun) {
+-			usleep_range(SPI_READ_WAIT_MIN_US - elapsed_us,
+-				     SPI_READ_WAIT_MAX_US - elapsed_us);
++			/* TASK_IDLE: this always-on pacing sleep is not a D-state wait and is not load. */
++			usleep_idle_range(SPI_READ_WAIT_MIN_US - elapsed_us, SPI_READ_WAIT_MAX_US - elapsed_us);
+ 			previous_time = ktime_get_raw();
+ 		} else {
+ 			previous_time = current_time;
