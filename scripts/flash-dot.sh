@@ -3,18 +3,19 @@
 # (hold Volume Down while plugging in the micro-USB cable).
 #
 #   scripts/flash-dot.sh check        # read-only: device, partition sizes, artifacts
-#   scripts/flash-dot.sh root         # system_a <- erofs root, wipe userdata (Pinna's /var)
+#   scripts/flash-dot.sh root         # system_a <- sealed slot image, clear system_b, wipe userdata
 #   scripts/flash-dot.sh try          # RAM-boot the Pinna kernel once (nothing written)
 #   scripts/flash-dot.sh boot         # boot_a + boot_b <- Pinna boot image (persistent)
 #   scripts/flash-dot.sh restore DIR  # put LibreEcho back from a backup's partitions/
 #
-# Only boot_a, boot_b, system_a and userdata are ever written. Never touched:
-# preloader/boot areas, lk_a/lk_b, tee1/tee2, expdb (Kaeru), persist, misc.
+# Only boot_a, boot_b, system_a, system_b and userdata are ever written. Never
+# touched: preloader/boot areas, lk_a/lk_b, tee1/tee2, expdb (Kaeru), persist,
+# misc (Pinna writes only its bootloader command and A/B slot state, at runtime).
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 boot_img=${BOOT_IMG:-$root/build/pinna-boot.img}
-root_img=${ROOT_IMG:-$root/mkosi/mkosi.output/pinna.root-arm.raw}
+root_img=${ROOT_IMG:-$root/build/pinna.root.img}
 fb=${FASTBOOT:-fastboot}
 
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
@@ -39,7 +40,7 @@ case "${1:-}" in
   check)
     need_device
     say "device"
-    for v in product serialno unlocked max-download-size partition-size:boot_a partition-size:system_a partition-size:userdata; do
+    for v in product serialno unlocked max-download-size partition-size:boot_a partition-size:system_a partition-size:system_b partition-size:userdata; do
       printf '  %-28s %s\n' "$v" "$(var "$v")"
     done
     say "artifacts"
@@ -51,11 +52,22 @@ case "${1:-}" in
   root)
     need_device
     need_file "$root_img" "just image"
+    # Only a sealed slot image signed with the release key boots (pinna-init).
+    # Android sparse images (img2simg) cannot be checked here.
+    if [ "$(od -An -tx4 -N4 "$root_img" | tr -d ' ')" = ed26ff3a ]; then
+      say "$(basename "$root_img") is a sparse image: signature not checked"
+    else
+      cargo run -q --release --manifest-path "$root/Cargo.toml" -p pinna-image -- verify "$root_img" ||
+        die "$root_img is not a sealed slot image signed with keys/release.pub"
+    fi
     say "system_a <- $(basename "$root_img") ($(stat -c %s "$root_img") bytes)"
+    say "system_b <- cleared (first MiB zeroed: no image, so slot a boots)"
     say "userdata <- wiped (Pinna formats it as /var on first boot)"
-    confirm "This replaces LibreEcho's system_a and erases userdata. Continue?"
+    confirm "This replaces LibreEcho's system_a, clears system_b and erases userdata. Continue?"
     $fb flash system_a "$root_img"
     tmp=$(mktemp)
+    head -c 1048576 /dev/zero > "$tmp"
+    $fb flash system_b "$tmp"
     head -c 4194304 /dev/zero > "$tmp"
     $fb flash userdata "$tmp"
     rm -f "$tmp"
@@ -81,10 +93,15 @@ case "${1:-}" in
     need_device
     for p in boot_a system_a userdata; do need_file "$dir/$p.img" "backup partition"; done
     (cd "$dir" && sha256sum -c --ignore-missing SHA256SUMS) || die "backup checksums do not match"
-    confirm "Restore LibreEcho (boot_a, boot_b, system_a, userdata) from $dir?"
+    confirm "Restore LibreEcho (boot_a, boot_b, system_a, system_b, userdata) from $dir?"
     $fb flash boot_a "$dir/boot_a.img"
     $fb flash boot_b "$dir/boot_b.img"
     $fb flash system_a "$dir/system_a.img"
+    if [ -s "$dir/system_b.img" ]; then
+      $fb flash system_b "$dir/system_b.img"
+    else
+      say "no system_b.img in the backup: system_b keeps Pinna's data (LibreEcho does not use it)"
+    fi
     $fb flash userdata "$dir/userdata.img"
     $fb reboot
     ;;
