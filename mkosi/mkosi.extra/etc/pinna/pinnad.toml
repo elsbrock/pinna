@@ -28,3 +28,7 @@ mdns = true
 [leds]
 backend = "auto"
 brightness = 255
+
+[api]
+# Local control API (pinnactl, web UI). No authentication: keep it on loopback.
+listen = "127.0.0.1:7470"

@@ -9,7 +9,7 @@ Type=oneshot
 RemainAfterExit=yes
 # Give pinnad a moment to crash-loop if it is going to.
 ExecStartPre=/bin/sleep 10
-ExecStartPre=/bin/systemctl is-active --quiet pinnad.service
+ExecStartPre=/usr/bin/pinnactl status
 ExecStart=/usr/bin/pinna-bootctl guard-clear
 
 [Install]

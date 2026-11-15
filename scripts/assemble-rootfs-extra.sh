@@ -6,7 +6,7 @@
 #   blobs/firmware/          MT8163 WMT/Wi-Fi firmware (from the device's stock system partition)
 #   blobs/models/            openWakeWord models (CC BY-NC-SA, fetched by `just models`)
 #   build/wmt/               static WMT helpers (`just wmt`)
-#   target/<arm>/release/    pinnad, pinna-bootctl (`just rust-arm`)
+#   target/<arm>/release/    pinnad, pinnactl, pinna-bootctl (`just rust-arm`)
 #   secrets/                 authorized_keys, wifi/wpa_supplicant-wlan0.conf
 set -euo pipefail
 
@@ -53,7 +53,7 @@ fi
 
 # Rust binaries
 install -d "$out/usr/bin"
-for bin in pinnad pinna-bootctl; do
+for bin in pinnad pinnactl pinna-bootctl; do
   if [ -x "$arm/$bin" ]; then
     install -m0755 "$arm/$bin" "$out/usr/bin/"
   else

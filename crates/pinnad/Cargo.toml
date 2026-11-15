@@ -21,3 +21,7 @@ tracing-subscriber.workspace = true
 bytes = "1"
 fastrand = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+pinna-api = { path = "../pinna-api" }
+connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "server"] }
+buffa = "0.9"
+futures = "0.3"
