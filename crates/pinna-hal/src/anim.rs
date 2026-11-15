@@ -31,6 +31,7 @@ pub const VOLUME_HOLD: Duration = Duration::from_millis(1500);
 const ERROR_FLASH: Duration = Duration::from_millis(250);
 const ERROR_FLASHES: u32 = 3;
 const BOOT_DURATION: Duration = Duration::from_millis(1200);
+const CLEARED_FADE: Duration = Duration::from_millis(400);
 
 // Listening direction cue (LibreEcho ledd.c, PATTERN_DIRECTION). Pixel i sits
 // at (45 + 30 * i) degrees clockwise from the front, so the front-centre pair
@@ -62,6 +63,8 @@ pub enum Effect {
     TimerRinging,
     /// A notification is pending: the whole ring pulses slowly.
     Notification,
+    /// The notification was cleared: one bright flash that fades out.
+    NotificationCleared,
     Boot,
     /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
     Equalizer([f32; RING_PIXELS]),
@@ -75,6 +78,7 @@ impl Effect {
             Effect::Error => Some(ERROR_FLASH * 2 * ERROR_FLASHES),
             Effect::Volume(_) => Some(VOLUME_HOLD),
             Effect::Boot => Some(BOOT_DURATION),
+            Effect::NotificationCleared => Some(CLEARED_FADE),
             _ => None,
         }
     }
@@ -138,6 +142,10 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
         }
         // One slow pulse every 3 s: motion, not hue, tells it from a timer.
         Effect::Notification => solid(NOTIFICATION.scaled(0.1 + 0.9 * wave(t, 3.0))),
+        Effect::NotificationCleared => {
+            let left = 1.0 - t.as_secs_f32() / CLEARED_FADE.as_secs_f32();
+            solid(NOTIFICATION.scaled(left.max(0.0)))
+        }
         Effect::Boot => {
             if effect.is_finished(t) {
                 return solid(Rgb::OFF);
@@ -378,6 +386,18 @@ mod tests {
             render(Effect::Notification, ms(3400))
         );
         assert_ne!(NOTIFICATION, AMBER);
+    }
+
+    #[test]
+    fn notification_cleared_flashes_and_fades() {
+        assert_eq!(
+            render(Effect::NotificationCleared, ms(0)),
+            solid(NOTIFICATION)
+        );
+        let mid = render(Effect::NotificationCleared, ms(200))[0];
+        assert!(mid.r > 100 && mid.r < 200, "{mid:?}");
+        assert!(Effect::NotificationCleared.is_finished(ms(400)));
+        assert_eq!(lit(&render(Effect::NotificationCleared, ms(400))), 0);
     }
 
     #[test]

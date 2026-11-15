@@ -52,6 +52,16 @@
     );
   });
   const booted = $derived(updates?.slots.find((x) => x.booted));
+
+  // After Clear, the notice stays in place for a moment, so a second tap
+  // doesn't land on the control that would move up under it.
+  let cleared = $state(false);
+  async function clearNotification() {
+    await device.clearNotification();
+    if (device.status?.notification) return;
+    cleared = true;
+    setTimeout(() => (cleared = false), 2_000);
+  }
 </script>
 
 {#if s}
@@ -91,18 +101,22 @@
     </div>
   {/if}
 
-  {#if s.notification && device.link === "live"}
+  {#if s.notification || cleared}
     <div class="pn-notice" role="status">
       <Icon name="info" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
-        <p class="pn-notice-title">A notification is waiting</p>
+        <p class="pn-notice-title">{cleared ? "Notification cleared" : "A notification is waiting"}</p>
         <p>
-          While the satellite is idle, the ring pulses yellow until someone clears it. Clearing it here
-          is the same as pressing the Action button.
+          Home Assistant has a notification for you. The ring pulses yellow when nothing else is
+          showing. Clear it here, or press the Action button while the ring is yellow.
         </p>
         <div>
-          <button class="pn-btn pn-btn-sm" disabled={device.busy} onclick={() => device.clearNotification()}>
-            Clear
+          <button
+            class="pn-btn"
+            disabled={cleared || device.link !== "live" || device.busy}
+            onclick={clearNotification}
+          >
+            {cleared ? "Cleared" : "Clear"}
           </button>
         </div>
       </div>

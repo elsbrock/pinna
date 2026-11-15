@@ -80,6 +80,13 @@ test("notification pulses slowly", () => {
   assert.ok(Math.abs(a - ringFrame("notification", 3400)[0].level) < 1e-9);
 });
 
+test("notification cleared flashes, then fades out", () => {
+  assert.ok(full(ringFrame("notification-cleared", 0), 0, LED.notification));
+  const mid = ringFrame("notification-cleared", 200)[0].level;
+  assert.ok(mid > 0.4 && mid < 0.6);
+  assert.equal(lit(ringFrame("notification-cleared", 400)), 0);
+});
+
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);

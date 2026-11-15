@@ -59,8 +59,10 @@ automation, for example when the washing machine finishes. The notification
 stays until one of these clears it:
 
 - You press the Action button while the ring shows the notification. This
-  press doesn't start a request. Press again to talk. The Action button's
-  `press` event still fires.
+  press doesn't start a request: the ring flashes once and goes out. If you
+  set up the read-out in step 4 below, the device reads the message. Press
+  again after it finishes to talk. The Action button's `press` event still
+  fires.
 - You select **Clear** on the [dashboard](/docs/dashboard/).
 - Home Assistant turns the switch off.
 

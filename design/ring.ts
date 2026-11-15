@@ -33,6 +33,7 @@ export type Effect =
   | "timer"
   | "timer-ringing"
   | "notification"
+  | "notification-cleared"
   | "boot"
   | "equalizer";
 
@@ -47,7 +48,12 @@ export const EQUALIZER: readonly Rgb[] = [
 ];
 
 /** Effects with a natural end, in ms; the rest run until replaced. */
-export const EFFECT_DURATION_MS = { error: 250 * 2 * 3, volume: 1500, boot: 1200 } as const;
+export const EFFECT_DURATION_MS = {
+  error: 250 * 2 * 3,
+  volume: 1500,
+  boot: 1200,
+  "notification-cleared": 400,
+} as const;
 
 /** One pixel: colour (null when dark) and LED duty 0..1. */
 export type Pixel = { c: Rgb | null; level: number };
@@ -144,6 +150,9 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
       return solid(LED.amber, 0.15 + 0.85 * wave(t, 0.5));
     case "notification":
       return solid(LED.notification, 0.1 + 0.9 * wave(t, 3));
+    case "notification-cleared":
+      if (tMs >= EFFECT_DURATION_MS["notification-cleared"]) return dark();
+      return solid(LED.notification, 1 - tMs / EFFECT_DURATION_MS["notification-cleared"]);
     case "boot":
       if (tMs >= EFFECT_DURATION_MS.boot) return dark();
       return spin(LED.listening, t, 0.6, 6);

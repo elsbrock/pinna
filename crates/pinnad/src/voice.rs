@@ -809,6 +809,10 @@ impl Brain {
                 } else if self.phase != Phase::Idle {
                     tracing::info!("run cancelled by button");
                     self.abort_run(true).await;
+                } else if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) {
+                    // The ring shows it speaking: stop it, as for a reply.
+                    tracing::info!("announcement stopped by button");
+                    self.stop_playback();
                 } else if self.muted() {
                     self.error_feedback();
                 } else if self.notification_shown() {
@@ -918,6 +922,7 @@ impl Brain {
         }
         self.set_notification(false).await;
         self.event("notification", "cleared").await;
+        self.overlay(Effect::NotificationCleared);
     }
 
     async fn set_wake_word(&mut self, on: bool) {
