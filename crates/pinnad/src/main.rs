@@ -303,9 +303,15 @@ async fn main() -> Result<()> {
         .clone()
         .filter(|b| !matches!(b, Backend::WavFile(_)))
         .map(|b| {
+            let echo_dot = b.echo_dot_mixer();
             let mut sc = SpeakerConfig::new(b);
             sc.initial_volume = initial.volume;
             sc.profile.codec_flat = cfg.audio.speaker_profile.eq_ignore_ascii_case("flat");
+            if echo_dot && sc.profile.codec_flat {
+                // LibreEcho's Echo Dot (biscuit) profile: pre_gain_db=6.00.
+                // The volume curve tops out at -12 dB, so this cannot clip.
+                sc.pre_gain_db = 6.0;
+            }
             Arc::new(Speaker::new(sc))
         });
 

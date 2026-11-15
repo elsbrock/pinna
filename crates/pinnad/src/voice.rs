@@ -1128,6 +1128,10 @@ impl Brain {
         self.playback = None;
         match kind {
             PlaybackKind::Tts => {
+                // ESPHome devices report the end of the reply this way too;
+                // Home Assistant keeps the satellite "responding" until then.
+                self.send(DeviceEvent::AnnounceFinished { success: ok })
+                    .await;
                 if self.run_ended {
                     self.finish_run().await;
                 } else {

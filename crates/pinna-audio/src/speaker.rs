@@ -49,6 +49,9 @@ pub struct SpeakerConfig {
     pub lead: Duration,
     /// Media level while ducked, in dB (<= 0).
     pub duck_db: f32,
+    /// Fixed gain on top of the volume curve, in dB (the speaker's
+    /// loudness calibration).
+    pub pre_gain_db: f32,
 }
 
 impl SpeakerConfig {
@@ -65,6 +68,7 @@ impl SpeakerConfig {
             initial_volume: 50,
             lead: Duration::from_millis(100),
             duck_db: -20.0,
+            pre_gain_db: 0.0,
         }
     }
 }
@@ -669,7 +673,8 @@ impl Actor {
             if s.time_of(s.frames_written).saturating_duration_since(now) > self.cfg.lead {
                 continue; // not due yet
             }
-            let gain = volume_gain(self.volume.load(Ordering::Relaxed));
+            let gain = volume_gain(self.volume.load(Ordering::Relaxed))
+                * 10f32.powf(self.cfg.pre_gain_db / 20.0);
             self.feeder
                 .voice_gain
                 .set(f32::from(self.voice_gain.load(Ordering::Relaxed)) / 100.0);
