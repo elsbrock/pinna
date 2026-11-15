@@ -27,9 +27,9 @@ Status: proposed (2026-11-15). Builds on ADR 0005.
 - **First settings:**
   - `friendly_name`, the name Home Assistant shows. It is read when Home Assistant connects, so pinnad closes the API connection after a change and Home Assistant reconnects with the new name.
   - `wake_sound`, the chime when listening starts. It takes effect on the next request.
+- **Added later:** the active wake words, chosen from the dashboard or from Home Assistant's own dropdowns ([ADR 0013](0013-wake-words.md)).
 - **Not settings:**
   - The speaker profile, which follows the hardware (`Status.model`).
-  - The wake word model: there is one, and Home Assistant chooses wake words.
   - Backends and ports.
 
 ## Consequences
