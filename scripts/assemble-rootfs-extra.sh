@@ -11,24 +11,40 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-out=$root/build/rootfs-extra
-arm=$root/target/armv7-unknown-linux-musleabihf/release
+# --arch x86_64 assembles build/rootfs-extra-x86 for the VM smoke-test image.
+case "${1:-}" in
+  --arch) target_arch=${2:?} ;;
+  *) target_arch=armv7 ;;
+esac
+if [ "$target_arch" = x86_64 ]; then
+  out=$root/build/rootfs-extra-x86
+  arm=$root/target/x86_64-unknown-linux-musl/release
+  device=no
+else
+  out=$root/build/rootfs-extra
+  arm=$root/target/armv7-unknown-linux-musleabihf/release
+  device=yes
+fi
 
 rm -rf "${out:?}"
 mkdir -p "$out"
 
 warn() { printf 'assemble: WARNING: %s\n' "$*" >&2; }
 
-# Firmware
-if compgen -G "$root/blobs/firmware/*" >/dev/null; then
+# Firmware (device only)
+if [ "$device" = no ]; then
+  :
+elif compgen -G "$root/blobs/firmware/*" >/dev/null; then
   install -d "$out/usr/lib/firmware"
   install -m0644 "$root"/blobs/firmware/* "$out/usr/lib/firmware/"
 else
   warn "no firmware in blobs/firmware — Wi-Fi will not come up on the device"
 fi
 
-# WMT helpers
-if compgen -G "$root/build/wmt/wmt_*" >/dev/null; then
+# WMT helpers (device only)
+if [ "$device" = no ]; then
+  :
+elif compgen -G "$root/build/wmt/wmt_*" >/dev/null; then
   install -d "$out/usr/libexec/pinna"
   install -m0755 "$root"/build/wmt/wmt_* "$out/usr/libexec/pinna/"
 else
@@ -41,7 +57,7 @@ for bin in pinnad pinna-bootctl; do
   if [ -x "$arm/$bin" ]; then
     install -m0755 "$arm/$bin" "$out/usr/bin/"
   else
-    warn "$bin not built for armv7 (just rust-arm)"
+    warn "$bin not built for $target_arch (just rust-arm / rust-x86)"
   fi
 done
 
