@@ -6,7 +6,7 @@
 #   scripts/flash-dot.sh root         # system_a <- sealed slot image, clear system_b, wipe userdata
 #   scripts/flash-dot.sh try          # RAM-boot the Pinna kernel once (nothing written)
 #   scripts/flash-dot.sh boot         # boot_a + boot_b <- Pinna boot image (persistent)
-#   scripts/flash-dot.sh restore DIR  # put LibreEcho back from a backup's partitions/
+#   scripts/flash-dot.sh restore DIR  # put the previous firmware back from a backup's partitions/
 #
 # Only boot_a, boot_b, system_a, system_b and userdata are ever written. Never
 # touched: preloader/boot areas, lk_a/lk_b, tee1/tee2, expdb (Kaeru), persist,
@@ -63,7 +63,7 @@ case "${1:-}" in
     say "system_a <- $(basename "$root_img") ($(stat -c %s "$root_img") bytes)"
     say "system_b <- cleared (first MiB zeroed: no image, so slot a boots)"
     say "userdata <- wiped (Pinna formats it as /var on first boot)"
-    confirm "This replaces LibreEcho's system_a, clears system_b and erases userdata. Continue?"
+    confirm "This replaces system_a, clears system_b and erases userdata. Continue?"
     $fb flash system_a "$root_img"
     tmp=$(mktemp)
     head -c 1048576 /dev/zero > "$tmp"
@@ -93,14 +93,14 @@ case "${1:-}" in
     need_device
     for p in boot_a system_a userdata; do need_file "$dir/$p.img" "backup partition"; done
     (cd "$dir" && sha256sum -c --ignore-missing SHA256SUMS) || die "backup checksums do not match"
-    confirm "Restore LibreEcho (boot_a, boot_b, system_a, system_b, userdata) from $dir?"
+    confirm "Restore the backup (boot_a, boot_b, system_a, system_b, userdata) from $dir?"
     $fb flash boot_a "$dir/boot_a.img"
     $fb flash boot_b "$dir/boot_b.img"
     $fb flash system_a "$dir/system_a.img"
     if [ -s "$dir/system_b.img" ]; then
       $fb flash system_b "$dir/system_b.img"
     else
-      say "no system_b.img in the backup: system_b keeps Pinna's data (LibreEcho does not use it)"
+      say "no system_b.img in the backup: system_b keeps Pinna's data"
     fi
     $fb flash userdata "$dir/userdata.img"
     $fb reboot
