@@ -104,7 +104,7 @@ fn de_fully_connected(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
 }
 
 fn de_reduce(op: &mut DeserOp, reducer: Reducer) -> TractResult<TVec<OutletId>> {
-    let (_, axes) = args_2!(op.facts()?);
+    let (input, axes) = args_2!(op.facts()?);
     let options = builtin!(op, builtin_options_as_reducer_options);
     let axes: TVec<usize> = axes
         .konst
@@ -112,7 +112,7 @@ fn de_reduce(op: &mut DeserOp, reducer: Reducer) -> TractResult<TVec<OutletId>> 
         .unwrap()
         .as_slice::<i32>()?
         .iter()
-        .map(|d| *d as usize)
+        .map(|d| if *d < 0 { *d + input.rank() as i32 } else { *d } as usize)
         .sorted()
         .collect();
     let p = &op.prefix;
@@ -138,7 +138,7 @@ fn de_reduce_mean(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
         .unwrap()
         .as_slice::<i32>()?
         .iter()
-        .map(|d| *d as usize)
+        .map(|d| if *d < 0 { *d + input.rank() as i32 } else { *d } as usize)
         .sorted()
         .collect();
     let norm: TDim = axes.iter().map(|d| &input.shape[*d]).product();
@@ -151,7 +151,9 @@ fn de_reduce_mean(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
         &[norm],
     )?;
     let norm = op.ctx.target.wire_node(format!("{p}.recip"), core::math::recip(), &norm)?;
-    wire_with_rank_broadcast(op.prefix, op.ctx.target, core::quant::scale(), &[norm[0], wire[0]])
+    // `quant::scale` rounds to an integer: right for quantized tensors, wrong for floats.
+    let mini = if input.datum_type.is_float() { core::math::mul() } else { core::quant::scale() };
+    wire_with_rank_broadcast(op.prefix, op.ctx.target, mini, &[norm[0], wire[0]])
 }
 
 fn de_softmax(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
