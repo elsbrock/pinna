@@ -18,6 +18,10 @@ check:
 rust-arm:
     cargo zigbuild --release --target {{target_arm}} --workspace --bins
 
+# hardware gate against a running device (PINNA_HOST, PINNA_SSH, PINNA_API_KEY, THROUGHPUT_URL)
+test-device:
+    tests/device/test-device.sh
+
 # put fresh binaries on a running device as a sysext overlay and restart pinnad
 push: rust-arm
     scripts/push-dev.sh
