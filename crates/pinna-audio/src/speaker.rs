@@ -6,8 +6,15 @@
 //! [`SpeakerConfig::idle_timeout`] without audio. Volume is applied digitally
 //! in this pipeline using LibreEcho's curve; the codec stays at its 0 dB
 //! reference.
+//!
+//! The session mixes two lanes: the *voice* lane (queued clips: replies,
+//! announcements, chimes) and the *media* lane (a streamed URL, see
+//! [`crate::media`]). Media is ducked under the voice lane and while
+//! [`Speaker::duck`] is held.
 
 use crate::decode::{OUT_RATE, Pcm};
+use crate::media::{Decoder, MediaHandle, MediaLane, MediaState};
+use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
 use crate::volume::volume_gain;
 use crate::{Backend, Error, Result, decode};
@@ -40,6 +47,8 @@ pub struct SpeakerConfig {
     pub initial_volume: u8,
     /// How far ahead of real time audio is handed to the player.
     pub lead: Duration,
+    /// Media level while ducked, in dB (<= 0).
+    pub duck_db: f32,
 }
 
 impl SpeakerConfig {
@@ -55,6 +64,7 @@ impl SpeakerConfig {
             idle_timeout: Duration::from_secs(10),
             initial_volume: 50,
             lead: Duration::from_millis(100),
+            duck_db: -20.0,
         }
     }
 }
@@ -69,20 +79,30 @@ pub enum PlaybackState {
     Playing,
 }
 
-struct Clip {
+pub(crate) struct Clip {
     samples: Vec<i16>,
     pos: usize,
     done: oneshot::Sender<Result<()>>,
 }
 
-enum Cmd {
+pub(crate) enum Cmd {
     Play(Clip),
     Stop,
+    MediaBegin { gen_: u64, url: String },
+    MediaAttach { gen_: u64, decoder: Decoder },
+    MediaFail { gen_: u64, msg: String },
+    MediaStop { gen_: u64 },
+    MediaPause,
+    MediaResume,
+    MediaMute(bool),
 }
 
 struct Inner {
     tx: mpsc::UnboundedSender<Cmd>,
     volume: Arc<AtomicU8>,
+    voice_gain: Arc<AtomicU8>,
+    held_duck: Arc<AtomicBool>,
+    media: MediaHandle,
     state: watch::Receiver<PlaybackState>,
     session_open: Arc<AtomicBool>,
 }
@@ -100,13 +120,20 @@ impl Speaker {
         let (state_tx, state_rx) = watch::channel(PlaybackState::Idle);
         let volume = Arc::new(AtomicU8::new(cfg.initial_volume.min(100)));
         let session_open = Arc::new(AtomicBool::new(false));
+        let voice_gain = Arc::new(AtomicU8::new(100));
+        let held_duck = Arc::new(AtomicBool::new(false));
+        let (media_tx, media_rx) = watch::channel(MediaState::default());
+        let media = MediaHandle::new(tx.clone(), media_rx);
         let actor = Actor {
+            feeder: Feeder::new(cfg.duck_db),
             cfg,
             rx,
             state: state_tx,
+            media_state: media_tx,
             volume: volume.clone(),
+            voice_gain: voice_gain.clone(),
+            held_duck: held_duck.clone(),
             session_open: session_open.clone(),
-            feeder: Feeder::default(),
             finishing: VecDeque::new(),
             session: None,
             idle_since: Instant::now(),
@@ -116,6 +143,9 @@ impl Speaker {
             inner: Arc::new(Inner {
                 tx,
                 volume,
+                voice_gain,
+                held_duck,
+                media,
                 state: state_rx,
                 session_open,
             }),
@@ -164,7 +194,27 @@ impl Speaker {
         self.inner.volume.load(Ordering::Relaxed)
     }
 
-    /// Drop everything queued and playing; the session stays open until idle.
+    /// Reply volume 0..=100: scales only the voice lane (default 100), on top
+    /// of the master volume.
+    pub fn set_voice_gain(&self, percent: u8) {
+        self.inner
+            .voice_gain
+            .store(percent.min(100), Ordering::Relaxed);
+    }
+
+    /// Hold the media lane ducked (e.g. while the mic is listening), on top of
+    /// the automatic duck under the voice lane.
+    pub fn duck(&self, on: bool) {
+        self.inner.held_duck.store(on, Ordering::Relaxed);
+    }
+
+    /// The media lane (stream a URL, pause/resume/stop, state).
+    pub fn media(&self) -> MediaHandle {
+        self.inner.media.clone()
+    }
+
+    /// Drop everything queued and playing in the voice lane; the session stays
+    /// open until idle. Media is stopped with [`MediaHandle::stop`].
     pub fn stop(&self) {
         let _ = self.inner.tx.send(Cmd::Stop);
     }
@@ -186,10 +236,20 @@ impl Speaker {
 // ---------------------------------------------------------------------------
 // Feeder: queued clips -> volume-scaled s16le stereo chunks (pure, testable)
 
-#[derive(Default)]
 struct Feeder {
     queue: VecDeque<Clip>,
+    /// Master gain as of the last chunk.
     gain: f32,
+    voice_gain: Ramp,
+    held_duck: bool,
+    ducker: Ducker,
+    media: MediaLane,
+}
+
+impl Default for Feeder {
+    fn default() -> Self {
+        Feeder::new(-20.0)
+    }
 }
 
 /// A clip that ended inside a chunk, at `frame` (frames into the chunk).
@@ -199,42 +259,56 @@ struct Ended {
 }
 
 impl Feeder {
+    fn new(duck_db: f32) -> Feeder {
+        Feeder {
+            queue: VecDeque::new(),
+            gain: 0.0,
+            voice_gain: Ramp::new(1.0, FADE),
+            held_duck: false,
+            ducker: Ducker::new(duck_db),
+            media: MediaLane::default(),
+        }
+    }
+
     fn has_audio(&self) -> bool {
         !self.queue.is_empty()
     }
 
     /// Fill `out` with `frames` frames of s16le stereo (silence when nothing is
-    /// queued), ramping the gain linearly to `target_gain` across the chunk.
+    /// queued): `voice * voice_gain + media * duck`, saturated, then the master
+    /// gain ramped linearly to `target_gain` across the chunk.
     fn next_chunk(&mut self, frames: usize, target_gain: f32, out: &mut Vec<u8>) -> Vec<Ended> {
         out.clear();
         let mut ended = Vec::new();
         let start_gain = self.gain;
-        let mut i = 0;
-        while i < frames {
-            let Some(clip) = self.queue.front_mut() else {
-                break;
-            };
-            let take = ((clip.samples.len() - clip.pos) / 2).min(frames - i);
-            for f in 0..take {
-                let t = (i + f) as f32 / frames as f32;
-                let g = start_gain + (target_gain - start_gain) * t;
-                for c in 0..2 {
-                    let s = f32::from(clip.samples[clip.pos + f * 2 + c]) * g;
-                    let s = s.round().clamp(-32768.0, 32767.0) as i16;
-                    out.extend_from_slice(&s.to_le_bytes());
+        for f in 0..frames {
+            let mut voice = None;
+            if let Some(clip) = self.queue.front_mut() {
+                voice = Some((
+                    f32::from(clip.samples[clip.pos]),
+                    f32::from(clip.samples[clip.pos + 1]),
+                ));
+                clip.pos += 2;
+                if clip.pos + 1 >= clip.samples.len() {
+                    let clip = self.queue.pop_front().unwrap();
+                    ended.push(Ended {
+                        done: clip.done,
+                        frame: f + 1,
+                    });
                 }
             }
-            clip.pos += take * 2;
-            i += take;
-            if clip.pos + 1 >= clip.samples.len() {
-                let clip = self.queue.pop_front().unwrap();
-                ended.push(Ended {
-                    done: clip.done,
-                    frame: i,
-                });
+            let duck = self.ducker.tick(voice.is_some(), self.held_duck);
+            let vg = self.voice_gain.tick();
+            let (vl, vr) = voice.unwrap_or((0.0, 0.0));
+            let (ml, mr) = self.media.pull();
+            let t = f as f32 / frames as f32;
+            let g = start_gain + (target_gain - start_gain) * t;
+            for (v, m) in [(vl, ml), (vr, mr)] {
+                let mix = (v * vg + m * duck).round().clamp(-32768.0, 32767.0);
+                let s = (mix * g).round().clamp(-32768.0, 32767.0) as i16;
+                out.extend_from_slice(&s.to_le_bytes());
             }
         }
-        out.resize(frames * 4, 0);
         self.gain = target_gain;
         ended
     }
@@ -289,7 +363,10 @@ struct Actor {
     cfg: SpeakerConfig,
     rx: mpsc::UnboundedReceiver<Cmd>,
     state: watch::Sender<PlaybackState>,
+    media_state: watch::Sender<MediaState>,
     volume: Arc<AtomicU8>,
+    voice_gain: Arc<AtomicU8>,
+    held_duck: Arc<AtomicBool>,
     session_open: Arc<AtomicBool>,
     feeder: Feeder,
     /// Clips fully handed to the player, completing at the given frame.
@@ -352,8 +429,21 @@ impl Actor {
         });
     }
 
+    fn publish_media(&self) {
+        let lane = &self.feeder.media;
+        self.media_state.send_if_modified(|cur| lane.publish(cur));
+    }
+
     fn handle(&mut self, cmd: Cmd) {
+        let media = &mut self.feeder.media;
         match cmd {
+            Cmd::MediaBegin { gen_, url } => media.begin(gen_, url),
+            Cmd::MediaAttach { gen_, decoder } => media.attach(gen_, decoder),
+            Cmd::MediaFail { gen_, msg } => media.open_failed(gen_, msg),
+            Cmd::MediaStop { gen_ } => media.stop(gen_),
+            Cmd::MediaPause => media.pause(),
+            Cmd::MediaResume => media.resume(),
+            Cmd::MediaMute(m) => media.set_muted(m),
             Cmd::Play(clip) => {
                 if clip.samples.len() < 2 {
                     let _ = clip.done.send(Ok(()));
@@ -373,8 +463,9 @@ impl Actor {
     async fn run(mut self) {
         let mut chunk = Vec::with_capacity(CHUNK_FRAMES * 4);
         loop {
+            self.publish_media();
             if self.session.is_none() {
-                if !self.feeder.has_audio() {
+                if !self.feeder.has_audio() && !self.feeder.media.wants_session() {
                     self.set_state(PlaybackState::Idle);
                     match self.rx.recv().await {
                         Some(c) => self.handle(c),
@@ -382,7 +473,11 @@ impl Actor {
                     }
                     continue;
                 }
-                self.set_state(PlaybackState::Opening);
+                self.set_state(if self.feeder.has_audio() {
+                    PlaybackState::Opening
+                } else {
+                    PlaybackState::Idle
+                });
                 match self.open_session().await {
                     Ok(s) => {
                         self.session = Some(s);
@@ -391,6 +486,7 @@ impl Actor {
                     Err(e) => {
                         tracing::error!("speaker open failed: {e}");
                         self.feeder.fail_all(&format!("speaker open failed: {e}"));
+                        self.feeder.media.fail(&format!("speaker open failed: {e}"));
                         self.set_state(PlaybackState::Idle);
                         continue;
                     }
@@ -400,8 +496,9 @@ impl Actor {
             // Session open: pace writes, complete clips, idle out.
             let s = self.session.as_ref().unwrap();
             let now = Instant::now();
-            let busy = self.feeder.has_audio() || !self.finishing.is_empty();
-            if busy {
+            let voice_busy = self.feeder.has_audio() || !self.finishing.is_empty();
+            let busy = voice_busy || self.feeder.media.wants_session();
+            if voice_busy {
                 self.set_state(PlaybackState::Playing);
             } else {
                 self.set_state(PlaybackState::Idle);
@@ -443,7 +540,10 @@ impl Actor {
                     break;
                 }
             }
-            if self.feeder.has_audio() || !self.finishing.is_empty() {
+            if self.feeder.has_audio()
+                || !self.finishing.is_empty()
+                || self.feeder.media.wants_session()
+            {
                 self.idle_since = now;
             } else if now >= self.idle_since + self.cfg.idle_timeout {
                 self.close_session().await;
@@ -455,11 +555,16 @@ impl Actor {
                 continue; // not due yet
             }
             let gain = volume_gain(self.volume.load(Ordering::Relaxed));
+            self.feeder
+                .voice_gain
+                .set(f32::from(self.voice_gain.load(Ordering::Relaxed)) / 100.0);
+            self.feeder.held_duck = self.held_duck.load(Ordering::Relaxed);
             let ended = self.feeder.next_chunk(CHUNK_FRAMES, gain, &mut chunk);
             let base = s.frames_written;
             if let Err(e) = s.write(&chunk).await {
                 tracing::error!("speaker write failed: {e}");
                 self.feeder.fail_all("speaker process died");
+                self.feeder.media.fail("speaker process died");
                 for e in ended {
                     let _ = e
                         .done
@@ -665,6 +770,177 @@ mod tests {
         f.queue.push_back(c);
         f.cancel_all();
         assert!(matches!(rx.try_recv(), Ok(Ok(()))));
+    }
+
+    // -- two-lane mixing ---------------------------------------------------
+
+    use crate::media::{Item, MediaPhase};
+    use std::sync::mpsc::{SyncSender, sync_channel};
+
+    /// A feeder whose media lane plays `chunks` of constant `level` stereo
+    /// (960 frames each); the sender stays open (no end of stream).
+    fn media_feeder(duck_db: f32, level: i16, chunks: usize) -> (Feeder, SyncSender<Item>) {
+        let mut f = Feeder::new(duck_db);
+        f.gain = 1.0;
+        f.media.begin(1, "test".into());
+        let (tx, rx) = sync_channel(chunks + 4);
+        for _ in 0..chunks {
+            tx.send(Item::Data(vec![level; 1920])).unwrap();
+        }
+        f.media.attach(1, Decoder::detached(rx));
+        (f, tx)
+    }
+
+    /// Left-channel samples of a chunk.
+    fn left(f: &mut Feeder, frames: usize) -> Vec<i16> {
+        let mut out = Vec::new();
+        f.next_chunk(frames, 1.0, &mut out);
+        decode_chunk(&out).chunks_exact(2).map(|s| s[0]).collect()
+    }
+
+    fn ms(n: usize) -> usize {
+        n * 48
+    }
+
+    #[test]
+    fn mixes_both_lanes_and_saturates() {
+        let (mut f, _tx) = media_feeder(0.0, 500, 2);
+        let (c, _rx) = clip(vec![1000; 8]); // 4 frames
+        f.queue.push_back(c);
+        let l = left(&mut f, 6);
+        assert_eq!(l, [1500, 1500, 1500, 1500, 500, 500]);
+
+        let (mut f, _tx) = media_feeder(0.0, 20000, 2);
+        let (c, _rx) = clip(vec![20000; 8]);
+        f.queue.push_back(c);
+        assert_eq!(
+            left(&mut f, 5),
+            [i16::MAX, i16::MAX, i16::MAX, i16::MAX, 20000]
+        );
+        let (c, _rx) = clip(vec![-30000; 4]);
+        f.queue.push_back(c);
+        f.media.set_muted(true);
+        f.media.set_muted(false);
+        // Negative side saturates too: -30000 + 20000*mute-ramp stays in range.
+        assert!(left(&mut f, 2).iter().all(|&s| s > i16::MIN));
+    }
+
+    #[test]
+    fn voice_gain_scales_only_the_voice_lane() {
+        let (mut f, _tx) = media_feeder(0.0, 1000, 1);
+        f.voice_gain.jump(0.5);
+        let (c, _rx) = clip(vec![2000; 4]);
+        f.queue.push_back(c);
+        assert_eq!(left(&mut f, 3), [2000, 2000, 1000]);
+    }
+
+    #[test]
+    fn master_gain_applies_after_the_mix() {
+        let (mut f, _tx) = media_feeder(0.0, 1000, 1);
+        let (c, _rx) = clip(vec![1000; 2]);
+        f.queue.push_back(c);
+        let mut out = Vec::new();
+        f.gain = 0.5;
+        f.next_chunk(1, 0.5, &mut out);
+        assert_eq!(decode_chunk(&out)[0], 1000);
+    }
+
+    #[test]
+    fn media_ducks_under_voice_holds_then_releases() {
+        // 1.4 s of media at 10000; a silent 400 ms voice clip makes the
+        // media level directly readable (voice contributes zero).
+        let (mut f, _tx) = media_feeder(-20.0, 10000, 70);
+        let (c, _rx) = clip(vec![0; ms(400) * 2]);
+        f.queue.push_back(c);
+        let l = left(&mut f, ms(1400));
+        let at = |t_ms: usize| f64::from(l[ms(t_ms)]);
+        // Attack: ~linear 1.0 -> 0.1 over 150 ms.
+        assert!((at(75) - 5500.0).abs() < 150.0, "{}", at(75));
+        assert!((at(150) - 1000.0).abs() < 50.0, "{}", at(150));
+        assert!((at(390) - 1000.0).abs() < 50.0);
+        // Voice ends at 400 ms; held through 700 ms.
+        assert!((at(690) - 1000.0).abs() < 50.0, "{}", at(690));
+        // Release 500 ms from 700 ms: halfway at 950 ms, clear at 1200 ms.
+        assert!((at(950) - 5500.0).abs() < 200.0, "{}", at(950));
+        assert!(at(1220) >= 9990.0, "{}", at(1220));
+        // Monotonic: no clicks.
+        assert!(
+            l.windows(2)
+                .all(|w| (i32::from(w[1]) - i32::from(w[0])).abs() < 30)
+        );
+    }
+
+    #[test]
+    fn held_duck_is_independent_of_voice() {
+        let (mut f, _tx) = media_feeder(-20.0, 10000, 80);
+        f.held_duck = true;
+        let l = left(&mut f, ms(500));
+        assert!((f64::from(l[ms(200)]) - 1000.0).abs() < 50.0);
+        // Voice comes and goes while held: still ducked afterwards.
+        let (c, _rx) = clip(vec![0; ms(100) * 2]);
+        f.queue.push_back(c);
+        let l = left(&mut f, ms(600));
+        assert!((f64::from(l[ms(550)]) - 1000.0).abs() < 50.0);
+        // Released: back to full after 500 ms.
+        f.held_duck = false;
+        let l = left(&mut f, ms(100));
+        assert!(l[ms(99)] > 1000);
+        let l = left(&mut f, ms(100));
+        assert!(l[ms(99)] > 3000);
+    }
+
+    #[test]
+    fn pause_fades_stops_draining_and_resumes() {
+        let (mut f, _tx) = media_feeder(0.0, 10000, 10);
+        assert_eq!(left(&mut f, 4), [10000; 4]);
+        f.media.pause();
+        let l = left(&mut f, ms(40));
+        assert!(l[0] < 10000 && l[ms(30)] == 0, "fades to silence");
+        assert!(l.windows(2).all(|w| w[1] <= w[0]));
+        assert_eq!(f.media.phase(), MediaPhase::Paused);
+        let drained = |f: &Feeder| f.media.position_for_test();
+        let before = drained(&f);
+        assert!(left(&mut f, ms(200)).iter().all(|&s| s == 0));
+        assert_eq!(drained(&f), before, "paused lane must not drain");
+        f.media.resume();
+        let l = left(&mut f, ms(40));
+        assert!(l.windows(2).all(|w| w[1] >= w[0]));
+        assert_eq!(l[ms(30)], 10000);
+        assert_eq!(f.media.phase(), MediaPhase::Playing);
+    }
+
+    #[test]
+    fn mute_ramps_and_natural_end_goes_idle() {
+        let (mut f, tx) = media_feeder(0.0, 10000, 1);
+        f.media.set_muted(true);
+        let l = left(&mut f, 100);
+        assert!(l[0] < 10000 && l[0] > l[99] && l[99] > 0, "ramped: {l:?}");
+        tx.send(Item::End(None)).unwrap();
+        // The queued chunk plays out, then the lane goes idle with no error.
+        left(&mut f, 960);
+        assert_eq!(f.media.phase(), MediaPhase::Idle);
+        let mut st = crate::media::MediaState::default();
+        f.media.publish(&mut st);
+        assert_eq!((st.phase, st.error.clone()), (MediaPhase::Idle, None));
+        // Failure carries the reason.
+        let (mut f, tx) = media_feeder(0.0, 10000, 0);
+        tx.send(Item::End(Some("boom".into()))).unwrap();
+        left(&mut f, 4);
+        let mut st = crate::media::MediaState::default();
+        assert!(f.media.publish(&mut st));
+        assert_eq!(st.error.as_deref(), Some("boom"));
+        assert_eq!(st.phase, MediaPhase::Idle);
+    }
+
+    #[test]
+    fn starved_lane_reports_buffering_and_stays_silent() {
+        let (mut f, tx) = media_feeder(0.0, 10000, 1);
+        left(&mut f, 960);
+        assert!(left(&mut f, 10).iter().all(|&s| s == 0));
+        assert_eq!(f.media.phase(), MediaPhase::Buffering);
+        tx.send(Item::Data(vec![7; 1920])).unwrap();
+        assert_eq!(left(&mut f, 2), [7, 7]);
+        assert_eq!(f.media.phase(), MediaPhase::Playing);
     }
 
     #[test]

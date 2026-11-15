@@ -306,6 +306,92 @@ pub fn resample(input: &[i16], from: u32, to: u32) -> Vec<i16> {
     out
 }
 
+/// Incremental stereo resampler: same kernel as [`resample`], fed in pieces.
+/// Output over `push` + `finish` equals a one-shot `resample` per channel.
+pub(crate) struct StreamResampler {
+    ratio: f64,
+    cutoff: f64,
+    half: f64,
+    table: Vec<f32>,
+    buf: Vec<[f32; 2]>,
+    /// Absolute input index of `buf[0]`.
+    base: i64,
+    total_in: i64,
+    produced: i64,
+}
+
+impl StreamResampler {
+    pub fn new(from: u32, to: u32) -> StreamResampler {
+        let ratio = f64::from(to) / f64::from(from);
+        let cutoff = ratio.min(1.0);
+        StreamResampler {
+            ratio,
+            cutoff,
+            half: ZEROS / cutoff,
+            table: kernel_table(),
+            buf: Vec::new(),
+            base: 0,
+            total_in: 0,
+            produced: 0,
+        }
+    }
+
+    /// Feed interleaved stereo; appends converted interleaved stereo to `out`.
+    pub fn push(&mut self, input: &[i16], out: &mut Vec<i16>) {
+        for f in input.chunks_exact(2) {
+            self.buf.push([f32::from(f[0]), f32::from(f[1])]);
+        }
+        self.total_in += (input.len() / 2) as i64;
+        self.emit(false, out);
+        // Drop input no later output can reach.
+        let keep_from = ((self.produced as f64 / self.ratio) - self.half).ceil() as i64;
+        let drop = (keep_from - self.base).clamp(0, self.buf.len() as i64) as usize;
+        self.buf.drain(..drop);
+        self.base += drop as i64;
+    }
+
+    /// End of stream: emit the tail.
+    pub fn finish(&mut self, out: &mut Vec<i16>) {
+        self.emit(true, out);
+    }
+
+    fn emit(&mut self, finish: bool, out: &mut Vec<i16>) {
+        let out_len = (self.total_in as f64 * self.ratio).round() as i64;
+        let avail_end = self.base + self.buf.len() as i64; // exclusive
+        loop {
+            let j = self.produced;
+            let x = j as f64 / self.ratio;
+            let first = (x - self.half).ceil() as i64;
+            let last = (x + self.half).floor() as i64;
+            if finish {
+                if j >= out_len {
+                    break;
+                }
+            } else if last >= avail_end {
+                break;
+            }
+            let mut acc = [0.0f32; 2];
+            for k in first.max(0)..=last.min(avail_end - 1) {
+                let u = ((x - k as f64) * self.cutoff).abs();
+                let pos = u * TABLE_RES as f64;
+                let i = pos as usize;
+                let frac = (pos - i as f64) as f32;
+                let w = match (self.table.get(i), self.table.get(i + 1)) {
+                    (Some(a), Some(b)) => a + (b - a) * frac,
+                    _ => 0.0,
+                };
+                let s = self.buf[(k - self.base) as usize];
+                acc[0] += w * s[0];
+                acc[1] += w * s[1];
+            }
+            for a in acc {
+                out.push((a * self.cutoff as f32).round().clamp(-32768.0, 32767.0) as i16);
+            }
+            self.produced += 1;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +471,31 @@ mod tests {
     fn wav_rejects_garbage() {
         assert!(decode(b"RIFF\0\0\0\0WAVEjunk").is_err());
         assert!(decode(b"definitely not audio at all, no way").is_err());
+    }
+
+    #[test]
+    fn stream_resampler_matches_one_shot() {
+        for (from, n) in [(44100u32, 5000usize), (96000, 7000), (16000, 900)] {
+            let l = sine(440.0, from, n, 8000.0);
+            let r = sine(1500.0, from, n, 5000.0);
+            let want_l = resample(&l, from, OUT_RATE);
+            let want_r = resample(&r, from, OUT_RATE);
+            let mut inter = Vec::new();
+            for (a, b) in l.iter().zip(&r) {
+                inter.push(*a);
+                inter.push(*b);
+            }
+            let mut rs = StreamResampler::new(from, OUT_RATE);
+            let mut out = Vec::new();
+            for piece in inter.chunks(2 * 333) {
+                rs.push(piece, &mut out);
+            }
+            rs.finish(&mut out);
+            assert_eq!(out.len(), want_l.len() * 2, "{from}");
+            for (j, f) in out.chunks_exact(2).enumerate() {
+                assert_eq!((f[0], f[1]), (want_l[j], want_r[j]), "{from} frame {j}");
+            }
+        }
     }
 
     #[test]
