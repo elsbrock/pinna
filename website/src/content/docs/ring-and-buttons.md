@@ -105,7 +105,8 @@ Create new automation**, open the menu, select **Edit in YAML**, and paste it.
          {% set old = states('input_text.pinna_notification')
             if is_state('switch.echo_dot_notification', 'on')
                and has_value('input_text.pinna_notification') else '' %}
-         {{ ((old ~ ' The washing machine is done.') | trim)[-255:] }}
+         {% set max = state_attr('input_text.pinna_notification', 'max') | int(100) %}
+         {{ ((old ~ ' The washing machine is done.') | trim)[-max:] }}
    - action: switch.turn_on
      target:
        entity_id: switch.echo_dot_notification
@@ -179,14 +180,43 @@ With more than one device, change the automations so that clearing the
 notification on one device clears it on all of them:
 
 - In steps 2 and 3, list every device's switch under `entity_id`.
-- In step 4, list every device's event under `entity_id` in the trigger, add
-  a `switch.turn_off` action for every device's switch, and read the message
-  on the device that was cleared:
+- Replace step 4 with this version. It listens to every device's event, reads
+  the message on the device that was cleared, and turns every switch off. The
+  example has two devices, named **Echo Dot** and **Kitchen Dot**:
 
   ```yaml
-  entity_id: >-
-    {{ device_entities(device_id(trigger.entity_id))
-       | select('match', 'assist_satellite') | first }}
+  alias: Read a Pinna notification when it's cleared
+  triggers:
+    - trigger: state
+      entity_id:
+        - event.echo_dot_notification
+        - event.kitchen_dot_notification
+      not_from: unavailable
+      not_to: unavailable
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ trigger.to_state.attributes.event_type == 'cleared'
+           and has_value('input_text.pinna_notification')
+           and states('input_text.pinna_notification') != '' }}
+  actions:
+    - action: assist_satellite.announce
+      target:
+        entity_id: >-
+          {{ device_entities(device_id(trigger.entity_id))
+             | select('match', 'assist_satellite') | first }}
+      data:
+        message: "{{ states('input_text.pinna_notification') }}"
+    - action: switch.turn_off
+      target:
+        entity_id:
+          - switch.echo_dot_notification
+          - switch.kitchen_dot_notification
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.pinna_notification
+      data:
+        value: ""
   ```
 
 ## Buttons
