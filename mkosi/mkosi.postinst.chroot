@@ -2,6 +2,11 @@
 # Runs inside the image after packages and extra trees are installed.
 set -eu
 
+# No static hostname (ADR 0010): the name is systemd's transient one, set by
+# pinna-hostname.service; os-release gives the fallback before that.
+grep -q '^DEFAULT_HOSTNAME=' /usr/lib/os-release || echo 'DEFAULT_HOSTNAME="pinna"' >> /usr/lib/os-release
+rm -f /etc/hostname
+
 # Core services.
 systemctl enable \
     systemd-networkd.service \

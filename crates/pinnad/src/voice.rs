@@ -102,6 +102,8 @@ pub struct SettingsPatch {
     pub wake_words: Option<Vec<String>>,
     /// Already checked (`settings::check_friendly_name`).
     pub friendly_name: Option<String>,
+    /// Already checked (`settings::check_hostname`).
+    pub hostname: Option<String>,
     pub wake_sound: Option<bool>,
     /// Already checked (`settings::check_host_names`).
     pub allowed_hosts: Option<Vec<String>>,
@@ -165,6 +167,8 @@ pub struct Snapshot {
     pub calibration: Option<CalibrationSnapshot>,
     /// The ids of the words listening now (ADR 0013).
     pub active_wake_words: Vec<String>,
+    /// The ESPHome node name, which is also the hostname (ADR 0010).
+    pub name: String,
     /// The name Home Assistant shows, and whether it is still the default.
     pub friendly_name: String,
     pub default_name: bool,
@@ -204,6 +208,7 @@ impl Default for Snapshot {
             recent_wakes: Vec::new(),
             calibration: None,
             active_wake_words: Vec::new(),
+            name: String::new(),
             friendly_name: String::new(),
             default_name: true,
             wake_sound: false,
@@ -296,6 +301,8 @@ pub struct Options {
 /// The values `settings.toml` falls back to: pinnad.toml's, or the hardware's.
 #[derive(Debug, Clone)]
 pub struct Defaults {
+    /// The node name without a `hostname` setting.
+    pub node_name: String,
     pub friendly_name: String,
     /// The name is the model and MAC suffix: nobody chose one.
     pub default_name: bool,
@@ -723,6 +730,9 @@ impl Brain {
                 if let Some(name) = patch.friendly_name {
                     self.set_friendly_name(name).await;
                 }
+                if let Some(h) = patch.hostname {
+                    self.set_hostname(h).await;
+                }
                 if let Some(on) = patch.wake_sound {
                     self.set_wake_sound(on).await;
                 }
@@ -835,6 +845,7 @@ impl Brain {
                 events: c.events.iter().copied().collect(),
             }),
             active_wake_words: self.active_wake.clone(),
+            name: self.node_name(),
             friendly_name: self.friendly_name(),
             default_name: self.settings.friendly_name.is_none() && self.opts.defaults.default_name,
             wake_sound: self.wake_sound(),
@@ -863,6 +874,13 @@ impl Brain {
             .friendly_name
             .clone()
             .unwrap_or_else(|| self.opts.defaults.friendly_name.clone())
+    }
+
+    fn node_name(&self) -> String {
+        self.settings
+            .hostname
+            .clone()
+            .unwrap_or_else(|| self.opts.defaults.node_name.clone())
     }
 
     fn wake_sound(&self) -> bool {
@@ -904,6 +922,33 @@ impl Brain {
         if self.airplay_on() {
             self.apply_airplay();
         }
+    }
+
+    /// Rename the satellite (ADR 0010): hostname, mDNS records and the node
+    /// name at once; Home Assistant reads the name when it reconnects, once
+    /// the satellite is idle.
+    async fn set_hostname(&mut self, name: String) {
+        if self.node_name() == name {
+            return;
+        }
+        tracing::info!("hostname: {name}");
+        self.settings.hostname = Some(name.clone());
+        self.send(DeviceEvent::NodeName(name.clone())).await;
+        if let Some(dc) = &mut self.opts.mdns {
+            dc.name.clone_from(&name);
+        }
+        let dc = self.opts.mdns.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = crate::identity::set_hostname_live(&name) {
+                tracing::warn!("hostname: {e:#}");
+            }
+            if let Some(dc) = dc
+                && let Err(e) = crate::identity::publish_mdns(&dc)
+            {
+                tracing::warn!("mDNS: {e:#}");
+            }
+        });
+        self.reconnect_pending = self.clients > 0;
     }
 
     /// Nothing a reconnect would cut off: no request, alarm, reply,

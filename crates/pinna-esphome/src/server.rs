@@ -165,8 +165,8 @@ pub async fn serve(
     let (in_tx, in_rx) = mpsc::channel(1024);
     let (cmd_tx, cmd_rx) = mpsc::channel(64);
     let key = Arc::new(Mutex::new(cfg.encryption_key));
-    let ident = (cfg.name.clone(), cfg.mac);
-    let actor = Actor::new(cfg, cmd_tx, key.clone());
+    let ident = (Arc::new(Mutex::new(cfg.name.clone())), cfg.mac);
+    let actor = Actor::new(cfg, cmd_tx, key.clone(), ident.0.clone());
     tokio::spawn(actor.run(in_rx));
     tokio::spawn(accept_loop(listener, in_tx.clone(), key, ident));
     Ok((EsphomeHandle { tx: in_tx, addr }, cmd_rx))
@@ -175,11 +175,14 @@ pub async fn serve(
 /// Encryption key shared between the actor (which updates it) and the accept loop.
 type SharedKey = Arc<Mutex<Option<[u8; 32]>>>;
 
+/// Node name shared between the actor (which updates it) and the accept loop.
+type SharedName = Arc<Mutex<String>>;
+
 async fn accept_loop(
     listener: TcpListener,
     inputs: mpsc::Sender<Input>,
     key: SharedKey,
-    ident: (String, [u8; 6]),
+    ident: (SharedName, [u8; 6]),
 ) {
     let live = Arc::new(AtomicUsize::new(0));
     let mut next_id = 0u64;
@@ -209,12 +212,13 @@ async fn accept_loop(
             "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
             m[0], m[1], m[2], m[3], m[4], m[5]
         );
+        let name = ident.0.lock().map(|n| n.clone()).unwrap_or_default();
         // With a key, only the key. Without one, plaintext or the all-zero
         // key, so Home Assistant can send one without it travelling in
         // plaintext (ADR 0018).
         let mode = match key.lock().ok().and_then(|k| *k) {
-            Some(psk) => Mode::Noise(NoiseHandshake::new(psk, &ident.0, &mac)),
-            None => Mode::Provisionable(NoiseHandshake::new([0; 32], &ident.0, &mac)),
+            Some(psk) => Mode::Noise(NoiseHandshake::new(psk, &name, &mac)),
+            None => Mode::Provisionable(NoiseHandshake::new([0; 32], &name, &mac)),
         };
         tokio::spawn(async move {
             let _ = stream.set_nodelay(true);
@@ -360,6 +364,7 @@ struct Actor {
     cfg: DeviceConfig,
     cmds: mpsc::Sender<HaCommand>,
     key: SharedKey,
+    name: SharedName,
     clients: HashMap<u64, Client>,
     voice_owner: Option<u64>,
     run_active: bool,
@@ -373,12 +378,18 @@ struct Actor {
 }
 
 impl Actor {
-    fn new(cfg: DeviceConfig, cmds: mpsc::Sender<HaCommand>, key: SharedKey) -> Self {
+    fn new(
+        cfg: DeviceConfig,
+        cmds: mpsc::Sender<HaCommand>,
+        key: SharedKey,
+        name: SharedName,
+    ) -> Self {
         let active_wake = cfg.active_wake_words.clone();
         Self {
             cfg,
             cmds,
             key,
+            name,
             clients: HashMap::new(),
             voice_owner: None,
             run_active: false,
@@ -621,6 +632,12 @@ impl Actor {
                 self.active_wake = self.known_wake_words(ids);
             }
             DeviceEvent::FriendlyName(name) => self.cfg.friendly_name = name,
+            DeviceEvent::NodeName(name) => {
+                if let Ok(mut shared) = self.name.lock() {
+                    shared.clone_from(&name);
+                }
+                self.cfg.name = name;
+            }
             DeviceEvent::Disconnect => {
                 let ids: Vec<u64> = self
                     .clients

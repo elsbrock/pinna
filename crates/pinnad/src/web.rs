@@ -36,13 +36,16 @@ use crate::voice::Snapshot;
 pub struct Hosts {
     fixed: Arc<Vec<String>>,
     added: Option<watch::Receiver<Snapshot>>,
-    /// The system hostname, for the 421 page's `.local` link.
+    /// The system hostname at start, for the 421 page's `.local` link and the
+    /// allowed names until the status says otherwise.
     hostname: Option<String>,
 }
 
 impl Hosts {
     pub fn new(hostname: Option<&str>, extra: &[String]) -> Self {
         let mut names = vec!["localhost".to_string()];
+        // The machine's own name stays allowed: a developer's computer isn't
+        // renamed, and on a satellite it is the name it started with.
         names.extend(hostname.map(normalise).filter(|n| !n.is_empty()));
         names.extend(extra.iter().map(|n| normalise(n)));
         names.sort();
@@ -60,8 +63,18 @@ impl Hosts {
         self
     }
 
+    /// The hostname now: a rename on the dashboard applies at once (ADR 0010).
+    fn current_name(&self) -> Option<String> {
+        self.added
+            .as_ref()
+            .map(|rx| normalise(&rx.borrow().name))
+            .filter(|n| !n.is_empty())
+            .or_else(|| self.hostname.clone())
+    }
+
     fn known(&self, host: &str) -> bool {
         self.fixed.iter().any(|n| n == host)
+            || self.current_name().as_deref() == Some(host)
             || self.added.as_ref().is_some_and(|rx| {
                 rx.borrow()
                     .settings
@@ -216,7 +229,7 @@ async fn check_host(State(hosts): State<Hosts>, req: Request, next: Next) -> Res
                 .extensions()
                 .get::<ConnectInfo<Conn>>()
                 .and_then(|c| c.0.local);
-            let body = misdirected_page(host, local, hosts.hostname.as_deref());
+            let body = misdirected_page(host, local, hosts.current_name().as_deref());
             (
                 StatusCode::MISDIRECTED_REQUEST,
                 [
@@ -402,11 +415,13 @@ mod tests {
             .unwrap();
             std::fs::write(dir.join("assets/app-1234.js"), "export {}").unwrap();
         }
-        let (_status_tx, status_rx) = watch::channel(Snapshot::default());
+        let (_status_tx, status_rx) = watch::channel(Snapshot {
+            name: "pinna-test".into(),
+            ..Default::default()
+        });
         let (in_tx, in_rx) = mpsc::channel(1);
         let info = Info {
             version: "0.1.0".into(),
-            name: "pinna-test".into(),
             mac: "02:00:00:aa:bb:cc".into(),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
@@ -587,7 +602,6 @@ mod tests {
         let (tx, _rx) = mpsc::channel(1);
         let info = Info {
             version: "0.1.0".into(),
-            name: String::new(),
             mac: String::new(),
             wake_words: Default::default(),
             audio_backend: String::new(),

@@ -53,7 +53,6 @@ pub struct Info {
     /// The running image version (pinna-init's boot-version), or pinnad's own
     /// version where no image was booted.
     pub version: String,
-    pub name: String,
     pub mac: String,
     /// The wake words on offer (ADR 0013).
     pub wake_words: Arc<crate::wakewords::Catalogue>,
@@ -160,7 +159,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
     let now = Instant::now();
     Status {
         version: info.version.clone(),
-        name: info.name.clone(),
+        name: s.name.clone(),
         mac: info.mac.clone(),
         model: info.model.clone(),
         uptime_seconds: started.elapsed().as_secs(),
@@ -552,6 +551,11 @@ impl DeviceService for DeviceApi {
             .map(crate::settings::check_friendly_name)
             .transpose()
             .map_err(ConnectError::invalid_argument)?;
+        let hostname = request
+            .hostname
+            .map(crate::settings::check_hostname)
+            .transpose()
+            .map_err(ConnectError::invalid_argument)?;
         let allowed_hosts = match request.allowed_hosts.as_option() {
             Some(h) => {
                 let names: Vec<String> = h.names.iter().map(|n| (*n).to_owned()).collect();
@@ -568,6 +572,7 @@ impl DeviceService for DeviceApi {
             led_brightness: percent("led_brightness", request.led_brightness)?,
             wake_words,
             friendly_name,
+            hostname,
             wake_sound: request.wake_sound,
             allowed_hosts,
             airplay: request.airplay,
@@ -877,10 +882,13 @@ impl DeviceService for DeviceApi {
         request: ServiceRequest<'_, FactoryResetRequest>,
     ) -> ServiceResult<FactoryResetResponse> {
         // The person typed the name: a reset never happens by a stray call.
-        let friendly = self.status.borrow().friendly_name.clone();
+        let (friendly, name) = {
+            let s = self.status.borrow();
+            (s.friendly_name.clone(), s.name.clone())
+        };
         let typed = request.name.trim();
         let matches = |n: &str| !n.is_empty() && typed.eq_ignore_ascii_case(n.trim());
-        if !matches(&friendly) && !matches(&self.info.name) {
+        if !matches(&friendly) && !matches(&name) {
             return Err(ConnectError::invalid_argument(format!(
                 "Type the satellite's name, {friendly}, to confirm."
             )));
@@ -962,6 +970,7 @@ mod tests {
                 active_wake_words: vec!["alexa_v0.1".into()],
                 keywords: None,
                 defaults: crate::voice::Defaults {
+                    node_name: "pinna-test".into(),
                     friendly_name: "Echo Dot aabbcc".into(),
                     default_name: true,
                     wake_sound: false,
@@ -987,7 +996,6 @@ mod tests {
         tokio::spawn(brain.run(in_rx));
         let info = Info {
             version: "0.1.0".into(),
-            name: "pinna-test".into(),
             mac: "02:00:00:AA:BB:CC".into(),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
@@ -1390,6 +1398,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hostname_renames_the_node() {
+        let (c, _inputs) = start_device().await;
+        assert_eq!(status(&c).await.name, "pinna-test");
+        let rename = async |name: &str| {
+            c.update_settings(pinna_api::UpdateSettingsRequest {
+                hostname: Some(name.into()),
+                ..Default::default()
+            })
+            .await
+        };
+        let r = rename(" Kitchen-Dot ").await.unwrap();
+        let renamed = r
+            .into_view()
+            .to_owned_message()
+            .status
+            .into_option()
+            .unwrap();
+        assert_eq!(renamed.name, "kitchen-dot");
+        assert_eq!(status(&c).await.name, "kitchen-dot");
+        for bad in ["", "kitchen.local", "-x", "a b"] {
+            let err = rename(bad).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument, "{bad:?}");
+        }
+        assert_eq!(status(&c).await.name, "kitchen-dot");
+    }
+
+    #[tokio::test]
     async fn recent_wakes_carry_the_setting_that_wakes_on_them() {
         let (c, inputs) = start_device().await;
         let near = |score, reached_threshold| Input::NearMiss {
@@ -1566,7 +1601,6 @@ mod tests {
     async fn watch_ring_streams_the_latest_frame_at_most_25_a_second() {
         let info = Info {
             version: "0.1.0".into(),
-            name: "pinna-test".into(),
             mac: String::new(),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
@@ -1629,7 +1663,6 @@ mod tests {
     fn render_reports_a_ringing_alarm() {
         let info = Info {
             version: "0.1.0".into(),
-            name: "pinna-test".into(),
             mac: String::new(),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),

@@ -195,7 +195,7 @@ message WakeEvent {
 
 message Status {
   string version = 1;
-  // ESPHome node name.
+  // ESPHome node name, which is also the hostname (ADR 0010).
   string name = 2;
   string mac = 3;
   uint64 uptime_seconds = 4;
@@ -440,6 +440,10 @@ message UpdateSettingsRequest {
   optional bool airplay = 9;
   // Refused on a device without Bluetooth or a working speaker.
   optional bool bluetooth = 10;
+  // The hostname, also the ESPHome node name (ADR 0010): one DNS label, 1 to 63
+  // letters, digits and hyphens, stored lowercase. It applies at once; Home
+  // Assistant reconnects once the satellite is idle.
+  optional string hostname = 11;
 }
 
 // A list of host names, so that UpdateSettingsRequest can tell "unchanged"

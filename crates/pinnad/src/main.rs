@@ -313,7 +313,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::load_layered(&cli.config, &cli.local_config)?;
     if cli.set_hostname {
-        let name = identity::node_name(&cfg.device.name, &identity::device_mac());
+        let settings = settings::Store::load(&cli.settings, settings::Settings::default()).1;
+        let name = identity::node_name(
+            settings.hostname.as_deref(),
+            &cfg.device.name,
+            &identity::device_mac(),
+        );
         if identity::set_hostname(&name)? {
             tracing::info!("hostname: {name}");
         }
@@ -352,7 +357,7 @@ async fn main() -> Result<()> {
 
     // Identity + ESPHome API.
     let mac = identity::device_mac();
-    let name = identity::node_name(&cfg.device.name, &mac);
+    let name = identity::node_name(initial.hostname.as_deref(), &cfg.device.name, &mac);
     // Again here: a board without the MAC in its idme record only knows it
     // once wlan0 exists, after pinna-hostname.service ran (ADR 0010).
     match identity::set_hostname(&name) {
@@ -363,6 +368,7 @@ async fn main() -> Result<()> {
     // The dashboard's name wins over pinnad.toml's, which wins over the
     // model and MAC suffix (ADR 0007).
     let defaults = voice::Defaults {
+        node_name: identity::node_name(None, &cfg.device.name, &mac),
         default_name: cfg.device.friendly_name.is_none(),
         friendly_name: cfg
             .device
@@ -444,7 +450,7 @@ async fn main() -> Result<()> {
     {
         tracing::warn!("mDNS: {e:#}");
     }
-    let (dc_name, dc_mac) = (dc.name.clone(), dc.mac_string());
+    let dc_mac = dc.mac_string();
     let mdns = cfg.esphome.mdns.then(|| dc.clone());
     let encrypted = dc.encryption_key.is_some();
     let (esp, mut ha) = pinna_esphome::serve(dc).await?;
@@ -641,7 +647,6 @@ async fn main() -> Result<()> {
             .ok()
             .flatten()
             .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
-            name: dc_name,
             mac: dc_mac,
             wake_words: catalogue.clone(),
             audio_backend: audio_backend.into(),

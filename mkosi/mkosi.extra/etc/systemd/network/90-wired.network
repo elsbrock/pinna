@@ -5,3 +5,10 @@ Name=eth* en*
 [Network]
 DHCP=yes
 MulticastDNS=yes
+
+[DHCPv4]
+# A DHCP server must not rename the satellite.
+UseHostname=no
+
+[DHCPv6]
+UseHostname=no

@@ -9,3 +9,8 @@ IPv6AcceptRA=yes
 [DHCPv4]
 # Keep the lease keyed on the (fixed) MAC so existing reservations keep working.
 ClientIdentifier=mac
+# A DHCP server must not rename the satellite.
+UseHostname=no
+
+[DHCPv6]
+UseHostname=no

@@ -92,12 +92,13 @@ pub fn default_name(mac: &[u8; 6]) -> String {
     format!("pinna-{:02x}{:02x}{:02x}", mac[3], mac[4], mac[5])
 }
 
-/// The ESPHome node name: `[device] name`, or `pinna-` and the MAC suffix.
-pub fn node_name(configured: &str, mac: &[u8; 6]) -> String {
-    if configured.is_empty() {
-        default_name(mac)
-    } else {
-        configured.to_owned()
+/// The ESPHome node name and hostname (ADR 0010): the dashboard's setting,
+/// else `[device] name`, else `pinna-` and the MAC suffix.
+pub fn node_name(setting: Option<&str>, configured: &str, mac: &[u8; 6]) -> String {
+    match setting {
+        Some(s) if !s.is_empty() => s.to_owned(),
+        _ if !configured.is_empty() => configured.to_owned(),
+        _ => default_name(mac),
     }
 }
 
@@ -109,21 +110,43 @@ pub fn valid_hostname(name: &str) -> bool {
         && !name.ends_with('-')
 }
 
-/// The image's static hostname: only a satellite image is renamed, never the
-/// computer a developer runs pinnad on.
-const IMAGE_HOSTNAME: &str = "pinna";
+/// Whether os-release text says this is a Pinna image: `IMAGE_ID` is `pinna`
+/// or `pinna-*`, possibly quoted.
+fn is_pinna_image(os_release: &str) -> bool {
+    os_release.lines().any(|l| {
+        l.strip_prefix("IMAGE_ID=").is_some_and(|v| {
+            let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
+            v == "pinna" || v.starts_with("pinna-")
+        })
+    })
+}
+
+/// Only a satellite image is renamed, never the computer a developer runs
+/// pinnad on.
+fn on_pinna_image() -> bool {
+    let text = std::fs::read_to_string("/etc/os-release")
+        .or_else(|_| std::fs::read_to_string("/usr/lib/os-release"))
+        .unwrap_or_default();
+    is_pinna_image(&text)
+}
+
+/// Whether `name` needs setting: this is a Pinna image and it isn't the kernel
+/// hostname yet.
+fn needs_hostname(name: &str) -> Result<bool> {
+    anyhow::ensure!(valid_hostname(name), "{name:?} can't be a hostname");
+    if !on_pinna_image() {
+        return Ok(false);
+    }
+    let current = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
+    Ok(current.trim() != name)
+}
 
 /// Make `name` the kernel hostname (ADR 0010), which systemd-resolved
 /// announces over mDNS and systemd-networkd sends with DHCP. Leaves a name
 /// that is already set alone, and a machine that isn't a satellite image.
+/// Runs early in boot, before D-Bus, so it can't ask systemd-hostnamed.
 pub fn set_hostname(name: &str) -> Result<bool> {
-    anyhow::ensure!(valid_hostname(name), "{name:?} can't be a hostname");
-    let image = std::fs::read_to_string("/etc/hostname").unwrap_or_default();
-    if image.trim() != IMAGE_HOSTNAME {
-        return Ok(false);
-    }
-    let current = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
-    if current.trim() == name {
+    if !needs_hostname(name)? {
         return Ok(false);
     }
     // SAFETY: a valid pointer and length for the duration of the call.
@@ -131,6 +154,24 @@ pub fn set_hostname(name: &str) -> Result<bool> {
     if r != 0 {
         return Err(std::io::Error::last_os_error()).context("sethostname");
     }
+    Ok(true)
+}
+
+/// Rename a running satellite through systemd-hostnamed, which tells
+/// systemd-resolved to announce the new name at once. Blocking.
+pub fn set_hostname_live(name: &str) -> Result<bool> {
+    if !needs_hostname(name)? {
+        return Ok(false);
+    }
+    let out = std::process::Command::new("hostnamectl")
+        .args(["--transient", "hostname", name])
+        .output()
+        .context("running hostnamectl")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "hostnamectl: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
     Ok(true)
 }
 
@@ -244,13 +285,25 @@ mod tests {
     #[test]
     fn node_names_make_hostnames() {
         let mac = [0xf0, 0x27, 0x2d, 0x2a, 0x91, 0x4e];
-        assert_eq!(node_name("", &mac), "pinna-2a914e");
-        assert_eq!(node_name("kitchen-dot", &mac), "kitchen-dot");
+        assert_eq!(node_name(None, "", &mac), "pinna-2a914e");
+        assert_eq!(node_name(None, "kitchen-dot", &mac), "kitchen-dot");
+        assert_eq!(node_name(Some("den"), "kitchen-dot", &mac), "den");
+        assert_eq!(node_name(Some(""), "", &mac), "pinna-2a914e");
         assert!(valid_hostname("pinna-2a914e"));
         for bad in ["", "-x", "x-", "a.b", "küche", &"a".repeat(64)] {
             assert!(!valid_hostname(bad), "{bad:?}");
         }
         assert!(set_hostname("not a hostname").is_err());
+    }
+
+    #[test]
+    fn pinna_image_from_os_release() {
+        assert!(is_pinna_image("NAME=x\nIMAGE_ID=pinna\n"));
+        assert!(is_pinna_image("IMAGE_ID=\"pinna-dev\"\n"));
+        assert!(is_pinna_image("IMAGE_ID='pinna'\n"));
+        assert!(!is_pinna_image("IMAGE_ID=pinnacle\n"));
+        assert!(!is_pinna_image("ID=pinna\nNAME=pinna\n"));
+        assert!(!is_pinna_image(""));
     }
 
     #[test]

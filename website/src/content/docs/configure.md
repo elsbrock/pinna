@@ -68,7 +68,7 @@ How the device introduces itself to Home Assistant.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `name` | `""` | The node name: the device's ID in the ESPHome connection and in mDNS discovery, shown as **Node name** under **System** on the dashboard. Home Assistant shows `friendly_name` instead. It is also the device's hostname, so `name = "kitchen-dot"` makes it `kitchen-dot.local`. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
+| `name` | `""` | The node name: the device's ID in the ESPHome connection and in mDNS discovery, shown as **Node name** under **System** on the dashboard. Home Assistant shows `friendly_name` instead. It is also the device's hostname, so `name = "kitchen-dot"` makes it `kitchen-dot.local`. The hostname that someone sets on the dashboard's **Network** page wins over it, so `name` is the developer default. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
 | `friendly_name` | Not set | The name that Home Assistant shows, until someone [names the device on the dashboard](/docs/dashboard/#name-the-device), which wins. Not set means the model and the last six characters of the MAC address, for example `Echo Dot 2a914e` |
 | `model` | Not set | The model that the device reports. Not set means the hardware's: `Echo Dot (2nd Gen)` or `Echo (2nd Gen)` |
 | `manufacturer` | `"Pinna"` | The manufacturer that Home Assistant shows |

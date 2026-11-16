@@ -37,6 +37,24 @@
       : await saveHosts([...hosts, newHost], `Added ${name}`);
     if (!hostError) newHost = "";
   }
+  // The hostname, also the node name (ADR 0010). An edit stays a draft until saved.
+  const current = $derived(device.status?.name || net?.hostname || "");
+  let draft = $state<string | null>(null);
+  const nameValue = $derived(draft ?? current);
+  let nameError = $state<string | null>(null);
+  async function saveName() {
+    const old = current;
+    const next = nameValue.trim().toLowerCase().replace(/\.$/, "");
+    nameError = await device.saveSettings({ hostname: nameValue }, `Renamed to ${next}`);
+    if (nameError) return;
+    draft = null;
+    // Opened by the old .local name: it stops answering, so follow the new one
+    // once mDNS has probed it.
+    if (location.hostname.toLowerCase().replace(/\.$/, "") === `${old}.local`.toLowerCase()) {
+      const { protocol, port, hash } = location;
+      setTimeout(() => location.replace(`${protocol}//${next}.local${port ? `:${port}` : ""}/${hash}`), 1500);
+    }
+  }
   async function removeHost(name: string) {
     hostError = await saveHosts(hosts.filter((h) => h !== name), `Removed ${name}`);
   }
@@ -97,13 +115,42 @@
   <WifiPanel />
 
   <Group title="Name and USB">
-    <div class="pn-row">
-      <div class="pn-row-text">
-        <span class="pn-row-label">Hostname</span>
-        <span class="pn-row-hint">Its name on the network; mDNS answers for it with .local.</span>
+    <form
+      class="pn-row is-stack"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void saveName();
+      }}
+    >
+      <div class="pn-field" data-invalid={nameError ? "" : undefined}>
+        <label class="pn-field-label" for="hostname">Hostname</label>
+        <div class="inline">
+          <input
+            id="hostname"
+            class="pn-input is-mono"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            bind:value={() => nameValue, (v) => (draft = v)}
+            disabled={!live}
+            aria-describedby="hostname-hint"
+            aria-invalid={nameError ? "true" : undefined}
+            oninput={() => (nameError = null)}
+          />
+          <button
+            class="pn-btn"
+            type="submit"
+            disabled={!live || device.busy || !nameValue.trim() || nameValue.trim() === current}
+          >
+            Save
+          </button>
+        </div>
+        {#if nameError}<span class="pn-field-error" role="alert"><Icon name="alert" />{nameError}</span>{/if}
+        <span id="hostname-hint" class="pn-field-hint">
+          Its name on the network and in ESPHome: http://{current}.local/
+        </span>
       </div>
-      <span class="pn-row-value is-mono">{net.hostname}</span>
-    </div>
+    </form>
     <div class="pn-row">
       <div class="pn-row-text">
         <span class="pn-row-label">Other names</span>

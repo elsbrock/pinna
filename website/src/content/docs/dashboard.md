@@ -38,7 +38,7 @@ phone they are in a bar at the bottom.
 | **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. **Identify** runs the ring's test pattern, to find the device among others |
 | **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the ring brightness, and turn the **Wake sound** on or off. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them. **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
 | **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted. See the device's name, and copy the host and port to add the device by hand |
-| **Network** | See the Wi-Fi network, the signal strength, the addresses and the hostname. [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. Add [other names to open the dashboard by](#open-the-dashboard-by-another-name) |
+| **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. Add [other names to open the dashboard by](#open-the-dashboard-by-another-name) |
 | **System** | [Name the device](#name-the-device), [reset it](#reset-the-device), see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
 
 The dashboard only offers the wake words whose models the image ships.
@@ -60,6 +60,21 @@ IDs, such as `switch.echo_dot_2a914e_wake_sound`, and the entry under
 **Settings > Devices & services > ESPHome** keep the name that the device had
 when you added it. A name that you give the device in Home Assistant itself
 wins over the device's.
+
+## Change the hostname
+
+The hostname is the device's name on your network, such as `pinna-2a914e`. It is
+also its node name in ESPHome, which Home Assistant uses to find it. To change
+it, open **Network**, enter a name under **Hostname** and select **Save**. A
+hostname is one word of letters, digits and hyphens, for example `kitchen-dot`.
+
+The change takes effect at once, and the device's `.local` address changes with
+it: `http://kitchen-dot.local/` replaces `http://pinna-2a914e.local/`, so
+bookmarks to the old address stop working. If you opened the dashboard by the
+old `.local` address, the browser moves to the new one by itself. Home
+Assistant follows on its own, as soon as no request, reply, announcement, music
+or timer alarm is playing. Your router's device list shows the new name after
+the device reconnects to Wi-Fi.
 
 ## Change the Wi-Fi network
 

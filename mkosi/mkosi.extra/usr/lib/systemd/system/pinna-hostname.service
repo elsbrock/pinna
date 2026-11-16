@@ -1,6 +1,8 @@
-# The satellite's hostname is its node name, pinna-2a914e (ADR 0010): set it
-# before systemd-networkd sends it with DHCP and systemd-resolved announces it
-# over mDNS. pinnad sets it again at start.
+# The satellite's hostname is its node name (ADR 0010): the dashboard's
+# setting, else pinnad.toml's, else pinna-2a914e from the MAC. It is systemd's
+# transient hostname; the image has no static one. Set it before
+# systemd-networkd sends it with DHCP and systemd-resolved announces it over
+# mDNS. pinnad sets it again at start.
 [Unit]
 Description=Name this satellite on the network
 DefaultDependencies=no

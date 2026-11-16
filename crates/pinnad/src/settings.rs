@@ -35,6 +35,10 @@ pub struct Settings {
     /// the model and the MAC suffix.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub friendly_name: Option<String>,
+    /// The hostname, also the ESPHome node name (ADR 0010). `None`:
+    /// pinnad.toml's `[device] name`, else `pinna-` and the MAC suffix.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
     /// A chime when listening starts. `None`: `[audio] wake_sound`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wake_sound: Option<bool>,
@@ -66,6 +70,7 @@ impl Default for Settings {
             notification: false,
             wake_words: None,
             friendly_name: None,
+            hostname: None,
             wake_sound: None,
             allowed_hosts: None,
             airplay: false,
@@ -170,6 +175,28 @@ pub fn check_friendly_name(name: &str) -> Result<String, String> {
     Ok(name.to_owned())
 }
 
+/// A hostname as it is stored (lowercase, one label), or why it can't be one.
+pub fn check_hostname(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    let name = name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase();
+    if name.is_empty() {
+        return Err("Enter a hostname.".into());
+    }
+    if name.ends_with(".local") {
+        return Err("Leave out .local: the satellite adds it.".into());
+    }
+    if name == "localhost" {
+        return Err("localhost can't be a hostname.".into());
+    }
+    if !crate::identity::valid_hostname(&name) {
+        return Err(
+            "A hostname is 1 to 63 letters, digits and hyphens, and doesn't start or end with a hyphen."
+                .into(),
+        );
+    }
+    Ok(name)
+}
+
 /// Host names as they are stored (lowercase, no trailing dot, each once), or
 /// why one can't be added.
 pub fn check_host_names(names: &[String]) -> Result<Vec<String>, String> {
@@ -250,6 +277,23 @@ mod tests {
         assert!(check_friendly_name(&"a".repeat(65)).is_err());
         // 64 characters, but more bytes than an mDNS TXT string holds.
         assert!(check_friendly_name(&"🔊".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn hostnames() {
+        assert_eq!(check_hostname(" Kitchen-Dot. ").unwrap(), "kitchen-dot");
+        assert_eq!(check_hostname("dot2").unwrap(), "dot2");
+        assert_eq!(check_hostname(" ").unwrap_err(), "Enter a hostname.");
+        assert!(
+            check_hostname("kitchen.local")
+                .unwrap_err()
+                .contains(".local")
+        );
+        assert!(check_hostname("localhost").is_err());
+        for bad in ["-x", "x-", "a.b", "küche", "a b", &"a".repeat(64)] {
+            assert!(check_hostname(bad).is_err(), "{bad:?}");
+        }
+        assert!(check_hostname(&"a".repeat(63)).is_ok());
     }
 
     #[test]
@@ -340,9 +384,14 @@ mod tests {
         assert!(text.contains("setting_from_the_future = [1, 2]"), "{text}");
         assert_eq!(Store::load(&path, Settings::default()).1, rolled_back);
         // The dashboard's settings: unset means "the file's", and stays out.
-        assert!(!text.contains("friendly_name") && !text.contains("wake_sound"));
+        assert!(
+            !text.contains("friendly_name")
+                && !text.contains("hostname")
+                && !text.contains("wake_sound")
+        );
         let named = Settings {
             friendly_name: Some("Küche".into()),
+            hostname: Some("kueche".into()),
             wake_sound: Some(true),
             allowed_hosts: Some(vec!["kitchen.home.arpa".into()]),
             ..Default::default()
