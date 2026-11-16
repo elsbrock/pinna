@@ -32,6 +32,8 @@ service DeviceService {
   // Change settings; the same as changing them in Home Assistant. Fails when
   // the satellite can't save them, so a restart would undo them.
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+  // The time zones UpdateSettings accepts.
+  rpc ListTimeZones(ListTimeZonesRequest) returns (ListTimeZonesResponse);
   // Start tuning the wake word sensitivity with the satellite's + and −
   // buttons. Fails while the microphones are muted, the wake word is off, or
   // a request or timer alarm is active.
@@ -350,6 +352,9 @@ message Settings {
   bool airplay = 10;
   // Bluetooth audio from phones on or off (ADR 0011). Off by default.
   bool bluetooth = 11;
+  // The IANA time zone name, e.g. "Europe/Berlin"; "UTC" until one is set
+  // (ADR 0007).
+  string time_zone = 12;
 }
 
 message GetStatusRequest {}
@@ -444,6 +449,15 @@ message UpdateSettingsRequest {
   // letters, digits and hyphens, stored lowercase. It applies at once; Home
   // Assistant reconnects once the satellite is idle.
   optional string hostname = 11;
+  // One of ListTimeZones; it applies at once.
+  optional string time_zone = 12;
+}
+
+message ListTimeZonesRequest {}
+
+message ListTimeZonesResponse {
+  // The IANA zones this satellite has, from tzdata's zone1970.tab, plus UTC.
+  repeated string zones = 1;
 }
 
 // A list of host names, so that UpdateSettingsRequest can tell "unchanged"

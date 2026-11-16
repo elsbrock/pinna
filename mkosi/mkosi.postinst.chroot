@@ -7,6 +7,11 @@ set -eu
 grep -q '^DEFAULT_HOSTNAME=' /usr/lib/os-release || echo 'DEFAULT_HOSTNAME="pinna"' >> /usr/lib/os-release
 rm -f /etc/hostname
 
+# The time zone is a setting (ADR 0007): /etc/localtime, on the read-only root,
+# links to the link pinnad points at the chosen zone.
+ln -sfn ../var/lib/pinna/localtime /etc/localtime
+rm -f /etc/timezone
+
 # Core services.
 systemctl enable \
     systemd-networkd.service \

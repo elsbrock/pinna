@@ -423,6 +423,7 @@ mod tests {
         let info = Info {
             version: "0.1.0".into(),
             mac: "02:00:00:aa:bb:cc".into(),
+            time_zones: Default::default(),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
@@ -603,6 +604,7 @@ mod tests {
         let info = Info {
             version: "0.1.0".into(),
             mac: String::new(),
+            time_zones: Default::default(),
             wake_words: Default::default(),
             audio_backend: String::new(),
             led_backend: String::new(),

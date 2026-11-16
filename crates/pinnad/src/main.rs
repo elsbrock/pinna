@@ -16,6 +16,7 @@ mod logs;
 mod metrics;
 mod network;
 mod settings;
+mod timezone;
 mod updates;
 mod virtual_device;
 mod voice;
@@ -24,7 +25,7 @@ mod web;
 mod wifi;
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -330,6 +331,17 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
     let (_, initial) = settings::Store::load(&cli.settings, defaults);
+
+    // The time zone (ADR 0007): UTC until one is chosen.
+    let zone = initial.time_zone.as_deref().unwrap_or("UTC");
+    if let Err(e) = timezone::apply(
+        zone,
+        Path::new(timezone::ETC_LOCALTIME),
+        Path::new(timezone::LINK),
+        Path::new(timezone::ZONEINFO),
+    ) {
+        tracing::warn!("time zone: {e:#}");
+    }
 
     // The development VM's virtual Echo Dot (ADR 0014): before the buttons and
     // the privacy latch are looked for, so they are found like the Dot's.
@@ -648,6 +660,7 @@ async fn main() -> Result<()> {
             .flatten()
             .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
             mac: dc_mac,
+            time_zones: Arc::new(timezone::zones(Path::new(timezone::ZONEINFO))),
             wake_words: catalogue.clone(),
             audio_backend: audio_backend.into(),
             led_backend: led_backend.into(),

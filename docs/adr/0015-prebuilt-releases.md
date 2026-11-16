@@ -114,5 +114,5 @@ owner yet.
   - the journal of earlier boots stays under the old id (`journalctl -m`).
   The ESPHome node name and the SSH host key don't depend on it.
 - A factory reset (ADR 0010) also removes SSH keys added under `/var`.
-- Open: release images keep the time zone the image sets (Europe/Berlin).
+- Release images start in UTC; the owner chooses the time zone on the dashboard (ADR 0007).
 - The browser installer builds on these releases. It gets its own record.

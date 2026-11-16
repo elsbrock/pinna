@@ -192,6 +192,10 @@ class Device {
   saveSettings(patch: Partial<Omit<UpdateSettingsRequest, "$typeName">>, done = "Saved") {
     return this.#command(() => client.updateSettings(patch), done, true);
   }
+  /** The IANA zones the satellite has. */
+  async listTimeZones(): Promise<string[]> {
+    return (await client.listTimeZones({})).zones;
+  }
   startConversation() {
     return this.#command(() => client.startConversation({}));
   }

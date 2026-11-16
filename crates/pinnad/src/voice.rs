@@ -104,6 +104,8 @@ pub struct SettingsPatch {
     pub friendly_name: Option<String>,
     /// Already checked (`settings::check_hostname`).
     pub hostname: Option<String>,
+    /// Already checked against the satellite's zones.
+    pub time_zone: Option<String>,
     pub wake_sound: Option<bool>,
     /// Already checked (`settings::check_host_names`).
     pub allowed_hosts: Option<Vec<String>>,
@@ -733,6 +735,9 @@ impl Brain {
                 if let Some(h) = patch.hostname {
                     self.set_hostname(h).await;
                 }
+                if let Some(zone) = patch.time_zone {
+                    self.set_time_zone(zone);
+                }
                 if let Some(on) = patch.wake_sound {
                     self.set_wake_sound(on).await;
                 }
@@ -949,6 +954,22 @@ impl Brain {
             }
         });
         self.reconnect_pending = self.clients > 0;
+    }
+
+    /// Set the time zone (ADR 0007): the satellite's own clock and logs.
+    fn set_time_zone(&mut self, zone: String) {
+        if self.settings.time_zone.as_deref().unwrap_or("UTC") == zone {
+            return;
+        }
+        tracing::info!("time zone: {zone}");
+        self.settings.time_zone = Some(zone.clone());
+        tokio::task::spawn_blocking(move || {
+            use crate::timezone::*;
+            let paths = (ETC_LOCALTIME.as_ref(), LINK.as_ref(), ZONEINFO.as_ref());
+            if let Err(e) = apply(&zone, paths.0, paths.1, paths.2) {
+                tracing::warn!("time zone: {e:#}");
+            }
+        });
     }
 
     /// Nothing a reconnect would cut off: no request, alarm, reply,

@@ -30,8 +30,8 @@ use pinna_api::{
 };
 use pinna_api::{
     FactoryResetRequest, FactoryResetResponse, ForgetWifiRequest, ForgetWifiResponse,
-    JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListWifiRequest,
-    ListWifiResponse, ScanWifiRequest, ScanWifiResponse,
+    JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListTimeZonesRequest,
+    ListTimeZonesResponse, ListWifiRequest, ListWifiResponse, ScanWifiRequest, ScanWifiResponse,
 };
 use pinna_api::{
     ForgetBluetoothDeviceRequest, ForgetBluetoothDeviceResponse, ReportBluetoothRequest,
@@ -54,6 +54,8 @@ pub struct Info {
     /// version where no image was booted.
     pub version: String,
     pub mac: String,
+    /// The IANA zones on offer (ADR 0007).
+    pub time_zones: Arc<Vec<String>>,
     /// The wake words on offer (ADR 0013).
     pub wake_words: Arc<crate::wakewords::Catalogue>,
     pub audio_backend: String,
@@ -254,6 +256,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             allowed_hosts: s.settings.allowed_hosts.clone().unwrap_or_default(),
             airplay: s.settings.airplay,
             bluetooth: s.settings.bluetooth,
+            time_zone: s.settings.time_zone.clone().unwrap_or_else(|| "UTC".into()),
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
@@ -556,6 +559,18 @@ impl DeviceService for DeviceApi {
             .map(crate::settings::check_hostname)
             .transpose()
             .map_err(ConnectError::invalid_argument)?;
+        let time_zone = match request.time_zone {
+            Some(z) => {
+                let z = z.trim();
+                if !self.info.time_zones.iter().any(|known| known == z) {
+                    return Err(ConnectError::invalid_argument(format!(
+                        "This satellite doesn't know the time zone {z}."
+                    )));
+                }
+                Some(z.to_owned())
+            }
+            None => None,
+        };
         let allowed_hosts = match request.allowed_hosts.as_option() {
             Some(h) => {
                 let names: Vec<String> = h.names.iter().map(|n| (*n).to_owned()).collect();
@@ -573,6 +588,7 @@ impl DeviceService for DeviceApi {
             wake_words,
             friendly_name,
             hostname,
+            time_zone,
             wake_sound: request.wake_sound,
             allowed_hosts,
             airplay: request.airplay,
@@ -583,6 +599,17 @@ impl DeviceService for DeviceApi {
             .await?;
         Response::ok(UpdateSettingsResponse {
             status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn list_time_zones(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ListTimeZonesRequest>,
+    ) -> ServiceResult<ListTimeZonesResponse> {
+        Response::ok(ListTimeZonesResponse {
+            zones: self.info.time_zones.to_vec(),
             ..Default::default()
         })
     }
@@ -997,6 +1024,7 @@ mod tests {
         let info = Info {
             version: "0.1.0".into(),
             mac: "02:00:00:AA:BB:CC".into(),
+            time_zones: Arc::new(vec!["Europe/Berlin".into(), "UTC".into()]),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
@@ -1425,6 +1453,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn time_zone_is_one_the_satellite_has() {
+        let (c, _inputs) = start_device().await;
+        let set = async |zone: &str| {
+            c.update_settings(pinna_api::UpdateSettingsRequest {
+                time_zone: Some(zone.into()),
+                ..Default::default()
+            })
+            .await
+        };
+        let zone = async || status(&c).await.settings.into_option().unwrap().time_zone;
+        assert_eq!(zone().await, "UTC");
+        set(" Europe/Berlin ").await.unwrap();
+        assert_eq!(zone().await, "Europe/Berlin");
+        let err = set("Mars/Olympus").await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        assert!(err.message.unwrap().contains("Mars/Olympus"));
+        assert_eq!(zone().await, "Europe/Berlin");
+        let listed = c
+            .list_time_zones(pinna_api::ListTimeZonesRequest::default())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        assert_eq!(listed.zones, ["Europe/Berlin", "UTC"]);
+    }
+
+    #[tokio::test]
     async fn recent_wakes_carry_the_setting_that_wakes_on_them() {
         let (c, inputs) = start_device().await;
         let near = |score, reached_threshold| Input::NearMiss {
@@ -1602,6 +1657,7 @@ mod tests {
         let info = Info {
             version: "0.1.0".into(),
             mac: String::new(),
+            time_zones: Arc::new(vec!["UTC".into()]),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
@@ -1664,6 +1720,7 @@ mod tests {
         let info = Info {
             version: "0.1.0".into(),
             mac: String::new(),
+            time_zones: Arc::new(vec!["UTC".into()]),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),

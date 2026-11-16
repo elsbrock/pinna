@@ -251,6 +251,14 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn list_time_zones(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ListTimeZonesRequest>,
+    ) -> ServiceResult<ListTimeZonesResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn list_wifi(
         &self,
         _: RequestContext,

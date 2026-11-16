@@ -39,6 +39,9 @@ pub struct Settings {
     /// pinnad.toml's `[device] name`, else `pinna-` and the MAC suffix.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
+    /// An IANA zone name (ADR 0007). `None`: UTC.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
     /// A chime when listening starts. `None`: `[audio] wake_sound`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wake_sound: Option<bool>,
@@ -71,6 +74,7 @@ impl Default for Settings {
             wake_words: None,
             friendly_name: None,
             hostname: None,
+            time_zone: None,
             wake_sound: None,
             allowed_hosts: None,
             airplay: false,
@@ -387,11 +391,13 @@ mod tests {
         assert!(
             !text.contains("friendly_name")
                 && !text.contains("hostname")
+                && !text.contains("time_zone")
                 && !text.contains("wake_sound")
         );
         let named = Settings {
             friendly_name: Some("Küche".into()),
             hostname: Some("kueche".into()),
+            time_zone: Some("Europe/Berlin".into()),
             wake_sound: Some(true),
             allowed_hosts: Some(vec!["kitchen.home.arpa".into()]),
             ..Default::default()

@@ -1,8 +1,10 @@
 <script lang="ts">
   import Confirm from "../lib/Confirm.svelte";
-  import { device } from "../lib/device.svelte.ts";
+  import { onMount } from "svelte";
+  import { device, errorSentence } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
+  import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
   import UpdatePanel from "../lib/UpdatePanel.svelte";
   import { displayName, uptime } from "../lib/view.ts";
@@ -36,6 +38,24 @@
   async function rename() {
     nameError = await device.saveSettings({ friendlyName: name }, "Renamed");
     if (!nameError) editing = false;
+  }
+
+  // The time zone (ADR 0007), from the zones the satellite has.
+  let zones = $state<string[]>([]);
+  let zonesError = $state<string | null>(null);
+  let zoneError = $state<string | null>(null);
+  const zone = $derived(s?.settings?.timeZone || "UTC");
+  const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zoneOptions = $derived((zones.length ? zones : [zone]).map((z) => ({ id: z, label: z })));
+  onMount(async () => {
+    try {
+      zones = await device.listTimeZones();
+    } catch (e) {
+      zonesError = errorSentence(e);
+    }
+  });
+  async function setZone(next: string) {
+    zoneError = await device.saveSettings({ timeZone: next }, `Time zone set to ${next}`);
   }
 
   async function restart() {
@@ -90,6 +110,33 @@
         {/if}
       </div>
     </form>
+  </Group>
+
+  <Group title="Time zone">
+    <Select
+      id="time-zone"
+      label="Time zone"
+      hint="For the satellite's own clock and logs. UTC until you choose one."
+      value={zone}
+      options={zoneOptions}
+      disabled={!live || device.busy || !zones.length}
+      choose={setZone}
+    />
+    {#if zonesError || zoneError}
+      <div class="pn-row">
+        <span class="pn-field-error" role="alert"><Icon name="alert" />{zonesError ?? zoneError}</span>
+      </div>
+    {/if}
+    {#if zones.includes(browserZone) && browserZone !== zone}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-hint">This browser is in {browserZone}.</span>
+        </div>
+        <button class="pn-btn pn-btn-sm" disabled={!live || device.busy} onclick={() => setZone(browserZone)}>
+          Use {browserZone}
+        </button>
+      </div>
+    {/if}
   </Group>
 {/if}
 
