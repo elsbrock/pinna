@@ -17,14 +17,14 @@ import {
 } from "../ring.ts";
 
 // Geometry in viewBox units. The Echo is 88 mm across and 148 mm tall, seen
-// from 30 degrees above.
+// from 20 degrees above.
 const CX = 120;
-const TOP_Y = 64;
 const SX = 2;
-const TILT = 0.5; // sin(30 deg): how round the top face looks
+const TILT = Math.sin((20 * Math.PI) / 180); // how round the top face looks
 const SY = SX * TILT;
 const R = 49 * SX;
 const RY = 49 * SY;
+const TOP_Y = 15 + RY;
 const MM = (2 * R) / 88; // viewBox units per millimetre
 const COS = Math.cos(Math.asin(TILT)); // how much of a vertical length shows
 const H = Math.round(148 * MM * COS);
@@ -93,6 +93,9 @@ const GLYPHS: Record<(typeof buttons)[number]["glyph"], string> = {
 
 /** Width over height, for layout before the SVG loads. */
 export const ASPECT = VIEW.w / VIEW.h;
+
+/** Where the device stands, for placing drawings on one floor. */
+export const STAGE = { view: VIEW, foot: { x: CX, y: BOTTOM_Y }, mm: MM, radius: 44, tilt: TILT };
 
 /** How bright the glow paths are relative to the LEDs. */
 export const GLOW = 0.6;

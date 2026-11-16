@@ -16,15 +16,16 @@ import {
 } from "../ring.ts";
 
 // Geometry in viewBox units. The Dot is 84 mm across and 32 mm tall, seen
-// from 30 degrees above.
+// from 20 degrees above.
 const CX = 120;
-const TOP_Y = 64;
 const SX = 2;
-const TILT = 0.5; // sin(30 deg): how round the top face looks
+const TILT = Math.sin((20 * Math.PI) / 180); // how round the top face looks
 const SY = SX * TILT;
 const R = 49 * SX;
 const RY = 49 * SY;
-const H = Math.round((32 / 84) * 2 * R * Math.cos(Math.asin(TILT)));
+const TOP_Y = 15 + RY;
+const MM = (2 * R) / 84; // viewBox units per millimetre
+const H = Math.round(32 * MM * Math.cos(Math.asin(TILT)));
 const BOTTOM_Y = TOP_Y + H;
 const BASE = 6; // rubber foot band
 const VIEW = { x: 0, y: 8, w: 240, h: BOTTOM_Y + RY + 12 - 8 };
@@ -66,6 +67,9 @@ const GLYPHS: Record<(typeof buttons)[number]["glyph"], string> = {
 
 /** Width over height, for layout before the SVG loads. */
 export const ASPECT = VIEW.w / VIEW.h;
+
+/** Where the device stands, for placing drawings on one floor. */
+export const STAGE = { view: VIEW, foot: { x: CX, y: BOTTOM_Y }, mm: MM, radius: 42, tilt: TILT };
 
 /** How bright the glow paths are relative to the LEDs. */
 export const GLOW = 0.6;

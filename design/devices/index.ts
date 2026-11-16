@@ -4,6 +4,8 @@ import type { Effect } from "../ring.ts";
 import * as echo2 from "./echo-2.ts";
 import * as echoDot2 from "./echo-dot-2.ts";
 
+export type Stage = typeof echoDot2.STAGE;
+
 export type Drawing = {
   /** Model name, for accessible labels. */
   name: string;
@@ -11,13 +13,15 @@ export type Drawing = {
   aspect: number;
   /** Glow-path brightness relative to the LEDs. */
   glow: number;
+  /** Where it stands: the viewBox, the centre of its footprint in it, viewBox units per mm, footprint radius in mm, sin of the view angle. */
+  stage: Stage;
   /** One `<svg>`; `id` is unique per page, `effect` is the still frame. */
   svg: (id: string, effect?: Effect) => string;
 };
 
 const DRAWINGS: Record<string, Drawing> = {
-  "echo-dot-2": { name: "Echo Dot (2nd gen)", aspect: echoDot2.ASPECT, glow: echoDot2.GLOW, svg: echoDot2.svg },
-  "echo-2": { name: "Echo (2nd gen)", aspect: echo2.ASPECT, glow: echo2.GLOW, svg: echo2.svg },
+  "echo-dot-2": { name: "Echo Dot (2nd gen)", aspect: echoDot2.ASPECT, glow: echoDot2.GLOW, stage: echoDot2.STAGE, svg: echoDot2.svg },
+  "echo-2": { name: "Echo (2nd gen)", aspect: echo2.ASPECT, glow: echo2.GLOW, stage: echo2.STAGE, svg: echo2.svg },
 };
 
 /** Width over height of the box every drawing fits: the Dot's. A taller model keeps its height and narrows. */
