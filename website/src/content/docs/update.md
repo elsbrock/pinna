@@ -117,7 +117,7 @@ The [dashboard](/docs/dashboard/) runs the same update as `pinnactl update`.
 4. When the update is installed, select **Restart now**. The page reconnects
    when the device is back, and shows the new version on trial.
 
-   To start it later instead, select **Keep this version**. The update stays
+   To start it later instead, select **Start it later**. The update stays
    in its slot as **Not started yet**, without **starts next**. To start it,
    see [Switch to the other version](#switch-to-the-other-version).
 5. Wait until the new slot is marked **Good**, within 5 minutes of the restart.

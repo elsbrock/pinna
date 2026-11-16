@@ -219,7 +219,9 @@ impl Updater {
                 if let Err(r) = slot::write_state(&paths.misc, &old) {
                     tracing::error!("putting the slot state back failed: {r:#}");
                 }
-                return Err(ConnectError::internal(format!("restarting: {e:#}")));
+                return Err(ConnectError::internal(format!(
+                    "the restart failed, so the switch was undone: {e:#}"
+                )));
             }
             Ok(())
         })

@@ -3,6 +3,7 @@
      with WatchInstall and shows its stages as steps. -->
 <script lang="ts">
   import { ConnectError } from "@connectrpc/connect";
+  import { tick } from "svelte";
 
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
   import Confirm from "./Confirm.svelte";
@@ -10,6 +11,7 @@
   import External from "./External.svelte";
   import Group from "./Group.svelte";
   import Icon from "./Icon.svelte";
+  import { toasts } from "./toast.svelte.ts";
   import {
     DOCS,
     downloadProgress,
@@ -36,6 +38,7 @@
   let confirmingSwitch = $state(false);
   let switchError = $state<string | null>(null);
   let keeping = $state(false);
+  let switchButton = $state<HTMLButtonElement>();
   let watching: AbortController | null = null;
   // The install whose output is on screen, by when it finished.
   let shown: bigint | null = null;
@@ -134,7 +137,8 @@
 
   // The running slot boots next again; the installed update stays in its slot.
   async function keep() {
-    if (!booted) return;
+    if (!booted || !next) return;
+    const kept = next;
     keeping = true;
     error = null;
     try {
@@ -144,6 +148,9 @@
       progress = null;
       result = null;
       await refresh();
+      toasts.show(`${kept.version || "The update"} waits in slot ${kept.name.toUpperCase()}. Switch starts it.`, "ok");
+      await tick();
+      switchButton?.focus();
     } catch (e) {
       error = ConnectError.from(e).rawMessage;
     } finally {
@@ -187,7 +194,7 @@
     <Icon name="restart" />{device.restarting ? "Restarting…" : "Restart now"}
   </button>
   <button class="pn-btn" disabled={!live || device.busy || device.restarting || keeping} onclick={keep}>
-    Keep this version
+    Start it later
   </button>
 {/snippet}
 
@@ -228,6 +235,7 @@
           <span class="pn-row-hint">Restart into {other.version}, on trial.</span>
         </div>
         <button
+          bind:this={switchButton}
           class="pn-btn"
           disabled={!live || device.busy || device.restarting}
           onclick={() => {
@@ -266,7 +274,8 @@
         <p class="pn-notice-title">This version is on trial</p>
         <p>
           It becomes the new fallback once its health check passes, within 5 minutes of starting. You can install
-          another update after that. If it fails, the satellite goes back to the previous version on its own.
+          another update or switch back after that. If it fails, the satellite goes back to the previous version on
+          its own.
         </p>
       </div>
     </div>
