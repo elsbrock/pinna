@@ -40,7 +40,8 @@ Constraints:
   - an IP address
   - `localhost`
   - any `*.local` name (which only mDNS on the local network resolves)
-  - the system hostname
+  - the hostname: the one the satellite started with, and its current one
+    after a rename (ADR 0010)
   - a name added on the dashboard's Network page (ADR 0007), or in
     `[web] allowed_hosts`.
 
@@ -65,7 +66,8 @@ Constraints:
     (ADR 0007)
   - tuning the wake word sensitivity with the device's + and − buttons, until
     the calibration ends
-  - the network: Wi-Fi (ADR 0008) and the host names; the rest read-only
+  - the network: Wi-Fi (ADR 0008), the hostname (ADR 0010) and the host
+    names; the rest read-only
   - pinnad's journal at info level and above (debug lines can carry transcripts)
   - the A/B slots
   - installing an update, switching to the other slot, or keeping an installed

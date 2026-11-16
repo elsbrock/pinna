@@ -19,7 +19,7 @@ Status: proposed (2026-11-15), amended 2026-11-16: `pinna.local` goes, the reset
 ## Decision
 
 - **Hostname:** the kernel hostname is the node name, so a satellite is `pinna-2a914e.local` in mDNS, in the router's DHCP list and on the dashboard. One name serves mDNS, DHCP, the dashboard and ESPHome.
-- **The hostname is a setting.** `hostname` in `settings.toml`, set on the dashboard's Network page, wins over `[device] name` in `pinnad.toml`, which wins over `pinna-` plus the MAC suffix. It is one DNS label: 1 to 63 letters, digits and hyphens, stored lowercase, not `localhost`. No Home Assistant entity: Home Assistant names devices itself, and the node name is how it finds this one.
+- **The hostname is a setting.** `hostname` in `settings.toml`, set on the dashboard's Network page, wins over `[device] name` in `pinnad.toml`, which wins over `pinna-` plus the MAC suffix. It is one DNS label: 1 to 63 letters, digits and hyphens, stored lowercase, not `localhost`. The dashboard reads it back as `Status.name`, the node name; `Settings` carries no second copy. No Home Assistant entity: Home Assistant names devices itself, and the node name is how it finds this one.
 - **systemd's transient hostname, no static one.** The image ships no `/etc/hostname`; `DEFAULT_HOSTNAME=pinna` in os-release is the fallback until the name is set.
   - A one-shot unit (`pinna-hostname.service`, `pinnad --set-hostname`) sets it early, before systemd-networkd and systemd-resolved start and before D-Bus runs. pinnad sets it again at start, for a board whose MAC only appears with wlan0.
   - A change from the dashboard goes through systemd-hostnamed (`hostnamectl --transient hostname`).

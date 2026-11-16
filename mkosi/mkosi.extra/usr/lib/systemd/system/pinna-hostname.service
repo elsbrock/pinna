@@ -6,7 +6,8 @@
 [Unit]
 Description=Name this satellite on the network
 DefaultDependencies=no
-After=local-fs.target
+# After a factory reset, the name from the cleared settings must not come back.
+After=local-fs.target pinna-factory-reset.service
 Before=systemd-networkd.service systemd-resolved.service network-pre.target sysinit.target
 Wants=network-pre.target
 
