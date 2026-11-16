@@ -136,7 +136,7 @@ The connection to Home Assistant. See
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `listen` | `"[::]:80"` | The address of the [dashboard](/docs/dashboard/) and of the same control API, for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
+| `listen` | `"[::]:80"` | The address of the [dashboard](/docs/dashboard/), of the same control API and of the [metrics](/docs/metrics/), for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
 | `root` | `"/usr/share/pinna/web"` | The dashboard's files |
 | `allowed_hosts` | `[]` | Names to open the dashboard by, besides IP addresses, `localhost`, `.local` names and the hostname. Names added on the dashboard's **Network** page count too. See [Open the dashboard by another name](/docs/dashboard/#open-the-dashboard-by-another-name) |
 

@@ -53,6 +53,7 @@ export const DOCS_NAV: DocGroup[] = [
     items: [
       { slug: "entities", title: "Home Assistant entities" },
       { slug: "control-api", title: "pinnactl and the control API" },
+      { slug: "metrics", title: "Prometheus metrics" },
       { slug: "architecture", title: "Architecture" },
       { slug: "audio", title: "Audio" },
       { slug: "crates", title: "Repository layout" },
