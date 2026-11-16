@@ -42,7 +42,8 @@ pinnad -> dot_ref (16 kHz mono copy of everything it plays) = echo reference
 ```
 
 The speaker is not in PipeWire. pinnad drives it through ALSA at 48 kHz
-(`EchoDotPipeWire` backend: aplay, its amp/codec sequences around playback,
+(`EchoDotPipeWire` backend: aplay, its amp/codec sequences when the session
+opens and closes,
 and the speaker chain — a 150 Hz high-pass, the stock firmware's extra gain
 above 70 % volume (up to +14.5 dB at 100 %) and a look-ahead peak limiter at
 −0.1 dBFS), and writes a 16 kHz mono copy of every chunk it plays into
@@ -52,19 +53,26 @@ the CPU), so pinnad fits both from the PCMs' hardware pointers
 (`/proc/asound/card0/pcm*/sub0/status`), paces the speaker at its measured rate
 and resamples the reference from the speaker clock to the microphone clock.
 WebRTC's delay estimator only absorbs the fixed offset between the two paths.
-The amp is switched on only once the PCM runs: the codec powers up while the
-PCM is prepared (~1.2 s), and an amp that is already on plays that as a crack.
-If the PCM's state can't be read, or it isn't running after 3 s, the amp is
-switched on anyway (with a warning) rather than leaving the speaker silent.
+The amp cracks every time it powers up: about −34 dBFS at the microphones,
+~30 dB above a quiet room, whatever the codec, MFP2 and headphone-driver state
+(measured; −20 dBFS if the codec is still off). Switching it off is silent.
+The kernel powers it up itself when the PCM starts (the AFE's trigger raises
+the amp GPIO, and the codec releases MFP2 at the end of the ~1.2 s prepare),
+so pinnad's amp and MFP2 controls after the PCM reads `RUNNING` change nothing
+physically; at close they do (mute, then amp off). pinnad therefore opens the
+speaker session when it starts and keeps it open on silence: the amp powers up
+once, at start-up, and replies don't wait for the prepare. A failed open is
+retried every 5 s. An underrun restarts the PCM and so cycles the amp;
+aplay's underrun messages are logged as warnings.
 
 - **Beamform first, then mono echo cancellation**: the usual design for small
   arrays and far cheaper than per-microphone AEC. The beamformer is the previous firmware's
   superdirective fixed-beam design, ported to Rust (within 1 LSB of the C on
   ≥ 99.9 % of samples) and loaded into
   PipeWire as a LADSPA plugin (`crates/pinna-ladspa`).
-- **The speaker stays out of PipeWire**: full 48 kHz playback, and the amp is
-  only ever switched by the code that knows when it plays — no PipeWire graph
-  restart can reach the speaker.
+- **The speaker stays out of PipeWire**: full 48 kHz playback, and only
+  pinnad's session starts and stops the PCM (and with it the amp) — no
+  PipeWire graph restart can reach the speaker.
 
 Measured on the device (music through pinnad, speech band 300–3400 Hz, room
 noise present): after convergence the echo is 23–31 dB lower after cancellation

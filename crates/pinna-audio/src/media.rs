@@ -1585,7 +1585,7 @@ mod tests {
         let mut cfg = SpeakerConfig::new(Backend::PipeWire);
         cfg.pw_play_bin = player.to_string_lossy().into();
         cfg.pw_target = Some(sink.to_string_lossy().into());
-        cfg.idle_timeout = idle;
+        cfg.idle_timeout = Some(idle);
         cfg.initial_volume = 100;
         Rig {
             speaker: Speaker::new(cfg),

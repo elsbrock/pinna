@@ -3,9 +3,10 @@
 //! Opening the speaker from idle takes ~1.4 s on the Dot (mixer arm, PCM open,
 //! amp power-up), so one `aplay` stays open while a turn is active. Silence is
 //! written while idle (no underrun pops) and the session is closed after
-//! [`SpeakerConfig::idle_timeout`] without audio. Volume is applied digitally
-//! in this pipeline using the previous firmware's curve; the codec stays at its 0 dB
-//! reference.
+//! [`SpeakerConfig::idle_timeout`] without audio. On the Echo Dot it is never
+//! closed: every amp power-up cracks, whatever the codec and mute state.
+//! Volume is applied digitally in this pipeline using the previous firmware's
+//! curve; the codec stays at its 0 dB reference.
 //!
 //! The session mixes two lanes: the *voice* lane (queued in order: clips such
 //! as chimes and the alarm, and streamed URLs such as replies and
@@ -28,8 +29,8 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStderr, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, watch};
 
 /// Frames per write (20 ms at 48 kHz).
@@ -46,8 +47,10 @@ pub struct SpeakerConfig {
     pub pw_play_bin: String,
     /// `pw-play --target`.
     pub pw_target: Option<String>,
-    /// Close the session after this long without audio.
-    pub idle_timeout: Duration,
+    /// Close the session after this long without audio. `None` opens it at
+    /// startup and keeps it open (the Echo Dot: its amp cracks at every
+    /// power-up).
+    pub idle_timeout: Option<Duration>,
     /// Logical volume 0..=100 at startup.
     pub initial_volume: u8,
     /// How far ahead of real time audio is handed to the player.
@@ -67,6 +70,7 @@ pub struct SpeakerConfig {
 
 impl SpeakerConfig {
     pub fn new(backend: Backend) -> Self {
+        let idle_timeout = (!backend.echo_dot_mixer()).then_some(Duration::from_secs(10));
         SpeakerConfig {
             backend,
             profile: SpeakerProfile::default(),
@@ -75,7 +79,7 @@ impl SpeakerConfig {
             alsa_device: "hw:0,23".into(),
             pw_play_bin: "pw-play".into(),
             pw_target: None,
-            idle_timeout: Duration::from_secs(10),
+            idle_timeout,
             initial_volume: 50,
             lead: Duration::from_millis(100),
             duck_db: -20.0,
@@ -89,6 +93,10 @@ impl SpeakerConfig {
 /// How long the player may take to start the PCM before the amp is powered
 /// anyway (it takes ~1.2 s on the Dot).
 const PCM_START_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// How long a session that is kept open waits after a failed open before it
+/// tries again.
+const OPEN_RETRY: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlaybackState {
@@ -352,6 +360,7 @@ impl Speaker {
             spectrum: spectrum.clone(),
             level: level.clone(),
             warm: false,
+            open_at: Instant::now(),
             voice_epoch: voice_epoch.clone(),
         };
         tokio::spawn(actor.run());
@@ -428,7 +437,7 @@ impl Speaker {
 
     /// Open the session now, if it is closed, for audio that is about to come
     /// (opening takes ~1.4 s on the Dot). Without any, it closes again after
-    /// [`SpeakerConfig::idle_timeout`].
+    /// [`SpeakerConfig::idle_timeout`]. A no-op when the session is kept open.
     pub fn warm(&self) {
         let _ = self.inner.tx.send(Cmd::Warm);
     }
@@ -730,6 +739,14 @@ impl Session {
     }
 }
 
+/// Sleep until `t`, or forever without one.
+async fn sleep_until(t: Option<Instant>) {
+    match t {
+        Some(t) => tokio::time::sleep_until(t.into()).await,
+        None => std::future::pending().await,
+    }
+}
+
 /// Wait until the player has started the PCM (its status file reads
 /// `state: RUNNING`) and return when. Gives up, returning now, when the file
 /// cannot be read or after [`PCM_START_TIMEOUT`]; fails if the player exits.
@@ -761,6 +778,20 @@ async fn wait_pcm_running(status: Option<&Path>, session: &mut Session) -> Resul
             return Ok(Instant::now());
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// Log the player's messages. aplay reports an underrun as `underrun!!! (at
+/// least N ms long)`, even with `-q`, and restarts the PCM, which on the Echo
+/// Dot switches the amp off and on again (an audible crack).
+async fn log_player(stderr: ChildStderr) {
+    let mut lines = BufReader::new(stderr).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.contains("underrun") {
+            tracing::warn!("speaker {line}");
+        } else {
+            tracing::debug!("speaker player: {line}");
+        }
     }
 }
 
@@ -841,6 +872,9 @@ struct Actor {
     level: VoiceLevel,
     /// Open the session even without audio ([`Speaker::warm`]).
     warm: bool,
+    /// When a session that is kept open ([`SpeakerConfig::idle_timeout`] is
+    /// `None`) is (re)opened: at startup, and [`OPEN_RETRY`] after a failure.
+    open_at: Instant,
     voice_epoch: Arc<AtomicU64>,
 }
 
@@ -950,11 +984,20 @@ impl Actor {
         loop {
             self.publish_media();
             if self.session.is_none() {
-                if !self.feeder.has_audio() && !self.feeder.media.wants_session() && !self.warm {
+                let keep_open = self.cfg.idle_timeout.is_none().then_some(self.open_at);
+                let due = keep_open.is_some_and(|t| Instant::now() >= t);
+                if !self.feeder.has_audio()
+                    && !self.feeder.media.wants_session()
+                    && !self.warm
+                    && !due
+                {
                     self.set_state(PlaybackState::Idle);
-                    match self.rx.recv().await {
-                        Some(c) => self.handle(c),
-                        None => return,
+                    tokio::select! {
+                        cmd = self.rx.recv() => match cmd {
+                            Some(c) => self.handle(c),
+                            None => return,
+                        },
+                        _ = sleep_until(keep_open) => {}
                     }
                     continue;
                 }
@@ -974,6 +1017,7 @@ impl Actor {
                         self.feeder.fail_all(&format!("speaker open failed: {e}"));
                         self.feeder.media.fail(&format!("speaker open failed: {e}"));
                         self.set_state(PlaybackState::Idle);
+                        self.open_at = Instant::now() + OPEN_RETRY;
                         continue;
                     }
                 }
@@ -997,8 +1041,10 @@ impl Actor {
             if let Some((end, _)) = self.finishing.front() {
                 wake = wake.min(s.time_of(*end));
             }
-            if !busy {
-                wake = wake.min(self.idle_since + self.cfg.idle_timeout);
+            if let Some(idle) = self.cfg.idle_timeout
+                && !busy
+            {
+                wake = wake.min(self.idle_since + idle);
             }
 
             tokio::select! {
@@ -1040,7 +1086,11 @@ impl Actor {
                 || self.feeder.media.wants_session()
             {
                 self.idle_since = now;
-            } else if now >= self.idle_since + self.cfg.idle_timeout {
+            } else if self
+                .cfg
+                .idle_timeout
+                .is_some_and(|idle| now >= self.idle_since + idle)
+            {
                 self.close_session().await;
                 continue;
             }
@@ -1112,11 +1162,12 @@ impl Actor {
                     .args(&args)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::null())
+                    .stderr(Stdio::piped())
                     .kill_on_drop(true)
                     .spawn()
                     .map_err(|e| Error::Other(format!("spawn {bin}: {e}")))?;
                 let stdin = child.stdin.take().expect("piped");
+                tokio::spawn(log_player(child.stderr.take().expect("piped")));
                 Sink::Process {
                     child: Box::new(child),
                     stdin,
@@ -1684,7 +1735,7 @@ mod tests {
 
     fn null_speaker(idle: Duration) -> Speaker {
         let mut cfg = SpeakerConfig::new(Backend::WavFile("unused".into()));
-        cfg.idle_timeout = idle;
+        cfg.idle_timeout = Some(idle);
         cfg.initial_volume = 100;
         Speaker::new(cfg)
     }
@@ -1726,6 +1777,39 @@ mod tests {
         assert!(sp.is_session_open());
         tokio::time::sleep(Duration::from_millis(700)).await;
         assert!(!sp.is_session_open());
+    }
+
+    #[test]
+    fn echo_dot_keeps_the_session_open() {
+        for b in [Backend::EchoDot, Backend::EchoDotPipeWire] {
+            assert_eq!(SpeakerConfig::new(b).idle_timeout, None);
+        }
+        assert_eq!(
+            SpeakerConfig::new(Backend::PipeWire).idle_timeout,
+            Some(Duration::from_secs(10))
+        );
+    }
+
+    #[tokio::test]
+    async fn kept_open_session_opens_at_startup_and_never_idles_out() {
+        let mut cfg = SpeakerConfig::new(Backend::WavFile("unused".into()));
+        cfg.idle_timeout = None;
+        cfg.initial_volume = 100;
+        let sp = Speaker::new(cfg);
+        let opened = async {
+            while !sp.is_session_open() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(2), opened)
+            .await
+            .expect("opens without audio");
+        sp.play_pcm(crate::tone::beep(440.0, 60, 0.5))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(sp.is_session_open());
+        assert!(!sp.is_playing());
     }
 
     #[tokio::test]
@@ -1787,7 +1871,7 @@ mod tests {
         cfg.mixer.bin = amixer.to_string_lossy().into();
         cfg.aplay_bin = aplay.to_string_lossy().into();
         cfg.pcm_status = Some(dir.join("status"));
-        cfg.idle_timeout = Duration::from_millis(200);
+        cfg.idle_timeout = Some(Duration::from_millis(200));
         (dir, cfg)
     }
 
