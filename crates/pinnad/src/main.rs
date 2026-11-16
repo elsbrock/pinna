@@ -31,7 +31,7 @@ use clap::Parser;
 use pinna_audio::{Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle, WakeWordInfo};
 use pinna_hal::anim::Effect;
-use pinna_hal::led::{Is31Sysfs, LedHandle, MockLeds};
+use pinna_hal::led::{Is31Sysfs, LedHandle, MockLeds, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, watch};
 
 use crate::config::Config;
@@ -426,16 +426,19 @@ async fn main() -> Result<()> {
         brightness: initial.led_brightness,
         ..Default::default()
     });
+    // The virtual Echo Dot's ring is the dashboard's drawing of WatchRing.
     let ring = match &virt {
-        Some(v) => Some(LedHandle::spawn(v.leds())),
+        Some(_) => None,
         None => led_ring(&cfg.leds)?,
     };
     let led_backend = match (&ring, cfg.leds.backend.as_str()) {
+        (None, _) if virt.is_some() => "virtual",
         (None, _) => "none",
-        (Some(_), _) if virt.is_some() => "virtual",
         (Some(_), "mock") => "mock",
         (Some(_), _) => "is31",
     };
+    // What the ring shows, for WatchRing.
+    let (shown_tx, shown_rx) = watch::channel([Rgb::OFF; RING_PIXELS]);
 
     // Audio.
     let backend = audio_backend(&cfg.audio.backend);
@@ -593,7 +596,7 @@ async fn main() -> Result<()> {
 
     // Local control API.
     let (status_tx, status_rx) = watch::channel(Snapshot::default());
-    let device_api = Arc::new(api::DeviceApi::new(
+    let device_api = api::DeviceApi::new(
         api::Info {
             version: pinna_bootctl::slot::booted_version(std::path::Path::new(
                 pinna_bootctl::slot::RUN_DIR,
@@ -615,7 +618,8 @@ async fn main() -> Result<()> {
         },
         status_rx,
         in_tx.clone(),
-    ));
+    );
+    let device_api = Arc::new(device_api.with_ring(shown_rx));
     // A Wi-Fi trial that a stopped pinnad left behind goes back (ADR 0008).
     let wifi_api = device_api.clone();
     tokio::spawn(async move { wifi_api.recover_wifi().await });
@@ -630,6 +634,7 @@ async fn main() -> Result<()> {
     }
     tokio::spawn(leds::run(
         ring,
+        shown_tx,
         led_rx,
         speaker.as_ref().map(|s| s.spectrum()),
         speaker.as_ref().map(|s| s.voice_level()),

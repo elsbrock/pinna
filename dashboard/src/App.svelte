@@ -39,7 +39,7 @@
   <aside class="side">
     <a class="home" href="#/" aria-label="Pinna, overview">
       {#if s}
-        <Logo><Ring effect={ring} size={24} label="Ring: {ring.replace('-', ' ')}" /></Logo>
+        <Logo><Ring effect={ring} frame={device.ring} size={24} label="Ring: {ring.replace('-', ' ')}" /></Logo>
       {:else}
         <Logo />
       {/if}
@@ -56,7 +56,7 @@
     </nav>
     {#if s}
       <div class="pn-ident">
-        <Device model={s.model} effect="idle" width={48} label="Ring: {ring.replace('-', ' ')}" />
+        <Device model={s.model} effect={ring} frame={device.ring} width={48} label="Ring: {ring.replace('-', ' ')}" />
         <span class="pn-ident-name">{displayName(s)}</span>
         <span class="pn-health" data-tone={line.tone} title={line.text}>Home Assistant</span>
       </div>
@@ -72,7 +72,7 @@
 
   <header class="appbar">
     {#if s}
-      <Ring effect={ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
+      <Ring effect={ring} frame={device.ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
       <a class="appbar-name" href="#/">{displayName(s)}</a>
       <span class="pn-health" data-tone={line.tone} title={line.text}>{healthWord(line)}</span>
     {:else}

@@ -11,7 +11,6 @@
   import StatTile from "../lib/StatTile.svelte";
   import Timers from "../lib/Timers.svelte";
   import VirtualDevice from "../lib/VirtualDevice.svelte";
-  import { virtualDot } from "../lib/virtual.svelte.ts";
   import {
     badge,
     band,
@@ -72,7 +71,7 @@
     <Device
       model={s.model}
       effect={ring}
-      frame={s.virtualDevice ? virtualDot.ring : null}
+      frame={device.ring}
       width={small ? 200 : 250}
       label="Ring: {ring.replace('-', ' ')}"
       halo

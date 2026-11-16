@@ -1,12 +1,12 @@
-// The virtual Echo Dot's LED ring as pinnad drew it (ADR 0014): 72 hex digits,
-// `rrggbb` per pixel in ring order, to the frame the dashboard's ring draws.
+// The LED ring as the satellite shows it (WatchRing): 3 bytes, red, green and
+// blue, per pixel in ring order, to the frame the dashboard's ring draws.
 import { RING_PIXELS, type Frame } from "../../../design/ring.ts";
 
-/** `null` when the text is not a ring frame. */
-export function frameFromHex(hex: string): Frame | null {
-  if (hex.length !== RING_PIXELS * 6 || !/^[0-9a-f]+$/i.test(hex)) return null;
+/** `null` when the bytes are not a ring frame. */
+export function frameFromBytes(rgb: Uint8Array): Frame | null {
+  if (rgb.length !== RING_PIXELS * 3) return null;
   return Array.from({ length: RING_PIXELS }, (_, i) => {
-    const [r, g, b] = [0, 2, 4].map((o) => parseInt(hex.slice(i * 6 + o, i * 6 + o + 2), 16));
+    const [r, g, b] = rgb.subarray(i * 3, i * 3 + 3);
     const max = Math.max(r, g, b);
     // The colour at full strength, and how bright the LED is.
     if (max === 0) return { c: null, level: 0 };

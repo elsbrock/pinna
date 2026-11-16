@@ -144,6 +144,14 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn watch_ring(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, WatchRingRequest>,
+    ) -> ServiceResult<ServiceStream<WatchRingResponse>> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn watch_logs(
         &self,
         _: RequestContext,

@@ -5,19 +5,15 @@
 //!   in `/dev/input` like the device's gpio-keys, so autorepeat and long-press
 //!   detection run unchanged.
 //! - the microphone privacy latch: a file holding `0`/`1`, like the PMIC's
-//!   `privacy_state` in sysfs, read by [`crate::privacy`];
-//! - the LED ring: frames published on a channel instead of written to the
-//!   IS31FL3236, so the dashboard draws what pinnad drew.
+//!   `privacy_state` in sysfs, read by [`crate::privacy`].
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 use evdev::uinput::VirtualDevice;
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode};
-use tokio::sync::watch;
 
 use crate::buttons::{Button, KEY_HELP, KEY_POWER, KEY_VOLUMEDOWN, KEY_VOLUMEUP};
-use crate::led::{Frame, LedRing, RING_PIXELS, Rgb};
 
 /// Name of the uinput device, as `/proc/bus/input/devices` shows it.
 pub const BUTTONS_NAME: &str = "Pinna virtual buttons";
@@ -102,57 +98,9 @@ impl PrivacyLatch {
     }
 }
 
-/// The LED ring as a channel of frames; subscribers see the latest one.
-pub struct VirtualLeds {
-    tx: watch::Sender<Frame>,
-}
-
-impl VirtualLeds {
-    pub fn new(tx: watch::Sender<Frame>) -> Self {
-        Self { tx }
-    }
-}
-
-impl LedRing for VirtualLeds {
-    fn set(&mut self, frame: &Frame) -> crate::Result<()> {
-        self.tx.send_if_modified(|f| {
-            let changed = f != frame;
-            *f = *frame;
-            changed
-        });
-        Ok(())
-    }
-}
-
-/// A frame as 72 hex digits, `rrggbb` per pixel in ring order.
-pub fn frame_hex(frame: &Frame) -> String {
-    frame
-        .iter()
-        .map(|p| format!("{:02x}{:02x}{:02x}", p.r, p.g, p.b))
-        .collect()
-}
-
-/// An unlit ring.
-pub const DARK: Frame = [Rgb::OFF; RING_PIXELS];
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn leds_publish_changed_frames() {
-        let (tx, mut rx) = watch::channel(DARK);
-        let mut leds = VirtualLeds::new(tx);
-        let mut frame = DARK;
-        frame[0] = Rgb::new(0, 0x80, 0xff);
-        leds.set(&frame).unwrap();
-        assert!(rx.has_changed().unwrap());
-        assert_eq!(*rx.borrow_and_update(), frame);
-        leds.set(&frame).unwrap();
-        assert!(!rx.has_changed().unwrap(), "same frame: no change");
-        assert_eq!(&frame_hex(&frame)[..12], "0080ff000000");
-        assert_eq!(frame_hex(&frame).len(), 72);
-    }
 
     #[test]
     fn keys_map_back_to_buttons() {

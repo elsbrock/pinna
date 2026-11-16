@@ -2,7 +2,8 @@
 
 Status: accepted (2026-11-15). Amends the "Local control API" part of ADR 0002.
 Amended by ADR 0007 (2026-11-16): host names and the satellite's name are set
-on the dashboard.
+on the dashboard. Amended 2026-11-16: the dashboard draws the ring's own frames
+(WatchRing).
 
 ## Context
 
@@ -68,6 +69,17 @@ Constraints:
   - installing an update
   - restarting, and a factory reset (ADR 0010)
   - running the ring's test pattern (Identify).
+- **The ring on the page is the device's.** `WatchRing` streams the frames
+  pinnad shows: the current one, then the latest after each 40 ms in which it
+  changed, and nothing while nobody watches. Every ring that stands for the
+  satellite draws them: the logo's, the app bar's, the sidebar's and the
+  Overview's drawing. A ring drawn from `Status` could not show what
+  `Status` does not carry (the Home Assistant light, music, the volume and
+  error flashes, the talker's direction) or the device's timing, and it left
+  out a timer's arc and the brightness. While no frames come (before the
+  first, while the satellite is unreachable, for a few seconds after the
+  stream ends, from a pinnad without WatchRing), the page draws from
+  `Status` again. Amended 2026-11-16; until then it always did.
 - **Updates run in pinnad.** pinnad runs `pinnactl update -- <manifest>` itself
   (http and https manifests only) and keeps its output, so a browser that goes
   away cannot interrupt an install. Signature and dm-verity checks and the

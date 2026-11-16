@@ -16,7 +16,7 @@
   }: {
     model: string;
     effect: Effect;
-    /** The ring as the satellite drew it (the virtual Echo Dot); `effect` still picks the halo. */
+    /** The ring as the satellite shows it (WatchRing); `effect` still picks the halo. */
     frame?: Frame | null;
     /** Width of the box in px, at the Dot's proportions; a taller model keeps its height and narrows. The flat Ring fallback takes the nearest ring size below. */
     width: number;
@@ -33,7 +33,7 @@
   // Built once per model; the effect below lights it.
   const svg = $derived(drawing?.svg(id) ?? "");
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
-  const STATIC: ReadonlySet<Effect> = new Set(["idle", "muted"]);
+  const STATIC: ReadonlySet<Effect> = new Set(["idle", "muted", "timer"]);
   // The halo takes the state's UI colour; LED colours stay on the device.
   const HALO: Partial<Record<Effect, string>> = {
     listening: "--listening",
@@ -93,5 +93,5 @@
     {@html svg}
   </span>
 {:else}
-  <Ring effect={shown} size={width >= 176 ? 176 : width >= 64 ? 64 : 32} {label} />
+  <Ring effect={shown} frame={given} size={width >= 176 ? 176 : width >= 64 ? 64 : 32} {label} />
 {/if}

@@ -4,7 +4,9 @@
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
+import type { Frame } from "../../../design/ring.ts";
 import { DeviceService, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
+import { frameFromBytes } from "./ledframe.ts";
 import { toasts } from "./toast.svelte.ts";
 import { LED_TEST_STEP_MS, type Link } from "./view.ts";
 
@@ -15,6 +17,8 @@ const client = createClient(DeviceService, createConnectTransport({ baseUrl: loc
 const PING_MS = 10_000;
 const PING_TIMEOUT_MS = 5_000;
 const BACKOFF_MS = [1_000, 2_000, 5_000];
+/** WatchRing ended while WatchStatus did not: ask again after this long. */
+const RING_RETRY_MS = 5_000;
 
 class Device {
   status = $state<Status | null>(null);
@@ -27,6 +31,9 @@ class Device {
   identifying = $state(false);
   /** The step of the ring's test pattern while `status.ledTest`, for ringEffect. */
   testStep = $state(0);
+  /** The ring as the satellite shows it (WatchRing), while live; null before
+   *  its first frame. Kept, not followed, while this tab is hidden. */
+  ring = $state.raw<Frame | null>(null);
   /** A restart was asked for: being unreachable is expected, not an error. */
   restarting = $state(false);
   /** A factory reset was asked for: the satellite may come back over USB only. */
@@ -41,14 +48,17 @@ class Device {
   #wake: (() => void) | null = null;
   #version: string | null = null;
   #testTimer: ReturnType<typeof setInterval> | undefined;
+  #ringStream: AbortController | null = null;
 
   start() {
     setInterval(() => (this.now = Date.now()), 1_000);
     setInterval(() => this.#ping(), PING_MS);
     const resume = () => {
-      if (document.visibilityState !== "visible") return;
-      if (this.link === "live") this.#ping();
-      else this.#wake?.();
+      if (document.visibilityState !== "visible") return this.#stopRing(true);
+      if (this.link === "live") {
+        this.#ping();
+        this.#watchRing();
+      } else this.#wake?.();
     };
     document.addEventListener("visibilitychange", resume);
     addEventListener("online", resume);
@@ -73,6 +83,32 @@ class Device {
     this.restarting = false;
     this.resetting = false;
     this.offlineSince = null;
+    this.#watchRing();
+  }
+
+  /** Follow the ring while the satellite is live and this tab is seen. */
+  #watchRing() {
+    if (this.#ringStream || this.link !== "live" || document.visibilityState !== "visible") return;
+    const stream = (this.#ringStream = new AbortController());
+    void (async () => {
+      try {
+        for await (const res of client.watchRing({}, { signal: stream.signal })) {
+          this.ring = frameFromBytes(res.frame) ?? this.ring;
+        }
+      } catch {
+        // Unreachable or aborted: WatchStatus and the ping tell which.
+      }
+      if (this.#ringStream !== stream) return;
+      this.#stopRing();
+      setTimeout(() => this.#watchRing(), RING_RETRY_MS);
+    })();
+  }
+
+  /** `keep`: leave the last frame up, for a tab that is only hidden. */
+  #stopRing(keep = false) {
+    this.#ringStream?.abort();
+    this.#ringStream = null;
+    if (!keep) this.ring = null;
   }
 
   /** 421 Misdirected Request: the satellite refuses this page's host name. */
@@ -83,6 +119,7 @@ class Device {
   #offline() {
     if (this.link !== "offline") this.offlineSince = new Date();
     this.link = "offline";
+    this.#stopRing();
   }
 
   async #run() {

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file pinna/v1/device.proto.
  */
 export const file_pinna_v1_device: GenFile = /*@__PURE__*/
-  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIrwBCghXYWtlV29yZBIOCgZwaHJhc2UYASABKAkSDwoHZW5hYmxlZBgCIAEoCBIRCgl0aHJlc2hvbGQYAyABKAISIwoGcmVjZW50GAQgAygLMhMucGlubmEudjEuV2FrZUV2ZW50EioKC2NhbGlicmF0aW9uGAUgASgLMhUucGlubmEudjEuQ2FsaWJyYXRpb24SKwoJYXZhaWxhYmxlGAYgAygLMhgucGlubmEudjEuV2FrZVdvcmRPcHRpb24iLAoOV2FrZVdvcmRPcHRpb24SCgoCaWQYASABKAkSDgoGcGhyYXNlGAIgASgJIhoKC1dha2VXb3JkSWRzEgsKA2lkcxgBIAMoCSJPCgtDYWxpYnJhdGlvbhIUCgxzdGFydGVkX2Zyb20YASABKA0SKgoGZXZlbnRzGAIgAygLMhoucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudCKTAQoQQ2FsaWJyYXRpb25FdmVudBIKCgJpZBgBIAEoDRIsCgRraW5kGAIgASgOMh4ucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudEtpbmQSDQoFcmFpc2UYAyABKAgSEgoFc2NvcmUYBCABKAJIAIgBARIMCgRmcm9tGAUgASgNEgoKAnRvGAYgASgNQggKBl9zY29yZSJ8CglXYWtlRXZlbnQSDwoHdW5peF9tcxgBIAEoBBIMCgR3b2tlGAIgASgIEg0KBXNjb3JlGAMgASgCEhcKCndha2VzX2Zyb20YBCABKA1IAIgBARIZChFyZWFjaGVkX3RocmVzaG9sZBgFIAEoCEINCgtfd2FrZXNfZnJvbSLFBAoGU3RhdHVzEg8KB3ZlcnNpb24YASABKAkSDAoEbmFtZRgCIAEoCRILCgNtYWMYAyABKAkSFgoOdXB0aW1lX3NlY29uZHMYBCABKAQSHgoFcGhhc2UYBSABKA4yDy5waW5uYS52MS5QaGFzZRINCgVtdXRlZBgGIAEoCBIWCg5oYXJkd2FyZV9tdXRlZBgHIAEoCBIWCg5zb2Z0d2FyZV9tdXRlZBgIIAEoCBIOCgZ2b2x1bWUYCSABKA0SFAoMaGFfY29ubmVjdGVkGAogASgIEhgKEHZvaWNlX3N1YnNjcmliZWQYCyABKAgSJQoJd2FrZV93b3JkGAwgASgLMhIucGlubmEudjEuV2FrZVdvcmQSHwoGdGltZXJzGA0gAygLMg8ucGlubmEudjEuVGltZXISFQoNYXVkaW9fYmFja2VuZBgOIAEoCRITCgtsZWRfYmFja2VuZBgPIAEoCRIVCg1hbGFybV9yaW5naW5nGBAgASgIEiQKCHNldHRpbmdzGBEgASgLMhIucGlubmEudjEuU2V0dGluZ3MSDQoFbW9kZWwYEiABKAkSFAoMbm90aWZpY2F0aW9uGBMgASgIEhYKDnZpcnR1YWxfZGV2aWNlGBQgASgIEiUKCWxhc3RfYm9vdBgVIAEoCzISLnBpbm5hLnYxLkxhc3RCb290EhUKDWFwaV9lbmNyeXB0ZWQYFiABKAgSGgoSYXBpX2tleV9mcm9tX2ltYWdlGBcgASgIEhAKCGxlZF90ZXN0GBggASgIIlcKCExhc3RCb290EioKB291dGNvbWUYASABKA4yGS5waW5uYS52MS5MYXN0Qm9vdE91dGNvbWUSDgoGcmVhc29uGAIgASgJEg8KB3N1bW1hcnkYAyABKAkiwQEKCFNldHRpbmdzEhEKCXdha2Vfd29yZBgCIAEoCBIYChB3YWtlX3NlbnNpdGl2aXR5GAMgASgNEhYKDmxlZF9icmlnaHRuZXNzGAQgASgNEhIKCndha2Vfd29yZHMYBSADKAkSFQoNZnJpZW5kbHlfbmFtZRgGIAEoCRIUCgxkZWZhdWx0X25hbWUYByABKAgSEgoKd2FrZV9zb3VuZBgIIAEoCBIVCg1hbGxvd2VkX2hvc3RzGAkgAygJSgQIARACIhIKEEdldFN0YXR1c1JlcXVlc3QiNQoRR2V0U3RhdHVzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIiMKEFNldFZvbHVtZVJlcXVlc3QSDwoHcGVyY2VudBgBIAEoDSI1ChFTZXRWb2x1bWVSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiHwoOU2V0TXV0ZVJlcXVlc3QSDQoFbXV0ZWQYASABKAgiMwoPU2V0TXV0ZVJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIaChhTdGFydENvbnZlcnNhdGlvblJlcXVlc3QiPQoZU3RhcnRDb252ZXJzYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGQoXU3RvcENvbnZlcnNhdGlvblJlcXVlc3QiPAoYU3RvcENvbnZlcnNhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIQCg5MZWRUZXN0UmVxdWVzdCIRCg9MZWRUZXN0UmVzcG9uc2UiGgoYQ2xlYXJOb3RpZmljYXRpb25SZXF1ZXN0Ij0KGUNsZWFyTm90aWZpY2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhQKEldhdGNoU3RhdHVzUmVxdWVzdCI3ChNXYXRjaFN0YXR1c1Jlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyLUAgoVVXBkYXRlU2V0dGluZ3NSZXF1ZXN0EhYKCXdha2Vfd29yZBgCIAEoCEgAiAEBEh0KEHdha2Vfc2Vuc2l0aXZpdHkYAyABKA1IAYgBARIbCg5sZWRfYnJpZ2h0bmVzcxgEIAEoDUgCiAEBEikKCndha2Vfd29yZHMYBSABKAsyFS5waW5uYS52MS5XYWtlV29yZElkcxIaCg1mcmllbmRseV9uYW1lGAYgASgJSAOIAQESFwoKd2FrZV9zb3VuZBgHIAEoCEgEiAEBEioKDWFsbG93ZWRfaG9zdHMYCCABKAsyEy5waW5uYS52MS5Ib3N0TmFtZXNCDAoKX3dha2Vfd29yZEITChFfd2FrZV9zZW5zaXRpdml0eUIRCg9fbGVkX2JyaWdodG5lc3NCEAoOX2ZyaWVuZGx5X25hbWVCDQoLX3dha2Vfc291bmRKBAgBEAIiGgoJSG9zdE5hbWVzEg0KBW5hbWVzGAEgAygJIjoKFlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhkKF1N0YXJ0Q2FsaWJyYXRpb25SZXF1ZXN0IjwKGFN0YXJ0Q2FsaWJyYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGAoWU3RvcENhbGlicmF0aW9uUmVxdWVzdCI7ChdTdG9wQ2FsaWJyYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiEwoRR2V0TmV0d29ya1JlcXVlc3QiUwoEV2lmaRIMCgRzc2lkGAEgASgJEhIKCnNpZ25hbF9kYm0YAiABKAUSFQoNZnJlcXVlbmN5X21oehgDIAEoDRISCgp0eF9iaXRyYXRlGAQgASgJInUKCUludGVyZmFjZRIMCgRuYW1lGAEgASgJEgsKA21hYxgCIAEoCRIKCgJ1cBgDIAEoCBIRCglhZGRyZXNzZXMYBCADKAkSHAoEd2lmaRgFIAEoCzIOLnBpbm5hLnYxLldpZmkSEAoId2lyZWxlc3MYBiABKAgiTwoSR2V0TmV0d29ya1Jlc3BvbnNlEhAKCGhvc3RuYW1lGAEgASgJEicKCmludGVyZmFjZXMYAiADKAsyEy5waW5uYS52MS5JbnRlcmZhY2UiEgoQV2F0Y2hMb2dzUmVxdWVzdCJKCgdMb2dMaW5lEg8KB3VuaXhfbXMYASABKAQSDQoFbGV2ZWwYAiABKAkSDgoGdGFyZ2V0GAMgASgJEg8KB21lc3NhZ2UYBCABKAkiNAoRV2F0Y2hMb2dzUmVzcG9uc2USHwoEbGluZRgBIAEoCzIRLnBpbm5hLnYxLkxvZ0xpbmUiEwoRR2V0VXBkYXRlc1JlcXVlc3QiaAoEU2xvdBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSDQoFc3RhdGUYAyABKAkSEgoKdHJpZXNfbGVmdBgEIAEoDRIOCgZhY3RpdmUYBSABKAgSDgoGYm9vdGVkGAYgASgIItkBChJHZXRVcGRhdGVzUmVzcG9uc2USEQoJYXZhaWxhYmxlGAEgASgIEhoKEnVuYXZhaWxhYmxlX3JlYXNvbhgCIAEoCRIWCg5ib290ZWRfdmVyc2lvbhgDIAEoCRIdCgVzbG90cxgEIAMoCzIOLnBpbm5hLnYxLlNsb3QSEgoKaW5zdGFsbGluZxgFIAEoCBItCgxsYXN0X2luc3RhbGwYBiABKAsyFy5waW5uYS52MS5JbnN0YWxsUmVzdWx0EhoKEnN1Z2dlc3RlZF9tYW5pZmVzdBgHIAEoCSJaCg1JbnN0YWxsUmVzdWx0EgoKAm9rGAEgASgIEhAKCG1hbmlmZXN0GAIgASgJEhgKEGZpbmlzaGVkX3VuaXhfbXMYAyABKAQSEQoJbGFzdF9saW5lGAQgASgJIigKFEluc3RhbGxVcGRhdGVSZXF1ZXN0EhAKCG1hbmlmZXN0GAEgASgJIhcKFUluc3RhbGxVcGRhdGVSZXNwb25zZSIVChNXYXRjaEluc3RhbGxSZXF1ZXN0ImUKFFdhdGNoSW5zdGFsbFJlc3BvbnNlEgwKBGxpbmUYASABKAkSDAoEZG9uZRgCIAEoCBIKCgJvaxgDIAEoCBIlCgVzdGFnZRgEIAEoDjIWLnBpbm5hLnYxLkluc3RhbGxTdGFnZSIPCg1SZWJvb3RSZXF1ZXN0IhAKDlJlYm9vdFJlc3BvbnNlIpABCgtXaWZpTmV0d29yaxIMCgRzc2lkGAEgASgJEhIKCnNpZ25hbF9kYm0YAiABKAUSFQoNZnJlcXVlbmN5X21oehgDIAEoDRIoCghzZWN1cml0eRgEIAEoDjIWLnBpbm5hLnYxLldpZmlTZWN1cml0eRINCgVzYXZlZBgFIAEoCBIPCgdjdXJyZW50GAYgASgIIhEKD1NjYW5XaWZpUmVxdWVzdCI7ChBTY2FuV2lmaVJlc3BvbnNlEicKCG5ldHdvcmtzGAEgAygLMhUucGlubmEudjEuV2lmaU5ldHdvcmsiZAoJU2F2ZWRXaWZpEgwKBHNzaWQYASABKAkSKAoIc2VjdXJpdHkYAiABKA4yFi5waW5uYS52MS5XaWZpU2VjdXJpdHkSDgoGaGlkZGVuGAMgASgIEg8KB2N1cnJlbnQYBCABKAgiEQoPTGlzdFdpZmlSZXF1ZXN0IqEBChBMaXN0V2lmaVJlc3BvbnNlEiIKBXNhdmVkGAEgAygLMhMucGlubmEudjEuU2F2ZWRXaWZpEg8KB2pvaW5pbmcYAiABKAgSLQoJbGFzdF9qb2luGAMgASgLMhoucGlubmEudjEuSm9pbldpZmlSZXNwb25zZRIpCgV0cmlhbBgEIAEoCzIaLnBpbm5hLnYxLkpvaW5XaWZpUmVzcG9uc2UibQoPSm9pbldpZmlSZXF1ZXN0EgwKBHNzaWQYASABKAkSKAoIc2VjdXJpdHkYAiABKA4yFi5waW5uYS52MS5XaWZpU2VjdXJpdHkSEgoKcGFzc3BocmFzZRgDIAEoCRIOCgZoaWRkZW4YBCABKAgitgEKEEpvaW5XaWZpUmVzcG9uc2USDAoEc3NpZBgBIAEoCRIiCgVzdGFnZRgCIAEoDjITLnBpbm5hLnYxLkpvaW5TdGFnZRIPCgdtZXNzYWdlGAMgASgJEg8KB2FkZHJlc3MYBCABKAkSJgoHZmFpbHVyZRgFIAEoDjIVLnBpbm5hLnYxLkpvaW5GYWlsdXJlEhAKCGZhbGxiYWNrGAYgASgJEhQKDGtlZXBfc2Vjb25kcxgHIAEoDSIfCg9LZWVwV2lmaVJlcXVlc3QSDAoEa2VlcBgBIAEoCCI+ChBLZWVwV2lmaVJlc3BvbnNlEioKBnJlc3VsdBgBIAEoCzIaLnBpbm5hLnYxLkpvaW5XaWZpUmVzcG9uc2UiIQoRRm9yZ2V0V2lmaVJlcXVlc3QSDAoEc3NpZBgBIAEoCSI4ChJGb3JnZXRXaWZpUmVzcG9uc2USIgoFc2F2ZWQYASADKAsyEy5waW5uYS52MS5TYXZlZFdpZmkiIwoTRmFjdG9yeVJlc2V0UmVxdWVzdBIMCgRuYW1lGAEgASgJIhYKFEZhY3RvcnlSZXNldFJlc3BvbnNlKmsKBVBoYXNlEhUKEVBIQVNFX1VOU1BFQ0lGSUVEEAASDgoKUEhBU0VfSURMRRABEhMKD1BIQVNFX0xJU1RFTklORxACEhIKDlBIQVNFX1RISU5LSU5HEAMSEgoOUEhBU0VfU1BFQUtJTkcQBCqkAgoUQ2FsaWJyYXRpb25FdmVudEtpbmQSJgoiQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9VTlNQRUNJRklFRBAAEh8KG0NBTElCUkFUSU9OX0VWRU5UX0tJTkRfV09LRRABEiEKHUNBTElCUkFUSU9OX0VWRU5UX0tJTkRfUkFJU0VEEAISIgoeQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9MT1dFUkVEEAMSKAokQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9OT1RISU5HX0hFQVJEEAQSKwonQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9OT19TRVRUSU5HX0hFTFBTEAUSJQohQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9XT1VMRF9VTkRPEAYq0QEKD0xhc3RCb290T3V0Y29tZRIhCh1MQVNUX0JPT1RfT1VUQ09NRV9VTlNQRUNJRklFRBAAEiAKHExBU1RfQk9PVF9PVVRDT01FX0NPTERfU1RBUlQQARIfChtMQVNUX0JPT1RfT1VUQ09NRV9SRVNUQVJURUQQAhIcChhMQVNUX0JPT1RfT1VUQ09NRV9SRVNDVUUQAxIdChlMQVNUX0JPT1RfT1VUQ09NRV9DUkFTSEVEEAQSGwoXTEFTVF9CT09UX09VVENPTUVfUkVTRVQQBSqyAQoMSW5zdGFsbFN0YWdlEh0KGUlOU1RBTExfU1RBR0VfVU5TUEVDSUZJRUQQABIXChNJTlNUQUxMX1NUQUdFX0NIRUNLEAESGgoWSU5TVEFMTF9TVEFHRV9ET1dOTE9BRBACEhcKE0lOU1RBTExfU1RBR0VfV1JJVEUQAxIYChRJTlNUQUxMX1NUQUdFX1ZFUklGWRAEEhsKF0lOU1RBTExfU1RBR0VfSU5TVEFMTEVEEAUqrAEKDFdpZmlTZWN1cml0eRIdChlXSUZJX1NFQ1VSSVRZX1VOU1BFQ0lGSUVEEAASFgoSV0lGSV9TRUNVUklUWV9PUEVOEAESGQoVV0lGSV9TRUNVUklUWV9XUEFfUFNLEAISFQoRV0lGSV9TRUNVUklUWV9TQUUQAxIcChhXSUZJX1NFQ1VSSVRZX0VOVEVSUFJJU0UQBBIVChFXSUZJX1NFQ1VSSVRZX1dFUBAFKp4BCglKb2luU3RhZ2USGgoWSk9JTl9TVEFHRV9VTlNQRUNJRklFRBAAEhkKFUpPSU5fU1RBR0VfQ09OTkVDVElORxABEhYKEkpPSU5fU1RBR0VfQUREUkVTUxACEhQKEEpPSU5fU1RBR0VfVFJJQUwQAxIVChFKT0lOX1NUQUdFX0pPSU5FRBAEEhUKEUpPSU5fU1RBR0VfRkFJTEVEEAUquAEKC0pvaW5GYWlsdXJlEhwKGEpPSU5fRkFJTFVSRV9VTlNQRUNJRklFRBAAEh8KG0pPSU5fRkFJTFVSRV9XUk9OR19QQVNTV09SRBABEhoKFkpPSU5fRkFJTFVSRV9OT1RfRk9VTkQQAhIbChdKT0lOX0ZBSUxVUkVfTk9fQUREUkVTUxADEhYKEkpPSU5fRkFJTFVSRV9PVEhFUhAEEhkKFUpPSU5fRkFJTFVSRV9OT1RfS0VQVBAFMugNCg1EZXZpY2VTZXJ2aWNlEkQKCUdldFN0YXR1cxIaLnBpbm5hLnYxLkdldFN0YXR1c1JlcXVlc3QaGy5waW5uYS52MS5HZXRTdGF0dXNSZXNwb25zZRJECglTZXRWb2x1bWUSGi5waW5uYS52MS5TZXRWb2x1bWVSZXF1ZXN0GhsucGlubmEudjEuU2V0Vm9sdW1lUmVzcG9uc2USPgoHU2V0TXV0ZRIYLnBpbm5hLnYxLlNldE11dGVSZXF1ZXN0GhkucGlubmEudjEuU2V0TXV0ZVJlc3BvbnNlElwKEVN0YXJ0Q29udmVyc2F0aW9uEiIucGlubmEudjEuU3RhcnRDb252ZXJzYXRpb25SZXF1ZXN0GiMucGlubmEudjEuU3RhcnRDb252ZXJzYXRpb25SZXNwb25zZRJZChBTdG9wQ29udmVyc2F0aW9uEiEucGlubmEudjEuU3RvcENvbnZlcnNhdGlvblJlcXVlc3QaIi5waW5uYS52MS5TdG9wQ29udmVyc2F0aW9uUmVzcG9uc2USPgoHTGVkVGVzdBIYLnBpbm5hLnYxLkxlZFRlc3RSZXF1ZXN0GhkucGlubmEudjEuTGVkVGVzdFJlc3BvbnNlElwKEUNsZWFyTm90aWZpY2F0aW9uEiIucGlubmEudjEuQ2xlYXJOb3RpZmljYXRpb25SZXF1ZXN0GiMucGlubmEudjEuQ2xlYXJOb3RpZmljYXRpb25SZXNwb25zZRJMCgtXYXRjaFN0YXR1cxIcLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVxdWVzdBodLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVzcG9uc2UwARJTCg5VcGRhdGVTZXR0aW5ncxIfLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVxdWVzdBogLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USWQoQU3RhcnRDYWxpYnJhdGlvbhIhLnBpbm5hLnYxLlN0YXJ0Q2FsaWJyYXRpb25SZXF1ZXN0GiIucGlubmEudjEuU3RhcnRDYWxpYnJhdGlvblJlc3BvbnNlElYKD1N0b3BDYWxpYnJhdGlvbhIgLnBpbm5hLnYxLlN0b3BDYWxpYnJhdGlvblJlcXVlc3QaIS5waW5uYS52MS5TdG9wQ2FsaWJyYXRpb25SZXNwb25zZRJHCgpHZXROZXR3b3JrEhsucGlubmEudjEuR2V0TmV0d29ya1JlcXVlc3QaHC5waW5uYS52MS5HZXROZXR3b3JrUmVzcG9uc2USRgoJV2F0Y2hMb2dzEhoucGlubmEudjEuV2F0Y2hMb2dzUmVxdWVzdBobLnBpbm5hLnYxLldhdGNoTG9nc1Jlc3BvbnNlMAESRwoKR2V0VXBkYXRlcxIbLnBpbm5hLnYxLkdldFVwZGF0ZXNSZXF1ZXN0GhwucGlubmEudjEuR2V0VXBkYXRlc1Jlc3BvbnNlElAKDUluc3RhbGxVcGRhdGUSHi5waW5uYS52MS5JbnN0YWxsVXBkYXRlUmVxdWVzdBofLnBpbm5hLnYxLkluc3RhbGxVcGRhdGVSZXNwb25zZRJPCgxXYXRjaEluc3RhbGwSHS5waW5uYS52MS5XYXRjaEluc3RhbGxSZXF1ZXN0Gh4ucGlubmEudjEuV2F0Y2hJbnN0YWxsUmVzcG9uc2UwARI7CgZSZWJvb3QSFy5waW5uYS52MS5SZWJvb3RSZXF1ZXN0GhgucGlubmEudjEuUmVib290UmVzcG9uc2USTQoMRmFjdG9yeVJlc2V0Eh0ucGlubmEudjEuRmFjdG9yeVJlc2V0UmVxdWVzdBoeLnBpbm5hLnYxLkZhY3RvcnlSZXNldFJlc3BvbnNlEkEKCFNjYW5XaWZpEhkucGlubmEudjEuU2NhbldpZmlSZXF1ZXN0GhoucGlubmEudjEuU2NhbldpZmlSZXNwb25zZRJBCghMaXN0V2lmaRIZLnBpbm5hLnYxLkxpc3RXaWZpUmVxdWVzdBoaLnBpbm5hLnYxLkxpc3RXaWZpUmVzcG9uc2USQwoISm9pbldpZmkSGS5waW5uYS52MS5Kb2luV2lmaVJlcXVlc3QaGi5waW5uYS52MS5Kb2luV2lmaVJlc3BvbnNlMAESQQoIS2VlcFdpZmkSGS5waW5uYS52MS5LZWVwV2lmaVJlcXVlc3QaGi5waW5uYS52MS5LZWVwV2lmaVJlc3BvbnNlEkcKCkZvcmdldFdpZmkSGy5waW5uYS52MS5Gb3JnZXRXaWZpUmVxdWVzdBocLnBpbm5hLnYxLkZvcmdldFdpZmlSZXNwb25zZWIGcHJvdG8z");
+  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIrwBCghXYWtlV29yZBIOCgZwaHJhc2UYASABKAkSDwoHZW5hYmxlZBgCIAEoCBIRCgl0aHJlc2hvbGQYAyABKAISIwoGcmVjZW50GAQgAygLMhMucGlubmEudjEuV2FrZUV2ZW50EioKC2NhbGlicmF0aW9uGAUgASgLMhUucGlubmEudjEuQ2FsaWJyYXRpb24SKwoJYXZhaWxhYmxlGAYgAygLMhgucGlubmEudjEuV2FrZVdvcmRPcHRpb24iLAoOV2FrZVdvcmRPcHRpb24SCgoCaWQYASABKAkSDgoGcGhyYXNlGAIgASgJIhoKC1dha2VXb3JkSWRzEgsKA2lkcxgBIAMoCSJPCgtDYWxpYnJhdGlvbhIUCgxzdGFydGVkX2Zyb20YASABKA0SKgoGZXZlbnRzGAIgAygLMhoucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudCKTAQoQQ2FsaWJyYXRpb25FdmVudBIKCgJpZBgBIAEoDRIsCgRraW5kGAIgASgOMh4ucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudEtpbmQSDQoFcmFpc2UYAyABKAgSEgoFc2NvcmUYBCABKAJIAIgBARIMCgRmcm9tGAUgASgNEgoKAnRvGAYgASgNQggKBl9zY29yZSJ8CglXYWtlRXZlbnQSDwoHdW5peF9tcxgBIAEoBBIMCgR3b2tlGAIgASgIEg0KBXNjb3JlGAMgASgCEhcKCndha2VzX2Zyb20YBCABKA1IAIgBARIZChFyZWFjaGVkX3RocmVzaG9sZBgFIAEoCEINCgtfd2FrZXNfZnJvbSLFBAoGU3RhdHVzEg8KB3ZlcnNpb24YASABKAkSDAoEbmFtZRgCIAEoCRILCgNtYWMYAyABKAkSFgoOdXB0aW1lX3NlY29uZHMYBCABKAQSHgoFcGhhc2UYBSABKA4yDy5waW5uYS52MS5QaGFzZRINCgVtdXRlZBgGIAEoCBIWCg5oYXJkd2FyZV9tdXRlZBgHIAEoCBIWCg5zb2Z0d2FyZV9tdXRlZBgIIAEoCBIOCgZ2b2x1bWUYCSABKA0SFAoMaGFfY29ubmVjdGVkGAogASgIEhgKEHZvaWNlX3N1YnNjcmliZWQYCyABKAgSJQoJd2FrZV93b3JkGAwgASgLMhIucGlubmEudjEuV2FrZVdvcmQSHwoGdGltZXJzGA0gAygLMg8ucGlubmEudjEuVGltZXISFQoNYXVkaW9fYmFja2VuZBgOIAEoCRITCgtsZWRfYmFja2VuZBgPIAEoCRIVCg1hbGFybV9yaW5naW5nGBAgASgIEiQKCHNldHRpbmdzGBEgASgLMhIucGlubmEudjEuU2V0dGluZ3MSDQoFbW9kZWwYEiABKAkSFAoMbm90aWZpY2F0aW9uGBMgASgIEhYKDnZpcnR1YWxfZGV2aWNlGBQgASgIEiUKCWxhc3RfYm9vdBgVIAEoCzISLnBpbm5hLnYxLkxhc3RCb290EhUKDWFwaV9lbmNyeXB0ZWQYFiABKAgSGgoSYXBpX2tleV9mcm9tX2ltYWdlGBcgASgIEhAKCGxlZF90ZXN0GBggASgIIlcKCExhc3RCb290EioKB291dGNvbWUYASABKA4yGS5waW5uYS52MS5MYXN0Qm9vdE91dGNvbWUSDgoGcmVhc29uGAIgASgJEg8KB3N1bW1hcnkYAyABKAkiwQEKCFNldHRpbmdzEhEKCXdha2Vfd29yZBgCIAEoCBIYChB3YWtlX3NlbnNpdGl2aXR5GAMgASgNEhYKDmxlZF9icmlnaHRuZXNzGAQgASgNEhIKCndha2Vfd29yZHMYBSADKAkSFQoNZnJpZW5kbHlfbmFtZRgGIAEoCRIUCgxkZWZhdWx0X25hbWUYByABKAgSEgoKd2FrZV9zb3VuZBgIIAEoCBIVCg1hbGxvd2VkX2hvc3RzGAkgAygJSgQIARACIhIKEEdldFN0YXR1c1JlcXVlc3QiNQoRR2V0U3RhdHVzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIiMKEFNldFZvbHVtZVJlcXVlc3QSDwoHcGVyY2VudBgBIAEoDSI1ChFTZXRWb2x1bWVSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiHwoOU2V0TXV0ZVJlcXVlc3QSDQoFbXV0ZWQYASABKAgiMwoPU2V0TXV0ZVJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIaChhTdGFydENvbnZlcnNhdGlvblJlcXVlc3QiPQoZU3RhcnRDb252ZXJzYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGQoXU3RvcENvbnZlcnNhdGlvblJlcXVlc3QiPAoYU3RvcENvbnZlcnNhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIQCg5MZWRUZXN0UmVxdWVzdCIRCg9MZWRUZXN0UmVzcG9uc2UiGgoYQ2xlYXJOb3RpZmljYXRpb25SZXF1ZXN0Ij0KGUNsZWFyTm90aWZpY2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhQKEldhdGNoU3RhdHVzUmVxdWVzdCI3ChNXYXRjaFN0YXR1c1Jlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyISChBXYXRjaFJpbmdSZXF1ZXN0IiIKEVdhdGNoUmluZ1Jlc3BvbnNlEg0KBWZyYW1lGAEgASgMItQCChVVcGRhdGVTZXR0aW5nc1JlcXVlc3QSFgoJd2FrZV93b3JkGAIgASgISACIAQESHQoQd2FrZV9zZW5zaXRpdml0eRgDIAEoDUgBiAEBEhsKDmxlZF9icmlnaHRuZXNzGAQgASgNSAKIAQESKQoKd2FrZV93b3JkcxgFIAEoCzIVLnBpbm5hLnYxLldha2VXb3JkSWRzEhoKDWZyaWVuZGx5X25hbWUYBiABKAlIA4gBARIXCgp3YWtlX3NvdW5kGAcgASgISASIAQESKgoNYWxsb3dlZF9ob3N0cxgIIAEoCzITLnBpbm5hLnYxLkhvc3ROYW1lc0IMCgpfd2FrZV93b3JkQhMKEV93YWtlX3NlbnNpdGl2aXR5QhEKD19sZWRfYnJpZ2h0bmVzc0IQCg5fZnJpZW5kbHlfbmFtZUINCgtfd2FrZV9zb3VuZEoECAEQAiIaCglIb3N0TmFtZXMSDQoFbmFtZXMYASADKAkiOgoWVXBkYXRlU2V0dGluZ3NSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGQoXU3RhcnRDYWxpYnJhdGlvblJlcXVlc3QiPAoYU3RhcnRDYWxpYnJhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIYChZTdG9wQ2FsaWJyYXRpb25SZXF1ZXN0IjsKF1N0b3BDYWxpYnJhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyITChFHZXROZXR3b3JrUmVxdWVzdCJTCgRXaWZpEgwKBHNzaWQYASABKAkSEgoKc2lnbmFsX2RibRgCIAEoBRIVCg1mcmVxdWVuY3lfbWh6GAMgASgNEhIKCnR4X2JpdHJhdGUYBCABKAkidQoJSW50ZXJmYWNlEgwKBG5hbWUYASABKAkSCwoDbWFjGAIgASgJEgoKAnVwGAMgASgIEhEKCWFkZHJlc3NlcxgEIAMoCRIcCgR3aWZpGAUgASgLMg4ucGlubmEudjEuV2lmaRIQCgh3aXJlbGVzcxgGIAEoCCJPChJHZXROZXR3b3JrUmVzcG9uc2USEAoIaG9zdG5hbWUYASABKAkSJwoKaW50ZXJmYWNlcxgCIAMoCzITLnBpbm5hLnYxLkludGVyZmFjZSISChBXYXRjaExvZ3NSZXF1ZXN0IkoKB0xvZ0xpbmUSDwoHdW5peF9tcxgBIAEoBBINCgVsZXZlbBgCIAEoCRIOCgZ0YXJnZXQYAyABKAkSDwoHbWVzc2FnZRgEIAEoCSI0ChFXYXRjaExvZ3NSZXNwb25zZRIfCgRsaW5lGAEgASgLMhEucGlubmEudjEuTG9nTGluZSITChFHZXRVcGRhdGVzUmVxdWVzdCJoCgRTbG90EgwKBG5hbWUYASABKAkSDwoHdmVyc2lvbhgCIAEoCRINCgVzdGF0ZRgDIAEoCRISCgp0cmllc19sZWZ0GAQgASgNEg4KBmFjdGl2ZRgFIAEoCBIOCgZib290ZWQYBiABKAgi2QEKEkdldFVwZGF0ZXNSZXNwb25zZRIRCglhdmFpbGFibGUYASABKAgSGgoSdW5hdmFpbGFibGVfcmVhc29uGAIgASgJEhYKDmJvb3RlZF92ZXJzaW9uGAMgASgJEh0KBXNsb3RzGAQgAygLMg4ucGlubmEudjEuU2xvdBISCgppbnN0YWxsaW5nGAUgASgIEi0KDGxhc3RfaW5zdGFsbBgGIAEoCzIXLnBpbm5hLnYxLkluc3RhbGxSZXN1bHQSGgoSc3VnZ2VzdGVkX21hbmlmZXN0GAcgASgJIloKDUluc3RhbGxSZXN1bHQSCgoCb2sYASABKAgSEAoIbWFuaWZlc3QYAiABKAkSGAoQZmluaXNoZWRfdW5peF9tcxgDIAEoBBIRCglsYXN0X2xpbmUYBCABKAkiKAoUSW5zdGFsbFVwZGF0ZVJlcXVlc3QSEAoIbWFuaWZlc3QYASABKAkiFwoVSW5zdGFsbFVwZGF0ZVJlc3BvbnNlIhUKE1dhdGNoSW5zdGFsbFJlcXVlc3QiZQoUV2F0Y2hJbnN0YWxsUmVzcG9uc2USDAoEbGluZRgBIAEoCRIMCgRkb25lGAIgASgIEgoKAm9rGAMgASgIEiUKBXN0YWdlGAQgASgOMhYucGlubmEudjEuSW5zdGFsbFN0YWdlIg8KDVJlYm9vdFJlcXVlc3QiEAoOUmVib290UmVzcG9uc2UikAEKC1dpZmlOZXR3b3JrEgwKBHNzaWQYASABKAkSEgoKc2lnbmFsX2RibRgCIAEoBRIVCg1mcmVxdWVuY3lfbWh6GAMgASgNEigKCHNlY3VyaXR5GAQgASgOMhYucGlubmEudjEuV2lmaVNlY3VyaXR5Eg0KBXNhdmVkGAUgASgIEg8KB2N1cnJlbnQYBiABKAgiEQoPU2NhbldpZmlSZXF1ZXN0IjsKEFNjYW5XaWZpUmVzcG9uc2USJwoIbmV0d29ya3MYASADKAsyFS5waW5uYS52MS5XaWZpTmV0d29yayJkCglTYXZlZFdpZmkSDAoEc3NpZBgBIAEoCRIoCghzZWN1cml0eRgCIAEoDjIWLnBpbm5hLnYxLldpZmlTZWN1cml0eRIOCgZoaWRkZW4YAyABKAgSDwoHY3VycmVudBgEIAEoCCIRCg9MaXN0V2lmaVJlcXVlc3QioQEKEExpc3RXaWZpUmVzcG9uc2USIgoFc2F2ZWQYASADKAsyEy5waW5uYS52MS5TYXZlZFdpZmkSDwoHam9pbmluZxgCIAEoCBItCglsYXN0X2pvaW4YAyABKAsyGi5waW5uYS52MS5Kb2luV2lmaVJlc3BvbnNlEikKBXRyaWFsGAQgASgLMhoucGlubmEudjEuSm9pbldpZmlSZXNwb25zZSJtCg9Kb2luV2lmaVJlcXVlc3QSDAoEc3NpZBgBIAEoCRIoCghzZWN1cml0eRgCIAEoDjIWLnBpbm5hLnYxLldpZmlTZWN1cml0eRISCgpwYXNzcGhyYXNlGAMgASgJEg4KBmhpZGRlbhgEIAEoCCK2AQoQSm9pbldpZmlSZXNwb25zZRIMCgRzc2lkGAEgASgJEiIKBXN0YWdlGAIgASgOMhMucGlubmEudjEuSm9pblN0YWdlEg8KB21lc3NhZ2UYAyABKAkSDwoHYWRkcmVzcxgEIAEoCRImCgdmYWlsdXJlGAUgASgOMhUucGlubmEudjEuSm9pbkZhaWx1cmUSEAoIZmFsbGJhY2sYBiABKAkSFAoMa2VlcF9zZWNvbmRzGAcgASgNIh8KD0tlZXBXaWZpUmVxdWVzdBIMCgRrZWVwGAEgASgIIj4KEEtlZXBXaWZpUmVzcG9uc2USKgoGcmVzdWx0GAEgASgLMhoucGlubmEudjEuSm9pbldpZmlSZXNwb25zZSIhChFGb3JnZXRXaWZpUmVxdWVzdBIMCgRzc2lkGAEgASgJIjgKEkZvcmdldFdpZmlSZXNwb25zZRIiCgVzYXZlZBgBIAMoCzITLnBpbm5hLnYxLlNhdmVkV2lmaSIjChNGYWN0b3J5UmVzZXRSZXF1ZXN0EgwKBG5hbWUYASABKAkiFgoURmFjdG9yeVJlc2V0UmVzcG9uc2UqawoFUGhhc2USFQoRUEhBU0VfVU5TUEVDSUZJRUQQABIOCgpQSEFTRV9JRExFEAESEwoPUEhBU0VfTElTVEVOSU5HEAISEgoOUEhBU0VfVEhJTktJTkcQAxISCg5QSEFTRV9TUEVBS0lORxAEKqQCChRDYWxpYnJhdGlvbkV2ZW50S2luZBImCiJDQUxJQlJBVElPTl9FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASHwobQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9XT0tFEAESIQodQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9SQUlTRUQQAhIiCh5DQUxJQlJBVElPTl9FVkVOVF9LSU5EX0xPV0VSRUQQAxIoCiRDQUxJQlJBVElPTl9FVkVOVF9LSU5EX05PVEhJTkdfSEVBUkQQBBIrCidDQUxJQlJBVElPTl9FVkVOVF9LSU5EX05PX1NFVFRJTkdfSEVMUFMQBRIlCiFDQUxJQlJBVElPTl9FVkVOVF9LSU5EX1dPVUxEX1VORE8QBirRAQoPTGFzdEJvb3RPdXRjb21lEiEKHUxBU1RfQk9PVF9PVVRDT01FX1VOU1BFQ0lGSUVEEAASIAocTEFTVF9CT09UX09VVENPTUVfQ09MRF9TVEFSVBABEh8KG0xBU1RfQk9PVF9PVVRDT01FX1JFU1RBUlRFRBACEhwKGExBU1RfQk9PVF9PVVRDT01FX1JFU0NVRRADEh0KGUxBU1RfQk9PVF9PVVRDT01FX0NSQVNIRUQQBBIbChdMQVNUX0JPT1RfT1VUQ09NRV9SRVNFVBAFKrIBCgxJbnN0YWxsU3RhZ2USHQoZSU5TVEFMTF9TVEFHRV9VTlNQRUNJRklFRBAAEhcKE0lOU1RBTExfU1RBR0VfQ0hFQ0sQARIaChZJTlNUQUxMX1NUQUdFX0RPV05MT0FEEAISFwoTSU5TVEFMTF9TVEFHRV9XUklURRADEhgKFElOU1RBTExfU1RBR0VfVkVSSUZZEAQSGwoXSU5TVEFMTF9TVEFHRV9JTlNUQUxMRUQQBSqsAQoMV2lmaVNlY3VyaXR5Eh0KGVdJRklfU0VDVVJJVFlfVU5TUEVDSUZJRUQQABIWChJXSUZJX1NFQ1VSSVRZX09QRU4QARIZChVXSUZJX1NFQ1VSSVRZX1dQQV9QU0sQAhIVChFXSUZJX1NFQ1VSSVRZX1NBRRADEhwKGFdJRklfU0VDVVJJVFlfRU5URVJQUklTRRAEEhUKEVdJRklfU0VDVVJJVFlfV0VQEAUqngEKCUpvaW5TdGFnZRIaChZKT0lOX1NUQUdFX1VOU1BFQ0lGSUVEEAASGQoVSk9JTl9TVEFHRV9DT05ORUNUSU5HEAESFgoSSk9JTl9TVEFHRV9BRERSRVNTEAISFAoQSk9JTl9TVEFHRV9UUklBTBADEhUKEUpPSU5fU1RBR0VfSk9JTkVEEAQSFQoRSk9JTl9TVEFHRV9GQUlMRUQQBSq4AQoLSm9pbkZhaWx1cmUSHAoYSk9JTl9GQUlMVVJFX1VOU1BFQ0lGSUVEEAASHwobSk9JTl9GQUlMVVJFX1dST05HX1BBU1NXT1JEEAESGgoWSk9JTl9GQUlMVVJFX05PVF9GT1VORBACEhsKF0pPSU5fRkFJTFVSRV9OT19BRERSRVNTEAMSFgoSSk9JTl9GQUlMVVJFX09USEVSEAQSGQoVSk9JTl9GQUlMVVJFX05PVF9LRVBUEAUysA4KDURldmljZVNlcnZpY2USRAoJR2V0U3RhdHVzEhoucGlubmEudjEuR2V0U3RhdHVzUmVxdWVzdBobLnBpbm5hLnYxLkdldFN0YXR1c1Jlc3BvbnNlEkQKCVNldFZvbHVtZRIaLnBpbm5hLnYxLlNldFZvbHVtZVJlcXVlc3QaGy5waW5uYS52MS5TZXRWb2x1bWVSZXNwb25zZRI+CgdTZXRNdXRlEhgucGlubmEudjEuU2V0TXV0ZVJlcXVlc3QaGS5waW5uYS52MS5TZXRNdXRlUmVzcG9uc2USXAoRU3RhcnRDb252ZXJzYXRpb24SIi5waW5uYS52MS5TdGFydENvbnZlcnNhdGlvblJlcXVlc3QaIy5waW5uYS52MS5TdGFydENvbnZlcnNhdGlvblJlc3BvbnNlElkKEFN0b3BDb252ZXJzYXRpb24SIS5waW5uYS52MS5TdG9wQ29udmVyc2F0aW9uUmVxdWVzdBoiLnBpbm5hLnYxLlN0b3BDb252ZXJzYXRpb25SZXNwb25zZRI+CgdMZWRUZXN0EhgucGlubmEudjEuTGVkVGVzdFJlcXVlc3QaGS5waW5uYS52MS5MZWRUZXN0UmVzcG9uc2USXAoRQ2xlYXJOb3RpZmljYXRpb24SIi5waW5uYS52MS5DbGVhck5vdGlmaWNhdGlvblJlcXVlc3QaIy5waW5uYS52MS5DbGVhck5vdGlmaWNhdGlvblJlc3BvbnNlEkwKC1dhdGNoU3RhdHVzEhwucGlubmEudjEuV2F0Y2hTdGF0dXNSZXF1ZXN0Gh0ucGlubmEudjEuV2F0Y2hTdGF0dXNSZXNwb25zZTABEkYKCVdhdGNoUmluZxIaLnBpbm5hLnYxLldhdGNoUmluZ1JlcXVlc3QaGy5waW5uYS52MS5XYXRjaFJpbmdSZXNwb25zZTABElMKDlVwZGF0ZVNldHRpbmdzEh8ucGlubmEudjEuVXBkYXRlU2V0dGluZ3NSZXF1ZXN0GiAucGlubmEudjEuVXBkYXRlU2V0dGluZ3NSZXNwb25zZRJZChBTdGFydENhbGlicmF0aW9uEiEucGlubmEudjEuU3RhcnRDYWxpYnJhdGlvblJlcXVlc3QaIi5waW5uYS52MS5TdGFydENhbGlicmF0aW9uUmVzcG9uc2USVgoPU3RvcENhbGlicmF0aW9uEiAucGlubmEudjEuU3RvcENhbGlicmF0aW9uUmVxdWVzdBohLnBpbm5hLnYxLlN0b3BDYWxpYnJhdGlvblJlc3BvbnNlEkcKCkdldE5ldHdvcmsSGy5waW5uYS52MS5HZXROZXR3b3JrUmVxdWVzdBocLnBpbm5hLnYxLkdldE5ldHdvcmtSZXNwb25zZRJGCglXYXRjaExvZ3MSGi5waW5uYS52MS5XYXRjaExvZ3NSZXF1ZXN0GhsucGlubmEudjEuV2F0Y2hMb2dzUmVzcG9uc2UwARJHCgpHZXRVcGRhdGVzEhsucGlubmEudjEuR2V0VXBkYXRlc1JlcXVlc3QaHC5waW5uYS52MS5HZXRVcGRhdGVzUmVzcG9uc2USUAoNSW5zdGFsbFVwZGF0ZRIeLnBpbm5hLnYxLkluc3RhbGxVcGRhdGVSZXF1ZXN0Gh8ucGlubmEudjEuSW5zdGFsbFVwZGF0ZVJlc3BvbnNlEk8KDFdhdGNoSW5zdGFsbBIdLnBpbm5hLnYxLldhdGNoSW5zdGFsbFJlcXVlc3QaHi5waW5uYS52MS5XYXRjaEluc3RhbGxSZXNwb25zZTABEjsKBlJlYm9vdBIXLnBpbm5hLnYxLlJlYm9vdFJlcXVlc3QaGC5waW5uYS52MS5SZWJvb3RSZXNwb25zZRJNCgxGYWN0b3J5UmVzZXQSHS5waW5uYS52MS5GYWN0b3J5UmVzZXRSZXF1ZXN0Gh4ucGlubmEudjEuRmFjdG9yeVJlc2V0UmVzcG9uc2USQQoIU2NhbldpZmkSGS5waW5uYS52MS5TY2FuV2lmaVJlcXVlc3QaGi5waW5uYS52MS5TY2FuV2lmaVJlc3BvbnNlEkEKCExpc3RXaWZpEhkucGlubmEudjEuTGlzdFdpZmlSZXF1ZXN0GhoucGlubmEudjEuTGlzdFdpZmlSZXNwb25zZRJDCghKb2luV2lmaRIZLnBpbm5hLnYxLkpvaW5XaWZpUmVxdWVzdBoaLnBpbm5hLnYxLkpvaW5XaWZpUmVzcG9uc2UwARJBCghLZWVwV2lmaRIZLnBpbm5hLnYxLktlZXBXaWZpUmVxdWVzdBoaLnBpbm5hLnYxLktlZXBXaWZpUmVzcG9uc2USRwoKRm9yZ2V0V2lmaRIbLnBpbm5hLnYxLkZvcmdldFdpZmlSZXF1ZXN0GhwucGlubmEudjEuRm9yZ2V0V2lmaVJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * @generated from message pinna.v1.Timer
@@ -799,6 +799,39 @@ export const WatchStatusResponseSchema: GenMessage<WatchStatusResponse> = /*@__P
   messageDesc(file_pinna_v1_device, 25);
 
 /**
+ * @generated from message pinna.v1.WatchRingRequest
+ */
+export type WatchRingRequest = Message<"pinna.v1.WatchRingRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.WatchRingRequest.
+ * Use `create(WatchRingRequestSchema)` to create a new message.
+ */
+export const WatchRingRequestSchema: GenMessage<WatchRingRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 26);
+
+/**
+ * @generated from message pinna.v1.WatchRingResponse
+ */
+export type WatchRingResponse = Message<"pinna.v1.WatchRingResponse"> & {
+  /**
+   * The 12 pixels in ring order (pixels 10 and 11 straddle the front), 3
+   * bytes each: red, green, blue, with the LED brightness setting applied.
+   *
+   * @generated from field: bytes frame = 1;
+   */
+  frame: Uint8Array;
+};
+
+/**
+ * Describes the message pinna.v1.WatchRingResponse.
+ * Use `create(WatchRingResponseSchema)` to create a new message.
+ */
+export const WatchRingResponseSchema: GenMessage<WatchRingResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 27);
+
+/**
  * Only the fields that are set change.
  *
  * @generated from message pinna.v1.UpdateSettingsRequest
@@ -854,7 +887,7 @@ export type UpdateSettingsRequest = Message<"pinna.v1.UpdateSettingsRequest"> & 
  * Use `create(UpdateSettingsRequestSchema)` to create a new message.
  */
 export const UpdateSettingsRequestSchema: GenMessage<UpdateSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 26);
+  messageDesc(file_pinna_v1_device, 28);
 
 /**
  * A list of host names, so that UpdateSettingsRequest can tell "unchanged"
@@ -874,7 +907,7 @@ export type HostNames = Message<"pinna.v1.HostNames"> & {
  * Use `create(HostNamesSchema)` to create a new message.
  */
 export const HostNamesSchema: GenMessage<HostNames> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 27);
+  messageDesc(file_pinna_v1_device, 29);
 
 /**
  * @generated from message pinna.v1.UpdateSettingsResponse
@@ -891,7 +924,7 @@ export type UpdateSettingsResponse = Message<"pinna.v1.UpdateSettingsResponse"> 
  * Use `create(UpdateSettingsResponseSchema)` to create a new message.
  */
 export const UpdateSettingsResponseSchema: GenMessage<UpdateSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 28);
+  messageDesc(file_pinna_v1_device, 30);
 
 /**
  * @generated from message pinna.v1.StartCalibrationRequest
@@ -904,7 +937,7 @@ export type StartCalibrationRequest = Message<"pinna.v1.StartCalibrationRequest"
  * Use `create(StartCalibrationRequestSchema)` to create a new message.
  */
 export const StartCalibrationRequestSchema: GenMessage<StartCalibrationRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 29);
+  messageDesc(file_pinna_v1_device, 31);
 
 /**
  * @generated from message pinna.v1.StartCalibrationResponse
@@ -921,7 +954,7 @@ export type StartCalibrationResponse = Message<"pinna.v1.StartCalibrationRespons
  * Use `create(StartCalibrationResponseSchema)` to create a new message.
  */
 export const StartCalibrationResponseSchema: GenMessage<StartCalibrationResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 30);
+  messageDesc(file_pinna_v1_device, 32);
 
 /**
  * @generated from message pinna.v1.StopCalibrationRequest
@@ -934,7 +967,7 @@ export type StopCalibrationRequest = Message<"pinna.v1.StopCalibrationRequest"> 
  * Use `create(StopCalibrationRequestSchema)` to create a new message.
  */
 export const StopCalibrationRequestSchema: GenMessage<StopCalibrationRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 31);
+  messageDesc(file_pinna_v1_device, 33);
 
 /**
  * @generated from message pinna.v1.StopCalibrationResponse
@@ -951,7 +984,7 @@ export type StopCalibrationResponse = Message<"pinna.v1.StopCalibrationResponse"
  * Use `create(StopCalibrationResponseSchema)` to create a new message.
  */
 export const StopCalibrationResponseSchema: GenMessage<StopCalibrationResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 32);
+  messageDesc(file_pinna_v1_device, 34);
 
 /**
  * @generated from message pinna.v1.GetNetworkRequest
@@ -964,7 +997,7 @@ export type GetNetworkRequest = Message<"pinna.v1.GetNetworkRequest"> & {
  * Use `create(GetNetworkRequestSchema)` to create a new message.
  */
 export const GetNetworkRequestSchema: GenMessage<GetNetworkRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 33);
+  messageDesc(file_pinna_v1_device, 35);
 
 /**
  * @generated from message pinna.v1.Wifi
@@ -1000,7 +1033,7 @@ export type Wifi = Message<"pinna.v1.Wifi"> & {
  * Use `create(WifiSchema)` to create a new message.
  */
 export const WifiSchema: GenMessage<Wifi> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 34);
+  messageDesc(file_pinna_v1_device, 36);
 
 /**
  * @generated from message pinna.v1.Interface
@@ -1048,7 +1081,7 @@ export type Interface = Message<"pinna.v1.Interface"> & {
  * Use `create(InterfaceSchema)` to create a new message.
  */
 export const InterfaceSchema: GenMessage<Interface> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 35);
+  messageDesc(file_pinna_v1_device, 37);
 
 /**
  * @generated from message pinna.v1.GetNetworkResponse
@@ -1070,7 +1103,7 @@ export type GetNetworkResponse = Message<"pinna.v1.GetNetworkResponse"> & {
  * Use `create(GetNetworkResponseSchema)` to create a new message.
  */
 export const GetNetworkResponseSchema: GenMessage<GetNetworkResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 36);
+  messageDesc(file_pinna_v1_device, 38);
 
 /**
  * @generated from message pinna.v1.WatchLogsRequest
@@ -1083,7 +1116,7 @@ export type WatchLogsRequest = Message<"pinna.v1.WatchLogsRequest"> & {
  * Use `create(WatchLogsRequestSchema)` to create a new message.
  */
 export const WatchLogsRequestSchema: GenMessage<WatchLogsRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 37);
+  messageDesc(file_pinna_v1_device, 39);
 
 /**
  * @generated from message pinna.v1.LogLine
@@ -1123,7 +1156,7 @@ export type LogLine = Message<"pinna.v1.LogLine"> & {
  * Use `create(LogLineSchema)` to create a new message.
  */
 export const LogLineSchema: GenMessage<LogLine> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 38);
+  messageDesc(file_pinna_v1_device, 40);
 
 /**
  * @generated from message pinna.v1.WatchLogsResponse
@@ -1140,7 +1173,7 @@ export type WatchLogsResponse = Message<"pinna.v1.WatchLogsResponse"> & {
  * Use `create(WatchLogsResponseSchema)` to create a new message.
  */
 export const WatchLogsResponseSchema: GenMessage<WatchLogsResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 39);
+  messageDesc(file_pinna_v1_device, 41);
 
 /**
  * @generated from message pinna.v1.GetUpdatesRequest
@@ -1153,7 +1186,7 @@ export type GetUpdatesRequest = Message<"pinna.v1.GetUpdatesRequest"> & {
  * Use `create(GetUpdatesRequestSchema)` to create a new message.
  */
 export const GetUpdatesRequestSchema: GenMessage<GetUpdatesRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 40);
+  messageDesc(file_pinna_v1_device, 42);
 
 /**
  * @generated from message pinna.v1.Slot
@@ -1205,7 +1238,7 @@ export type Slot = Message<"pinna.v1.Slot"> & {
  * Use `create(SlotSchema)` to create a new message.
  */
 export const SlotSchema: GenMessage<Slot> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 41);
+  messageDesc(file_pinna_v1_device, 43);
 
 /**
  * @generated from message pinna.v1.GetUpdatesResponse
@@ -1263,7 +1296,7 @@ export type GetUpdatesResponse = Message<"pinna.v1.GetUpdatesResponse"> & {
  * Use `create(GetUpdatesResponseSchema)` to create a new message.
  */
 export const GetUpdatesResponseSchema: GenMessage<GetUpdatesResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 42);
+  messageDesc(file_pinna_v1_device, 44);
 
 /**
  * @generated from message pinna.v1.InstallResult
@@ -1299,7 +1332,7 @@ export type InstallResult = Message<"pinna.v1.InstallResult"> & {
  * Use `create(InstallResultSchema)` to create a new message.
  */
 export const InstallResultSchema: GenMessage<InstallResult> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 43);
+  messageDesc(file_pinna_v1_device, 45);
 
 /**
  * @generated from message pinna.v1.InstallUpdateRequest
@@ -1318,7 +1351,7 @@ export type InstallUpdateRequest = Message<"pinna.v1.InstallUpdateRequest"> & {
  * Use `create(InstallUpdateRequestSchema)` to create a new message.
  */
 export const InstallUpdateRequestSchema: GenMessage<InstallUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 44);
+  messageDesc(file_pinna_v1_device, 46);
 
 /**
  * @generated from message pinna.v1.InstallUpdateResponse
@@ -1331,7 +1364,7 @@ export type InstallUpdateResponse = Message<"pinna.v1.InstallUpdateResponse"> & 
  * Use `create(InstallUpdateResponseSchema)` to create a new message.
  */
 export const InstallUpdateResponseSchema: GenMessage<InstallUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 45);
+  messageDesc(file_pinna_v1_device, 47);
 
 /**
  * @generated from message pinna.v1.WatchInstallRequest
@@ -1344,7 +1377,7 @@ export type WatchInstallRequest = Message<"pinna.v1.WatchInstallRequest"> & {
  * Use `create(WatchInstallRequestSchema)` to create a new message.
  */
 export const WatchInstallRequestSchema: GenMessage<WatchInstallRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 46);
+  messageDesc(file_pinna_v1_device, 48);
 
 /**
  * @generated from message pinna.v1.WatchInstallResponse
@@ -1382,7 +1415,7 @@ export type WatchInstallResponse = Message<"pinna.v1.WatchInstallResponse"> & {
  * Use `create(WatchInstallResponseSchema)` to create a new message.
  */
 export const WatchInstallResponseSchema: GenMessage<WatchInstallResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 47);
+  messageDesc(file_pinna_v1_device, 49);
 
 /**
  * @generated from message pinna.v1.RebootRequest
@@ -1395,7 +1428,7 @@ export type RebootRequest = Message<"pinna.v1.RebootRequest"> & {
  * Use `create(RebootRequestSchema)` to create a new message.
  */
 export const RebootRequestSchema: GenMessage<RebootRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 48);
+  messageDesc(file_pinna_v1_device, 50);
 
 /**
  * @generated from message pinna.v1.RebootResponse
@@ -1408,7 +1441,7 @@ export type RebootResponse = Message<"pinna.v1.RebootResponse"> & {
  * Use `create(RebootResponseSchema)` to create a new message.
  */
 export const RebootResponseSchema: GenMessage<RebootResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 49);
+  messageDesc(file_pinna_v1_device, 51);
 
 /**
  * A network in range: the strongest access point with that name.
@@ -1458,7 +1491,7 @@ export type WifiNetwork = Message<"pinna.v1.WifiNetwork"> & {
  * Use `create(WifiNetworkSchema)` to create a new message.
  */
 export const WifiNetworkSchema: GenMessage<WifiNetwork> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 50);
+  messageDesc(file_pinna_v1_device, 52);
 
 /**
  * @generated from message pinna.v1.ScanWifiRequest
@@ -1471,7 +1504,7 @@ export type ScanWifiRequest = Message<"pinna.v1.ScanWifiRequest"> & {
  * Use `create(ScanWifiRequestSchema)` to create a new message.
  */
 export const ScanWifiRequestSchema: GenMessage<ScanWifiRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 51);
+  messageDesc(file_pinna_v1_device, 53);
 
 /**
  * @generated from message pinna.v1.ScanWifiResponse
@@ -1491,7 +1524,7 @@ export type ScanWifiResponse = Message<"pinna.v1.ScanWifiResponse"> & {
  * Use `create(ScanWifiResponseSchema)` to create a new message.
  */
 export const ScanWifiResponseSchema: GenMessage<ScanWifiResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 52);
+  messageDesc(file_pinna_v1_device, 54);
 
 /**
  * A saved network. Its passphrase never leaves the satellite.
@@ -1529,7 +1562,7 @@ export type SavedWifi = Message<"pinna.v1.SavedWifi"> & {
  * Use `create(SavedWifiSchema)` to create a new message.
  */
 export const SavedWifiSchema: GenMessage<SavedWifi> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 53);
+  messageDesc(file_pinna_v1_device, 55);
 
 /**
  * @generated from message pinna.v1.ListWifiRequest
@@ -1542,7 +1575,7 @@ export type ListWifiRequest = Message<"pinna.v1.ListWifiRequest"> & {
  * Use `create(ListWifiRequestSchema)` to create a new message.
  */
 export const ListWifiRequestSchema: GenMessage<ListWifiRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 54);
+  messageDesc(file_pinna_v1_device, 56);
 
 /**
  * @generated from message pinna.v1.ListWifiResponse
@@ -1582,7 +1615,7 @@ export type ListWifiResponse = Message<"pinna.v1.ListWifiResponse"> & {
  * Use `create(ListWifiResponseSchema)` to create a new message.
  */
 export const ListWifiResponseSchema: GenMessage<ListWifiResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 55);
+  messageDesc(file_pinna_v1_device, 57);
 
 /**
  * @generated from message pinna.v1.JoinWifiRequest
@@ -1623,7 +1656,7 @@ export type JoinWifiRequest = Message<"pinna.v1.JoinWifiRequest"> & {
  * Use `create(JoinWifiRequestSchema)` to create a new message.
  */
 export const JoinWifiRequestSchema: GenMessage<JoinWifiRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 56);
+  messageDesc(file_pinna_v1_device, 58);
 
 /**
  * @generated from message pinna.v1.JoinWifiResponse
@@ -1680,7 +1713,7 @@ export type JoinWifiResponse = Message<"pinna.v1.JoinWifiResponse"> & {
  * Use `create(JoinWifiResponseSchema)` to create a new message.
  */
 export const JoinWifiResponseSchema: GenMessage<JoinWifiResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 57);
+  messageDesc(file_pinna_v1_device, 59);
 
 /**
  * @generated from message pinna.v1.KeepWifiRequest
@@ -1699,7 +1732,7 @@ export type KeepWifiRequest = Message<"pinna.v1.KeepWifiRequest"> & {
  * Use `create(KeepWifiRequestSchema)` to create a new message.
  */
 export const KeepWifiRequestSchema: GenMessage<KeepWifiRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 58);
+  messageDesc(file_pinna_v1_device, 60);
 
 /**
  * @generated from message pinna.v1.KeepWifiResponse
@@ -1718,7 +1751,7 @@ export type KeepWifiResponse = Message<"pinna.v1.KeepWifiResponse"> & {
  * Use `create(KeepWifiResponseSchema)` to create a new message.
  */
 export const KeepWifiResponseSchema: GenMessage<KeepWifiResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 59);
+  messageDesc(file_pinna_v1_device, 61);
 
 /**
  * @generated from message pinna.v1.ForgetWifiRequest
@@ -1735,7 +1768,7 @@ export type ForgetWifiRequest = Message<"pinna.v1.ForgetWifiRequest"> & {
  * Use `create(ForgetWifiRequestSchema)` to create a new message.
  */
 export const ForgetWifiRequestSchema: GenMessage<ForgetWifiRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 60);
+  messageDesc(file_pinna_v1_device, 62);
 
 /**
  * @generated from message pinna.v1.ForgetWifiResponse
@@ -1752,7 +1785,7 @@ export type ForgetWifiResponse = Message<"pinna.v1.ForgetWifiResponse"> & {
  * Use `create(ForgetWifiResponseSchema)` to create a new message.
  */
 export const ForgetWifiResponseSchema: GenMessage<ForgetWifiResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 61);
+  messageDesc(file_pinna_v1_device, 63);
 
 /**
  * @generated from message pinna.v1.FactoryResetRequest
@@ -1772,7 +1805,7 @@ export type FactoryResetRequest = Message<"pinna.v1.FactoryResetRequest"> & {
  * Use `create(FactoryResetRequestSchema)` to create a new message.
  */
 export const FactoryResetRequestSchema: GenMessage<FactoryResetRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 62);
+  messageDesc(file_pinna_v1_device, 64);
 
 /**
  * @generated from message pinna.v1.FactoryResetResponse
@@ -1785,7 +1818,7 @@ export type FactoryResetResponse = Message<"pinna.v1.FactoryResetResponse"> & {
  * Use `create(FactoryResetResponseSchema)` to create a new message.
  */
 export const FactoryResetResponseSchema: GenMessage<FactoryResetResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 63);
+  messageDesc(file_pinna_v1_device, 65);
 
 /**
  * @generated from enum pinna.v1.Phase
@@ -2232,6 +2265,17 @@ export const DeviceService: GenService<{
     methodKind: "server_streaming";
     input: typeof WatchStatusRequestSchema;
     output: typeof WatchStatusResponseSchema;
+  },
+  /**
+   * The LED ring as the satellite shows it: the current frame, then the
+   * latest one at most 25 times a second while it changes.
+   *
+   * @generated from rpc pinna.v1.DeviceService.WatchRing
+   */
+  watchRing: {
+    methodKind: "server_streaming";
+    input: typeof WatchRingRequestSchema;
+    output: typeof WatchRingResponseSchema;
   },
   /**
    * Change settings; the same as changing them in Home Assistant. Fails when

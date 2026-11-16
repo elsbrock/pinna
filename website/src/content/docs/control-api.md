@@ -102,6 +102,7 @@ device. `pinnad` serves it in two places:
 | --- | --- | --- |
 | `GetStatus` | Empty | Returns the current `Status` |
 | `WatchStatus` | Empty | Streams the current `Status`, then a new one after each change |
+| `WatchRing` | Empty | Streams the LED ring as the device shows it: `frame`, 3 bytes (red, green, blue) for each of the 12 LEDs in ring order, where LEDs 10 and 11 are either side of the front, with the brightness setting applied. The current frame comes first, then at most 25 a second while the ring changes |
 | `SetVolume` | `percent` (0–100) | Sets the volume. Values above 100 return `invalid_argument` |
 | `SetMute` | `muted` (bool) | Turns the software mute on or off. The hardware switch isn't affected |
 | `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings or a request is already running |
@@ -149,7 +150,7 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `wake_word` | `WakeWord` | `phrase` (the active words, for example `Alexa or Hey Jarvis`); `enabled`: the device listens for a wake word right now; `available`: every word the device can listen for; `threshold`: the score a wake needs at the current sensitivity, 0–1; `recent`: the last 20 wakes and near misses since `pinnad` started, oldest first. Each `WakeEvent` has `unix_ms`, `woke`, `score` (0–1), `wakes_from` (the lowest sensitivity at which that score wakes the device, unset when even 100 doesn't) and `reached_threshold` (a near miss that the detector's other checks rejected). `calibration` is set while a calibration runs: `started_from` (the sensitivity Undo returns to) and `events`, oldest first. A `CalibrationEvent` has `id`, `kind`, `raise` (the + or − button), `score`, and `from`/`to` (equal when nothing changed) |
 | `timers` | `Timer` list | Each with `id`, `name`, `seconds_left`, `total_seconds` and `active` |
 | `audio_backend` | string | `echodot-pipewire` (the normal value on the Echo and Echo Dot), `echodot`, `pipewire`, `wav` or `none` |
-| `led_backend` | string | `is31`, `mock` or `none` |
+| `led_backend` | string | `is31`, `mock`, `virtual` (the virtual Echo Dot) or `none` |
 | `alarm_ringing` | bool | A finished timer's alarm rings. `StopConversation` stops it |
 | `notification` | bool | A notification is waiting. `ClearNotification` clears it |
 | `settings` | `Settings` | `wake_word`, `wake_sensitivity`, `led_brightness` and `wake_words` (the active ids, at most two) |

@@ -8,16 +8,16 @@
 //! - the microphone is the VM's PipeWire source `dev_mic`, which pinnad records
 //!   by name (`[audio] capture_target`), fed from the browser through `dev_mic_in`;
 //! - the speaker is the VM's PipeWire sink `dev_speaker` (default sink), whose
-//!   monitor goes back to the browser;
-//! - the LED ring publishes its frames, which go to the browser.
+//!   monitor goes back to the browser.
+//!
+//! It has no LED ring: the dashboard draws WatchRing's frames, as for any
+//! satellite.
 //!
 //! Socket protocol:
 //! - browser -> pinnad, binary: microphone audio, S16LE mono at 16 kHz;
 //! - browser -> pinnad, text: `{"button": "action" | "volume_up" |
 //!   "volume_down" | "mute", "pressed": bool}`;
-//! - pinnad -> browser, binary: speaker audio, S16LE mono at 48 kHz;
-//! - pinnad -> browser, text: `{"ring": "<rrggbb x 12>"}`, the LED ring as
-//!   pinnad drew it, when it changes (at most 25 times a second).
+//! - pinnad -> browser, binary: speaker audio, S16LE mono at 48 kHz.
 //!
 //! One browser at a time: a new connection closes the previous one with code
 //! 4000. While the microphone switch is on, microphone audio is dropped.
@@ -38,8 +38,7 @@ use bytes::Bytes;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use pinna_hal::buttons::Button;
-use pinna_hal::led::Frame;
-use pinna_hal::virt::{DARK, PrivacyLatch, VirtualButtons, VirtualLeds, frame_hex};
+use pinna_hal::virt::{PrivacyLatch, VirtualButtons};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
@@ -71,8 +70,6 @@ pub struct VirtualDevice {
     session: watch::Sender<u64>,
     /// Which connection holds each button down.
     owners: Mutex<HashMap<Button, u64>>,
-    /// What the LED ring shows.
-    ring: watch::Sender<Frame>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -116,13 +113,7 @@ impl VirtualDevice {
             muted: AtomicBool::new(false),
             session: watch::Sender::new(0),
             owners: Mutex::default(),
-            ring: watch::Sender::new(DARK),
         }))
-    }
-
-    /// The LED ring, for pinnad to draw on.
-    pub fn leds(&self) -> VirtualLeds {
-        VirtualLeds::new(self.ring.clone())
     }
 
     pub fn latch_path(&self) -> &Path {
@@ -170,21 +161,8 @@ impl VirtualDevice {
             _children,
         } = audio;
         let mut odd_frames = 0u32;
-        let mut ring = self.ring.subscribe();
-        ring.mark_changed();
-        let mut ring_tick = tokio::time::interval(Duration::from_millis(40));
-        ring_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
-                _ = ring_tick.tick() => {
-                    if ring.has_changed().unwrap_or(false) {
-                        let hex = frame_hex(&ring.borrow_and_update());
-                        let msg = Message::Text(format!(r#"{{"ring":"{hex}"}}"#).into());
-                        if !send(&mut tx, msg).await {
-                            break;
-                        }
-                    }
-                }
                 _ = session.changed() => {
                     if *session.borrow() != me {
                         send(&mut tx, close(CLOSE_REPLACED, "opened in another tab")).await;

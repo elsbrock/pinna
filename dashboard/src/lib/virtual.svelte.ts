@@ -1,8 +1,6 @@
 // The virtual Echo Dot (ADR 0014): in the development VM, this browser is the
 // satellite's microphone, speaker and buttons, over pinnad's /virtual-device
 // socket. Kept outside the pages, so audio keeps flowing between sections.
-import type { Frame } from "../../../design/ring.ts";
-import { frameFromHex } from "./ledframe.ts";
 import { MIC_RATE, Resampler, SPEAKER_RATE, fromS16, rms, toS16 } from "./pcm.ts";
 
 export type VirtualButton = "action" | "volume_up" | "volume_down" | "mute";
@@ -51,8 +49,6 @@ class VirtualDot {
   speaker = $state(true);
   /** Buttons held down in this browser. */
   held = $state<VirtualButton[]>([]);
-  /** The LED ring as pinnad drew it, while connected. */
-  ring = $state<Frame | null>(null);
 
   #ws: WebSocket | null = null;
   #ctx: AudioContext | null = null;
@@ -104,7 +100,6 @@ class VirtualDot {
     void this.#ctx?.close();
     this.#ctx = this.#tap = this.#out = null;
     this.level = 0;
-    this.ring = null;
   }
 
   press(button: VirtualButton, pressed: boolean) {
@@ -238,14 +233,12 @@ class VirtualDot {
     ws.onmessage = (e) => {
       if (this.#ws !== ws) return;
       if (e.data instanceof ArrayBuffer) this.#play(e.data);
-      else if (typeof e.data === "string") this.#message(e.data);
     };
     ws.onclose = (e) => {
       if (this.#ws !== ws) return;
       this.#ws = null;
       // Keys held here are released on the satellite when the socket ends.
       this.held = [];
-      this.ring = null;
       if (e.code === 4000) {
         // Another tab took over; taking it back is a click, never automatic
         // (two tabs would take turns forever). This one lets go of the microphone.
@@ -271,15 +264,6 @@ class VirtualDot {
   /** Take over from the tab that has it now. */
   takeOver() {
     if (this.link === "replaced") void this.connect();
-  }
-
-  #message(text: string) {
-    try {
-      const m = JSON.parse(text) as { ring?: unknown };
-      if (typeof m.ring === "string") this.ring = frameFromHex(m.ring) ?? this.ring;
-    } catch {
-      // Not for this version of the page.
-    }
   }
 
   #capture(block: Float32Array) {

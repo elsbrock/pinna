@@ -23,6 +23,9 @@ service DeviceService {
   rpc ClearNotification(ClearNotificationRequest) returns (ClearNotificationResponse);
   // Current state, then again on every change.
   rpc WatchStatus(WatchStatusRequest) returns (stream WatchStatusResponse);
+  // The LED ring as the satellite shows it: the current frame, then the
+  // latest one at most 25 times a second while it changes.
+  rpc WatchRing(WatchRingRequest) returns (stream WatchRingResponse);
   // Change settings; the same as changing them in Home Assistant. Fails when
   // the satellite can't save them, so a restart would undo them.
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
@@ -314,6 +317,14 @@ message WatchStatusRequest {}
 
 message WatchStatusResponse {
   Status status = 1;
+}
+
+message WatchRingRequest {}
+
+message WatchRingResponse {
+  // The 12 pixels in ring order (pixels 10 and 11 straddle the front), 3
+  // bytes each: red, green, blue, with the LED brightness setting applied.
+  bytes frame = 1;
 }
 
 // Only the fields that are set change.

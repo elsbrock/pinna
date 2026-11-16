@@ -19,8 +19,8 @@ export const LED_TEST_STEP_MS = 1_000;
 
 /**
  * The ring effect, in the device's own order: the test pattern at `testStep`,
- * muted, a ringing alarm, the phase, then a waiting notification unless a
- * running timer's arc shows above it.
+ * muted, a ringing alarm, the phase, a running timer's arc, then a waiting
+ * notification.
  */
 /** The satellite's name for people: the one Home Assistant shows (ADR 0007). */
 export function displayName(s: Status): string {
@@ -34,7 +34,9 @@ export function ringEffect(s: Status | null, link: Link, testStep = 0): Effect {
   if (s.alarmRinging) return "timer-ringing";
   const phase = PHASE_WORDS[s.phase];
   if (phase) return phase;
-  if (s.notification && !s.timers.some((t) => t.active)) return "notification";
+  // The soonest running timer's arc shows above a waiting notification.
+  if (s.timers.some((t) => t.active)) return "timer";
+  if (s.notification) return "notification";
   return "idle";
 }
 

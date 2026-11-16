@@ -110,7 +110,10 @@ test("a waiting notification shows while idle, below a running timer", () => {
   assert.equal(ringEffect(status({ notification: true }), "live"), "notification");
   assert.equal(ringEffect(status({ notification: true, phase: 2 }), "live"), "listening");
   assert.equal(ringEffect(status({ notification: true, muted: true }), "live"), "muted");
-  assert.equal(ringEffect(status({ notification: true, timers: [tea] }), "live"), "idle");
+  assert.equal(ringEffect(status({ notification: true, timers: [tea] }), "live"), "timer");
+  assert.equal(ringEffect(status({ timers: [tea] }), "live"), "timer");
+  assert.equal(ringEffect(status({ timers: [tea], phase: 2 }), "live"), "listening");
+  assert.equal(ringEffect(status({ timers: [{ ...tea, active: false }] }), "live"), "idle");
   assert.equal(ringEffect(status({ notification: true, timers: [{ ...tea, active: false }] }), "live"), "notification");
 });
 

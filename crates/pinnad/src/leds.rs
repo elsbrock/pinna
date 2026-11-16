@@ -248,26 +248,17 @@ impl Talker {
 
 /// Drive the ring from `state` (and `music`, the speaker's spectrum) until the
 /// sender is dropped. The speaking ring follows `voice`, the speaker's level.
-/// `boot` drives the boot stages while the start is still on the ring.
+/// `boot` drives the boot stages while the start is still on the ring. Every
+/// frame also goes to `shown`, for the dashboard (WatchRing), with or without
+/// a ring to write it to.
 pub async fn run(
     leds: Option<LedHandle>,
+    shown: watch::Sender<Frame>,
     mut state: watch::Receiver<LedState>,
     music: Option<Spectrum>,
     voice: Option<VoiceLevel>,
     mut boot: Option<crate::boot::BootRing>,
 ) {
-    let Some(leds) = leds else {
-        // No ring: just log transitions.
-        let mut last = None;
-        while state.changed().await.is_ok() {
-            let base = state.borrow().base;
-            if last != Some(base) {
-                tracing::debug!("led effect: {base:?}");
-                last = Some(base);
-            }
-        }
-        return;
-    };
     let mut current = state.borrow().clone();
     let mut base_since = Instant::now();
     let mut envelope = Envelope::default();
@@ -277,11 +268,14 @@ pub async fn run(
         tokio::select! {
             changed = state.changed() => {
                 if changed.is_err() {
-                    leds.show(&[Rgb::OFF; RING_PIXELS]);
+                    show(leds.as_ref(), &shown, [Rgb::OFF; RING_PIXELS]);
                     return;
                 }
                 let next = state.borrow().clone();
                 if next.base != current.base {
+                    if leds.is_none() {
+                        tracing::debug!("led effect: {:?}", next.base);
+                    }
                     base_since = Instant::now();
                 }
                 current = next;
@@ -302,20 +296,50 @@ pub async fn run(
             }
         };
         let boot_frame = boot.as_mut().and_then(|b| b.frame(now));
-        leds.show(&frame_for(
+        let frame = frame_for(
             &current,
             bands.as_ref(),
             base_since,
             now,
             speech,
             boot_frame,
-        ));
+        );
+        show(leds.as_ref(), &shown, frame);
     }
+}
+
+/// Write `frame` to the ring, if there is one, and publish it when it changed.
+fn show(leds: Option<&LedHandle>, shown: &watch::Sender<Frame>, frame: Frame) {
+    if let Some(leds) = leds {
+        leds.show(&frame);
+    }
+    shown.send_if_modified(|f| {
+        let changed = *f != frame;
+        *f = frame;
+        changed
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn frames_are_shown_without_a_ring() {
+        let (state_tx, state_rx) = watch::channel(LedState::default());
+        let (shown_tx, mut shown_rx) = watch::channel([Rgb::OFF; RING_PIXELS]);
+        let task = tokio::spawn(run(None, shown_tx, state_rx, None, None, None));
+        state_tx.send_modify(|s| s.base = Effect::Muted);
+        let muted = render(Effect::Muted, Duration::ZERO);
+        tokio::time::timeout(Duration::from_secs(5), shown_rx.wait_for(|f| *f == muted))
+            .await
+            .expect("no muted frame")
+            .unwrap();
+        // The state's sender gone: the ring goes dark and stays so.
+        drop(state_tx);
+        task.await.unwrap();
+        assert_eq!(*shown_rx.borrow(), [Rgb::OFF; RING_PIXELS]);
+    }
 
     #[test]
     fn light_shown_when_idle_only() {

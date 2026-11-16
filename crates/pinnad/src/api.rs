@@ -24,13 +24,15 @@ use pinna_api::{
     StopCalibrationRequest, StopCalibrationResponse, StopConversationRequest,
     StopConversationResponse, Timer, UpdateSettingsRequest, UpdateSettingsResponse, WakeEvent,
     WakeWord, WakeWordOption, WatchInstallRequest, WatchInstallResponse, WatchLogsRequest,
-    WatchLogsResponse, WatchStatusRequest, WatchStatusResponse,
+    WatchLogsResponse, WatchRingRequest, WatchRingResponse, WatchStatusRequest,
+    WatchStatusResponse,
 };
 use pinna_api::{
     FactoryResetRequest, FactoryResetResponse, ForgetWifiRequest, ForgetWifiResponse,
     JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListWifiRequest,
     ListWifiResponse, ScanWifiRequest, ScanWifiResponse,
 };
+use pinna_hal::led::{Frame, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::boot;
@@ -64,10 +66,15 @@ pub struct DeviceApi {
     info: Info,
     started: Instant,
     status: watch::Receiver<Snapshot>,
+    /// The frames the ring shows (leds::run).
+    ring: watch::Receiver<Frame>,
     inputs: mpsc::Sender<Input>,
     updater: Arc<Updater>,
     wifi: Arc<Wifi>,
 }
+
+/// WatchRing sends at most one frame per this interval.
+const RING_INTERVAL: std::time::Duration = std::time::Duration::from_millis(40);
 
 impl DeviceApi {
     pub fn new(info: Info, status: watch::Receiver<Snapshot>, inputs: mpsc::Sender<Input>) -> Self {
@@ -84,6 +91,7 @@ impl DeviceApi {
             info,
             started: Instant::now(),
             status,
+            ring: watch::channel([Rgb::OFF; RING_PIXELS]).1,
             inputs,
             updater: Arc::new(updater),
             wifi: Arc::new(Wifi::new(WifiPaths::default())),
@@ -99,6 +107,12 @@ impl DeviceApi {
     /// Undo a Wi-Fi trial that a stopped pinnad left behind.
     pub async fn recover_wifi(&self) {
         self.wifi.recover().await;
+    }
+
+    /// Stream the frames on `ring` to WatchRing.
+    pub fn with_ring(mut self, ring: watch::Receiver<Frame>) -> Self {
+        self.ring = ring;
+        self
     }
 
     /// Talk to another wpa_supplicant (tests).
@@ -385,6 +399,30 @@ impl DeviceService for DeviceApi {
                 };
                 Some((Ok(msg), rx))
             }
+        });
+        Response::ok(Box::pin(stream))
+    }
+
+    async fn watch_ring(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, WatchRingRequest>,
+    ) -> ServiceResult<ServiceStream<WatchRingResponse>> {
+        let mut rx = self.ring.clone();
+        // The current frame first, then the latest one after each interval
+        // in which the ring changed.
+        rx.mark_changed();
+        let stream = futures::stream::unfold((rx, None), |(mut rx, sent)| async move {
+            if let Some(sent) = sent {
+                tokio::time::sleep_until(sent + RING_INTERVAL).await;
+            }
+            rx.changed().await.ok()?;
+            let frame = *rx.borrow_and_update();
+            let msg = WatchRingResponse {
+                frame: frame.iter().flat_map(|p| [p.r, p.g, p.b]).collect(),
+                ..Default::default()
+            };
+            Some((Ok(msg), (rx, Some(tokio::time::Instant::now()))))
         });
         Response::ok(Box::pin(stream))
     }
@@ -1336,6 +1374,69 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn watch_ring_streams_the_latest_frame_at_most_25_a_second() {
+        let info = Info {
+            version: "0.1.0".into(),
+            name: "pinna-test".into(),
+            mac: String::new(),
+            wake_words: crate::wakewords::test_catalogue(),
+            audio_backend: "none".into(),
+            led_backend: "none".into(),
+            model: "echo-dot-2".into(),
+            virtual_device: false,
+            last_boot: boot::LastBoot::cold(),
+            key_from_image: false,
+        };
+        let (_status_tx, status_rx) = watch::channel(Snapshot::default());
+        let (in_tx, _in_rx) = mpsc::channel(1);
+        let (ring_tx, ring_rx) = watch::channel([Rgb::OFF; RING_PIXELS]);
+        let api = DeviceApi::new(info, status_rx, in_tx).with_ring(ring_rx);
+        let addr = start(Arc::new(api), "127.0.0.1:0").await.unwrap();
+        let config = ClientConfig::new(format!("http://{addr}").parse().unwrap());
+        let c = Client::new(HttpClient::plaintext(), config);
+
+        let mut stream = c.watch_ring(WatchRingRequest::default()).await.unwrap();
+        let mut next = async || {
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                stream.message::<WatchRingResponse>(),
+            )
+            .await
+            .expect("no frame")
+            .unwrap()
+            .expect("stream ended")
+            .to_owned_message()
+            .frame
+        };
+        // The current frame first: 12 pixels, 3 bytes each.
+        assert_eq!(next().await, vec![0; RING_PIXELS * 3]);
+
+        // Frames faster than the interval: the latest one wins.
+        let lit = |r: u8| {
+            let mut f = [Rgb::OFF; RING_PIXELS];
+            f[0] = Rgb::new(r, 0x80, 0xff);
+            f
+        };
+        let started = Instant::now();
+        for r in 1..=10 {
+            ring_tx.send_replace(lit(r));
+        }
+        let frame = next().await;
+        assert_eq!(&frame[..3], &[10, 0x80, 0xff]);
+        assert_eq!(&frame[3..], &[0; (RING_PIXELS - 1) * 3]);
+        assert!(
+            started.elapsed() >= RING_INTERVAL / 2,
+            "{:?}",
+            started.elapsed()
+        );
+
+        // Only changes are sent.
+        ring_tx.send_replace(lit(10));
+        ring_tx.send_replace(lit(11));
+        assert_eq!(next().await[0], 11);
     }
 
     #[test]

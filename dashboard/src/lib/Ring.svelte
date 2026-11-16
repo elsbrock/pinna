@@ -1,5 +1,6 @@
-<!-- The satellite's LED ring, drawn the way the device draws it (design/ring.ts,
-     a port of pinna-hal's anim.rs). One still frame under reduced motion. -->
+<!-- The satellite's LED ring: the frames it shows, when given (WatchRing), or
+     drawn the way the device draws `effect` (design/ring.ts, a port of
+     pinna-hal's anim.rs), one still frame under reduced motion. -->
 <script lang="ts">
   import {
     RING_PIXELS,
@@ -9,17 +10,21 @@
     ringFrame,
     segmentPath,
     type Effect,
+    type Frame,
   } from "../../../design/ring.ts";
 
   let {
     effect: shown,
     value,
+    frame: given = null,
     size,
     label,
     still = false,
   }: {
     effect: Effect;
     value?: number;
+    /** The ring as the satellite shows it; `effect` is drawn without one. */
+    frame?: Frame | null;
     size: number;
     label: string;
     /** One still frame, as under reduced motion: for a ring that isn't a satellite's. */
@@ -33,16 +38,19 @@
   // Effects that do not move are drawn once.
   const STATIC: ReadonlySet<Effect> = new Set(["idle", "muted", "timer"]);
 
-  let frame = $state(ringFrame("idle", 0));
+  let drawn = $state(ringFrame("idle", 0));
+  const frame = $derived(given ?? drawn);
+  const following = $derived(given !== null);
 
   $effect(() => {
+    if (following) return;
     const e = shown;
     const v = value;
     const fixed = still || reduceMotion.matches;
     const started = performance.now();
     let raf = 0;
     const draw = () => {
-      frame = ringFrame(e, fixed ? (STILL_MS[e] ?? 0) : performance.now() - started, v);
+      drawn = ringFrame(e, fixed ? (STILL_MS[e] ?? 0) : performance.now() - started, v);
       if (!fixed && !STATIC.has(e)) raf = requestAnimationFrame(draw);
     };
     draw();

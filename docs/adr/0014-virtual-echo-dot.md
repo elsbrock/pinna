@@ -58,8 +58,10 @@ that opens its dashboard acts as the Dot's microphone, speaker and buttons.
     polled like the PMIC's `privacy_state`. Its button flips the latch and
     sends KEY_POWER, as the Dot's does. While it is on, browser audio is
     dropped before it reaches PipeWire.
-  - **LED ring:** pinnad draws on a ring that publishes its frames instead
-    of an IS31FL3236 (`led_backend` "virtual").
+  - **LED ring:** none (`led_backend` "virtual"). The dashboard draws the
+    frames pinnad would show, from WatchRing, as for any satellite (ADR
+    0005). Amended 2026-11-16; until then a virtual ring sent its frames over
+    the socket below.
   - **Microphone and speaker:** the VM runs PipeWire and WirePlumber
     (`pipewire -c pipewire-vm.conf`, which does not load the Dot's graph).
     pinnad uses its plain `pipewire` backend (ADR 0004: "laptops/VMs"). It
@@ -72,8 +74,7 @@ that opens its dashboard acts as the Dot's microphone, speaker and buttons.
 - **One socket, `/virtual-device`, on the web listener.** It shares the
   dashboard's origin and Host allowlist. Binary frames carry microphone audio
   up (S16LE mono, 16 kHz) and speaker audio down (S16LE mono, 48 kHz). Text
-  frames carry button presses and releases up as JSON, and the ring's frames
-  down, at most 25 a second. One browser at a time: a
+  frames carry button presses and releases up as JSON. One browser at a time: a
   new connection closes the old one (code 4000). A button held when a
   connection ends is released, unless a newer connection holds it by then.
   Queues are bounded in both directions and drop audio rather than block,
@@ -90,8 +91,7 @@ that opens its dashboard acts as the Dot's microphone, speaker and buttons.
   play an audio file as the microphone, for repeatable wake word runs (it
   replaces the live microphone while it plays). It plays the speaker, 12 dB
   up, so that volume 100 is full scale. The four buttons go down and up with
-  the pointer. While connected, the Overview's drawing of the Dot shows the
-  ring's frames instead of the dashboard's own drawing from `Status`.
+  the pointer.
 
 ## Consequences
 
