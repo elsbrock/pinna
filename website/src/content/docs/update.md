@@ -116,12 +116,12 @@ The [dashboard](/docs/dashboard/) runs the same update as `pinnactl update`.
    current version.
 4. When the update is installed, select **Restart now**. The page reconnects
    when the device is back, and shows the new version on trial.
+
+   To start it later instead, select **Keep this version**. The update stays
+   in its slot as **Not started yet**, without **starts next**. To start it,
+   see [Switch to the other version](#switch-to-the-other-version).
 5. Wait until the new slot is marked **Good**, within 5 minutes of the restart.
    You can install the next update after that.
-
-To keep the update from starting, select **Keep this version** instead of
-**Restart now**. The update stays in its slot as **Not started yet**, and you
-can switch to it later.
 
 If the new version doesn't start, the device goes back to the previous one, and
 **System** shows the new slot as **Can't boot**. See
@@ -129,21 +129,23 @@ If the new version doesn't start, the device goes back to the previous one, and
 
 ## Switch to the other version
 
-The slot that isn't running usually holds the previous version. To run it
-again:
+The slot that isn't running holds the previous version, or an update that you
+kept back (**Not started yet**). To run it:
 
-1. In the dashboard, open **System**. Under **Software**, select **Switch…**
-   next to **Switch to slot A** or **Switch to slot B**.
-2. Select **Switch and restart**. The page reconnects when the device is back,
+1. In the dashboard, open **System**. If it says **This version is on trial**,
+   wait until the running slot is marked **Good**, within 5 minutes of the
+   last restart.
+2. Under **Software**, select **Switch…** next to **Switch to slot A** or
+   **Switch to slot B**. There is no **Switch…** when the other slot is empty
+   or marked **Can't boot**.
+3. Select **Switch and restart**. The page reconnects when the device is back,
    and shows that version on trial.
 
 The other version starts on trial, like an update. If it doesn't start, the
-device goes back to the version that ran before. **Switch…** is only there
-when the other slot is marked **Good** or **Not started yet**, and not while
-the running version is on trial.
+device goes back to the version that ran before.
 
-Versions from before the switch existed don't have it. To leave one of them,
-install an update.
+Versions built before the switch was added don't have **Switch…**. If you
+switch to one of them, install an update to leave it.
 
 ## Update the boot image
 

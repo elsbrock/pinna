@@ -191,8 +191,8 @@ Assistant connects, because a calibration wake starts no request.
 
 The dashboard has no login. **Anyone on your network can use it.** That
 includes renaming the device, adding a name to open it by, moving it to
-another Wi-Fi network or forgetting the one it uses, restarting the device and
-installing an update. Only an update that
+another Wi-Fi network or forgetting the one it uses, restarting the device,
+installing an update and switching to the version in the other slot. Only an update that
 is signed with your release key installs, and the device goes back to the
 previous version if the new one doesn't start. An older release that you
 signed installs too, so someone with a copy of it can downgrade the device.

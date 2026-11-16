@@ -141,7 +141,8 @@ non-zero reserved byte.
   pinnad and the support bundle read.
 - **Reboots leave a reason.** Whatever triggers a reboot writes the reason to
   `/run/pinna/reboot-reason`: the health check failing (the unit leaves
-  `health check …`), the dashboard's restart (`user`), `pinnactl update
+  `health check …`), the dashboard's restart (`user`) and slot switch
+(`switch-slot`), `pinnactl update
   --reboot` (`update`), `pinna-bootctl reboot-bootloader` (`bootloader`) or
   `reboot-rescue`. A systemd-shutdown hook in
   `/usr/lib/systemd/system-shutdown/` then writes

@@ -3,7 +3,8 @@
 Status: accepted (2026-11-15). Amends the "Local control API" part of ADR 0002.
 Amended by ADR 0007 (2026-11-16): host names and the satellite's name are set
 on the dashboard. Amended 2026-11-16: the dashboard draws the ring's own frames
-(WatchRing).
+(WatchRing). Amended 2026-11-16: the dashboard switches to the other slot and
+keeps an installed update back (SetActiveSlot).
 
 ## Context
 
@@ -66,7 +67,8 @@ Constraints:
   - the network: Wi-Fi (ADR 0008) and the host names; the rest read-only
   - pinnad's journal at info level and above (debug lines can carry transcripts)
   - the A/B slots
-  - installing an update
+  - installing an update, switching to the other slot, or keeping an installed
+    update back
   - restarting, and a factory reset (ADR 0010)
   - running the ring's test pattern (Identify).
 - **The ring on the page is the device's.** `WatchRing` streams the frames
@@ -85,8 +87,8 @@ Constraints:
   away cannot interrupt an install. Signature and dm-verity checks and the
   rollback stay as in ADR 0003. Switching to the other slot is pinnad's too
   (`SetActiveSlot`): it checks the slot's image as pinna-init does, makes it
-  active as a trial and restarts, and puts the slot state back if the restart
-  fails, so a switch never waits for the next power cut. Only a slot that is
+  active as a trial and restarts. If the restart fails, it puts the slot state
+  back, so a switch doesn't wait for the next power cut. Only a slot that is
   good or hasn't been started yet; not while an install runs or the running
   slot is on trial. The running slot can be made active again, which keeps an
   installed update back without a restart. Amended 2026-11-16.
