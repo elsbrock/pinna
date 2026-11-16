@@ -5,7 +5,8 @@ Amended by ADR 0007 (2026-11-16): host names and the satellite's name are set
 on the dashboard. Amended 2026-11-16: the dashboard draws the ring's own frames
 (WatchRing). Amended 2026-11-16: the dashboard switches to the other slot and
 keeps an installed update back (SetActiveSlot). Amended by ADR 0020
-(2026-11-16): the listener also serves `/metrics`.
+(2026-11-16): the listener also serves `/metrics`. Amended by ADR 0021: one
+dashboard address replaces the host names.
 
 ## Context
 
@@ -42,8 +43,8 @@ Constraints:
   - any `*.local` name (which only mDNS on the local network resolves)
   - the hostname: the one the satellite started with, and its current one
     after a rename (ADR 0010)
-  - a name added on the dashboard's Network page (ADR 0007), or in
-    `[web] allowed_hosts`.
+  - the host of the dashboard address set on the Network page (ADR 0020),
+    or a name in `[web] allowed_hosts`.
 
   Any other Host gets `421 Misdirected Request`. Cross-site requests are
   already blocked by the Connect protocol: JSON and proto bodies need a CORS
@@ -66,8 +67,8 @@ Constraints:
     (ADR 0007)
   - tuning the wake word sensitivity with the device's + and − buttons, until
     the calibration ends
-  - the network: Wi-Fi (ADR 0008), the hostname (ADR 0010) and the host
-    names; the rest read-only
+  - the network: Wi-Fi (ADR 0008), the hostname (ADR 0010) and the
+    dashboard address (ADR 0020); the rest read-only
   - pinnad's journal at info level and above (debug lines can carry transcripts)
   - the A/B slots
   - installing an update, switching to the other slot, or keeping an installed
@@ -127,14 +128,14 @@ Constraints:
   The controls match what a plaintext ESPHome API already exposes. Reading the
   log, the network details (SSID, signal, every address) and the metrics, the
   ring's test pattern, restarting, a factory reset, installing, switching slots, renaming, moving or
-  forgetting Wi-Fi and adding a host name go beyond it; a host name widens the DNS rebinding allowlist. So does clearing a
+  forgetting Wi-Fi, renaming the host and setting the dashboard address go beyond it; the address widens the DNS rebinding allowlist. So does clearing a
   notification: it fires the `cleared` event, which tells Home Assistant that
   someone at the device acknowledged it. An ESPHome client can only turn the
   switch off. Turning the web listener off (`[web] listen = ""` in
   `/var/lib/pinna/pinnad.toml`) is a developer setting until authentication
   exists (ADR 0007).
-- A satellite opened by a custom DNS name (not `.local`) needs that name added
-  on the Network page. The 421 response says so.
+- A satellite opened by a custom DNS name (not `.local`) needs that name as its
+  dashboard address on the Network page. The 421 response says so.
 - Authentication (for example a password seeded from `secrets/device/`) is
   deferred. Adding it would amend this ADR and probably split the listener's
   API from the loopback one.
