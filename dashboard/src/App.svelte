@@ -53,7 +53,7 @@
       <div class="pn-ident">
         <Device model={s.model} effect="idle" width={48} label="Ring: {ring.replace('-', ' ')}" />
         <span class="pn-ident-name">{s.name}</span>
-        <span class="pn-health" data-tone={line.tone}>{line.tone === "ok" ? "Home Assistant" : line.text}</span>
+        <span class="pn-health" data-tone={line.tone} title={line.text}>Home Assistant</span>
       </div>
     {:else}
       <span class="pn-skeleton ident-skeleton"></span>
