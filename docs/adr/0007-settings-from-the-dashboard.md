@@ -33,12 +33,16 @@ developers only, and owners need neither a file nor SSH. Builds on ADR 0005.
   - `friendly_name`, the name Home Assistant shows: 1 to 64 characters, at most 200 bytes, no control characters. It is read when Home Assistant connects. pinnad updates its device info and mDNS record at once. It closes the API connection once the satellite is idle, never during a request, an announcement, media or a ringing timer, and Home Assistant reconnects with the new name. No entity: Home Assistant renames devices itself.
   - `wake_sound`, the chime when listening starts, also the "Wake sound" switch. It takes effect on the next request.
   - `allowed_hosts`, the names the dashboard answers to besides IP addresses, `localhost`, `.local` names and the hostname (ADR 0005): DNS names, at most 16. They add to `[web] allowed_hosts` and apply at once. No entity: they guard the dashboard, not the satellite, so they belong where the dashboard is, not in Home Assistant.
-- **Added later:** the active wake words, chosen from the dashboard or from Home Assistant's own dropdowns ([ADR 0013](0013-wake-words.md)).
+- **Added later:** the active wake words, chosen from the dashboard or from Home Assistant's own dropdowns ([ADR 0013](0013-wake-words.md)); the hostname, which is also the node name ([ADR 0010](0010-hostname-and-factory-reset.md)).
+- **The time zone** (added later): `time_zone` in `settings.toml`, an IANA name such as `Europe/Berlin`, chosen on the System page from the zones the satellite has (`zone1970.tab`). The page offers the browser's own zone when the satellite has it. Unset is UTC. The image ships no fixed zone:
+  - It installs tzdata. `/etc/localtime`, on the read-only root, links to `/var/lib/pinna/localtime`, and pinnad points that link at `/usr/share/zoneinfo/<zone>`. glibc, and so journald and `date`, follow both links. `timedatectl` follows only one, so it shows no zone. systemd-timedated can't set it: it writes `/etc/localtime`.
+  - Home Assistant sends its time zone only as a POSIX rule (`CET-1CEST,M3.5.0,M10.5.0/3`), which names no zone, so the satellite doesn't follow it, and it needs no Home Assistant to have one.
+  - No entity: a list of about 300 zones is no use as a Home Assistant select, and Home Assistant keeps its own time zone.
+  - A factory reset brings back UTC.
 - **The default name follows the hardware.** Without `friendly_name` anywhere, a satellite is called by its model and the last three bytes of its MAC, the way Home Assistant Voice PE is: "Echo Dot 2a914e", "Echo 2a914e". The device image no longer sets one; the development VM's layer names it "Virtual Echo Dot" (ADR 0014).
 - **Not settings:**
   - The model in the device info and the speaker profile follow the hardware (`board_model()`): Radar tuning on the Echo (2nd gen), Flat otherwise. Home Assistant shows the project name's model (`pinna.satellite`) instead. `[device] model` and `[audio] speaker_profile` remain developer overrides; the image sets neither.
   - The suggested area: Home Assistant only reads it when it first adds the device, and assigns areas itself.
-  - The node name: `pinna-` plus the MAC suffix is already unique (ADR 0010).
   - Turning the dashboard off (`[web] listen = ""`) is a developer setting until authentication exists. A switch on a page with no login protects nothing.
   - Backends and ports.
 - **Still file-only, for their own ADRs:** SSH keys (ADR 0010). The ESPHome encryption key is set by Home Assistant itself ([ADR 0018](0018-home-assistant-sets-the-encryption-key.md)); the dashboard shows whether encryption is on.
