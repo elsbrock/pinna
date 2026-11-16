@@ -113,29 +113,11 @@ confirmed by the owner yet.
 
 - Offered, not required. It runs after the unlock (stock LK cannot boot
   anything unsigned) and before Pinna's first write. It saves `boot_a`,
-  `boot_b`, `system_a`, `system_b` and `userdata` with a `SHA256SUMS`, and
-  restore writes them back over fastboot, like `flash-gen2.sh restore`.
-- Fastboot can't read them: Kaeru registers no command that reads a partition
-  (`oem help` is an unknown command, measured on the Dot), and the Dot has no
-  `fastboot boot` (ADR 0006). Pinna's rescue mode (ADR 0012) can, and it needs
-  only the boot image, which Kaeru boots from the separate `recovery`
-  partition, whatever the slot, when Volume Up is held at power-on:
-  1. The page writes the release's boot image to `recovery` (16 MiB; Pinna
-     writes nothing else there).
-  2. The user plugs the device in again, holding Volume Up. pinna-init finds
-     no Pinna root and enters rescue (`no-root`).
-  3. The rescue page on `http://10.42.0.1` offers the five partitions and the
-     `SHA256SUMS` as downloads. The installer can only link to it: a page
-     served over HTTPS can't fetch it.
-  4. Rescue's "enter fastboot" brings the device back; the user reconnects,
-     and the install goes on.
-- The stock `recovery` is lost, and the confirmation before that write says
-  so. After a restore, `recovery` keeps Pinna's boot image, which still opens
-  rescue on Volume Up.
-- Before stage 3, on the Dot: Kaeru v2.0.0 boots `recovery` on Volume Up,
-  pinna-init comes up from it (LK may build another command line for
-  recovery), and Chrome lets the user keep large downloads over HTTP from
-  `10.42.0.1`. The downloads are added to ADR 0012's rescue page.
+  `boot_b`, `system_a`, `system_b` and `userdata` with a `SHA256SUMS`.
+- How it works is proposed in ADR 0019. Kaeru's fastboot can't read
+  partitions, so the page writes Pinna's recovery image to `recovery`, starts
+  it, and reads the partitions over the recovery image's own fastboot
+  interface. Restore goes the same way.
 - The unlock itself cannot be undone: it rewrites the boot chain. A restore
   brings back the previous system on Kaeru. When stage 4 ships, the goal
   "every installation step can be undone" names this exception, and the
