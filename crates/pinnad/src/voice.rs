@@ -53,6 +53,10 @@ pub enum Input {
         /// The score reached the threshold; the detector's other rules rejected it.
         reached_threshold: bool,
     },
+    /// The playback's first audio is sounding.
+    PlaybackStarted {
+        token: u64,
+    },
     PlaybackDone {
         token: u64,
         ok: bool,
@@ -182,9 +186,10 @@ enum Phase {
     Starting(Instant),
     /// Streaming the microphone to HA.
     Listening(Instant),
-    /// HA is processing (STT/intent/TTS).
+    /// HA is processing (STT/intent/TTS), or its reply is on its way: this
+    /// lasts until the reply's first audio sounds.
     Thinking(Instant),
-    /// Playing TTS or an announcement.
+    /// Playing a reply (from its first audio) or an announcement.
     Speaking,
 }
 
@@ -249,7 +254,6 @@ pub struct Brain {
     leds: watch::Sender<LedState>,
     status: watch::Sender<Snapshot>,
     self_tx: mpsc::Sender<Input>,
-    http: reqwest::Client,
     opts: Options,
 
     phase: Phase,
@@ -258,6 +262,8 @@ pub struct Brain {
     run_ended: bool,
     tts_started: bool,
     tts_url: Option<String>,
+    /// When the microphone stopped for the current run (end of speech).
+    speech_ended: Option<Instant>,
 
     hw_muted: bool,
     sw_muted: bool,
@@ -318,7 +324,6 @@ const LED_TEST_EFFECTS: [Effect; 4] = [
     Effect::Speaking,
     Effect::Muted,
 ];
-const MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
 /// The beam selector hears the speaker (echo cancellation comes after it) and
 /// smooths over ~200 ms, so ignore it while pinnad plays and for this long after.
 const SELF_SOUND_HOLD: Duration = Duration::from_millis(300);
@@ -333,13 +338,6 @@ impl Brain {
         self_tx: mpsc::Sender<Input>,
         opts: Options,
     ) -> Self {
-        // No total timeout: a long reply over a slow link is fine as long
-        // as bytes keep arriving.
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .read_timeout(Duration::from_secs(15))
-            .build()
-            .expect("http client");
         let (store, _) = Store::load(&opts.settings_file, opts.settings.clone());
         let active_wake = opts.active_wake_words.clone();
         let settings = opts.settings.clone();
@@ -353,7 +351,6 @@ impl Brain {
             leds,
             status,
             self_tx,
-            http,
             opts,
             phase: Phase::Idle,
             conversation_id: String::new(),
@@ -361,6 +358,7 @@ impl Brain {
             run_ended: false,
             tts_started: false,
             tts_url: None,
+            speech_ended: None,
             hw_muted: false,
             voice_subscribed: false,
             clients: 0,
@@ -478,6 +476,7 @@ impl Brain {
                 self.hw_muted = muted;
                 self.apply_mute().await;
             }
+            Input::PlaybackStarted { token } => self.playback_started(token).await,
             Input::PlaybackDone { token, ok } => self.playback_done(token, ok).await,
             Input::Media(state) => {
                 if let Some(e) = &state.error {
@@ -787,12 +786,12 @@ impl Brain {
             VoiceEventType::SttVadEnd | VoiceEventType::SttEnd => {
                 self.stop_streaming();
                 if matches!(self.phase, Phase::Listening(_) | Phase::Starting(_)) {
-                    self.phase = Phase::Thinking(Instant::now());
+                    self.end_of_speech(Instant::now());
                     self.event("voice_assistant", "thinking").await;
                 }
             }
             VoiceEventType::IntentProgress
-                if get("tts_start_streaming").as_deref() == Some("1") =>
+                if !self.tts_started && get("tts_start_streaming").as_deref() == Some("1") =>
             {
                 self.stop_streaming();
                 if let Some(url) = self.tts_url.clone().or_else(|| get("url")) {
@@ -817,7 +816,8 @@ impl Brain {
             VoiceEventType::RunEnd => {
                 self.run_ended = true;
                 self.stop_streaming();
-                if self.phase != Phase::Speaking {
+                // A reply still on its way finishes the run when it is done.
+                if self.phase != Phase::Speaking && !self.reply_pending() {
                     self.finish_run().await;
                 }
             }
@@ -1347,7 +1347,10 @@ impl Brain {
         self.run_ended = false;
         self.tts_started = false;
         self.tts_url = None;
+        self.speech_ended = None;
         self.phase = Phase::Starting(Instant::now());
+        // Open the speaker while the user talks: it takes ~1.4 s on the Dot.
+        self.warm_speaker();
         // The wake word was just spoken: read its direction before the chime.
         self.talker.clear();
         self.track_talker();
@@ -1365,6 +1368,25 @@ impl Brain {
 
     fn stop_streaming(&self) {
         self.shared.streaming.store(false, Ordering::SeqCst);
+    }
+
+    /// The microphone stopped: wait for the reply. The speaker is warmed
+    /// again so a long utterance can't have outlasted its idle timeout.
+    fn end_of_speech(&mut self, now: Instant) {
+        self.phase = Phase::Thinking(now);
+        self.speech_ended = Some(now);
+        self.warm_speaker();
+    }
+
+    fn warm_speaker(&self) {
+        if let Some(s) = &self.speaker {
+            s.warm();
+        }
+    }
+
+    /// A reply is fetching or playing.
+    fn reply_pending(&self) -> bool {
+        matches!(self.playback, Some((_, PlaybackKind::Tts, _)))
     }
 
     async fn abort_run(&mut self, tell_ha: bool) {
@@ -1430,17 +1452,32 @@ impl Brain {
 
     fn start_tts(&mut self, url: String) {
         self.tts_started = true;
-        self.phase = Phase::Speaking;
+        // Still thinking until the reply sounds (`playback_started`), and
+        // THINK_TIMEOUT from now for it to get there.
+        self.phase = Phase::Thinking(Instant::now());
         self.play_urls(vec![url], PlaybackKind::Tts);
-        let esp = self.esp.clone();
-        tokio::spawn(async move {
-            let _ = esp
-                .send(DeviceEvent::Event {
-                    object_id: "voice_assistant".into(),
-                    event_type: "replying".into(),
-                })
-                .await;
-        });
+    }
+
+    /// The reply's first audio is sounding.
+    async fn playback_started(&mut self, token: u64) {
+        if !matches!(&self.playback, Some((t, PlaybackKind::Tts, _)) if *t == token) {
+            return;
+        }
+        if let Phase::Thinking(requested) = self.phase {
+            let now = Instant::now();
+            let sent = (now - requested).as_secs_f32();
+            match self.speech_ended {
+                Some(end) => tracing::info!(
+                    "reply: first audio {:.2} s after the end of speech ({sent:.2} s after Home Assistant started it)",
+                    (now - end).as_secs_f32()
+                ),
+                None => {
+                    tracing::info!("reply: first audio {sent:.2} s after Home Assistant started it")
+                }
+            }
+        }
+        self.phase = Phase::Speaking;
+        self.event("voice_assistant", "replying").await;
     }
 
     fn stop_playback(&mut self) {
@@ -1481,17 +1518,15 @@ impl Brain {
     fn play_urls(&mut self, urls: Vec<String>, kind: PlaybackKind) {
         let token = self.begin_playback(kind.clone());
         let speaker = self.speaker.clone();
-        let http = self.http.clone();
         let tx = self.self_tx.clone();
         let task = tokio::spawn(async move {
-            let mut ok = true;
-            for url in urls {
-                if let Err(e) = play_url(&http, speaker.as_deref(), &url).await {
-                    tracing::warn!("playing {url}: {e:#}");
-                    ok = false;
-                    break;
+            let ok = match speaker {
+                Some(s) => play_in_turn(&s, &urls, token, &tx).await,
+                None => {
+                    tracing::warn!("no speaker to play {urls:?}");
+                    false
                 }
-            }
+            };
             let _ = tx.send(Input::PlaybackDone { token, ok }).await;
         });
         self.playback = Some((token, kind, task));
@@ -1555,7 +1590,7 @@ impl Brain {
             Phase::Listening(t) if now - t > LISTEN_TIMEOUT => {
                 tracing::warn!("no end of speech from Home Assistant; stopping the microphone");
                 self.stop_streaming();
-                self.phase = Phase::Thinking(now);
+                self.end_of_speech(now);
             }
             Phase::Thinking(t) if now - t > THINK_TIMEOUT => {
                 tracing::warn!("Assist run timed out");
@@ -1712,24 +1747,40 @@ fn button_entity(b: Button) -> &'static str {
     }
 }
 
-async fn play_url(
-    http: &reqwest::Client,
-    speaker: Option<&Speaker>,
-    url: &str,
-) -> anyhow::Result<()> {
-    let speaker = speaker.ok_or_else(|| anyhow::anyhow!("no speaker"))?;
-    let resp = http
-        .get(url)
-        .header("Accept", "audio/wav, audio/mpeg, audio/flac, audio/ogg")
-        .send()
-        .await?
-        .error_for_status()?;
-    let bytes = resp.bytes().await?;
-    anyhow::ensure!(
-        bytes.len() <= MAX_AUDIO_BYTES,
-        "audio too large ({} bytes)",
-        bytes.len()
-    );
-    speaker.play_bytes(&bytes).await?;
-    Ok(())
+/// Play `urls` one after another on the voice lane, each one opened while
+/// the one before it plays. The first audio is reported as
+/// [`Input::PlaybackStarted`]; false if any of them failed.
+async fn play_in_turn(
+    speaker: &Speaker,
+    urls: &[String],
+    token: u64,
+    tx: &mpsc::Sender<Input>,
+) -> bool {
+    let mut ok = true;
+    let mut queued = Vec::new();
+    for url in urls {
+        match speaker.play_url(url).await {
+            Ok(p) => queued.push((url, p)),
+            Err(e) => {
+                tracing::warn!("playing {url}: {e}");
+                ok = false;
+                break;
+            }
+        }
+    }
+    let mut first = true;
+    for (url, p) in queued {
+        if p.started.await.is_ok() && std::mem::take(&mut first) {
+            let _ = tx.send(Input::PlaybackStarted { token }).await;
+        }
+        match p.done.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                tracing::warn!("playing {url}: {e}");
+                ok = false;
+            }
+            Err(_) => ok = false,
+        }
+    }
+    ok
 }

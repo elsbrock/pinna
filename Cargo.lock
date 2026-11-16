@@ -2125,7 +2125,6 @@ dependencies = [
  "pinna-hal",
  "pinna-image",
  "pinna-wakeword",
- "reqwest",
  "serde",
  "serde_json",
  "tempfile",

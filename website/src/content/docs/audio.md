@@ -79,7 +79,7 @@ chooses how `pinnad` reaches the audio hardware. Keep it at `"auto"`:
 | `echodot-pipewire` | On the Echo (2nd gen) and Echo Dot (2nd gen), when PipeWire runs. The normal case |
 | `echodot` | The same, without PipeWire. Microphones and speaker through ALSA |
 | `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. Virtual machine images run without an audio backend |
-| `wav:<path>` | Reads the microphone signal from a WAV file. No speaker. For tests |
+| `wav:<path>` | Reads the microphone signal from a WAV file. The speaker plays to nothing. For tests |
 | `none` | No audio. The wake word and voice requests are off |
 
 ## What's next

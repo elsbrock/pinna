@@ -54,7 +54,8 @@ pub enum Backend {
     EchoDotPipeWire,
     /// PipeWire tools (`pw-record` / `pw-play`) for laptops and VMs.
     PipeWire,
-    /// Capture only: read a WAV file (tests).
+    /// Read the microphone signal from a WAV file; the speaker plays to
+    /// nothing, in real time (tests).
     WavFile(std::path::PathBuf),
 }
 

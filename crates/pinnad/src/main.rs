@@ -405,24 +405,21 @@ async fn main() -> Result<()> {
         Some(Backend::PipeWire) => "pipewire",
         Some(Backend::WavFile(_)) => "wav",
     };
-    let speaker = backend
-        .clone()
-        .filter(|b| !matches!(b, Backend::WavFile(_)))
-        .map(|b| {
-            let echo_dot = b.echo_dot_mixer();
-            let mut sc = SpeakerConfig::new(b);
-            sc.initial_volume = initial.volume;
-            sc.profile.codec_flat = cfg.audio.speaker_profile.eq_ignore_ascii_case("flat");
-            if echo_dot && sc.profile.codec_flat {
-                // The Echo Dot (biscuit) speaker: +6 dB on top of the volume
-                // curve (which tops out at -12 dB), plus the stock firmware's
-                // extra gain above 70 %, which the speaker chain's limiter
-                // keeps under full scale.
-                sc.pre_gain_db = 6.0;
-                sc.volume_boost = true;
-            }
-            Arc::new(Speaker::new(sc))
-        });
+    let speaker = backend.clone().map(|b| {
+        let echo_dot = b.echo_dot_mixer();
+        let mut sc = SpeakerConfig::new(b);
+        sc.initial_volume = initial.volume;
+        sc.profile.codec_flat = cfg.audio.speaker_profile.eq_ignore_ascii_case("flat");
+        if echo_dot && sc.profile.codec_flat {
+            // The Echo Dot (biscuit) speaker: +6 dB on top of the volume
+            // curve (which tops out at -12 dB), plus the stock firmware's
+            // extra gain above 70 %, which the speaker chain's limiter
+            // keeps under full scale.
+            sc.pre_gain_db = 6.0;
+            sc.volume_boost = true;
+        }
+        Arc::new(Speaker::new(sc))
+    });
     // The ring shows music as an equalizer and follows the voice while
     // speaking. It is spawned once the control API answers, below: until then
     // the stage helper keeps drawing the boot stages (ADR 0012).
