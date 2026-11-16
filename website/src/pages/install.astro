@@ -9,28 +9,30 @@ const UDEV_RULE =
 
 <DocsLayout
   title="Install from the browser"
-  description="Connect your Echo over USB and check it from the browser. Nothing is written to the device."
+  description="Install Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen) from Chrome or Edge, over USB."
   slug="install"
 >
-  <div class="pn-notice" data-tone="caution">
-    <Icon name="shield" class="pn-notice-icon" />
-    <div class="pn-notice-body">
-      <p class="pn-notice-title !my-0">This page only checks the device for now</p>
-      <p class="!my-0">
-        It reads what the device is and whether Pinna can be installed on it.
-        It writes nothing. To install Pinna, follow
-        <a class="link" href={docHref("flash")}>Install Pinna</a>.
-      </p>
-    </div>
-  </div>
-
-  <div id="install-unsupported" class="pn-notice mt-5" data-tone="danger" hidden>
+  <div id="install-unsupported" class="pn-notice" data-tone="danger" hidden>
     <Icon name="close" class="pn-notice-icon" />
     <div class="pn-notice-body">
       <p class="pn-notice-title !my-0">This browser can't talk to USB devices</p>
       <p class="!my-0">
         Open this page in Chrome, Edge, Brave or Opera on a computer. Firefox
-        and Safari don't support WebUSB.
+        and Safari don't support WebUSB. Or install from a terminal, as described in
+        <a class="link" href={docHref("flash")}>Install Pinna</a>.
+      </p>
+    </div>
+  </div>
+
+  <div class="pn-notice mt-5" data-tone="caution">
+    <Icon name="shield" class="pn-notice-icon" />
+    <div class="pn-notice-body">
+      <p class="pn-notice-title !my-0">For a device that was unlocked before</p>
+      <p class="!my-0">
+        This page installs Pinna on a device that runs Pinna or the previous
+        firmware. It erases the device's data. A device that still runs
+        Amazon's software needs the bootloader unlock first; this page can
+        check such a device, but can't unlock it yet.
       </p>
     </div>
   </div>
@@ -38,6 +40,12 @@ const UDEV_RULE =
   <h2>What you need</h2>
   <ul>
     <li>Chrome, Edge, Brave or Opera on a computer.</li>
+    <li>
+      The release files. From the
+      <a class="link" href={`${SITE.repo}/releases/latest`}>latest release</a>,
+      download <code>pinna-boot.img</code>, <code>pinna-&lt;version&gt;.root.img</code>
+      and <code>SHA256SUMS</code>.
+    </li>
     <li>
       For the Echo Dot (2nd gen): a micro-USB cable that carries data, plugged
       straight into the computer, not into a hub.
@@ -52,14 +60,19 @@ const UDEV_RULE =
     </li>
     <li>
       On Windows: the WinUSB driver for the device. See
-      <a class="link" href="#busy">The browser can't use the device</a>.
+      <a class="link" href="#windows">Windows needs the WinUSB driver</a>.
+    </li>
+    <li>
+      If you want to keep what is on the device: a backup, made as described in
+      <a class="link" href={`${docHref("requirements")}#backup-of-the-device`}>What you need</a>.
+      This page can't make one yet.
     </li>
   </ul>
 
-  <h2>Check your device</h2>
+  <h2>Install</h2>
 
-  <form id="install-check" class="not-prose">
-    <fieldset class="flex flex-col gap-2">
+  <form id="install-form" class="not-prose" onsubmit="return false">
+    <fieldset id="install-models" class="flex flex-col gap-2">
       <legend class="text-ink mb-2 font-semibold">1. Choose your device</legend>
       <label class="flex items-center gap-2">
         <input type="radio" name="model" value="echo-dot-2" required />
@@ -70,38 +83,40 @@ const UDEV_RULE =
         Echo (2nd gen)
       </label>
     </fieldset>
+
+    <p class="text-ink mt-6 mb-2 font-semibold">2. Choose the release files</p>
+    <p class="text-ink-muted mt-0 mb-2 text-sm">
+      Select <code>pinna-boot.img</code>, <code>pinna-&lt;version&gt;.root.img</code> and
+      <code>SHA256SUMS</code> together. The page checks each file against
+      <code>SHA256SUMS</code>.
+    </p>
+    <input id="install-files" type="file" multiple class="pn-input w-full py-2" />
+    <ul id="install-files-status" class="mt-2 flex flex-col gap-1 text-sm"></ul>
   </form>
 
-  <p class="text-ink mt-6 mb-2 font-semibold">2. Start the device in fastboot</p>
+  <p class="text-ink mt-6 mb-2 font-semibold">3. Start the device in fastboot</p>
   <ol>
     <li>Unplug the device.</li>
+    <li>On an Echo (2nd gen), connect its USB pads to the computer first.</li>
+    <li>Hold <strong>Volume Down (−)</strong>.</li>
     <li>
-      Connect it to the computer: the Echo Dot (2nd gen) with its micro-USB
-      cable, the Echo (2nd gen) with the pins on its USB pads.
+      Plug in the power while you hold it: on the Echo Dot (2nd gen) the
+      micro-USB cable, with the other end on your computer; on the Echo (2nd
+      gen) its power adapter.
     </li>
-    <li>
-      Hold the button for its bootloader, and plug in the power while you hold
-      it: on the Echo Dot (2nd gen) that is the micro-USB cable itself, on the
-      Echo (2nd gen) its power adapter.
-      <ul>
-        <li>
-          <strong>Volume Down (−)</strong> if the device was unlocked before:
-          it runs Pinna or the previous firmware.
-        </li>
-        <li>
-          <strong>Action</strong> if it was never unlocked: it still runs
-          Amazon's software.
-        </li>
-      </ul>
-      If you are not sure, try Volume Down first, then Action.
-    </li>
-    <li>Release the button after a few seconds.</li>
+    <li>When the light ring changes, release the button.</li>
   </ol>
+  <p>
+    A device that still runs Amazon's software starts fastboot with
+    <strong>Action</strong> instead of Volume Down. The page can check it, but not
+    install on it.
+  </p>
 
-  <p class="text-ink mt-6 mb-2 font-semibold">3. Connect</p>
+  <p class="text-ink mt-6 mb-2 font-semibold">4. Connect</p>
   <p>
     The browser asks which device to use. Choose <strong>Android</strong>
-    (<code>0bb4:0c01</code>).
+    (<code>0bb4:0c01</code>). The page then reads what the device is; it
+    writes nothing yet.
   </p>
   <div class="mt-3 flex flex-wrap items-center gap-3">
     <button id="install-connect" type="button" class="pn-btn pn-btn-primary" disabled>
@@ -112,6 +127,65 @@ const UDEV_RULE =
     </p>
   </div>
 
+  <div id="install-result" class="pn-notice mt-5" hidden>
+    <span data-icon="ok" hidden><Icon name="check" class="pn-notice-icon" /></span>
+    <span data-icon="caution" hidden><Icon name="shield" class="pn-notice-icon" /></span>
+    <span data-icon="danger" hidden><Icon name="close" class="pn-notice-icon" /></span>
+    <div class="pn-notice-body">
+      <p id="install-headline" class="pn-notice-title !my-0"></p>
+      <p id="install-detail" class="!my-0"></p>
+      <p id="install-next" class="!my-0"></p>
+      <dl id="install-facts" class="mt-2 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1 text-sm"></dl>
+    </div>
+  </div>
+
+  <section id="install-confirm" class="mt-6" hidden>
+    <p class="text-ink mb-2 font-semibold">5. Install</p>
+    <p class="!mt-0">The page writes, in this order:</p>
+    <ul>
+      <li><code>system_a</code>: Pinna's root filesystem.</li>
+      <li><code>system_b</code>: its beginning is cleared.</li>
+      <li>
+        <code>userdata</code>: erased. Settings, Wi-Fi networks, the pairing with
+        Home Assistant and anything else stored on the device are gone.
+      </li>
+      <li><code>boot_a</code> and <code>boot_b</code>: Pinna's boot image.</li>
+    </ul>
+    <p>
+      Keep the device connected until the page says it's done, about a minute.
+      If the install stops halfway, the device stays in fastboot and you can
+      start again from step 3.
+    </p>
+    <label class="not-prose flex items-start gap-2">
+      <input id="install-agree" type="checkbox" class="mt-1" />
+      <span id="install-agree-text">I want to erase this device and install Pinna on it.</span>
+    </label>
+    <div class="mt-3 flex flex-wrap items-center gap-3">
+      <button id="install-start" type="button" class="pn-btn pn-btn-primary" disabled>Install Pinna</button>
+      <span id="install-start-hint" class="text-ink-muted text-sm"></span>
+    </div>
+    <div id="install-progress-box" class="mt-4" hidden>
+      <progress id="install-progress" class="w-full" max="1" value="0"></progress>
+      <p id="install-progress-text" class="text-ink-muted !mt-1 text-sm" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <div id="install-done" class="pn-notice mt-6" data-tone="ok" hidden>
+    <Icon name="check" class="pn-notice-icon" />
+    <div class="pn-notice-body">
+      <p class="pn-notice-title !my-0">Pinna is installed</p>
+      <p class="!my-0">
+        The device restarts now. After about 20 seconds your computer sees a USB
+        device named <strong>Pinna</strong>. Open
+        <a class="link" href="http://10.42.0.1" target="_blank" rel="noopener">http://10.42.0.1</a>
+        for its dashboard. To connect it to Wi-Fi, follow
+        <a class="link" href={`${docHref("flash")}#connect-to-wi-fi`}>Connect to Wi-Fi</a>.
+        If the device is named <strong>Pinna rescue</strong> instead, see
+        <a class="link" href={`${docHref("flash")}#check-the-device`}>Check the device</a>.
+      </p>
+    </div>
+  </div>
+
   <div id="install-problem" class="pn-notice mt-5" data-tone="danger" hidden>
     <Icon name="close" class="pn-notice-icon" />
     <div class="pn-notice-body">
@@ -120,28 +194,24 @@ const UDEV_RULE =
     </div>
   </div>
 
-  <section id="install-result" class="card mt-6 p-5" hidden>
-    <p id="install-headline" class="text-ink !mt-0 text-lg font-semibold"></p>
-    <p id="install-detail" class="text-ink-muted"></p>
-    <p id="install-next" class="text-ink"></p>
-    <dl id="install-facts" class="mt-4 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1 text-sm"></dl>
-
-    <p class="text-ink mt-6 mb-2 font-semibold">Report</p>
+  <section id="install-report-box" class="mt-6" hidden>
+    <p class="text-ink mb-2 font-semibold">Report</p>
     <p class="!mt-0 text-sm">
-      Paste this into an issue if the result is wrong, or if the device's
-      bootloader is unknown. The serial number is cut short.
+      If the result looks wrong, or the page can't go on, paste this into an
+      issue. The serial number is cut short.
     </p>
     <textarea
       id="install-report"
       class="pn-input is-mono h-56 w-full py-2"
       readonly
       aria-label="Device report"></textarea>
-    <div class="mt-3 flex flex-wrap gap-3">
+    <div class="mt-3 flex flex-wrap items-center gap-3">
       <button id="install-copy" type="button" class="pn-btn">Copy</button>
-      <a id="install-issue" class="pn-btn" href={`${SITE.repo}/issues/new`}>
+      <a id="install-issue" class="pn-btn" href={`${SITE.repo}/issues/new`} target="_blank" rel="noopener">
         Open an issue
         <Icon name="external" size={14} />
       </a>
+      <span id="install-copy-status" class="text-ink-muted text-sm" aria-live="polite"></span>
     </div>
   </section>
 
@@ -150,8 +220,7 @@ const UDEV_RULE =
   <h3>The device isn't in the list</h3>
   <ul>
     <li>
-      The device isn't in fastboot. Start it again as described in step 2, and
-      try the other button.
+      The device isn't in fastboot. Start it again as described in step 3.
     </li>
     <li>
       The cable only charges. Try another cable, and a USB port on the
@@ -166,39 +235,41 @@ const UDEV_RULE =
     <code>/etc/udev/rules.d/60-pinna-fastboot.rules</code>:
   </p>
   <pre><code>{UDEV_RULE}</code></pre>
-  <p>Then load it, and unplug and plug in the device again:</p>
+  <p>Then load it:</p>
   <pre><code>sudo udevadm control --reload-rules && sudo udevadm trigger</code></pre>
   <p>
     On NixOS, put the rule in <code>services.udev.extraRules</code> instead.
+    Then start the device in fastboot again (step 3) and connect again.
   </p>
 
-  <h3 id="busy">The browser can't use the device</h3>
-  <ul>
-    <li>
-      Another program uses it: <code>fastboot</code>, <code>adb</code> (run
-      <code>adb kill-server</code>), Android Studio, or this page in another
-      tab. Close them and connect again.
-    </li>
-    <li>
-      On Windows the browser needs the WinUSB driver for the device. Install
-      it with <a class="link" href="https://zadig.akeo.ie/">Zadig</a>: choose
-      <strong>Options › List All Devices</strong>, select
-      <strong>Android</strong> (USB ID <code>0BB4 0C01</code>), choose
-      <strong>WinUSB</strong> and <strong>Install Driver</strong>.
-    </li>
-  </ul>
+  <h3 id="busy">Another program uses the device</h3>
+  <p>
+    <code>fastboot</code>, <code>adb</code> (run <code>adb kill-server</code>),
+    Android Studio, or this page in another tab. Close them and connect again.
+  </p>
 
-  <h3 id="no-reply">The device doesn't answer</h3>
+  <h3 id="windows">Windows needs the WinUSB driver</h3>
+  <p>
+    Install it with <a class="link" href="https://zadig.akeo.ie/">Zadig</a>
+    while the device is in fastboot: choose <strong>Options › List All Devices</strong>,
+    select <strong>Android</strong> (USB ID <code>0BB4 0C01</code>), choose
+    <strong>WinUSB</strong> and <strong>Install Driver</strong>. Then connect again.
+  </p>
+
+  <h3 id="no-reply">The device doesn't answer, or goes away</h3>
   <p>
     The page stops after the first request that gets no reply, and sends
     nothing more. Some devices that were never unlocked reset when they get a
     request and come back in fastboot. Unplug the device, start it in fastboot
     again, use another cable or USB port, and connect again. If it happens
-    every time, open an issue and say which device and computer you use.
+    every time, open an issue with the report the page shows.
   </p>
+
+  <h3>Leave fastboot without installing</h3>
+  <p>Unplug the device and plug it in again. It starts as before.</p>
 </DocsLayout>
 
 <script>
-  import { startCheckPage } from "../lib/installer/check-page";
-  startCheckPage();
+  import { startInstallPage } from "../lib/installer/install-page";
+  startInstallPage();
 </script>

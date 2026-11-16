@@ -4,7 +4,8 @@
 // The host sends one ASCII command per transfer. The device answers with one
 // or more transfers that start with a 4-byte status, then text up to the
 // first NUL: INFO and TEXT report progress and more follow; OKAY and FAIL end
-// the command.
+// the command. `download:<size>` gets DATA<size>, then the host sends the
+// data, then the device answers OKAY.
 
 export interface Transport {
   /** Send one transfer. */
@@ -50,6 +51,8 @@ export type Reply = {
 /** The protocol's limit for one command. */
 const MAX_COMMAND = 64;
 const DEFAULT_TIMEOUT_MS = 5000;
+/** Data goes out in transfers of at most this size, for progress. */
+const WRITE_CHUNK = 1 << 20;
 
 function decode(bytes: Uint8Array): string {
   const end = bytes.indexOf(0);
@@ -77,12 +80,66 @@ export class Fastboot {
     return this.#broken;
   }
 
-  async command(command: string): Promise<Reply> {
+  async command(command: string, timeoutMs = this.#timeoutMs): Promise<Reply> {
+    await this.#send(command);
+    const reply = await this.#reply(command, timeoutMs);
+    if (reply.status === "DATA") {
+      throw this.#fatal("protocol", command, `unexpected DATA reply to ${command}`);
+    }
+    return { message: reply.message, info: reply.info };
+  }
+
+  /**
+   * Send `parts` as one download of their total size: the device's next
+   * `flash:` writes it. Throws a FastbootError like `command`.
+   */
+  async download(parts: Uint8Array[], onProgress: (sent: number) => void = () => {}, timeoutMs = this.#timeoutMs): Promise<void> {
+    const size = parts.reduce((sum, part) => sum + part.length, 0);
+    if (size === 0 || size > 0xffffffff) throw new FastbootError("protocol", "download", `can't download ${size} bytes`);
+    const command = `download:${size.toString(16).padStart(8, "0")}`;
+    await this.#send(command);
+    const accepted = await this.#reply(command, timeoutMs);
+    if (accepted.status !== "DATA" || accepted.size !== size) {
+      throw this.#fatal("protocol", command, `the device didn't accept ${size} bytes`);
+    }
+
+    let sent = 0;
+    for (const part of parts) {
+      for (let offset = 0; offset < part.length; offset += WRITE_CHUNK) {
+        const chunk = part.subarray(offset, Math.min(offset + WRITE_CHUNK, part.length));
+        try {
+          await this.#transport.write(chunk);
+        } catch (error) {
+          throw this.#fatal("transport", command, `sending the data failed: ${String(error)}`);
+        }
+        sent += chunk.length;
+        onProgress(sent);
+      }
+    }
+    const done = await this.#reply(command, timeoutMs);
+    if (done.status !== "OKAY") throw this.#fatal("protocol", command, `unexpected DATA reply after ${command}`);
+  }
+
+  /** The value of a variable; a FAIL reply throws. */
+  async getvar(name: string): Promise<string> {
+    return (await this.command(`getvar:${name}`)).message;
+  }
+
+  /** The value of a variable, or null when the device answers FAIL. */
+  async getvarOrNull(name: string): Promise<string | null> {
+    try {
+      return await this.getvar(name);
+    } catch (error) {
+      if (error instanceof FastbootError && error.kind === "fail") return null;
+      throw error;
+    }
+  }
+
+  async #send(command: string): Promise<void> {
     if (this.#broken) throw new FastbootError("transport", command, this.#broken);
     if (command.length === 0 || command.length > MAX_COMMAND || !/^[\x20-\x7e]+$/.test(command)) {
       throw new FastbootError("protocol", command, `not a valid fastboot command: ${JSON.stringify(command)}`);
     }
-
     const bytes = new Uint8Array(command.length);
     for (let i = 0; i < command.length; i++) bytes[i] = command.charCodeAt(i);
     try {
@@ -90,12 +147,15 @@ export class Fastboot {
     } catch (error) {
       throw this.#fatal("transport", command, `sending ${command} failed: ${String(error)}`);
     }
+  }
 
+  /** Read until OKAY or DATA; FAIL throws (the connection stays usable). */
+  async #reply(command: string, timeoutMs: number): Promise<({ status: "OKAY" } & Reply) | { status: "DATA"; size: number; info: string[] }> {
     const info: string[] = [];
     for (;;) {
       let reply: Uint8Array;
       try {
-        reply = await this.#transport.read(this.#timeoutMs);
+        reply = await this.#transport.read(timeoutMs);
       } catch (error) {
         if (error instanceof TimeoutError) {
           throw this.#fatal("timeout", command, `no reply to ${command}`);
@@ -113,27 +173,17 @@ export class Fastboot {
           info.push(text);
           continue;
         case "OKAY":
-          return { message: text, info };
+          return { status, message: text, info };
+        case "DATA":
+          if (!/^[0-9a-fA-F]{8}$/.test(text)) {
+            throw this.#fatal("protocol", command, `unexpected reply to ${command}: ${JSON.stringify(status + text)}`);
+          }
+          return { status, size: Number.parseInt(text, 16), info };
         case "FAIL":
           throw new FastbootError("fail", command, text || "FAIL");
         default:
           throw this.#fatal("protocol", command, `unexpected reply to ${command}: ${JSON.stringify(status + text)}`);
       }
-    }
-  }
-
-  /** The value of a variable; a FAIL reply throws. */
-  async getvar(name: string): Promise<string> {
-    return (await this.command(`getvar:${name}`)).message;
-  }
-
-  /** The value of a variable, or null when the device answers FAIL. */
-  async getvarOrNull(name: string): Promise<string | null> {
-    try {
-      return await this.getvar(name);
-    } catch (error) {
-      if (error instanceof FastbootError && error.kind === "fail") return null;
-      throw error;
     }
   }
 

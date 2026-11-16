@@ -118,15 +118,15 @@ export function assess(report: DeviceReport, stated: ModelId): Assessment {
       headline: `The device reports ${report.product}, not ${expected.product}`,
       detail:
         stated === "echo-2" && report.product === "BISCUIT"
-          ? "An Echo (2nd gen) that reports BISCUIT still runs an old boot chain from an earlier unlock. This page can't install it."
-          : `You chose ${expected.name}, but the device in fastboot is ${known.name}. Check which device is connected.`,
+          ? "If this is an Echo Dot (2nd gen), choose it in step 1 and connect again. An Echo (2nd gen) that reports BISCUIT still runs an old boot chain from an earlier unlock, and this page can't install it."
+          : `You chose ${expected.name}, but the device in fastboot is ${known.name}. Choose it in step 1 and connect again.`,
     };
   }
   if (report.bootloader.kind === "unknown") {
     return {
       state: "stop",
       headline: "The bootloader is neither stock nor Kaeru",
-      detail: `It answered \`oem kaeru-version\` with ${JSON.stringify(report.bootloader.reply)}. This page doesn't know that reply, so it stops here.`,
+      detail: `It answered "oem kaeru-version" with ${JSON.stringify(report.bootloader.reply)}. This page doesn't know that reply, so it stops here.`,
     };
   }
   if (report.bootloader.kind === "stock") {

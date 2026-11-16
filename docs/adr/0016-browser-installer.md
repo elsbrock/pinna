@@ -95,7 +95,13 @@ confirmed by the owner yet.
 - What `flash-gen2.sh root` and `boot` do, in the same order: `system_a` gets the
   root image (sparse chunks), the first MiB of `system_b` and the first 4 MiB
   of `userdata` are zeroed, `boot_a` and `boot_b` get the boot image. Then
-  `reboot-bootloader`, and once the device is back in fastboot, `reboot`.
+  `reboot`. (Only a device unlocked a moment ago needs `reboot-bootloader`
+  first, for the sticky `FASTBOOT_PLEASE`; that belongs to stage 4.)
+- An image bigger than `max-download-size` goes as Android sparse images that
+  each carry their blocks raw and skip the rest, as the fastboot tool sends
+  it.
+- Right before the first write the page reads the device again; another
+  serial number, or a result other than "ready", stops it.
 - One confirmation before the first write says what is erased, and that the
   device stays in fastboot until the page has finished.
 - A disconnect or a closed tab during the writes leaves the device in fastboot,
