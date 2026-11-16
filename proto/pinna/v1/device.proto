@@ -34,6 +34,9 @@ service DeviceService {
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
   // The time zones UpdateSettings accepts.
   rpc ListTimeZones(ListTimeZonesRequest) returns (ListTimeZonesResponse);
+  // The other satellites on the network (ADR 0020): one mDNS query that takes
+  // about a second and a half at most.
+  rpc ListSatellites(ListSatellitesRequest) returns (ListSatellitesResponse);
   // Start tuning the wake word sensitivity with the satellite's + and −
   // buttons. Fails while the microphones are muted, the wake word is off, or
   // a request or timer alarm is active.
@@ -345,9 +348,9 @@ message Settings {
   bool default_name = 7;
   // A chime when listening starts.
   bool wake_sound = 8;
-  // Names the dashboard answers to, added on the dashboard. IP addresses,
-  // localhost, .local names and the hostname always work.
-  repeated string allowed_hosts = 9;
+  // The dashboard address (ADR 0020), e.g. "https://dot.example.com/"; empty
+  // when none is set.
+  string url = 13;
   // The AirPlay receiver on or off (ADR 0011). Off by default.
   bool airplay = 10;
   // Bluetooth audio from phones on or off (ADR 0011). Off by default.
@@ -355,6 +358,8 @@ message Settings {
   // The IANA time zone name, e.g. "Europe/Berlin"; "UTC" until one is set
   // (ADR 0007).
   string time_zone = 12;
+  // 9 was allowed_hosts, replaced by `url` (ADR 0020).
+  reserved 9;
 }
 
 message GetStatusRequest {}
@@ -439,8 +444,6 @@ message UpdateSettingsRequest {
   // once the satellite is idle.
   optional string friendly_name = 6;
   optional bool wake_sound = 7;
-  // Replaces the dashboard's list: at most 16 DNS names, without a port.
-  HostNames allowed_hosts = 8;
   // Refused on a device without a speaker or stream socket.
   optional bool airplay = 9;
   // Refused on a device without Bluetooth or a working speaker.
@@ -451,6 +454,12 @@ message UpdateSettingsRequest {
   optional string hostname = 11;
   // One of ListTimeZones; it applies at once.
   optional string time_zone = 12;
+  // The dashboard address (ADR 0020): `http` or `https`, a host and an optional
+  // port, nothing after it; stored with a trailing `/`. Empty clears it. It
+  // applies at once, and other satellites link to it.
+  optional string url = 13;
+  // 8 was allowed_hosts, replaced by `url`.
+  reserved 8;
 }
 
 message ListTimeZonesRequest {}
@@ -460,10 +469,33 @@ message ListTimeZonesResponse {
   repeated string zones = 1;
 }
 
-// A list of host names, so that UpdateSettingsRequest can tell "unchanged"
-// from "none".
-message HostNames {
-  repeated string names = 1;
+message ListSatellitesRequest {}
+
+message ListSatellitesResponse {
+  // Other satellites that answered, by friendly name. Not this one.
+  repeated Satellite satellites = 1;
+  // This satellite has an address on a network, not only the USB link. When
+  // false, nothing was asked and the list is empty.
+  bool on_network = 2;
+}
+
+// A satellite found by its ESPHome mDNS record (ADR 0020).
+message Satellite {
+  // The node name, which is also its hostname: `<name>.local`.
+  string name = 1;
+  string friendly_name = 2;
+  // The model, e.g. "Echo Dot (2nd Gen)".
+  string board = 3;
+  string mac = 4;
+  string version = 5;
+  // The dashboard's port; 80 when the record has none (older firmware).
+  uint32 web_port = 6;
+  // Its dashboard address, when it has one set.
+  string url = 7;
+  // Addresses without the USB link's 10.42.0.0/24.
+  repeated string ipv4 = 8;
+  // Addresses without link-local ones.
+  repeated string ipv6 = 9;
 }
 
 message UpdateSettingsResponse {

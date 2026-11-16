@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { Settings, Status, Timer, WakeWord, WakeWordOption } from "../gen/pinna/v1/device_pb.ts";
+import type { Satellite, Settings, Status, Timer, WakeWord, WakeWordOption } from "../gen/pinna/v1/device_pb.ts";
 
 // node's type stripping can't run the generated module (it holds a TS enum),
 // so the tests build message shapes by hand.
@@ -24,7 +24,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   friendlyName: "Echo Dot aabbcc",
   defaultName: true,
   wakeSound: false,
-  allowedHosts: [],
+  url: "",
   airplay: false,
   bluetooth: false,
   timeZone: "UTC",
@@ -50,6 +50,9 @@ import {
   installSteps,
   ringEffect,
   routeOf,
+  satelliteFallbacks,
+  satelliteLink,
+  satelliteModel,
   since,
   spokenWakeWords,
   STAGE,
@@ -480,4 +483,63 @@ test("Wi-Fi words: security, what can't be joined, a join's end", () => {
   assert.equal(joinTone(null), null);
   assert.equal(mmss(245), "4:05");
   assert.equal(mmss(-3), "0:00");
+});
+
+const satellite = (over: Partial<Satellite> = {}): Satellite => ({
+  $typeName: "pinna.v1.Satellite",
+  name: "kitchen",
+  friendlyName: "Kitchen",
+  board: "Echo Dot (2nd Gen)",
+  mac: "02:00:00:aa:bb:cc",
+  version: "0.9.0",
+  webPort: 80,
+  url: "",
+  ipv4: ["192.168.1.20"],
+  ipv6: ["fd00::20", "2001:db8::20"],
+  ...over,
+});
+const at = (hostname: string) => ({ protocol: "http:", hostname });
+
+test("a satellite's own dashboard address wins", () => {
+  const s = satellite({ url: "https://kitchen.example.com/", webPort: 8080 });
+  assert.deepEqual(satelliteLink(s, at("pinna.local")), { href: "https://kitchen.example.com/", host: "kitchen.example.com" });
+  assert.equal(satelliteLink(satellite({ url: "http://10.0.0.2:8123/" }), at("x.local")).host, "10.0.0.2:8123");
+});
+
+test("an announced address that isn't plain http(s) is not a link", () => {
+  for (const url of ["javascript:alert(1)", "ftp://x/", "https://u:p@x.example/", "not a url"]) {
+    assert.equal(satelliteLink(satellite({ url }), at("pinna.local")).href, "http://kitchen.local/", url);
+  }
+});
+
+test("opened by a .local name: the other's .local name", () => {
+  assert.deepEqual(satelliteLink(satellite(), at("Pinna.local.")), { href: "http://kitchen.local/", host: "kitchen.local" });
+  assert.equal(satelliteLink(satellite({ webPort: 8080 }), at("pinna.local")).href, "http://kitchen.local:8080/");
+});
+
+test("opened by an IPv4 address or another name: the other's IPv4 address", () => {
+  assert.deepEqual(satelliteLink(satellite(), at("192.168.1.5")), { href: "http://192.168.1.20/", host: "192.168.1.20" });
+  assert.equal(satelliteLink(satellite({ webPort: 8080 }), at("dot.fritz.box")).href, "http://192.168.1.20:8080/");
+  // No IPv4 address: the .local name.
+  assert.equal(satelliteLink(satellite({ ipv4: [] }), at("192.168.1.5")).href, "http://kitchen.local/");
+});
+
+test("opened by an IPv6 literal: a global address before a unique-local one", () => {
+  assert.equal(satelliteLink(satellite(), at("[2001:db8::5]")).href, "http://[2001:db8::20]/");
+  assert.equal(satelliteLink(satellite({ ipv6: ["fd00::20"], webPort: 81 }), at("[fd00::5]")).href, "http://[fd00::20]:81/");
+  assert.equal(satelliteLink(satellite({ ipv6: [] }), at("[2001:db8::5]")).href, "http://kitchen.local/");
+});
+
+test("fallbacks: the .local name and the first IPv4 address", () => {
+  assert.deepEqual(satelliteFallbacks(satellite({ webPort: 8080 })), [
+    { href: "http://kitchen.local:8080/", host: "kitchen.local:8080" },
+    { href: "http://192.168.1.20:8080/", host: "192.168.1.20:8080" },
+  ]);
+  assert.equal(satelliteFallbacks(satellite({ ipv4: [] })).length, 1);
+});
+
+test("the drawing follows the board", () => {
+  assert.equal(satelliteModel("Echo (2nd Gen)"), "echo-2");
+  assert.equal(satelliteModel("Echo Dot (2nd Gen)"), "echo-dot-2");
+  assert.equal(satelliteModel(""), "echo-dot-2");
 });

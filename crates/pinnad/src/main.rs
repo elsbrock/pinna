@@ -15,6 +15,7 @@ mod leds;
 mod logs;
 mod metrics;
 mod network;
+mod satellites;
 mod settings;
 mod timezone;
 mod updates;
@@ -408,6 +409,7 @@ async fn main() -> Result<()> {
         .listen
         .parse::<std::net::SocketAddr>()
         .map_or(0, |a| a.port());
+    dc.dashboard_url.clone_from(&initial.url);
     // Wake words (ADR 0013): those installed, and the ones chosen last.
     let catalogue = Arc::new(Catalogue::new(&cfg.wake));
     let active_wake = catalogue.sanitize(

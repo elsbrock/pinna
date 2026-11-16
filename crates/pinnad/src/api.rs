@@ -30,8 +30,9 @@ use pinna_api::{
 };
 use pinna_api::{
     FactoryResetRequest, FactoryResetResponse, ForgetWifiRequest, ForgetWifiResponse,
-    JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListTimeZonesRequest,
-    ListTimeZonesResponse, ListWifiRequest, ListWifiResponse, ScanWifiRequest, ScanWifiResponse,
+    JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListSatellitesRequest,
+    ListSatellitesResponse, ListTimeZonesRequest, ListTimeZonesResponse, ListWifiRequest,
+    ListWifiResponse, ScanWifiRequest, ScanWifiResponse,
 };
 use pinna_api::{
     ForgetBluetoothDeviceRequest, ForgetBluetoothDeviceResponse, ReportBluetoothRequest,
@@ -45,7 +46,7 @@ use crate::boot;
 use crate::updates::{Event, Updater, UpdaterPaths, stage_of};
 use crate::voice::{ApiCommand, ApiReply, Input, SettingsPatch, Snapshot};
 use crate::wifi::{Wifi, WifiPaths};
-use crate::{logs, network, wifi};
+use crate::{logs, network, satellites, wifi};
 
 /// What does not change while pinnad runs.
 #[derive(Debug, Clone)]
@@ -253,7 +254,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             friendly_name: s.friendly_name.clone(),
             default_name: s.default_name,
             wake_sound: s.wake_sound,
-            allowed_hosts: s.settings.allowed_hosts.clone().unwrap_or_default(),
+            url: s.settings.url.clone().unwrap_or_default(),
             airplay: s.settings.airplay,
             bluetooth: s.settings.bluetooth,
             time_zone: s.settings.time_zone.clone().unwrap_or_else(|| "UTC".into()),
@@ -282,6 +283,22 @@ fn calibration_kind(kind: crate::calibration::EventKind) -> CalibrationEventKind
         EventKind::Unchanged(Unchanged::WouldUndo) => {
             CalibrationEventKind::CALIBRATION_EVENT_KIND_WOULD_UNDO
         }
+    }
+}
+
+/// A satellite found on the network, as the API reports it.
+fn satellite(f: satellites::Found) -> pinna_api::Satellite {
+    pinna_api::Satellite {
+        name: f.name,
+        friendly_name: f.friendly_name,
+        board: f.board,
+        mac: f.mac,
+        version: f.version,
+        web_port: f.web_port.into(),
+        url: f.url,
+        ipv4: f.ipv4.iter().map(ToString::to_string).collect(),
+        ipv6: f.ipv6.iter().map(ToString::to_string).collect(),
+        ..Default::default()
     }
 }
 
@@ -571,16 +588,11 @@ impl DeviceService for DeviceApi {
             }
             None => None,
         };
-        let allowed_hosts = match request.allowed_hosts.as_option() {
-            Some(h) => {
-                let names: Vec<String> = h.names.iter().map(|n| (*n).to_owned()).collect();
-                Some(
-                    crate::settings::check_host_names(&names)
-                        .map_err(ConnectError::invalid_argument)?,
-                )
-            }
-            None => None,
-        };
+        let url = request
+            .url
+            .map(crate::settings::check_url)
+            .transpose()
+            .map_err(ConnectError::invalid_argument)?;
         let patch = SettingsPatch {
             wake_word: request.wake_word,
             wake_sensitivity: percent("wake_sensitivity", request.wake_sensitivity)?,
@@ -590,7 +602,7 @@ impl DeviceService for DeviceApi {
             hostname,
             time_zone,
             wake_sound: request.wake_sound,
-            allowed_hosts,
+            url,
             airplay: request.airplay,
             bluetooth: request.bluetooth,
         };
@@ -610,6 +622,27 @@ impl DeviceService for DeviceApi {
     ) -> ServiceResult<ListTimeZonesResponse> {
         Response::ok(ListTimeZonesResponse {
             zones: self.info.time_zones.to_vec(),
+            ..Default::default()
+        })
+    }
+
+    async fn list_satellites(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ListSatellitesRequest>,
+    ) -> ServiceResult<ListSatellitesResponse> {
+        let interfaces = network::interfaces()
+            .await
+            .map_err(|e| ConnectError::unavailable(format!("reading network interfaces: {e:#}")))?;
+        if !satellites::on_network(&interfaces) {
+            return Response::ok(ListSatellitesResponse::default());
+        }
+        let found = satellites::discover(&self.info.mac).await.map_err(|e| {
+            ConnectError::unavailable(format!("Couldn't look for other satellites: {e:#}"))
+        })?;
+        Response::ok(ListSatellitesResponse {
+            satellites: found.into_iter().map(satellite).collect(),
+            on_network: true,
             ..Default::default()
         })
     }
@@ -1364,13 +1397,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn name_wake_sound_and_hosts_round_trip() {
+    async fn name_wake_sound_and_url_round_trip() {
         let (c, _inputs) = start_device().await;
         let settings = |s: Status| s.settings.into_option().unwrap();
         let before = settings(status(&c).await);
         assert_eq!(before.friendly_name, "Echo Dot aabbcc");
         assert!(before.default_name && !before.wake_sound);
-        assert!(before.allowed_hosts.is_empty());
+        assert!(before.url.is_empty());
 
         let update = async |req: pinna_api::UpdateSettingsRequest| {
             c.update_settings(req).await.map(|r| {
@@ -1386,17 +1419,14 @@ mod tests {
         let after = update(pinna_api::UpdateSettingsRequest {
             friendly_name: Some("  Küche ".into()),
             wake_sound: Some(true),
-            allowed_hosts: MessageField::some(pinna_api::HostNames {
-                names: vec!["Kitchen.home.arpa.".into(), "kitchen.home.arpa".into()],
-                ..Default::default()
-            }),
+            url: Some(" HTTPS://Dot.Example.com:443 ".into()),
             ..Default::default()
         })
         .await
         .unwrap();
         assert_eq!(after.friendly_name, "Küche");
         assert!(!after.default_name && after.wake_sound);
-        assert_eq!(after.allowed_hosts, ["kitchen.home.arpa"]);
+        assert_eq!(after.url, "https://dot.example.com/");
 
         for bad in [
             pinna_api::UpdateSettingsRequest {
@@ -1404,25 +1434,48 @@ mod tests {
                 ..Default::default()
             },
             pinna_api::UpdateSettingsRequest {
-                allowed_hosts: MessageField::some(pinna_api::HostNames {
-                    names: vec!["pinna.local".into()],
-                    ..Default::default()
-                }),
+                url: Some("dot.example.com".into()),
+                ..Default::default()
+            },
+            pinna_api::UpdateSettingsRequest {
+                url: Some("http://dot.example.com/admin".into()),
                 ..Default::default()
             },
         ] {
             let err = update(bad).await.unwrap_err();
             assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
         }
-        // An empty list clears the dashboard's names; the rest stays.
+        // The rejected ones changed nothing.
+        let same = update(pinna_api::UpdateSettingsRequest::default())
+            .await
+            .unwrap();
+        assert_eq!(same.url, "https://dot.example.com/");
+        // An empty address clears it; the rest stays.
         let cleared = update(pinna_api::UpdateSettingsRequest {
-            allowed_hosts: MessageField::some(pinna_api::HostNames::default()),
+            url: Some(" ".into()),
             ..Default::default()
         })
         .await
         .unwrap();
-        assert!(cleared.allowed_hosts.is_empty());
+        assert!(cleared.url.is_empty());
         assert_eq!(cleared.friendly_name, "Küche");
+    }
+
+    #[tokio::test]
+    async fn satellites_are_listed_only_on_a_network() {
+        let (c, _inputs) = start_device().await;
+        // Where the test runs decides whether there is a network: without one
+        // (or without `ip`) nothing is asked and nothing comes back.
+        match c
+            .list_satellites(pinna_api::ListSatellitesRequest::default())
+            .await
+        {
+            Ok(r) => {
+                let r = r.into_view().to_owned_message();
+                assert!(r.on_network || r.satellites.is_empty());
+            }
+            Err(e) => assert_eq!(e.code, connectrpc::ErrorCode::Unavailable),
+        }
     }
 
     #[tokio::test]

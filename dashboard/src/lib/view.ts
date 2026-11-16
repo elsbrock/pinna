@@ -1,7 +1,7 @@
 // What the page shows, derived from Status: words, tones, disabled reasons and
 // ticking numbers. No Svelte and no runtime imports, so `node --test` runs it.
 import type { Effect } from "../../../design/ring.ts";
-import type { CalibrationEvent, Status, Timer, WakeEvent } from "../gen/pinna/v1/device_pb.ts";
+import type { CalibrationEvent, Satellite, Status, Timer, WakeEvent } from "../gen/pinna/v1/device_pb.ts";
 
 /** The connection to the satellite's WatchStatus stream. */
 export type Link = "connecting" | "live" | "offline";
@@ -562,4 +562,55 @@ export function bitrate(tx: string): string {
 /** Connected to Wi-Fi: link details, or (without them) an IPv4 address. wifiIssue() agrees. */
 export function wifiConnected(w: { wifi?: unknown; addresses: string[] } | undefined): boolean {
   return !!w && (!!w.wifi || w.addresses.some((a) => !a.includes(":")));
+}
+
+/** Where a satellite's dashboard opens: the link and the host to show with it. */
+export type SatLink = { href: string; host: string };
+export type SatelliteLike = Pick<Satellite, "name" | "board" | "webPort" | "url" | "ipv4" | "ipv6">;
+
+const port = (sat: SatelliteLike) => (sat.webPort && sat.webPort !== 80 ? `:${sat.webPort}` : "");
+const link = (host: string): SatLink => ({ href: `http://${host}/`, host });
+const localLink = (sat: SatelliteLike) => link(`${encodeURIComponent(sat.name)}.local${port(sat)}`);
+
+/** The address another satellite announces for its dashboard, when it is a plain
+ *  http(s) one: the record comes from the network, so nothing else becomes a link. */
+function announced(url: string): SatLink | null {
+  try {
+    const u = new URL(url);
+    if ((u.protocol !== "http:" && u.protocol !== "https:") || u.username || u.password) return null;
+    return { href: u.href, host: u.host };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The link to another satellite's dashboard (ADR 0020): its own address when
+ * it has one; else its `.local` name when this page was opened by one; else
+ * its address of the family this page was opened by (IPv6 literal or IPv4),
+ * falling back to the `.local` name when it has none of that family.
+ */
+export function satelliteLink(sat: SatelliteLike, here: { protocol: string; hostname: string }): SatLink {
+  const own = announced(sat.url);
+  if (own) return own;
+  const name = here.hostname.toLowerCase().replace(/\.$/, "");
+  if (name.endsWith(".local")) return localLink(sat);
+  if (name.startsWith("[") || name.includes(":")) {
+    // A global address before a unique-local one (fc00::/7); never link-local.
+    const v6 = sat.ipv6.find((a) => !/^f[cd]/i.test(a)) ?? sat.ipv6[0];
+    return v6 ? link(`[${v6}]${port(sat)}`) : localLink(sat);
+  }
+  const v4 = sat.ipv4[0];
+  return v4 ? link(`${v4}${port(sat)}`) : localLink(sat);
+}
+
+/** Ways around a dashboard address that doesn't open: the `.local` name and the first IPv4 address. */
+export function satelliteFallbacks(sat: SatelliteLike): SatLink[] {
+  const v4 = sat.ipv4[0];
+  return [localLink(sat), ...(v4 ? [link(`${v4}${port(sat)}`)] : [])];
+}
+
+/** The drawing's model id for a satellite's `board` (see `identity::model_name`). */
+export function satelliteModel(board: string): string {
+  return board === "Echo (2nd Gen)" ? "echo-2" : "echo-dot-2";
 }

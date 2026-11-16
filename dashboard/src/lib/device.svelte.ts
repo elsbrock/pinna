@@ -5,7 +5,7 @@ import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
 import type { Frame } from "../../../design/ring.ts";
-import { DeviceService, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
+import { DeviceService, type ListSatellitesResponse, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
 import { frameFromBytes } from "./ledframe.ts";
 import { toasts } from "./toast.svelte.ts";
 import { LED_TEST_STEP_MS, type Link } from "./view.ts";
@@ -41,7 +41,7 @@ class Device {
   /** A one-second clock for everything that counts. */
   now = $state(Date.now());
   /** The satellite answers, but not to the name this page is open by: it was
-   *  removed from its other names (ADR 0007). */
+   *  its host isn't the dashboard address any more (ADR 0020). */
   misdirected = $state(false);
 
   #stream: AbortController | null = null;
@@ -195,6 +195,10 @@ class Device {
   /** The IANA zones the satellite has. */
   async listTimeZones(): Promise<string[]> {
     return (await client.listTimeZones({})).zones;
+  }
+  /** The other satellites on the network (ADR 0020); takes about a second. */
+  listSatellites(): Promise<ListSatellitesResponse> {
+    return client.listSatellites({});
   }
   startConversation() {
     return this.#command(() => client.startConversation({}));

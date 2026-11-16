@@ -38,7 +38,7 @@ phone they are in a bar at the bottom.
 | **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. **Identify** runs the ring's test pattern, to find the device among others |
 | **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the ring brightness, and turn the **Wake sound** on or off. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them. **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
 | **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted. See the device's name, and copy the host and port to add the device by hand |
-| **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. Add [other names to open the dashboard by](#open-the-dashboard-by-another-name) |
+| **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. [Set a dashboard address](#set-a-dashboard-address), where else the dashboard opens |
 | **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
 
 The dashboard only offers the wake words whose models the image ships.
@@ -212,7 +212,7 @@ Assistant connects, because a calibration wake starts no request.
 ## Who can use the dashboard
 
 The dashboard has no login. **Anyone on your network can use it.** That
-includes renaming the device, adding a name to open it by, moving it to
+includes renaming the device, setting its dashboard address, moving it to
 another Wi-Fi network or forgetting the one it uses, restarting the device,
 installing an update and switching to the version in the other slot. Only an update that
 is signed with your release key installs, and the device goes back to the
@@ -225,23 +225,52 @@ under `[web]` in `pinnad.toml`, as [Configure Pinna](/docs/configure/#web)
 describes. `pinnactl` and the boot health check keep working then, because
 they use the control API on `127.0.0.1:7470`.
 
-## Open the dashboard by another name
+## Set a dashboard address
 
 The dashboard answers to IP addresses, to `localhost`, to names that end in
 `.local` and to the device's hostname. That stops other web sites from
 reaching it through your browser. If you open it by another name, for example
-`kitchen.home.arpa` that you set up for the device in your router's DNS, the
-browser shows a short message from the device, such as
-`This satellite does not answer to the name "kitchen.home.arpa".` To add the
-name:
+`https://dot.example.com/` that a reverse proxy serves, the browser shows a
+short message from the device, such as
+`This satellite does not answer to the name "dot.example.com".` To make the
+device answer to that name:
 
 1. Open the dashboard by the device's IP address or its `.local` name.
-2. Open **Network**. Under **Other names**, enter the name, for example
-   `kitchen.home.arpa`, and select **Add**.
+2. Open **Network**. Under **Dashboard address**, enter the full address, for
+   example `https://dot.example.com/`, and select **Save**.
 
-The name works at once. Anyone who can use the dashboard can add a name, and
-each name stays until someone removes it, so check the list now and then. The
-dashboard won't remove the name that it is open by.
+The address starts with `http://` or `https://`, has a host name or an IP
+address and optionally a port, and has nothing after that: no user name,
+password, path, query or fragment. The device stores it with a `/` at the end.
+It works at once. **Remove** clears it. The dashboard won't remove or change
+the address that it is open by.
+
+Other devices link to this address when you [switch between
+devices](#switch-between-satellites). Without one, they use the device's
+`.local` name or its IP address. Only one address fits: for a second name, such
+as your router's name next to a reverse proxy's, developers can use
+`allowed_hosts` under `[web]` in `pinnad.toml`. Anyone who can use the
+dashboard can set the address, so check it now and then.
+
+## Switch between satellites
+
+With more than one device, you can move from one dashboard to the next. On a
+computer, select the device at the foot of the sidebar; on a phone, select the
+name at the top. A list opens with this device first, then the other devices
+on the same network, each with its name and the address it opens. Select one
+to open its dashboard in the same tab. The list is made when you open it, so a
+device that is off isn't in it.
+
+The link goes to the other device's dashboard address if it has one. If not, it
+goes to its `.local` name when you opened this dashboard by a `.local` name, and
+to its IP address otherwise (an IPv6 address if you opened this one by IPv6),
+because some browsers, such as many on Android, don't find `.local` names. When
+a device has a dashboard address, its `.local` name and IP address are listed
+under it, in case the address doesn't open.
+
+A device on an older release shows in the list, but its dashboard has no list
+to go back with: open it from the address bar, or update it. A device that
+isn't on a network yet, only on USB, shows the list without others.
 
 ## What's next
 

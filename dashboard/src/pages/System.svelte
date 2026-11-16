@@ -54,8 +54,11 @@
       zonesError = errorSentence(e);
     }
   });
+  // A failed save redraws the select, so it shows the zone in use again.
+  let zoneRedraw = $state(0);
   async function setZone(next: string) {
     zoneError = await device.saveSettings({ timeZone: next }, `Time zone set to ${next}`);
+    if (zoneError) zoneRedraw++;
   }
 
   async function restart() {
@@ -113,15 +116,17 @@
   </Group>
 
   <Group title="Time zone">
-    <Select
-      id="time-zone"
-      label="Time zone"
-      hint="For the satellite's own clock and logs. UTC until you choose one."
-      value={zone}
-      options={zoneOptions}
-      disabled={!live || device.busy || !zones.length}
-      choose={setZone}
-    />
+    {#key zoneRedraw}
+      <Select
+        id="time-zone"
+        label="Time zone"
+        hint="For the satellite's own clock and logs. UTC until you choose one."
+        value={zone}
+        options={zoneOptions}
+        disabled={!live || device.busy || !zones.length}
+        choose={setZone}
+      />
+    {/key}
     {#if zonesError || zoneError}
       <div class="pn-row">
         <span class="pn-field-error" role="alert"><Icon name="alert" />{zonesError ?? zoneError}</span>

@@ -45,10 +45,10 @@ pub struct Settings {
     /// A chime when listening starts. `None`: `[audio] wake_sound`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wake_sound: Option<bool>,
-    /// Names the dashboard answers to, added there; `[web] allowed_hosts` adds
-    /// to them. Checked and normalised (`check_host_names`).
+    /// The dashboard address, e.g. `https://dot.example.com/` (ADR 0020).
+    /// Checked and normalised (`check_url`). `None`: the `.local` name.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_hosts: Option<Vec<String>>,
+    pub url: Option<String>,
     /// The AirPlay receiver on or off ("AirPlay" switch, ADR 0011). Off by
     /// default: anyone on the network can play to it.
     pub airplay: bool,
@@ -76,7 +76,7 @@ impl Default for Settings {
             hostname: None,
             time_zone: None,
             wake_sound: None,
-            allowed_hosts: None,
+            url: None,
             airplay: false,
             bluetooth: false,
             extra: toml::Table::new(),
@@ -151,8 +151,6 @@ impl Store {
 pub const NAME_MAX_CHARS: usize = 64;
 /// The most bytes: an mDNS TXT string holds 255, `friendly_name=` included.
 const NAME_MAX_BYTES: usize = 200;
-/// The most host names the dashboard adds.
-pub const HOSTS_MAX: usize = 16;
 
 /// A friendly name as it is stored, or why it can't be one.
 pub fn check_friendly_name(name: &str) -> Result<String, String> {
@@ -190,7 +188,7 @@ pub fn check_hostname(name: &str) -> Result<String, String> {
         return Err("Leave out .local: the satellite adds it.".into());
     }
     if name == "localhost" {
-        return Err("localhost can't be a hostname.".into());
+        return Err("The hostname can't be localhost.".into());
     }
     if !crate::identity::valid_hostname(&name) {
         return Err(
@@ -201,57 +199,55 @@ pub fn check_hostname(name: &str) -> Result<String, String> {
     Ok(name)
 }
 
-/// Host names as they are stored (lowercase, no trailing dot, each once), or
-/// why one can't be added.
-pub fn check_host_names(names: &[String]) -> Result<Vec<String>, String> {
-    let mut out: Vec<String> = Vec::new();
-    for raw in names {
-        let name = raw.trim().trim_end_matches('.').to_ascii_lowercase();
-        let host = name.trim_start_matches('[').trim_end_matches(']');
-        if name.is_empty() {
-            return Err("Enter a host name.".into());
-        }
-        if host.parse::<std::net::IpAddr>().is_ok() {
-            return Err(format!(
-                "No need to add {}: IP addresses always work.",
-                raw.trim()
-            ));
-        }
-        if name == "localhost" {
-            return Err("No need to add localhost: it always works.".into());
-        }
-        if name.ends_with(".local") {
-            return Err(format!(
-                "No need to add {name}: the dashboard answers to every .local name. \
-                 Your network only finds the hostname's, though."
-            ));
-        }
-        if name.contains(':') || name.contains('/') {
-            return Err(format!(
-                "That isn't a host name: leave out http:// and the port ({}).",
-                raw.trim()
-            ));
-        }
-        let label_ok = |l: &str| {
-            (1..=63).contains(&l.len())
-                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                && !l.starts_with('-')
-                && !l.ends_with('-')
-        };
-        if name.len() > 253 || !name.split('.').all(label_ok) {
-            return Err(format!(
-                "That isn't a host name: use letters, digits, hyphens and dots ({}).",
-                raw.trim()
-            ));
-        }
-        if !out.contains(&name) {
-            out.push(name);
-        }
+/// The dashboard address as it is stored (`scheme://host[:port]/`), `None` when
+/// it is cleared, or why it can't be one.
+pub fn check_url(s: &str) -> Result<Option<String>, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(None);
     }
-    if out.len() > HOSTS_MAX {
-        return Err(format!("There can be at most {HOSTS_MAX} names."));
+    let start = "Enter the full address, starting with http:// or https://.";
+    if s.chars().any(char::is_whitespace) {
+        return Err("An address has no spaces.".into());
     }
-    Ok(out)
+    let url = url::Url::parse(s).map_err(|e| match e {
+        url::ParseError::InvalidPort => "That port doesn't exist: use 1 to 65535.".to_string(),
+        _ => start.to_string(),
+    })?;
+    if !matches!(url.scheme(), "http" | "https") || !s.contains("://") {
+        return Err(start.into());
+    }
+    let Some(host) = url.host_str() else {
+        return Err("The address needs a host name, like dot.example.com.".into());
+    };
+    // Addresses other satellites and browsers elsewhere can't reach.
+    let unreachable = match url.host() {
+        Some(url::Host::Ipv4(a)) => {
+            a.is_loopback() || a.is_unspecified() || a.octets()[..3] == [10, 42, 0]
+        }
+        Some(url::Host::Ipv6(a)) => {
+            a.is_loopback() || a.is_unspecified() || a.segments()[0] & 0xffc0 == 0xfe80
+        }
+        Some(url::Host::Domain(d)) => d == "localhost",
+        None => false,
+    };
+    if unreachable {
+        return Err(format!(
+            "Other satellites can't reach {host}: use an address on your network."
+        ));
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("Leave out the user name and password.".into());
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err("Leave out everything after the host name and port.".into());
+    }
+    if !matches!(url.path(), "" | "/") {
+        return Err("Leave out the path: the address ends after the host name and port.".into());
+    }
+    // `Url` lowercases the scheme and host and drops a default port.
+    let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
+    Ok(Some(format!("{}://{host}{port}/", url.scheme())))
 }
 
 #[cfg(test)]
@@ -301,30 +297,63 @@ mod tests {
     }
 
     #[test]
-    fn host_names() {
-        let names =
-            |v: &[&str]| check_host_names(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-        assert_eq!(
-            names(&[" Kitchen.Home.Arpa. ", "kitchen.home.arpa", "dot-2"]).unwrap(),
-            ["kitchen.home.arpa", "dot-2"]
-        );
-        assert_eq!(names(&[]).unwrap(), Vec::<String>::new());
-        for bad in [
-            "",
-            "192.168.1.20",
-            "[fe80::1]",
-            "pinna.local",
-            "localhost",
-            "kitchen:8080",
-            "http://kitchen",
-            "-kitchen",
-            "kitchen_dot",
-            "a..b",
+    fn dashboard_urls() {
+        for unreachable in [
+            "http://10.42.0.1/",
+            "http://127.0.0.1/",
+            "http://localhost:8080/",
+            "http://[fe80::1]/",
+            "http://[::1]/",
         ] {
-            assert!(names(&[bad]).is_err(), "{bad:?} accepted");
+            assert!(
+                check_url(unreachable).unwrap_err().contains("can't reach"),
+                "{unreachable}"
+            );
         }
-        let many: Vec<String> = (0..17).map(|i| format!("dot{i}")).collect();
-        assert!(check_host_names(&many).is_err());
+        assert!(check_url("http://x:99999/").unwrap_err().contains("port"));
+        assert!(
+            check_url("https://dot.example.com/ extra")
+                .unwrap_err()
+                .contains("spaces")
+        );
+        assert_eq!(check_url("  ").unwrap(), None);
+        assert_eq!(check_url("").unwrap(), None);
+        assert_eq!(
+            check_url(" HTTPS://Dot.Example.com ").unwrap().unwrap(),
+            "https://dot.example.com/"
+        );
+        assert_eq!(
+            check_url("http://dot.example.com:80/").unwrap().unwrap(),
+            "http://dot.example.com/"
+        );
+        assert_eq!(
+            check_url("https://dot.example.com:443").unwrap().unwrap(),
+            "https://dot.example.com/"
+        );
+        assert_eq!(
+            check_url("http://192.168.1.20:8080/").unwrap().unwrap(),
+            "http://192.168.1.20:8080/"
+        );
+        assert_eq!(
+            check_url("http://[2001:db8::1]:8080").unwrap().unwrap(),
+            "http://[2001:db8::1]:8080/"
+        );
+        for bad in [
+            "dot.example.com",
+            "dot.example.com:8080",
+            "ftp://dot.example.com/",
+            "mailto:me@example.com",
+            "http://",
+            "http://user:pw@dot.example.com/",
+            "http://user@dot.example.com/",
+            "http://dot.example.com/?a=1",
+            "http://dot.example.com/#top",
+            "http://dot.example.com/ui/",
+            "http://dot.example.com:99999/",
+            "not a url",
+        ] {
+            assert!(check_url(bad).is_err(), "{bad:?} accepted");
+        }
     }
 
     #[test]
@@ -393,17 +422,26 @@ mod tests {
                 && !text.contains("hostname")
                 && !text.contains("time_zone")
                 && !text.contains("wake_sound")
+                && !text.contains("url")
         );
         let named = Settings {
             friendly_name: Some("Küche".into()),
             hostname: Some("kueche".into()),
             time_zone: Some("Europe/Berlin".into()),
             wake_sound: Some(true),
-            allowed_hosts: Some(vec!["kitchen.home.arpa".into()]),
+            url: Some("https://dot.example.com/".into()),
             ..Default::default()
         };
         store.try_save(&named).unwrap();
         assert_eq!(Store::load(&path, Settings::default()).1, named);
+        // The old host names are no setting any more, but stay in the file.
+        std::fs::write(&path, "allowed_hosts = [\"x\"]\n").unwrap();
+        let old = Store::load(&path, Settings::default()).1;
+        assert_eq!(old.url, None);
+        assert!(old.extra.contains_key("allowed_hosts"));
+        store.save(&old);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("allowed_hosts = [\"x\"]"), "{text}");
         std::fs::write(&path, "garbage = [").unwrap();
         assert_eq!(
             Store::load(&path, Settings::default()).1,

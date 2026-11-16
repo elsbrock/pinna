@@ -329,6 +329,14 @@ mod tests {
         assert!(unit.contains("Name=pinna-0a0b0c"));
         assert!(unit.contains("Type=_esphomelib._tcp"));
         assert!(unit.contains("Port=6053"));
+        cfg.webserver_port = 80;
+        cfg.dashboard_url = Some("https://dot.example.com:8443/".into());
+        let unit = dnssd_unit(&cfg);
+        assert!(unit.contains(" web_port=80"), "{unit}");
+        assert!(
+            unit.contains(" url=https://dot.example.com:8443/"),
+            "{unit}"
+        );
         assert!(unit.contains("\"friendly_name=Echo Dot\""));
         assert!(unit.contains("mac=02:00:00:0a:0b:0c"));
     }

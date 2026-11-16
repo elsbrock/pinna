@@ -26,8 +26,9 @@ use crate::virtual_device::{self, VirtualDevice};
 use crate::voice::Snapshot;
 
 /// Host names the dashboard answers to besides IP addresses and `*.local`:
-/// lowercase, no port. Those from the configuration, and those added on the
-/// dashboard (ADR 0007), read from the latest status so they apply at once.
+/// lowercase, no port. Those from the configuration, and the host of the
+/// dashboard address (ADR 0020), read from the latest status so it applies at
+/// once.
 ///
 /// Any `.local` name is fine: only mDNS on this network resolves it, so a remote
 /// site cannot rebind one. That also covers the name mDNS picks when two
@@ -57,7 +58,7 @@ impl Hosts {
         }
     }
 
-    /// Also allow the names added on the dashboard (already normalised).
+    /// Also allow the host of the dashboard address.
     pub fn with_added(mut self, status: watch::Receiver<Snapshot>) -> Self {
         self.added = Some(status);
         self
@@ -78,9 +79,11 @@ impl Hosts {
             || self.added.as_ref().is_some_and(|rx| {
                 rx.borrow()
                     .settings
-                    .allowed_hosts
-                    .as_ref()
-                    .is_some_and(|names| names.iter().any(|n| n == host))
+                    .url
+                    .as_deref()
+                    .and_then(|u| url::Url::parse(u).ok())
+                    .and_then(|u| u.host_str().map(normalise))
+                    .is_some_and(|n| n == host)
             })
     }
 
@@ -204,7 +207,7 @@ fn misdirected_page(host: &str, local: Option<SocketAddr>, hostname: Option<&str
         "<!doctype html><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width\"><title>Pinna</title>\
          <p>This satellite does not answer to the name \u{201c}{host}\u{201d}.</p>\
-         <p>{open}, then add \u{201c}{host}\u{201d} under Network, Other names.</p>\n"
+         <p>{open}, then set \u{201c}{host}\u{201d} as the dashboard address under Network.</p>\n"
     )
 }
 
@@ -348,13 +351,14 @@ mod tests {
     }
 
     #[test]
-    fn allows_names_added_on_the_dashboard_at_once() {
+    fn allows_the_dashboard_address_at_once() {
         let (tx, rx) = watch::channel(Snapshot::default());
         let h = hosts().with_added(rx);
         assert!(!h.allows("dot.home.arpa"));
-        tx.send_modify(|s| s.settings.allowed_hosts = Some(vec!["dot.home.arpa".into()]));
+        tx.send_modify(|s| s.settings.url = Some("https://dot.home.arpa:8443/".into()));
         assert!(h.allows("dot.home.arpa:80") && h.allows("kitchen.home.arpa"));
-        tx.send_modify(|s| s.settings.allowed_hosts = Some(Vec::new()));
+        assert!(h.allows("DOT.home.arpa."));
+        tx.send_modify(|s| s.settings.url = None);
         assert!(!h.allows("dot.home.arpa"));
     }
 

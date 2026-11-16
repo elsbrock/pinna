@@ -30,7 +30,9 @@ allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
   optional setting, the dashboard address: `url` in `settings.toml`, for
   example `https://dot.example.com/`.
   - It is `http` or `https`, a host and an optional port, path `/`. No user,
-    query or fragment. Stored normalised to end in `/`.
+    query or fragment, and no host other satellites can't reach: loopback,
+    the USB link's 10.42.0.x, link-local IPv6. Stored normalised to end in
+    `/`.
   - The Host allowlist becomes: IP addresses, `localhost`, every `.local`
     name, the hostname, the dashboard address's host, and `[web]
     allowed_hosts` (developers).
@@ -74,6 +76,9 @@ allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
 - An owner with several satellites moves between them from any one of them.
 - A satellite on older firmware is listed but has no list of its own, so the
   switch back is by hand.
+- Only satellites on the same subnet are listed: resolved answers a one-shot
+  query only from its own subnet, so satellites on different VLANs behind an
+  mDNS reflector don't see each other.
 - The Network page shows one address instead of a list of names. A second
   custom name, such as the router's name next to a reverse proxy's, needs
   `[web] allowed_hosts`, a developer setting.

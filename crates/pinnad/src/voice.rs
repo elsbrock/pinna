@@ -107,8 +107,8 @@ pub struct SettingsPatch {
     /// Already checked against the satellite's zones.
     pub time_zone: Option<String>,
     pub wake_sound: Option<bool>,
-    /// Already checked (`settings::check_host_names`).
-    pub allowed_hosts: Option<Vec<String>>,
+    /// Already checked (`settings::check_url`); `Some(None)` clears it.
+    pub url: Option<Option<String>>,
     pub airplay: Option<bool>,
     pub bluetooth: Option<bool>,
 }
@@ -741,9 +741,8 @@ impl Brain {
                 if let Some(on) = patch.wake_sound {
                     self.set_wake_sound(on).await;
                 }
-                if let Some(hosts) = patch.allowed_hosts {
-                    tracing::info!("dashboard host names: {hosts:?}");
-                    self.settings.allowed_hosts = Some(hosts);
+                if let Some(url) = patch.url {
+                    self.set_dashboard_url(url);
                 }
                 if let Some(ids) = patch.wake_words {
                     self.set_wake_words(ids, false).await;
@@ -954,6 +953,25 @@ impl Brain {
             }
         });
         self.reconnect_pending = self.clients > 0;
+    }
+
+    /// Set the dashboard address (ADR 0020): the Host allowlist follows at
+    /// once, and the mDNS record tells other satellites.
+    fn set_dashboard_url(&mut self, url: Option<String>) {
+        if self.settings.url == url {
+            return;
+        }
+        tracing::info!("dashboard address: {url:?}");
+        self.settings.url.clone_from(&url);
+        if let Some(dc) = &mut self.opts.mdns {
+            dc.dashboard_url = url;
+            let dc = dc.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::identity::publish_mdns(&dc) {
+                    tracing::warn!("mDNS: {e:#}");
+                }
+            });
+        }
     }
 
     /// Set the time zone (ADR 0007): the satellite's own clock and logs.

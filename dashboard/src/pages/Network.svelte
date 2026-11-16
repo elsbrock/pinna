@@ -1,7 +1,4 @@
 <script lang="ts">
-  import { create } from "@bufbuild/protobuf";
-
-  import { HostNamesSchema } from "../gen/pinna/v1/device_pb.ts";
   import { device } from "../lib/device.svelte.ts";
   import External from "../lib/External.svelte";
   import Group from "../lib/Group.svelte";
@@ -18,27 +15,38 @@
   // Wi-Fi first; every interface gets its own group.
   const interfaces = $derived(net ? [...net.interfaces].sort((a, b) => Number(b.wireless) - Number(a.wireless)) : []);
 
-  // Names added here (ADR 0007). The one this page is open by can't be
-  // removed from here: the page would stop answering.
-  const live = $derived(device.link === "live");
-  const hosts = $derived(device.status?.settings?.allowedHosts ?? []);
-  const here = location.hostname.toLowerCase().replace(/\.$/, "");
-  let newHost = $state("");
-  let hostError = $state<string | null>(null);
+  const current = $derived(device.status?.name || net?.hostname || "");
 
-  async function saveHosts(names: string[], done: string) {
-    return device.saveSettings({ allowedHosts: create(HostNamesSchema, { names }) }, done);
-  }
-  const FULL = 16;
-  async function addHost() {
-    const name = newHost.trim().toLowerCase().replace(/\.$/, "");
-    hostError = hosts.includes(name)
-      ? `${name} is already on the list.`
-      : await saveHosts([...hosts, newHost], `Added ${name}`);
-    if (!hostError) newHost = "";
+  // The dashboard address (ADR 0020). The page can't change or remove it while
+  // it is open by that address's host: it would stop answering.
+  const live = $derived(device.link === "live");
+  const url = $derived(device.status?.settings?.url ?? "");
+  const hereHost = location.hostname.toLowerCase().replace(/\.$/, "");
+  const hostOf = (u: string) => {
+    try {
+      return new URL(u).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  let urlDraft = $state<string | null>(null);
+  const urlValue = $derived(urlDraft ?? url);
+  let urlError = $state<string | null>(null);
+  // Hosts that answer anyway: IP addresses, .local names, localhost, the hostname.
+  const answersAnyway = $derived(
+    hereHost === "localhost" ||
+      hereHost === current ||
+      hereHost.endsWith(".local") ||
+      hereHost.startsWith("[") ||
+      /^\d+\.\d+\.\d+\.\d+$/.test(hereHost),
+  );
+  const openByAddress = $derived(!!url && hostOf(url) === hereHost && !answersAnyway);
+  const saveBlocked = $derived(openByAddress && hostOf(urlValue.trim()) !== hereHost);
+  async function saveUrl(next: string, done: string) {
+    urlError = await device.saveSettings({ url: next }, done);
+    if (!urlError) urlDraft = null;
   }
   // The hostname, also the node name (ADR 0010). An edit stays a draft until saved.
-  const current = $derived(device.status?.name || net?.hostname || "");
   let draft = $state<string | null>(null);
   const nameValue = $derived(draft ?? current);
   let nameError = $state<string | null>(null);
@@ -54,9 +62,6 @@
       const { protocol, port, hash } = location;
       setTimeout(() => location.replace(`${protocol}//${next}.local${port ? `:${port}` : ""}/${hash}`), 1500);
     }
-  }
-  async function removeHost(name: string) {
-    hostError = await saveHosts(hosts.filter((h) => h !== name), `Removed ${name}`);
   }
 </script>
 
@@ -151,62 +156,57 @@
         </span>
       </div>
     </form>
-    <div class="pn-row">
-      <div class="pn-row-text">
-        <span class="pn-row-label">Other names</span>
-        <span class="pn-row-hint">
-          Names to open this page by besides its IP address and .local names, for example one your router gives the
-          satellite.
-        </span>
-      </div>
-    </div>
-    {#each hosts as h (h)}
-      <div class="pn-row">
-        <div class="pn-row-text">
-          <span class="pn-row-value is-mono">{h}</span>
-          {#if h === here}<span class="pn-row-hint">This page is open by this name.</span>{/if}
-        </div>
-        <button
-          class="pn-btn pn-btn-quiet pn-btn-sm"
-          disabled={!live || device.busy || h === here}
-          onclick={() => removeHost(h)}
-          aria-label="Remove {h}"
-        >
-          Remove
-        </button>
-      </div>
-    {/each}
     <form
       class="pn-row is-stack"
       onsubmit={(e) => {
         e.preventDefault();
-        void addHost();
+        void saveUrl(urlValue, urlValue.trim() ? "Saved the dashboard address" : "Removed the dashboard address");
       }}
     >
-      <div class="pn-field" data-invalid={hostError ? "" : undefined}>
-        <label class="pn-field-label" for="new-host">Add a name</label>
+      <div class="pn-field" data-invalid={urlError ? "" : undefined}>
+        <label class="pn-field-label" for="dashboard-url">Dashboard address</label>
         <div class="inline">
           <input
-            id="new-host"
+            id="dashboard-url"
             class="pn-input is-mono"
+            inputmode="url"
             autocomplete="off"
             autocapitalize="off"
             spellcheck="false"
-            placeholder="e.g. kitchen.home.arpa"
-            bind:value={newHost}
-            disabled={!live || hosts.length >= FULL}
-            aria-describedby={hosts.length >= FULL ? "new-host-hint" : undefined}
-            aria-invalid={hostError ? "true" : undefined}
-            oninput={() => (hostError = null)}
+            placeholder="https://dot.example.com/"
+            bind:value={() => urlValue, (v) => (urlDraft = v)}
+            disabled={!live}
+            aria-describedby="dashboard-url-hint"
+            aria-invalid={urlError ? "true" : undefined}
+            oninput={() => (urlError = null)}
           />
-          <button class="pn-btn" type="submit" disabled={!live || device.busy || !newHost.trim() || hosts.length >= FULL}>
-            Add
+          <button
+            class="pn-btn"
+            type="submit"
+            disabled={!live || device.busy || !urlValue.trim() || urlValue.trim() === url || saveBlocked}
+          >
+            Save
           </button>
+          {#if url}
+            <button
+              class="pn-btn"
+              type="button"
+              disabled={!live || device.busy || openByAddress}
+              onclick={() => saveUrl("", "Removed the dashboard address")}
+            >
+              Remove
+            </button>
+          {/if}
         </div>
-        {#if hostError}<span class="pn-field-error" role="alert"><Icon name="alert" />{hostError}</span>{/if}
-        {#if hosts.length >= FULL}
-          <span id="new-host-hint" class="pn-field-hint">The list is full: remove a name to add another.</span>
-        {/if}
+        {#if urlError}<span class="pn-field-error" role="alert"><Icon name="alert" />{urlError}</span>{/if}
+        <span id="dashboard-url-hint" class="pn-field-hint">
+          Where else this dashboard opens, for example behind a reverse proxy. Other satellites link here. Without
+          one, they link to {current}.local or its IP address.
+          {#if openByAddress}
+            This page is open by this address, so it can't be removed or changed to another host from here: the page
+            would stop answering. Open it by its IP address or .local name first.
+          {/if}
+        </span>
       </div>
     </form>
     <div class="pn-row">

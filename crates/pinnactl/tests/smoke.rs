@@ -259,6 +259,14 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn list_satellites(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ListSatellitesRequest>,
+    ) -> ServiceResult<ListSatellitesResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn list_wifi(
         &self,
         _: RequestContext,

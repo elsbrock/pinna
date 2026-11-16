@@ -167,6 +167,8 @@ pub struct DeviceConfig {
     /// Port of the device's web page, which Home Assistant links to as
     /// "Visit". 0 = none.
     pub webserver_port: u16,
+    /// The dashboard address (ADR 0020), announced for other satellites.
+    pub dashboard_url: Option<String>,
 }
 
 /// The encryption key is not base64 of exactly 32 bytes.
@@ -209,6 +211,7 @@ impl DeviceConfig {
             media_player: None,
             encryption_key: None,
             webserver_port: 0,
+            dashboard_url: None,
         }
     }
 
@@ -238,6 +241,14 @@ pub fn mdns_txt(cfg: &DeviceConfig) -> Vec<(String, String)> {
     ];
     if cfg.encryption_key.is_some() {
         txt.push(("api_encryption", NOISE_PROTOCOL.to_owned()));
+    }
+    // The web listener's port and the dashboard address, for other satellites'
+    // switcher (ADR 0020). Home Assistant ignores keys it doesn't know.
+    if cfg.webserver_port != 0 {
+        txt.push(("web_port", cfg.webserver_port.to_string()));
+    }
+    if let Some(url) = &cfg.dashboard_url {
+        txt.push(("url", url.clone()));
     }
     txt.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }
@@ -486,12 +497,20 @@ mod tests {
         assert!(txt.contains(&("mac".into(), "02:00:00:00:ab:01".into())));
         assert!(txt.contains(&("version".into(), "2026.9.0".into())));
         assert!(!txt.iter().any(|(k, _)| k == "api_encryption"));
+        assert!(!txt.iter().any(|(k, _)| k == "web_port" || k == "url"));
         let mut cfg = cfg;
         cfg.encryption_key = Some([1; 32]);
         assert!(mdns_txt(&cfg).contains(&(
             "api_encryption".into(),
             "Noise_NNpsk0_25519_ChaChaPoly_SHA256".into()
         )));
+        cfg.webserver_port = 80;
+        cfg.dashboard_url = Some("https://dot.example.com/".into());
+        let txt = mdns_txt(&cfg);
+        assert!(txt.contains(&("web_port".into(), "80".into())));
+        assert!(txt.contains(&("url".into(), "https://dot.example.com/".into())));
+        cfg.webserver_port = 0;
+        assert!(!mdns_txt(&cfg).iter().any(|(k, _)| k == "web_port"));
     }
 
     #[test]

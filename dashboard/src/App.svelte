@@ -7,6 +7,7 @@
   import Icon from "./lib/Icon.svelte";
   import Logo from "./lib/Logo.svelte";
   import Ring from "./lib/Ring.svelte";
+  import Satellites from "./lib/Satellites.svelte";
   import { SECTIONS, pageOf, router } from "./lib/router.svelte.ts";
   import Toasts from "./lib/Toasts.svelte";
   import { wifi } from "./lib/wifi.svelte.ts";
@@ -26,6 +27,13 @@
   const ring = $derived(ringEffect(s, device.link, device.testStep));
   const page = $derived(pageOf(router.path));
   const groups = [...new Set(SECTIONS.map((x) => x.group))];
+
+  // The satellite switcher (ADR 0020), opened from the sidebar's device box or,
+  // on phones, the name in the app bar.
+  let switcher = $state<"side" | "bar" | null>(null);
+  let sideButton = $state<HTMLButtonElement>();
+  let barButton = $state<HTMLButtonElement>();
+  const toggle = (from: "side" | "bar") => (switcher = switcher === from ? null : from);
 
   // A Wi-Fi network on trial shows on every page (ADR 0008).
   $effect(() => wifi.watch());
@@ -56,11 +64,20 @@
       {/each}
     </nav>
     {#if s}
-      <div class="pn-ident">
+      <button
+        bind:this={sideButton}
+        class="pn-ident"
+        type="button"
+        aria-label="Switch satellite: {displayName(s)}, {healthWord(line)}"
+        aria-haspopup="dialog"
+        aria-expanded={switcher === "side"}
+        onclick={() => toggle("side")}
+      >
         <Device model={s.model} effect={ring} frame={device.ring} width={48} label="Ring: {ring.replace('-', ' ')}" />
         <span class="pn-ident-name">{displayName(s)}</span>
         <span class="pn-health" data-tone={line.tone} title={line.text}>Home Assistant</span>
-      </div>
+        <Icon name="chevron-down" class="pn-icon pn-ident-chev" />
+      </button>
     {:else}
       <span class="pn-skeleton ident-skeleton"></span>
     {/if}
@@ -74,7 +91,18 @@
   <header class="appbar">
     {#if s}
       <Ring effect={ring} frame={device.ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
-      <a class="appbar-name" href="#/">{displayName(s)}</a>
+      <button
+        bind:this={barButton}
+        class="appbar-name"
+        type="button"
+        aria-label="Switch satellite: {displayName(s)}"
+        aria-haspopup="dialog"
+        aria-expanded={switcher === "bar"}
+        onclick={() => toggle("bar")}
+      >
+        <span class="appbar-text">{displayName(s)}</span>
+        <Icon name="chevron-down" />
+      </button>
       <span class="pn-health" data-tone={line.tone} title={line.text}>{healthWord(line)}</span>
     {:else}
       <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
@@ -108,8 +136,9 @@
       <div class="pn-banner" role="status">
         <Icon name="alert" />
         <p>
-          This satellite no longer answers to the name {location.hostname}: it was removed from its other names. Open it
-          by its IP address or its .local name, and add {location.hostname} again under Network.
+          This satellite no longer answers to the name {location.hostname}: it isn't its dashboard address any more. Open
+          it by its IP address or its .local name, and set {location.hostname} as the dashboard address again under
+          Network.
         </p>
       </div>
     {:else if device.link === "offline"}
@@ -179,6 +208,15 @@
   </nav>
 </div>
 
+{#if switcher && (switcher === "side" ? sideButton : barButton)}
+  <Satellites
+    anchor={(switcher === "side" ? sideButton : barButton)!}
+    placement={switcher === "side" ? "up" : "down"}
+    overview={switcher === "bar"}
+    onclose={() => (switcher = null)}
+  />
+{/if}
+
 <Toasts />
 
 <style>
@@ -220,16 +258,34 @@
     background: var(--surface-raised);
     border-bottom: 1px solid var(--line);
   }
+  /* The name opens the satellite switcher; the overview link is in it. */
   .appbar-name {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-xs);
+    background: none;
+    color: var(--ink);
+    font: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .appbar-text {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    border-radius: var(--radius-xs);
-    color: var(--ink);
-    font-size: 16px;
-    font-weight: 700;
-    text-decoration: none;
+  }
+  .appbar-name :global(.pn-icon) {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--ink-muted);
   }
   .appbar .pn-health {
     flex: none;
