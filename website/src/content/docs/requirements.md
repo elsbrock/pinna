@@ -27,11 +27,11 @@ firmware, unmodified, in `firmware/`.
 
 Before you install Pinna, back up the device. Pinna can restore the backup.
 
-Run `scripts/backup-dot.sh` while the previous firmware still runs on the
+Run `scripts/backup-gen2.sh` while the previous firmware still runs on the
 device and `adb` can reach it. It needs about 8 GB of free space:
 
 ```sh
-scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
+scripts/backup-gen2.sh ~/echo-backups/echodot2-$(date +%F)
 ```
 
 The script copies the whole eMMC and its boot areas, and compares every
@@ -52,7 +52,7 @@ must be in one folder:
 | `system_b.img` | `system_b` | No |
 | `SHA256SUMS` | Checksums of the files above, in `sha256sum` format | Yes |
 
-`scripts/backup-dot.sh` creates this folder. If you made the backup with other
+`scripts/backup-gen2.sh` creates this folder. If you made the backup with other
 tools, create `SHA256SUMS` by running this in the folder:
 
 ```sh

@@ -31,7 +31,7 @@ On the devices:
 - The microphone path with beamforming and echo cancellation runs; on the
   Echo Dot (2nd gen) it lowers the device's own music by 23 to 31 dB. See
   [Audio](/docs/audio/).
-- `scripts/backup-dot.sh` backs up the device, and `scripts/verify-backup.sh`
+- `scripts/backup-gen2.sh` backs up the device, and `scripts/verify-backup.sh`
   checks the backup. See [What you need](/docs/requirements/#backup-of-the-device).
 - A hardware test (`just test-device`) checks the speaker, the microphones,
   the light ring and the Home Assistant connection on a running device.

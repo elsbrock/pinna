@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Back up the Echo Dot's eMMC before flashing Pinna. Read-only on the device;
+# Back up the device's eMMC before flashing Pinna. Read-only on the device;
 # needs the previous firmware running, with adb.
 #
-#   scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
+#   scripts/backup-gen2.sh ~/echo-backups/echodot2-$(date +%F)
 #
 # Writes into the (new) directory:
 #   mmcblk0.img, mmcblk0boot{0,1}.img   the whole eMMC (~4 GB) and its boot areas

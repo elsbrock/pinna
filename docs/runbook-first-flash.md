@@ -52,7 +52,7 @@ Step 4 overwrites `system_a` and wipes `userdata`, and recovery restores from
 this backup. Do not continue without it.
 
 ```sh
-scripts/backup-dot.sh ~/echo-backups/echodot2-$(date +%F)
+scripts/backup-gen2.sh ~/echo-backups/echodot2-$(date +%F)
 ```
 
 It needs about 8 GB free. It pulls the whole eMMC and its boot areas over
