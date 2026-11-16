@@ -4,7 +4,9 @@
 //! speaker), the on-device wake word detector and the ESPHome native API, so
 //! Home Assistant adopts the device as a voice satellite.
 
+mod airplay;
 mod api;
+mod bluetooth;
 mod boot;
 mod calibration;
 mod config;
@@ -58,6 +60,37 @@ struct Cli {
     /// in the boot; ADR 0010).
     #[arg(long)]
     set_hostname: bool,
+}
+
+/// The group that may write to the stream socket: the AirPlay and Bluetooth
+/// bridges run with it (ADR 0011). Created in the image.
+const STREAM_GROUP: &str = "pinna-stream";
+
+/// The id of group `name` in an `/etc/group` text.
+fn gid_in(groups: &str, name: &str) -> Option<u32> {
+    groups.lines().find_map(|line| {
+        let mut f = line.split(':');
+        if f.next()? != name {
+            return None;
+        }
+        f.nth(1)?.parse().ok()
+    })
+}
+
+/// Hand the stream socket to [`STREAM_GROUP`] (it is 0660). Without the group
+/// (a laptop, a test) it stays root's.
+fn share_stream_socket(path: &std::path::Path) {
+    let gid = std::fs::read_to_string("/etc/group")
+        .ok()
+        .and_then(|g| gid_in(&g, STREAM_GROUP));
+    match gid {
+        Some(gid) => {
+            if let Err(e) = std::os::unix::fs::chown(path, None, Some(gid)) {
+                tracing::warn!("stream socket to group {STREAM_GROUP}: {e}");
+            }
+        }
+        None => tracing::debug!("no group {STREAM_GROUP}: the stream socket stays root's"),
+    }
 }
 
 fn audio_backend(spec: &str) -> Option<Backend> {
@@ -565,7 +598,10 @@ async fn main() -> Result<()> {
     {
         let path = &cfg.audio.stream_socket;
         match s.media().serve_stream(path) {
-            Ok(()) => tracing::info!("stream ingest on {}", path.display()),
+            Ok(()) => {
+                tracing::info!("stream ingest on {}", path.display());
+                share_stream_socket(path);
+            }
             Err(e) => tracing::error!("stream ingest on {}: {e}", path.display()),
         }
     }
@@ -648,6 +684,10 @@ async fn main() -> Result<()> {
         Err(e) => tracing::error!("dashboard: {e:#}"),
     }
 
+    // AirPlay plays through the stream socket (ADR 0011).
+    let airplay = speaker.is_some() && !cfg.audio.stream_socket.as_os_str().is_empty();
+    // Bluetooth needs the same, and a controller.
+    let bluetooth = airplay && bluetooth::present();
     let brain = Brain::new(
         esp,
         speaker,
@@ -665,6 +705,8 @@ async fn main() -> Result<()> {
             encrypted,
             has_hw_privacy,
             settings_file: cli.settings.clone(),
+            airplay,
+            bluetooth,
             settings: initial,
         },
     );
@@ -673,4 +715,18 @@ async fn main() -> Result<()> {
         _ = tokio::signal::ctrl_c() => tracing::info!("shutting down"),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_a_group_id_by_name() {
+        let groups = "root:x:0:\naudio:x:29:pulse\npinna-stream:x:996:shairport-sync\n";
+        assert_eq!(gid_in(groups, "pinna-stream"), Some(996));
+        assert_eq!(gid_in(groups, "audio"), Some(29));
+        assert_eq!(gid_in(groups, "pinna"), None);
+        assert_eq!(gid_in("broken", "broken"), None);
+    }
 }

@@ -50,6 +50,7 @@
       word: "Notification",
       what: "Home Assistant has a notification. Press the Action button to clear it.",
     },
+    { effect: "pairing", word: "Pairing", what: "Bluetooth pairing is open: a phone nearby can pair now." },
     { effect: "error", word: "Error", what: "A request failed: three flashes. Logs, under System, says why." },
   ];
 </script>
@@ -124,6 +125,16 @@
       hint="A short chime when it starts listening."
       toggle={(on) => device.updateSettings({ wakeSound: on })}
     />
+    <a class="pn-row" href="#/voice/media-sources">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Media sources</span>
+        <span class="pn-row-hint">Let phones and computers play music on this satellite</span>
+      </span>
+      <span class="pn-row-value"
+        >{[set.airplay && "AirPlay", set.bluetooth && "Bluetooth"].filter(Boolean).join(", ") || "Off"}</span
+      >
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
   </Group>
 
   <Group title="Light ring">

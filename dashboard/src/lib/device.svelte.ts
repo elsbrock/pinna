@@ -217,6 +217,15 @@ class Device {
   startCalibration() {
     return this.#command(() => client.startCalibration({}), "Calibrating");
   }
+  startBluetoothPairing() {
+    return this.#command(() => client.startBluetoothPairing({}), "Ready to pair");
+  }
+  stopBluetoothPairing() {
+    return this.#command(() => client.stopBluetoothPairing({}), "Pairing stopped");
+  }
+  forgetBluetoothDevice(address: string, name: string) {
+    return this.#command(() => client.forgetBluetoothDevice({ address }), `Forgot ${name}`);
+  }
   stopCalibration() {
     return this.#command(() => client.stopCalibration({}), "Calibration done");
   }

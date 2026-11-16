@@ -46,8 +46,9 @@ pub struct Audio {
     /// Assistant, in dB. Unset: +12 dB on the Echo Dot's PipeWire graph (the echo
     /// canceller's output is far below what the wake word model expects), 0 otherwise.
     pub capture_gain_db: Option<f32>,
-    /// Unix socket for live PCM streams into the media lane (raw s16le, 48 kHz
-    /// stereo; AirPlay/Bluetooth bridges, ADR 0011). Empty = off.
+    /// Unix socket for live PCM streams into the media lane (a header line
+    /// `s16le <44100|48000> 2`, then stereo PCM; AirPlay/Bluetooth bridges,
+    /// ADR 0011). Empty = off.
     pub stream_socket: PathBuf,
     /// PipeWire node to record from (`pipewire` backend). Unset: the default
     /// source. The virtual Echo Dot's microphone is a filter, which

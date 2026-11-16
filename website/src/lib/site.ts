@@ -41,6 +41,8 @@ export const DOCS_NAV: DocGroup[] = [
     items: [
       { slug: "ring-and-buttons", title: "Light ring and buttons" },
       { slug: "dashboard", title: "Use the dashboard" },
+      { slug: "airplay", title: "Play music with AirPlay" },
+      { slug: "bluetooth", title: "Play music over Bluetooth" },
       { slug: "configure", title: "Configure Pinna" },
       { slug: "update", title: "Update Pinna" },
       { slug: "troubleshooting", title: "Troubleshooting" },

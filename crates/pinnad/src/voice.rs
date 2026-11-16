@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use pinna_audio::beamview::{self, BeamViewReader};
-use pinna_audio::{MediaPhase, MediaState, Speaker, tone};
+use pinna_audio::{MediaPhase, MediaState, STREAM_URL, Speaker, tone};
 use pinna_esphome::{
     DeviceEvent, EsphomeHandle, HaCommand, MediaPlayerCommand, MediaPlayerStateKind,
     TimerEventType, VoiceEventType,
@@ -72,6 +72,8 @@ pub type ApiReply = oneshot::Sender<Result<Snapshot, String>>;
 #[derive(Debug)]
 pub enum ApiCommand {
     SetVolume(u8, ApiReply),
+    /// A bridge's sender volume for live streams (ADR 0011).
+    SetStreamVolume(u8, ApiReply),
     SetMute(bool, ApiReply),
     StartConversation(ApiReply),
     StopConversation(ApiReply),
@@ -80,6 +82,12 @@ pub enum ApiCommand {
     ClearNotification(ApiReply),
     StartCalibration(ApiReply),
     StopCalibration(ApiReply),
+    StartBluetoothPairing(ApiReply),
+    StopBluetoothPairing(ApiReply),
+    /// Already checked (`bluetooth::valid_address`).
+    ForgetBluetoothDevice(String, ApiReply),
+    /// From the Bluetooth bridge.
+    ReportBluetooth(crate::bluetooth::Bridge, ApiReply),
 }
 
 /// Settings to change from the API; `None` leaves a setting as it is.
@@ -95,6 +103,8 @@ pub struct SettingsPatch {
     pub wake_sound: Option<bool>,
     /// Already checked (`settings::check_host_names`).
     pub allowed_hosts: Option<Vec<String>>,
+    pub airplay: Option<bool>,
+    pub bluetooth: Option<bool>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -161,6 +171,10 @@ pub struct Snapshot {
     pub encrypted: bool,
     /// The ring runs its test pattern.
     pub led_test: bool,
+    /// The AirPlay receiver as it is (ADR 0011).
+    pub airplay: crate::airplay::Report,
+    /// Bluetooth as it is (ADR 0011).
+    pub bluetooth: crate::bluetooth::Report,
 }
 
 /// A running calibration, as the API shows it.
@@ -193,6 +207,8 @@ impl Default for Snapshot {
             wake_sound: false,
             encrypted: false,
             led_test: false,
+            airplay: Default::default(),
+            bluetooth: Default::default(),
         }
     }
 }
@@ -267,6 +283,10 @@ pub struct Options {
     pub has_hw_privacy: bool,
     /// Where runtime settings are persisted.
     pub settings_file: std::path::PathBuf,
+    /// AirPlay can run: there is a speaker and a stream socket.
+    pub airplay: bool,
+    /// Bluetooth can run: AirPlay's needs, and a Bluetooth controller.
+    pub bluetooth: bool,
     /// Settings at startup (already loaded from `settings_file`).
     pub settings: Settings,
 }
@@ -320,6 +340,11 @@ pub struct Brain {
     media_muted: bool,
     /// Last state reported by the media lane.
     media_phase: MediaPhase,
+    /// The media lane is on a live stream (AirPlay, Bluetooth).
+    media_stream: bool,
+    /// The bridges' sender volume for live streams, 0..=100 (not saved:
+    /// each bridge sets its own before it connects).
+    stream_volume: u8,
     ducked: bool,
 
     timers: HashMap<String, HaTimer>,
@@ -338,6 +363,25 @@ pub struct Brain {
     talker: leds::Talker,
     /// When the speaker last stopped playing a chime, reply or announcement.
     speaker_quiet_since: Instant,
+    /// Applies the AirPlay switch, one change at a time (started in `run`).
+    airplay: Option<mpsc::UnboundedSender<Option<crate::airplay::AirPlay>>>,
+    /// The receiver's state from that worker, and its sender until `run`.
+    airplay_report: watch::Receiver<crate::airplay::Report>,
+    airplay_report_tx: Option<watch::Sender<crate::airplay::Report>>,
+    /// Starts and stops Bluetooth, one change at a time (started in `run`).
+    bluetooth: Option<mpsc::UnboundedSender<bool>>,
+    /// The bridge's unit, from that worker, and its sender until `run`.
+    bt_unit: watch::Receiver<crate::airplay::State>,
+    bt_unit_tx: Option<watch::Sender<crate::airplay::State>>,
+    /// What the bridge last reported.
+    bt_bridge: crate::bluetooth::Bridge,
+    /// The pairing window, while it is open: when it closes.
+    bt_pairing_until: Option<(Instant, std::time::SystemTime)>,
+    /// Why Bluetooth didn't start at boot, if it was skipped.
+    bt_skipped: Option<String>,
+    /// Since when the bridge has been ready with the Wi-Fi up, until the
+    /// start counts and the marker goes (`bluetooth::SETTLE`).
+    bt_ready_since: Option<Instant>,
     /// Wakes and near misses, oldest first.
     recent_wakes: VecDeque<WakeRecord>,
     /// The sensitivity tuning with the device's buttons, while it runs.
@@ -381,6 +425,15 @@ impl Brain {
         shared
             .threshold
             .store(settings.wake_threshold().to_bits(), Ordering::SeqCst);
+        let (bt_unit_tx, bt_unit) = watch::channel(crate::airplay::State::Off);
+        let (airplay_report_tx, airplay_report) = watch::channel(crate::airplay::Report {
+            state: if opts.airplay {
+                crate::airplay::State::Off
+            } else {
+                crate::airplay::State::Unavailable
+            },
+            name: String::new(),
+        });
         Self {
             esp,
             speaker,
@@ -411,6 +464,8 @@ impl Brain {
             media_state: MediaPlayerStateKind::Idle,
             media_muted: false,
             media_phase: MediaPhase::Idle,
+            media_stream: false,
+            stream_volume: 100,
             ducked: false,
             timers: HashMap::new(),
             ringing: None,
@@ -422,6 +477,16 @@ impl Brain {
             beams: BeamViewReader::new(beamview::PATH),
             talker: leds::Talker::default(),
             speaker_quiet_since: Instant::now(),
+            airplay: None,
+            airplay_report,
+            airplay_report_tx: Some(airplay_report_tx),
+            bluetooth: None,
+            bt_unit,
+            bt_unit_tx: Some(bt_unit_tx),
+            bt_bridge: Default::default(),
+            bt_pairing_until: None,
+            bt_skipped: None,
+            bt_ready_since: None,
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
             reconnect_pending: false,
@@ -435,8 +500,37 @@ impl Brain {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         self.shared.muted.store(self.muted(), Ordering::SeqCst);
         self.apply_reply_volume();
+        if self.opts.airplay {
+            if let Some(report) = self.airplay_report_tx.take() {
+                self.airplay = Some(crate::airplay::worker(report));
+            }
+            // Also off: a bridge left over from before a restart stops.
+            self.apply_airplay();
+        } else if self.settings.airplay {
+            // Saved on, but no speaker or stream socket this time: a bridge
+            // and record from before a restart go. The setting stays saved.
+            tokio::task::spawn_blocking(crate::airplay::off);
+        }
+        if self.opts.bluetooth {
+            if let Some(unit) = self.bt_unit_tx.take() {
+                self.bluetooth = Some(crate::bluetooth::worker(unit));
+            }
+            if self.settings.bluetooth && crate::bluetooth::left_from_last_boot() {
+                // The last start never got to running with the Wi-Fi up.
+                tracing::warn!("bluetooth: the last start didn't finish; staying off this time");
+                self.bt_skipped = Some(
+                    "Bluetooth didn't come up last time, so it didn't start this time.".into(),
+                );
+            } else if let Some(tx) = &self.bluetooth {
+                // Also off: a target left over from before a restart stops.
+                let _ = tx.send(self.settings.bluetooth);
+            }
+        }
         self.refresh();
-        let mut sent_media = (self.media_state, self.settings.volume, self.media_muted);
+        let mut sent_media = (self.media_state, self.media_volume(), self.media_muted);
+        // Home Assistant's "Bluetooth pairing" switch follows the window,
+        // however it opened or closed.
+        let mut sent_pairing = false;
         loop {
             tokio::select! {
                 input = inputs.recv() => match input {
@@ -445,7 +539,7 @@ impl Brain {
                 },
                 _ = tick.tick() => self.tick().await,
             }
-            let media = (self.media_state, self.settings.volume, self.media_muted);
+            let media = (self.media_state, self.media_volume(), self.media_muted);
             if media != sent_media {
                 if media.0 != sent_media.0 {
                     match (sent_media.0, media.0) {
@@ -460,6 +554,11 @@ impl Brain {
                 }
                 sent_media = media;
                 self.send_media_state().await;
+            }
+            let pairing = self.bt_pairing_until.is_some();
+            if pairing != sent_pairing {
+                sent_pairing = pairing;
+                self.send_pairing_switch(pairing).await;
             }
             self.refresh();
         }
@@ -532,6 +631,7 @@ impl Brain {
                 }
                 self.media_phase = state.phase;
                 self.media_muted = state.muted;
+                self.media_stream = state.url.as_deref() == Some(STREAM_URL);
                 self.update_media_state();
             }
             Input::Ha(cmd) => self.ha(cmd).await,
@@ -547,6 +647,10 @@ impl Brain {
                 let v = percent.min(100);
                 self.set_volume(v).await;
                 self.overlay(Effect::Volume(v));
+                (Ok(()), reply)
+            }
+            ApiCommand::SetStreamVolume(percent, reply) => {
+                self.set_stream_volume(percent);
                 (Ok(()), reply)
             }
             ApiCommand::SetMute(on, reply) => {
@@ -592,6 +696,20 @@ impl Brain {
                            Choose them on this satellite's device page there.";
                 (Err(why.into()), reply)
             }
+            ApiCommand::UpdateSettings(patch, reply)
+                if patch.airplay == Some(true) && !self.opts.airplay =>
+            {
+                let why = "This satellite has no working speaker, so it can't receive AirPlay. \
+                           Logs, under System, says why.";
+                (Err(why.into()), reply)
+            }
+            ApiCommand::UpdateSettings(patch, reply)
+                if patch.bluetooth == Some(true) && !self.opts.bluetooth =>
+            {
+                let why = "This satellite has no Bluetooth or no working speaker. \
+                           Logs, under System, says why.";
+                (Err(why.into()), reply)
+            }
             ApiCommand::UpdateSettings(patch, reply) => {
                 // The same paths as Home Assistant's entities, so it sees the change.
                 if let Some(name) = patch.friendly_name {
@@ -617,6 +735,12 @@ impl Brain {
                 if let Some(on) = patch.wake_word {
                     self.set_wake_word(on).await;
                 }
+                if let Some(on) = patch.airplay {
+                    self.set_airplay(on).await;
+                }
+                if let Some(on) = patch.bluetooth {
+                    self.set_bluetooth(on).await;
+                }
                 // Applied, but a restart would undo it: say so (ADR 0007).
                 let saved = self.store.try_save(&self.settings).map_err(|e| {
                     tracing::warn!("saving the settings: {e}");
@@ -630,6 +754,32 @@ impl Brain {
             ApiCommand::StartCalibration(reply) => (self.set_calibration(true).await, reply),
             ApiCommand::StopCalibration(reply) => {
                 let _ = self.set_calibration(false).await;
+                (Ok(()), reply)
+            }
+            ApiCommand::StartBluetoothPairing(reply) => (self.start_pairing(), reply),
+            ApiCommand::StopBluetoothPairing(reply) => {
+                self.stop_pairing();
+                (Ok(()), reply)
+            }
+            ApiCommand::ForgetBluetoothDevice(address, reply) => {
+                if self.bt_active() {
+                    tracing::info!("bluetooth: forgetting {address}");
+                    let gone = address.clone();
+                    let res =
+                        tokio::task::spawn_blocking(move || crate::bluetooth::forget(&address))
+                            .await
+                            .unwrap_or_else(|e| Err(e.to_string()));
+                    if res.is_ok() {
+                        // Gone from Status now, not at the bridge's next report.
+                        self.bt_bridge.devices.retain(|d| d.address != gone);
+                    }
+                    (res, reply)
+                } else {
+                    (Err("Switch Bluetooth on to forget a phone.".into()), reply)
+                }
+            }
+            ApiCommand::ReportBluetooth(bridge, reply) => {
+                self.bluetooth_report(bridge);
                 (Ok(()), reply)
             }
         };
@@ -666,7 +816,11 @@ impl Brain {
             wake_enabled: self.shared.wake_enabled.load(Ordering::Relaxed),
             timers,
             alarm_ringing: self.ringing.is_some(),
-            settings: self.settings.clone(),
+            settings: Settings {
+                airplay: self.airplay_on(),
+                bluetooth: self.bluetooth_on(),
+                ..self.settings.clone()
+            },
             recent_wakes: self.recent_wakes.iter().cloned().collect(),
             calibration: self.calibration.as_ref().map(|c| CalibrationSnapshot {
                 started_from: c.started_from,
@@ -678,6 +832,21 @@ impl Brain {
             wake_sound: self.wake_sound(),
             encrypted: self.encrypted,
             led_test: self.led_test.is_some(),
+            airplay: self.airplay_report.borrow().clone(),
+            bluetooth: crate::bluetooth::report(
+                self.opts.bluetooth,
+                self.settings.bluetooth,
+                self.bt_skipped.as_deref(),
+                &self.bt_unit.borrow(),
+                &self.bt_bridge,
+                &self.friendly_name(),
+                (
+                    self.bt_pairing_until
+                        .and_then(|(_, at)| at.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map_or(0, |d| d.as_millis() as u64),
+                    self.bt_pairing_until.map(|(until, _)| until),
+                ),
+            ),
         }
     }
 
@@ -723,6 +892,10 @@ impl Brain {
             });
         }
         self.reconnect_pending = self.clients > 0;
+        // Senders list it under the new name too.
+        if self.airplay_on() {
+            self.apply_airplay();
+        }
     }
 
     /// Nothing a reconnect would cut off: no request, alarm, reply,
@@ -764,6 +937,18 @@ impl Brain {
                     on: self.settings.listening_direction,
                 })
                 .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "airplay".into(),
+                    on: self.airplay_on(),
+                })
+                .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "bluetooth".into(),
+                    on: self.bluetooth_on(),
+                })
+                .await;
+                self.send_pairing_switch(self.bt_pairing_until.is_some())
+                    .await;
                 self.send(DeviceEvent::SwitchState {
                     object_id: "notification".into(),
                     on: self.settings.notification,
@@ -873,6 +1058,12 @@ impl Brain {
                 self.set_wake_sound(on).await;
                 self.store.save(&self.settings);
             }
+            HaCommand::Switch { object_id, on } if object_id == "airplay" => {
+                self.set_airplay(on).await;
+            }
+            HaCommand::Switch { object_id, on } if object_id == "bluetooth" => {
+                self.set_bluetooth(on).await;
+            }
             HaCommand::Switch { object_id, on } if object_id == "notification" => {
                 self.set_notification(on).await;
             }
@@ -880,6 +1071,15 @@ impl Brain {
                 if let Err(why) = self.set_calibration(on).await {
                     tracing::info!("calibration: not started: {why}");
                     self.send_calibration_switch(false).await;
+                }
+            }
+            HaCommand::Switch { object_id, on } if object_id == "bluetooth_pairing" => {
+                if !on {
+                    self.stop_pairing();
+                } else if let Err(why) = self.start_pairing() {
+                    tracing::info!("bluetooth: no pairing window: {why}");
+                    // It didn't open: the switch goes back off.
+                    self.send_pairing_switch(false).await;
                 }
             }
             HaCommand::Button { object_id } if object_id == "cancel_request" => {
@@ -1154,10 +1354,40 @@ impl Brain {
     async fn send_media_state(&self) {
         self.send(DeviceEvent::MediaPlayerState {
             state: self.media_state,
-            volume: f32::from(self.settings.volume) / 100.0,
+            volume: f32::from(self.media_volume()) / 100.0,
             muted: self.media_muted,
         })
         .await;
+    }
+
+    /// What the Home Assistant media player shows as its volume: the stream
+    /// volume while a stream plays, the speaker volume otherwise.
+    fn media_volume(&self) -> u8 {
+        if self.media_stream {
+            self.stream_volume
+        } else {
+            self.settings.volume
+        }
+    }
+
+    /// The media player's volume from Home Assistant: the stream's own
+    /// volume while a stream plays (the speaker volume stays where it is),
+    /// the speaker volume otherwise.
+    async fn set_media_volume(&mut self, v: u8) {
+        if self.media_stream {
+            self.set_stream_volume(v);
+        } else {
+            self.set_volume(v).await;
+        }
+    }
+
+    /// Stream volume from a bridge or from Home Assistant during a stream.
+    /// The run loop reports the change to Home Assistant.
+    fn set_stream_volume(&mut self, v: u8) {
+        self.stream_volume = v.min(100);
+        if let Some(s) = &self.speaker {
+            s.set_stream_volume(self.stream_volume);
+        }
     }
 
     /// Speaker volume from any source (number, media player, buttons, API).
@@ -1248,6 +1478,126 @@ impl Brain {
         });
     }
 
+    /// AirPlay as it is: saved on, and the device can play streams.
+    fn airplay_on(&self) -> bool {
+        self.settings.airplay && self.opts.airplay
+    }
+
+    /// Hand the receiver as it should be to the worker: on under the current
+    /// name, or off.
+    fn apply_airplay(&self) {
+        if let Some(tx) = &self.airplay {
+            let want = self
+                .airplay_on()
+                .then(|| crate::airplay::AirPlay::new(&self.friendly_name()));
+            let _ = tx.send(want);
+        }
+    }
+
+    /// AirPlay on or off, from the dashboard or Home Assistant. Stays off on
+    /// a device that can't play streams.
+    async fn set_airplay(&mut self, on: bool) {
+        let on = on && self.opts.airplay;
+        if on != self.settings.airplay {
+            self.settings.airplay = on;
+            self.store.save(&self.settings);
+            self.apply_airplay();
+        }
+        self.send(DeviceEvent::SwitchState {
+            object_id: "airplay".into(),
+            on,
+        })
+        .await;
+    }
+
+    /// Bluetooth as it is: saved on, and the device can run it.
+    fn bluetooth_on(&self) -> bool {
+        self.settings.bluetooth && self.opts.bluetooth
+    }
+
+    /// Bluetooth on or off, from the dashboard or Home Assistant. Stays off on
+    /// a device that can't run it. Switching on tries again after a start
+    /// that was skipped or failed.
+    async fn set_bluetooth(&mut self, on: bool) {
+        let on = on && self.opts.bluetooth;
+        let failed = matches!(*self.bt_unit.borrow(), crate::airplay::State::Failed(_));
+        if on != self.settings.bluetooth || (on && (self.bt_skipped.is_some() || failed)) {
+            self.settings.bluetooth = on;
+            self.store.save(&self.settings);
+            self.bt_skipped = None;
+            self.bt_ready_since = None;
+            if !on {
+                self.bt_pairing_until = None;
+                self.bt_bridge = Default::default();
+            }
+            if let Some(tx) = &self.bluetooth {
+                let _ = tx.send(on);
+            }
+        }
+        self.send(DeviceEvent::SwitchState {
+            object_id: "bluetooth".into(),
+            on,
+        })
+        .await;
+    }
+
+    /// Open the pairing window for `bluetooth::PAIRING`.
+    /// Bluetooth on, and not skipped at boot.
+    fn bt_active(&self) -> bool {
+        self.bluetooth_on() && self.bt_skipped.is_none()
+    }
+
+    fn start_pairing(&mut self) -> Result<(), String> {
+        if !self.bt_active() {
+            return Err("Switch Bluetooth on first.".into());
+        }
+        // Only while phones can find it: not while starting or failed.
+        let running = self.bt_bridge.ready
+            && self.bt_bridge.error.is_empty()
+            && *self.bt_unit.borrow() == crate::airplay::State::Ready;
+        if !running {
+            return Err("Bluetooth isn't running yet. Pair once it shows as ready.".into());
+        }
+        tracing::info!("bluetooth: pairing window open");
+        self.bt_pairing_until = Some((
+            Instant::now() + crate::bluetooth::PAIRING,
+            std::time::SystemTime::now() + crate::bluetooth::PAIRING,
+        ));
+        Ok(())
+    }
+
+    fn stop_pairing(&mut self) {
+        if self.bt_pairing_until.take().is_some() {
+            tracing::info!("bluetooth: pairing window closed");
+        }
+    }
+
+    /// The bridge's report: a newly paired phone closes the window, and a
+    /// ready bridge with the Wi-Fi up starts the settling time after which
+    /// the boot marker goes (`tick`).
+    fn bluetooth_report(&mut self, bridge: crate::bluetooth::Bridge) {
+        if !self.bt_active() {
+            return;
+        }
+        let paired_new = bridge.devices.iter().any(|d| {
+            !self
+                .bt_bridge
+                .devices
+                .iter()
+                .any(|o| o.address == d.address)
+        });
+        if paired_new && self.bt_bridge.ready && self.bt_pairing_until.is_some() {
+            tracing::info!("bluetooth: a phone paired; closing the pairing window");
+            self.bt_pairing_until = None;
+        }
+        if bridge.ready && bridge.error.is_empty() {
+            self.bt_ready_since.get_or_insert_with(Instant::now);
+        } else {
+            self.bt_ready_since = None;
+        }
+        self.bt_bridge = bridge;
+    }
+
     async fn set_wake_word(&mut self, on: bool) {
         tracing::info!("wake word detection: {on}");
         self.settings.wake_word = on;
@@ -1257,6 +1607,14 @@ impl Brain {
         }
         self.send(DeviceEvent::SwitchState {
             object_id: "wake_word".into(),
+            on,
+        })
+        .await;
+    }
+
+    async fn send_pairing_switch(&self, on: bool) {
+        self.send(DeviceEvent::SwitchState {
+            object_id: "bluetooth_pairing".into(),
             on,
         })
         .await;
@@ -1423,7 +1781,7 @@ impl Brain {
             "media player: command {command:?} volume {volume:?} url {media_url:?} announce {announcement}"
         );
         if let Some(v) = volume {
-            self.set_volume((v * 100.0).round().clamp(0.0, 100.0) as u8)
+            self.set_media_volume((v * 100.0).round().clamp(0.0, 100.0) as u8)
                 .await;
         }
         let media = self.speaker.as_ref().map(|s| s.media());
@@ -1468,12 +1826,12 @@ impl Brain {
                 }
             }
             Some(MediaPlayerCommand::VolumeUp) => {
-                let v = self.settings.volume.saturating_add(5).min(100);
-                self.set_volume(v).await;
+                let v = self.media_volume().saturating_add(5).min(100);
+                self.set_media_volume(v).await;
             }
             Some(MediaPlayerCommand::VolumeDown) => {
-                let v = self.settings.volume.saturating_sub(5);
-                self.set_volume(v).await;
+                let v = self.media_volume().saturating_sub(5);
+                self.set_media_volume(v).await;
             }
             _ => {}
         }
@@ -1752,6 +2110,20 @@ impl Brain {
 
     async fn tick(&mut self) {
         let now = Instant::now();
+        if self.bt_pairing_until.is_some_and(|(until, _)| now >= until) {
+            tracing::info!("bluetooth: pairing window closed");
+            self.bt_pairing_until = None;
+        }
+        if let Some(since) = self.bt_ready_since {
+            if !crate::bluetooth::wifi_ok() {
+                self.bt_ready_since = None;
+            } else if now - since >= crate::bluetooth::SETTLE {
+                // The start counts: it runs, and the network with it.
+                self.bt_ready_since = None;
+                let _ = std::fs::remove_file(crate::bluetooth::MARKER);
+                tracing::info!("bluetooth: running with the Wi-Fi up");
+            }
+        }
         match self.phase {
             Phase::Starting(t) if now - t > START_TIMEOUT => {
                 tracing::warn!("Home Assistant did not answer the run start");
@@ -1838,6 +2210,8 @@ impl Brain {
         } else if self.calibration.is_some() && self.phase == Phase::Idle {
             // Calibration shows where the sensitivity stands.
             Effect::Calibration(self.settings.wake_sensitivity)
+        } else if self.bt_pairing_until.is_some() && self.phase == Phase::Idle {
+            Effect::Pairing
         } else {
             match self.phase {
                 // A media player announcement speaks without a run.

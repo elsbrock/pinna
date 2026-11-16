@@ -1,0 +1,6 @@
+[Unit]
+Description=Bluetooth playback (BlueZ, BlueALSA and pinna-bt)
+Wants=bluetooth.service bluealsa.service pinna-bt.service
+
+# No [Install]: pinnad starts and stops this target with the Bluetooth switch
+# (ADR 0011). Each unit is PartOf it, so stopping it stops all three.

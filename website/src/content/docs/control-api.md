@@ -104,14 +104,19 @@ device. `pinnad` serves it in two places:
 | `WatchStatus` | Empty | Streams the current `Status`, then a new one after each change |
 | `WatchRing` | Empty | Streams the LED ring as the device shows it: `frame`, 3 bytes (red, green, blue) for each of the 12 LEDs in ring order, where LEDs 10 and 11 are either side of the front, with the brightness setting applied. The current frame comes first, then at most 25 a second while the ring changes |
 | `SetVolume` | `percent` (0–100) | Sets the volume. Values above 100 return `invalid_argument` |
+| `SetStreamVolume` | `percent` (0–100) | Sets the volume of live audio on the stream socket, on the same curve as the volume and under it. Only the device's own programs can call it, on `127.0.0.1`; from the network it returns `permission_denied`. [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) use it for the sender's volume |
 | `SetMute` | `muted` (bool) | Turns the software mute on or off. The hardware switch isn't affected |
 | `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings or a request is already running |
 | `StopConversation` | Empty | Stops a request, a reply, an announcement or a timer alarm |
 | `LedTest` | Empty | Runs the LED test |
 | `ClearNotification` | Empty | Clears a waiting notification, even if the ring shows something else: the **Notification** switch turns off and the `cleared` event fires. Does nothing if no notification is waiting |
-| `UpdateSettings` | Any of `wake_word` (bool), `wake_sensitivity` and `led_brightness` (0–100), and `wake_words` (up to two ids from `Status.wake_word.available`) | Changes those settings, as Home Assistant's entities do. Values above 100, unknown or repeated wake word ids and more than two return `invalid_argument`. `wake_words` returns `failed_precondition` while Home Assistant is connected: its dropdowns own the choice then |
+| `UpdateSettings` | Any of `wake_word` (bool), `wake_sensitivity` and `led_brightness` (0–100), `wake_words` (up to two ids from `Status.wake_word.available`), `airplay` and `bluetooth` (bool) | Changes those settings, as Home Assistant's entities do. `airplay` returns `failed_precondition` on a device without a working speaker, `bluetooth` also on one without Bluetooth. Values above 100, unknown or repeated wake word ids and more than two return `invalid_argument`. `wake_words` returns `failed_precondition` while Home Assistant is connected: its dropdowns own the choice then |
 | `StartCalibration` | Empty | Starts tuning the wake word sensitivity with the + and − buttons on the device. Returns `failed_precondition` while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | `StopCalibration` | Empty | Ends it, keeping the sensitivity as it is. Does nothing if none runs |
+| `StartBluetoothPairing` | Empty | Opens the Bluetooth pairing window for two minutes, like the **Pair a phone** button. Returns `failed_precondition` unless Bluetooth is on and ready |
+| `StopBluetoothPairing` | Empty | Closes it. Does nothing if it is closed |
+| `ForgetBluetoothDevice` | `address` (from `Status.bluetooth.devices`) | Removes a paired phone, which has to pair again to play. Returns `failed_precondition` while Bluetooth is off |
+| `ReportBluetooth` | `ready`, `address`, `devices`, `error` | Used by `pinna-bt` to report the adapter and the paired phones. Only the device's own programs can call it, on `127.0.0.1` |
 | `GetNetwork` | Empty | Returns the hostname and each interface: name, MAC, addresses, and for Wi-Fi the network, signal, band and bitrate |
 | `WatchLogs` | Empty | Streams the last 1000 lines of `pinnad`'s journal, then new lines. Debug and trace lines are left out |
 | `GetUpdates` | Empty | Returns the A/B slots (version, state, tries left, which one runs and which one starts next), whether an install runs, the last install's result, and a suggested manifest URL |
@@ -119,9 +124,10 @@ device. `pinnad` serves it in two places:
 | `WatchInstall` | Empty | Streams the output of the running or last install, and ends with a message that has `done` set |
 | `Reboot` | Empty | Restarts the device |
 
-`SetVolume`, `SetMute`, `StartConversation`, `StopConversation`,
-`ClearNotification`, `UpdateSettings`, `StartCalibration` and
-`StopCalibration` return the `Status` after the change.
+`SetVolume`, `SetStreamVolume`, `SetMute`, `StartConversation`, `StopConversation`,
+`ClearNotification`, `UpdateSettings`, `StartCalibration`, `StopCalibration`,
+`StartBluetoothPairing`, `StopBluetoothPairing` and `ForgetBluetoothDevice`
+return the `Status` after the change.
 
 ### Example
 
@@ -153,7 +159,9 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `led_backend` | string | `is31`, `mock`, `virtual` (the virtual Echo Dot) or `none` |
 | `alarm_ringing` | bool | A finished timer's alarm rings. `StopConversation` stops it |
 | `notification` | bool | A notification is waiting. `ClearNotification` clears it |
-| `settings` | `Settings` | `wake_word`, `wake_sensitivity`, `led_brightness` and `wake_words` (the active ids, at most two) |
+| `settings` | `Settings` | `wake_word`, `wake_sensitivity`, `led_brightness`, `wake_words` (the active ids, at most two), `airplay` and `bluetooth` (the switches) |
+| `airplay` | `AirPlay` | The AirPlay receiver as it runs: `state` (`AIRPLAY_STATE_OFF`, `_STARTING`, `_READY`, `_FAILED`, or `_UNAVAILABLE` on a device without a working speaker), `name` (what senders list it as, while it is on) and `reason` (systemd's result when it failed, for example `exit-code`) |
+| `bluetooth` | `Bluetooth` | Bluetooth as it runs: `state` (`BLUETOOTH_STATE_OFF`, `_STARTING`, `_READY`, `_FAILED`, or `_UNAVAILABLE` on a device without Bluetooth or a working speaker), `name` (what phones list it as, while it is on), `address`, `pairing_until_ms` (when the pairing window closes, in Unix milliseconds; 0 while it is closed), `pairing_seconds_left` (the same as seconds left when the `Status` was sent, to count down from whatever the clocks say), `devices` (the paired phones while it is ready: `address`, `name`, `connected`) and `reason` (why it failed) |
 | `model` | string | `"echo-dot-2"` on an Echo Dot (2nd gen), `"echo-2"` on an Echo (2nd gen), empty when the hardware is unknown |
 
 ## What's next

@@ -25,6 +25,9 @@ These parts are covered by tests that run without hardware:
   implementation, within 0.001.
 - A complete voice request, from the wake word to the played reply, works
   against a simulated Home Assistant.
+- [AirPlay](/docs/airplay/) turns on and off in the x86_64 virtual machine:
+  the receiver starts, publishes its AirPlay record, reports that it is ready,
+  and stops again.
 
 On the devices:
 
@@ -35,6 +38,9 @@ On the devices:
   checks the backup. See [What you need](/docs/requirements/#backup-of-the-device).
 - A hardware test (`just test-device`) checks the speaker, the microphones,
   the light ring and the Home Assistant connection on a running device.
+- [Bluetooth](/docs/bluetooth/) works on the Echo (2nd gen) with an iPhone:
+  turning it on, pairing in the window, playing, the phone's volume,
+  reconnecting, forgetting, turning it off, and starting after a restart.
 
 ## Known gaps
 
@@ -52,6 +58,15 @@ On the devices:
   filesystem only. A new kernel needs fastboot.
 - **No automated test runs.** The tests run when contributors run them; there
   is no CI for them yet.
+- **AirPlay is untested on a device.** No AirPlay sender has played to Pinna
+  yet, in the virtual machine or on a device. Whether iPhones accept the record
+  that Pinna publishes, and how often music wakes the device or stops it
+  hearing you over hours, hasn't been checked. The delay that AirPlay allows
+  for is estimated, not measured.
+- **Bluetooth is new.** It was tested with one iPhone on the Echo (2nd gen)
+  for minutes, not hours, and not yet on the Echo Dot (2nd gen) with Pinna's
+  own setup. Home Assistant can stop the music on the device, but can't pause
+  or skip on the phone.
 
 ## Planned
 
@@ -60,6 +75,8 @@ On the devices:
 - **Standalone mode**: using the device as a voice assistant without Home
   Assistant.
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
+- **Multi-room with Music Assistant** through its own protocol, Sendspin: the
+  device would play in step with other speakers in a group.
 
 These plans follow the project's [goals](/docs/goals/).
 

@@ -1,4 +1,5 @@
-//! pinnad's own log lines from the journal, for the dashboard.
+//! The log lines of pinnad and its media sources (AirPlay, Bluetooth) from
+//! the journal, for the dashboard.
 //!
 //! The page has no login, so DEBUG and TRACE lines (which carry voice
 //! transcripts) never leave this module.
@@ -13,12 +14,21 @@ use tokio::process::{Child, ChildStdout, Command};
 
 const LEVELS: [&str; 5] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
 
-/// `journalctl -f` for pinnad's unit; the child dies with the stream.
+/// `journalctl -f` for pinnad's unit and those it starts; the child dies with
+/// the stream.
 pub fn watch() -> std::io::Result<impl Stream<Item = LogLine>> {
     let mut child = Command::new("journalctl")
         .args([
             "-u",
             "pinnad.service",
+            "-u",
+            "pinna-airplay.service",
+            "-u",
+            "pinna-bt.service",
+            "-u",
+            "bluetooth.service",
+            "-u",
+            "bluealsa.service",
             "-o",
             "json",
             "-n",

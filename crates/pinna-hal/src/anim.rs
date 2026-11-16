@@ -27,6 +27,8 @@ pub const EQUALIZER: [Rgb; RING_PIXELS / 2] = [
 pub const NOTIFICATION: Rgb = Rgb::new(255, 215, 0);
 /// Wake word calibration: an arc in its own colour, away from the volume's.
 pub const CALIBRATION: Rgb = Rgb::new(120, 230, 170);
+/// Bluetooth pairing window: Bluetooth's blue, deeper than the listening ring.
+pub const PAIRING: Rgb = Rgb::new(0, 90, 255);
 
 /// How long the volume meter is held.
 pub const VOLUME_HOLD: Duration = Duration::from_millis(1500);
@@ -73,6 +75,9 @@ pub enum Effect {
     Calibration(u8),
     /// The wake word was heard while calibrating: one flash.
     CalibrationHeard,
+    /// The Bluetooth pairing window is open (ADR 0011): two heads half a ring
+    /// apart, turning slowly.
+    Pairing,
     Boot,
     /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
     Equalizer([f32; RING_PIXELS]),
@@ -170,6 +175,20 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
             spin(LISTENING, t, 0.6, 6.0)
         }
         Effect::Equalizer(bands) => equalizer(&bands),
+        Effect::Pairing => {
+            let a = spin(PAIRING, t, 2.4, 4.0);
+            let b = spin(PAIRING, t + Duration::from_secs_f32(1.2), 2.4, 4.0);
+            let level = |c: Rgb| u16::from(c.r) + u16::from(c.g) + u16::from(c.b);
+            let mut f = [Rgb::OFF; RING_PIXELS];
+            for (i, p) in f.iter_mut().enumerate() {
+                *p = if level(a[i]) >= level(b[i]) {
+                    a[i]
+                } else {
+                    b[i]
+                };
+            }
+            f
+        }
     }
 }
 
@@ -255,6 +274,20 @@ mod tests {
 
     fn lit(f: &Frame) -> usize {
         f.iter().filter(|p| **p != Rgb::OFF).count()
+    }
+
+    #[test]
+    fn pairing_turns_two_heads_half_a_ring_apart() {
+        let f = render(Effect::Pairing, Duration::ZERO);
+        let lit: Vec<usize> = (0..RING_PIXELS).filter(|&i| f[i] == PAIRING).collect();
+        assert_eq!(lit.len(), 2, "{f:?}");
+        assert_eq!(lit[1] - lit[0], RING_PIXELS / 2);
+        assert!(!Effect::Pairing.is_finished(Duration::from_secs(600)));
+        assert_ne!(
+            render(Effect::Pairing, Duration::from_millis(400)),
+            f,
+            "it turns"
+        );
     }
 
     #[test]

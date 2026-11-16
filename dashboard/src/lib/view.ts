@@ -34,10 +34,19 @@ export function ringEffect(s: Status | null, link: Link, testStep = 0): Effect {
   if (s.alarmRinging) return "timer-ringing";
   const phase = PHASE_WORDS[s.phase];
   if (phase) return phase;
+  if (pairingOpen(s)) return "pairing";
   // The soonest running timer's arc shows above a waiting notification.
   if (s.timers.some((t) => t.active)) return "timer";
   if (s.notification) return "notification";
   return "idle";
+}
+
+/**
+ * The Bluetooth pairing window is open (ADR 0011). The satellite sends a new
+ * Status when it closes, so the seconds left when this one arrived will do.
+ */
+export function pairingOpen(s: Status): boolean {
+  return (s.bluetooth?.pairingSecondsLeft ?? 0) > 0;
 }
 
 export type Badge = { phase: string; word: string };
@@ -461,6 +470,7 @@ export const PATHS = [
   "/",
   "/voice",
   "/voice/wake-word",
+  "/voice/media-sources",
   "/home-assistant",
   "/network",
   "/system",

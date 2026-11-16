@@ -392,6 +392,83 @@ impl StreamResampler {
     }
 }
 
+/// Streaming stereo resampler whose ratio may change between pushes: a live
+/// stream follows the speaker clock (ADR 0011). Same kernel as [`resample`];
+/// the cutoff is fixed by the nominal ratio, so an adjustment of a few
+/// hundred ppm never moves the filter.
+pub(crate) struct VarResampler {
+    /// Input frames per output frame at the nominal ratio.
+    nominal: f64,
+    /// Input frames per output frame now.
+    step: f64,
+    cutoff: f64,
+    half: f64,
+    table: Vec<f32>,
+    buf: Vec<[f32; 2]>,
+    /// Position of the next output frame, in input frames from `buf[0]`.
+    pos: f64,
+}
+
+impl VarResampler {
+    pub fn new(from: u32, to: u32) -> VarResampler {
+        let nominal = f64::from(from) / f64::from(to);
+        let cutoff = (1.0 / nominal).min(1.0);
+        VarResampler {
+            nominal,
+            step: nominal,
+            cutoff,
+            half: ZEROS / cutoff,
+            table: kernel_table(),
+            buf: Vec::new(),
+            pos: 0.0,
+        }
+    }
+
+    /// Run `ppm` parts per million off the nominal ratio: positive consumes
+    /// the input faster, so it makes fewer output frames.
+    pub fn set_adjust_ppm(&mut self, ppm: f64) {
+        self.step = self.nominal * (1.0 + ppm * 1e-6);
+    }
+
+    /// Feed interleaved stereo; appends converted interleaved stereo to `out`.
+    pub fn push(&mut self, input: &[i16], out: &mut Vec<i16>) {
+        for f in input.chunks_exact(2) {
+            self.buf.push([f32::from(f[0]), f32::from(f[1])]);
+        }
+        let n = self.buf.len() as i64;
+        loop {
+            let x = self.pos;
+            let last = (x + self.half).floor() as i64;
+            if last >= n {
+                break;
+            }
+            let first = (x - self.half).ceil() as i64;
+            let mut acc = [0.0f32; 2];
+            for k in first.max(0)..=last {
+                let u = ((x - k as f64) * self.cutoff).abs();
+                let pos = u * TABLE_RES as f64;
+                let i = pos as usize;
+                let frac = (pos - i as f64) as f32;
+                let w = match (self.table.get(i), self.table.get(i + 1)) {
+                    (Some(a), Some(b)) => a + (b - a) * frac,
+                    _ => 0.0,
+                };
+                let s = self.buf[k as usize];
+                acc[0] += w * s[0];
+                acc[1] += w * s[1];
+            }
+            for a in acc {
+                out.push((a * self.cutoff as f32).round().clamp(-32768.0, 32767.0) as i16);
+            }
+            self.pos += self.step;
+        }
+        // Keep only what the next output frame still reaches.
+        let drop = ((self.pos - self.half).ceil() as i64).clamp(0, n) as usize;
+        self.buf.drain(..drop);
+        self.pos -= drop as f64;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,6 +572,57 @@ mod tests {
             for (j, f) in out.chunks_exact(2).enumerate() {
                 assert_eq!((f[0], f[1]), (want_l[j], want_r[j]), "{from} frame {j}");
             }
+        }
+    }
+
+    #[test]
+    fn var_resampler_at_nominal_matches_one_shot() {
+        for from in [44100u32, 48000] {
+            let l = sine(440.0, from, 5000, 8000.0);
+            let r = sine(1500.0, from, 5000, 5000.0);
+            let (want_l, want_r) = if from == OUT_RATE {
+                (l.clone(), r.clone())
+            } else {
+                (resample(&l, from, OUT_RATE), resample(&r, from, OUT_RATE))
+            };
+            let inter: Vec<i16> = l.iter().zip(&r).flat_map(|(a, b)| [*a, *b]).collect();
+            let mut rs = VarResampler::new(from, OUT_RATE);
+            let mut out = Vec::new();
+            for piece in inter.chunks(2 * 333) {
+                rs.push(piece, &mut out);
+            }
+            // Only the tail the kernel has not reached yet is missing.
+            assert!(out.len() / 2 + 40 >= want_l.len(), "{from}: {}", out.len());
+            for (j, f) in out.chunks_exact(2).enumerate() {
+                let d = (i32::from(f[0]) - i32::from(want_l[j])).abs()
+                    + (i32::from(f[1]) - i32::from(want_r[j])).abs();
+                assert!(
+                    d <= 2,
+                    "{from} frame {j}: {f:?} vs {}/{}",
+                    want_l[j],
+                    want_r[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn var_resampler_adjustment_changes_the_output_rate() {
+        let input = vec![1000i16; 48000 * 2 * 10];
+        for (ppm, want) in [(1000.0, 480_000.0 / 1.001), (-1000.0, 480_000.0 / 0.999)] {
+            let mut rs = VarResampler::new(OUT_RATE, OUT_RATE);
+            rs.set_adjust_ppm(ppm);
+            let mut out = Vec::new();
+            for piece in input.chunks(2 * 960) {
+                rs.push(piece, &mut out);
+            }
+            let got = (out.len() / 2) as f64;
+            assert!(
+                (got - want).abs() < 20.0,
+                "{ppm} ppm: {got} frames, want {want}"
+            );
+            // DC passes at unity, away from the zero-padded start.
+            assert!(out[200..].iter().all(|&s| (s - 1000).abs() <= 2));
         }
     }
 

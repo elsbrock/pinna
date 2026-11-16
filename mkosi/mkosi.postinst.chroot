@@ -40,7 +40,24 @@ ln -sf /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
 systemctl --global disable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
 systemctl --global mask pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket wireplumber.service filter-chain.service 2>/dev/null || true
 
+# pinna-airplay.service runs shairport-sync; resolved is the mDNS responder (ADR 0011).
+systemctl mask shairport-sync.service avahi-daemon.service avahi-daemon.socket
+
+# Bluetooth runs only while the switch is on: pinnad starts
+# pinna-bluetooth.target, never udev or D-Bus activation. bluealsa-aplay would
+# play past pinnad (ADR 0011).
+if [ -e /usr/lib/systemd/system/bluetooth.service ]; then
+    systemctl disable bluetooth.service bluealsa.service
+    systemctl mask bluealsa-aplay.service
+    # The mode bluetooth.service's ConfigurationDirectoryMode expects.
+    chmod 0555 /etc/bluetooth
+fi
+
 ln -sfn ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+# Pinna's system groups (sysusers.d/pinna.conf). /etc is read-only on the
+# device, so they are created here, in the image.
+systemd-sysusers /usr/lib/sysusers.d/pinna.conf
 
 # The WMT driver opens its firmware by fixed paths under /lib/firmware and
 # /etc/firmware.

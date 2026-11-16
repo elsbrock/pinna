@@ -58,6 +58,41 @@ impl DeviceService for Fake {
         self.state.lock().unwrap().0 = r.percent;
         status_reply!(SetVolumeResponse, self)
     }
+    async fn set_stream_volume(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, SetStreamVolumeRequest>,
+    ) -> ServiceResult<SetStreamVolumeResponse> {
+        status_reply!(SetStreamVolumeResponse, self)
+    }
+    async fn start_bluetooth_pairing(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StartBluetoothPairingRequest>,
+    ) -> ServiceResult<StartBluetoothPairingResponse> {
+        status_reply!(StartBluetoothPairingResponse, self)
+    }
+    async fn stop_bluetooth_pairing(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StopBluetoothPairingRequest>,
+    ) -> ServiceResult<StopBluetoothPairingResponse> {
+        status_reply!(StopBluetoothPairingResponse, self)
+    }
+    async fn forget_bluetooth_device(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ForgetBluetoothDeviceRequest>,
+    ) -> ServiceResult<ForgetBluetoothDeviceResponse> {
+        status_reply!(ForgetBluetoothDeviceResponse, self)
+    }
+    async fn report_bluetooth(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ReportBluetoothRequest>,
+    ) -> ServiceResult<ReportBluetoothResponse> {
+        Response::ok(ReportBluetoothResponse::default())
+    }
     async fn set_mute(
         &self,
         _: RequestContext,

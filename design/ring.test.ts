@@ -102,6 +102,14 @@ test("a heard wake flashes once", () => {
   assert.equal(lit(ringFrame("calibration-heard", 600)), 0);
 });
 
+test("pairing turns two heads half a ring apart", () => {
+  const f = ringFrame("pairing", 0);
+  const heads = f.flatMap((p, i) => (p.c === LED.pairing && p.level === 1 ? [i] : []));
+  assert.equal(heads.length, 2);
+  assert.equal(heads[1] - heads[0], RING_PIXELS / 2);
+  assert.notDeepEqual(ringFrame("pairing", 400), f);
+});
+
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);

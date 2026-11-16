@@ -34,6 +34,7 @@ this table wins:
 | A violet light that runs around the ring | Home Assistant is working on your request |
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | A green arc | Wake word calibration runs. The arc shows the sensitivity, and the volume buttons tune it. It shows in place of a running timer's arc, a notification, the light and the music. See [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) |
+| Two blue lights that turn slowly around the ring | The Bluetooth pairing window is open: a phone nearby can pair now. It shows in place of a running timer's arc, a notification, the light and the music. See [Pair a phone](/docs/bluetooth/#pair-a-phone) |
 | An amber arc | A timer is running. The arc shows how much time is left |
 | Yellow, the whole ring slowly getting brighter and dimmer | A notification is waiting. See [Notifications](#notifications) |
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |

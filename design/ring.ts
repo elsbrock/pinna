@@ -20,6 +20,7 @@ export const LED = {
   volume: [120, 200, 255],
   notification: [255, 215, 0],
   calibration: [120, 230, 170],
+  pairing: [0, 90, 255],
 } as const satisfies Record<string, Rgb>;
 
 export type Effect =
@@ -38,7 +39,8 @@ export type Effect =
   | "calibration"
   | "calibration-heard"
   | "boot"
-  | "equalizer";
+  | "equalizer"
+  | "pairing";
 
 /** Music equalizer, bass to treble. */
 export const EQUALIZER: readonly Rgb[] = [
@@ -167,6 +169,12 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
       return spin(LED.listening, t, 0.6, 6);
     case "equalizer":
       return equalizer(Array.isArray(value) ? value : []);
+    case "pairing": {
+      // Two heads half a ring apart, turning slowly.
+      const a = spin(LED.pairing, t, 2.4, 4);
+      const b = spin(LED.pairing, t + 1.2, 2.4, 4);
+      return a.map((p, i) => (p.level >= b[i].level ? p : b[i]));
+    }
     default:
       return dark();
   }

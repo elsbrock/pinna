@@ -18,6 +18,9 @@ keep the name the device had when you added it.
 | Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The words themselves are chosen with the **Wake word** and **Wake word 2** selectors on the device page. The Action button still starts a request |
 | Listening direction | `listening_direction` | Switch (configuration) | On, off | While the device listens, points the light ring at the person speaking. Off shows the plain listening ring. On by default |
 | Wake sound | `wake_sound` | Switch (configuration) | On, off | Plays a short chime when the device starts listening. The dashboard has the same switch, under **Voice & sound** |
+| AirPlay | `airplay` | Switch (configuration) | On, off | Turns the AirPlay receiver on or off. While it is on, iPhones, Macs and Music Assistant on your network can play music to the device, without a password. Off by default. The dashboard has the same switch, under **Voice & sound > Media sources** |
+| Bluetooth audio | `bluetooth` | Switch (configuration) | On, off | Turns Bluetooth on or off. While it is on, phones paired with the device can play music to it. Off by default. The dashboard has the same switch, under **Voice & sound > Media sources** |
+| Bluetooth pairing | `bluetooth_pairing` | Switch | On, off | Turn it on to open the Bluetooth pairing window for two minutes, like **Pair a phone** on the dashboard; turn it off to close it. It turns itself off when the window closes, and stays off unless **Bluetooth audio** is on and ready. See [Pair a phone](/docs/bluetooth/#pair-a-phone) |
 | Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | Notification | `notification` | Switch | On, off | Turn it on to show a waiting notification on the ring. It turns off when someone clears it on the device or the dashboard. See [Notifications](/docs/ring-and-buttons/#notifications) |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
@@ -73,6 +76,10 @@ The media player plays two kinds of audio:
 
 It supports play, pause, stop, mute and volume. The volume up and down
 commands change the volume by 5.
+
+While [AirPlay](/docs/airplay/#play-music) or
+[Bluetooth](/docs/bluetooth/#play-music) plays, the media player's volume is
+the music's own, and pause stops the music.
 
 ## Voice assistant and timers
 

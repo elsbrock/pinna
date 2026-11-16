@@ -141,6 +141,56 @@ if [ -n "${SSH_KEY:-}" ]; then
   fi
 fi
 
+# AirPlay (ADR 0011): off by default; on, pinnad starts the bridge and
+# publishes shairport-sync's record; off stops both. Only the x86_64 image has a
+# speaker (the virtual Echo Dot). The unit's state is read over ssh: the
+# journal on the disk misses what happens this late.
+if [ "$arch" = x86_64 ]; then
+  log "AirPlay"
+  airplay() {
+    curl -fsS --max-time 10 -H 'Content-Type: application/json' -d "{\"airplay\":$1}" \
+      "$web/pinna.v1.DeviceService/UpdateSettings"
+  }
+  if curl -fsS --max-time 10 -H 'Content-Type: application/json' -d '{}' \
+       "$web/pinna.v1.DeviceService/GetStatus" | grep -q '"airplay":true'; then
+    fail "AirPlay off by default"
+  else
+    pass "AirPlay off by default"
+  fi
+  if airplay true | grep -q '"airplay":true'; then pass "AirPlay switched on over the API"; else fail "AirPlay switched on over the API"; fi
+  ready=
+  for _ in $(seq 1 20); do
+    if curl -fsS --max-time 10 -H 'Content-Type: application/json' -d '{}' \
+         "$web/pinna.v1.DeviceService/GetStatus" | grep -q '"AIRPLAY_STATE_READY"'; then
+      ready=1; break
+    fi
+    sleep 1
+  done
+  if [ -n "$ready" ]; then pass "AirPlay reported ready in Status"; else fail "AirPlay reported ready in Status"; fi
+  if [ -n "${SSH_KEY:-}" ]; then
+    sleep 5
+    if ssh_vm 'systemctl is-active -q pinna-airplay && pgrep -x shairport-sync >/dev/null &&
+               grep -q "^Type=_raop._tcp" /run/systemd/dnssd/pinna-airplay.dnssd &&
+               [ "$(stat -c %G /run/pinna/stream.sock)" = pinna-stream ] &&
+               ! systemctl is-active -q avahi-daemon'; then
+      pass "AirPlay on: bridge and shairport-sync running, _raop._tcp published, socket shared"
+    else
+      fail "AirPlay on:"
+      ssh_vm 'systemctl status pinna-airplay --no-pager -n 15; ls -l /run/pinna/stream.sock /run/systemd/dnssd' | sed 's/^/     /'
+    fi
+  fi
+  if airplay false | grep -q '"airplay":true'; then fail "AirPlay switched off"; else pass "AirPlay switched off"; fi
+  if [ -n "${SSH_KEY:-}" ]; then
+    sleep 5 # the unit allows shairport-sync 3 s to stop
+    if ssh_vm '! systemctl is-active -q pinna-airplay && ! test -e /run/systemd/dnssd/pinna-airplay.dnssd'; then
+      pass "AirPlay off: bridge stopped, record withdrawn"
+    else
+      fail "AirPlay off: bridge stopped, record withdrawn"
+      ssh_vm 'systemctl status pinna-airplay --no-pager -n 20; ls -l /run/systemd/dnssd; journalctl -b --no-pager -o short-monotonic | grep -E "airplay|shairport" | tail -20' | sed 's/^/     /'
+    fi
+  fi
+fi
+
 log "stopping the VM and reading its journal from the userdata partition"
 kill "$(cat "$work/qemu.pid")" 2>/dev/null || true
 sleep 2

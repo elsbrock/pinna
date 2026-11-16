@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Mon, 16 Nov 2026 16:34:11 +0100
+Subject: [PATCH 29/29] Bluetooth: mt8163: the device's own address, and quiet
+ packet logging
+
+Every Echo's controller comes up with the same placeholder address,
+00:00:46:81:63:01, so two of them collide. The bootloader's idme record
+carries the device's own (bt_mac_addr, in the device tree). Program it
+with MediaTek's vendor command 0xfc1a from a setup callback that runs on
+every open, since closing switches the Bluetooth function off and the
+controller forgets the address with it. A firmware that refuses the
+command keeps the placeholder instead of failing the power-on.
+
+The per-packet TX/RX lines move to pr_debug: at A2DP rates they flooded
+the log with hundreds of lines a second.
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c
+index 3fdf670..89b9cbe 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/common/linux/pub/stp_chrdev_bt.c
+@@ -37,6 +37,7 @@
+ #ifdef CONFIG_MTK_MT8163_BLUEZ_HCI
+ #include <net/bluetooth/bluetooth.h>
+ #include <net/bluetooth/hci_core.h>
++#include <linux/of.h>
+ #endif
+ 
+ #include "osal_typedef.h"
+@@ -190,10 +191,10 @@ static void mtk_bt_hci_work(struct work_struct *work)
+ 
+ 		skb_push(skb, 1);
+ 		skb->data[0] = pkt_type;
+-		pr_info("ECHO_BT_HCI_TX: type=0x%02x len=%u\n", pkt_type, skb->len);
++		pr_debug("ECHO_BT_HCI_TX: type=0x%02x len=%u\n", pkt_type, skb->len);
+ 		result = mtk_wcn_stp_send_data(skb->data, skb->len,
+ 					       BT_TASK_INDX);
+-		pr_info("ECHO_BT_HCI_TX: result=%d\n", result);
++		pr_debug("ECHO_BT_HCI_TX: result=%d\n", result);
+ 		if (result <= 0) {
+ 			hci->hdev->stat.err_tx++;
+ 			skb_pull(skb, 1);
+@@ -243,7 +244,7 @@ static void mtk_bt_hci_receive(const UINT8 *data, INT32 size)
+ 
+ 	if (!mtk_hci.hdev || size <= 0)
+ 		return;
+-	pr_info("ECHO_BT_HCI_RX: size=%d type=0x%02x\n", size, data[0]);
++	pr_debug("ECHO_BT_HCI_RX: size=%d type=0x%02x\n", size, data[0]);
+ 
+ 	/* The STP transport delivers a complete HCI frame whose first byte is
+ 	 * the packet type (command/ACL/SCO/event).  Modern kernels removed
+@@ -266,6 +267,62 @@ static void mtk_bt_hci_receive(const UINT8 *data, INT32 size)
+ 	mtk_hci.hdev->stat.byte_rx += size;
+ }
+ 
++/* The device's own address, from idme (see mtk_bt_hci_idme_addr). */
++static bdaddr_t mtk_bt_addr;
++static bool mtk_bt_have_addr;
++
++/* MediaTek's vendor command that sets the public address (mainline btmtk's
++ * btmtk_set_bdaddr).  A firmware that refuses it keeps its placeholder
++ * address rather than failing the power-on. */
++static int mtk_bt_hci_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
++{
++	struct sk_buff *skb;
++
++	skb = __hci_cmd_sync(hdev, 0xfc1a, sizeof(*bdaddr), bdaddr,
++			     HCI_INIT_TIMEOUT);
++	if (IS_ERR(skb)) {
++		bt_dev_warn(hdev, "setting the address failed (%ld)",
++			    PTR_ERR(skb));
++		return 0;
++	}
++	kfree_skb(skb);
++	return 0;
++}
++
++/* The controller comes up with a placeholder address (00:00:46:81:63:01) on
++ * every Echo.  The bootloader's idme record carries the device's own as 12 hex
++ * digits, most significant byte first, in the device tree. */
++static bool mtk_bt_hci_idme_addr(bdaddr_t *bdaddr)
++{
++	struct device_node *np;
++	const char *value;
++	u8 mac[6];
++	int len, i;
++	bool ok = false;
++
++	np = of_find_node_by_path("/idme/bt_mac_addr");
++	if (!np)
++		return false;
++	value = of_get_property(np, "value", &len);
++	if (value && len >= 12 && !hex2bin(mac, value, sizeof(mac))) {
++		for (i = 0; i < 6; i++)
++			bdaddr->b[i] = mac[5 - i];
++		ok = bacmp(bdaddr, BDADDR_ANY) != 0;
++	}
++	of_node_put(np);
++	return ok;
++}
++
++/* Runs on every open (HCI_QUIRK_NON_PERSISTENT_SETUP): closing switches the
++ * Bluetooth function off, and the controller forgets the address with it.
++ * The core resets the controller and reads the address back afterwards. */
++static int mtk_bt_hci_setup(struct hci_dev *hdev)
++{
++	if (mtk_bt_have_addr)
++		return mtk_bt_hci_set_bdaddr(hdev, &mtk_bt_addr);
++	return 0;
++}
++
+ static int mtk_bt_hci_init(void)
+ {
+ 	int result;
+@@ -284,6 +341,12 @@ static int mtk_bt_hci_init(void)
+ 	mtk_hci.hdev->close = mtk_bt_hci_close;
+ 	mtk_hci.hdev->send = mtk_bt_hci_send;
+ 	mtk_hci.hdev->flush = mtk_bt_hci_flush;
++	mtk_hci.hdev->set_bdaddr = mtk_bt_hci_set_bdaddr;
++	mtk_hci.hdev->setup = mtk_bt_hci_setup;
++	set_bit(HCI_QUIRK_NON_PERSISTENT_SETUP, &mtk_hci.hdev->quirks);
++	mtk_bt_have_addr = mtk_bt_hci_idme_addr(&mtk_bt_addr);
++	if (mtk_bt_have_addr)
++		pr_info("ECHO_BT_HCI: address %pMR from idme\n", &mtk_bt_addr);
+ #if WMT_CREATE_NODE_DYNAMIC
+ 	SET_HCIDEV_DEV(mtk_hci.hdev, stpbt_dev);
+ #endif

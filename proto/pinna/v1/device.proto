@@ -10,6 +10,9 @@ service DeviceService {
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
   // Set the speaker volume.
   rpc SetVolume(SetVolumeRequest) returns (SetVolumeResponse);
+  // Set the volume of live streams: the sender volume of the AirPlay and
+  // Bluetooth bridges (ADR 0011). Accepted only from the device itself.
+  rpc SetStreamVolume(SetStreamVolumeRequest) returns (SetStreamVolumeResponse);
   // Set the software microphone mute (the hardware latch is read-only).
   rpc SetMute(SetMuteRequest) returns (SetMuteResponse);
   // Start a voice conversation, like pressing the action button.
@@ -66,6 +69,17 @@ service DeviceService {
   rpc KeepWifi(KeepWifiRequest) returns (KeepWifiResponse);
   // Forget a saved network. Forgetting the one in use disconnects.
   rpc ForgetWifi(ForgetWifiRequest) returns (ForgetWifiResponse);
+  // Let phones pair over Bluetooth for two minutes (ADR 0011): the satellite
+  // is discoverable, and the window closes when a phone pairs. Fails unless
+  // Bluetooth is on and ready.
+  rpc StartBluetoothPairing(StartBluetoothPairingRequest) returns (StartBluetoothPairingResponse);
+  // Close the pairing window early.
+  rpc StopBluetoothPairing(StopBluetoothPairingRequest) returns (StopBluetoothPairingResponse);
+  // Forget a paired phone: it has to pair again to play.
+  rpc ForgetBluetoothDevice(ForgetBluetoothDeviceRequest) returns (ForgetBluetoothDeviceResponse);
+  // The Bluetooth bridge reports the adapter and the paired phones. Accepted
+  // only from the device itself.
+  rpc ReportBluetooth(ReportBluetoothRequest) returns (ReportBluetoothResponse);
 }
 
 enum Phase {
@@ -218,6 +232,65 @@ message Status {
   // The ring runs its test pattern (LedTest, the dashboard's Identify): one
   // second each of listening, thinking, speaking and muted, above everything else.
   bool led_test = 24;
+  // The AirPlay receiver as it is, not only as switched (ADR 0011).
+  AirPlay airplay = 25;
+  // Bluetooth as it runs, not only as switched (ADR 0011).
+  Bluetooth bluetooth = 26;
+}
+
+message Bluetooth {
+  BluetoothState state = 1;
+  // The name phones list it under, while it is on.
+  string name = 2;
+  // The controller's address, while it is on.
+  string address = 3;
+  // While the pairing window is open: when it closes, in Unix milliseconds.
+  // 0 when it is closed.
+  uint64 pairing_until_ms = 4;
+  // The paired phones, while it is ready.
+  repeated BluetoothDevice devices = 5;
+  // Why it failed, or why it is unavailable.
+  string reason = 6;
+  // pairing_until_ms as seconds left when this Status was sent: count down
+  // from when it arrived, whatever the clocks say.
+  uint32 pairing_seconds_left = 7;
+}
+
+message BluetoothDevice {
+  // Like "68:37:E9:41:FF:4F".
+  string address = 1;
+  string name = 2;
+  bool connected = 3;
+}
+
+enum BluetoothState {
+  BLUETOOTH_STATE_UNSPECIFIED = 0;
+  BLUETOOTH_STATE_OFF = 1;
+  // Switched on; the adapter isn't ready yet.
+  BLUETOOTH_STATE_STARTING = 2;
+  BLUETOOTH_STATE_READY = 3;
+  BLUETOOTH_STATE_FAILED = 4;
+  // No Bluetooth adapter or no working speaker: the switch is refused.
+  BLUETOOTH_STATE_UNAVAILABLE = 5;
+}
+
+message AirPlay {
+  AirPlayState state = 1;
+  // The name senders list it under, while it is on.
+  string name = 2;
+  // Why it failed: systemd's result for the bridge, e.g. "exit-code".
+  string reason = 3;
+}
+
+enum AirPlayState {
+  AIRPLAY_STATE_UNSPECIFIED = 0;
+  AIRPLAY_STATE_OFF = 1;
+  // Switched on; the receiver isn't running yet.
+  AIRPLAY_STATE_STARTING = 2;
+  AIRPLAY_STATE_READY = 3;
+  AIRPLAY_STATE_FAILED = 4;
+  // No working speaker: the switch is refused.
+  AIRPLAY_STATE_UNAVAILABLE = 5;
 }
 
 // How the previous boot ended, as pinnad read it back from the pstore records
@@ -266,6 +339,10 @@ message Settings {
   // Names the dashboard answers to, added on the dashboard. IP addresses,
   // localhost, .local names and the hostname always work.
   repeated string allowed_hosts = 9;
+  // The AirPlay receiver on or off (ADR 0011). Off by default.
+  bool airplay = 10;
+  // Bluetooth audio from phones on or off (ADR 0011). Off by default.
+  bool bluetooth = 11;
 }
 
 message GetStatusRequest {}
@@ -280,6 +357,15 @@ message SetVolumeRequest {
 }
 
 message SetVolumeResponse {
+  Status status = 1;
+}
+
+message SetStreamVolumeRequest {
+  // 0..=100, on the speaker volume's curve.
+  uint32 percent = 1;
+}
+
+message SetStreamVolumeResponse {
   Status status = 1;
 }
 
@@ -343,6 +429,10 @@ message UpdateSettingsRequest {
   optional bool wake_sound = 7;
   // Replaces the dashboard's list: at most 16 DNS names, without a port.
   HostNames allowed_hosts = 8;
+  // Refused on a device without a speaker or stream socket.
+  optional bool airplay = 9;
+  // Refused on a device without Bluetooth or a working speaker.
+  optional bool bluetooth = 10;
 }
 
 // A list of host names, so that UpdateSettingsRequest can tell "unchanged"
@@ -622,6 +712,40 @@ message ForgetWifiRequest {
 message ForgetWifiResponse {
   repeated SavedWifi saved = 1;
 }
+
+message StartBluetoothPairingRequest {}
+
+message StartBluetoothPairingResponse {
+  Status status = 1;
+}
+
+message StopBluetoothPairingRequest {}
+
+message StopBluetoothPairingResponse {
+  Status status = 1;
+}
+
+message ForgetBluetoothDeviceRequest {
+  // An address from Status.bluetooth.devices.
+  string address = 1;
+}
+
+message ForgetBluetoothDeviceResponse {
+  Status status = 1;
+}
+
+message ReportBluetoothRequest {
+  // The adapter is powered and the bridge's agent is registered.
+  bool ready = 1;
+  // The controller's address.
+  string address = 2;
+  // The paired phones.
+  repeated BluetoothDevice devices = 3;
+  // Why the bridge can't run, when it can't.
+  string error = 4;
+}
+
+message ReportBluetoothResponse {}
 
 message FactoryResetRequest {
   // The satellite's name, as typed by the person resetting it: the name Home

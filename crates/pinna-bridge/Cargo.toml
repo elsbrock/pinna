@@ -1,0 +1,18 @@
+[package]
+name = "pinna-bridge"
+description = "Shared parts of the media bridges: sessions on pinnad's stream socket and the loopback control API"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-api = { path = "../pinna-api" }
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "client"] }
+
+[dev-dependencies]
+tempfile = "3"

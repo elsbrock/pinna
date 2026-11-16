@@ -53,11 +53,17 @@ lanes:
 
 - **Voice**: replies, announcements, the timer alarm and short sounds.
 - **Media**: music and other audio from the media player. This lane also takes
-  live audio on a Unix socket, the `stream_socket` setting. Nothing on the
-  device feeds it yet.
+  live audio on a Unix socket, the `stream_socket` setting.
+  [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) play through it.
 
 While the voice lane plays, and while the device listens or works on a
 request, the media lane gets 20 dB quieter, and returns afterwards.
+
+Live audio runs on the sender's clock, and the speaker on the device's own.
+`pinnad` converts it to 48 kHz at a rate that follows the sender, so that it
+always holds 100 ms of it: the delay stays the same however long the music
+plays. A program that writes to the socket first sends one line with the
+format, `s16le 44100 2` or `s16le 48000 2`, then the samples.
 
 Replies and announcements play while they download. If the audio arrives
 slower than it plays, the reply pauses in silence until enough audio is
@@ -73,6 +79,10 @@ limiter holds the peaks just under full scale, so loud replies and music
 don't clip.
 **Reply volume** lowers the voice lane relative to the volume, and is never
 louder than the volume.
+**Stream volume** lowers live audio on the stream socket the same way. It is
+the sending phone's or computer's volume, set by the program that feeds the
+socket. While a stream plays, the Home Assistant media player shows and sets
+the stream volume; the volume itself stays where it is.
 
 ## Audio backends
 

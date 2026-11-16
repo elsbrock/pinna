@@ -25,6 +25,8 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   defaultName: true,
   wakeSound: false,
   allowedHosts: [],
+  airplay: false,
+  bluetooth: false,
   ...over,
 });
 import {
@@ -103,6 +105,14 @@ test("the test pattern shows above everything, step by step, and holds its last 
   assert.equal(ringEffect(testing, "live", 3), "muted");
   assert.equal(ringEffect(testing, "live", 9), "muted");
   assert.equal(ringEffect(testing, "offline", 1), "idle");
+});
+
+test("an open pairing window shows while idle, under the phase", () => {
+  const open = { pairingSecondsLeft: 60 } as Status["bluetooth"];
+  assert.equal(ringEffect(status({ bluetooth: open }), "live"), "pairing");
+  assert.equal(ringEffect(status({ bluetooth: open, phase: 3 }), "live"), "thinking");
+  const closed = { pairingSecondsLeft: 0 } as Status["bluetooth"];
+  assert.equal(ringEffect(status({ bluetooth: closed, notification: true }), "live"), "notification");
 });
 
 test("a waiting notification shows while idle, below a running timer", () => {
@@ -311,6 +321,7 @@ test("routeOf: sections, sub-pages, moved v1 paths and unknowns", () => {
   assert.equal(routeOf("#/voice"), "/voice");
   assert.equal(routeOf("#/system/logs"), "/system/logs");
   assert.equal(routeOf("#/voice/wake-word"), "/voice/wake-word");
+  assert.equal(routeOf("#/voice/media-sources"), "/voice/media-sources");
   assert.equal(routeOf("#/settings"), "/voice");
   assert.equal(routeOf("#/updates"), "/system");
   assert.equal(routeOf("#/logs"), "/system/logs");

@@ -21,7 +21,7 @@ use crate::media::{
 use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
 use crate::spectrum::{Analyzer, Spectrum};
-use crate::volume::{top_boost_db, volume_gain};
+use crate::volume::{stream_gain, top_boost_db, volume_gain};
 use crate::{Backend, Error, Result, decode};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -310,6 +310,7 @@ struct Inner {
     tx: mpsc::UnboundedSender<Cmd>,
     volume: Arc<AtomicU8>,
     voice_gain: Arc<AtomicU8>,
+    stream_volume: Arc<AtomicU8>,
     held_duck: Arc<AtomicBool>,
     media: MediaHandle,
     spectrum: Spectrum,
@@ -335,6 +336,7 @@ impl Speaker {
         let volume = Arc::new(AtomicU8::new(cfg.initial_volume.min(100)));
         let session_open = Arc::new(AtomicBool::new(false));
         let voice_gain = Arc::new(AtomicU8::new(100));
+        let stream_volume = Arc::new(AtomicU8::new(100));
         let held_duck = Arc::new(AtomicBool::new(false));
         let (media_tx, media_rx) = watch::channel(MediaState::default());
         let media = MediaHandle::new(tx.clone(), media_rx);
@@ -351,6 +353,7 @@ impl Speaker {
             media_state: media_tx,
             volume: volume.clone(),
             voice_gain: voice_gain.clone(),
+            stream_volume: stream_volume.clone(),
             held_duck: held_duck.clone(),
             session_open: session_open.clone(),
             finishing: VecDeque::new(),
@@ -369,6 +372,7 @@ impl Speaker {
                 tx,
                 volume,
                 voice_gain,
+                stream_volume,
                 held_duck,
                 media,
                 spectrum,
@@ -465,6 +469,16 @@ impl Speaker {
     pub fn set_voice_gain(&self, percent: u8) {
         self.inner
             .voice_gain
+            .store(percent.min(100), Ordering::Relaxed);
+    }
+
+    /// Live stream volume 0..=100 (the sender's volume, ADR 0011): scales
+    /// the media lane while it plays a stream, on top of the master volume.
+    /// Other media plays at full level. Kept across sessions; each bridge
+    /// sets its own before it connects.
+    pub fn set_stream_volume(&self, percent: u8) {
+        self.inner
+            .stream_volume
             .store(percent.min(100), Ordering::Relaxed);
     }
 
@@ -860,6 +874,7 @@ struct Actor {
     media_state: watch::Sender<MediaState>,
     volume: Arc<AtomicU8>,
     voice_gain: Arc<AtomicU8>,
+    stream_volume: Arc<AtomicU8>,
     held_duck: Arc<AtomicBool>,
     session_open: Arc<AtomicBool>,
     feeder: Feeder,
@@ -1109,6 +1124,9 @@ impl Actor {
             self.feeder
                 .voice_gain
                 .set(f32::from(self.voice_gain.load(Ordering::Relaxed)) / 100.0);
+            self.feeder
+                .media
+                .set_stream_gain(stream_gain(self.stream_volume.load(Ordering::Relaxed)));
             self.feeder.held_duck = self.held_duck.load(Ordering::Relaxed);
             let marks = self.feeder.next_chunk(CHUNK_FRAMES, gain, &mut chunk);
             let base = s.frames_written;

@@ -22,7 +22,7 @@ export const SECTIONS: Section[] = [
     short: "Voice",
     icon: "voice",
     group: "Satellite",
-    description: "What the satellite listens for, how loud it is, and how bright its ring is.",
+    description: "What the satellite listens for, how loud it is, what may play music to it, and how bright its ring is.",
   },
   {
     path: "/home-assistant",
@@ -57,6 +57,11 @@ const SUBPAGES: Omit<Page, "section">[] = [
     path: "/voice/wake-word",
     title: "Wake word",
     description: "How easily the satellite wakes, and its recent wakes and near misses.",
+  },
+  {
+    path: "/voice/media-sources",
+    title: "Media sources",
+    description: "What may play music to the satellite from phones and computers.",
   },
   {
     path: "/system/logs",

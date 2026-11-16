@@ -9,18 +9,20 @@
 //! closes both channels and aborts the pump: the connection and the thread
 //! go away promptly.
 //!
-//! The lane also plays *live streams*: raw s16le 48 kHz stereo written in
-//! real time to a Unix socket ([`MediaHandle::serve_stream`], ADR 0011). A
-//! connection is one session: its first data replaces whatever the lane was
-//! playing; EOF or [`STREAM_IDLE`] without data ends it; stop and pause close
-//! it. A live source runs on the sender's clock, so its queue is kept short
-//! (see [`LiveQueue`]) instead of being pulled ahead like a decode.
+//! The lane also plays *live streams*: a header line (`s16le <rate> 2`), then
+//! raw stereo PCM written in real time to a Unix socket
+//! ([`MediaHandle::serve_stream`], ADR 0011). A connection is one session:
+//! its first data replaces whatever the lane was playing; EOF or
+//! [`STREAM_IDLE`] without data ends it; stop and pause close it. A live
+//! source runs on the sender's clock, so its queue is kept short (see
+//! [`LiveQueue`]) instead of being pulled ahead like a decode, and it is
+//! resampled at a ratio that keeps that queue steady (see [`RateControl`]).
 //!
 //! The same decode feeds the speaker's *voice* lane ([`open_voice`]): replies
 //! and announcements sound as they arrive, and a stream that runs dry waits
 //! in silence instead of skipping speech (see [`VoiceSource`]).
 
-use crate::decode::{OUT_RATE, StreamResampler};
+use crate::decode::{OUT_RATE, StreamResampler, VarResampler};
 use crate::mix::{FADE, Ramp};
 use crate::speaker::Cmd;
 use crate::{Error, Result};
@@ -64,6 +66,21 @@ const LIVE_MAX_CHUNKS: usize = 13;
 /// before each restart after running dry (500 ms, then 1.5 s: a source that
 /// fell behind once tends to again, and one longer pause beats many).
 const VOICE_TARGETS: [usize; 3] = [5, 25, BUFFER_CHUNKS];
+/// Live stream: the input rates a header may announce.
+const LIVE_RATES: [u32; 2] = [44_100, 48_000];
+/// Live stream: the longest header line accepted, newline included.
+const LIVE_HEADER_MAX: usize = 32;
+/// Live stream rate control: ppm of ratio adjustment per frame of queue
+/// error, and per frame of error per chunk (integral). Tuned in simulation
+/// for a damped response: locks onto a sender 300 ppm off within ~2 min and
+/// one 900 ppm off within ~4 min, without drops under 30 ms of jitter.
+const RATE_KP: f64 = 1.2;
+const RATE_KI: f64 = 0.0006;
+/// Live stream rate control: weight of each chunk in the smoothed queue
+/// depth (~1 s).
+const RATE_SMOOTH: f64 = 0.02;
+/// Live stream rate control: the adjustment never exceeds this.
+const RATE_MAX_PPM: f64 = 1000.0;
 /// A stream session ends after this long without data.
 pub const STREAM_IDLE: Duration = Duration::from_secs(2);
 /// [`MediaState::url`] while a stream plays.
@@ -213,16 +230,53 @@ struct LiveBuf {
     chunks: VecDeque<Vec<i16>>,
     /// The stream ended (with the reason if it failed): play out what is queued.
     end: Option<Option<String>>,
+    /// The lane is playing from the queue (not buffering).
+    playing: bool,
+    /// The lane dropped late audio when it started: the reader's next push
+    /// reports it as dropped.
+    trimmed: bool,
+}
+
+/// The queue as the reader saw it after a push.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Fill {
+    pub chunks: usize,
+    pub playing: bool,
+    /// Audio was dropped since the last push (an overflow, or a late start
+    /// trimmed): the depth jumped.
+    pub dropped: bool,
 }
 
 impl LiveQueue {
-    pub(crate) fn push(&self, chunk: Vec<i16>) {
+    pub(crate) fn push(&self, chunk: Vec<i16>) -> Fill {
         let mut b = self.inner.lock().unwrap();
         b.chunks.push_back(chunk);
-        if b.chunks.len() > LIVE_MAX_CHUNKS {
+        let dropped = b.chunks.len() > LIVE_MAX_CHUNKS;
+        if dropped {
             let n = b.chunks.len() - LIVE_TARGET_CHUNKS;
             b.chunks.drain(..n);
-            tracing::debug!("stream: dropped {} ms of backlog", n * 20);
+            if b.playing {
+                tracing::info!("stream: sender too fast, dropped {} ms", n * 20);
+            } else {
+                tracing::debug!("stream: dropped {} ms of backlog", n * 20);
+            }
+        }
+        let trimmed = std::mem::take(&mut b.trimmed);
+        Fill {
+            chunks: b.chunks.len(),
+            playing: b.playing,
+            dropped: dropped || trimmed,
+        }
+    }
+
+    /// The last audio of a stream, shorter than a chunk: joins the newest
+    /// queued chunk when there is one, so the closing fade still spans at
+    /// least 20 ms.
+    pub(crate) fn push_tail(&self, tail: Vec<i16>) {
+        let mut b = self.inner.lock().unwrap();
+        match b.chunks.back_mut() {
+            Some(last) => last.extend_from_slice(&tail),
+            None => b.chunks.push_back(tail),
         }
     }
 
@@ -231,10 +285,135 @@ impl LiveQueue {
     }
 }
 
-/// Fade a chunk linearly to silence across its length.
+/// Keeps a live stream's queue at [`LIVE_TARGET_CHUNKS`] by nudging the
+/// resampling ratio: a PI controller on the smoothed queue depth. With the
+/// queue steady, the stream's latency is steady and known (ADR 0011).
+#[derive(Default)]
+struct RateControl {
+    /// Smoothed queue depth in frames.
+    depth: Option<f64>,
+    /// Integral term in ppm: what the sender's clock is off by, once locked.
+    integral: f64,
+}
+
+impl RateControl {
+    /// After each pushed chunk, with `partial` resampled frames still short
+    /// of the next chunk: the ratio adjustment in ppm (positive: the queue
+    /// is too full, consume the input faster). The partial frames give the
+    /// depth a resolution finer than a chunk, which a steady sender needs:
+    /// whole chunks alone leave a dead zone the controller never leaves.
+    /// While the lane buffers, only the integral holds; an overflow restarts
+    /// the smoothing.
+    fn update(&mut self, fill: Fill, partial: usize) -> f64 {
+        let d = (fill.chunks * CHUNK_FRAMES + partial) as f64;
+        if fill.dropped {
+            self.depth = None;
+        }
+        let s = self.depth.get_or_insert(d);
+        *s += RATE_SMOOTH * (d - *s);
+        if !fill.playing {
+            return self.integral;
+        }
+        // The partial chunk averages half a chunk.
+        let e = *s - (LIVE_TARGET_CHUNKS * CHUNK_FRAMES + CHUNK_FRAMES / 2) as f64;
+        self.integral = (self.integral + RATE_KI * e).clamp(-RATE_MAX_PPM, RATE_MAX_PPM);
+        (RATE_KP * e + self.integral).clamp(-RATE_MAX_PPM, RATE_MAX_PPM)
+    }
+}
+
+/// One live stream on its way in: s16le stereo at the sender's rate in,
+/// 48 kHz chunks into the queue, at the ratio [`RateControl`] sets.
+struct LiveIngest {
+    queue: Arc<LiveQueue>,
+    resampler: VarResampler,
+    rate: RateControl,
+    /// Resampled audio short of a whole chunk.
+    out: Vec<i16>,
+}
+
+impl LiveIngest {
+    fn new(queue: Arc<LiveQueue>, rate: u32) -> LiveIngest {
+        LiveIngest {
+            queue,
+            resampler: VarResampler::new(rate, OUT_RATE),
+            rate: RateControl::default(),
+            out: Vec::with_capacity(CHUNK_FRAMES * 4),
+        }
+    }
+
+    /// Feed whole interleaved frames. True if a chunk reached the queue.
+    fn feed(&mut self, samples: &[i16]) -> bool {
+        self.resampler.push(samples, &mut self.out);
+        let mut pushed = false;
+        while self.out.len() >= CHUNK_FRAMES * 2 {
+            let rest = self.out.split_off(CHUNK_FRAMES * 2);
+            let chunk = std::mem::replace(&mut self.out, rest);
+            let fill = self.queue.push(chunk);
+            let ppm = self.rate.update(fill, self.out.len() / 2);
+            self.resampler.set_adjust_ppm(ppm);
+            pushed = true;
+        }
+        pushed
+    }
+
+    /// End of stream: queue what is left.
+    fn flush(&mut self) {
+        if !self.out.is_empty() {
+            self.queue.push_tail(std::mem::take(&mut self.out));
+        }
+    }
+}
+
+/// A live stream's header: `s16le <rate> 2`, rate one of [`LIVE_RATES`].
+/// Returns the rate.
+fn parse_header(line: &str) -> std::result::Result<u32, String> {
+    let bad = || format!("stream: bad header {line:?} (want \"s16le 44100|48000 2\")");
+    match line.split_whitespace().collect::<Vec<_>>()[..] {
+        ["s16le", rate, "2"] => rate
+            .parse()
+            .ok()
+            .filter(|r| LIVE_RATES.contains(r))
+            .ok_or_else(bad),
+        _ => Err(bad()),
+    }
+}
+
+/// Read the header line, one byte at a time so no audio is consumed. `None`
+/// for a client that closed or stayed quiet before sending one: like a client
+/// that never sends audio, it changes nothing.
+fn read_header(conn: &mut UnixStream) -> std::result::Result<u32, Option<String>> {
+    let mut line = Vec::with_capacity(LIVE_HEADER_MAX);
+    let mut b = [0u8; 1];
+    while line.len() < LIVE_HEADER_MAX {
+        match conn.read(&mut b) {
+            Ok(0) => return Err(None),
+            Ok(_) if b[0] == b'\n' => {
+                return parse_header(&String::from_utf8_lossy(&line)).map_err(Some);
+            }
+            Ok(_) => line.push(b[0]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err(None);
+            }
+            Err(e) => return Err(Some(format!("stream: {e}"))),
+        }
+    }
+    Err(Some(format!(
+        "stream: header longer than {LIVE_HEADER_MAX} bytes"
+    )))
+}
+
+/// Fade a chunk linearly to silence across its last 20 ms (all of it when
+/// shorter).
 fn fade_out(chunk: &mut [i16]) {
-    let n = chunk.len() / 2;
-    for (i, f) in chunk.chunks_exact_mut(2).enumerate() {
+    let n = (chunk.len() / 2).min(CHUNK_FRAMES);
+    let skip = chunk.len() / 2 - n;
+    for (i, f) in chunk.chunks_exact_mut(2).skip(skip).enumerate() {
         let g = (n - 1 - i) as f32 / n as f32;
         for s in f {
             *s = (f32::from(*s) * g).round() as i16;
@@ -260,9 +439,9 @@ fn samples_of(bytes: &[u8]) -> Vec<i16> {
         .collect()
 }
 
-/// One connection's reader thread: socket -> chunks -> `queue`. Hands
-/// `decoder` to the lane with the first chunk; until then the connection
-/// does not touch the lane.
+/// One connection's reader thread: header, then socket -> chunks ->
+/// `queue`. Hands `decoder` to the lane with the first chunk; until then the
+/// connection does not touch the lane.
 fn read_stream(
     mut conn: UnixStream,
     queue: Arc<LiveQueue>,
@@ -270,12 +449,24 @@ fn read_stream(
     media: MediaHandle,
     mut decoder: Option<Decoder>,
 ) {
+    let rate = match read_header(&mut conn) {
+        Ok(rate) => rate,
+        Err(e) => {
+            match e {
+                Some(e) => tracing::warn!("{e}"),
+                None => tracing::debug!("stream: client left without a header"),
+            }
+            let _ = conn.shutdown(Shutdown::Both);
+            return;
+        }
+    };
+    let mut ingest = LiveIngest::new(queue.clone(), rate);
     let mut buf = vec![0u8; CHUNK_FRAMES * 4];
     let mut have = 0;
     let mut idle = false;
     let start = |decoder: &mut Option<Decoder>| {
         if let Some(d) = decoder.take() {
-            tracing::info!("stream: session started");
+            tracing::info!("stream: session started ({rate} Hz)");
             media.attach_stream(d);
         }
     };
@@ -287,18 +478,25 @@ fn read_stream(
             Ok(0) => {
                 // Whole frames only; a torn last frame is dropped.
                 let whole = have - have % 4;
-                if whole > 0 {
-                    queue.push(samples_of(&buf[..whole]));
+                if whole > 0 && ingest.feed(&samples_of(&buf[..whole])) {
                     start(&mut decoder);
+                }
+                // Started: play out the tail. Less than a chunk in all never
+                // starts a session.
+                if decoder.is_none() {
+                    ingest.flush();
                 }
                 break None;
             }
             Ok(n) => {
                 have += n;
-                if have == buf.len() {
-                    queue.push(samples_of(&buf));
-                    have = 0;
-                    start(&mut decoder);
+                let whole = have - have % 4;
+                if whole > 0 {
+                    if ingest.feed(&samples_of(&buf[..whole])) {
+                        start(&mut decoder);
+                    }
+                    buf.copy_within(whole..have, 0);
+                    have -= whole;
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
@@ -730,9 +928,10 @@ impl MediaHandle {
         self.shared.client()
     }
 
-    /// Accept live streams on a Unix socket at `path` (raw s16le, 48 kHz
-    /// stereo, written in real time; mode 0660). A stale socket there is
-    /// replaced. Must be called inside a tokio runtime.
+    /// Accept live streams on a Unix socket at `path` (mode 0660): a header
+    /// line `s16le <rate> 2` (rate 44100 or 48000), then stereo PCM written
+    /// in real time. A stale socket there is replaced. Must be called inside
+    /// a tokio runtime.
     pub fn serve_stream(&self, path: &Path) -> Result<()> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -969,13 +1168,15 @@ struct Outgoing {
     /// queued then never started sounding).
     more: bool,
     gain: Ramp,
+    /// The source's own level, held while it fades: a stream's volume.
+    scale: f32,
 }
 
 impl Outgoing {
     /// Next frame, faded; `None` once faded out or out of audio.
     fn pull(&mut self) -> Option<(f32, f32)> {
-        let g = self.gain.tick();
-        if g <= 0.0 {
+        let g = self.gain.tick() * self.scale;
+        if self.gain.value() <= 0.0 {
             return None;
         }
         if self.pos + 1 >= self.cur.len() {
@@ -1046,6 +1247,9 @@ pub(crate) struct MediaLane {
     /// Pause fade; samples keep being consumed until it reaches silence.
     play: Ramp,
     mute: Ramp,
+    /// A live stream's own volume (the sender's, ADR 0011); other sources
+    /// play at full level.
+    stream_gain: Ramp,
 }
 
 impl Default for MediaLane {
@@ -1064,11 +1268,18 @@ impl Default for MediaLane {
             error: None,
             play: Ramp::new(1.0, FADE),
             mute: Ramp::new(1.0, FADE),
+            stream_gain: Ramp::new(1.0, FADE),
         }
     }
 }
 
 impl MediaLane {
+    /// Gain of live streams (the sender's volume): applies to the stream
+    /// playing now and is held by one that fades out.
+    pub fn set_stream_gain(&mut self, gain: f32) {
+        self.stream_gain.set(gain);
+    }
+
     pub fn phase(&self) -> MediaPhase {
         if self.decoder.is_some() {
             if self.paused {
@@ -1139,12 +1350,18 @@ impl MediaLane {
         }
         let mut gain = Ramp::new(level, FADE);
         gain.set(0.0);
+        let scale = if decoder.is_live() {
+            self.stream_gain.value()
+        } else {
+            1.0
+        };
         self.outgoing.push(Outgoing {
             decoder,
             cur: std::mem::take(&mut self.cur),
             pos: self.pos,
             more: !self.starved,
             gain,
+            scale,
         });
     }
 
@@ -1242,6 +1459,7 @@ impl MediaLane {
 
     fn pull_current(&mut self) -> (f32, f32) {
         let mut pg = self.play.tick();
+        let sg = self.stream_gain.tick();
         if self.decoder.is_none() || (self.paused && pg <= 0.0) {
             return (0.0, 0.0);
         }
@@ -1250,6 +1468,9 @@ impl MediaLane {
                 return (0.0, 0.0);
             }
             pg = self.play.value(); // a live stream resuming fades in from here
+        }
+        if self.decoder.as_ref().is_some_and(Decoder::is_live) {
+            pg *= sg;
         }
         let l = f32::from(self.cur[self.pos]) * pg;
         let r = f32::from(self.cur[self.pos + 1]) * pg;
@@ -1301,9 +1522,19 @@ impl MediaLane {
     fn refill_live(&mut self, q: &LiveQueue) -> bool {
         let mut b = q.inner.lock().unwrap();
         if self.starved && b.end.is_none() && b.chunks.len() < LIVE_TARGET_CHUNKS {
+            b.playing = false;
             return false;
         }
+        // Starting (or restarting) late, typically while the speaker opened:
+        // what queued up beyond the target would only add latency.
+        if self.starved && b.end.is_none() && b.chunks.len() > LIVE_TARGET_CHUNKS {
+            let n = b.chunks.len() - LIVE_TARGET_CHUNKS;
+            b.chunks.drain(..n);
+            b.trimmed = true;
+            tracing::debug!("stream: started late, dropped {} ms", n * 20);
+        }
         let Some(mut chunk) = b.chunks.pop_front() else {
+            b.playing = false;
             match b.end.take() {
                 Some(err) => {
                     drop(b);
@@ -1318,6 +1549,7 @@ impl MediaLane {
             fade_out(&mut chunk);
             self.starved = b.end.is_none();
         }
+        b.playing = !self.starved;
         drop(b);
         if resuming {
             self.play.jump(0.0);
@@ -2211,6 +2443,65 @@ mod tests {
     }
 
     #[test]
+    fn stream_header_takes_the_two_rates_only() {
+        assert_eq!(parse_header("s16le 44100 2"), Ok(44100));
+        assert_eq!(parse_header("s16le 48000 2\r"), Ok(48000));
+        for bad in [
+            "",
+            "s16le 48000",
+            "s16le 48000 1",
+            "s16le 96000 2",
+            "S16LE 48000 2",
+            "s16le 48000 2 x",
+        ] {
+            assert!(parse_header(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    /// Feed a 44.1 kHz sender running `ppm` off the speaker clock into a
+    /// playing lane for `secs` simulated seconds, 20 ms per tick. Returns the
+    /// queue depth after each push, the left samples the lane played, and the
+    /// rate controller's integral at the end.
+    fn run_skewed(ppm: f64, secs: usize) -> (Vec<usize>, Vec<f32>, f64) {
+        let (mut lane, q) = live_lane();
+        let mut ingest = LiveIngest::new(q.clone(), 44_100);
+        let per_tick = 44_100.0 * 0.020 * (1.0 + ppm * 1e-6);
+        let (mut owed, mut depths, mut played) = (0.0, Vec::new(), Vec::new());
+        for _ in 0..secs * 50 {
+            owed += per_tick;
+            let n = owed as usize;
+            owed -= n as f64;
+            ingest.feed(&vec![4000; n * 2]);
+            depths.push(q.inner.lock().unwrap().chunks.len());
+            played.extend(pull_left(&mut lane, CHUNK_FRAMES));
+        }
+        (depths, played, ingest.rate.integral)
+    }
+
+    #[test]
+    fn a_skewed_sender_is_followed_without_drops_or_gaps() {
+        for ppm in [-300.0, 300.0] {
+            let (depths, played, integral) = run_skewed(ppm, 120);
+            assert!(
+                (integral - ppm).abs() < 60.0,
+                "{ppm} ppm: locked at {integral}"
+            );
+            // After a minute the queue holds its target, give or take a chunk.
+            let late = &depths[60 * 50..];
+            assert!(
+                late.iter()
+                    .all(|d| (LIVE_TARGET_CHUNKS - 1..=LIVE_TARGET_CHUNKS + 1).contains(d)),
+                "{ppm} ppm: depths {:?}",
+                &late[..20]
+            );
+            // Once playing, no fade-out or rebuffer: nothing drops to silence.
+            let first = played.iter().position(|&s| s > 3000.0).unwrap();
+            let gap = played[first..].iter().position(|&s| s < 3000.0);
+            assert_eq!(gap, None, "{ppm} ppm: a gap at {gap:?}");
+        }
+    }
+
+    #[test]
     fn live_queue_drops_the_oldest_backlog() {
         let q = LiveQueue::default();
         for i in 0..=LIVE_MAX_CHUNKS {
@@ -2262,6 +2553,57 @@ mod tests {
 
     /// One fade's step at full scale (10000 over 20 ms is ~10.4 per frame).
     const FADE_STEP: f32 = 20.0;
+
+    #[test]
+    fn stream_gain_scales_streams_only_and_holds_through_the_fade() {
+        let (mut lane, q) = live_lane();
+        lane.set_stream_gain(0.1);
+        for _ in 0..LIVE_TARGET_CHUNKS + 2 {
+            q.push(chunk(8000));
+        }
+        let l = pull_left(&mut lane, 2 * CHUNK_FRAMES);
+        assert!(
+            (l[CHUNK_FRAMES + 10] - 800.0).abs() < 2.0,
+            "{}",
+            l[CHUNK_FRAMES + 10]
+        );
+        // Stopped: the fade-out stays under the stream's level, no burst.
+        lane.stop(2);
+        let l = pull_left(&mut lane, CHUNK_FRAMES);
+        assert!(
+            l.iter().all(|&s| s <= 801.0),
+            "max {:?}",
+            l.iter().cloned().fold(0.0, f32::max)
+        );
+
+        // A URL plays at full level whatever the stream gain.
+        let (mut lane, _tx) = decoded_lane(1, 10000);
+        lane.set_stream_gain(0.1);
+        assert!(pull_left(&mut lane, 100)[99] > 9900.0);
+    }
+
+    #[test]
+    fn a_late_start_drops_what_queued_beyond_the_target() {
+        let (mut lane, q) = live_lane();
+        for i in 0..LIVE_MAX_CHUNKS {
+            q.push(chunk(i as i16 + 1));
+        }
+        // The first pull starts the stream from the newest target's worth.
+        let first = pull_left(&mut lane, 1)[0];
+        assert_eq!(first, 0.0, "fading in from silence");
+        let left = q.inner.lock().unwrap().chunks.len();
+        assert_eq!(left, LIVE_TARGET_CHUNKS - 1);
+        let l = pull_left(&mut lane, CHUNK_FRAMES - 1);
+        let start = (LIVE_MAX_CHUNKS - LIVE_TARGET_CHUNKS + 1) as f32;
+        assert!(
+            (l[CHUNK_FRAMES - 2] - start).abs() < 0.5,
+            "{}",
+            l[CHUNK_FRAMES - 2]
+        );
+        // The reader learns of the jump with its next push.
+        assert!(q.push(chunk(1)).dropped);
+        assert!(!q.push(chunk(1)).dropped);
+    }
 
     #[test]
     fn stop_fades_out_then_drops_the_source() {
@@ -2394,6 +2736,45 @@ mod tests {
         (rig, m, path)
     }
 
+    /// Connect and announce 48 kHz stereo.
+    async fn connect_live(path: &Path) -> Client {
+        let mut c = Client::connect(path).await.unwrap();
+        c.write_all(b"s16le 48000 2\n").await.unwrap();
+        c
+    }
+
+    #[tokio::test]
+    async fn less_than_a_chunk_never_starts_a_session() {
+        let (_rig, m, path) = stream_rig(Duration::from_secs(5)).await;
+        let mut c = connect_live(&path).await;
+        c.write_all(&pcm_bytes(&vec![8000; 480 * 2])).await.unwrap(); // 10 ms
+        drop(c);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(m.state().borrow().phase, MediaPhase::Idle);
+        assert_eq!(url_of(&m), None);
+    }
+
+    #[tokio::test]
+    async fn a_bad_header_closes_the_connection_and_leaves_the_lane() {
+        let (_rig, m, path) = stream_rig(Duration::from_secs(5)).await;
+        let headers: [&[u8]; 3] = [
+            b"s16le 22050 2\n",
+            b"f32le 48000 2\n",
+            b"no newline, and longer than any header",
+        ];
+        for header in headers {
+            let (mut r, mut w) = Client::connect(&path).await.unwrap().into_split();
+            w.write_all(header).await.unwrap();
+            let _ = send_live(&mut w, 8000, 200).await; // fails once closed
+            // Closed with audio unread: EOF or a reset, either way gone.
+            let mut b = [0u8; 16];
+            let read = tokio::time::timeout(Duration::from_secs(1), r.read(&mut b)).await;
+            assert!(matches!(read, Ok(Ok(0) | Err(_))), "{header:?}: {read:?}");
+            assert_eq!(m.state().borrow().phase, MediaPhase::Idle);
+            assert_eq!(url_of(&m), None);
+        }
+    }
+
     /// Write `millis` of constant `level` in real time, 20 ms at a time, each
     /// write torn mid-frame. Fails once the ingest has closed the connection.
     async fn send_live(
@@ -2435,7 +2816,7 @@ mod tests {
     #[tokio::test]
     async fn stream_plays_and_fades_out_at_eof() {
         let (rig, m, path) = stream_rig(Duration::from_secs(5)).await;
-        let mut c = Client::connect(&path).await.unwrap();
+        let mut c = connect_live(&path).await;
         let sender = tokio::spawn(async move {
             send_live(&mut c, 8000, 600).await.unwrap();
             c.write_all(&[1, 2, 3]).await.unwrap(); // a torn frame, dropped
@@ -2468,7 +2849,7 @@ mod tests {
     async fn stop_and_pause_fade_out_and_close_the_connection() {
         let (rig, m, path) = stream_rig(Duration::from_secs(5)).await;
         for pause in [false, true] {
-            let (mut r, mut w) = Client::connect(&path).await.unwrap().into_split();
+            let (mut r, mut w) = connect_live(&path).await.into_split();
             let sender = tokio::spawn(async move { send_live(&mut w, 8000, 10_000).await });
             wait_phase(&m, MediaPhase::Playing, Duration::from_secs(2)).await;
             tokio::time::sleep(Duration::from_millis(200)).await; // past the fade-in
@@ -2494,7 +2875,7 @@ mod tests {
     async fn stop_closes_a_quiet_connection_at_once() {
         // The reader is blocked in a read: stop must not wait for STREAM_IDLE.
         let (_rig, m, path) = stream_rig(Duration::from_secs(5)).await;
-        let mut c = Client::connect(&path).await.unwrap();
+        let mut c = connect_live(&path).await;
         let sender = tokio::spawn(async move {
             send_live(&mut c, 8000, 300).await.unwrap();
             c
@@ -2511,16 +2892,16 @@ mod tests {
     #[tokio::test]
     async fn newest_stream_replaces_the_playing_one_silent_clients_do_not() {
         let (_rig, m, path) = stream_rig(Duration::from_secs(5)).await;
-        let (mut a_r, mut a_w) = Client::connect(&path).await.unwrap().into_split();
+        let (mut a_r, mut a_w) = connect_live(&path).await.into_split();
         let a = tokio::spawn(async move { send_live(&mut a_w, 8000, 10_000).await });
         wait_phase(&m, MediaPhase::Playing, Duration::from_secs(2)).await;
         // Connecting without sending changes nothing...
-        let mut silent = Client::connect(&path).await.unwrap();
+        let mut silent = connect_live(&path).await;
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(!a.is_finished());
         assert_eq!(m.state().borrow().phase, MediaPhase::Playing);
         // ...sending does.
-        let (_b_r, mut b_w) = Client::connect(&path).await.unwrap().into_split();
+        let (_b_r, mut b_w) = connect_live(&path).await.into_split();
         let b = tokio::spawn(async move { send_live(&mut b_w, 4000, 10_000).await });
         assert!(closed(&mut a_r, Duration::from_secs(2)).await);
         assert!(a.await.unwrap().is_err());
@@ -2540,7 +2921,7 @@ mod tests {
         std::fs::write(&f, wav(48000, 2, &sine(48000, 2, 3000, 9000.0))).unwrap();
         let file = f.to_string_lossy().to_string();
 
-        let (mut r, mut w) = Client::connect(&path).await.unwrap().into_split();
+        let (mut r, mut w) = connect_live(&path).await.into_split();
         let s1 = tokio::spawn(async move { send_live(&mut w, 8000, 10_000).await });
         wait_phase(&m, MediaPhase::Playing, Duration::from_secs(2)).await;
         m.play_url(&file).await.unwrap();
@@ -2548,7 +2929,7 @@ mod tests {
         assert!(s1.await.unwrap().is_err());
         assert!(until(Duration::from_secs(1), || url_of(&m) == Some(file.clone())).await);
 
-        let (_r, mut w) = Client::connect(&path).await.unwrap().into_split();
+        let (_r, mut w) = connect_live(&path).await.into_split();
         let s2 = tokio::spawn(async move { send_live(&mut w, 8000, 10_000).await });
         assert!(
             until(Duration::from_secs(2), || url_of(&m).as_deref()
@@ -2563,7 +2944,7 @@ mod tests {
     #[tokio::test]
     async fn quiet_stream_ends_after_idle_and_the_speaker_closes() {
         let (rig, m, path) = stream_rig(Duration::from_millis(400)).await;
-        let mut c = Client::connect(&path).await.unwrap();
+        let mut c = connect_live(&path).await;
         let sender = tokio::spawn(async move {
             send_live(&mut c, 8000, 300).await.unwrap();
             c
@@ -2590,7 +2971,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let (_r, mut w) = Client::connect(&path).await.unwrap().into_split();
+        let (_r, mut w) = connect_live(&path).await.into_split();
         let s = tokio::spawn(async move { send_live(&mut w, 8000, 10_000).await });
         wait_phase(&m, MediaPhase::Playing, Duration::from_secs(2)).await;
         tokio::time::sleep(Duration::from_millis(400)).await;

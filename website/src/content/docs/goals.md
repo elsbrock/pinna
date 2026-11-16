@@ -23,6 +23,14 @@ without YAML or add-ons. Everything the device can do is available in Home
 Assistant: the light ring, the buttons, mute, volume, timers, announcements and
 media playback.
 
+### Play music without getting in the way
+
+The device can be a speaker for phones and computers too, over AirPlay and
+Bluetooth. The music goes through the same audio path as everything
+else, so the wake word keeps working while it plays, and replies,
+announcements and timers always come first. Each source is off until you turn
+it on.
+
 ### Be safe to install and update
 
 Every installation step can be undone, and the documentation says how.

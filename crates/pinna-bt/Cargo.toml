@@ -1,0 +1,17 @@
+[package]
+name = "pinna-bt"
+description = "Bridge from BlueZ and BlueALSA to pinnad: pairing window, paired phones, A2DP audio into the stream socket"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-api = { path = "../pinna-api" }
+pinna-bridge = { path = "../pinna-bridge" }
+buffa = "0.9"
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+zbus = { version = "5.19", default-features = false, features = ["tokio"] }

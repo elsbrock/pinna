@@ -1,0 +1,39 @@
+[Unit]
+Description=AirPlay receiver (shairport-sync into pinnad's media lane)
+After=pinnad.service
+
+# No [Install]: pinnad starts and stops this unit (ADR 0011).
+
+[Service]
+User=shairport-sync
+Group=shairport-sync
+# Write access to pinnad's stream socket.
+SupplementaryGroups=pinna-stream
+RuntimeDirectory=pinna-airplay
+ExecStart=/usr/bin/pinna-airplay
+Restart=on-failure
+RestartSec=2
+# shairport-sync lingers after SIGTERM (seen in the VM) and has nothing to save.
+TimeoutStopSec=3
+Environment=RUST_LOG=info
+
+# Reachable from the network without a password.
+NoNewPrivileges=yes
+ProtectSystem=strict
+# Connecting to a socket needs write access to it; "-" tolerates it not existing yet.
+ReadWritePaths=-/run/pinna/stream.sock
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# AF_NETLINK: shairport-sync reads the interface MACs with getifaddrs.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+MemoryMax=64M

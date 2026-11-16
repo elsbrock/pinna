@@ -15,8 +15,8 @@ backend = "auto"          # echodot-pipewire on the device (echodot without the 
 volume = 50
 # speaker_profile is unset: Radar on the Echo (2nd gen), Flat otherwise.
 wake_sound = false
-# Live PCM streams into the media lane (raw s16le, 48 kHz stereo; ADR 0011).
-# Empty = off.
+# Live PCM streams into the media lane: a header line `s16le <44100|48000> 2`,
+# then stereo PCM (ADR 0011). Empty = off.
 stream_socket = "/run/pinna/stream.sock"
 
 [wake]

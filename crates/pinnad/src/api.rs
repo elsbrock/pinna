@@ -19,18 +19,23 @@ use pinna_api::{
     GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
     InstallUpdateRequest, InstallUpdateResponse, LastBoot as LastBootMsg, LastBootOutcome,
     LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetMuteRequest,
-    SetMuteResponse, SetVolumeRequest, SetVolumeResponse, StartCalibrationRequest,
-    StartCalibrationResponse, StartConversationRequest, StartConversationResponse, Status,
-    StopCalibrationRequest, StopCalibrationResponse, StopConversationRequest,
-    StopConversationResponse, Timer, UpdateSettingsRequest, UpdateSettingsResponse, WakeEvent,
-    WakeWord, WakeWordOption, WatchInstallRequest, WatchInstallResponse, WatchLogsRequest,
-    WatchLogsResponse, WatchRingRequest, WatchRingResponse, WatchStatusRequest,
-    WatchStatusResponse,
+    SetMuteResponse, SetStreamVolumeRequest, SetStreamVolumeResponse, SetVolumeRequest,
+    SetVolumeResponse, StartCalibrationRequest, StartCalibrationResponse, StartConversationRequest,
+    StartConversationResponse, Status, StopCalibrationRequest, StopCalibrationResponse,
+    StopConversationRequest, StopConversationResponse, Timer, UpdateSettingsRequest,
+    UpdateSettingsResponse, WakeEvent, WakeWord, WakeWordOption, WatchInstallRequest,
+    WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchRingRequest, WatchRingResponse,
+    WatchStatusRequest, WatchStatusResponse,
 };
 use pinna_api::{
     FactoryResetRequest, FactoryResetResponse, ForgetWifiRequest, ForgetWifiResponse,
     JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListWifiRequest,
     ListWifiResponse, ScanWifiRequest, ScanWifiResponse,
+};
+use pinna_api::{
+    ForgetBluetoothDeviceRequest, ForgetBluetoothDeviceResponse, ReportBluetoothRequest,
+    ReportBluetoothResponse, StartBluetoothPairingRequest, StartBluetoothPairingResponse,
+    StopBluetoothPairingRequest, StopBluetoothPairingResponse,
 };
 use pinna_hal::led::{Frame, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -232,6 +237,8 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         notification: s.settings.notification,
         virtual_device: info.virtual_device,
         last_boot: MessageField::some(last_boot(&info.last_boot)),
+        airplay: MessageField::some(airplay(&s.airplay)),
+        bluetooth: MessageField::some(bluetooth(&s.bluetooth)),
         settings: MessageField::some(pinna_api::Settings {
             wake_word: s.settings.wake_word,
             wake_sensitivity: s.settings.wake_sensitivity.into(),
@@ -241,6 +248,8 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             default_name: s.default_name,
             wake_sound: s.wake_sound,
             allowed_hosts: s.settings.allowed_hosts.clone().unwrap_or_default(),
+            airplay: s.settings.airplay,
+            bluetooth: s.settings.bluetooth,
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
@@ -270,6 +279,60 @@ fn calibration_kind(kind: crate::calibration::EventKind) -> CalibrationEventKind
 }
 
 /// The previous boot's verdict, as the API reports it.
+fn airplay(r: &crate::airplay::Report) -> pinna_api::AirPlay {
+    use crate::airplay::State;
+    use pinna_api::AirPlayState as S;
+    let (state, reason) = match &r.state {
+        State::Off => (S::AIRPLAY_STATE_OFF, ""),
+        State::Starting => (S::AIRPLAY_STATE_STARTING, ""),
+        State::Ready => (S::AIRPLAY_STATE_READY, ""),
+        State::Failed(why) => (S::AIRPLAY_STATE_FAILED, why.as_str()),
+        State::Unavailable => (S::AIRPLAY_STATE_UNAVAILABLE, ""),
+    };
+    pinna_api::AirPlay {
+        state: buffa::EnumValue::Known(state),
+        name: r.name.clone(),
+        reason: reason.into(),
+        ..Default::default()
+    }
+}
+
+/// Bluetooth as the API reports it.
+fn bluetooth(r: &crate::bluetooth::Report) -> pinna_api::Bluetooth {
+    use crate::airplay::State;
+    use pinna_api::BluetoothState as S;
+    let (state, reason) = match &r.state {
+        State::Off => (S::BLUETOOTH_STATE_OFF, ""),
+        State::Starting => (S::BLUETOOTH_STATE_STARTING, ""),
+        State::Ready => (S::BLUETOOTH_STATE_READY, ""),
+        State::Failed(why) => (S::BLUETOOTH_STATE_FAILED, why.as_str()),
+        State::Unavailable => (S::BLUETOOTH_STATE_UNAVAILABLE, ""),
+    };
+    pinna_api::Bluetooth {
+        state: buffa::EnumValue::Known(state),
+        name: r.name.clone(),
+        address: r.address.clone(),
+        pairing_until_ms: r.pairing_until_ms,
+        pairing_seconds_left: r.pairing_until.map_or(0, |u| {
+            u.saturating_duration_since(std::time::Instant::now())
+                .as_secs_f64()
+                .ceil() as u32
+        }),
+        devices: r
+            .devices
+            .iter()
+            .map(|d| pinna_api::BluetoothDevice {
+                address: d.address.clone(),
+                name: d.name.clone(),
+                connected: d.connected,
+                ..Default::default()
+            })
+            .collect(),
+        reason: reason.into(),
+        ..Default::default()
+    }
+}
+
 fn last_boot(lb: &boot::LastBoot) -> LastBootMsg {
     let outcome = match lb.outcome {
         boot::Outcome::Cold => LastBootOutcome::LAST_BOOT_OUTCOME_COLD_START,
@@ -284,6 +347,11 @@ fn last_boot(lb: &boot::LastBoot) -> LastBootMsg {
         summary: lb.summary(),
         ..Default::default()
     }
+}
+
+/// A request from the device itself (a bridge on loopback), not the network.
+fn from_device(peer: Option<SocketAddr>) -> bool {
+    peer.is_some_and(|a| a.ip().to_canonical().is_loopback())
 }
 
 #[allow(refining_impl_trait)]
@@ -315,6 +383,31 @@ impl DeviceService for DeviceApi {
             .command(|r| ApiCommand::SetVolume(percent as u8, r))
             .await?;
         Response::ok(SetVolumeResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn set_stream_volume(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SetStreamVolumeRequest>,
+    ) -> ServiceResult<SetStreamVolumeResponse> {
+        if !from_device(ctx.peer_addr()) {
+            return Err(ConnectError::permission_denied(
+                "only the device's own bridges set the stream volume",
+            ));
+        }
+        let percent = request.percent;
+        if percent > 100 {
+            return Err(ConnectError::invalid_argument(
+                "percent must be between 0 and 100",
+            ));
+        }
+        let snap = self
+            .command(|r| ApiCommand::SetStreamVolume(percent as u8, r))
+            .await?;
+        Response::ok(SetStreamVolumeResponse {
             status: MessageField::some(self.render(&snap)),
             ..Default::default()
         })
@@ -472,6 +565,8 @@ impl DeviceService for DeviceApi {
             friendly_name,
             wake_sound: request.wake_sound,
             allowed_hosts,
+            airplay: request.airplay,
+            bluetooth: request.bluetooth,
         };
         let snap = self
             .command(|r| ApiCommand::UpdateSettings(patch, r))
@@ -492,6 +587,79 @@ impl DeviceService for DeviceApi {
             status: MessageField::some(self.render(&snap)),
             ..Default::default()
         })
+    }
+
+    async fn start_bluetooth_pairing(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, StartBluetoothPairingRequest>,
+    ) -> ServiceResult<StartBluetoothPairingResponse> {
+        let snap = self.command(ApiCommand::StartBluetoothPairing).await?;
+        Response::ok(StartBluetoothPairingResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn stop_bluetooth_pairing(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, StopBluetoothPairingRequest>,
+    ) -> ServiceResult<StopBluetoothPairingResponse> {
+        let snap = self.command(ApiCommand::StopBluetoothPairing).await?;
+        Response::ok(StopBluetoothPairingResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn forget_bluetooth_device(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, ForgetBluetoothDeviceRequest>,
+    ) -> ServiceResult<ForgetBluetoothDeviceResponse> {
+        let address = request.address.to_ascii_uppercase();
+        if !crate::bluetooth::valid_address(&address) {
+            return Err(ConnectError::invalid_argument(
+                "address must look like 44:63:B6:7A:85:8B",
+            ));
+        }
+        let snap = self
+            .command(|r| ApiCommand::ForgetBluetoothDevice(address, r))
+            .await?;
+        Response::ok(ForgetBluetoothDeviceResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn report_bluetooth(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ReportBluetoothRequest>,
+    ) -> ServiceResult<ReportBluetoothResponse> {
+        if !from_device(ctx.peer_addr()) {
+            return Err(ConnectError::permission_denied(
+                "only the device's own Bluetooth bridge reports",
+            ));
+        }
+        let bridge = crate::bluetooth::Bridge {
+            ready: request.ready,
+            address: request.address.to_owned(),
+            devices: request
+                .devices
+                .iter()
+                .map(|d| crate::bluetooth::Device {
+                    address: d.address.to_owned(),
+                    name: d.name.to_owned(),
+                    connected: d.connected,
+                })
+                .collect(),
+            error: request.error.to_owned(),
+        };
+        self.command(|r| ApiCommand::ReportBluetooth(bridge, r))
+            .await?;
+        Response::ok(ReportBluetoothResponse::default())
     }
 
     async fn stop_calibration(
@@ -792,6 +960,8 @@ mod tests {
                     std::process::id(),
                     NEXT_DEVICE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                 )),
+                airplay: false,
+                bluetooth: false,
                 settings: crate::settings::Settings {
                     volume: 40,
                     ..Default::default()
@@ -1460,6 +1630,133 @@ mod tests {
         assert!(!render(&info, Instant::now(), &snap).led_test);
         snap.led_test = true;
         assert!(render(&info, Instant::now(), &snap).led_test);
+    }
+
+    #[tokio::test]
+    async fn airplay_stays_off_without_a_stream_socket() {
+        let (c, inputs) = start_device().await;
+        let airplay = |s: &Status| s.settings.as_option().unwrap().airplay;
+        assert!(!airplay(&status(&c).await), "off by default");
+        let state = status(&c).await.airplay.as_option().unwrap().state;
+        assert_eq!(
+            state,
+            buffa::EnumValue::Known(pinna_api::AirPlayState::AIRPLAY_STATE_UNAVAILABLE)
+        );
+        let err = c
+            .update_settings(UpdateSettingsRequest {
+                airplay: Some(true),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        inputs
+            .send(Input::Ha(HaCommand::Switch {
+                object_id: "airplay".into(),
+                on: true,
+            }))
+            .await
+            .unwrap();
+        // Off from the dashboard is always fine, and orders after the switch.
+        c.update_settings(UpdateSettingsRequest {
+            airplay: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert!(!airplay(&status(&c).await));
+    }
+
+    #[tokio::test]
+    async fn bluetooth_stays_off_without_a_controller() {
+        let (c, inputs) = start_device().await;
+        let on = |s: &Status| s.settings.as_option().unwrap().bluetooth;
+        let st = status(&c).await;
+        assert!(!on(&st), "off by default");
+        assert_eq!(
+            st.bluetooth.as_option().unwrap().state,
+            buffa::EnumValue::Known(pinna_api::BluetoothState::BLUETOOTH_STATE_UNAVAILABLE)
+        );
+        let err = c
+            .update_settings(UpdateSettingsRequest {
+                bluetooth: Some(true),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        inputs
+            .send(Input::Ha(HaCommand::Switch {
+                object_id: "bluetooth".into(),
+                on: true,
+            }))
+            .await
+            .unwrap();
+        let err = c
+            .start_bluetooth_pairing(pinna_api::StartBluetoothPairingRequest::default())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        let err = c
+            .forget_bluetooth_device(pinna_api::ForgetBluetoothDeviceRequest {
+                address: "../../x".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        let st = status(&c).await;
+        assert!(!on(&st));
+        assert_eq!(st.bluetooth.as_option().unwrap().pairing_until_ms, 0);
+    }
+
+    #[test]
+    fn stream_volume_only_from_the_device() {
+        for local in ["127.0.0.1:1", "[::1]:1", "[::ffff:127.0.0.1]:1"] {
+            assert!(from_device(Some(local.parse().unwrap())), "{local}");
+        }
+        assert!(!from_device(Some("192.168.1.5:1".parse().unwrap())));
+        assert!(!from_device(None));
+    }
+
+    #[tokio::test]
+    async fn home_assistant_sets_the_stream_volume_while_a_stream_plays() {
+        let (c, inputs) = start_device().await;
+        let stream_volume = |percent| pinna_api::SetStreamVolumeRequest {
+            percent,
+            ..Default::default()
+        };
+        let ha_volume = |v| {
+            Input::Ha(HaCommand::MediaPlayer {
+                command: None,
+                volume: Some(v),
+                media_url: None,
+                announcement: false,
+            })
+        };
+        let err = c.set_stream_volume(stream_volume(101)).await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        c.set_stream_volume(stream_volume(30)).await.unwrap();
+        assert_eq!(status(&c).await.volume, 40, "the speaker volume stays");
+
+        let playing = pinna_audio::MediaState {
+            phase: pinna_audio::MediaPhase::Playing,
+            url: Some(pinna_audio::STREAM_URL.into()),
+            ..Default::default()
+        };
+        inputs.send(Input::Media(playing)).await.unwrap();
+        inputs.send(ha_volume(0.6)).await.unwrap();
+        // Inputs are handled in order: this answer comes after both.
+        c.set_stream_volume(stream_volume(60)).await.unwrap();
+        assert_eq!(status(&c).await.volume, 40, "went to the stream instead");
+
+        inputs
+            .send(Input::Media(pinna_audio::MediaState::default()))
+            .await
+            .unwrap();
+        inputs.send(ha_volume(0.6)).await.unwrap();
+        c.set_stream_volume(stream_volume(60)).await.unwrap();
+        assert_eq!(status(&c).await.volume, 60, "no stream: the speaker volume");
     }
 
     #[tokio::test]

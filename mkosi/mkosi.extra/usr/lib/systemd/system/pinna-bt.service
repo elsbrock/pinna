@@ -1,0 +1,34 @@
+[Unit]
+Description=Bluetooth bridge (BlueALSA into pinnad's media lane)
+After=bluetooth.service bluealsa.service pinnad.service
+PartOf=pinna-bluetooth.target
+
+# No [Install]: pinna-bluetooth.target pulls it in (ADR 0011).
+
+[Service]
+DynamicUser=yes
+# audio: BlueALSA's D-Bus policy. pinna-stream: pinnad's stream socket.
+SupplementaryGroups=audio pinna-stream
+ExecStart=/usr/bin/pinna-bt
+Restart=on-failure
+RestartSec=2
+Environment=RUST_LOG=info
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+# Connecting to a socket needs write access to it; "-" tolerates it not existing yet.
+ReadWritePaths=-/run/pinna/stream.sock
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+MemoryMax=32M

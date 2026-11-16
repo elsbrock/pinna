@@ -79,6 +79,19 @@ under **Troubleshooting**.
    Home Assistant doesn't know,
    [reset the device](/docs/dashboard/#reset-the-device) first.
 
+## AirPlay doesn't show the device
+
+Check **Voice & sound > Media sources** on the dashboard. It says whether the
+receiver runs and under which name. A sender on another network, VLAN or guest
+Wi-Fi doesn't see the device. See
+[If the device doesn't show up](/docs/airplay/#if-the-device-doesnt-show-up).
+
+## A phone doesn't find the device over Bluetooth
+
+Check **Voice & sound > Media sources** on the dashboard. A phone that hasn't
+paired finds the device only while the pairing window is open. See
+[If a phone doesn't find the device or doesn't connect](/docs/bluetooth/#if-a-phone-doesnt-find-the-device-or-doesnt-connect).
+
 ## The device doesn't react to the wake word
 
 Check each condition with `pinnactl status`:

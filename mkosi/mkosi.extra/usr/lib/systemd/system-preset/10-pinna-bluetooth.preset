@@ -1,0 +1,5 @@
+# Bluetooth runs only while its switch is on: pinnad starts
+# pinna-bluetooth.target (ADR 0011). Without this, Debian's presets enable
+# both, and udev starts them as soon as the controller appears at boot.
+disable bluetooth.service
+disable bluealsa.service

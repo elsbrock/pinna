@@ -47,7 +47,14 @@ MIN_MUSIC_OVER_QUIET_DB = 15.0
 
 EXPECTED = {
     LightInfo: {"LED ring"},
-    SwitchInfo: {"Microphone mute", "Wake word", "Listening direction"},
+    SwitchInfo: {
+        "Microphone mute",
+        "Wake word",
+        "Listening direction",
+        "AirPlay",
+        "Bluetooth audio",
+        "Bluetooth pairing",
+    },
     NumberInfo: {"Volume", "Reply volume", "Wake word sensitivity", "LED brightness"},
     ButtonInfo: {"Cancel request"},
     EventInfo: {

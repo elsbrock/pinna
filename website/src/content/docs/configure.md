@@ -83,7 +83,7 @@ How the device introduces itself to Home Assistant.
 | `speaker_profile` | Not set | The speaker tuning of the audio codec, `"Flat"` or `"Radar"`. Not set means the hardware's: `"Radar"` on the Echo (2nd gen), `"Flat"` otherwise |
 | `wake_sound` | `false` | Plays a short sound when the device starts listening, until someone sets **Wake sound** on the dashboard or in Home Assistant, which wins |
 | `capture_gain_db` | Not set | The gain applied to the microphone audio before wake word detection and before it goes to Home Assistant, in dB. Not set means +12 dB on the Echo Dot with PipeWire, and 0 dB otherwise |
-| `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio (s16le, 48 kHz, stereo) into the media lane. Empty turns it off |
+| `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane: a first line `s16le 44100 2` or `s16le 48000 2`, then stereo samples. Empty turns it off |
 
 ### `[wake]`
 

@@ -69,7 +69,7 @@ fi
 
 # Rust binaries
 install -d "$out/usr/bin"
-for bin in pinnad pinnactl pinna-bootctl pinna-bootstages; do
+for bin in pinnad pinnactl pinna-bootctl pinna-bootstages pinna-airplay pinna-bt; do
   if [ -x "$arm/$bin" ]; then
     install -m0755 "$arm/$bin" "$out/usr/bin/"
   else

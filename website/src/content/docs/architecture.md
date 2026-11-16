@@ -92,7 +92,7 @@ work:
 | Service | Job |
 | --- | --- |
 | `systemd-networkd`, `wpa_supplicant@wlan0` | Wi-Fi, and the USB network to your computer |
-| `systemd-resolved` | Name resolution and mDNS, which Home Assistant uses to find the device |
+| `systemd-resolved` | Name resolution and mDNS, which Home Assistant and AirPlay senders use to find the device |
 | `ssh` | Remote login with keys |
 | `systemd-journald` | Logs, kept in `/var/log/journal` |
 | `pinna-pipewire`, `pinna-wireplumber` | The microphone processing graph. See [Audio](/docs/audio/) |
@@ -107,6 +107,8 @@ Pinna's own services:
 | `pinna-bootstages` | Shows the start-up steps on the ring after the system starts (USB, Wi-Fi, `pinnad`), then hands the ring to `pinnad` |
 | `pinna-fastboot-guard` | Writes the fastboot request early in each boot |
 | `pinna-boot-ok` | The health check that marks a boot as good |
+| `pinna-airplay` | The AirPlay receiver: runs Debian's `shairport-sync` and passes its audio to `pinnad`. `pinnad` starts and stops it with the **AirPlay** switch. See [Play music with AirPlay](/docs/airplay/) |
+| `pinna-bluetooth.target` | Bluetooth: Debian's `bluetoothd` and BlueALSA, and `pinna-bt`, which passes a phone's audio to `pinnad`. `pinnad` starts and stops them with the **Bluetooth** switch. See [Play music over Bluetooth](/docs/bluetooth/) |
 
 ## A voice request
 

@@ -43,6 +43,9 @@ This page helps you find your way around the
 | `pinna-bootctl` | The fastboot request and the A/B slot state in the `misc` partition |
 | `pinna-init` | The program in the initramfs: chooses a slot, checks its signature, sets up dm-verity and starts the system |
 | `pinna-update` | Writes a signed image into the inactive slot |
+| `pinna-airplay` | Runs `shairport-sync` and passes its audio and the sender's volume to `pinnad`'s stream socket (ADR 0011) |
+| `pinna-bt` | Opens the Bluetooth pairing window in BlueZ, accepts pairings only then, reports the paired phones, and passes a phone's audio (BlueALSA) and volume to the stream socket (ADR 0011) |
+| `pinna-bridge` | What `pinna-airplay` and `pinna-bt` share: sessions on the stream socket and the control API on `127.0.0.1` |
 
 ### On your computer
 

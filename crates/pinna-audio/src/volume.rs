@@ -24,6 +24,13 @@ pub fn volume_gain(percent: u8) -> f32 {
     }
 }
 
+/// Gain of a live stream's own volume 0..=100 (the sender's volume, ADR
+/// 0011): the master curve relative to its top, so 100 plays at full level
+/// and 0 is silent. The master volume applies on top.
+pub fn stream_gain(percent: u8) -> f32 {
+    volume_gain(percent) / volume_gain(100)
+}
+
 /// Extra Echo Dot speaker gain at the top of the volume range, in dB: none up
 /// to 70 %, then the stock firmware's measured steps (+3.52 dB at 80 %, +7.54
 /// at 90 %, +14.54 at 100 %), interpolated between them so that one volume
@@ -47,6 +54,21 @@ pub fn top_boost_db(percent: u8) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_gain_is_the_master_curve_from_full_level() {
+        assert_eq!(stream_gain(100), 1.0);
+        assert_eq!(stream_gain(0), 0.0);
+        let mut prev = 0.0;
+        for p in 1..=100 {
+            let g = stream_gain(p);
+            assert!(g > 0.0 && g >= prev && g <= 1.0, "p={p}: {g}");
+            prev = g;
+        }
+        // Same steps as the master volume, shifted to 0 dB at the top.
+        let db = 20.0 * f64::from(stream_gain(50)).log10();
+        assert!((db - (volume_db(50).unwrap() - volume_db(100).unwrap())).abs() < 1e-3);
+    }
 
     #[test]
     fn top_boost_follows_the_stock_steps() {

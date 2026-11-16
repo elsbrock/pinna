@@ -42,6 +42,12 @@ pub struct Settings {
     /// to them. Checked and normalised (`check_host_names`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_hosts: Option<Vec<String>>,
+    /// The AirPlay receiver on or off ("AirPlay" switch, ADR 0011). Off by
+    /// default: anyone on the network can play to it.
+    pub airplay: bool,
+    /// Bluetooth on or off ("Bluetooth" switch, ADR 0011). Off by default.
+    #[serde(default)]
+    pub bluetooth: bool,
     /// Keys a newer pinnad wrote, kept as they are.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -62,6 +68,8 @@ impl Default for Settings {
             friendly_name: None,
             wake_sound: None,
             allowed_hosts: None,
+            airplay: false,
+            bluetooth: false,
             extra: toml::Table::new(),
         }
     }

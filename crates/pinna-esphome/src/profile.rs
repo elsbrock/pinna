@@ -72,6 +72,29 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             icon: "mdi:compass-outline".into(),
             entity_category: EntityCategory::Config,
         },
+        // An AirPlay receiver for the media lane (ADR 0011); off by default.
+        SwitchConfig {
+            object_id: "airplay".into(),
+            name: "AirPlay".into(),
+            icon: "mdi:cast-audio".into(),
+            entity_category: EntityCategory::Config,
+        },
+        // A Bluetooth A2DP sink for the media lane (ADR 0011); off by default.
+        // "audio": not ESPHome's Bluetooth proxy.
+        SwitchConfig {
+            object_id: "bluetooth".into(),
+            name: "Bluetooth audio".into(),
+            icon: "mdi:bluetooth-audio".into(),
+            entity_category: EntityCategory::Config,
+        },
+        // The Bluetooth pairing window: on for two minutes, off when it
+        // closes (a phone paired, time ran out, stopped) or can't open.
+        SwitchConfig {
+            object_id: "bluetooth_pairing".into(),
+            name: "Bluetooth pairing".into(),
+            icon: "mdi:bluetooth-connect".into(),
+            entity_category: EntityCategory::None,
+        },
         // Tune the sensitivity with the volume buttons; turns itself off when
         // calibration ends.
         SwitchConfig {

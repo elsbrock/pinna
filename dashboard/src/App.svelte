@@ -17,6 +17,7 @@
   import Network from "./pages/Network.svelte";
   import Overview from "./pages/Overview.svelte";
   import System from "./pages/System.svelte";
+  import MediaSources from "./pages/MediaSources.svelte";
   import Voice from "./pages/Voice.svelte";
   import WakeWord from "./pages/WakeWord.svelte";
 
@@ -160,6 +161,7 @@
         <WifiTrial />
         {#if page.path === "/voice"}<Voice />
         {:else if page.path === "/voice/wake-word"}<WakeWord />
+        {:else if page.path === "/voice/media-sources"}<MediaSources />
         {:else if page.path === "/home-assistant"}<HomeAssistant />
         {:else if page.path === "/network"}<Network />
         {:else if page.path === "/system"}<System />

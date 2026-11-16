@@ -167,9 +167,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    # 1 light, 6 switches, 4 numbers, 1 button, 8 events, 1 text sensor and
+    # 1 light, 9 switches, 4 numbers, 1 button, 8 events, 1 text sensor and
     # 1 media player.
-    assert len(by_key) == len(entities) == 1 + 6 + 4 + 1 + 8 + 1 + 1
+    assert len(by_key) == len(entities) == 1 + 9 + 4 + 1 + 8 + 1 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -284,6 +284,9 @@ async def test_event_entities_and_unknown_type_dropped(client, demo):
 
     got = []
     client.subscribe_states(got.append)
+    # Events aren't replayed: send them once the subscription is live, which
+    # the initial states show.
+    await eventually(lambda: any(not isinstance(s, Event) for s in got), "initial states")
     demo.send("event timer bogus")
     demo.send("event timer started")
     await eventually(lambda: any(isinstance(s, Event) for s in got), "timer event")
