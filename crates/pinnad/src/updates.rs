@@ -12,6 +12,7 @@ use buffa::MessageField;
 use connectrpc::ConnectError;
 use pinna_api::{GetUpdatesResponse, InstallResult, InstallStage, Slot as ApiSlot};
 use pinna_bootctl::slot::{self, Slot, SlotState};
+use pinna_image::keys::VerifyingKey;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::broadcast;
@@ -30,6 +31,8 @@ pub struct UpdaterPaths {
     pub reboot: Vec<String>,
     /// Asks the next boot for a factory reset (ADR 0010).
     pub reset_mark: PathBuf,
+    /// Slot images must be signed with this key.
+    pub key: VerifyingKey,
 }
 
 impl Default for UpdaterPaths {
@@ -41,6 +44,7 @@ impl Default for UpdaterPaths {
             pinnactl: "pinnactl".into(),
             reboot: vec!["systemctl".into(), "reboot".into()],
             reset_mark: "/var/lib/pinna/factory-reset".into(),
+            key: pinna_image::keys::release_key(),
         }
     }
 }
@@ -188,6 +192,38 @@ impl Updater {
         }
     }
 
+    /// Boot `target` next (see SetActiveSlot in the proto). Switching to the
+    /// other slot restarts the satellite and puts the slot state back if the
+    /// restart fails, so a switch never waits for the next power cut.
+    pub async fn set_active(&self, target: Slot) -> Result<(), ConnectError> {
+        let paths = self.paths.clone();
+        let shared = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            // Held throughout: an install would write the slot state too.
+            let state = lock(&shared);
+            if state.running {
+                return Err(ConnectError::failed_precondition(
+                    "an update is being installed",
+                ));
+            }
+            let (old, booted) = switch_slot(&paths, target)?;
+            if target == booted {
+                return Ok(());
+            }
+            if let Err(e) = reboot_blocking(&paths, "switch-slot") {
+                // No record before: the implicit state boots the same way.
+                let old = old.unwrap_or_else(SlotState::implicit);
+                if let Err(r) = slot::write_state(&paths.misc, &old) {
+                    tracing::error!("putting the slot state back failed: {r:#}");
+                }
+                return Err(ConnectError::internal(format!("restarting: {e:#}")));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| ConnectError::internal(format!("switching slots failed: {e}")))?
+    }
+
     /// Mark the next boot for a factory reset, then reboot (ADR 0010):
     /// `pinna-factory-reset.service` clears /var before anything uses it.
     pub async fn factory_reset(&self) -> Result<()> {
@@ -222,6 +258,81 @@ impl Updater {
         }
         Ok(())
     }
+}
+
+/// Write the slot state that boots `target` next; returns the state before
+/// and the booted slot.
+fn switch_slot(
+    paths: &UpdaterPaths,
+    target: Slot,
+) -> Result<(Option<SlotState>, Slot), ConnectError> {
+    let internal = |e: anyhow::Error| ConnectError::internal(format!("{e:#}"));
+    let booted = slot::booted_slot(&paths.run_dir)
+        .map_err(internal)?
+        .ok_or_else(|| {
+            ConnectError::failed_precondition(
+                "not started through pinna-init: there are no slots to switch",
+            )
+        })?;
+    let old = slot::read_state(&paths.misc).map_err(internal)?;
+    let state = old.unwrap_or_else(SlotState::implicit);
+    if !state.get(booted).successful {
+        return Err(ConnectError::failed_precondition(format!(
+            "the running slot {booted} is still on trial: slot {} is its only fallback",
+            booted.other()
+        )));
+    }
+    let new = if target == booted {
+        slot::keep_booted(old, booted)
+    } else {
+        let info = state.get(target);
+        if !info.successful && info.tries_left == 0 {
+            return Err(ConnectError::failed_precondition(format!(
+                "slot {target} can't boot: install an update into it instead"
+            )));
+        }
+        let image = slot::image(&paths.partdir, target, &paths.key).map_err(|e| {
+            ConnectError::failed_precondition(format!("slot {target} has no bootable image: {e:#}"))
+        })?;
+        tracing::info!(
+            "switching to slot {target} (version {}) as a trial",
+            image.version
+        );
+        slot::set_active(old, target, slot::DEFAULT_TRIES)
+    };
+    if old != Some(new) {
+        slot::write_state(&paths.misc, &new).map_err(internal)?;
+    }
+    Ok((old, booted))
+}
+
+/// [`Updater::reboot`] for a blocking thread, with the same timeout.
+fn reboot_blocking(paths: &UpdaterPaths, reason: &str) -> Result<()> {
+    let [program, args @ ..] = paths.reboot.as_slice() else {
+        bail!("no reboot command");
+    };
+    let _ = pinna_bootctl::reboot::record_at(&paths.run_dir, reason);
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .spawn()
+        .with_context(|| format!("running {program}"))?;
+    let deadline = std::time::Instant::now() + REBOOT_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("the reboot command timed out");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    if !status.success() {
+        bail!("{program} exited with {status}");
+    }
+    Ok(())
 }
 
 fn unavailable(reason: impl Into<String>) -> GetUpdatesResponse {
@@ -281,7 +392,7 @@ fn read_slots(paths: &UpdaterPaths) -> GetUpdatesResponse {
 fn slot_version(paths: &UpdaterPaths, s: Slot) -> String {
     let read = || -> Result<String> {
         let dev = std::fs::File::open(paths.partdir.join(s.partname()))?;
-        Ok(pinna_image::read_footer(&dev, &pinna_image::keys::release_key())?.version)
+        Ok(pinna_image::read_footer(&dev, &paths.key)?.version)
     };
     read().unwrap_or_default()
 }

@@ -77,11 +77,7 @@ fn kaeru_ok(cli: &Cli) -> anyhow::Result<bool> {
 
 /// The signed image in a slot partition, or why it is not bootable.
 fn slot_image(partdir: &Path, s: Slot) -> anyhow::Result<pinna_image::Footer> {
-    let path = partdir.join(s.partname());
-    let dev = std::fs::File::open(&path).with_context(|| format!("opening {}", path.display()))?;
-    let f = pinna_image::read_footer(&dev, &pinna_image::keys::release_key())?;
-    pinna_image::check_top_hash(&dev, &f)?;
-    Ok(f)
+    slot::image(partdir, s, &pinna_image::keys::release_key())
 }
 
 fn run(cli: &Cli) -> anyhow::Result<()> {

@@ -219,6 +219,14 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn set_active_slot(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, SetActiveSlotRequest>,
+    ) -> ServiceResult<SetActiveSlotResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn reboot(
         &self,
         _: RequestContext,

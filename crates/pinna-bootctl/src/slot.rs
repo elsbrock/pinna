@@ -317,6 +317,28 @@ pub fn set_active(state: Option<SlotState>, slot: Slot, tries: u8) -> SlotState 
     s
 }
 
+/// Boot the running slot next again, as it is: undoes a pending switch or
+/// update. The other slot keeps its state.
+pub fn keep_booted(state: Option<SlotState>, booted: Slot) -> SlotState {
+    let mut s = state.unwrap_or_else(SlotState::implicit);
+    s.active = booted;
+    s
+}
+
+/// The signed image in a slot partition, checked as pinna-init checks it
+/// before booting: the footer's signature and the top hash block.
+pub fn image(
+    partdir: &Path,
+    s: Slot,
+    key: &pinna_image::keys::VerifyingKey,
+) -> Result<pinna_image::Footer> {
+    let path = partdir.join(s.partname());
+    let dev = std::fs::File::open(&path).with_context(|| format!("opening {}", path.display()))?;
+    let f = pinna_image::read_footer(&dev, key)?;
+    pinna_image::check_top_hash(&dev, &f)?;
+    Ok(f)
+}
+
 /// Before overwriting `target`: it must not count as bootable meanwhile, and
 /// the booted slot stays active.
 pub fn invalidate(state: Option<SlotState>, booted: Slot, target: Slot) -> SlotState {
@@ -446,6 +468,12 @@ mod tests {
             set_active(None, Slot::B, 3),
             st(Slot::B, (0, true), (3, false))
         );
+        // keeping the booted slot leaves both slots' state alone
+        assert_eq!(
+            keep_booted(Some(st(Slot::B, (0, true), (3, false))), Slot::A),
+            st(Slot::A, (0, true), (3, false))
+        );
+        assert_eq!(keep_booted(None, Slot::A), SlotState::implicit());
     }
 
     #[test]

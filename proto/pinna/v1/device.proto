@@ -50,6 +50,13 @@ service DeviceService {
   // Progress of the running (or last) install: its lines so far, then new ones,
   // ending after the line marked done.
   rpc WatchInstall(WatchInstallRequest) returns (stream WatchInstallResponse);
+  // Choose the slot that boots next. The other slot: its image is checked as
+  // pinna-init checks it, it becomes active as a trial (ADR 0003) and the
+  // satellite restarts; if the restart fails, nothing changes. Only a slot
+  // that is good or hasn't been started yet. The running slot: it boots next
+  // again, which cancels a pending update; no restart. Refused while an
+  // install runs or the running slot is on trial.
+  rpc SetActiveSlot(SetActiveSlotRequest) returns (SetActiveSlotResponse);
   // Restart the satellite.
   rpc Reboot(RebootRequest) returns (RebootResponse);
   // Forget everything set on this satellite and restart it as it was
@@ -576,6 +583,13 @@ enum InstallStage {
   // The slot boots next, with tries before rollback.
   INSTALL_STAGE_INSTALLED = 5;
 }
+
+message SetActiveSlotRequest {
+  // "a" or "b".
+  string slot = 1;
+}
+
+message SetActiveSlotResponse {}
 
 message RebootRequest {}
 

@@ -18,14 +18,15 @@ use pinna_api::{
     ClearNotificationResponse, DeviceService, GetNetworkRequest, GetNetworkResponse,
     GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
     InstallUpdateRequest, InstallUpdateResponse, LastBoot as LastBootMsg, LastBootOutcome,
-    LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetMuteRequest,
-    SetMuteResponse, SetStreamVolumeRequest, SetStreamVolumeResponse, SetVolumeRequest,
-    SetVolumeResponse, StartCalibrationRequest, StartCalibrationResponse, StartConversationRequest,
-    StartConversationResponse, Status, StopCalibrationRequest, StopCalibrationResponse,
-    StopConversationRequest, StopConversationResponse, Timer, UpdateSettingsRequest,
-    UpdateSettingsResponse, WakeEvent, WakeWord, WakeWordOption, WatchInstallRequest,
-    WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchRingRequest, WatchRingResponse,
-    WatchStatusRequest, WatchStatusResponse,
+    LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetActiveSlotRequest,
+    SetActiveSlotResponse, SetMuteRequest, SetMuteResponse, SetStreamVolumeRequest,
+    SetStreamVolumeResponse, SetVolumeRequest, SetVolumeResponse, StartCalibrationRequest,
+    StartCalibrationResponse, StartConversationRequest, StartConversationResponse, Status,
+    StopCalibrationRequest, StopCalibrationResponse, StopConversationRequest,
+    StopConversationResponse, Timer, UpdateSettingsRequest, UpdateSettingsResponse, WakeEvent,
+    WakeWord, WakeWordOption, WatchInstallRequest, WatchInstallResponse, WatchLogsRequest,
+    WatchLogsResponse, WatchRingRequest, WatchRingResponse, WatchStatusRequest,
+    WatchStatusResponse,
 };
 use pinna_api::{
     FactoryResetRequest, FactoryResetResponse, ForgetWifiRequest, ForgetWifiResponse,
@@ -841,6 +842,17 @@ impl DeviceService for DeviceApi {
             saved: self.wifi.forget(request.ssid).await?,
             ..Default::default()
         })
+    }
+
+    async fn set_active_slot(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, SetActiveSlotRequest>,
+    ) -> ServiceResult<SetActiveSlotResponse> {
+        let slot = pinna_bootctl::slot::Slot::parse(request.slot)
+            .map_err(|e| ConnectError::invalid_argument(format!("{e:#}")))?;
+        self.updater.set_active(slot).await?;
+        Response::ok(SetActiveSlotResponse::default())
     }
 
     async fn reboot(
@@ -1801,8 +1813,30 @@ mod tests {
                 pinnactl: script,
                 reboot: vec!["true".into()],
                 reset_mark: dir.join("factory-reset"),
+                key: slot_key().verifying_key(),
             };
             Self { dir, paths }
+        }
+
+        /// Booted from `booted`, with `state` in misc and version `b_version`
+        /// sealed into slot b (signed with `key`).
+        fn slots(&self, booted: &str, state: SlotState, b_version: &str, key: &SigningKey) {
+            std::fs::write(self.paths.run_dir.join("boot-slot"), format!("{booted}\n")).unwrap();
+            std::fs::write(self.paths.run_dir.join("boot-version"), "1.0\n").unwrap();
+            std::fs::write(&self.paths.misc, vec![0u8; 0x80000]).unwrap();
+            pinna_bootctl::slot::write_state(&self.paths.misc, &state).unwrap();
+            let b = self.paths.partdir.join("system_b");
+            std::fs::write(b, sealed(b_version, key)).unwrap();
+        }
+
+        fn state(&self) -> Option<SlotState> {
+            pinna_bootctl::slot::read_state(&self.paths.misc).unwrap()
+        }
+
+        fn reboot_reason(&self) -> Option<String> {
+            std::fs::read_to_string(self.paths.run_dir.join("reboot-reason"))
+                .ok()
+                .map(|r| r.trim().to_owned())
         }
 
         fn updater(&self) -> Updater {
@@ -1813,6 +1847,43 @@ mod tests {
     impl Drop for Rig {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    use pinna_bootctl::slot::{Slot, SlotInfo, SlotState};
+    use pinna_image::keys::SigningKey;
+
+    fn slot_key() -> SigningKey {
+        SigningKey::from_bytes(&[42; 32])
+    }
+
+    /// A signed slot image: a small erofs-shaped root, footer and hash tree.
+    fn sealed(version: &str, key: &SigningKey) -> Vec<u8> {
+        let blocks = 16u32;
+        let mut img = vec![0u8; blocks as usize * 4096];
+        img[1024..1028].copy_from_slice(&0xE0F5_E1E2u32.to_le_bytes());
+        img[1024 + 12] = 12;
+        img[1024 + 36..1024 + 40].copy_from_slice(&blocks.to_le_bytes());
+        let mut out = Vec::new();
+        pinna_image::seal(&img[..], version, [7; 32], key, &mut out).unwrap();
+        out
+    }
+
+    fn st(active: Slot, a: (u8, bool), b: (u8, bool)) -> SlotState {
+        let info = |(tries_left, successful)| SlotInfo {
+            tries_left,
+            successful,
+        };
+        SlotState {
+            active,
+            slots: [info(a), info(b)],
+        }
+    }
+
+    fn slot_request(slot: &str) -> SetActiveSlotRequest {
+        SetActiveSlotRequest {
+            slot: slot.into(),
+            ..Default::default()
         }
     }
 
@@ -2108,6 +2179,115 @@ mod tests {
         assert!(rig.paths.reset_mark.exists());
         let reason = std::fs::read_to_string(rig.paths.run_dir.join("reboot-reason")).unwrap();
         assert_eq!(reason.trim(), "factory-reset");
+    }
+
+    #[tokio::test]
+    async fn set_active_slot_switches_and_restarts() {
+        let rig = Rig::new("switch", "");
+        let before = st(Slot::A, (0, true), (0, true));
+        rig.slots("a", before, "0.9", &slot_key());
+        let (c, _) = start_device_with(rig.updater()).await;
+        assert_eq!(updates(&c).await.slots[1].version, "0.9");
+
+        c.set_active_slot(slot_request("b")).await.unwrap();
+        assert_eq!(rig.state(), Some(st(Slot::B, (0, true), (3, false))));
+        assert_eq!(rig.reboot_reason().as_deref(), Some("switch-slot"));
+    }
+
+    #[tokio::test]
+    async fn set_active_slot_puts_the_state_back_when_the_restart_fails() {
+        let rig = Rig::new("switch-noreboot", "");
+        let before = st(Slot::A, (0, true), (0, true));
+        rig.slots("a", before, "0.9", &slot_key());
+        let mut paths = rig.paths.clone();
+        paths.reboot = vec!["false".into()];
+        let (c, _) = start_device_with(Updater::new(paths)).await;
+
+        let err = c.set_active_slot(slot_request("b")).await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::Internal);
+        assert_eq!(rig.state(), Some(before));
+    }
+
+    #[tokio::test]
+    async fn set_active_slot_keeps_the_running_slot() {
+        let rig = Rig::new("keep", "");
+        // An installed update waits in slot b.
+        rig.slots("a", st(Slot::B, (0, true), (3, false)), "2.0", &slot_key());
+        let (c, _) = start_device_with(rig.updater()).await;
+
+        c.set_active_slot(slot_request("a")).await.unwrap();
+        assert_eq!(rig.state(), Some(st(Slot::A, (0, true), (3, false))));
+        assert_eq!(rig.reboot_reason(), None, "keeping doesn't restart");
+
+        // Slot b hasn't been started: it can still be switched to.
+        c.set_active_slot(slot_request("b")).await.unwrap();
+        assert_eq!(rig.state(), Some(st(Slot::B, (0, true), (3, false))));
+    }
+
+    #[tokio::test]
+    async fn set_active_slot_refusals_change_nothing() {
+        use connectrpc::ErrorCode::{FailedPrecondition, InvalidArgument};
+        let refused = async |rig: &Rig, slot: &str, code| {
+            let before = rig.state();
+            let (c, _) = start_device_with(rig.updater()).await;
+            let err = c.set_active_slot(slot_request(slot)).await.unwrap_err();
+            assert_eq!(
+                err.code,
+                code,
+                "{slot}: {}",
+                err.message.unwrap_or_default()
+            );
+            assert_eq!(rig.state(), before);
+            assert_eq!(rig.reboot_reason(), None);
+        };
+        let good = st(Slot::A, (0, true), (0, true));
+
+        let rig = Rig::new("refuse-name", "");
+        rig.slots("a", good, "0.9", &slot_key());
+        refused(&rig, "c", InvalidArgument).await;
+
+        let rig = Rig::new("refuse-no-init", "");
+        std::fs::write(&rig.paths.misc, vec![0u8; 0x80000]).unwrap();
+        refused(&rig, "b", FailedPrecondition).await;
+
+        // The running slot is on trial: slot a is its only fallback.
+        let rig = Rig::new("refuse-trial", "");
+        rig.slots("b", st(Slot::B, (0, true), (2, false)), "0.9", &slot_key());
+        refused(&rig, "a", FailedPrecondition).await;
+
+        // Slot b failed its trial.
+        let rig = Rig::new("refuse-failed", "");
+        rig.slots("a", st(Slot::A, (0, true), (0, false)), "0.9", &slot_key());
+        refused(&rig, "b", FailedPrecondition).await;
+
+        // Signed with another key.
+        let rig = Rig::new("refuse-key", "");
+        rig.slots("a", good, "0.9", &SigningKey::from_bytes(&[1; 32]));
+        refused(&rig, "b", FailedPrecondition).await;
+
+        // A corrupted top hash block.
+        let rig = Rig::new("refuse-hash", "");
+        rig.slots("a", good, "0.9", &slot_key());
+        let b = rig.paths.partdir.join("system_b");
+        let mut img = std::fs::read(&b).unwrap();
+        let last = img.len() - 1;
+        img[last] ^= 0xff;
+        std::fs::write(&b, img).unwrap();
+        refused(&rig, "b", FailedPrecondition).await;
+    }
+
+    #[tokio::test]
+    async fn set_active_slot_waits_for_an_install() {
+        let rig = Rig::new("switch-installing", "sleep 2");
+        rig.slots("a", st(Slot::A, (0, true), (0, true)), "0.9", &slot_key());
+        let before = rig.state();
+        let (c, _) = start_device_with(rig.updater()).await;
+        c.install_update(install_request("http://10.0.0.2:8000/manifest.json"))
+            .await
+            .unwrap();
+        let err = c.set_active_slot(slot_request("b")).await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        assert_eq!(rig.state(), before);
     }
 
     #[tokio::test]
