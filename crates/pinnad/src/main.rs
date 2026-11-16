@@ -13,6 +13,7 @@ mod config;
 mod identity;
 mod leds;
 mod logs;
+mod metrics;
 mod network;
 mod settings;
 mod updates;
@@ -678,7 +679,7 @@ async fn main() -> Result<()> {
     ));
 
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
-    match web::start(device_api, &cfg.web, virt).await {
+    match web::start(device_api, &cfg.web, virt, &shared.counters).await {
         Ok(Some(addr)) => tracing::info!("dashboard listening on http://{addr}"),
         Ok(None) => {}
         Err(e) => tracing::error!("dashboard: {e:#}"),

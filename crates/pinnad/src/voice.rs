@@ -34,6 +34,8 @@ pub struct Shared {
     pub muted: AtomicBool,
     /// Wake word accept threshold (f32 bits).
     pub threshold: AtomicU32,
+    /// What `/metrics` counts (ADR 0020).
+    pub counters: crate::metrics::Counters,
 }
 
 #[derive(Debug)]
@@ -581,6 +583,11 @@ impl Brain {
                 tracing::info!("wake word {phrase:?} detected (score {score:.2})");
                 if self.wake_armed() && !self.muted() {
                     self.record_wake(WakeRecord::now(true, score, false));
+                    self.shared
+                        .counters
+                        .wakes
+                        .get_or_create(&crate::metrics::Word { word: id.clone() })
+                        .inc();
                     if self.phase == Phase::Speaking {
                         tracing::info!("reply interrupted by the wake word");
                         self.interrupt_reply().await;
@@ -613,6 +620,7 @@ impl Brain {
                 reached_threshold,
             } => {
                 self.record_wake(WakeRecord::now(false, score, reached_threshold));
+                self.shared.counters.near_misses.inc();
                 if let Some(c) = &mut self.calibration {
                     c.near_miss(score, Instant::now());
                 }
@@ -1169,6 +1177,7 @@ impl Brain {
                 }
             }
             VoiceEventType::Error => {
+                self.shared.counters.error(&get("code").unwrap_or_default());
                 tracing::warn!(
                     "Assist error: {} {}",
                     get("code").unwrap_or_default(),
@@ -1845,6 +1854,7 @@ impl Brain {
             self.error_feedback();
             return;
         }
+        self.shared.counters.runs.inc();
         if self.conversation_id.is_empty() || !self.continue_conversation {
             self.conversation_id = format!("{:016x}", fastrand::u64(..));
         }
@@ -1996,10 +2006,17 @@ impl Brain {
             let now = Instant::now();
             let sent = (now - requested).as_secs_f32();
             match self.speech_ended {
-                Some(end) => tracing::info!(
-                    "reply: first audio {:.2} s after the end of speech ({sent:.2} s after Home Assistant started it)",
-                    (now - end).as_secs_f32()
-                ),
+                Some(end) => {
+                    let after = now - end;
+                    self.shared
+                        .counters
+                        .first_audio
+                        .observe(after.as_secs_f64());
+                    tracing::info!(
+                        "reply: first audio {:.2} s after the end of speech ({sent:.2} s after Home Assistant started it)",
+                        after.as_secs_f32()
+                    )
+                }
                 None => {
                     tracing::info!("reply: first audio {sent:.2} s after Home Assistant started it")
                 }

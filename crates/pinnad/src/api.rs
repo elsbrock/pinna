@@ -133,6 +133,10 @@ impl DeviceApi {
     }
 
     /// The latest state, as it changes.
+    pub fn info(&self) -> &Info {
+        &self.info
+    }
+
     pub fn watch(&self) -> watch::Receiver<Snapshot> {
         self.status.clone()
     }

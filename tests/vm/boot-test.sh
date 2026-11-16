@@ -126,6 +126,15 @@ else
 fi
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H 'Host: evil.example' "$web/")
 if [ "$code" = 421 ]; then pass "foreign Host refused (421)"; else fail "foreign Host got $code, not 421"; fi
+# ADR 0020: host metrics from /proc, a service's cgroup, and pinnad's own.
+metrics=$(curl -fsS --max-time 10 "$web/metrics" || true)
+missing=""
+for m in '^node_memory_MemAvailable_bytes ' '^node_cpu_seconds_total\{cpu="0",mode="idle"\} ' \
+         '^pinna_unit_memory_bytes\{unit="pinnad.service"\} ' '^pinna_build_info\{' \
+         '^pinna_home_assistant_connected '; do
+  grep -Eq "$m" <<<"$metrics" || missing="$missing $m"
+done
+if [ -z "$missing" ]; then pass "/metrics"; else fail "/metrics lacks:$missing"; fi
 
 if [ -n "${SSH_KEY:-}" ]; then
   log "ssh checks"

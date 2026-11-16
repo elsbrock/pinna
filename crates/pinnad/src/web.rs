@@ -15,11 +15,13 @@ use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
+use prometheus_client::registry::Registry;
 use tokio::sync::watch;
 use tower_http::services::ServeDir;
 
 use crate::api::{self, DeviceApi};
 use crate::config::Web;
+use crate::metrics::{self, Counters};
 use crate::virtual_device::{self, VirtualDevice};
 use crate::voice::Snapshot;
 
@@ -89,22 +91,25 @@ fn normalise(name: &str) -> String {
     name.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 
-/// The routes: Connect procedures under `/pinna.v1.DeviceService/`, the
-/// virtual Echo Dot's socket in the development VM (ADR 0014), the
-/// dashboard's files for everything else.
+/// The routes: Connect procedures under `/pinna.v1.DeviceService/`,
+/// `/metrics` (ADR 0020), the virtual Echo Dot's socket in the development VM
+/// (ADR 0014), the dashboard's files for everything else.
 pub fn app(
     api: Arc<DeviceApi>,
     root: &Path,
     hosts: Hosts,
     virt: Option<Arc<VirtualDevice>>,
+    registry: Arc<Registry>,
 ) -> axum::Router {
     let files = axum::Router::new()
         .fallback_service(ServeDir::new(root))
         .layer(middleware::from_fn(cache_control));
-    let mut router = axum::Router::new().route_service(
-        "/pinna.v1.DeviceService/{method}",
-        api::router(api.clone()).into_axum_service(),
-    );
+    let mut router = axum::Router::new()
+        .route_service(
+            "/pinna.v1.DeviceService/{method}",
+            api::router(api.clone()).into_axum_service(),
+        )
+        .route("/metrics", axum::routing::get(scrape).with_state(registry));
     if let Some(v) = virt {
         router = router.route(
             virtual_device::ROUTE,
@@ -225,6 +230,24 @@ async fn check_host(State(hosts): State<Hosts>, req: Request, next: Next) -> Res
     }
 }
 
+/// `/metrics`: read off the async workers, which also run the voice path.
+async fn scrape(State(registry): State<Arc<Registry>>) -> Response {
+    match tokio::task::spawn_blocking(move || metrics::render(&registry)).await {
+        Ok(body) => (
+            [
+                (header::CONTENT_TYPE, metrics::CONTENT_TYPE),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            body,
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!("metrics: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
 /// Hashed build output under `/assets/` never changes; everything else
 /// (`index.html`) is fetched fresh, because image builds fix file times and a
 /// conditional request would keep a stale page after an update.
@@ -246,6 +269,7 @@ pub async fn start(
     api: Arc<DeviceApi>,
     cfg: &Web,
     virt: Option<Arc<VirtualDevice>>,
+    counters: &Counters,
 ) -> Result<Option<SocketAddr>> {
     if cfg.listen.is_empty() {
         return Ok(None);
@@ -262,7 +286,13 @@ pub async fn start(
         .await
         .with_context(|| format!("binding the dashboard on {}", cfg.listen))?;
     let addr = listener.local_addr()?;
-    let app = app(api, &cfg.root, hosts, virt);
+    let registry = metrics::registry(
+        Arc::new(api.info().clone()),
+        api.watch(),
+        counters,
+        metrics::Sources::default(),
+    );
+    let app = app(api, &cfg.root, hosts, virt, Arc::new(registry));
     tokio::spawn(async move {
         if let Err(e) =
             axum::serve(listener, app.into_make_service_with_connect_info::<Conn>()).await
@@ -388,10 +418,18 @@ mod tests {
         };
         let api = Arc::new(DeviceApi::new(info, status_rx, in_tx));
         Fixture {
-            app: app(api, &dir, hosts(), None),
+            app: app(api, &dir, hosts(), None, Arc::new(registry())),
             _inputs: in_rx,
             dir,
         }
+    }
+
+    fn registry() -> Registry {
+        let mut r = Registry::default();
+        let c = prometheus_client::metrics::counter::Counter::<u64>::default();
+        c.inc();
+        r.register("pinna_test", "A test counter", c);
+        r
     }
 
     async fn send(
@@ -444,6 +482,21 @@ mod tests {
         let (status, headers, _) = send(&f, get("10.0.0.2", "/assets/gone-0000.js")).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    }
+
+    #[tokio::test]
+    async fn serves_metrics_to_known_hosts() {
+        let f = fixture("metrics", false);
+        let (status, headers, body) = send(&f, get("192.168.1.5", "/metrics")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            headers[header::CONTENT_TYPE],
+            "text/plain; version=0.0.4; charset=utf-8"
+        );
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        assert!(body.contains("\npinna_test_total 1\n"), "{body}");
+        let (status, _, _) = send(&f, get("evil.example", "/metrics")).await;
+        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST);
     }
 
     #[tokio::test]
@@ -550,12 +603,16 @@ mod tests {
             root: f.dir.clone(),
             allowed_hosts: Vec::new(),
         };
-        assert_eq!(start(api.clone(), &cfg, None).await.unwrap(), None);
+        let counters = Counters::default();
+        assert_eq!(
+            start(api.clone(), &cfg, None, &counters).await.unwrap(),
+            None
+        );
         // A typo in the config is an error for main to log, never a panic.
         let cfg = Web {
             listen: "0.0.0.0:eighty".into(),
             ..cfg
         };
-        assert!(start(api, &cfg, None).await.is_err());
+        assert!(start(api, &cfg, None, &counters).await.is_err());
     }
 }

@@ -795,6 +795,13 @@ async fn wait_pcm_running(status: Option<&Path>, session: &mut Session) -> Resul
     }
 }
 
+static UNDERRUNS: AtomicU64 = AtomicU64::new(0);
+
+/// Underruns the player reported since the process started.
+pub fn underruns() -> u64 {
+    UNDERRUNS.load(Ordering::Relaxed)
+}
+
 /// Log the player's messages. aplay reports an underrun as `underrun!!! (at
 /// least N ms long)`, even with `-q`, and restarts the PCM, which on the Echo
 /// Dot switches the amp off and on again (an audible crack).
@@ -802,6 +809,7 @@ async fn log_player(stderr: ChildStderr) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         if line.contains("underrun") {
+            UNDERRUNS.fetch_add(1, Ordering::Relaxed);
             tracing::warn!("speaker {line}");
         } else {
             tracing::debug!("speaker player: {line}");
