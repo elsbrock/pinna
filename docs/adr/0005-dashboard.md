@@ -105,6 +105,9 @@ Constraints:
   good or hasn't been started yet; not while an install runs or the running
   slot is on trial. The running slot can be made active again, which keeps an
   installed update back without a restart. Amended 2026-11-16.
+- **Proposed in ADR 0017: `/mcp`.** The same listener would offer the device's
+  tools to agents over MCP in standalone mode, under the same LAN trust
+  ([ADR 0017](0017-standalone-mode.md)).
 
 ## Consequences
 

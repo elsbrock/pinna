@@ -44,6 +44,8 @@ and what anyone on the LAN can read).
   AirPlay and Bluetooth state, paired phones. Counted since pinnad started:
   wakes by word, near misses, Assist runs and errors, speaker underruns, and a
   histogram of the time from the end of speech to the reply's first audio.
+  - Proposed in ADR 0017: standalone runs add stage times, spending, guards and tool calls
+    ([ADR 0017](0017-standalone-mode.md)).
 - **No voice phase, no volume.** They change faster than a scrape interval
   sees, say nothing about health, and once stored in a time series they become
   a record of who was home and when. For the same reason nothing that follows

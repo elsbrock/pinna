@@ -56,6 +56,8 @@ the near-miss log line names the word that scored instead.
   - Without a client (Home Assistant away, or not set up), the dashboard chooses through `UpdateSettings`.
     When Home Assistant comes back, its dropdowns show "No wake word" for a word it didn't choose, until
     someone chooses there; the satellite keeps listening for it meanwhile.
+  - Proposed in ADR 0017: in standalone mode the dashboard always chooses, because Home Assistant has
+    no Assist satellite and so no dropdowns ([ADR 0017](0017-standalone-mode.md)).
 - **`[wake]` in `pinnad.toml` gives the first-boot word.** `keyword`, `id` and `phrase` keep their meaning
   for that word, so existing overrides still parse.
 - **Built-in words are a table in pinnad** (id, phrase, file). A word whose file is missing isn't offered.

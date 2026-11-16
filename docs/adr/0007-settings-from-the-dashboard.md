@@ -29,6 +29,7 @@ Assistant uses it. Builds on ADR 0005.
   - Each setting is an optional field on `UpdateSettingsRequest` and a field on `Settings`, documented with its range.
   - pinnad checks the value and rejects a bad one with `InvalidArgument` and a sentence the dashboard can show.
 - **Every setting is also a Home Assistant entity**, through the same code path, unless Home Assistant has its own way to do the same thing.
+  - Proposed in ADR 0017: the standalone settings are on the dashboard only ([ADR 0017](0017-standalone-mode.md)).
 - **Every entity is also on the dashboard**, through the same code path, unless only Home Assistant uses it. Home Assistant may be absent: before the satellite is added, while it is down, or in a later standalone mode. Only Home Assistant uses:
   - the event entities (buttons, voice assistant, playback, timer, notification): they trigger automations
   - turning the "Notification" switch on: Home Assistant raises a notification, and the dashboard clears it
