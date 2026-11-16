@@ -1,7 +1,9 @@
 # ADR 0007: Settings the dashboard writes live in settings.toml
 
 Status: proposed (2026-11-15), amended 2026-11-16: `pinnad.toml` is for
-developers only, and owners need neither a file nor SSH. Builds on ADR 0005.
+developers only, and owners need neither a file nor SSH. Amended 2026-11-16:
+every entity is on the dashboard too, unless only Home Assistant uses it.
+Builds on ADR 0005.
 
 ## Context
 
@@ -27,6 +29,13 @@ developers only, and owners need neither a file nor SSH. Builds on ADR 0005.
   - Each setting is an optional field on `UpdateSettingsRequest` and a field on `Settings`, documented with its range.
   - pinnad checks the value and rejects a bad one with `InvalidArgument` and a sentence the dashboard can show.
 - **Every setting is also a Home Assistant entity**, through the same code path, unless Home Assistant has its own way to do the same thing.
+- **Every entity is also on the dashboard**, through the same code path, unless only Home Assistant uses it. Home Assistant may be absent: before the satellite is added, while it is down, or in a later standalone mode. Only Home Assistant uses:
+  - the event entities (buttons, voice assistant, playback, timer, notification): they trigger automations
+  - turning the "Notification" switch on: Home Assistant raises a notification, and the dashboard clears it
+  - choosing the wake words while Home Assistant is connected (ADR 0013)
+  - announcements: Home Assistant's announce actions play its own speech, and can start a conversation after it.
+
+  So the dashboard has the "Listening direction" switch, the "Reply volume" number, the "LED ring" light, the media player with a URL to play, and the wake word's phrase on each recent wake, which "Last wake word" shows only for wakes that start a request. These were left out before. The reply volume's reason was that one number can't say it follows Volume: `Settings.reply_volume` is now optional, and `UpdateSettings.reply_follows_volume` makes replies follow Volume again, which Home Assistant's number can't do.
 - **Writes are durable:** write a temporary file, fsync it, rename it, then fsync the directory. `UpdateSettings` fails if the write does. The change still applies until the satellite restarts, and the error says it will be lost then, so the dashboard never claims a change is saved when it isn't.
 - **`settings.toml` keeps keys it doesn't know.** After a rollback to an older image, a key that only the newer pinnad writes must not reset the other settings, mute included, and must still be there after the next update. pinnad reads unknown keys and writes them back unchanged. pinnad images from before this amendment drop them on their next save. The two `pinnad.toml` files keep refusing unknown keys.
 - **First settings:**

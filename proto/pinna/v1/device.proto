@@ -92,6 +92,13 @@ service DeviceService {
   // The Bluetooth bridge reports the adapter and the paired phones. Accepted
   // only from the device itself.
   rpc ReportBluetooth(ReportBluetoothRequest) returns (ReportBluetoothResponse);
+  // Change the ring light, like Home Assistant's "LED ring" light.
+  rpc SetRingLight(SetRingLightRequest) returns (SetRingLightResponse);
+  // Resume, pause, stop, mute or unmute the media player, like Home
+  // Assistant's media player controls.
+  rpc ControlMedia(ControlMediaRequest) returns (ControlMediaResponse);
+  // Play a URL on the media player, like Home Assistant's "Play media".
+  rpc PlayMedia(PlayMediaRequest) returns (PlayMediaResponse);
 }
 
 enum Phase {
@@ -196,6 +203,10 @@ message WakeEvent {
   // other rules (too quiet against the background noise, or too short). The
   // sensitivity doesn't change that.
   bool reached_threshold = 5;
+  // The phrase of the wake word that woke it; empty for a near miss. Home
+  // Assistant's "Last wake word" shows it too when the wake starts a request,
+  // not when it stops an alarm or calibration takes it.
+  string phrase = 6;
 }
 
 message Status {
@@ -248,6 +259,52 @@ message Status {
   AirPlay airplay = 25;
   // Bluetooth as it runs, not only as switched (ADR 0011).
   Bluetooth bluetooth = 26;
+  // The ring as a light (Home Assistant's "LED ring" light).
+  RingLight ring_light = 27;
+  // The media player (Home Assistant's "Media player").
+  Media media = 28;
+}
+
+enum MediaState {
+  MEDIA_STATE_UNSPECIFIED = 0;
+  MEDIA_STATE_IDLE = 1;
+  // Playing, or waiting for the stream's data.
+  MEDIA_STATE_PLAYING = 2;
+  MEDIA_STATE_PAUSED = 3;
+  // An announcement plays; the music waits under it.
+  MEDIA_STATE_ANNOUNCING = 4;
+}
+
+// Music on the media lane, from Home Assistant, AirPlay, Bluetooth or
+// PlayMedia, and Home Assistant's announcements.
+message Media {
+  MediaState state = 1;
+  // What plays or last played; empty for AirPlay and Bluetooth.
+  string url = 2;
+  // AirPlay or Bluetooth plays. Pausing ends their session, like stopping.
+  bool stream = 3;
+  // The music is muted (not the microphones), until unmuted.
+  bool muted = 4;
+  // Why the last media ended badly; cleared by the next play.
+  string error = 5;
+  // The satellite has a working speaker: without one, nothing plays.
+  bool available = 6;
+  // 0..=100: the stream's own volume while AirPlay or Bluetooth plays,
+  // Volume otherwise.
+  uint32 volume = 7;
+}
+
+// The ring as a light. The ring shows it while idle, below a running timer and
+// a notification and above music. It starts off when the satellite starts.
+message RingLight {
+  bool on = 1;
+  // 0..=100, under the LED brightness setting.
+  uint32 brightness = 2;
+  // 0xRRGGBB.
+  uint32 rgb = 3;
+  // One of `effects`.
+  string effect = 4;
+  repeated string effects = 5;
 }
 
 message Bluetooth {
@@ -331,7 +388,8 @@ message LastBoot {
 
 // Runtime settings, persisted on the satellite and shared with Home Assistant.
 message Settings {
-  // 1 was reply_volume: it follows `volume` unless set, which Home Assistant manages.
+  // 1 was a reply volume that could not say it follows `volume`;
+  // `reply_volume` replaced it.
   reserved 1;
   // Wake word detection on or off.
   bool wake_word = 2;
@@ -360,6 +418,11 @@ message Settings {
   string time_zone = 12;
   // 9 was allowed_hosts, replaced by `url` (ADR 0021).
   reserved 9;
+  // The volume of replies and announcements 0..=100, never louder than
+  // `volume`. Unset: they follow `volume`.
+  optional uint32 reply_volume = 14;
+  // The listening ring points at the talker.
+  bool listening_direction = 15;
 }
 
 message GetStatusRequest {}
@@ -460,6 +523,66 @@ message UpdateSettingsRequest {
   optional string url = 13;
   // 8 was allowed_hosts, replaced by `url`.
   reserved 8;
+  // 0..=100: replies stop following `volume`.
+  optional uint32 reply_volume = 14;
+  // true: replies follow `volume` again; refused together with
+  // `reply_volume`. false: they keep the current volume, until `reply_volume`
+  // changes it.
+  optional bool reply_follows_volume = 15;
+  optional bool listening_direction = 16;
+}
+
+// Only the fields that are set change.
+message SetRingLightRequest {
+  optional bool on = 1;
+  // 0..=100.
+  optional uint32 brightness = 2;
+  // 0xRRGGBB.
+  optional uint32 rgb = 3;
+  // One of RingLight.effects.
+  optional string effect = 4;
+}
+
+message SetRingLightResponse {
+  Status status = 1;
+}
+
+enum MediaCommand {
+  MEDIA_COMMAND_UNSPECIFIED = 0;
+  // Resume what is paused.
+  MEDIA_COMMAND_PLAY = 1;
+  MEDIA_COMMAND_PAUSE = 2;
+  // Stop the music, or the announcement that plays.
+  MEDIA_COMMAND_STOP = 3;
+  MEDIA_COMMAND_MUTE = 4;
+  MEDIA_COMMAND_UNMUTE = 5;
+}
+
+// Refused on a satellite without a working speaker.
+message ControlMediaRequest {
+  // Unspecified with `volume` set: only the volume changes.
+  MediaCommand command = 1;
+  // 0..=100, as Home Assistant's media player volume: the stream's own volume
+  // while AirPlay or Bluetooth plays (the sender isn't told), Volume
+  // otherwise.
+  optional uint32 volume = 2;
+}
+
+message ControlMediaResponse {
+  Status status = 1;
+}
+
+// Refused on a satellite without a working speaker.
+message PlayMediaRequest {
+  // An http:// or https:// URL, at most 2048 bytes, of MP3, FLAC, Ogg or WAV
+  // audio. It replaces what plays; a voice request or an announcement plays
+  // over it. The satellite fetches it from its own network, following
+  // redirects.
+  string url = 1;
+}
+
+message PlayMediaResponse {
+  Status status = 1;
 }
 
 message ListTimeZonesRequest {}

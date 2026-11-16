@@ -5,7 +5,14 @@ import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 
 import type { Frame } from "../../../design/ring.ts";
-import { DeviceService, type ListSatellitesResponse, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
+import {
+  DeviceService,
+  type ListSatellitesResponse,
+  type MediaCommand,
+  type SetRingLightRequest,
+  type Status,
+  type UpdateSettingsRequest,
+} from "../gen/pinna/v1/device_pb.ts";
 import { frameFromBytes } from "./ledframe.ts";
 import { toasts } from "./toast.svelte.ts";
 import { LED_TEST_STEP_MS, type Link } from "./view.ts";
@@ -34,6 +41,8 @@ class Device {
   /** The ring as the satellite shows it (WatchRing), while live; null before
    *  its first frame. Kept, not followed, while this tab is hidden. */
   ring = $state.raw<Frame | null>(null);
+  /** The media error last dismissed on Now playing, until another one. */
+  mediaErrorDismissed = $state("");
   /** A restart was asked for: being unreachable is expected, not an error. */
   restarting = $state(false);
   /** A factory reset was asked for: the satellite may come back over USB only. */
@@ -161,11 +170,19 @@ class Device {
 
   /** Run a command; its reply's Status wins. A rejection shows as a toast,
    *  or, `inline`, only comes back for a form to show. Resolves to the
-   *  rejection's sentence, or null. */
-  async #command(run: () => Promise<{ status?: Status }>, done?: string, inline = false): Promise<string | null> {
+   *  rejection's sentence, or null. Without `replyStatus`, the reply's Status
+   *  is ignored: it was taken before the change finished, and arriving after
+   *  WatchStatus's newer one, it would put the old state back. */
+  async #command(
+    run: () => Promise<{ status?: Status }>,
+    done?: string,
+    inline = false,
+    replyStatus = true,
+  ): Promise<string | null> {
     this.busy = true;
     try {
-      this.#accept((await run()).status);
+      const reply = await run();
+      if (replyStatus) this.#accept(reply.status);
       if (done) toasts.show(done);
       return null;
     } catch (e) {
@@ -217,6 +234,24 @@ class Device {
     } catch (e) {
       toasts.show(errorSentence(e), "danger");
     }
+  }
+  /** The ring as a light, like Home Assistant's "LED ring" light. */
+  setRingLight(patch: Partial<Omit<SetRingLightRequest, "$typeName">>) {
+    return this.#command(() => client.setRingLight(patch));
+  }
+  /** Resume, pause, stop, mute or unmute the media player. */
+  // The media lane reports its new state after the reply: WatchStatus brings it.
+  controlMedia(command: MediaCommand) {
+    return this.#command(() => client.controlMedia({ command }), undefined, false, false);
+  }
+  /** The media player's volume: a stream's own while AirPlay or Bluetooth plays. */
+  setMediaVolume(volume: number) {
+    return this.#command(() => client.controlMedia({ volume }), undefined, false, false);
+  }
+  /** Play a URL; a rejection comes back for the form to show. Whether it
+   *  plays shows in Status.media, which the page follows. */
+  playMedia(url: string) {
+    return this.#command(() => client.playMedia({ url }), undefined, true, false);
   }
   clearNotification() {
     return this.#command(() => client.clearNotification({}), "Notification cleared");

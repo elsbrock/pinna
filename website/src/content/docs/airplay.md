@@ -57,8 +57,9 @@ While AirPlay plays:
 - The sender's volume sets how loud the music is. **Volume**, on the dashboard,
   the device's buttons or the **Volume** entity in Home Assistant, sets how loud
   the device is overall.
-- The Home Assistant media player's volume is the music's volume, and changing
-  it changes the music. The sender's slider doesn't move. When you next move
+- The Home Assistant media player's volume, and **Music volume** under
+  **Now playing** on the dashboard's **Overview**, is the music's volume, and
+  changing it changes the music. The sender's slider doesn't move. When you next move
   the slider, or pause and play on the sender, the sender's volume applies
   again.
 - **Stop** or **Pause** in Home Assistant stops the music on the device, but

@@ -15,7 +15,9 @@ Run: just e2e   (needs `just models`)
 """
 
 import asyncio
+import functools
 import http.server
+import json
 import math
 import os
 import queue
@@ -24,10 +26,16 @@ import struct
 import subprocess
 import tempfile
 import threading
+import urllib.request
 from pathlib import Path
 
 import pytest
-from aioesphomeapi import APIClient, VoiceAssistantEventType, VoiceAssistantTimerEventType
+from aioesphomeapi import (
+    APIClient,
+    MediaPlayerState,
+    VoiceAssistantEventType,
+    VoiceAssistantTimerEventType,
+)
 from aioesphomeapi.model import Event
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,8 +55,9 @@ def pinnad():
     yield from start_pinnad()
 
 
-def start_pinnad(settings: str | None = None):
-    """Run pinnad on the fixture; `settings` seeds its settings.toml."""
+def start_pinnad(settings: str | None = None, extra: str = ""):
+    """Run pinnad on the fixture; `settings` seeds its settings.toml, `extra`
+    adds to its pinnad.toml."""
     if not MODELS.exists():
         pytest.skip("wake word models missing (just models)")
     port = free_port()
@@ -71,7 +80,7 @@ port = {port}
 mdns = false
 [leds]
 backend = "none"
-"""
+{extra}"""
         )
         logf = open(Path(d) / "pinnad.log", "w+")
         proc = subprocess.Popen(
@@ -531,3 +540,91 @@ def test_wake_word_stops_a_ringing_alarm(pinnad):
     assert proc.poll() is None, "pinnad exited"
     log = (settings_file.parent / "pinnad.log").read_text()
     assert "timer alarm dismissed by wake word" in log, "the alarm stopped some other way"
+
+
+@pytest.fixture
+def pinnad_with_api():
+    """pinnad with its control API (the dashboard's) on a free port."""
+    api = free_port()
+    for port, proc, settings_file in start_pinnad(extra=f'[api]\nlisten = "127.0.0.1:{api}"\n'):
+        yield port, api, proc
+
+
+def rpc(api: int, method: str, body: dict) -> dict:
+    """One DeviceService call in the Connect protocol's JSON, as the dashboard makes it."""
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{api}/pinna.v1.DeviceService/{method}",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return json.load(resp)
+
+
+async def dashboard_flow(port: int, api: int, media_url: str):
+    client = APIClient("127.0.0.1", port, None)
+    for _ in range(50):
+        try:
+            await client.connect(login=True)
+            break
+        except Exception:
+            await asyncio.sleep(0.1)
+    entities, _ = await client.list_entities_services()
+    object_ids = {e.key: e.object_id for e in entities}
+    states: dict = {}
+    client.subscribe_states(lambda s: states.__setitem__(object_ids.get(s.key), s))
+
+    async def until(object_id: str, ok):
+        for _ in range(100):
+            s = states.get(object_id)
+            if s is not None and ok(s):
+                return s
+            await asyncio.sleep(0.05)
+        raise AssertionError(f"{object_id}: {states.get(object_id)}")
+
+    async def call(method: str, body: dict) -> dict:
+        return await asyncio.to_thread(rpc, api, method, body)
+
+    # Replies follow the volume (50) until something sets their own.
+    await until("reply_volume", lambda s: s.state == 50)
+    await until("listening_direction", lambda s: s.state)
+    await until("led_ring", lambda s: not s.state)
+
+    await call("SetRingLight", {"on": True, "rgb": 0x00FF00, "brightness": 40, "effect": "Pulse"})
+    light = await until("led_ring", lambda s: s.state)
+    assert (round(light.red, 2), round(light.green, 2), round(light.blue, 2)) == (0, 1, 0), light
+    assert abs(light.brightness - 0.4) < 0.01 and light.effect == "Pulse", light
+
+    await call("UpdateSettings", {"listeningDirection": False, "replyVolume": 20})
+    await until("listening_direction", lambda s: not s.state)
+    await until("reply_volume", lambda s: s.state == 20)
+    # Home Assistant's number can't go back to following the volume; the dashboard can.
+    await call("UpdateSettings", {"replyFollowsVolume": True})
+    await until("reply_volume", lambda s: s.state == 50)
+
+    await call("PlayMedia", {"url": media_url})
+    await until("media_player", lambda s: s.state == MediaPlayerState.PLAYING)
+    await call("ControlMedia", {"command": "MEDIA_COMMAND_PAUSE"})
+    await until("media_player", lambda s: s.state == MediaPlayerState.PAUSED)
+    # No stream plays: the media player's volume is the volume.
+    status = (await call("ControlMedia", {"volume": 30}))["status"]
+    await until("media_player", lambda s: abs(s.volume - 0.3) < 0.01)
+    assert status["volume"] == 30 and status["media"]["volume"] == 30, status
+    status = (await call("ControlMedia", {"command": "MEDIA_COMMAND_STOP"}))["status"]
+    assert status["media"]["available"], status["media"]
+    await until("media_player", lambda s: s.state == MediaPlayerState.IDLE)
+
+    await client.disconnect()
+
+
+def test_dashboard_changes_reach_home_assistant(pinnad_with_api):
+    port, api, proc = pinnad_with_api
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(FIXTURE.parent))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/{FIXTURE.name}"
+        asyncio.run(dashboard_flow(port, api, url))
+    finally:
+        server.shutdown()
+    assert proc.poll() is None, "pinnad exited"

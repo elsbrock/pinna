@@ -90,6 +90,70 @@ pub enum ApiCommand {
     ForgetBluetoothDevice(String, ApiReply),
     /// From the Bluetooth bridge.
     ReportBluetooth(crate::bluetooth::Bridge, ApiReply),
+    SetRingLight(RingLightPatch, ApiReply),
+    /// Play, Pause, Stop, Mute or Unmute, and the media player's volume
+    /// (0..=100); at least one of them.
+    ControlMedia(Option<MediaPlayerCommand>, Option<u8>, ApiReply),
+    /// Already checked: http(s), not too long.
+    PlayMedia(String, ApiReply),
+}
+
+/// The media player, as the API shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaSnapshot {
+    pub state: MediaPlayerStateKind,
+    pub url: Option<String>,
+    pub stream: bool,
+    pub muted: bool,
+    pub error: Option<String>,
+    pub available: bool,
+    /// The media player's volume: the stream's while a stream plays.
+    pub volume: u8,
+}
+
+impl Default for MediaSnapshot {
+    fn default() -> Self {
+        Self {
+            state: MediaPlayerStateKind::Idle,
+            url: None,
+            stream: false,
+            muted: false,
+            error: None,
+            available: false,
+            volume: 0,
+        }
+    }
+}
+
+/// The ring light: Home Assistant's "LED ring" light entity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RingLight {
+    pub on: bool,
+    /// 0..=1.
+    pub brightness: f32,
+    /// 0..=1 each.
+    pub rgb: (f32, f32, f32),
+    pub effect: LightEffect,
+}
+
+impl Default for RingLight {
+    fn default() -> Self {
+        Self {
+            on: false,
+            brightness: 1.0,
+            rgb: (1.0, 1.0, 1.0),
+            effect: LightEffect::Solid,
+        }
+    }
+}
+
+/// Changes to the ring light; `None` leaves a field as it is.
+#[derive(Debug, Default)]
+pub struct RingLightPatch {
+    pub on: Option<bool>,
+    pub brightness: Option<f32>,
+    pub rgb: Option<(f32, f32, f32)>,
+    pub effect: Option<LightEffect>,
 }
 
 /// Settings to change from the API; `None` leaves a setting as it is.
@@ -111,6 +175,12 @@ pub struct SettingsPatch {
     pub url: Option<Option<String>>,
     pub airplay: Option<bool>,
     pub bluetooth: Option<bool>,
+    /// Stop following `volume` at this level.
+    pub reply_volume: Option<u8>,
+    /// `true`: follow `volume` again. `false`: keep the current level.
+    /// Never `true` together with `reply_volume` (the API refuses that).
+    pub reply_follows_volume: Option<bool>,
+    pub listening_direction: Option<bool>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -120,10 +190,12 @@ pub struct WakeRecord {
     pub woke: bool,
     pub score: f32,
     pub reached_threshold: bool,
+    /// The word that woke it; empty for a near miss.
+    pub phrase: String,
 }
 
 impl WakeRecord {
-    fn now(woke: bool, score: f32, reached_threshold: bool) -> Self {
+    fn now(woke: bool, score: f32, reached_threshold: bool, phrase: String) -> Self {
         let unix_ms = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
@@ -132,6 +204,7 @@ impl WakeRecord {
             woke,
             score,
             reached_threshold,
+            phrase,
         }
     }
 }
@@ -183,6 +256,8 @@ pub struct Snapshot {
     pub airplay: crate::airplay::Report,
     /// Bluetooth as it is (ADR 0011).
     pub bluetooth: crate::bluetooth::Report,
+    pub ring_light: RingLight,
+    pub media: MediaSnapshot,
 }
 
 /// A running calibration, as the API shows it.
@@ -218,6 +293,8 @@ impl Default for Snapshot {
             led_test: false,
             airplay: Default::default(),
             bluetooth: Default::default(),
+            ring_light: RingLight::default(),
+            media: MediaSnapshot::default(),
         }
     }
 }
@@ -353,6 +430,9 @@ pub struct Brain {
     media_phase: MediaPhase,
     /// The media lane is on a live stream (AirPlay, Bluetooth).
     media_stream: bool,
+    /// What the media lane plays or last played, and why it last failed.
+    media_url: Option<String>,
+    media_error: Option<String>,
     /// The bridges' sender volume for live streams, 0..=100 (not saved:
     /// each bridge sets its own before it connects).
     stream_volume: u8,
@@ -476,6 +556,8 @@ impl Brain {
             media_muted: false,
             media_phase: MediaPhase::Idle,
             media_stream: false,
+            media_url: None,
+            media_error: None,
             stream_volume: 100,
             ducked: false,
             timers: HashMap::new(),
@@ -591,7 +673,7 @@ impl Brain {
                 let phrase = self.opts.wake_words.phrase(&id).to_owned();
                 tracing::info!("wake word {phrase:?} detected (score {score:.2})");
                 if self.wake_armed() && !self.muted() {
-                    self.record_wake(WakeRecord::now(true, score, false));
+                    self.record_wake(WakeRecord::now(true, score, false, phrase.clone()));
                     self.shared
                         .counters
                         .wakes
@@ -628,7 +710,12 @@ impl Brain {
                 score,
                 reached_threshold,
             } => {
-                self.record_wake(WakeRecord::now(false, score, reached_threshold));
+                self.record_wake(WakeRecord::now(
+                    false,
+                    score,
+                    reached_threshold,
+                    String::new(),
+                ));
                 self.shared.counters.near_misses.inc();
                 if let Some(c) = &mut self.calibration {
                     c.near_miss(score, Instant::now());
@@ -649,6 +736,12 @@ impl Brain {
                 self.media_phase = state.phase;
                 self.media_muted = state.muted;
                 self.media_stream = state.url.as_deref() == Some(STREAM_URL);
+                // A failed play reports no URL: keep the one that failed, to
+                // show with the error.
+                if state.url.is_some() || state.error.is_none() {
+                    self.media_url = state.url;
+                }
+                self.media_error = state.error;
                 self.update_media_state();
             }
             Input::Ha(cmd) => self.ha(cmd).await,
@@ -763,6 +856,17 @@ impl Brain {
                 if let Some(on) = patch.bluetooth {
                     self.set_bluetooth(on).await;
                 }
+                match (patch.reply_follows_volume, patch.reply_volume) {
+                    (Some(true), _) => self.set_reply_volume(None).await,
+                    (_, Some(v)) => self.set_reply_volume(Some(v)).await,
+                    (Some(false), None) if self.settings.reply_volume.is_none() => {
+                        self.set_reply_volume(Some(self.settings.volume)).await;
+                    }
+                    _ => {}
+                }
+                if let Some(on) = patch.listening_direction {
+                    self.set_listening_direction(on).await;
+                }
                 // Applied, but a restart would undo it: say so (ADR 0007).
                 let saved = self.store.try_save(&self.settings).map_err(|e| {
                     tracing::warn!("saving the settings: {e}");
@@ -802,6 +906,27 @@ impl Brain {
             }
             ApiCommand::ReportBluetooth(bridge, reply) => {
                 self.bluetooth_report(bridge);
+                (Ok(()), reply)
+            }
+            ApiCommand::SetRingLight(patch, reply) => {
+                self.set_light(patch).await;
+                (Ok(()), reply)
+            }
+            ApiCommand::ControlMedia(_, _, reply) | ApiCommand::PlayMedia(_, reply)
+                if self.speaker.is_none() =>
+            {
+                let why = "This satellite has no working speaker, so it can't play media. \
+                           Logs, under System, says why.";
+                (Err(why.into()), reply)
+            }
+            ApiCommand::ControlMedia(command, volume, reply) => {
+                // The same path as Home Assistant's media player.
+                let volume = volume.map(|v| f32::from(v) / 100.0);
+                self.media(command, volume, None, false).await;
+                (Ok(()), reply)
+            }
+            ApiCommand::PlayMedia(url, reply) => {
+                self.media(None, None, Some(url), false).await;
                 (Ok(()), reply)
             }
         };
@@ -855,6 +980,21 @@ impl Brain {
             wake_sound: self.wake_sound(),
             encrypted: self.encrypted,
             led_test: self.led_test.is_some(),
+            media: MediaSnapshot {
+                state: self.media_state,
+                url: self.media_url.clone().filter(|u| u != STREAM_URL),
+                stream: self.media_stream,
+                muted: self.media_muted,
+                error: self.media_error.clone(),
+                available: self.speaker.is_some(),
+                volume: self.media_volume(),
+            },
+            ring_light: RingLight {
+                on: self.light_on,
+                brightness: self.light_brightness,
+                rgb: self.light_rgb,
+                effect: self.light_effect,
+            },
             airplay: self.airplay_report.borrow().clone(),
             bluetooth: crate::bluetooth::report(
                 self.opts.bluetooth,
@@ -1115,22 +1255,20 @@ impl Brain {
                 rgb,
                 effect,
             } => {
-                if let Some(on) = on {
-                    self.light_on = on;
-                }
-                if let Some(b) = brightness {
-                    self.light_brightness = b.clamp(0.0, 1.0);
-                }
-                if let Some(c) = rgb {
-                    self.light_rgb = c;
-                }
-                if let Some(e) = effect {
-                    match LightEffect::from_name(&e) {
-                        Some(effect) => self.light_effect = effect,
-                        None => tracing::warn!("unknown light effect {e:?}"),
+                let effect = effect.and_then(|e| {
+                    let known = LightEffect::from_name(&e);
+                    if known.is_none() {
+                        tracing::warn!("unknown light effect {e:?}");
                     }
-                }
-                self.send_light().await;
+                    known
+                });
+                self.set_light(RingLightPatch {
+                    on,
+                    brightness,
+                    rgb,
+                    effect,
+                })
+                .await;
             }
             HaCommand::MuteSwitch(on) => {
                 self.sw_muted = on;
@@ -1141,10 +1279,8 @@ impl Brain {
                 self.set_wake_word(on).await;
             }
             HaCommand::Switch { object_id, on } if object_id == "listening_direction" => {
-                tracing::info!("listening direction on the ring: {on}");
-                self.settings.listening_direction = on;
+                self.set_listening_direction(on).await;
                 self.store.save(&self.settings);
-                self.send(DeviceEvent::SwitchState { object_id, on }).await;
             }
             HaCommand::Switch { object_id, on } if object_id == "wake_sound" => {
                 self.set_wake_sound(on).await;
@@ -1326,6 +1462,24 @@ impl Brain {
             }
             TimerEventType::Unknown(_) => {}
         }
+    }
+
+    /// The ring light, from Home Assistant or the dashboard; Home Assistant
+    /// sees the result.
+    async fn set_light(&mut self, patch: RingLightPatch) {
+        if let Some(on) = patch.on {
+            self.light_on = on;
+        }
+        if let Some(b) = patch.brightness {
+            self.light_brightness = b.clamp(0.0, 1.0);
+        }
+        if let Some(c) = patch.rgb {
+            self.light_rgb = c;
+        }
+        if let Some(effect) = patch.effect {
+            self.light_effect = effect;
+        }
+        self.send_light().await;
     }
 
     async fn send_light(&self) {
@@ -1797,8 +1951,10 @@ impl Brain {
                 return;
             }
             "reply_volume" => {
-                self.settings.reply_volume = Some(v);
-                self.apply_reply_volume();
+                // The dashboard's path, which reports the level back.
+                self.set_reply_volume(Some(v)).await;
+                self.store.save(&self.settings);
+                return;
             }
             "wake_word_sensitivity" => {
                 self.settings.wake_sensitivity = v;
@@ -1816,6 +1972,30 @@ impl Brain {
         self.send(DeviceEvent::NumberState {
             object_id,
             value: f32::from(v),
+        })
+        .await;
+    }
+
+    /// The reply volume, or `None` to follow `volume`; Home Assistant's
+    /// number shows the level either way. The caller saves.
+    async fn set_reply_volume(&mut self, v: Option<u8>) {
+        self.settings.reply_volume = v.map(|v| v.min(100));
+        tracing::info!("reply volume {:?}", self.settings.reply_volume);
+        self.apply_reply_volume();
+        self.send(DeviceEvent::NumberState {
+            object_id: "reply_volume".into(),
+            value: f32::from(self.settings.reply_volume()),
+        })
+        .await;
+    }
+
+    /// The "Listening direction" switch. The caller saves.
+    async fn set_listening_direction(&mut self, on: bool) {
+        tracing::info!("listening direction on the ring: {on}");
+        self.settings.listening_direction = on;
+        self.send(DeviceEvent::SwitchState {
+            object_id: "listening_direction".into(),
+            on,
         })
         .await;
     }

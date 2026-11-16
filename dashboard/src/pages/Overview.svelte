@@ -9,6 +9,7 @@
   import PhaseBadge from "../lib/PhaseBadge.svelte";
   import SignalBars from "../lib/SignalBars.svelte";
   import StatTile from "../lib/StatTile.svelte";
+  import NowPlaying from "../lib/NowPlaying.svelte";
   import Timers from "../lib/Timers.svelte";
   import VirtualDevice from "../lib/VirtualDevice.svelte";
   import {
@@ -195,6 +196,7 @@
     {#if s.virtualDevice}<VirtualDevice />{/if}
     <Controls />
     <Timers />
+    <NowPlaying />
   </div>
 {/if}
 

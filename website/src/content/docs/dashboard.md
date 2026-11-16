@@ -4,9 +4,15 @@ description: Open the device's dashboard in a browser to see its state, change s
 ---
 
 The device serves a small web page, the dashboard, on port 80. It shows what
-the device is doing and lets you change most of what Home Assistant can
-change. It doesn't change the **Listening direction** switch, the ring's colour
-and effect, or the **Reply volume**. It also does what Home Assistant can't:
+the device is doing and lets you change what Home Assistant can change,
+except for these:
+
+- While Home Assistant is connected, it chooses the wake words.
+- Only Home Assistant raises a [notification](/docs/ring-and-buttons/#notifications);
+  the dashboard clears it.
+- Only Home Assistant plays announcements.
+
+It also does what Home Assistant can't:
 it installs updates, restarts the device, shows the network details and the
 log, and runs the ring's test pattern. It works without an internet
 connection: the page and its fonts come from the device itself.
@@ -37,8 +43,8 @@ phone they are in a bar at the bottom.
 
 | Section | What you can do |
 | --- | --- |
-| **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. **Identify** runs the ring's test pattern, to find the device among others |
-| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the ring brightness, and turn the **Wake sound** on or off. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them. **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
+| **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. While music plays, **Now playing** shows it, with pause, resume and stop, and **Mute music**. **Identify** runs the ring's test pattern, to find the device among others |
+| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), set the ring brightness, turn the **Wake sound** and **Listening direction** on or off, and [use the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light). **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them, and [plays music from a URL](#play-music-from-a-url). **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
 | **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted. See the device's name, and copy the host and port to add the device by hand |
 | **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. [Set a dashboard address](#set-a-dashboard-address), where else the dashboard opens |
 | **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
@@ -152,7 +158,8 @@ does.
 **Recent wakes** lists the last 20 wakes and near misses. A near miss is a
 sound that scored at least 0.20 but didn't wake the device; it may have
 reached the setting and been rejected for another reason. Each entry shows
-when it happened, its score, and what that score means at the current setting:
+when it happened and its score; a wake also names the word that woke the
+device. Each entry says what its score means at the current setting:
 
 - **Woke**: the entry says which sensitivity ignores that score. If it wasn't
   you, select **Set to**.
@@ -181,7 +188,7 @@ An entry without a button says why:
   you, move the device away from the TV or the radio, or turn off the wake word
   while it plays.
 
-The list holds scores only, not what was said. It records only while the
+The list holds scores and wake word names, not what was said. It records only while the
 device listens for the wake word. It starts again when `pinnad` or the device
 restarts.
 
@@ -215,11 +222,35 @@ Calibration won't start while the microphones or the wake word are off, or
 while a request or a timer alarm is active. It also works before Home
 Assistant connects, because a calibration wake starts no request.
 
+## Play music from a URL
+
+1. Open **Voice & sound > Media sources**.
+2. Under **Play a URL**, enter the address of an MP3, FLAC, Ogg Vorbis or WAV
+   file or stream that starts with `http://` or `https://`, and select
+   **Play**.
+3. Open **Overview**. **Now playing** shows what plays, with **Pause**,
+   **Resume** and **Stop**.
+
+The device fetches the address itself, from your network, and plays it as it
+plays music from Home Assistant: it replaces what was playing, gets quieter
+while the device listens or speaks, and follows **Volume**. AAC, HLS and
+playlist files such as `.m3u` and `.pls` don't play. For a radio station, use
+its direct MP3 or Ogg stream address, not the playlist link.
+
+For AirPlay and Bluetooth, **Now playing** offers **Stop** only, because
+pausing ends the phone's session, and **Music volume**: how loud that music
+plays on the device. The phone's own slider doesn't move. If an address doesn't play, **Now playing**
+says why, for example that the server answered `HTTP 404 Not Found`.
+**Mute music** silences the music only; replies, the wake sound and timer
+alarms still sound.
+
 ## Who can use the dashboard
 
 The dashboard has no login. **Anyone on your network can use it.** That
 includes renaming the device, setting its dashboard address, moving it to
-another Wi-Fi network or forgetting the one it uses, restarting the device,
+another Wi-Fi network or forgetting the one it uses, making the device play an
+address from your network, lighting the ring in any colour, the solid red of
+the muted microphones included, restarting the device,
 installing an update and switching to the version in the other slot. Only an update that
 is signed with your release key installs, and the device goes back to the
 previous version if the new one doesn't start. An older release that you

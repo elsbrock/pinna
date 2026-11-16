@@ -6,7 +6,10 @@ on the dashboard. Amended 2026-11-16: the dashboard draws the ring's own frames
 (WatchRing). Amended 2026-11-16: the dashboard switches to the other slot and
 keeps an installed update back (SetActiveSlot). Amended by ADR 0020
 (2026-11-16): the listener also serves `/metrics`. Amended by ADR 0021: one
-dashboard address replaces the host names.
+dashboard address replaces the host names. Amended 2026-11-16: the dashboard
+offers what Home Assistant's entities offer, unless only Home Assistant uses
+it (ADR 0007): the ring light, the media player and playing a URL, the reply
+volume and the listening direction.
 
 ## Context
 
@@ -62,9 +65,12 @@ Constraints:
   device page.
 - **What the dashboard can do.** Everything is in `DeviceService`:
   - status and controls
-  - settings (wake word, sensitivity, ring brightness, wake sound), through the
-    same paths as Home Assistant's entities, the name (ADR 0007), the
-    hostname (ADR 0010) and the dashboard address (ADR 0021)
+  - settings (wake word, sensitivity, ring brightness, wake sound, reply
+    volume, listening direction), through the same paths as Home Assistant's
+    entities, the name (ADR 0007), the hostname (ADR 0010) and the dashboard
+    address (ADR 0021)
+  - the ring light and the media player, through the same paths as Home
+    Assistant's light and media player, and playing an http(s) URL
   - tuning the wake word sensitivity with the device's + and − buttons, until
     the calibration ends
   - the network: Wi-Fi (ADR 0008), the hostname (ADR 0010) and the
@@ -109,6 +115,12 @@ Constraints:
     or removes the address, and opens the satellite to DNS rebinding through
     that name. The Network page shows it.
   - start a conversation, stop an alarm and clear a waiting notification
+  - light the ring in any colour, the solid red of the muted microphones
+    included, while the microphones are on
+  - make the satellite play an http(s) URL. It fetches the URL from its own
+    network, following redirects, and the dashboard shows the error when it
+    can't play it. `InstallUpdate` already fetches any http(s) URL.
+  - pause, stop and mute what plays
   - start a wake word calibration, which takes the volume buttons over and
     keeps the wake word from starting requests until it ends, 5 minutes after
     the last + or − press
@@ -131,7 +143,10 @@ Constraints:
   forgetting Wi-Fi, renaming the host and setting the dashboard address go beyond it; the address widens the DNS rebinding allowlist. So does clearing a
   notification: it fires the `cleared` event, which tells Home Assistant that
   someone at the device acknowledged it. An ESPHome client can only turn the
-  switch off. Turning the web listener off (`[web] listen = ""` in
+  switch off. So does letting replies follow the volume again: Home
+  Assistant's number can't express it. Once Home Assistant has set an
+  encryption key (ADR 0018), the dashboard is the only way to do any of this
+  without the key, a fake mute ring and playing a URL included. Turning the web listener off (`[web] listen = ""` in
   `/var/lib/pinna/pinnad.toml`) is a developer setting until authentication
   exists (ADR 0007).
 - A satellite opened by a custom DNS name (not `.local`) needs that name as its

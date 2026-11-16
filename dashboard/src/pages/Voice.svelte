@@ -6,6 +6,7 @@
   import { device } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
+  import ColorRow from "../lib/ColorRow.svelte";
   import Ring from "../lib/Ring.svelte";
   import Select from "../lib/Select.svelte";
   import Slider from "../lib/Slider.svelte";
@@ -14,6 +15,8 @@
 
   const s = $derived(device.status);
   const set = $derived(s?.settings);
+  const light = $derived(s?.ringLight);
+  const hex = (rgb: number) => `#${rgb.toString(16).padStart(6, "0")}`;
   const live = $derived(device.link === "live");
 
   // Two words at most, chosen in Home Assistant while it is connected, here
@@ -112,10 +115,32 @@
         label="Volume"
         value={s.volume}
         disabled={!live}
-        hint="Replies follow this volume unless Home Assistant sets a reply volume."
+        hint="Everything the satellite plays: music, chimes and replies."
         commit={(v) => device.setVolume(v)}
       />
     </div>
+    <SwitchRow
+      id="reply-follows"
+      label="Replies follow Volume"
+      checked={set.replyVolume === undefined}
+      disabled={!live}
+      busy={device.busy}
+      hint="Off: replies and announcements get their own volume."
+      toggle={(on) => device.updateSettings({ replyFollowsVolume: on })}
+    />
+    {#if set.replyVolume !== undefined}
+      <div class="pn-row is-stack">
+        <Slider
+          label="Reply volume"
+          value={set.replyVolume}
+          disabled={!live}
+          hint={set.replyVolume > s.volume
+            ? `Replies and announcements play at ${s.volume} now: never louder than Volume.`
+            : "Replies and announcements. They are never louder than Volume."}
+          commit={(v) => device.updateSettings({ replyVolume: v })}
+        />
+      </div>
+    {/if}
     <SwitchRow
       id="wake-sound"
       label="Wake sound"
@@ -128,7 +153,7 @@
     <a class="pn-row" href="#/voice/media-sources">
       <span class="pn-row-text">
         <span class="pn-row-label">Media sources</span>
-        <span class="pn-row-hint">Let phones and computers play music on this satellite</span>
+        <span class="pn-row-hint">Let phones and computers play music on this satellite, or play a URL</span>
       </span>
       <span class="pn-row-value"
         >{[set.airplay && "AirPlay", set.bluetooth && "Bluetooth"].filter(Boolean).join(", ") || "Off"}</span
@@ -147,6 +172,52 @@
         commit={(v) => device.updateSettings({ ledBrightness: v })}
       />
     </div>
+    <SwitchRow
+      id="listening-direction"
+      label="Listening direction"
+      checked={set.listeningDirection}
+      disabled={!live}
+      busy={device.busy}
+      hint="While it listens, the ring points at whoever is talking."
+      toggle={(on) => device.updateSettings({ listeningDirection: on })}
+    />
+    {#if light}
+      <SwitchRow
+        id="ring-light"
+        label="Light"
+        checked={light.on}
+        disabled={!live}
+        busy={device.busy}
+        hint="A colour of your own while the satellite is idle. A timer or a notification shows instead while there is one. It goes off when the satellite restarts. Home Assistant calls it the LED ring light."
+        toggle={(on) => device.setRingLight({ on })}
+      />
+      {#if light.on}
+        <ColorRow
+          id="ring-light-colour"
+          label="Colour"
+          value={hex(light.rgb)}
+          disabled={!live}
+          choose={(v) => device.setRingLight({ rgb: parseInt(v.slice(1), 16) })}
+        />
+        <div class="pn-row is-stack">
+          <Slider
+            label="Light brightness"
+            value={light.brightness}
+            disabled={!live}
+            hint="Within the ring's brightness above."
+            commit={(v) => device.setRingLight({ brightness: v })}
+          />
+        </div>
+        <Select
+          id="ring-light-effect"
+          label="Effect"
+          value={light.effect}
+          options={light.effects.map((e) => ({ id: e, label: e }))}
+          disabled={!live}
+          choose={(effect) => device.setRingLight({ effect })}
+        />
+      {/if}
+    {/if}
     <div class="pn-row">
       <div class="pn-row-text">
         <span class="pn-row-label">Identify</span>

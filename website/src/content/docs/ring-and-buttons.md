@@ -30,7 +30,7 @@ this table wins:
 | --- | --- |
 | Solid red | The microphones are off |
 | Amber, pulsing twice a second | A timer has finished. Say the wake word or press the Action button to stop it |
-| Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch in Home Assistant |
+| Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch, on the dashboard under **Voice & sound** or in Home Assistant |
 | A violet light that runs around the ring | Home Assistant is working on your request |
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | A green arc | Wake word calibration runs. The arc shows the sensitivity, and the volume buttons tune it. It shows in place of a running timer's arc, a notification, the light and the music. See [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) |
@@ -50,8 +50,10 @@ Two short signals appear on top of these states:
 
 ### Use the ring as a light
 
-The ring is also a light in Home Assistant, named **LED ring**. You can set
-its colour, its brightness and one of three effects:
+The ring is also a light: **Light**, under **Voice & sound** on the
+[dashboard](/docs/dashboard/), and **LED ring** in Home Assistant. You can set
+its colour, its brightness and one of three effects. On the dashboard,
+**Colour**, **Light brightness** and **Effect** appear once **Light** is on:
 
 - **Solid**: steady light.
 - **Pulse**: slowly getting brighter and dimmer.
@@ -60,10 +62,12 @@ its colour, its brightness and one of three effects:
 The light shows only while the device is idle. When the device listens, works
 on a request or speaks, the ring shows that state, and the light comes back
 afterwards. While a timer runs or a notification is waiting, the ring shows
-that instead of the light. The light takes the place of the music lights.
+that instead of the light. The light takes the place of the music lights. It
+goes off when the device restarts.
 
-**LED brightness** in Home Assistant sets the brightness of the whole ring,
-including the states above.
+**Brightness** on the dashboard, **LED brightness** in Home Assistant, sets
+the brightness of the whole ring, including the states above. The light's own
+brightness works within it.
 
 ### Notifications
 

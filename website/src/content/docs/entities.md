@@ -24,7 +24,7 @@ keep the name the device had when you added it.
 | Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | Notification | `notification` | Switch | On, off | Turn it on to show a waiting notification on the ring. It turns off when someone clears it on the device or the dashboard. See [Notifications](/docs/ring-and-buttons/#notifications) |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
-| Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements relative to the speaker volume. Replies are never louder than the speaker volume |
+| Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements, on the same scale as **Volume** and never louder than it. Until it is set, it follows **Volume**; the dashboard's **Replies follow Volume** switch makes it follow again. See [Volume](/docs/audio/#volume) |
 | Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68. The dashboard's [Wake word page](/docs/dashboard/#tune-the-wake-word) shows which setting catches or ignores each recent wake and near miss |
 | LED brightness | `led_brightness` | Number | 0 to 100, in % | Sets the brightness of the whole ring |
 | Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
@@ -80,6 +80,9 @@ commands change the volume by 5.
 While [AirPlay](/docs/airplay/#play-music) or
 [Bluetooth](/docs/bluetooth/#play-music) plays, the media player's volume is
 the music's own, and pause stops the music.
+
+The [dashboard](/docs/dashboard/#play-music-from-a-url) shows the same media
+player and plays a URL too.
 
 ## Voice assistant and timers
 

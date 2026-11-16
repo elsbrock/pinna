@@ -21,6 +21,9 @@
   const phrase = $derived(s?.wakeWord?.phrase || "the wake word");
   // pinnad sends the oldest first.
   const recent = $derived([...(s?.wakeWord?.recent ?? [])].reverse());
+  // Which word woke it, as Home Assistant's "Last wake word" says.
+  const heard = (e: { woke: boolean; phrase: string }) =>
+    e.woke ? (e.phrase ? `Woke on "${e.phrase}"` : "Woke") : "Almost woke";
   const now = $derived(new Date(device.now));
 
   const cal = $derived(s?.wakeWord?.calibration);
@@ -146,7 +149,7 @@
         {@const undo = changed?.key === key && set.wakeSensitivity === changed.to ? changed : null}
         <div class="pn-row">
           <div class="pn-row-text">
-            <span class="pn-row-label">{e.woke ? "Woke" : "Almost woke"} · {when(Number(e.unixMs), now)}</span>
+            <span class="pn-row-label">{heard(e)} · {when(Number(e.unixMs), now)}</span>
             <span id="wk-{key}" class="pn-row-hint">{a.text}</span>
           </div>
           <!-- One button for both, so focus stays on it when it turns into Back. -->
@@ -177,8 +180,8 @@
       </div>
     {/if}
     {#snippet foot()}
-      The score is how sure the satellite was that it heard "{phrase}", from 0 to 1. Only scores are kept, not what was
-      said, and the list starts again when the satellite restarts.
+      The score is how sure the satellite was that it heard "{phrase}", from 0 to 1. Only scores and the wake word's name
+      are kept, not what was said, and the list starts again when the satellite restarts.
     {/snippet}
   </Group>
 {/if}

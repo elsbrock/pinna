@@ -29,6 +29,10 @@ use pinna_api::{
     WatchStatusResponse,
 };
 use pinna_api::{
+    ControlMediaRequest, ControlMediaResponse, Media, MediaCommand, MediaState, PlayMediaRequest,
+    PlayMediaResponse, RingLight, SetRingLightRequest, SetRingLightResponse,
+};
+use pinna_api::{
     FactoryResetRequest, FactoryResetResponse, ForgetWifiRequest, ForgetWifiResponse,
     JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListSatellitesRequest,
     ListSatellitesResponse, ListTimeZonesRequest, ListTimeZonesResponse, ListWifiRequest,
@@ -43,8 +47,9 @@ use pinna_hal::led::{Frame, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::boot;
+use crate::leds::LightEffect;
 use crate::updates::{Event, Updater, UpdaterPaths, stage_of};
-use crate::voice::{ApiCommand, ApiReply, Input, SettingsPatch, Snapshot};
+use crate::voice::{ApiCommand, ApiReply, Input, RingLightPatch, SettingsPatch, Snapshot};
 use crate::wifi::{Wifi, WifiPaths};
 use crate::{logs, network, satellites, wifi};
 
@@ -187,6 +192,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
                     wakes_from: pinna_wakeword::WakeConfig::min_sensitivity_for(w.score)
                         .map(u32::from),
                     reached_threshold: w.reached_threshold,
+                    phrase: w.phrase.clone(),
                     ..Default::default()
                 })
                 .collect(),
@@ -258,11 +264,50 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             airplay: s.settings.airplay,
             bluetooth: s.settings.bluetooth,
             time_zone: s.settings.time_zone.clone().unwrap_or_else(|| "UTC".into()),
+            reply_volume: s.settings.reply_volume.map(u32::from),
+            listening_direction: s.settings.listening_direction,
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
         api_key_from_image: info.key_from_image,
         led_test: s.led_test,
+        ring_light: MessageField::some(ring_light(&s.ring_light)),
+        media: MessageField::some(media(&s.media)),
+        ..Default::default()
+    }
+}
+
+/// The media player as the API reports it.
+fn media(m: &crate::voice::MediaSnapshot) -> Media {
+    use pinna_esphome::MediaPlayerStateKind as K;
+    let state = match m.state {
+        K::Idle => MediaState::MEDIA_STATE_IDLE,
+        K::Playing => MediaState::MEDIA_STATE_PLAYING,
+        K::Paused => MediaState::MEDIA_STATE_PAUSED,
+        K::Announcing => MediaState::MEDIA_STATE_ANNOUNCING,
+    };
+    Media {
+        state: buffa::EnumValue::Known(state),
+        url: m.url.clone().unwrap_or_default(),
+        stream: m.stream,
+        muted: m.muted,
+        error: m.error.clone().unwrap_or_default(),
+        available: m.available,
+        volume: m.volume.into(),
+        ..Default::default()
+    }
+}
+
+/// The ring light as the API reports it.
+fn ring_light(l: &crate::voice::RingLight) -> RingLight {
+    let byte = |v: f32| u32::from((v.clamp(0.0, 1.0) * 255.0).round() as u8);
+    let (r, g, b) = l.rgb;
+    RingLight {
+        on: l.on,
+        brightness: (l.brightness.clamp(0.0, 1.0) * 100.0).round() as u32,
+        rgb: byte(r) << 16 | byte(g) << 8 | byte(b),
+        effect: l.effect.name().into(),
+        effects: LightEffect::NAMES.iter().map(|&n| n.into()).collect(),
         ..Default::default()
     }
 }
@@ -605,7 +650,15 @@ impl DeviceService for DeviceApi {
             url,
             airplay: request.airplay,
             bluetooth: request.bluetooth,
+            reply_volume: percent("reply_volume", request.reply_volume)?,
+            reply_follows_volume: request.reply_follows_volume,
+            listening_direction: request.listening_direction,
         };
+        if patch.reply_follows_volume == Some(true) && patch.reply_volume.is_some() {
+            return Err(ConnectError::invalid_argument(
+                "replies can't follow the volume and have their own volume at once",
+            ));
+        }
         let snap = self
             .command(|r| ApiCommand::UpdateSettings(patch, r))
             .await?;
@@ -730,6 +783,103 @@ impl DeviceService for DeviceApi {
         self.command(|r| ApiCommand::ReportBluetooth(bridge, r))
             .await?;
         Response::ok(ReportBluetoothResponse::default())
+    }
+
+    async fn set_ring_light(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, SetRingLightRequest>,
+    ) -> ServiceResult<SetRingLightResponse> {
+        if request.brightness.is_some_and(|b| b > 100) {
+            return Err(ConnectError::invalid_argument(
+                "brightness must be between 0 and 100",
+            ));
+        }
+        if request.rgb.is_some_and(|c| c > 0xff_ffff) {
+            return Err(ConnectError::invalid_argument(
+                "rgb must be a colour from 0x000000 to 0xffffff",
+            ));
+        }
+        let effect = match request.effect {
+            Some(name) => Some(LightEffect::from_name(name).ok_or_else(|| {
+                ConnectError::invalid_argument(format!(
+                    "effect must be one of {}",
+                    LightEffect::NAMES.join(", ")
+                ))
+            })?),
+            None => None,
+        };
+        let channel = |c: u32, shift: u32| ((c >> shift) & 0xff) as f32 / 255.0;
+        let patch = RingLightPatch {
+            on: request.on,
+            brightness: request.brightness.map(|b| b as f32 / 100.0),
+            rgb: request
+                .rgb
+                .map(|c| (channel(c, 16), channel(c, 8), channel(c, 0))),
+            effect,
+        };
+        let snap = self.command(|r| ApiCommand::SetRingLight(patch, r)).await?;
+        Response::ok(SetRingLightResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn control_media(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, ControlMediaRequest>,
+    ) -> ServiceResult<ControlMediaResponse> {
+        use pinna_esphome::MediaPlayerCommand as C;
+        let command = match request.command.as_known() {
+            Some(MediaCommand::MEDIA_COMMAND_PLAY) => Some(C::Play),
+            Some(MediaCommand::MEDIA_COMMAND_PAUSE) => Some(C::Pause),
+            Some(MediaCommand::MEDIA_COMMAND_STOP) => Some(C::Stop),
+            Some(MediaCommand::MEDIA_COMMAND_MUTE) => Some(C::Mute),
+            Some(MediaCommand::MEDIA_COMMAND_UNMUTE) => Some(C::Unmute),
+            Some(MediaCommand::MEDIA_COMMAND_UNSPECIFIED) if request.volume.is_some() => None,
+            _ => {
+                return Err(ConnectError::invalid_argument(
+                    "command must be play, pause, stop, mute or unmute, unless volume is set",
+                ));
+            }
+        };
+        let volume = match request.volume {
+            Some(v) if v > 100 => {
+                return Err(ConnectError::invalid_argument(
+                    "volume must be between 0 and 100",
+                ));
+            }
+            v => v.map(|v| v as u8),
+        };
+        let snap = self
+            .command(|r| ApiCommand::ControlMedia(command, volume, r))
+            .await?;
+        Response::ok(ControlMediaResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn play_media(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, PlayMediaRequest>,
+    ) -> ServiceResult<PlayMediaResponse> {
+        let url = request.url.trim();
+        let valid = url.len() <= 2048
+            && url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
+        if !valid {
+            return Err(ConnectError::invalid_argument(
+                "the URL must start with http:// or https:// and be at most 2048 characters",
+            ));
+        }
+        let url = url.to_owned();
+        let snap = self.command(|r| ApiCommand::PlayMedia(url, r)).await?;
+        Response::ok(PlayMediaResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
     }
 
     async fn stop_calibration(
@@ -1533,6 +1683,146 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ring_light_round_trip() {
+        let (c, _inputs) = start_device().await;
+        let light = |s: Status| s.ring_light.into_option().unwrap();
+        let before = light(status(&c).await);
+        assert!(!before.on, "off when the satellite starts");
+        assert_eq!((before.brightness, before.rgb), (100, 0xffffff));
+        assert_eq!(before.effect, "Solid");
+        assert_eq!(before.effects, ["Solid", "Pulse", "Flash"]);
+
+        let set = async |req: SetRingLightRequest| {
+            c.set_ring_light(req).await.map(|r| {
+                light(
+                    r.into_view()
+                        .to_owned_message()
+                        .status
+                        .into_option()
+                        .unwrap(),
+                )
+            })
+        };
+        let on = set(SetRingLightRequest {
+            on: Some(true),
+            rgb: Some(0x00_80_ff),
+            brightness: Some(40),
+            effect: Some("Pulse".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert!(on.on);
+        assert_eq!(
+            (on.rgb, on.brightness, on.effect.as_str()),
+            (0x0080ff, 40, "Pulse")
+        );
+
+        let off = set(SetRingLightRequest {
+            on: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert!(!off.on);
+        assert_eq!(
+            (off.rgb, off.brightness),
+            (0x0080ff, 40),
+            "unset fields stay"
+        );
+
+        for bad in [
+            SetRingLightRequest {
+                brightness: Some(101),
+                ..Default::default()
+            },
+            SetRingLightRequest {
+                rgb: Some(0x100_0000),
+                ..Default::default()
+            },
+            SetRingLightRequest {
+                effect: Some("Rainbow".into()),
+                ..Default::default()
+            },
+        ] {
+            let err = set(bad).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        }
+    }
+
+    #[tokio::test]
+    async fn reply_volume_and_listening_direction_round_trip() {
+        let (c, _inputs) = start_device().await;
+        let settings = |s: Status| s.settings.into_option().unwrap();
+        let before = settings(status(&c).await);
+        assert_eq!(before.reply_volume, None, "replies follow the volume");
+        assert!(before.listening_direction);
+
+        let update = async |req: pinna_api::UpdateSettingsRequest| {
+            c.update_settings(req).await.map(|r| {
+                settings(
+                    r.into_view()
+                        .to_owned_message()
+                        .status
+                        .into_option()
+                        .unwrap(),
+                )
+            })
+        };
+        // Stop following: the reply keeps the current volume.
+        let pinned = update(pinna_api::UpdateSettingsRequest {
+            reply_follows_volume: Some(false),
+            listening_direction: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(pinned.reply_volume, Some(40));
+        assert!(!pinned.listening_direction);
+
+        let set = update(pinna_api::UpdateSettingsRequest {
+            reply_volume: Some(25),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(set.reply_volume, Some(25));
+        assert!(!set.listening_direction, "unset fields stay");
+
+        // Turning following off again keeps the level it has.
+        let kept = update(pinna_api::UpdateSettingsRequest {
+            reply_follows_volume: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(kept.reply_volume, Some(25));
+
+        for bad in [
+            pinna_api::UpdateSettingsRequest {
+                reply_volume: Some(101),
+                ..Default::default()
+            },
+            pinna_api::UpdateSettingsRequest {
+                reply_volume: Some(30),
+                reply_follows_volume: Some(true),
+                ..Default::default()
+            },
+        ] {
+            let err = update(bad).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        }
+
+        let follows = update(pinna_api::UpdateSettingsRequest {
+            reply_follows_volume: Some(true),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(follows.reply_volume, None);
+    }
+
+    #[tokio::test]
     async fn recent_wakes_carry_the_setting_that_wakes_on_them() {
         let (c, inputs) = start_device().await;
         let near = |score, reached_threshold| Input::NearMiss {
@@ -1555,15 +1845,15 @@ mod tests {
         let got: Vec<_> = wake
             .recent
             .iter()
-            .map(|e| (e.woke, e.wakes_from, e.reached_threshold))
+            .map(|e| (e.woke, e.wakes_from, e.reached_threshold, e.phrase.as_str()))
             .collect();
         assert_eq!(
             got,
             [
-                (false, Some(85), false),
-                (false, Some(57), true),
-                (false, None, false),
-                (true, Some(53), false),
+                (false, Some(85), false, ""),
+                (false, Some(57), true, ""),
+                (false, None, false, ""),
+                (true, Some(53), false, "Alexa"),
             ]
         );
         assert!(wake.recent.iter().all(|e| e.unix_ms > 1_700_000_000_000));
@@ -1916,6 +2206,124 @@ mod tests {
         inputs.send(ha_volume(0.6)).await.unwrap();
         c.set_stream_volume(stream_volume(60)).await.unwrap();
         assert_eq!(status(&c).await.volume, 60, "no stream: the speaker volume");
+    }
+
+    #[tokio::test]
+    async fn media_reports_the_lane_and_refuses_without_a_speaker() {
+        let (c, inputs) = start_device().await;
+        let media = |s: Status| s.media.into_option().unwrap();
+        let idle = media(status(&c).await);
+        assert_eq!(idle.state.as_known(), Some(MediaState::MEDIA_STATE_IDLE));
+        assert!(!idle.available, "no speaker in these tests");
+
+        let lane = |state: pinna_audio::MediaState| inputs.send(Input::Media(state));
+        lane(pinna_audio::MediaState {
+            phase: pinna_audio::MediaPhase::Paused,
+            url: Some("http://radio.example/live.mp3".into()),
+            muted: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let paused = media(status(&c).await);
+        assert_eq!(
+            paused.state.as_known(),
+            Some(MediaState::MEDIA_STATE_PAUSED)
+        );
+        assert_eq!(paused.url, "http://radio.example/live.mp3");
+        assert!(paused.muted && !paused.stream);
+
+        // A stream has no URL to show; a failure stays until the next play.
+        lane(pinna_audio::MediaState {
+            phase: pinna_audio::MediaPhase::Playing,
+            url: Some(pinna_audio::STREAM_URL.into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let stream = media(status(&c).await);
+        assert!(stream.stream && stream.url.is_empty());
+        // While a stream plays, the media player's volume is the stream's own.
+        c.set_stream_volume(pinna_api::SetStreamVolumeRequest {
+            percent: 30,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let s = status(&c).await;
+        assert_eq!((s.media.volume, s.volume), (30, 40));
+        lane(pinna_audio::MediaState {
+            url: Some("http://radio.example/gone.aac".into()),
+            error: Some("unsupported format".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let failed = media(status(&c).await);
+        assert_eq!(failed.state.as_known(), Some(MediaState::MEDIA_STATE_IDLE));
+        assert_eq!(failed.error, "unsupported format");
+        // A failure that reports no URL keeps the one that failed.
+        lane(pinna_audio::MediaState {
+            error: Some("HTTP 404 Not Found".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(media(status(&c).await).url, "http://radio.example/gone.aac");
+        assert_eq!(failed.volume, 40, "no stream: the speaker volume");
+
+        let play = |url: &str| PlayMediaRequest {
+            url: url.into(),
+            ..Default::default()
+        };
+        let control = |command| ControlMediaRequest {
+            command: buffa::EnumValue::Known(command),
+            ..Default::default()
+        };
+        for url in [
+            "file:///etc/passwd",
+            "/var/lib/pinna/x.mp3",
+            "ftp://x/y.mp3",
+        ] {
+            let err = c.play_media(play(url)).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument, "{url}");
+        }
+        let long = format!("http://x.example/{}", "a".repeat(2048));
+        let err = c.play_media(play(&long)).await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        let err = c
+            .control_media(control(MediaCommand::MEDIA_COMMAND_UNSPECIFIED))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        let err = c
+            .control_media(ControlMediaRequest {
+                volume: Some(101),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        // A volume alone is a valid request; without a speaker it is refused.
+        let err = c
+            .control_media(ControlMediaRequest {
+                volume: Some(20),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+
+        let err = c
+            .play_media(play("https://radio.example/live.mp3"))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        let err = c
+            .control_media(control(MediaCommand::MEDIA_COMMAND_PAUSE))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
     }
 
     #[tokio::test]

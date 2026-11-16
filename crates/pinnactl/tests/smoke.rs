@@ -86,6 +86,27 @@ impl DeviceService for Fake {
     ) -> ServiceResult<ForgetBluetoothDeviceResponse> {
         status_reply!(ForgetBluetoothDeviceResponse, self)
     }
+    async fn set_ring_light(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, SetRingLightRequest>,
+    ) -> ServiceResult<SetRingLightResponse> {
+        status_reply!(SetRingLightResponse, self)
+    }
+    async fn control_media(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ControlMediaRequest>,
+    ) -> ServiceResult<ControlMediaResponse> {
+        status_reply!(ControlMediaResponse, self)
+    }
+    async fn play_media(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, PlayMediaRequest>,
+    ) -> ServiceResult<PlayMediaResponse> {
+        status_reply!(PlayMediaResponse, self)
+    }
     async fn report_bluetooth(
         &self,
         _: RequestContext,

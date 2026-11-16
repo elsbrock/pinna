@@ -77,8 +77,14 @@ The volume runs from 0 to 100 and is applied digitally. 0 is silent, 1 is about
 above 70 also the extra gain of its stock firmware, up to +14.5 dB at 100. A
 limiter holds the peaks just under full scale, so loud replies and music
 don't clip.
-**Reply volume** lowers the voice lane relative to the volume, and is never
-louder than the volume.
+**Reply volume** sets how loud replies and announcements are, on the same
+scale as the volume, and they are never louder than the volume: with the
+volume at 30, a reply volume of 50 plays at 30. Until someone sets it, replies
+follow the volume. On the [dashboard](/docs/dashboard/), turn
+**Replies follow Volume** off under **Voice & sound**: **Reply volume**
+appears, set to the current volume. Turning the switch back on makes replies
+follow the volume again, which Home Assistant's **Reply volume** number can't
+do.
 **Stream volume** lowers live audio on the stream socket the same way. It is
 the sending phone's or computer's volume, set by the program that feeds the
 socket. While a stream plays, the Home Assistant media player shows and sets

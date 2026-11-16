@@ -28,6 +28,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   airplay: false,
   bluetooth: false,
   timeZone: "UTC",
+  listeningDirection: true,
   ...over,
 });
 import {

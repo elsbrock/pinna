@@ -2,10 +2,11 @@
      (ADR 0011). Each source is off until switched on here or in Home
      Assistant; while it is on, the page says whether it actually runs. -->
 <script lang="ts">
-  import { AirPlayState, BluetoothState } from "../gen/pinna/v1/device_pb.ts";
+  import { AirPlayState, BluetoothState, MediaState } from "../gen/pinna/v1/device_pb.ts";
   import Confirm from "../lib/Confirm.svelte";
   import { device } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
+  import Icon from "../lib/Icon.svelte";
   import { network } from "../lib/network.svelte.ts";
   import SwitchRow from "../lib/SwitchRow.svelte";
 
@@ -69,6 +70,24 @@
     if (device.busy || now - lastPress < 1000) return;
     lastPress = now;
     void (pairing ? device.stopBluetoothPairing() : device.startBluetoothPairing());
+  }
+  // Play a URL, as Home Assistant's "Play media" does.
+  let url = $state("");
+  let urlError = $state<string | null>(null);
+  const canPlay = $derived(!!s?.media?.available);
+  // The URL last sent, and what became of it: the play starts after the reply.
+  let sent = $state<string | null>(null);
+  const media = $derived(s?.media);
+  const sentPlays = $derived(
+    !!sent && media?.url === sent && (media.state === MediaState.PLAYING || media.state === MediaState.PAUSED),
+  );
+  const sentFailed = $derived(
+    !!sent && media?.url === sent && media.state === MediaState.IDLE && media.error ? media.error : null,
+  );
+  async function play() {
+    const u = url.trim();
+    urlError = await device.playMedia(u);
+    sent = urlError ? null : u;
   }
   let forgetting = $state<{ address: string; name: string } | null>(null);
   let forgetOpen = $state(false);
@@ -215,6 +234,58 @@
       {/each}
     {/if}
   </Group>
+  <Group title="Play a URL">
+    {#snippet foot()}
+      It plays like music from Home Assistant, and stops what was playing. Volume, on Voice &amp; sound, sets how loud;
+      the Overview shows what plays.
+    {/snippet}
+    <form
+      class="pn-row is-stack"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void play();
+      }}
+    >
+      <div class="pn-field" data-invalid={urlError ? "" : undefined}>
+        <label class="pn-field-label" for="media-url">URL</label>
+        <div class="inline">
+          <input
+            id="media-url"
+            class="pn-input is-mono"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="https://example.org/stream.mp3"
+            bind:value={url}
+            disabled={!live || !canPlay}
+            aria-describedby="media-url-hint"
+            aria-invalid={urlError ? "true" : undefined}
+            oninput={() => {
+              urlError = null;
+              sent = null;
+            }}
+          />
+          <button class="pn-btn pn-btn-primary" type="submit" disabled={!live || !canPlay || device.busy || !url.trim()}>
+            Play
+          </button>
+        </div>
+        {#if urlError}<span class="pn-field-error" role="alert"><Icon name="alert" />{urlError}</span>
+        {:else if sentFailed}<span class="pn-field-error" role="alert"
+            ><Icon name="alert" />It didn't play: {sentFailed}</span
+          >
+        {:else if sentPlays}<span class="pn-field-hint" role="status"
+            >Playing. <b>Now playing</b>, on the Overview, pauses and stops it.</span
+          >{/if}
+        <span id="media-url-hint" class="pn-field-hint">
+          {canPlay
+            ? "MP3, FLAC, Ogg or WAV over http or https. AAC, HLS and playlist files (.m3u, .pls) don't play."
+            : "This satellite has no working speaker, so it can't play media. Logs, under System, says why."}
+        </span>
+      </div>
+    </form>
+  </Group>
   <Confirm bind:open={forgetOpen} title="Forget {forgetting?.name}?" action="Forget" danger confirm={forget}>
     <p>
       It can't connect or play any more. To pair it again, also remove “{bt?.name}” from its Bluetooth settings, then
@@ -233,6 +304,15 @@
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+  .inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+  }
+  .inline input {
+    flex: 1 1 220px;
+    width: auto;
   }
   .is-danger {
     color: var(--danger);
