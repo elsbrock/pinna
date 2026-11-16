@@ -1,20 +1,73 @@
 ---
-// An Echo Dot whose ring steps through a voice request with the device's own
-// timings, with the phase word under it. Starts paused (on Listening) under
-// reduced motion, and the Pause button stops it at any time.
-import EchoDot from "./EchoDot.astro";
+// The hero drawing: the Echo (2nd gen) behind, the Echo Dot (2nd gen) in
+// front, staggered so the pair reads with depth. Both rings step through a
+// voice request with the device's own timings, with the phase word under the
+// Dot. Starts paused (on Listening) under reduced motion, and the Pause button
+// stops it at any time.
+import DeviceDrawing from "./DeviceDrawing.astro";
+import { drawingFor } from "../../../design/devices/index.ts";
 
-type Props = { width?: number; class?: string };
-const { width = 340, class: className } = Astro.props;
+type Props = { class?: string };
+const { class: className } = Astro.props;
+
+// The scene, in millimetres on the floor: x to the right, z towards the
+// viewer. The Echo stands at the origin and the Dot in front of its right
+// side, a hand's width clear of it. Both drawings are seen from the same
+// angle, so a floor point (x, z) shows at (x, z * tilt), and each is scaled
+// to the same millimetres.
+const placed = [
+  { model: "echo-2", id: "hero-echo", x: 0, z: 0, label: "Illustration of an Echo (2nd gen) running Pinna." },
+  {
+    model: "echo-dot-2",
+    id: "hero-dot",
+    x: 54,
+    z: 76,
+    label: "Illustration of an Echo Dot running Pinna. Its light ring shows the phase named below.",
+  },
+] as const;
+
+const boxes = placed.map((p) => {
+  const { view, foot, mm, tilt } = drawingFor(p.model)!.stage;
+  const left = p.x - (foot.x - view.x) / mm;
+  const top = p.z * tilt - (foot.y - view.y) / mm;
+  return { ...p, left, top, w: view.w / mm, h: view.h / mm };
+});
+
+// The floor: a disc round both footprints, seen at the same angle.
+const { tilt } = drawingFor("echo-2")!.stage;
+const cx = (placed[0].x + placed[1].x) / 2;
+const cz = (placed[0].z + placed[1].z) / 2;
+const floorR = Math.max(...placed.map((p) => Math.hypot(p.x - cx, p.z - cz) + drawingFor(p.model)!.stage.radius)) + 14;
+const floor = { left: cx - floorR, top: cz * tilt - floorR * tilt, w: 2 * floorR, h: 2 * floorR * tilt };
+
+// The stage is the box round the drawings; the floor may spill past it sideways.
+const minX = Math.min(...boxes.map((b) => b.left));
+const maxX = Math.max(...boxes.map((b) => b.left + b.w));
+const minY = Math.min(...boxes.map((b) => b.top));
+const maxY = Math.max(floor.top + floor.h, ...boxes.map((b) => b.top + b.h));
+const W = maxX - minX;
+const H = maxY - minY;
+const pct = (b: { left: number; top: number; w: number; h: number }) =>
+  `left:${(((b.left - minX) / W) * 100).toFixed(3)}%;top:${(((b.top - minY) / H) * 100).toFixed(3)}%;` +
+  `width:${((b.w / W) * 100).toFixed(3)}%;height:${((b.h / H) * 100).toFixed(3)}%`;
 ---
 
-<figure class:list={["flex flex-col items-center gap-4", className]} data-ring-demo>
-  <EchoDot
-    id="hero-dot"
-    width={width}
-    effect="listening"
-    label="Illustration of an Echo Dot running Pinna. Its light ring shows the phase named below."
-  />
+<figure class:list={["flex w-full flex-col items-center gap-4", className]} data-ring-demo>
+  <div class="relative w-[14rem] max-w-full sm:w-[17rem] lg:w-[22rem]" style={`aspect-ratio:${W.toFixed(2)} / ${H.toFixed(2)}`}>
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute rounded-[50%]"
+      style={`${pct(floor)};background:radial-gradient(closest-side, color-mix(in oklab, var(--ink) 9%, transparent), transparent)`}
+    >
+    </div>
+    {
+      boxes.map((b) => (
+        <div class="absolute" style={pct(b)}>
+          <DeviceDrawing model={b.model} id={b.id} width="100%" label={b.label} />
+        </div>
+      ))
+    }
+  </div>
   <figcaption class="flex max-w-[18rem] flex-col items-center gap-2 text-center">
     <span class="flex items-center gap-2">
       <span class="pn-badge" data-phase="listening">
@@ -24,7 +77,7 @@ const { width = 340, class: className } = Astro.props;
       <button type="button" class="pn-btn pn-btn-quiet pn-btn-sm" data-toggle hidden>Pause</button>
     </span>
     <span class="text-ink-muted text-caption">
-      A demo of the Dot's light ring, using the device's own colours and timing.
+      A demo of the light rings, using the devices' own colours and timing.
     </span>
   </figcaption>
 </figure>
@@ -42,8 +95,11 @@ const { width = 340, class: className } = Astro.props;
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
   for (const root of document.querySelectorAll<HTMLElement>("[data-ring-demo]")) {
-    const leds = [...root.querySelectorAll<SVGPathElement>("[data-led]")];
-    const glows = [...root.querySelectorAll<SVGPathElement>("[data-glow]")];
+    // Every drawing in the demo (the Echo and the Dot) shows the same phase.
+    const drawings = [...root.querySelectorAll<HTMLElement>(".pn-drawing")].map((el) => ({
+      leds: [...el.querySelectorAll<SVGPathElement>("[data-led]")],
+      glows: [...el.querySelectorAll<SVGPathElement>("[data-glow]")],
+    }));
     const badge = root.querySelector<HTMLElement>("[data-phase]");
     const word = root.querySelector<HTMLElement>("[data-word]");
     const toggle = root.querySelector<HTMLButtonElement>("[data-toggle]");
@@ -65,14 +121,17 @@ const { width = 340, class: className } = Astro.props;
         if (badge) badge.dataset.phase = STEPS[i].effect;
         if (word) word.textContent = STEPS[i].word;
       }
-      ringFrame(STEPS[i].effect, t).forEach((p, n) => {
-        const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
-        const opacity = p.c ? displayLevel(p.level) : 0;
-        leds[n]?.setAttribute("stroke", stroke);
-        leds[n]?.setAttribute("stroke-opacity", opacity.toFixed(3));
-        glows[n]?.setAttribute("stroke", stroke);
-        glows[n]?.setAttribute("stroke-opacity", (opacity * 0.6).toFixed(3));
-      });
+      const frame = ringFrame(STEPS[i].effect, t);
+      for (const { leds, glows } of drawings) {
+        frame.forEach((p, n) => {
+          const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
+          const opacity = p.c ? displayLevel(p.level) : 0;
+          leds[n]?.setAttribute("stroke", stroke);
+          leds[n]?.setAttribute("stroke-opacity", opacity.toFixed(3));
+          glows[n]?.setAttribute("stroke", stroke);
+          glows[n]?.setAttribute("stroke-opacity", (opacity * 0.6).toFixed(3));
+        });
+      }
     };
 
     const tick = (now: number) => {

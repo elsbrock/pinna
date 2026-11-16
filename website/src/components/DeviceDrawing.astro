@@ -1,0 +1,34 @@
+---
+// A supported Echo model in three-quarter view. design/devices/ draws it and
+// .pn-drawing in design/pinna.css styles it, so the dashboard shows the same
+// device. Light paths carry data-led / data-glow in pixel order; RingDemo
+// animates them.
+import { drawingFor } from "../../../design/devices/index.ts";
+import type { Effect } from "../../../design/ring.ts";
+
+type Props = {
+  /** The model to draw, by Status.model: "echo-2" or "echo-dot-2". */
+  model: "echo-2" | "echo-dot-2";
+  /** Effect shown before (or without) JavaScript. */
+  effect?: Effect;
+  /** Rendered width, in px or any CSS length; height follows. */
+  width?: number | string;
+  /** Accessible name. */
+  label: string;
+  /** Unique per page: prefixes gradient and filter ids. */
+  id: string;
+  class?: string;
+};
+
+const { model, effect = "listening", width = 300, label, id, class: className } = Astro.props;
+const drawing = drawingFor(model);
+if (!drawing) throw new Error(`no drawing for model "${model}"`);
+---
+
+<span
+  class:list={["pn-drawing", className]}
+  style={`width:${typeof width === "number" ? `${width}px` : width}`}
+  role="img"
+  aria-label={label}
+  set:html={drawing.svg(id, effect)}
+/>

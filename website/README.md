@@ -44,7 +44,7 @@ repository once; every push to `main` that touches `website/**` then deploys.
 | `src/pages/docs/[...slug].astro` | Docs route (one page per Markdown entry) |
 | `src/content/docs/*.md` | Docs content — `index.md` is `/docs/` |
 | `src/layouts/` | Base layout and the docs layout (header, sidebar, pager) |
-| `src/components/` | Header, footer, sidebar, search, icons, logo, and the LED ring (`Ring.astro`, animated in the hero by `RingDemo.astro`) |
+| `src/components/` | Header, footer, sidebar, search, icons, logo, and the device drawings (`DeviceDrawing.astro`, staged and animated in the hero by `RingDemo.astro`) |
 | `src/lib/site.ts` | Site constants, sidebar structure, link helpers |
 | `src/styles/global.css` | Imports the design system (`../design/`), plus site-only styles: chips, cards, docs prose, Shiki and Pagefind theming |
 | `astro.config.mjs` | Base/site, Sätteri Markdown plugins, Shiki themes |
