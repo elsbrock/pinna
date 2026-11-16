@@ -10,9 +10,10 @@ build your own to develop Pinna or to sign with a key of your own.
 
 ## Before you begin
 
-- Use an x86_64 Linux computer with [Nix](https://nixos.org/download/) and
-  flakes enabled. The build needs network access to download the toolchain,
-  the Debian packages and the kernel source.
+- Use an x86_64 Linux computer. [Nix](https://nixos.org/download/) with
+  flakes enabled is the easiest way to get the tools; without it, install the
+  tools that `flake.nix` lists yourself. The build needs network access to
+  download the toolchain, the Debian packages and the kernel source.
 
 ## Get the source and the tools
 
@@ -30,9 +31,12 @@ build your own to develop Pinna or to sign with a key of your own.
    nix develop
    ```
 
-   The first time, it downloads the tools and takes a few minutes.
+   The first time, it downloads the tools and takes a few minutes. Without
+   Nix, skip this step and install the tools that `flake.nix` lists from your
+   distribution.
 
-Run all of the following commands inside the development shell.
+Run all of the following commands with the development shell's tools, or your
+own equivalents.
 
 ## Create a signing key
 

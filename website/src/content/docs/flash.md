@@ -16,10 +16,9 @@ to undo it.
 - Back up the device, as described in
   [What you need](/docs/requirements/#backup-of-the-device). Installing Pinna
   erases the data partition.
-- Run the commands from the folder that holds the images, inside the
-  development shell (`nix develop`) when you built them. The examples say
-  `scripts/flash-gen2.sh`; in a release folder the script is `./flash-gen2.sh`
-  next to the images.
+- Run the commands from the folder that holds the images — in `nix develop`,
+  if you built them with it. The examples say `scripts/flash-gen2.sh`; in a
+  release folder the script is `./flash-gen2.sh` next to the images.
 
 ## What gets written
 

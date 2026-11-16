@@ -11,9 +11,11 @@ larger than a fix, open an issue so that the work isn't duplicated.
 
 ## Set up the tools
 
-Pinna builds on an x86_64 Linux computer with [Nix](https://nixos.org/download/)
-and flakes enabled. The repository's development shell provides every tool:
-the Rust toolchain, the ARM cross compilers, mkosi, QEMU, fastboot,
+Pinna builds on an x86_64 Linux computer. [Nix](https://nixos.org/download/)
+with flakes enabled is the easiest way to get the tools, but Nix is not
+required: without it, install the same tools yourself (`flake.nix` is the
+list). The repository's development shell provides the Rust toolchain, the
+ARM cross compilers, mkosi, QEMU, fastboot,
 [uv](https://docs.astral.sh/uv/) for the Python-based tests, and Node for the
 dashboard (`just web`, `just image` and `just web-check`).
 
@@ -24,7 +26,8 @@ dashboard (`just web`, `just image` and `just web-check`).
    cd pinna
    ```
 
-2. Start the development shell:
+2. Start the development shell, or skip this step and use the tools you
+   installed yourself:
 
    ```sh
    nix develop

@@ -63,8 +63,10 @@ sha256sum *.img > SHA256SUMS
 
 To install a release: any Linux computer with `fastboot`, `adb` and
 `sha256sum` (on Debian/Ubuntu, `android-tools` has the first two). To build:
-an x86_64 Linux computer with [Nix](https://nixos.org/download/) and flakes
-enabled; the development shell provides the build tools and `fastboot`.
+an x86_64 Linux computer. [Nix](https://nixos.org/download/) with flakes
+enabled is the easiest way: `nix develop` provides the build tools and
+`fastboot` at versions the build is known to work with. Nix is optional;
+without it, install the tools that `flake.nix` lists yourself.
 
 - Permission to use the device over USB without `sudo`. On most
   distributions, install the Android udev rules (often packaged as

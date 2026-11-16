@@ -37,7 +37,8 @@ Linux systems applies. Pinna's own code is a small set of Rust programs.
 
 ### Make development pleasant
 
-`nix develop` sets up every tool, and `just` runs every build and test task.
+`nix develop` sets up every tool — Nix is convenient, not required — and
+`just` runs every build and test task.
 Most tests don't need hardware: the full image boots in a virtual machine, the
 Home Assistant connection is tested against Home Assistant's own client
 library, and a simulated Home Assistant runs the complete voice flow. To try a

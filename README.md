@@ -34,7 +34,7 @@ backs the device up first, and every step says how to undo it.
 ## Development
 
 ```sh
-nix develop      # the supported environment (x86_64 Linux): toolchains, keyrings, fastboot
+nix develop      # optional but recommended: dev shell (x86_64 Linux) with toolchains, keyrings, fastboot
 just             # list tasks
                  # first: the owner inputs in secrets/ (docs/runbook-first-flash.md, step 2)
 just keygen      # optional: your own signing key (secrets/release.{key,pub})

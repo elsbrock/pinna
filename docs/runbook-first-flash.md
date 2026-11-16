@@ -37,11 +37,13 @@ they say `scripts/flash-gen2.sh`, use `./flash-gen2.sh` there.
 
 ```sh
 git clone <this repository> pinna && cd pinna
-nix develop          # the supported environment (x86_64 Linux); needs flakes:
+nix develop          # recommended dev shell (x86_64 Linux); needs flakes:
                      # nix --extra-experimental-features 'nix-command flakes' develop
+                     # optional: without Nix, install the tools flake.nix lists
 ```
 
-The commands below run inside this shell, from the repository root.
+The commands below run in this shell (or with the tools you installed), from
+the repository root.
 
 Either way, `adb devices` must list the Echo Dot (the previous firmware
 running, USB connected).
