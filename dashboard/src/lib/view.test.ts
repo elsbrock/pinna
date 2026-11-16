@@ -289,7 +289,7 @@ test("network words", async () => {
 });
 
 test("update phases come from the slots", async () => {
-  const { slotWord, targetSlot, updatePhase } = await import("./view.ts");
+  const { slotWord, switchTarget, targetSlot, updatePhase } = await import("./view.ts");
   const slot = (name: string, over: object = {}) => ({
     name,
     version: "0.1.0",
@@ -313,6 +313,19 @@ test("update phases come from the slots", async () => {
   assert.equal(updatePhase(trial), "trial");
   assert.equal(slotWord(trial.slots[1]), "On trial, 2 tries left");
   assert.equal(slotWord(slot("b", { state: "unbootable" })), "Can't boot");
+  // The update in b was kept back: it hasn't been started.
+  const kept = u([a, slot("b", { state: "trial", triesLeft: 3 })]);
+  assert.equal(updatePhase(kept), "ready");
+  assert.equal(slotWord(kept.slots[1]), "Not started yet");
+
+  // Switching: to the other slot when it is good or not started yet, and nothing else waits.
+  assert.equal(switchTarget(u([a, slot("b")]))?.name, "b");
+  assert.equal(switchTarget(kept)?.name, "b");
+  assert.equal(switchTarget(u([a, slot("b", { state: "unbootable" })])), undefined);
+  assert.equal(switchTarget(u([a, slot("b", { version: "" })])), undefined);
+  assert.equal(switchTarget(u([a, slot("b")], { installing: true })), undefined);
+  assert.equal(switchTarget(pending), undefined);
+  assert.equal(switchTarget(trial), undefined);
 });
 
 test("routeOf: sections, sub-pages, moved v1 paths and unknowns", () => {

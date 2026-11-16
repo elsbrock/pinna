@@ -5,11 +5,20 @@
   import { ConnectError } from "@connectrpc/connect";
 
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
+  import Confirm from "./Confirm.svelte";
   import { client, device } from "./device.svelte.ts";
   import External from "./External.svelte";
   import Group from "./Group.svelte";
   import Icon from "./Icon.svelte";
-  import { DOCS, downloadProgress, installSteps, slotWord, targetSlot, updatePhase } from "./view.ts";
+  import {
+    DOCS,
+    downloadProgress,
+    installSteps,
+    slotWord,
+    switchTarget,
+    targetSlot,
+    updatePhase,
+  } from "./view.ts";
 
   const STORE = "pinna.manifest";
   const REFRESH_MS = 10_000;
@@ -24,6 +33,9 @@
   let result = $state<{ ok: boolean } | null>(null);
   let starting = $state(false);
   let restartError = $state<string | null>(null);
+  let confirmingSwitch = $state(false);
+  let switchError = $state<string | null>(null);
+  let keeping = $state(false);
   let watching: AbortController | null = null;
   // The install whose output is on screen, by when it finished.
   let shown: bigint | null = null;
@@ -113,6 +125,32 @@
     restartError = await device.restart();
   }
 
+  // SetActiveSlot restarts the satellite itself, into the other slot.
+  async function switchSlot() {
+    if (!other) return;
+    const slot = other.name;
+    switchError = await device.restart(() => client.setActiveSlot({ slot }));
+  }
+
+  // The running slot boots next again; the installed update stays in its slot.
+  async function keep() {
+    if (!booted) return;
+    keeping = true;
+    error = null;
+    try {
+      await client.setActiveSlot({ slot: booted.name });
+      lines = [];
+      stage = 0;
+      progress = null;
+      result = null;
+      await refresh();
+    } catch (e) {
+      error = ConnectError.from(e).rawMessage;
+    } finally {
+      keeping = false;
+    }
+  }
+
   // Read now, every 10 s, and again when the satellite is back after a restart.
   $effect(() => {
     void refresh();
@@ -135,6 +173,7 @@
   const booted = $derived(u?.slots.find((s) => s.booted));
   const next = $derived(u?.slots.find((s) => s.active));
   const target = $derived(u ? targetSlot(u) : undefined);
+  const other = $derived(u ? switchTarget(u) : undefined);
   const live = $derived(device.link === "live");
   // While unreachable, the banner says so; a raw transport error adds nothing.
   const shownError = $derived(live ? error : null);
@@ -142,6 +181,15 @@
   const steps = $derived(installSteps(stage, result));
   const ucfirst = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 </script>
+
+{#snippet pendingActions()}
+  <button class="pn-btn pn-btn-primary" disabled={!live || device.busy || device.restarting || keeping} onclick={restart}>
+    <Icon name="restart" />{device.restarting ? "Restarting…" : "Restart now"}
+  </button>
+  <button class="pn-btn" disabled={!live || device.busy || device.restarting || keeping} onclick={keep}>
+    Keep this version
+  </button>
+{/snippet}
 
 {#if !u}
   {#if shownError}
@@ -166,14 +214,50 @@
       <div class="pn-row">
         <div class="pn-row-text">
           <span class="pn-row-label">Slot {s.name.toUpperCase()}</span>
-          <span class="pn-row-hint" class:is-caution={s.state === "trial"} class:is-danger={s.state === "unbootable"}>
+          <span class="pn-row-hint" class:is-caution={s.state === "trial" && (s.active || s.booted)} class:is-danger={s.state === "unbootable"}>
             {[slotWord(s), s.booted && "running", s.active && !s.booted && "starts next"].filter(Boolean).join(", ")}
           </span>
         </div>
         <span class="pn-row-value is-mono">{s.version || "—"}</span>
       </div>
     {/each}
+    {#if other}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label">Switch to slot {other.name.toUpperCase()}</span>
+          <span class="pn-row-hint">Restart into {other.version}, on trial.</span>
+        </div>
+        <button
+          class="pn-btn"
+          disabled={!live || device.busy || device.restarting}
+          onclick={() => {
+            switchError = null;
+            confirmingSwitch = true;
+          }}
+        >
+          <Icon name="restart" />Switch…
+        </button>
+      </div>
+      {#if switchError}
+        <div class="pn-row"><p class="pn-field-error" role="alert"><Icon name="alert" />{switchError}</p></div>
+      {/if}
+    {/if}
   </Group>
+
+  {#if other}
+    <Confirm
+      bind:open={confirmingSwitch}
+      title="Switch to {other.version}?"
+      action="Switch and restart"
+      confirm={switchSlot}
+    >
+      <p>
+        The satellite restarts into slot {other.name.toUpperCase()} and tries {other.version}. It stops listening for a
+        minute or two; this page reconnects on its own.
+      </p>
+      <p>If {other.version} doesn't come up, the satellite goes back to {u.bootedVersion} on its own.</p>
+    </Confirm>
+  {/if}
 
   {#if phase === "trial"}
     <div class="pn-notice" data-tone="caution" role="status">
@@ -192,11 +276,7 @@
       <div class="pn-notice-body">
         <p class="pn-notice-title">Version {next?.version || "?"} is ready in slot {next?.name.toUpperCase()}</p>
         <p>It starts on the next restart, as a trial. If it doesn't come up, the satellite returns to this version.</p>
-        <p>
-          <button class="pn-btn pn-btn-primary" disabled={!live || device.busy || device.restarting} onclick={restart}>
-            <Icon name="restart" />{device.restarting ? "Restarting…" : "Restart now"}
-          </button>
-        </p>
+        <p class="actions">{@render pendingActions()}</p>
         {#if restartError}<p class="pn-field-error" role="alert"><Icon name="alert" />{restartError}</p>{/if}
       </div>
     </div>
@@ -222,15 +302,7 @@
                   {u.bootedVersion} if it doesn't come up.
                 </span>
                 {#if result?.ok && phase === "pending"}
-                  <span>
-                    <button
-                      class="pn-btn pn-btn-primary restart"
-                      disabled={!live || device.busy || device.restarting}
-                      onclick={restart}
-                    >
-                      <Icon name="restart" />{device.restarting ? "Restarting…" : "Restart now"}
-                    </button>
-                  </span>
+                  <span class="actions restart">{@render pendingActions()}</span>
                 {/if}
               {/if}
             </li>
@@ -329,6 +401,11 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
   }
   .restart {
     margin-top: var(--space-2);

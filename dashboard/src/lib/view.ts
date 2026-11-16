@@ -435,6 +435,8 @@ type UpdatesLike = { available: boolean; installing: boolean; slots: SlotLike[] 
 /** A slot's state in words. */
 export function slotWord(s: SlotLike): string {
   if (s.state === "good") return "Good";
+  // Doesn't boot next: an installed update was kept back.
+  if (s.state === "trial" && !s.active && !s.booted) return "Not started yet";
   if (s.state === "trial") return `On trial, ${s.triesLeft} ${s.triesLeft === 1 ? "try" : "tries"} left`;
   return "Can't boot";
 }
@@ -463,6 +465,14 @@ export function updatePhase(u: UpdatesLike): UpdatePhase {
 /** The slot an install writes: the one that is not running. */
 export function targetSlot(u: UpdatesLike): SlotLike | undefined {
   return u.slots.find((s) => !s.booted);
+}
+
+/** The slot a switch restarts into: the other one, while nothing else waits,
+ *  when its signed image is good or hasn't been started yet. */
+export function switchTarget(u: UpdatesLike): SlotLike | undefined {
+  if (updatePhase(u) !== "ready") return undefined;
+  const s = targetSlot(u);
+  return s?.version && s.state !== "unbootable" ? s : undefined;
 }
 
 /** The dashboard's sections and pages: hash paths, as the router shows them. */
