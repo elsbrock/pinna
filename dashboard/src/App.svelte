@@ -28,7 +28,7 @@
   const page = $derived(pageOf(router.path));
   const groups = [...new Set(SECTIONS.map((x) => x.group))];
 
-  // The satellite switcher (ADR 0020), opened from the sidebar's device box or,
+  // The satellite switcher (ADR 0021), opened from the sidebar's device box or,
   // on phones, the name in the app bar.
   let switcher = $state<"side" | "bar" | null>(null);
   let sideButton = $state<HTMLButtonElement>();

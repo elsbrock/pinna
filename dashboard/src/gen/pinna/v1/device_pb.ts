@@ -672,7 +672,7 @@ export type Settings = Message<"pinna.v1.Settings"> & {
   wakeSound: boolean;
 
   /**
-   * The dashboard address (ADR 0020), e.g. "https://dot.example.com/"; empty
+   * The dashboard address (ADR 0021), e.g. "https://dot.example.com/"; empty
    * when none is set.
    *
    * @generated from field: string url = 13;
@@ -1098,7 +1098,7 @@ export type UpdateSettingsRequest = Message<"pinna.v1.UpdateSettingsRequest"> & 
   timeZone?: string | undefined;
 
   /**
-   * The dashboard address (ADR 0020): `http` or `https`, a host and an optional
+   * The dashboard address (ADR 0021): `http` or `https`, a host and an optional
    * port, nothing after it; stored with a trailing `/`. Empty clears it. It
    * applies at once, and other satellites link to it.
    *
@@ -1187,7 +1187,7 @@ export const ListSatellitesResponseSchema: GenMessage<ListSatellitesResponse> = 
   messageDesc(file_pinna_v1_device, 37);
 
 /**
- * A satellite found by its ESPHome mDNS record (ADR 0020).
+ * A satellite found by its ESPHome mDNS record (ADR 0021).
  *
  * @generated from message pinna.v1.Satellite
  */
@@ -2929,7 +2929,7 @@ export const DeviceService: GenService<{
     output: typeof ListTimeZonesResponseSchema;
   },
   /**
-   * The other satellites on the network (ADR 0020): a one-shot mDNS query and
+   * The other satellites on the network (ADR 0021): a one-shot mDNS query and
    * at most one follow-up, about a second and a half in all.
    *
    * @generated from rpc pinna.v1.DeviceService.ListSatellites

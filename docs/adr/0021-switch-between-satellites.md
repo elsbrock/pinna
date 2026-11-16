@@ -1,4 +1,4 @@
-# ADR 0020: Switch between satellites, and one dashboard address
+# ADR 0021: Switch between satellites, and one dashboard address
 
 Status: proposed (2026-11-16). Amends ADR 0005 and ADR 0007 (the host
 allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).

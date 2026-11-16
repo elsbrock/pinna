@@ -43,7 +43,7 @@ Constraints:
   - any `*.local` name (which only mDNS on the local network resolves)
   - the hostname: the one the satellite started with, and its current one
     after a rename (ADR 0010)
-  - the host of the dashboard address set on the Network page (ADR 0020),
+  - the host of the dashboard address set on the Network page (ADR 0021),
     or a name in `[web] allowed_hosts`.
 
   Any other Host gets `421 Misdirected Request`. Cross-site requests are
@@ -64,11 +64,11 @@ Constraints:
   - status and controls
   - settings (wake word, sensitivity, ring brightness, wake sound), through the
     same paths as Home Assistant's entities, the name (ADR 0007), the
-    hostname (ADR 0010) and the dashboard address (ADR 0020)
+    hostname (ADR 0010) and the dashboard address (ADR 0021)
   - tuning the wake word sensitivity with the device's + and − buttons, until
     the calibration ends
   - the network: Wi-Fi (ADR 0008), the hostname (ADR 0010) and the
-    dashboard address (ADR 0020); the rest read-only
+    dashboard address (ADR 0021); the rest read-only
   - pinnad's journal at info level and above (debug lines can carry transcripts)
   - the A/B slots
   - installing an update, switching to the other slot, or keeping an installed

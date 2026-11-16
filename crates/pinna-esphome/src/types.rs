@@ -167,7 +167,7 @@ pub struct DeviceConfig {
     /// Port of the device's web page, which Home Assistant links to as
     /// "Visit". 0 = none.
     pub webserver_port: u16,
-    /// The dashboard address (ADR 0020), announced for other satellites.
+    /// The dashboard address (ADR 0021), announced for other satellites.
     pub dashboard_url: Option<String>,
 }
 
@@ -243,7 +243,7 @@ pub fn mdns_txt(cfg: &DeviceConfig) -> Vec<(String, String)> {
         txt.push(("api_encryption", NOISE_PROTOCOL.to_owned()));
     }
     // The web listener's port and the dashboard address, for other satellites'
-    // switcher (ADR 0020). Home Assistant ignores keys it doesn't know.
+    // switcher (ADR 0021). Home Assistant ignores keys it doesn't know.
     if cfg.webserver_port != 0 {
         txt.push(("web_port", cfg.webserver_port.to_string()));
     }

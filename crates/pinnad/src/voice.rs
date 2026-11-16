@@ -955,7 +955,7 @@ impl Brain {
         self.reconnect_pending = self.clients > 0;
     }
 
-    /// Set the dashboard address (ADR 0020): the Host allowlist follows at
+    /// Set the dashboard address (ADR 0021): the Host allowlist follows at
     /// once, and the mDNS record tells other satellites.
     fn set_dashboard_url(&mut self, url: Option<String>) {
         if self.settings.url == url {

@@ -1,4 +1,4 @@
-//! The other satellites on the network (ADR 0020): a one-shot mDNS query for
+//! The other satellites on the network (ADR 0021): a one-shot mDNS query for
 //! `_esphomelib._tcp`, sent from an ordinary UDP port. A responder answers such
 //! a legacy unicast query by unicast to that port (RFC 6762, section 6.7), so
 //! pinnad never binds 5353: systemd-resolved stays the only mDNS socket.

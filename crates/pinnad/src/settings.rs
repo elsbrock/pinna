@@ -45,7 +45,7 @@ pub struct Settings {
     /// A chime when listening starts. `None`: `[audio] wake_sound`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wake_sound: Option<bool>,
-    /// The dashboard address, e.g. `https://dot.example.com/` (ADR 0020).
+    /// The dashboard address, e.g. `https://dot.example.com/` (ADR 0021).
     /// Checked and normalised (`check_url`). `None`: the `.local` name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,

@@ -34,7 +34,7 @@ service DeviceService {
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
   // The time zones UpdateSettings accepts.
   rpc ListTimeZones(ListTimeZonesRequest) returns (ListTimeZonesResponse);
-  // The other satellites on the network (ADR 0020): a one-shot mDNS query and
+  // The other satellites on the network (ADR 0021): a one-shot mDNS query and
   // at most one follow-up, about a second and a half in all.
   rpc ListSatellites(ListSatellitesRequest) returns (ListSatellitesResponse);
   // Start tuning the wake word sensitivity with the satellite's + and −
@@ -348,7 +348,7 @@ message Settings {
   bool default_name = 7;
   // A chime when listening starts.
   bool wake_sound = 8;
-  // The dashboard address (ADR 0020), e.g. "https://dot.example.com/"; empty
+  // The dashboard address (ADR 0021), e.g. "https://dot.example.com/"; empty
   // when none is set.
   string url = 13;
   // The AirPlay receiver on or off (ADR 0011). Off by default.
@@ -358,7 +358,7 @@ message Settings {
   // The IANA time zone name, e.g. "Europe/Berlin"; "UTC" until one is set
   // (ADR 0007).
   string time_zone = 12;
-  // 9 was allowed_hosts, replaced by `url` (ADR 0020).
+  // 9 was allowed_hosts, replaced by `url` (ADR 0021).
   reserved 9;
 }
 
@@ -454,7 +454,7 @@ message UpdateSettingsRequest {
   optional string hostname = 11;
   // One of ListTimeZones; it applies at once.
   optional string time_zone = 12;
-  // The dashboard address (ADR 0020): `http` or `https`, a host and an optional
+  // The dashboard address (ADR 0021): `http` or `https`, a host and an optional
   // port, nothing after it; stored with a trailing `/`. Empty clears it. It
   // applies at once, and other satellites link to it.
   optional string url = 13;
@@ -479,7 +479,7 @@ message ListSatellitesResponse {
   bool on_network = 2;
 }
 
-// A satellite found by its ESPHome mDNS record (ADR 0020).
+// A satellite found by its ESPHome mDNS record (ADR 0021).
 message Satellite {
   // The node name, which is also its hostname: `<name>.local`.
   string name = 1;

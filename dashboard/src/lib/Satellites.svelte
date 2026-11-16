@@ -1,4 +1,4 @@
-<!-- The satellite switcher (ADR 0020): this satellite, then the others on the
+<!-- The satellite switcher (ADR 0021): this satellite, then the others on the
      network, each a link to its own dashboard. Mounted while it is open, so
      every opening asks again. It floats over the page, placed from the button
      it opened from, which gets the focus back on Escape and on a choice. -->

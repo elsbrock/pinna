@@ -17,7 +17,7 @@
 
   const current = $derived(device.status?.name || net?.hostname || "");
 
-  // The dashboard address (ADR 0020). The page can't change or remove it while
+  // The dashboard address (ADR 0021). The page can't change or remove it while
   // it is open by that address's host: it would stop answering.
   const live = $derived(device.link === "live");
   const url = $derived(device.status?.settings?.url ?? "");

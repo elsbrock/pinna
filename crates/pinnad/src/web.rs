@@ -27,7 +27,7 @@ use crate::voice::Snapshot;
 
 /// Host names the dashboard answers to besides IP addresses and `*.local`:
 /// lowercase, no port. Those from the configuration, and the host of the
-/// dashboard address (ADR 0020), read from the latest status so it applies at
+/// dashboard address (ADR 0021), read from the latest status so it applies at
 /// once.
 ///
 /// Any `.local` name is fine: only mDNS on this network resolves it, so a remote

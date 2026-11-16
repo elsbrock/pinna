@@ -585,7 +585,7 @@ function announced(url: string): SatLink | null {
 }
 
 /**
- * The link to another satellite's dashboard (ADR 0020): its own address when
+ * The link to another satellite's dashboard (ADR 0021): its own address when
  * it has one; else its `.local` name when this page was opened by one; else
  * its address of the family this page was opened by (IPv6 literal or IPv4),
  * falling back to the `.local` name when it has none of that family.
