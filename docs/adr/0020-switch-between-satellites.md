@@ -48,8 +48,10 @@ allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
   record. Home Assistant ignores keys it doesn't know. With the web listener
   off, `web_port` is left out.
 - **pinnad asks when the list opens.** A unary RPC, `ListSatellites`, sends
-  one one-shot mDNS query for `_esphomelib._tcp.local` from its own UDP port,
-  collects answers for about a second, and keeps those with
+  a one-shot mDNS query for `_esphomelib._tcp.local` from its own UDP port and
+  collects answers for a second. For instances whose SRV, TXT or address
+  records didn't come with the answers, it asks once more and waits another
+  half second. It keeps those with
   `project_name=pinna.satellite`, leaving out itself (by MAC). pinnad never
   binds port 5353: resolved stays the only mDNS socket. Only satellites that
   are on answer, so there is nothing to expire. Satellites on firmware without
@@ -63,7 +65,8 @@ allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
     `.local` name. Opened any other way, the other's IP address of the same
     family: IPv4, or a global or unique-local IPv6 address in brackets, never
     a link-local one. Someone who opened this page by IP or by a router name
-    may not resolve `.local` (many Android browsers can't).
+    may not resolve `.local` (many Android browsers can't). Without an address
+    of that family, the `.local` name is still better than no link.
   - Never 10.42.0.1: every satellite has that address on its USB link.
   - The list states: looking (while the query runs); no other satellites on
     this network; this satellite isn't on a network yet (USB only); the query

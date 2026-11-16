@@ -2929,8 +2929,8 @@ export const DeviceService: GenService<{
     output: typeof ListTimeZonesResponseSchema;
   },
   /**
-   * The other satellites on the network (ADR 0020): one mDNS query that takes
-   * about a second and a half at most.
+   * The other satellites on the network (ADR 0020): a one-shot mDNS query and
+   * at most one follow-up, about a second and a half in all.
    *
    * @generated from rpc pinna.v1.DeviceService.ListSatellites
    */

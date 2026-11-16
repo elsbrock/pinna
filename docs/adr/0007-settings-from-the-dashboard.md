@@ -53,4 +53,4 @@ developers only, and owners need neither a file nor SSH. Builds on ADR 0005.
 - Changing the default name renames, once, every satellite that has no `friendly_name` and wasn't renamed in Home Assistant.
 - The Echo (2nd gen) gets its own speaker tuning without configuration.
 - Deleting a key from `settings.toml` brings back the `pinnad.toml` value. The docs about `[device] friendly_name`, `[audio] wake_sound` and `[web] allowed_hosts` say the dashboard is the usual way.
-- Anyone on the LAN can rename the satellite and add a host name, as ADR 0005 already allows for the other settings.
+- Anyone on the LAN can rename the satellite and set its dashboard address (ADR 0020), as ADR 0005 already allows for the other settings.

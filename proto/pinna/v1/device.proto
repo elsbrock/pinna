@@ -34,8 +34,8 @@ service DeviceService {
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
   // The time zones UpdateSettings accepts.
   rpc ListTimeZones(ListTimeZonesRequest) returns (ListTimeZonesResponse);
-  // The other satellites on the network (ADR 0020): one mDNS query that takes
-  // about a second and a half at most.
+  // The other satellites on the network (ADR 0020): a one-shot mDNS query and
+  // at most one follow-up, about a second and a half in all.
   rpc ListSatellites(ListSatellitesRequest) returns (ListSatellitesResponse);
   // Start tuning the wake word sensitivity with the satellite's + and −
   // buttons. Fails while the microphones are muted, the wake word is off, or

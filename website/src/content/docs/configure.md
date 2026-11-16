@@ -4,8 +4,8 @@ description: The developer settings in pinnad.toml, such as the audio and LED ba
 ---
 
 You don't need this page to use Pinna. The device's name, the wake words,
-the wake sound, the volume, the sensitivity, the ring brightness and the names
-to open the dashboard by are on the [dashboard](/docs/dashboard/), and most of
+the wake sound, the volume, the sensitivity, the ring brightness, the hostname,
+the time zone and the dashboard address are on the [dashboard](/docs/dashboard/), and most of
 them are [entities in Home Assistant](/docs/entities/) too.
 
 This page is for developers. It covers the configuration file for `pinnad`,

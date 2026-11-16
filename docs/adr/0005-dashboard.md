@@ -63,8 +63,8 @@ Constraints:
 - **What the dashboard can do.** Everything is in `DeviceService`:
   - status and controls
   - settings (wake word, sensitivity, ring brightness, wake sound), through the
-    same paths as Home Assistant's entities, and the name and host names
-    (ADR 0007)
+    same paths as Home Assistant's entities, the name (ADR 0007), the
+    hostname (ADR 0010) and the dashboard address (ADR 0020)
   - tuning the wake word sensitivity with the device's + and − buttons, until
     the calibration ends
   - the network: Wi-Fi (ADR 0008), the hostname (ADR 0010) and the
@@ -105,9 +105,9 @@ Constraints:
   - rename the satellite, which Home Assistant's device name follows
   - move the satellite to another Wi-Fi network, which it keeps only once
     someone reaches it there, or forget the network it uses (ADR 0008)
-  - add a name the dashboard answers to. It stays until someone removes it,
-    and opens the satellite to DNS rebinding through that name. The Network
-    page lists every name added.
+  - set the dashboard address. Its host stays allowed until someone changes
+    or removes the address, and opens the satellite to DNS rebinding through
+    that name. The Network page shows it.
   - start a conversation, stop an alarm and clear a waiting notification
   - start a wake word calibration, which takes the volume buttons over and
     keeps the wake word from starting requests until it ends, 5 minutes after
