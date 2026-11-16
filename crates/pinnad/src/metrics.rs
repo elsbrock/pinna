@@ -941,8 +941,8 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
     fn info() -> Info {
         Info {
             version: "1.2.3".into(),
-            name: "pinna-test".into(),
             mac: String::new(),
+            time_zones: Arc::new(vec!["UTC".into()]),
             wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
