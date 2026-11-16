@@ -211,6 +211,9 @@ impl Updater {
                 return Ok(());
             }
             if let Err(e) = reboot_blocking(&paths, "switch-slot") {
+                // No restart, so no reason for whatever restarts next.
+                let _ =
+                    std::fs::remove_file(paths.run_dir.join(pinna_bootctl::reboot::REASON_FILE));
                 // No record before: the implicit state boots the same way.
                 let old = old.unwrap_or_else(SlotState::implicit);
                 if let Err(r) = slot::write_state(&paths.misc, &old) {

@@ -2206,6 +2206,7 @@ mod tests {
         let err = c.set_active_slot(slot_request("b")).await.unwrap_err();
         assert_eq!(err.code, connectrpc::ErrorCode::Internal);
         assert_eq!(rig.state(), Some(before));
+        assert_eq!(rig.reboot_reason(), None);
     }
 
     #[tokio::test]

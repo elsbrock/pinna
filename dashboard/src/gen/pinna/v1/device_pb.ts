@@ -2846,10 +2846,10 @@ export const DeviceService: GenService<{
   /**
    * Choose the slot that boots next. The other slot: its image is checked as
    * pinna-init checks it, it becomes active as a trial (ADR 0003) and the
-   * satellite restarts; if the restart fails, nothing changes. Only a slot
-   * that is good or hasn't been started yet. The running slot: it boots next
-   * again, which cancels a pending update; no restart. Refused while an
-   * install runs or the running slot is on trial.
+   * satellite restarts; if the restart fails, the slot state is put back.
+   * Only a slot that is good or hasn't been started yet. The running slot: it
+   * boots next again, which cancels a pending update; no restart. Refused
+   * while an install runs or the running slot is on trial.
    *
    * @generated from rpc pinna.v1.DeviceService.SetActiveSlot
    */
