@@ -113,7 +113,7 @@ export function hhmm(d: Date): string {
 
 /**
  * The Wake word switch's hint: what the detector does and, when it is paused,
- * why. The reasons mirror pinnad's own gate (idle, unmuted, a voice pipeline,
+ * why. The reasons mirror pinnad's own gate (idle or speaking, unmuted, a voice pipeline,
  * no alarm), so they are facts, not guesses.
  */
 export function wakeHint(s: Status): string {

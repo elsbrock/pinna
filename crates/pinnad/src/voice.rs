@@ -441,8 +441,12 @@ impl Brain {
             Input::Wake { id, score } => {
                 let phrase = self.opts.wake_words.phrase(&id).to_owned();
                 tracing::info!("wake word {phrase:?} detected (score {score:.2})");
-                if self.phase == Phase::Idle && !self.muted() {
+                if self.wake_armed() && !self.muted() {
                     self.record_wake(WakeRecord::now(true, score, false));
+                    if self.phase == Phase::Speaking {
+                        tracing::info!("reply interrupted by the wake word");
+                        self.interrupt_reply().await;
+                    }
                     if self.ringing.is_some() {
                         // The wake word only stops the alarm; no request starts.
                         tracing::info!("timer alarm dismissed by wake word");
@@ -1407,6 +1411,30 @@ impl Brain {
         self.continue_conversation = false;
     }
 
+    /// The wake word is acted on: while idle, and over a reply or an
+    /// announcement, which it interrupts. Calibration counts wakes only while
+    /// idle.
+    fn wake_armed(&self) -> bool {
+        match self.phase {
+            Phase::Idle => true,
+            Phase::Speaking => self.calibration.is_none(),
+            _ => false,
+        }
+    }
+
+    /// Stop the reply or announcement that is playing, as an ESPHome satellite
+    /// does: Home Assistant hears it finished, so it doesn't wait for it.
+    async fn interrupt_reply(&mut self) {
+        if matches!(
+            self.playback,
+            Some((_, PlaybackKind::Tts | PlaybackKind::Announce { .. }, _))
+        ) {
+            self.send(DeviceEvent::AnnounceFinished { success: true })
+                .await;
+        }
+        self.abort_run(true).await;
+    }
+
     async fn finish_run(&mut self) {
         self.stop_streaming();
         self.phase = Phase::Idle;
@@ -1727,7 +1755,7 @@ impl Brain {
         }
         // Calibration wakes and wakes that stop an alarm start no request, so
         // they don't need a pipeline.
-        let wake = self.phase == Phase::Idle
+        let wake = self.wake_armed()
             && !muted
             && self.settings.wake_word
             && (self.voice_subscribed || self.calibration.is_some() || self.ringing.is_some())

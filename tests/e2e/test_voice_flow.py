@@ -318,6 +318,103 @@ def test_streamed_reply_speaks_before_it_is_complete(pinnad):
     assert events.index("thinking") < events.index("replying") < events.index("finished"), events
 
 
+async def interrupted_reply_flow(port: int):
+    client = APIClient("127.0.0.1", port, None)
+    for _ in range(50):
+        try:
+            await client.connect(login=True)
+            break
+        except Exception:
+            await asyncio.sleep(0.1)
+    await client.device_info()
+    entities, _ = await client.list_entities_services()
+    voice_key = next(e.key for e in entities if e.object_id == "voice_assistant")
+
+    events: list[str] = []
+    replying = asyncio.Event()
+
+    def on_state(state):
+        if isinstance(state, Event) and state.key == voice_key and state.event_type:
+            events.append(state.event_type)
+            if state.event_type == "replying":
+                replying.set()
+
+    client.subscribe_states(on_state)
+
+    starts: list[str] = []
+    stops = 0
+    got_audio = asyncio.Event()
+    second_start = asyncio.Event()
+    announced: list[bool] = []
+    audio_bytes = 0
+
+    async def handle_start(conversation_id, flags, audio_settings, wake_word_phrase):
+        starts.append(wake_word_phrase)
+        if len(starts) == 2:
+            second_start.set()
+        return 0
+
+    async def handle_stop(abort):
+        nonlocal stops
+        stops += 1
+
+    async def handle_audio(data: bytes, data2: bytes = b""):
+        nonlocal audio_bytes
+        audio_bytes += len(data)
+        if audio_bytes >= 640 * 25:
+            got_audio.set()
+
+    async def handle_announcement_finished(msg):
+        announced.append(msg.success)
+
+    unsub = client.subscribe_voice_assistant(
+        handle_start=handle_start,
+        handle_stop=handle_stop,
+        handle_audio=handle_audio,
+        handle_announcement_finished=handle_announcement_finished,
+    )
+    reply = GatedReply()
+    try:
+        await asyncio.wait_for(got_audio.wait(), timeout=15)
+
+        E = VoiceAssistantEventType
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_START, {"url": reply.url})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_STT_VAD_END, {})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_INTENT_PROGRESS, {"tts_start_streaming": "1"})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_INTENT_END, {"conversation_id": "c1"})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_TTS_END, {"url": reply.url})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_END, {})
+
+        # A long reply, still sounding when the fixture's second "Alexa" (~8.7 s) comes.
+        await asyncio.sleep(1)
+        assert reply.open.is_set(), "the reply was not requested"
+        reply.release(10)
+        await asyncio.wait_for(replying.wait(), timeout=5)
+        stops_before = stops
+
+        # The wake word cuts the reply short and starts a new request.
+        await asyncio.wait_for(second_start.wait(), timeout=15)
+        assert starts == ["Alexa", "Alexa"], starts
+        # Home Assistant hears the reply ended, and that the run stopped.
+        assert announced == [True], announced
+        assert stops > stops_before
+        assert reply.requests == 1
+    finally:
+        reply.shutdown()
+        unsub()
+        await client.disconnect()
+    return events
+
+
+def test_wake_word_interrupts_a_reply(pinnad):
+    port, proc, _ = pinnad
+    events = asyncio.run(interrupted_reply_flow(port))
+    assert proc.poll() is None, "pinnad exited"
+    assert "finished" not in events, events
+    assert events.index("replying") < events.index("stopped") < len(events) - 1, events
+    assert events[events.index("stopped") + 1] == "wake_word", events
+
+
 ALL_WORDS = {"alexa_v0.1", "hey_jarvis_v0.1", "hey_mycroft_v0.1", "hey_rhasspy_v0.1", "okay_nabu"}
 
 
