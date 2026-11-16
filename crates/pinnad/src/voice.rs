@@ -159,6 +159,8 @@ pub struct Snapshot {
     pub wake_sound: bool,
     /// The ESPHome API is encrypted.
     pub encrypted: bool,
+    /// The ring runs its test pattern.
+    pub led_test: bool,
 }
 
 /// A running calibration, as the API shows it.
@@ -190,6 +192,7 @@ impl Default for Snapshot {
             default_name: true,
             wake_sound: false,
             encrypted: false,
+            led_test: false,
         }
     }
 }
@@ -674,6 +677,7 @@ impl Brain {
             default_name: self.settings.friendly_name.is_none() && self.opts.defaults.default_name,
             wake_sound: self.wake_sound(),
             encrypted: self.encrypted,
+            led_test: self.led_test.is_some(),
         }
     }
 

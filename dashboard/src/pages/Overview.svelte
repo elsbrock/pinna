@@ -27,7 +27,7 @@
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
-  const ring = $derived(ringEffect(s, device.link));
+  const ring = $derived(ringEffect(s, device.link, device.testStep));
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
   const modelName = $derived(drawingFor(s?.model ?? "")?.name);
   // Uptime only arrives with a change; count on between messages.

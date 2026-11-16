@@ -231,6 +231,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         }),
         api_encrypted: s.encrypted,
         api_key_from_image: info.key_from_image,
+        led_test: s.led_test,
         ..Default::default()
     }
 }
@@ -1355,6 +1356,9 @@ mod tests {
         assert!(!render(&info, Instant::now(), &snap).alarm_ringing);
         snap.alarm_ringing = true;
         assert!(render(&info, Instant::now(), &snap).alarm_ringing);
+        assert!(!render(&info, Instant::now(), &snap).led_test);
+        snap.led_test = true;
+        assert!(render(&info, Instant::now(), &snap).led_test);
     }
 
     #[tokio::test]

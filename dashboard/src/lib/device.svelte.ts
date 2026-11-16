@@ -6,7 +6,7 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 
 import { DeviceService, type Status, type UpdateSettingsRequest } from "../gen/pinna/v1/device_pb.ts";
 import { toasts } from "./toast.svelte.ts";
-import type { Link } from "./view.ts";
+import { LED_TEST_STEP_MS, type Link } from "./view.ts";
 
 const client = createClient(DeviceService, createConnectTransport({ baseUrl: location.origin }));
 
@@ -25,6 +25,8 @@ class Device {
   busy = $state(false);
   /** Identify was pressed a moment ago: more presses wait. */
   identifying = $state(false);
+  /** The step of the ring's test pattern while `status.ledTest`, for ringEffect. */
+  testStep = $state(0);
   /** A restart was asked for: being unreachable is expected, not an error. */
   restarting = $state(false);
   /** A factory reset was asked for: the satellite may come back over USB only. */
@@ -38,6 +40,7 @@ class Device {
   #stream: AbortController | null = null;
   #wake: (() => void) | null = null;
   #version: string | null = null;
+  #testTimer: ReturnType<typeof setInterval> | undefined;
 
   start() {
     setInterval(() => (this.now = Date.now()), 1_000);
@@ -58,6 +61,12 @@ class Device {
     // A new image after an update: its page may differ from this one.
     if (this.#version && s.version !== this.#version) location.reload();
     this.#version ??= s.version;
+    // The test pattern started: step through it on the device's beat.
+    if (s.ledTest && !this.status?.ledTest) {
+      this.testStep = 0;
+      clearInterval(this.#testTimer);
+      this.#testTimer = setInterval(() => this.testStep++, LED_TEST_STEP_MS);
+    } else if (!s.ledTest) clearInterval(this.#testTimer);
     this.status = s;
     this.receivedAt = Date.now();
     this.link = "live";

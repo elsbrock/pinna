@@ -13,17 +13,23 @@ const PHASE_WORDS: Record<number, "listening" | "thinking" | "speaking"> = {
   4: "speaking",
 };
 
+/** Identify's test pattern, one effect per step, as pinnad's LED_TEST_EFFECTS. */
+export const LED_TEST: readonly Effect[] = ["listening", "thinking", "speaking", "muted"];
+export const LED_TEST_STEP_MS = 1_000;
+
 /**
- * The ring effect, in the device's own order: muted, a ringing alarm, the phase,
- * then a waiting notification unless a running timer's arc shows above it.
+ * The ring effect, in the device's own order: the test pattern at `testStep`,
+ * muted, a ringing alarm, the phase, then a waiting notification unless a
+ * running timer's arc shows above it.
  */
 /** The satellite's name for people: the one Home Assistant shows (ADR 0007). */
 export function displayName(s: Status): string {
   return s.settings?.friendlyName || s.name;
 }
 
-export function ringEffect(s: Status | null, link: Link): Effect {
+export function ringEffect(s: Status | null, link: Link, testStep = 0): Effect {
   if (!s || link !== "live") return "idle";
+  if (s.ledTest) return LED_TEST[Math.min(testStep, LED_TEST.length - 1)];
   if (s.muted) return "muted";
   if (s.alarmRinging) return "timer-ringing";
   const phase = PHASE_WORDS[s.phase];

@@ -95,6 +95,16 @@ test("ring follows the device: muted, then a ringing alarm, then the phase", () 
   assert.equal(ringEffect(null, "connecting"), "idle");
 });
 
+test("the test pattern shows above everything, step by step, and holds its last step", () => {
+  const testing = status({ ledTest: true, muted: true, alarmRinging: true, phase: 3 });
+  assert.equal(ringEffect(testing, "live"), "listening");
+  assert.equal(ringEffect(testing, "live", 1), "thinking");
+  assert.equal(ringEffect(testing, "live", 2), "speaking");
+  assert.equal(ringEffect(testing, "live", 3), "muted");
+  assert.equal(ringEffect(testing, "live", 9), "muted");
+  assert.equal(ringEffect(testing, "offline", 1), "idle");
+});
+
 test("a waiting notification shows while idle, below a running timer", () => {
   const tea = { id: "1", name: "Tea", secondsLeft: 90, totalSeconds: 180, active: true } as Timer;
   assert.equal(ringEffect(status({ notification: true }), "live"), "notification");

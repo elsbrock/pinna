@@ -91,7 +91,7 @@ that opens its dashboard acts as the Dot's microphone, speaker and buttons.
   replaces the live microphone while it plays). It plays the speaker, 12 dB
   up, so that volume 100 is full scale. The four buttons go down and up with
   the pointer. While connected, the Overview's drawing of the Dot shows the
-  ring's frames instead of the dashboard's own drawing of `Status.phase`.
+  ring's frames instead of the dashboard's own drawing from `Status`.
 
 ## Consequences
 

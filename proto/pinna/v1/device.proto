@@ -212,6 +212,9 @@ message Status {
   // The image carries the key (a builder's `secrets/device/esphome-key` or
   // `[esphome] encryption_key`): a factory reset keeps it (ADR 0018).
   bool api_key_from_image = 23;
+  // The ring runs its test pattern (LedTest, the dashboard's Identify): one
+  // second each of listening, thinking, speaking and muted, above everything else.
+  bool led_test = 24;
 }
 
 // How the previous boot ended, as pinnad read it back from the pstore records

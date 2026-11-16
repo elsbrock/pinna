@@ -22,7 +22,7 @@
 
   const s = $derived(device.status);
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
-  const ring = $derived(ringEffect(s, device.link));
+  const ring = $derived(ringEffect(s, device.link, device.testStep));
   const page = $derived(pageOf(router.path));
   const groups = [...new Set(SECTIONS.map((x) => x.group))];
 
