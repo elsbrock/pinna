@@ -1,6 +1,8 @@
 // A fastboot device for the tests: answers each command from a script.
 import { TimeoutError, type Transport } from "./fastboot.ts";
 
+const PACKET = 512;
+
 /** Replies to one command: status+text strings such as "OKAY0x1000", or "timeout". */
 export type Script = Record<string, string[] | "timeout">;
 
@@ -20,9 +22,23 @@ export class ScriptedDevice implements Transport {
     this.#script = script;
   }
 
+  /** The size of each data transfer, in order. */
+  readonly transfers: number[] = [];
+
+  /** Lost track of a download: swallows everything, answers nothing. */
+  #lost = false;
+
   async write(bytes: Uint8Array): Promise<void> {
+    if (this.#lost) return;
     if (this.#expecting > 0) {
       if (bytes.length > this.#expecting) throw new Error("more data than the download announced");
+      this.transfers.push(bytes.length);
+      if (bytes.length % PACKET !== 0 && bytes.length !== this.#expecting) {
+        // A short packet before the end: like the Echo Dot, lose track and
+        // never answer.
+        this.#lost = true;
+        return;
+      }
       this.#received.push(bytes.slice());
       this.#expecting -= bytes.length;
       if (this.#expecting === 0) {
@@ -62,7 +78,7 @@ export class ScriptedDevice implements Transport {
 
   async read(_timeoutMs: number): Promise<Uint8Array> {
     const next = this.#pending.shift();
-    if (this.#timedOut || next === undefined) throw new TimeoutError();
+    if (this.#lost || this.#timedOut || next === undefined) throw new TimeoutError();
     const bytes = new Uint8Array(next.length + 1);
     for (let i = 0; i < next.length; i++) bytes[i] = next.charCodeAt(i);
     return bytes;

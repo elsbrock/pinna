@@ -158,7 +158,13 @@ export function startInstallPage(): void {
     } else if (error instanceof ConnectError) {
       showProblem("This isn't a device in fastboot", "Start the device in fastboot as described in step 3, and connect again.");
     } else if (gone) {
-      showProblem("The device doesn't answer, or went away", "The page stopped and sent nothing more.", { href: "#no-reply", label: "The device doesn't answer, or goes away" });
+      showProblem(
+        "The device doesn't answer, or went away",
+        stage === "install"
+          ? `The page stopped${step ? ` at “${step}”` : ""} and sent nothing more. Unplug the device, start it in fastboot again (step 3), and connect again (step 4).`
+          : "The page stopped and sent nothing more.",
+        { href: "#no-reply", label: "The device doesn't answer, or goes away" },
+      );
     } else if (error instanceof FastbootError && error.kind === "fail" && stage === "install") {
       showProblem("The device refused a write", `${step ? `${step}: it` : "It"} answered ${JSON.stringify(error.message)}. Nothing after that step was written.`);
     } else if (error instanceof InstallError) {
@@ -331,7 +337,15 @@ export function startInstallPage(): void {
       device = null;
       status.textContent = "";
     } catch (error) {
-      text.textContent = "The install stopped. The device stays in fastboot: tick the box and install again, or start again from step 3.";
+      if (error instanceof FastbootError && error.kind === "fail") {
+        text.textContent = "The install stopped. The device stays in fastboot: tick the box and install again, or start again from step 3.";
+      } else {
+        // The device may still be in the middle of a command: anything sent
+        // now could be taken for its data. Only a fresh start is safe.
+        text.textContent = "The install stopped. Unplug the device, start it in fastboot again (step 3), and connect again (step 4).";
+        checked = null;
+        device = null;
+      }
       explain(error, model, "install", step, report);
     } finally {
       window.removeEventListener("beforeunload", warn);

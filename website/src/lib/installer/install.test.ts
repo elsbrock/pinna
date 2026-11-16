@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { identify } from "./device.ts";
-import { Fastboot, FastbootError } from "./fastboot.ts";
+import { Fastboot, FastbootError, WRITE_CHUNK } from "./fastboot.ts";
 import { install, InstallError, plan } from "./install.ts";
 import { matchRelease, sha256 } from "./release.ts";
 import { ScriptedDevice, type Script } from "./scripted-device.ts";
@@ -74,7 +74,24 @@ test("download sends the size, then the data, and waits for OKAY", async () => {
   await fb.download([pattern(5), pattern(3)], (n) => seen.push(n));
   assert.deepEqual(device.sent, ["download:00000008"]);
   assert.deepEqual(device.downloads[0], Uint8Array.from([...pattern(5), ...pattern(3)]));
-  assert.deepEqual(seen, [5, 8]);
+  assert.deepEqual(seen, [8], "one transfer: the parts go out as one stream");
+});
+
+test("download data goes out as one stream: no short transfer before the last", async () => {
+  const device = new ScriptedDevice({});
+  const big = pattern(2 * WRITE_CHUNK + 1000);
+  await new Fastboot(device, 10).download([pattern(28), pattern(12), big, pattern(12)]);
+  assert.deepEqual(device.transfers, [WRITE_CHUNK, WRITE_CHUNK, 28 + 12 + 1000 + 12]);
+  assert.deepEqual(device.downloads[0], Uint8Array.from([...pattern(28), ...pattern(12), ...big, ...pattern(12)]));
+});
+
+test("a short transfer in the middle of a download gets no reply, as on the Echo Dot", async () => {
+  const device = new ScriptedDevice({});
+  await device.write(new TextEncoder().encode("download:00000400"));
+  await device.read(10);
+  await device.write(pattern(28));
+  await device.write(pattern(996));
+  await assert.rejects(device.read(10));
 });
 
 test("a refused download is a FAIL; a wrong size breaks the connection", async () => {

@@ -51,8 +51,41 @@ export type Reply = {
 /** The protocol's limit for one command. */
 const MAX_COMMAND = 64;
 const DEFAULT_TIMEOUT_MS = 5000;
-/** Data goes out in transfers of at most this size, for progress. */
-const WRITE_CHUNK = 1 << 20;
+/**
+ * Download data goes out as one stream in transfers of this size; only the
+ * last may be shorter. A short transfer ends the bootloader's USB read early,
+ * and on the Echo Dot one in the middle of a download (a 28-byte sparse
+ * header on its own) left it waiting for data that never came. The fastboot
+ * tool sends 1 MiB transfers the same way.
+ */
+export const WRITE_CHUNK = 1 << 20;
+
+/** `parts` as one stream of WRITE_CHUNK-sized transfers, copying only where parts meet. */
+function* transfers(parts: Uint8Array[]): Generator<Uint8Array> {
+  let buffer: Uint8Array | null = null;
+  let filled = 0;
+  for (const part of parts) {
+    let offset = 0;
+    while (offset < part.length) {
+      if (filled === 0 && part.length - offset >= WRITE_CHUNK) {
+        yield part.subarray(offset, offset + WRITE_CHUNK);
+        offset += WRITE_CHUNK;
+        continue;
+      }
+      buffer ??= new Uint8Array(WRITE_CHUNK);
+      const n = Math.min(WRITE_CHUNK - filled, part.length - offset);
+      buffer.set(part.subarray(offset, offset + n), filled);
+      filled += n;
+      offset += n;
+      if (filled === WRITE_CHUNK) {
+        yield buffer;
+        buffer = null;
+        filled = 0;
+      }
+    }
+  }
+  if (buffer && filled > 0) yield buffer.subarray(0, filled);
+}
 
 function decode(bytes: Uint8Array): string {
   const end = bytes.indexOf(0);
@@ -104,17 +137,14 @@ export class Fastboot {
     }
 
     let sent = 0;
-    for (const part of parts) {
-      for (let offset = 0; offset < part.length; offset += WRITE_CHUNK) {
-        const chunk = part.subarray(offset, Math.min(offset + WRITE_CHUNK, part.length));
-        try {
-          await this.#transport.write(chunk);
-        } catch (error) {
-          throw this.#fatal("transport", command, `sending the data failed: ${String(error)}`);
-        }
-        sent += chunk.length;
-        onProgress(sent);
+    for (const chunk of transfers(parts)) {
+      try {
+        await this.#transport.write(chunk);
+      } catch (error) {
+        throw this.#fatal("transport", command, `sending the data failed: ${String(error)}`);
       }
+      sent += chunk.length;
+      onProgress(sent);
     }
     const done = await this.#reply(command, timeoutMs);
     if (done.status !== "OKAY") throw this.#fatal("protocol", command, `unexpected DATA reply after ${command}`);
