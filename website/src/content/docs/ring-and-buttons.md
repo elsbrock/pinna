@@ -29,7 +29,7 @@ this table wins:
 | What you see | Meaning |
 | --- | --- |
 | Solid red | The microphones are off |
-| Amber, pulsing twice a second | A timer has finished. Press the Action button to stop it |
+| Amber, pulsing twice a second | A timer has finished. Say the wake word or press the Action button to stop it |
 | Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch in Home Assistant |
 | A violet light that runs around the ring | Home Assistant is working on your request |
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |

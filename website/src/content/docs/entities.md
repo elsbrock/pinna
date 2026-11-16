@@ -78,8 +78,9 @@ The device works as an Assist satellite. It listens for the wake words chosen
 in Home Assistant or on the [dashboard](/docs/dashboard/), up to two at once;
 see [Choose the wake words](/docs/home-assistant/#choose-the-wake-words). It
 supports timers: when you set a timer by voice, the ring shows an amber arc
-while it runs. When the timer ends, an alarm plays until you press the Action
-button, use **Cancel request**, or 5 minutes pass.
+while it runs. When the timer ends, an alarm plays until you say the wake
+word, press the Action button, use **Cancel request**, or 5 minutes pass. The
+wake word only stops the alarm; it doesn't start a request.
 
 ## What's next
 
