@@ -147,6 +147,7 @@ once someone sets them there. After that, changing them in `pinnad.toml` has
 no effect:
 
 - The name (`[device] friendly_name`)
+- The hostname (`[device] name`)
 - The wake sound (`[audio] wake_sound`)
 - The volume (`[audio] volume`)
 - The wake word sensitivity (`[wake] threshold`)

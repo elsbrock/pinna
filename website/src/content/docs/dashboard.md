@@ -15,8 +15,9 @@ connection: the page and its fonts come from the device itself.
 
 Open one of these addresses in a browser on the same network as the device:
 
-- `http://pinna-2a914e.local/`, with the device's name on the network:
-  `pinna-` and the last six characters of its MAC address. Your router lists
+- `http://pinna-2a914e.local/`, with the device's name on the network: until
+  you [change it](#change-the-hostname), `pinna-` and the last six characters
+  of its MAC address. Your router lists
   it, Home Assistant shows it when it discovers the device, and the dashboard
   shows it under **System** as **Node name**. This works if your computer
   resolves `.local` names; macOS, iOS, Windows 10 and later, and most Linux
@@ -26,7 +27,8 @@ Open one of these addresses in a browser on the same network as the device:
   ESPHome** and select **Visit**.
 - Over the USB cable: `http://10.42.0.1/`. This works when the Wi-Fi doesn't.
 
-Each device has its own name on the network, so two of them never share one.
+Each device starts with its own name on the network. If you change it, give
+each device a different one.
 
 ## What the dashboard shows
 
@@ -50,7 +52,8 @@ the model and the last six characters of the MAC address, for example
 `Echo Dot 2a914e`. To rename the device, open **System**, change **Name** and
 select **Save**. The dashboard shows the new name at once. The **Node name**
 under **System**, such as `pinna-2a914e`, stays: it is the device's ID for
-Home Assistant and mDNS, not the name that people see.
+Home Assistant and mDNS, not the name that people see. To change it too,
+[change the hostname](#change-the-hostname).
 
 Name the device before you add it to Home Assistant. Home Assistant takes a
 new name the next time it connects, and shows it on the device page and in the
@@ -64,8 +67,8 @@ wins over the device's.
 ## Set the time zone
 
 The device keeps UTC until you choose a zone. Open **System**, then pick one
-under **Time zone**. It sets the clock in the device's own logs and takes effect
-at once. If your browser is in another zone than the device, the page offers
+under **Time zone**. It is the zone of the device's own clock and logs, and
+takes effect at once. If your browser is in another zone than the device, the page offers
 **Use** and your browser's zone. Home Assistant keeps its own time zone.
 
 ## Change the hostname
@@ -74,6 +77,7 @@ The hostname is the device's name on your network, such as `pinna-2a914e`. It is
 also its node name in ESPHome, which Home Assistant uses to find it. To change
 it, open **Network**, enter a name under **Hostname** and select **Save**. A
 hostname is one word of letters, digits and hyphens, for example `kitchen-dot`.
+Give each device a different one.
 
 The change takes effect at once, and the device's `.local` address changes with
 it: `http://kitchen-dot.local/` replaces `http://pinna-2a914e.local/`, so
@@ -81,7 +85,9 @@ bookmarks to the old address stop working. If you opened the dashboard by the
 old `.local` address, the browser moves to the new one by itself. Home
 Assistant follows on its own, as soon as no request, reply, announcement, music
 or timer alarm is playing. Your router's device list shows the new name after
-the device reconnects to Wi-Fi.
+the device next joins the Wi-Fi, for example after a restart. A reverse proxy
+that reaches the device by its old `.local` name stops working: point it at the
+new name, or better at the device's IP address.
 
 ## Change the Wi-Fi network
 
@@ -242,8 +248,14 @@ device answer to that name:
 The address starts with `http://` or `https://`, has a host name or an IP
 address and optionally a port, and has nothing after that: no user name,
 password, path, query or fragment. The device stores it with a `/` at the end.
-It works at once. **Remove** clears it. The dashboard won't remove or change
-the address that it is open by.
+It works at once. **Remove** clears it. While the dashboard is open by the
+address's own host name, it won't remove the address or change it to another
+host, because the page would stop answering: open it by the IP address or the
+`.local` name first.
+
+Point the reverse proxy at the device's IP address, ideally one that your
+router always gives it, rather than its `.local` name, which changes when you
+change the hostname.
 
 Other devices link to this address when you [switch between
 devices](#switch-between-satellites). Without one, they use the device's
@@ -257,7 +269,9 @@ dashboard can set the address, so check it now and then.
 With more than one device, you can move from one dashboard to the next. On a
 computer, select the device at the foot of the sidebar; on a phone, select the
 name at the top. A list opens with this device first, then the other devices
-on the same network, each with its name and the address it opens. Select one
+on the same subnet, each with its name and the address it opens. Devices on
+another subnet or VLAN aren't listed, even if your router passes mDNS between
+them. Select one
 to open its dashboard in the same tab. The list is made when you open it, so a
 device that is off isn't in it.
 
