@@ -4,7 +4,8 @@ Status: accepted (2026-11-15). Amends the "Local control API" part of ADR 0002.
 Amended by ADR 0007 (2026-11-16): host names and the satellite's name are set
 on the dashboard. Amended 2026-11-16: the dashboard draws the ring's own frames
 (WatchRing). Amended 2026-11-16: the dashboard switches to the other slot and
-keeps an installed update back (SetActiveSlot).
+keeps an installed update back (SetActiveSlot). Amended by ADR 0020
+(2026-11-16): the listener also serves `/metrics`.
 
 ## Context
 
@@ -109,6 +110,8 @@ Constraints:
     keeps the wake word from starting requests until it ends, 5 minutes after
     the last + or − press
   - read pinnad's log and the network details
+  - read the metrics: the host's load, memory, traffic, temperatures and
+    services, and pinnad's counters (ADR 0020)
   - run the ring's test pattern
   - restart the satellite, or reset it to how it was installed, which also
     removes the encryption key Home Assistant set (ADR 0010, ADR 0018)
@@ -120,8 +123,8 @@ Constraints:
   installs too, if someone has a copy.
 
   The controls match what a plaintext ESPHome API already exposes. Reading the
-  log and the network details (SSID, signal, every address), the ring's test
-  pattern, restarting, a factory reset, installing, switching slots, renaming, moving or
+  log, the network details (SSID, signal, every address) and the metrics, the
+  ring's test pattern, restarting, a factory reset, installing, switching slots, renaming, moving or
   forgetting Wi-Fi and adding a host name go beyond it; a host name widens the DNS rebinding allowlist. So does clearing a
   notification: it fires the `cleared` event, which tells Home Assistant that
   someone at the device acknowledged it. An ESPHome client can only turn the
