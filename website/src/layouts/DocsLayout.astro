@@ -10,8 +10,8 @@ type Props = {
   description?: string;
   /** Nav slug of this page ("" for the overview). */
   slug: string;
-  /** Content file name, for the "edit this page" link. */
-  file: string;
+  /** Content file name, for the "edit this page" link; none for pages that aren't Markdown. */
+  file?: string;
 };
 
 const { title, description, slug, file } = Astro.props;
@@ -126,15 +126,19 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
             }
           </nav>
 
-          <p class="border-line mt-10 flex items-center gap-1.5 border-t pt-6 text-sm">
-            <a
-              class="text-ink-muted hover:text-ink inline-flex items-center gap-1.5"
-              href={docEditHref(file)}
-            >
-              Edit this page on GitHub
-              <Icon name="external" size={14} class="text-ink-muted" />
-            </a>
-          </p>
+          {
+            file && (
+              <p class="border-line mt-10 flex items-center gap-1.5 border-t pt-6 text-sm">
+                <a
+                  class="text-ink-muted hover:text-ink inline-flex items-center gap-1.5"
+                  href={docEditHref(file)}
+                >
+                  Edit this page on GitHub
+                  <Icon name="external" size={14} class="text-ink-muted" />
+                </a>
+              </p>
+            )
+          }
         </article>
       </main>
     </div>

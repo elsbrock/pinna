@@ -1,0 +1,204 @@
+---
+import DocsLayout from "../layouts/DocsLayout.astro";
+import Icon from "../components/Icon.astro";
+import { docHref, SITE } from "../lib/site";
+
+const UDEV_RULE =
+  'SUBSYSTEM=="usb", ATTR{idVendor}=="0bb4", ATTR{idProduct}=="0c01", TAG+="uaccess"';
+---
+
+<DocsLayout
+  title="Install from the browser"
+  description="Connect your Echo over USB and check it from the browser. Nothing is written to the device."
+  slug="install"
+>
+  <div class="pn-notice" data-tone="caution">
+    <Icon name="shield" class="pn-notice-icon" />
+    <div class="pn-notice-body">
+      <p class="pn-notice-title !my-0">This page only checks the device for now</p>
+      <p class="!my-0">
+        It reads what the device is and whether Pinna can be installed on it.
+        It writes nothing. To install Pinna, follow
+        <a class="link" href={docHref("flash")}>Install Pinna</a>.
+      </p>
+    </div>
+  </div>
+
+  <div id="install-unsupported" class="pn-notice mt-5" data-tone="danger" hidden>
+    <Icon name="close" class="pn-notice-icon" />
+    <div class="pn-notice-body">
+      <p class="pn-notice-title !my-0">This browser can't talk to USB devices</p>
+      <p class="!my-0">
+        Open this page in Chrome, Edge, Brave or Opera on a computer. Firefox
+        and Safari don't support WebUSB.
+      </p>
+    </div>
+  </div>
+
+  <h2>What you need</h2>
+  <ul>
+    <li>Chrome, Edge, Brave or Opera on a computer.</li>
+    <li>
+      For the Echo Dot (2nd gen): a micro-USB cable that carries data, plugged
+      straight into the computer, not into a hub.
+    </li>
+    <li>
+      For the Echo (2nd gen): a connection to the USB pads on its base, with
+      pogo pins or a soldered cable. The device has no USB port.
+    </li>
+    <li>
+      On Linux: a udev rule that lets your user open the device. See
+      <a class="link" href="#cannot-open">The browser can't open the device</a>.
+    </li>
+    <li>
+      On Windows: the WinUSB driver for the device. See
+      <a class="link" href="#busy">The browser can't use the device</a>.
+    </li>
+  </ul>
+
+  <h2>Check your device</h2>
+
+  <form id="install-check" class="not-prose">
+    <fieldset class="flex flex-col gap-2">
+      <legend class="text-ink mb-2 font-semibold">1. Choose your device</legend>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="model" value="echo-dot-2" required />
+        Echo Dot (2nd gen)
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="model" value="echo-2" />
+        Echo (2nd gen)
+      </label>
+    </fieldset>
+  </form>
+
+  <p class="text-ink mt-6 mb-2 font-semibold">2. Start the device in fastboot</p>
+  <ol>
+    <li>Unplug the device.</li>
+    <li>
+      Connect it to the computer: the Echo Dot (2nd gen) with its micro-USB
+      cable, the Echo (2nd gen) with the pins on its USB pads.
+    </li>
+    <li>
+      Hold the button for its bootloader, and plug in the power while you hold
+      it: on the Echo Dot (2nd gen) that is the micro-USB cable itself, on the
+      Echo (2nd gen) its power adapter.
+      <ul>
+        <li>
+          <strong>Volume Down (−)</strong> if the device was unlocked before:
+          it runs Pinna or the previous firmware.
+        </li>
+        <li>
+          <strong>Action</strong> if it was never unlocked: it still runs
+          Amazon's software.
+        </li>
+      </ul>
+      If you are not sure, try Volume Down first, then Action.
+    </li>
+    <li>Release the button after a few seconds.</li>
+  </ol>
+
+  <p class="text-ink mt-6 mb-2 font-semibold">3. Connect</p>
+  <p>
+    The browser asks which device to use. Choose <strong>Android</strong>
+    (<code>0bb4:0c01</code>).
+  </p>
+  <div class="mt-3 flex flex-wrap items-center gap-3">
+    <button id="install-connect" type="button" class="pn-btn pn-btn-primary" disabled>
+      Connect
+    </button>
+    <p id="install-status" class="text-ink-muted !my-0 text-sm" role="status" aria-live="polite">
+      Choose your device first.
+    </p>
+  </div>
+
+  <div id="install-problem" class="pn-notice mt-5" data-tone="danger" hidden>
+    <Icon name="close" class="pn-notice-icon" />
+    <div class="pn-notice-body">
+      <p id="install-problem-title" class="pn-notice-title !my-0"></p>
+      <p id="install-problem-text" class="!my-0"></p>
+    </div>
+  </div>
+
+  <section id="install-result" class="card mt-6 p-5" hidden>
+    <p id="install-headline" class="text-ink !mt-0 text-lg font-semibold"></p>
+    <p id="install-detail" class="text-ink-muted"></p>
+    <p id="install-next" class="text-ink"></p>
+    <dl id="install-facts" class="mt-4 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1 text-sm"></dl>
+
+    <p class="text-ink mt-6 mb-2 font-semibold">Report</p>
+    <p class="!mt-0 text-sm">
+      Paste this into an issue if the result is wrong, or if the device's
+      bootloader is unknown. The serial number is cut short.
+    </p>
+    <textarea
+      id="install-report"
+      class="pn-input is-mono h-56 w-full py-2"
+      readonly
+      aria-label="Device report"></textarea>
+    <div class="mt-3 flex flex-wrap gap-3">
+      <button id="install-copy" type="button" class="pn-btn">Copy</button>
+      <a id="install-issue" class="pn-btn" href={`${SITE.repo}/issues/new`}>
+        Open an issue
+        <Icon name="external" size={14} />
+      </a>
+    </div>
+  </section>
+
+  <h2>If it doesn't work</h2>
+
+  <h3>The device isn't in the list</h3>
+  <ul>
+    <li>
+      The device isn't in fastboot. Start it again as described in step 2, and
+      try the other button.
+    </li>
+    <li>
+      The cable only charges. Try another cable, and a USB port on the
+      computer itself.
+    </li>
+  </ul>
+
+  <h3 id="cannot-open">The browser can't open the device</h3>
+  <p>
+    On Linux the browser runs as your user, and only root may open USB
+    devices that no rule names. Add this rule as
+    <code>/etc/udev/rules.d/60-pinna-fastboot.rules</code>:
+  </p>
+  <pre><code>{UDEV_RULE}</code></pre>
+  <p>Then load it, and unplug and plug in the device again:</p>
+  <pre><code>sudo udevadm control --reload-rules && sudo udevadm trigger</code></pre>
+  <p>
+    On NixOS, put the rule in <code>services.udev.extraRules</code> instead.
+  </p>
+
+  <h3 id="busy">The browser can't use the device</h3>
+  <ul>
+    <li>
+      Another program uses it: <code>fastboot</code>, <code>adb</code> (run
+      <code>adb kill-server</code>), Android Studio, or this page in another
+      tab. Close them and connect again.
+    </li>
+    <li>
+      On Windows the browser needs the WinUSB driver for the device. Install
+      it with <a class="link" href="https://zadig.akeo.ie/">Zadig</a>: choose
+      <strong>Options › List All Devices</strong>, select
+      <strong>Android</strong> (USB ID <code>0BB4 0C01</code>), choose
+      <strong>WinUSB</strong> and <strong>Install Driver</strong>.
+    </li>
+  </ul>
+
+  <h3 id="no-reply">The device doesn't answer</h3>
+  <p>
+    The page stops after the first request that gets no reply, and sends
+    nothing more. Some devices that were never unlocked reset when they get a
+    request and come back in fastboot. Unplug the device, start it in fastboot
+    again, use another cable or USB port, and connect again. If it happens
+    every time, open an issue and say which device and computer you use.
+  </p>
+</DocsLayout>
+
+<script>
+  import { startCheckPage } from "../lib/installer/check-page";
+  startCheckPage();
+</script>

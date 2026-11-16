@@ -6,7 +6,7 @@
     "dev": "astro dev",
     "build": "node ../design/build.mjs --check && astro build && node scripts/pagefind.mjs",
     "preview": "astro preview",
-    "check": "node ../design/build.mjs --check && node --test ../design/ring.test.ts && astro check"
+    "check": "node ../design/build.mjs --check && node --test ../design/ring.test.ts src/lib/installer/*.test.ts && astro check"
   },
   "dependencies": {
     "@astrojs/markdown-satteri": "^0.4.10",
