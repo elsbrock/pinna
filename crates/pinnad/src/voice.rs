@@ -401,6 +401,10 @@ pub struct Brain {
     conversation_id: String,
     continue_conversation: bool,
     run_ended: bool,
+    /// A run was stopped before Home Assistant ended it. Home Assistant still
+    /// ends a cancelled run with RUN_END, often after the next run started;
+    /// the stopped run's events up to then must not act on the new one.
+    stale_run: bool,
     tts_started: bool,
     tts_url: Option<String>,
     /// When the microphone stopped for the current run (end of speech).
@@ -536,6 +540,7 @@ impl Brain {
             conversation_id: String::new(),
             continue_conversation: false,
             run_ended: false,
+            stale_run: false,
             tts_started: false,
             tts_url: None,
             speech_ended: None,
@@ -679,9 +684,14 @@ impl Brain {
                         .wakes
                         .get_or_create(&crate::metrics::Word { word: id.clone() })
                         .inc();
-                    if self.phase == Phase::Speaking {
-                        tracing::info!("reply interrupted by the wake word");
-                        self.interrupt_reply().await;
+                    if self.phase != Phase::Idle {
+                        let what = if self.phase == Phase::Speaking {
+                            "reply"
+                        } else {
+                            "request"
+                        };
+                        tracing::info!("{what} interrupted by the wake word");
+                        self.interrupt().await;
                     }
                     if self.ringing.is_some() {
                         // The wake word only stops the alarm; no request starts.
@@ -1352,6 +1362,19 @@ impl Brain {
                 .map(|(_, v)| v.clone())
         };
         tracing::debug!("voice event {event:?} {data:?}");
+        if self.stale_run {
+            match event {
+                // The stopped run's last event.
+                VoiceEventType::RunEnd => {
+                    self.stale_run = false;
+                    return;
+                }
+                // Home Assistant ends a run before it starts the next one: a
+                // stopped run that hadn't started there sends nothing more.
+                VoiceEventType::RunStart => self.stale_run = false,
+                _ => return,
+            }
+        }
         match event {
             VoiceEventType::RunStart => {
                 if let Some(url) = get("url") {
@@ -2175,26 +2198,29 @@ impl Brain {
         }
         if tell_ha && self.phase != Phase::Idle {
             self.send(DeviceEvent::VoiceStop).await;
+            self.stale_run = !self.run_ended;
         }
         self.stop_playback();
         self.phase = Phase::Idle;
         self.continue_conversation = false;
     }
 
-    /// The wake word is acted on: while idle, and over a reply or an
-    /// announcement, which it interrupts. Calibration counts wakes only while
-    /// idle.
+    /// The wake word is acted on in every phase but listening, where the
+    /// microphone already goes to Home Assistant and the detector doesn't
+    /// run. Outside idle it stops the request, reply or announcement, and
+    /// starts a new request. Calibration counts wakes only while idle.
     fn wake_armed(&self) -> bool {
         match self.phase {
             Phase::Idle => true,
-            Phase::Speaking => self.calibration.is_none(),
-            _ => false,
+            Phase::Listening(_) => false,
+            Phase::Starting(_) | Phase::Thinking(_) | Phase::Speaking => self.calibration.is_none(),
         }
     }
 
-    /// Stop the reply or announcement that is playing, as an ESPHome satellite
-    /// does: Home Assistant hears it finished, so it doesn't wait for it.
-    async fn interrupt_reply(&mut self) {
+    /// Stop the request, and the reply or announcement that is loading or
+    /// playing, as an ESPHome satellite does: Home Assistant hears the reply
+    /// finished, so it doesn't wait for it.
+    async fn interrupt(&mut self) {
         if matches!(
             self.playback,
             Some((_, PlaybackKind::Tts | PlaybackKind::Announce { .. }, _))

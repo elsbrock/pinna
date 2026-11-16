@@ -62,8 +62,8 @@ timers:
   device.
 - The wake word line names the active words, or `none chosen`, and is `armed`
   when the device listens for them right now: the microphones are on, and
-  either a timer alarm rings, or the device is idle or speaking a reply or an
-  announcement and Home Assistant is subscribed.
+  either a timer alarm rings, or the device isn't listening to a request and
+  Home Assistant is subscribed.
 - A paused timer shows `(paused)`.
 
 ### Watch

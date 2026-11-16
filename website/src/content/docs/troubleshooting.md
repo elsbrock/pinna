@@ -100,7 +100,7 @@ Check each condition with `pinnactl status`:
 | --- | --- | --- |
 | `muted` | `no` | Press the **Microphone off** button, or run `pinnactl mute off` |
 | `home assistant` | `connected, voice subscribed` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/) |
-| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while a request runs |
+| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while the device listens to a request |
 | `audio` | Anything but `none` | `none` means Pinna found no audio device. Check for `microphone unavailable` in the log |
 
 If all lines look right:

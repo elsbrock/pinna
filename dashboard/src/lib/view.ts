@@ -135,8 +135,9 @@ export function hhmm(d: Date): string {
 
 /**
  * The Wake word switch's hint: what the detector does and, when it is paused,
- * why. The reasons mirror pinnad's own gate (unmuted; idle or speaking with a
- * voice pipeline, or an alarm ringing), so they are facts, not guesses.
+ * why. The reasons mirror pinnad's own gate (unmuted; not listening to a
+ * request, with a voice pipeline, or an alarm ringing), so they are facts,
+ * not guesses.
  */
 export function wakeHint(s: Status): string {
   if (!s.settings?.wakeWord) return "Off. Press the action button to talk.";

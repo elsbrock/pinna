@@ -424,7 +424,120 @@ def test_wake_word_interrupts_a_reply(pinnad):
     assert events[events.index("stopped") + 1] == "wake_word", events
 
 
-ALL_WORDS = {"alexa_v0.1", "hey_jarvis_v0.1", "hey_mycroft_v0.1", "hey_rhasspy_v0.1", "okay_nabu"}
+async def interrupted_run_flow(port: int, during: str):
+    """The wake word stops a run that Home Assistant hasn't ended. Home
+    Assistant ends a run it cancels with RUN_END, which comes after the new
+    run started: the new run must go on."""
+    client = APIClient("127.0.0.1", port, None)
+    for _ in range(50):
+        try:
+            await client.connect(login=True)
+            break
+        except Exception:
+            await asyncio.sleep(0.1)
+    await client.device_info()
+    entities, _ = await client.list_entities_services()
+    voice_key = next(e.key for e in entities if e.object_id == "voice_assistant")
+
+    events: list[str] = []
+    changed = asyncio.Event()
+
+    def on_state(state):
+        if isinstance(state, Event) and state.key == voice_key and state.event_type:
+            events.append(state.event_type)
+            changed.set()
+
+    async def until(done, timeout: float):
+        async def wait():
+            while not done():
+                changed.clear()
+                await changed.wait()
+
+        await asyncio.wait_for(wait(), timeout)
+
+    client.subscribe_states(on_state)
+
+    starts: list[str] = []
+    stops = 0
+    got_audio = asyncio.Event()
+    second_start = asyncio.Event()
+    announced: list[bool] = []
+    audio_bytes = 0
+
+    async def handle_start(conversation_id, flags, audio_settings, wake_word_phrase):
+        starts.append(wake_word_phrase)
+        if len(starts) == 2:
+            second_start.set()
+        return 0
+
+    async def handle_stop(abort):
+        nonlocal stops
+        stops += 1
+
+    async def handle_audio(data: bytes, data2: bytes = b""):
+        nonlocal audio_bytes
+        audio_bytes += len(data)
+        if audio_bytes >= 640 * 25:
+            got_audio.set()
+
+    async def handle_announcement_finished(msg):
+        announced.append(msg.success)
+
+    unsub = client.subscribe_voice_assistant(
+        handle_start=handle_start,
+        handle_stop=handle_stop,
+        handle_audio=handle_audio,
+        handle_announcement_finished=handle_announcement_finished,
+    )
+    reply = GatedReply()
+    E = VoiceAssistantEventType
+    try:
+        await asyncio.wait_for(got_audio.wait(), timeout=15)
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_START, {"url": reply.url})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_STT_VAD_END, {})
+        if during == "speaking":
+            # A streamed reply: the run ends only once the reply is written.
+            client.send_voice_assistant_event(
+                E.VOICE_ASSISTANT_INTENT_PROGRESS, {"tts_start_streaming": "1"}
+            )
+            await asyncio.sleep(1)
+            assert reply.open.is_set(), "the reply was not requested"
+            reply.release(10)
+            await until(lambda: "replying" in events, 5)
+        stops_before = stops
+
+        # The fixture's second "Alexa" (~8.7 s) stops the run and starts another.
+        await asyncio.wait_for(second_start.wait(), timeout=15)
+        assert starts == ["Alexa", "Alexa"], starts
+        assert stops > stops_before
+        await until(lambda: events.count("listening") == 2, 3)
+
+        # Home Assistant ends the run it cancelled, then the new run goes on.
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_END, {})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_START, {})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_STT_VAD_END, {})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_END, {})
+        await asyncio.sleep(1)
+    finally:
+        reply.shutdown()
+        unsub()
+        await client.disconnect()
+    return events, announced
+
+
+@pytest.mark.parametrize("during", ["speaking", "thinking"])
+def test_late_end_of_a_stopped_run_leaves_the_next_one(pinnad, during):
+    port, proc, _ = pinnad
+    events, announced = asyncio.run(interrupted_run_flow(port, during))
+    assert proc.poll() is None, "pinnad exited"
+    assert events[events.index("stopped"):] == [
+        "stopped", "wake_word", "listening", "thinking", "finished"
+    ], events
+    # A reply that sounds is reported finished; Home Assistant waits for it.
+    assert announced == ([True] if during == "speaking" else []), announced
+
+
+ALL_WORDS ={"alexa_v0.1", "hey_jarvis_v0.1", "hey_mycroft_v0.1", "hey_rhasspy_v0.1", "okay_nabu"}
 
 
 @pytest.fixture

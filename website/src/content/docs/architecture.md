@@ -121,7 +121,8 @@ Pinna's own services:
    handles the request, and sends a link to the spoken reply. With a pipeline
    that streams, the link comes while the reply is still being written.
 4. `pinnad` plays the reply on the speaker while it downloads. When you say
-   the wake word during the reply, the reply stops and a new request starts.
+   the wake word while Home Assistant handles the request or during the
+   reply, the request and its reply stop and a new request starts.
 5. If Home Assistant asks for a follow-up, the device listens again without
    the wake word.
 
