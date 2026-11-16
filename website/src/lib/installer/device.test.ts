@@ -18,7 +18,7 @@ const KAERU_DOT: Script = {
   "getvar:partition-size:system_a": ["OKAY30000000"],
   "getvar:partition-size:system_b": ["OKAY30000000"],
   "getvar:partition-size:userdata": ["OKAY4effbe00"],
-  "oem kaeru-version": ["INFOkaeru 1.0", "OKAY"],
+  "oem kaeru-version": ["INFOkaeru v2.0.0-gab93750", "OKAY"],
 };
 
 const stock = (overrides: Script = {}): Script => ({
@@ -33,7 +33,7 @@ async function run(script: Script): Promise<DeviceReport> {
 
 test("a Dot with Kaeru is ready", async () => {
   const report = await run(KAERU_DOT);
-  assert.deepEqual(report.bootloader, { kind: "kaeru", version: "kaeru 1.0" });
+  assert.deepEqual(report.bootloader, { kind: "kaeru", version: "v2.0.0-gab93750" });
   assert.equal(report.partitions.system_a, 0x30000000);
   assert.equal(report.unlocked, "");
   assert.equal(assess(report, "echo-dot-2").state, "ready");
@@ -98,6 +98,7 @@ test("the report masks the serial number", async () => {
   assert.doesNotMatch(text, /0971521APS/);
   assert.match(text, /serialno: G090LF…/);
   assert.match(text, /partition-size:userdata: 0x4effbe00/);
+  assert.match(text, /bootloader: Kaeru v2.0.0-gab93750\n/);
   assert.match(text, /result: ready/);
   assert.equal(maskSerial(null), "(none)");
 });

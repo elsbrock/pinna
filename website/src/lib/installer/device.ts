@@ -70,8 +70,9 @@ export async function identify(fb: Fastboot, progress: (step: string) => void = 
   let bootloader: Bootloader;
   try {
     const reply = await fb.command("oem kaeru-version");
+    // Kaeru answers INFO "kaeru v2.0.0-gab93750", then OKAY (measured).
     const version = [...reply.info, reply.message].map((s) => s.trim()).filter(Boolean).join(" ");
-    bootloader = { kind: "kaeru", version };
+    bootloader = { kind: "kaeru", version: version.replace(/^kaeru\s+/i, "") };
   } catch (error) {
     if (!(error instanceof FastbootError) || error.kind !== "fail") throw error;
     bootloader = REFUSED.test(error.message) ? { kind: "stock", reply: error.message } : { kind: "unknown", reply: error.message };
