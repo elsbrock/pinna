@@ -356,9 +356,9 @@ quiet room; `PINNA_ACOUSTIC=0` skips it.
 
 ## Known limitations
 
-- **Wi-Fi**: the vendor driver's receive path (kernel patches 0021–0027) reaches
-  1–1.7 MB/s, but on a busy 2.4 GHz channel downloads still stall for seconds
-  at times. Speech and TTS are small; long streams may glitch.
+- **Wi-Fi**: the vendor driver reaches 1–1.7 MB/s on 2.4 GHz. It needs
+  Amazon's small 2.4 GHz block-ack window (kernel patch 0028): without it,
+  transfers that start after a few idle seconds stall for 10–30 s.
 - **Echo cancellation** needs a few seconds of playback to converge; the first
   seconds of new audio are only partly removed.
 

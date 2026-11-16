@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Mon, 16 Nov 2026 11:55:55 +0100
+Subject: [PATCH 28/28] fix(wlan): take Amazon's Echo branches for radar
+
+The vendor driver keeps Amazon's Echo settings behind the anonymised
+project names abh123/abc123/abd123: a 2.4 GHz firmware RX block-ack
+window of 0x12 ("Fix Rx BA Size to 2"), power save forced to CAM, the
+ARP filter off and the longer disconnect-event delay. The stock Echo
+Dot kernel runs all four. Pinna builds the Echos as "radar", so none of
+them ran.
+
+Without the small window, a transfer that starts after a few idle
+seconds stalls: the AP resends frames the device already received, the
+firmware no longer acks them because they are behind its block-ack
+scoreboard, the AP falls back to 1 Mbit/s and gives up one frame at a
+time, and nothing reaches the host for 10-30 s. On an Echo Dot, 600 KB
+downloads after 6 s idle each: 5 of 19 stalled with the default window,
+none of 20 with 0x12, at the same 1.1-1.7 MB/s.
+
+Match "radar" in all four checks. The abd123-only branches stay off, as
+on stock. The rx_ba_win experiment switch is now unreachable and goes.
+---
+ .../drv_wlan/mt_wifi/wlan/common/wlan_oid.c   |  3 +-
+ .../drv_wlan/mt_wifi/wlan/mgmt/ais_fsm.c      |  3 +-
+ .../conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c  | 47 ++++---------------
+ .../drv_wlan/mt_wifi/wlan/os/linux/gl_init.c  |  3 +-
+ 4 files changed, 15 insertions(+), 41 deletions(-)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/common/wlan_oid.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/common/wlan_oid.c
+index e49c34a53..645a9aa69 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/common/wlan_oid.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/common/wlan_oid.c
+@@ -7206,7 +7206,8 @@ wlanoidSet802dot11PowerSaveProfile(IN P_ADAPTER_T prAdapter,
+ 
+ 	if (kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abh123", 7) == 0 ||
+ 		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abc123", 6) == 0 ||
+-		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0)
++		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0 ||
++		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "radar", 6) == 0)
+ 		ePowerMode = Param_PowerModeCAM;
+ 
+ 	status = nicConfigPowerSaveProfile(prAdapter, NETWORK_TYPE_AIS_INDEX, ePowerMode, TRUE);
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/ais_fsm.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/ais_fsm.c
+index 07dda8372..f620f03f0 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/ais_fsm.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/ais_fsm.c
+@@ -1071,7 +1071,8 @@ VOID aisInitializeConnectionSettings(IN P_ADAPTER_T prAdapter, IN P_REG_INFO_T p
+ 
+ 	if (kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abh123", 7) == 0 ||
+ 		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abc123", 6) == 0 ||
+-		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0)
++		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0 ||
++		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "radar", 6) == 0)
+ 		ucDelayDisconnectTime =
+ 			AIS_DELAY_TIME_OF_LONG_DISC_SEC_DUALBAND;
+ 	else
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+index 19422efac..895c25f28 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/nic/nic.c
+@@ -1995,41 +1995,6 @@ WLAN_STATUS nicDeactivateNetwork(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYPE_
+ }
+ 
+ /* BSS-INFO */
+-/*
+- * RX block-ack experiment (Pinna).  Applied whenever the AIS BSS is updated,
+- * i.e. on association, before the AP sends its ADDBA request; a change takes
+- * effect on the next (re)association.
+- *
+- * rx_ba_win:    sent to the firmware with CMD_ID_SET_RX_BA_WIN_SIZE, the
+- *               command the vendor code sends with 0x12 ("Fix Rx BA Size to
+- *               2") on 2.4 GHz for Amazon's abh123/abc123/abd123 projects.
+- *               This kernel uses CONFIG_ARCH_MTK_PROJECT="radar", so that
+- *               workaround never runs.  0 = firmware default.
+- *
+- * CMD_ID_ADDBA_REJECT is not offered: with it this firmware never completes
+- * association (stuck in ASSOCIATING).
+- */
+-static unsigned int rx_ba_win;
+-module_param(rx_ba_win, uint, 0644);
+-MODULE_PARM_DESC(rx_ba_win, "firmware RX BA window set on association (0 = default, 0x12 = Amazon 2.4 GHz value)");
+-
+-static VOID nicEchoApplyRxBaParams(IN P_ADAPTER_T prAdapter, IN P_BSS_INFO_T prBssInfo)
+-{
+-	static BOOLEAN fgWinSent;
+-	UINT_32 u4Win = READ_ONCE(rx_ba_win);
+-
+-	if (prBssInfo->eConnectionState != PARAM_MEDIA_STATE_CONNECTED)
+-		return;
+-
+-	/* once a value was sent, keep the firmware in sync when it is cleared */
+-	if (u4Win || fgWinSent) {
+-		nicQmSetRxBASize(prAdapter, u4Win != 0, u4Win);
+-		fgWinSent = (u4Win != 0);
+-		pr_info_ratelimited("ECHO_WLAN_RX_BA: firmware RX BA window enable=%u size=0x%x band=%u\n",
+-				    u4Win != 0, u4Win, prBssInfo->eBand);
+-	}
+-}
+-
+ /*----------------------------------------------------------------------------*/
+ /*!
+ * @brief This utility function is used to sync bss info with firmware
+@@ -2135,9 +2100,17 @@ WLAN_STATUS nicUpdateBss(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYPE_INDEX_T
+ 	else
+ 		rCmdSetBssInfo.ucStaRecIdxOfAP = STA_REC_INDEX_NOT_FOUND;
+ 
++	/*
++	 * Amazon's Echo settings.  The stock Echo Dot kernel takes these
++	 * branches; Pinna builds the Echos as "radar".  Without the small 2.4 GHz
++	 * window the AP runs ahead of the firmware's block-ack scoreboard after
++	 * an idle spell, the firmware stops acking, the AP falls back to
++	 * 1 Mbit/s and downloads stall for tens of seconds.
++	 */
+ 	if ((kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abh123", 7) == 0 ||
+ 		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abc123", 6) == 0 ||
+-		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0) &&
++		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0 ||
++		kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "radar", 6) == 0) &&
+ 			(prBssInfo->ucNetTypeIndex == NETWORK_TYPE_AIS_INDEX)) {
+ 		if (prBssInfo->eConnectionState == PARAM_MEDIA_STATE_CONNECTED &&
+ 			prBssInfo->eBand == BAND_2G4) {
+@@ -2147,8 +2120,6 @@ WLAN_STATUS nicUpdateBss(IN P_ADAPTER_T prAdapter, IN ENUM_NETWORK_TYPE_INDEX_T
+ 		} else {
+ 			nicQmSetRxBASize(prAdapter, FALSE, 0);
+ 		}
+-	} else if (prBssInfo->ucNetTypeIndex == NETWORK_TYPE_AIS_INDEX) {
+-		nicEchoApplyRxBaParams(prAdapter, prBssInfo);
+ 	}
+ 
+ 	u4Status = wlanSendSetQueryCmd(prAdapter,
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_init.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_init.c
+index 60e018b02..5c5c4d92a 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_init.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_init.c
+@@ -3925,7 +3925,8 @@ static INT_32 wlanProbe(PVOID pvData)
+ 
+ 			if (kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abh123", 7) == 0 ||
+ 				kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abc123", 6) == 0 ||
+-				kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0) {
++				kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "abd123", 5) == 0 ||
++				kalStrnCmp(CONFIG_ARCH_MTK_PROJECT, "radar", 6) == 0) {
+ 				prRegInfo->fgEnArpFilter = FALSE;
+ 			} else {
+ 				prRegInfo->fgEnArpFilter = TRUE;
