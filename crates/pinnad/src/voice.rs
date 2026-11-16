@@ -441,9 +441,14 @@ impl Brain {
             Input::Wake { id, score } => {
                 let phrase = self.opts.wake_words.phrase(&id).to_owned();
                 tracing::info!("wake word {phrase:?} detected (score {score:.2})");
-                if self.phase == Phase::Idle && self.ringing.is_none() && !self.muted() {
+                if self.phase == Phase::Idle && !self.muted() {
                     self.record_wake(WakeRecord::now(true, score, false));
-                    if let Some(c) = &mut self.calibration {
+                    if self.ringing.is_some() {
+                        // The wake word only stops the alarm; no request starts.
+                        tracing::info!("timer alarm dismissed by wake word");
+                        self.ringing = None;
+                        self.stop_playback();
+                    } else if let Some(c) = &mut self.calibration {
                         // Calibration acknowledges the wake itself: no request.
                         c.woke(score, self.settings.wake_sensitivity, Instant::now());
                         self.overlay(Effect::CalibrationHeard);
@@ -1720,12 +1725,12 @@ impl Brain {
                 s.duck(duck);
             }
         }
-        // Calibration wakes start no request, so they don't need a pipeline.
+        // Calibration wakes and wakes that stop an alarm start no request, so
+        // they don't need a pipeline.
         let wake = self.phase == Phase::Idle
             && !muted
             && self.settings.wake_word
-            && (self.voice_subscribed || self.calibration.is_some())
-            && self.ringing.is_none()
+            && (self.voice_subscribed || self.calibration.is_some() || self.ringing.is_some())
             && self.boot_done;
         self.shared.wake_enabled.store(wake, Ordering::SeqCst);
         let snapshot = self.snapshot();
