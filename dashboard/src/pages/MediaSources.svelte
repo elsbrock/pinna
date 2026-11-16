@@ -226,6 +226,14 @@
 {/if}
 
 <style>
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .is-danger {
     color: var(--danger);
     font-weight: 650;
