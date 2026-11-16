@@ -82,12 +82,12 @@ web-check:
     cd dashboard && npm ci && npm run check
 
 # root filesystem: erofs via mkosi, sealed into a signed slot image build/pinna.root.img
-image: wmt rust-arm ladspa web
+image: models wmt rust-arm ladspa web
     scripts/assemble-rootfs-extra.sh
     scripts/build-root.sh
 
 # x86_64 image for KVM smoke tests (same userland, x86_64 binaries) -> build/pinna-x86.root.img
-image-x86: rust-x86 ladspa web
+image-x86: models rust-x86 ladspa web
     scripts/assemble-rootfs-extra.sh --arch x86_64
     scripts/build-root.sh --arch x86_64
 
