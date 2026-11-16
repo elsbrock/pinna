@@ -134,6 +134,38 @@ If all lines look right:
 3. If the entry says **Every setting wakes on this**, move the device away
    from the sound, or turn off the wake word while it plays.
 
+## The reply starts late or pauses
+
+The log of `pinnad` has a line for each reply. Find it under **System > Logs**
+in the dashboard, or with `journalctl -b -u pinnad | grep reply:`:
+
+```text
+reply: first audio 1.42 s after the end of speech (0.31 s after Home Assistant started it)
+```
+
+- The first number counts from the moment Home Assistant noticed that you
+  stopped talking until the reply starts to play.
+- The second number counts from the moment Home Assistant sent the link to the
+  reply.
+
+If the second number is small, most of the wait is speech-to-text and the
+conversation agent. If it is close to the first number, the conversation
+agent or the text-to-speech is slow to make the reply, or the Wi-Fi signal is
+weak.
+
+If the reply pauses in the middle, the log also has a line such as
+`voice stream: fell behind 2 time(s), 1.3 s of silence`. The reply arrives
+slower than it plays, for the same reasons.
+
+To fix it:
+
+- In Home Assistant, open **Settings > Voice assistants**, select the
+  assistant that the device uses, and choose a faster speech-to-text,
+  conversation agent or text-to-speech.
+- Check the signal strength on the **Network** page of the
+  [dashboard](/docs/dashboard/#what-the-dashboard-shows). Move the device
+  closer to the access point if the signal is weak.
+
 ## The ring flashes red three times
 
 The request didn't work. The log says why:
@@ -142,7 +174,7 @@ The request didn't work. The log says why:
 | --- | --- |
 | `Home Assistant refused the run` | Home Assistant has no Assist pipeline for the device, or the pipeline failed to start |
 | `Assist error: …` | The pipeline reported an error, for example from speech-to-text |
-| `Assist run timed out` | Home Assistant didn't answer in time: 5 seconds to start, 15 seconds of listening, 30 seconds of thinking |
+| `Assist run timed out` | Home Assistant didn't answer in time: 5 seconds to start, 15 seconds of listening, 30 seconds of thinking, including the wait for the reply to start |
 
 The ring also flashes red when you press the Action button while the
 microphones are off.

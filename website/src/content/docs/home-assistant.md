@@ -80,6 +80,13 @@ The light ring turns blue while the device listens, violet while Home
 Assistant works on the request, and cyan while the reply plays. See
 [Light ring and buttons](/docs/ring-and-buttons/).
 
+The device plays the reply while it downloads. If both the conversation agent
+and the text-to-speech of the pipeline support streaming, Home Assistant
+starts a long reply while the agent still writes it, and you hear it sooner.
+A short reply gains little. If the agent is slow, a streamed reply can pause
+in the middle. See
+[The reply starts late or pauses](/docs/troubleshooting/#the-reply-starts-late-or-pauses).
+
 ## Choose the wake words
 
 The device listens for two wake words at once, at most, and Home Assistant

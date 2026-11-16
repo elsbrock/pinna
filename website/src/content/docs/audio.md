@@ -59,6 +59,11 @@ lanes:
 While the voice lane plays, and while the device listens or works on a
 request, the media lane gets 20 dB quieter, and returns afterwards.
 
+Replies and announcements play while they download. If the audio arrives
+slower than it plays, the reply pauses in silence until enough audio is
+there, and then continues. Nothing is skipped. After each pause it waits for
+more audio before it continues, so a slow reply pauses less often.
+
 ## Volume
 
 The volume runs from 0 to 100 and is applied digitally. 0 is silent, 1 is about

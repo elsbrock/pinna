@@ -49,6 +49,10 @@ Events don't have a state. Use them as triggers in automations.
 | Timer | `timer` | `started`, `updated`, `cancelled`, `finished` | A timer on the device changes |
 | Notification | `notification` | `cleared` | Someone clears the notification with the Action button or on the dashboard. It doesn't fire when Home Assistant turns the switch off |
 
+`replying` fires when the reply starts to play, not when Home Assistant
+sends it. If the reply can't play, there is no `replying`, and the request
+ends with `finished`.
+
 A `double_press` fires when you press the same button twice within 0.4
 seconds. The button still does its normal job for both presses. While wake
 word calibration runs, the volume buttons tune the sensitivity instead and

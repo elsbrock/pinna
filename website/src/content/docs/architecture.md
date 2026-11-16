@@ -116,8 +116,9 @@ Pinna's own services:
    and streams the audio, starting 200 milliseconds before the end of the wake
    word.
 3. Home Assistant detects the end of speech, turns the speech into text,
-   handles the request, and sends a link to the spoken reply.
-4. `pinnad` downloads the reply, decodes it, and plays it on the speaker.
+   handles the request, and sends a link to the spoken reply. With a pipeline
+   that streams, the link comes while the reply is still being written.
+4. `pinnad` plays the reply on the speaker while it downloads.
 5. If Home Assistant asks for a follow-up, the device listens again without
    the wake word.
 
