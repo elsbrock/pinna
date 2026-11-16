@@ -1,6 +1,7 @@
 // One drawing per supported model, keyed by `Status.model` (pinna-hal's
 // board_model()). A model without a drawing gets the flat Ring instead.
 import type { Effect } from "../ring.ts";
+import * as echo2 from "./echo-2.ts";
 import * as echoDot2 from "./echo-dot-2.ts";
 
 export type Drawing = {
@@ -16,6 +17,7 @@ export type Drawing = {
 
 const DRAWINGS: Record<string, Drawing> = {
   "echo-dot-2": { name: "Echo Dot (2nd gen)", aspect: echoDot2.ASPECT, glow: echoDot2.GLOW, svg: echoDot2.svg },
+  "echo-2": { name: "Echo (2nd gen)", aspect: echo2.ASPECT, glow: echo2.GLOW, svg: echo2.svg },
 };
 
 export function drawingFor(model: string): Drawing | undefined {

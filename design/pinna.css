@@ -250,6 +250,10 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-drawing .sheen-lo { stop-color: white; stop-opacity: 0; }
 .pn-drawing .shadow { fill: black; opacity: 0.22; }
 .pn-drawing .foot { fill: color-mix(in oklab, var(--puck) 50%, black); }
+/* Echo (2nd gen) wall: a matte mesh below the plastic collar; holes darker than the surface. */
+.pn-drawing .fabric { fill: black; opacity: 0.1; }
+.pn-drawing .mesh { fill: none; stroke: color-mix(in oklab, var(--puck) 45%, black); stroke-linecap: round; }
+.pn-drawing .seam { fill: none; stroke: color-mix(in oklab, var(--puck) 50%, black); stroke-width: 1.2; }
 .pn-drawing .top { fill: color-mix(in oklab, var(--puck) 94%, white); }
 .pn-drawing .rim { fill: none; stroke: var(--puck-rim); stroke-width: 1; }
 .pn-drawing .hole { fill: color-mix(in oklab, var(--puck) 45%, black); }
