@@ -83,7 +83,13 @@ Constraints:
 - **Updates run in pinnad.** pinnad runs `pinnactl update -- <manifest>` itself
   (http and https manifests only) and keeps its output, so a browser that goes
   away cannot interrupt an install. Signature and dm-verity checks and the
-  rollback stay as in ADR 0003.
+  rollback stay as in ADR 0003. Switching to the other slot is pinnad's too
+  (`SetActiveSlot`): it checks the slot's image as pinna-init does, makes it
+  active as a trial and restarts, and puts the slot state back if the restart
+  fails, so a switch never waits for the next power cut. Only a slot that is
+  good or hasn't been started yet; not while an install runs or the running
+  slot is on trial. The running slot can be made active again, which keeps an
+  installed update back without a restart. Amended 2026-11-16.
 
 ## Consequences
 
@@ -104,7 +110,8 @@ Constraints:
   - run the ring's test pattern
   - restart the satellite, or reset it to how it was installed, which also
     removes the encryption key Home Assistant set (ADR 0010, ADR 0018)
-  - install an update.
+  - install an update, switch to the version in the other slot, or keep an
+    installed update from starting.
 
   Only images signed with the owner's release key install. The satellite falls
   back to the previous slot if the new one fails. An older signed release
@@ -112,7 +119,7 @@ Constraints:
 
   The controls match what a plaintext ESPHome API already exposes. Reading the
   log and the network details (SSID, signal, every address), the ring's test
-  pattern, restarting, a factory reset, installing, renaming, moving or
+  pattern, restarting, a factory reset, installing, switching slots, renaming, moving or
   forgetting Wi-Fi and adding a host name go beyond it; a host name widens the DNS rebinding allowlist. So does clearing a
   notification: it fires the `cleared` event, which tells Home Assistant that
   someone at the device acknowledged it. An ESPHome client can only turn the

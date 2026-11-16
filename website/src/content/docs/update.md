@@ -119,9 +119,31 @@ The [dashboard](/docs/dashboard/) runs the same update as `pinnactl update`.
 5. Wait until the new slot is marked **Good**, within 5 minutes of the restart.
    You can install the next update after that.
 
+To keep the update from starting, select **Keep this version** instead of
+**Restart now**. The update stays in its slot as **Not started yet**, and you
+can switch to it later.
+
 If the new version doesn't start, the device goes back to the previous one, and
 **System** shows the new slot as **Can't boot**. See
 [Recover a device](/docs/recovery/) if the device doesn't come back at all.
+
+## Switch to the other version
+
+The slot that isn't running usually holds the previous version. To run it
+again:
+
+1. In the dashboard, open **System**. Under **Software**, select **Switch…**
+   next to **Switch to slot A** or **Switch to slot B**.
+2. Select **Switch and restart**. The page reconnects when the device is back,
+   and shows that version on trial.
+
+The other version starts on trial, like an update. If it doesn't start, the
+device goes back to the version that ran before. **Switch…** is only there
+when the other slot is marked **Good** or **Not started yet**, and not while
+the running version is on trial.
+
+Versions from before the switch existed don't have it. To leave one of them,
+install an update.
 
 ## Update the boot image
 

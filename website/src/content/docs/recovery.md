@@ -72,7 +72,11 @@ pinna-bootctl slot-status
 The output lists both root filesystem slots with their version and state:
 `good`, `trial` or `unbootable`, and which slot is running.
 
-To go back to the other slot yourself:
+To go back to the other slot yourself, use **Switch…** on the dashboard's
+**System** page. See
+[Switch to the other version](/docs/update/#switch-to-the-other-version).
+
+Over SSH:
 
 1. Choose the slot for the next boot. Replace `a` with the slot that you want:
 
