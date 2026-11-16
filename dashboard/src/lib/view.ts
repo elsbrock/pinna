@@ -113,8 +113,8 @@ export function hhmm(d: Date): string {
 
 /**
  * The Wake word switch's hint: what the detector does and, when it is paused,
- * why. The reasons mirror pinnad's own gate (idle or speaking, unmuted, a voice pipeline,
- * no alarm), so they are facts, not guesses.
+ * why. The reasons mirror pinnad's own gate (unmuted; idle or speaking with a
+ * voice pipeline, or an alarm ringing), so they are facts, not guesses.
  */
 export function wakeHint(s: Status): string {
   if (!s.settings?.wakeWord) return "Off. Press the action button to talk.";
@@ -125,7 +125,6 @@ export function wakeHint(s: Status): string {
   if (s.muted) return `Not listening for ${word} while the microphones are off`;
   if (!s.haConnected || !s.voiceSubscribed)
     return `Not listening for ${word} until Home Assistant has a voice pipeline for this satellite`;
-  if (s.alarmRinging) return `Not listening for ${word} while the alarm rings`;
   if (s.phase !== 1 && s.phase !== 0) return `Not listening for ${word} during the conversation`;
   return `Not listening for ${word} yet`;
 }

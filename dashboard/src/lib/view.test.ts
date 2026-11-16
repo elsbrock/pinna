@@ -153,7 +153,6 @@ test("wake word hint names pinnad's reason for pausing", () => {
   const idle = wakeWord({ phrase: "Alexa" });
   assert.match(wakeHint(status({ wakeWord: idle, muted: true })), /while the microphones are off/);
   assert.match(wakeHint(status({ wakeWord: idle, voiceSubscribed: false })), /voice pipeline/);
-  assert.match(wakeHint(status({ wakeWord: idle, alarmRinging: true })), /alarm rings/);
   assert.match(wakeHint(status({ wakeWord: idle, phase: 3 })), /during the conversation/);
   const off = settings({ wakeWord: false });
   assert.equal(wakeHint(status({ settings: off })), "Off. Press the action button to talk.");
