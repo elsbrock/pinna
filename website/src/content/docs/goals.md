@@ -8,13 +8,18 @@ change works against one of them, the change needs a strong reason.
 
 ## Goals
 
-### Keep speech local
+### Your voice goes only where you send it
 
-Pinna detects the wake word on the device itself. Until the device hears the
-wake word, no audio leaves it. After that, audio goes only to the Home
-Assistant instance that you connected the device to, over your own network.
-Pinna doesn't use Amazon's services or any other cloud service to handle your
-voice.
+Pinna detects the wake word on the device itself. Audio leaves the device only
+after the wake word, or when someone starts a request on purpose: with the
+Action button, from the dashboard, or from Home Assistant. The light ring shows
+whenever the device is listening. The audio
+goes to your Home Assistant, or in standalone mode to the services set up on
+the device: hosted services with your own keys, or your own servers. Pinna
+doesn't use Amazon's services, has no cloud service of its own, and never picks
+a service for you. In standalone mode, anyone who can use the dashboard can
+change those services; see
+[Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 
 ### Be a good Home Assistant voice satellite
 
@@ -30,6 +35,14 @@ Bluetooth. The music goes through the same audio path as everything
 else, so the wake word keeps working while it plays, and replies,
 announcements and timers always come first. Each source is off until you turn
 it on.
+
+### Work without Home Assistant
+
+In standalone mode the device is a voice assistant on its own. It sends your
+requests to the services you choose, from hosted models to your own servers,
+or to an AI agent such as Hermes or OpenClaw. Agents can also use the device as
+their voice and speaker. You set everything up on the dashboard. Standalone
+mode is planned; see [Status and roadmap](/docs/status/).
 
 ### Be safe to install and update
 
@@ -66,25 +79,23 @@ apart from Pinna's own code and isn't under Pinna's license.
 
 - **More devices.** Pinna supports the Echo (2nd gen) and the Echo Dot
   (2nd gen). Other Echo devices may follow.
-- **Standalone mode.** Using the device as a voice assistant without a Home
-  Assistant instance. Pinna's parts are kept separate so that this stays
-  possible.
 
 ## Out of scope
 
 - **Replacing Alexa.** Pinna doesn't use Amazon's services, so Alexa features
   such as skills, shopping and calling aren't available.
-- **Cloud accounts and remote access.** Pinna has no account. The one service
+- **A Pinna account or remote access.** Pinna has no account. The one service
   of the project that a device contacts is `updates.getpinna.dev`, to look for
   new releases: once a day and after each start. It learns what any web server
   learns, the address a request comes from and when, and the channel the
   device asks for (`stable` or `beta`), nothing else. Its logs keep these for
-  a few days, at Cloudflare, which runs it. Set **Updates**
-  to **Off** on the dashboard and the device contacts no service of the
-  project. If you want to reach your devices from outside your home, set that
-  up in Home Assistant.
+  a few days, at Cloudflare, which runs it. Set **Updates** to **Off** on the
+  dashboard and the device contacts no service of the project. The services
+  you connect in standalone mode are yours. If you want to reach your devices
+  from outside your home, set that up in Home Assistant or on your own
+  network.
 - **A general-purpose Linux distribution.** Pinna is built to be a voice
-  satellite, not a base for other uses of the device.
+  assistant, not a base for other uses of the device.
 
 ## What's next
 

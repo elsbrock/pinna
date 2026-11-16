@@ -86,7 +86,8 @@ On the devices:
 - **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
   model and naming its phrase (ADR 0013).
 - **Standalone mode**: using the device as a voice assistant without Home
-  Assistant.
+  Assistant, with the speech and language services you choose, and as the
+  voice of agents such as Hermes or OpenClaw (ADR 0017).
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 - **Multi-room with Music Assistant** through its own protocol, Sendspin: the
   device would play in step with other speakers in a group.
