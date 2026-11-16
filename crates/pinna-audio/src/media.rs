@@ -15,6 +15,10 @@
 //! playing; EOF or [`STREAM_IDLE`] without data ends it; stop and pause close
 //! it. A live source runs on the sender's clock, so its queue is kept short
 //! (see [`LiveQueue`]) instead of being pulled ahead like a decode.
+//!
+//! The same decode feeds the speaker's *voice* lane ([`open_voice`]): replies
+//! and announcements sound as they arrive, and a stream that runs dry waits
+//! in silence instead of skipping speech (see [`VoiceSource`]).
 
 use crate::decode::{OUT_RATE, StreamResampler};
 use crate::mix::{FADE, Ramp};
@@ -56,6 +60,10 @@ const LIVE_TARGET_CHUNKS: usize = 5;
 /// back to [`LIVE_TARGET_CHUNKS`], so clock drift or the backlog while the
 /// speaker opens cannot grow the latency.
 const LIVE_MAX_CHUNKS: usize = 13;
+/// Voice stream: chunks gathered before it starts sounding (100 ms), then
+/// before each restart after running dry (500 ms, then 1.5 s: a source that
+/// fell behind once tends to again, and one longer pause beats many).
+const VOICE_TARGETS: [usize; 3] = [5, 25, BUFFER_CHUNKS];
 /// A stream session ends after this long without data.
 pub const STREAM_IDLE: Duration = Duration::from_secs(2);
 /// [`MediaState::url`] while a stream plays.
@@ -228,6 +236,17 @@ fn fade_out(chunk: &mut [i16]) {
     let n = chunk.len() / 2;
     for (i, f) in chunk.chunks_exact_mut(2).enumerate() {
         let g = (n - 1 - i) as f32 / n as f32;
+        for s in f {
+            *s = (f32::from(*s) * g).round() as i16;
+        }
+    }
+}
+
+/// Fade a chunk linearly up from silence across its length.
+fn fade_in(chunk: &mut [i16]) {
+    let n = chunk.len() / 2;
+    for (i, f) in chunk.chunks_exact_mut(2).enumerate() {
+        let g = i as f32 / n as f32;
         for s in f {
             *s = (f32::from(*s) * g).round() as i16;
         }
@@ -706,6 +725,11 @@ impl MediaHandle {
             .map_err(|_| Error::Other("speaker task ended".into()))
     }
 
+    /// The HTTP client media and voice streams are fetched with.
+    pub(crate) fn client(&self) -> &reqwest::Client {
+        self.shared.client()
+    }
+
     /// Accept live streams on a Unix socket at `path` (raw s16le, 48 kHz
     /// stereo, written in real time; mode 0660). A stale socket there is
     /// replaced. Must be called inside a tokio runtime.
@@ -803,6 +827,132 @@ impl MediaHandle {
 
     pub fn state(&self) -> watch::Receiver<MediaState> {
         self.state.clone()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Voice streams
+
+/// What a [`VoiceSource`] has for the voice lane right now.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Pull {
+    /// The next chunk (interleaved 48 kHz stereo).
+    Chunk(Vec<i16>),
+    /// Nothing to sound yet: gathering before the start, or after running dry.
+    Wait,
+    /// The stream is over, with the reason if it failed.
+    End(Option<String>),
+}
+
+/// A URL decoding for the voice lane (a reply or an announcement). Speech,
+/// so nothing decoded is ever dropped:
+///
+/// | Event | The source |
+/// | --- | --- |
+/// | opened | gathers the first of [`VOICE_TARGETS`] (or the whole stream, if shorter), then starts at full level |
+/// | runs dry mid-stream | the last chunk it has fades out; waits for the next, larger target, then fades in |
+/// | ends | plays to the end |
+/// | fails after audio | the last chunk fades out, then it ends with the error |
+///
+/// It holds at most the target ahead and leaves the rest in the decoder's
+/// channel, so backpressure still reaches the socket.
+pub(crate) struct VoiceSource {
+    decoder: Decoder,
+    ahead: VecDeque<Vec<i16>>,
+    end: Option<Option<String>>,
+    /// Waiting for the target before (re)starting.
+    gathering: bool,
+    /// A chunk has been handed out: a later restart fades in.
+    sounded: bool,
+    /// Times it ran dry; picks the target.
+    dry: usize,
+    /// Restarts after running dry (a dry spell at the very end is not one).
+    stalls: u32,
+}
+
+impl VoiceSource {
+    pub(crate) fn new(decoder: Decoder) -> VoiceSource {
+        VoiceSource {
+            decoder,
+            ahead: VecDeque::new(),
+            end: None,
+            gathering: true,
+            sounded: false,
+            dry: 0,
+            stalls: 0,
+        }
+    }
+
+    fn target(&self) -> usize {
+        VOICE_TARGETS[self.dry.min(VOICE_TARGETS.len() - 1)]
+    }
+
+    /// How often it fell silent mid-stream and came back.
+    pub(crate) fn stalls(&self) -> u32 {
+        self.stalls
+    }
+
+    fn top_up(&mut self) {
+        let Src::Decoded(rx) = &self.decoder.src else {
+            self.end.get_or_insert(Some("not a decoded stream".into()));
+            return;
+        };
+        while self.end.is_none() && self.ahead.len() < self.target() {
+            match rx.try_recv() {
+                Ok(Item::Data(v)) if v.len() >= 2 => self.ahead.push_back(v),
+                Ok(Item::Data(_)) => {}
+                Ok(Item::End(err)) => self.end = Some(err),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.end = Some(Some("decoder stopped unexpectedly".into()));
+                }
+            }
+        }
+    }
+
+    /// The next chunk to sound, or why there is none. Never blocks.
+    pub(crate) fn pull(&mut self) -> Pull {
+        self.top_up();
+        if self.gathering && self.end.is_none() && self.ahead.len() < self.target() {
+            return Pull::Wait;
+        }
+        let Some(mut chunk) = self.ahead.pop_front() else {
+            return match &self.end {
+                Some(err) => Pull::End(err.clone()),
+                None => {
+                    self.gathering = true;
+                    Pull::Wait
+                }
+            };
+        };
+        let resuming = std::mem::replace(&mut self.gathering, false) && self.sounded;
+        self.top_up();
+        if self.ahead.is_empty() && !matches!(self.end, Some(None)) {
+            // The last audio there is: fade it out rather than cut it off.
+            fade_out(&mut chunk);
+            if self.end.is_none() {
+                self.gathering = true;
+                self.dry += 1;
+            }
+        }
+        if resuming {
+            fade_in(&mut chunk);
+            self.stalls += 1;
+        }
+        self.sounded = true;
+        Pull::Chunk(chunk)
+    }
+}
+
+/// Open `url` (http, https, `file://` or a plain path) for the voice lane.
+/// Resolves once the first audio is decoded, or with the open/probe error
+/// (an empty stream is an error); nothing keeps running after an error.
+pub(crate) async fn open_voice(client: &reqwest::Client, url: &str) -> Result<VoiceSource> {
+    let (decoder, ready) = open(client, url).await?;
+    match ready.await {
+        Ok(Ok(())) => Ok(VoiceSource::new(decoder)),
+        Ok(Err(msg)) => Err(Error::Other(msg)),
+        Err(_) => Err(Error::Other("decoder stopped".into())),
     }
 }
 
@@ -1750,6 +1900,181 @@ mod tests {
         assert!(sounding_frames(&rig.sink) > 2000);
     }
 
+    // -- voice lane: streamed URLs -------------------------------------------
+
+    /// One connection, released by the test: a 22.05 kHz mono WAV header
+    /// with no data length, then each part sent on the returned channel;
+    /// dropping the sender ends the body. With `content_length`, the body
+    /// claims that length (so ending early is an error). `closed` is set if
+    /// the peer went away while a part was written.
+    async fn gated(
+        content_length: Option<usize>,
+    ) -> (String, mpsc::UnboundedSender<Vec<u8>>, Arc<AtomicBool>) {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/reply.wav", l.local_addr().unwrap());
+        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let closed = Arc::new(AtomicBool::new(false));
+        let c = closed.clone();
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut req = Vec::new();
+            let mut b = [0u8; 1024];
+            while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                match s.read(&mut b).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => req.extend_from_slice(&b[..n]),
+                }
+            }
+            let len = content_length
+                .map(|n| format!("Content-Length: {n}\r\n"))
+                .unwrap_or_default();
+            let mut out = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\n{len}Connection: close\r\n\r\n"
+            )
+            .into_bytes();
+            out.extend(wav_header(22050, 1, u32::MAX));
+            let mut ok = s.write_all(&out).await.is_ok();
+            while ok {
+                match rx.recv().await {
+                    Some(part) => ok = s.write_all(&part).await.is_ok(),
+                    None => break,
+                }
+            }
+            if !ok {
+                c.store(true, Ordering::Relaxed);
+            }
+        });
+        (url, tx, closed)
+    }
+
+    fn speech(millis: u32) -> Vec<u8> {
+        pcm_bytes(&sine(22050, 1, millis, 8000.0))
+    }
+
+    async fn within<T>(d: Duration, f: impl std::future::Future<Output = T>) -> T {
+        tokio::time::timeout(d, f).await.expect("timed out")
+    }
+
+    #[tokio::test]
+    async fn voice_url_sounds_before_the_body_ends_and_waits_through_a_stall() {
+        let (url, parts, _) = gated(None).await;
+        let rig = rig(Duration::from_secs(5));
+        parts.send(speech(300)).unwrap();
+        let mut p = within(Duration::from_secs(3), rig.speaker.play_url(&url))
+            .await
+            .unwrap();
+        within(Duration::from_secs(3), &mut p.started)
+            .await
+            .unwrap();
+        // The body is still open: it waits, the lane stays busy.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(rig.speaker.is_playing());
+        let first = sounding_frames(&rig.sink);
+        assert!(first > 10_000, "only {first} frames before the stall");
+        parts.send(speech(300)).unwrap();
+        drop(parts);
+        within(Duration::from_secs(3), p.done)
+            .await
+            .unwrap()
+            .unwrap();
+        let all = sounding_frames(&rig.sink);
+        assert!(all > first + 10_000, "{first} then {all}");
+    }
+
+    #[tokio::test]
+    async fn voice_url_stop_mid_stream_closes_the_connection() {
+        let srv = serve(vec![]).await;
+        let rig = rig(Duration::from_secs(5));
+        let mut p = rig.speaker.play_url(&srv.url("/live.wav")).await.unwrap();
+        within(Duration::from_secs(3), &mut p.started)
+            .await
+            .unwrap();
+        rig.speaker.stop();
+        within(Duration::from_millis(500), p.done)
+            .await
+            .unwrap()
+            .unwrap();
+        let st = srv.stats.clone();
+        assert!(
+            until(Duration::from_secs(3), || st.closed.load(Ordering::Relaxed)
+                == 1)
+            .await
+        );
+    }
+
+    #[tokio::test]
+    async fn voice_url_errors_queue_nothing() {
+        let srv = serve(vec![
+            ("/junk.mp3", "audio/mpeg", vec![0x5A; 20_000]),
+            ("/empty.wav", "audio/wav", wav(22050, 1, &[])),
+        ])
+        .await;
+        let rig = rig(Duration::from_secs(5));
+        for (path, want) in [
+            ("/missing.mp3", "404"),
+            ("/junk.mp3", ""),
+            ("/empty.wav", "no audio"),
+        ] {
+            let e = match rig.speaker.play_url(&srv.url(path)).await {
+                Ok(_) => panic!("{path} played"),
+                Err(e) => e,
+            };
+            assert!(e.to_string().contains(want), "{path}: {e}");
+        }
+        assert!(!rig.speaker.is_playing());
+        assert!(!rig.speaker.is_session_open());
+    }
+
+    #[tokio::test]
+    async fn voice_url_cut_short_reports_the_error_after_the_audio() {
+        let (url, parts, _) = gated(Some(10_000_000)).await;
+        let rig = rig(Duration::from_secs(5));
+        parts.send(speech(300)).unwrap();
+        let mut p = rig.speaker.play_url(&url).await.unwrap();
+        within(Duration::from_secs(3), &mut p.started)
+            .await
+            .unwrap();
+        drop(parts); // the connection closes long before its length
+        let r = within(Duration::from_secs(3), p.done).await.unwrap();
+        assert!(r.is_err(), "{r:?}");
+        assert!(sounding_frames(&rig.sink) > 10_000);
+    }
+
+    #[tokio::test]
+    async fn stop_while_opening_drops_the_stream() {
+        let (url, parts, _) = gated(None).await;
+        let rig = rig(Duration::from_secs(5));
+        let sp = rig.speaker.clone();
+        let opening = tokio::spawn(async move { sp.play_url(&url).await });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        rig.speaker.stop(); // before any audio arrived
+        parts.send(speech(300)).unwrap();
+        let p = within(Duration::from_secs(3), opening)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            within(Duration::from_secs(1), p.done)
+                .await
+                .unwrap()
+                .is_ok()
+        );
+        assert!(p.started.await.is_err(), "it never started");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(sounding_frames(&rig.sink), 0);
+    }
+
+    #[tokio::test]
+    async fn warm_opens_the_session_until_idle() {
+        let rig = rig(Duration::from_millis(300));
+        rig.speaker.warm();
+        let sp = rig.speaker.clone();
+        assert!(until(Duration::from_secs(2), || sp.is_session_open()).await);
+        assert!(!rig.speaker.is_playing());
+        assert!(until(Duration::from_secs(2), || !sp.is_session_open()).await);
+        assert_eq!(sounding_frames(&rig.sink), 0);
+    }
+
     #[tokio::test]
     async fn mute_survives_new_media_and_state_reports_it() {
         let srv = serve(vec![]).await;
@@ -2319,5 +2644,138 @@ mod tests {
         assert_eq!(extension_of("http://h/stream"), None);
         assert_eq!(extension_of("/tmp/x.FLAC"), Some("FLAC"));
         assert!(is_http("HTTPS://x") && !is_http("file:///x") && !is_http("/x"));
+    }
+
+    // -- voice streams -----------------------------------------------------------
+
+    fn voice() -> (VoiceSource, SyncSender<Item>) {
+        let (tx, rx) = sync_channel(BUFFER_CHUNKS);
+        (VoiceSource::new(Decoder::detached(rx)), tx)
+    }
+
+    fn send(tx: &SyncSender<Item>, level: i16, n: usize) {
+        for _ in 0..n {
+            tx.send(Item::Data(chunk(level))).unwrap();
+        }
+    }
+
+    fn take(v: &mut VoiceSource) -> Vec<i16> {
+        match v.pull() {
+            Pull::Chunk(c) => c,
+            other => panic!("expected a chunk, got {other:?}"),
+        }
+    }
+
+    /// Left channel of a chunk.
+    fn left(c: &[i16]) -> Vec<i16> {
+        c.iter().step_by(2).copied().collect()
+    }
+
+    #[test]
+    fn voice_gathers_then_starts_at_full_level() {
+        let (mut v, tx) = voice();
+        send(&tx, 10000, VOICE_TARGETS[0] - 1);
+        assert_eq!(v.pull(), Pull::Wait);
+        send(&tx, 10000, 2);
+        let c = left(&take(&mut v));
+        assert!(c.iter().all(|&s| s == 10000), "unfaded start");
+    }
+
+    #[test]
+    fn voice_fades_out_when_dry_then_waits_longer_each_time_and_fades_in() {
+        let (mut v, tx) = voice();
+        send(&tx, 10000, VOICE_TARGETS[0]);
+        for _ in 1..VOICE_TARGETS[0] {
+            assert!(left(&take(&mut v)).iter().all(|&s| s == 10000));
+        }
+        // The last chunk there is fades to silence.
+        let c = left(&take(&mut v));
+        assert!(c[0] > 9900 && c[CHUNK_FRAMES - 1] < 20, "{c:?}");
+        assert_eq!(v.pull(), Pull::Wait);
+        assert_eq!(v.stalls(), 0, "not a stall until it comes back");
+        // The first target is not enough any more; the second is.
+        send(&tx, 5000, VOICE_TARGETS[0]);
+        assert_eq!(v.pull(), Pull::Wait);
+        send(&tx, 5000, VOICE_TARGETS[1] - VOICE_TARGETS[0]);
+        let c = left(&take(&mut v));
+        assert_eq!(c[0], 0, "fades in");
+        assert!(c.windows(2).all(|w| w[1] >= w[0]));
+        assert!(c[CHUNK_FRAMES - 1] > 4900);
+        assert_eq!(v.stalls(), 1);
+        // Dry again: now it waits for the largest target.
+        while let Pull::Chunk(_) = v.pull() {}
+        send(&tx, 5000, VOICE_TARGETS[2] - 1);
+        assert_eq!(v.pull(), Pull::Wait);
+        send(&tx, 5000, 1);
+        assert!(matches!(v.pull(), Pull::Chunk(_)));
+        assert_eq!(v.stalls(), 2);
+    }
+
+    #[test]
+    fn voice_never_drops_audio_across_stalls() {
+        // Levels below CHUNK_FRAMES keep their peak through one fade (in or
+        // out), so each chunk stays identifiable. Chunks arrive one at a time,
+        // pulled after each, as a source that keeps falling behind.
+        let (mut v, tx) = voice();
+        let mut want = Vec::new();
+        let mut got = Vec::new();
+        let mut level = 100i16;
+        let collect = |v: &mut VoiceSource, got: &mut Vec<i16>| {
+            while let Pull::Chunk(c) = v.pull() {
+                got.push(*c.iter().max().unwrap());
+            }
+        };
+        for burst in [VOICE_TARGETS[0], VOICE_TARGETS[1] + 3, VOICE_TARGETS[2] + 5] {
+            for _ in 0..burst {
+                tx.send(Item::Data(chunk(level))).unwrap();
+                want.push(level);
+                level += 1;
+                if let Pull::Chunk(c) = v.pull() {
+                    got.push(*c.iter().max().unwrap());
+                }
+            }
+            collect(&mut v, &mut got);
+        }
+        // A tail shorter than any target plays once the stream ends.
+        send(&tx, level, 2);
+        want.extend([level, level]);
+        tx.send(Item::End(None)).unwrap();
+        collect(&mut v, &mut got);
+        assert_eq!(got, want);
+        assert_eq!(v.pull(), Pull::End(None));
+    }
+
+    #[test]
+    fn voice_short_stream_plays_at_once_without_fading() {
+        let (mut v, tx) = voice();
+        send(&tx, 8000, 2);
+        tx.send(Item::End(None)).unwrap();
+        for _ in 0..2 {
+            assert!(left(&take(&mut v)).iter().all(|&s| s == 8000));
+        }
+        assert_eq!(v.pull(), Pull::End(None));
+    }
+
+    #[test]
+    fn voice_error_after_audio_fades_then_ends_with_it() {
+        let (mut v, tx) = voice();
+        send(&tx, 8000, VOICE_TARGETS[0]);
+        tx.send(Item::End(Some("cut off".into()))).unwrap();
+        for _ in 1..VOICE_TARGETS[0] {
+            take(&mut v);
+        }
+        let c = left(&take(&mut v));
+        assert!(c[CHUNK_FRAMES - 1] < 20, "faded");
+        assert_eq!(v.pull(), Pull::End(Some("cut off".into())));
+    }
+
+    #[test]
+    fn voice_decoder_gone_is_an_error() {
+        let (mut v, tx) = voice();
+        drop(tx);
+        assert_eq!(
+            v.pull(),
+            Pull::End(Some("decoder stopped unexpectedly".into()))
+        );
     }
 }

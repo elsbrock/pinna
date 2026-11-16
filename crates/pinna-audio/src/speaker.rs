@@ -7,13 +7,16 @@
 //! in this pipeline using the previous firmware's curve; the codec stays at its 0 dB
 //! reference.
 //!
-//! The session mixes two lanes: the *voice* lane (queued clips: replies,
-//! announcements, chimes) and the *media* lane (a streamed URL, see
-//! [`crate::media`]). Media is ducked under the voice lane and while
-//! [`Speaker::duck`] is held.
+//! The session mixes two lanes: the *voice* lane (queued in order: clips such
+//! as chimes and the alarm, and streamed URLs such as replies and
+//! announcements, which sound as they download) and the *media* lane (a
+//! streamed URL, see [`crate::media`]). Media is ducked under the voice lane
+//! and while [`Speaker::duck`] is held.
 
 use crate::decode::{OUT_RATE, Pcm};
-use crate::media::{Decoder, MediaHandle, MediaLane, MediaPhase, MediaState};
+use crate::media::{
+    Decoder, MediaHandle, MediaLane, MediaPhase, MediaState, Pull, VoiceSource, open_voice,
+};
 use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
 use crate::spectrum::{Analyzer, Spectrum};
@@ -22,7 +25,7 @@ use crate::{Backend, Error, Result, decode};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
@@ -134,13 +137,162 @@ pub(crate) struct Clip {
     done: oneshot::Sender<Result<()>>,
 }
 
+/// A URL streaming on the voice lane.
+pub(crate) struct StreamItem {
+    src: VoiceSource,
+    cur: Vec<i16>,
+    pos: usize,
+    /// Taken when its first frame is mixed.
+    started: Option<oneshot::Sender<()>>,
+    done: oneshot::Sender<Result<()>>,
+    /// [`Inner::voice_epoch`] when it was requested.
+    epoch: u64,
+    /// Frames waited since it last sounded (once started).
+    waiting: u64,
+    /// Frames of silence in stalls it came back from.
+    stalled: u64,
+}
+
+pub(crate) enum VoiceItem {
+    Clip(Clip),
+    Stream(StreamItem),
+}
+
+impl VoiceItem {
+    fn complete(self, r: Result<()>) {
+        let done = match self {
+            VoiceItem::Clip(c) => c.done,
+            VoiceItem::Stream(s) => s.done,
+        };
+        let _ = done.send(r);
+    }
+}
+
+/// One frame of the voice lane's front item.
+enum Step {
+    /// A frame; `last` if it was the item's final one.
+    Sound { l: f32, r: f32, last: bool },
+    /// A stream with nothing to sound yet.
+    Wait,
+    /// A stream is over (before this frame).
+    End(Result<()>),
+}
+
+impl Clip {
+    fn next_frame(&mut self) -> Step {
+        let (l, r) = (
+            f32::from(self.samples[self.pos]),
+            f32::from(self.samples[self.pos + 1]),
+        );
+        self.pos += 2;
+        Step::Sound {
+            l,
+            r,
+            last: self.pos + 1 >= self.samples.len(),
+        }
+    }
+}
+
+impl StreamItem {
+    fn next_frame(&mut self) -> Step {
+        if self.pos + 1 >= self.cur.len() {
+            match self.src.pull() {
+                Pull::Chunk(c) => {
+                    self.cur = c;
+                    self.pos = 0;
+                    self.stalled += std::mem::take(&mut self.waiting);
+                }
+                Pull::Wait => {
+                    if self.started.is_none() {
+                        self.waiting += 1;
+                    }
+                    return Step::Wait;
+                }
+                Pull::End(None) => return Step::End(Ok(())),
+                Pull::End(Some(e)) => return Step::End(Err(Error::Other(e))),
+            }
+        }
+        let (l, r) = (
+            f32::from(self.cur[self.pos]),
+            f32::from(self.cur[self.pos + 1]),
+        );
+        self.pos += 2;
+        Step::Sound { l, r, last: false }
+    }
+}
+
+/// Something that happens when the frame it is marked at has sounded.
+enum Event {
+    /// A stream's first frame.
+    Started(oneshot::Sender<()>),
+    /// An item's end, with how it went.
+    Done(oneshot::Sender<Result<()>>, Result<()>),
+}
+
+impl Event {
+    fn fire(self) {
+        match self {
+            Event::Started(tx) => {
+                let _ = tx.send(());
+            }
+            Event::Done(tx, r) => {
+                let _ = tx.send(r);
+            }
+        }
+    }
+
+    /// Stopped before it sounded: an end completes `Ok` (as a stopped clip
+    /// does), a start never happened.
+    fn cancel(self) {
+        if let Event::Done(tx, _) = self {
+            let _ = tx.send(Ok(()));
+        }
+    }
+
+    fn fail(self, msg: &str) {
+        if let Event::Done(tx, _) = self {
+            let _ = tx.send(Err(Error::Other(msg.to_string())));
+        }
+    }
+}
+
+/// An [`Event`] inside a chunk, at `frame` (frames into the chunk).
+struct Mark {
+    frame: usize,
+    ev: Event,
+}
+
+/// A URL playing on the voice lane ([`Speaker::play_url`]).
+pub struct VoicePlayback {
+    /// Resolves when its first audio sounds; errs if it never does (stopped
+    /// first, or the speaker failed).
+    pub started: oneshot::Receiver<()>,
+    /// Resolves when its last frame has sounded (`Ok` too when
+    /// [`Speaker::stop`] cancelled it), or with why it ended early.
+    pub done: oneshot::Receiver<Result<()>>,
+}
+
 pub(crate) enum Cmd {
     Play(Clip),
+    PlayStream(StreamItem),
+    /// Open the session ahead of audio that is about to come.
+    Warm,
     Stop,
-    MediaBegin { gen_: u64, url: String },
-    MediaAttach { gen_: u64, decoder: Decoder },
-    MediaFail { gen_: u64, msg: String },
-    MediaStop { gen_: u64 },
+    MediaBegin {
+        gen_: u64,
+        url: String,
+    },
+    MediaAttach {
+        gen_: u64,
+        decoder: Decoder,
+    },
+    MediaFail {
+        gen_: u64,
+        msg: String,
+    },
+    MediaStop {
+        gen_: u64,
+    },
     MediaPause,
     MediaResume,
     MediaMute(bool),
@@ -156,6 +308,9 @@ struct Inner {
     state: watch::Receiver<PlaybackState>,
     session_open: Arc<AtomicBool>,
     level: VoiceLevel,
+    /// Bumped by every [`Speaker::stop`]: a stream requested before it is
+    /// dropped even if it reaches the actor after the stop.
+    voice_epoch: Arc<AtomicU64>,
 }
 
 #[derive(Clone)]
@@ -177,6 +332,7 @@ impl Speaker {
         let media = MediaHandle::new(tx.clone(), media_rx);
         let spectrum = Spectrum::default();
         let level = VoiceLevel::default();
+        let voice_epoch = Arc::new(AtomicU64::new(0));
         let actor = Actor {
             feeder: Feeder::new(cfg.duck_db),
             // Only the Echo Dot's own sound card has the two clocks to track.
@@ -195,6 +351,8 @@ impl Speaker {
             analyzer: Analyzer::new(OUT_RATE),
             spectrum: spectrum.clone(),
             level: level.clone(),
+            warm: false,
+            voice_epoch: voice_epoch.clone(),
         };
         tokio::spawn(actor.run());
         Speaker {
@@ -208,6 +366,7 @@ impl Speaker {
                 state: state_rx,
                 session_open,
                 level,
+                voice_epoch,
             }),
         }
     }
@@ -239,6 +398,39 @@ impl Speaker {
             .map_err(|_| Error::Other("speaker task ended".into()))?;
         wait.await
             .map_err(|_| Error::Other("speaker task ended".into()))?
+    }
+
+    /// Stream `url` (http, https, `file://` or a plain path; wav, mp3, flac or
+    /// ogg) on the voice lane, behind anything queued there. It sounds as it
+    /// downloads, and waits in silence if the download falls behind (nothing
+    /// is skipped). Resolves once the first audio is decoded; errs if the URL
+    /// cannot be opened or holds no audio, and then nothing is queued.
+    pub async fn play_url(&self, url: &str) -> Result<VoicePlayback> {
+        let epoch = self.inner.voice_epoch.load(Ordering::SeqCst);
+        let src = open_voice(self.inner.media.client(), url).await?;
+        let (started_tx, started) = oneshot::channel();
+        let (done_tx, done) = oneshot::channel();
+        self.inner
+            .tx
+            .send(Cmd::PlayStream(StreamItem {
+                src,
+                cur: Vec::new(),
+                pos: 0,
+                started: Some(started_tx),
+                done: done_tx,
+                epoch,
+                waiting: 0,
+                stalled: 0,
+            }))
+            .map_err(|_| Error::Other("speaker task ended".into()))?;
+        Ok(VoicePlayback { started, done })
+    }
+
+    /// Open the session now, if it is closed, for audio that is about to come
+    /// (opening takes ~1.4 s on the Dot). Without any, it closes again after
+    /// [`SpeakerConfig::idle_timeout`].
+    pub fn warm(&self) {
+        let _ = self.inner.tx.send(Cmd::Warm);
     }
 
     /// Decode (wav/mp3/flac/ogg) and play.
@@ -286,6 +478,7 @@ impl Speaker {
     /// Drop everything queued and playing in the voice lane; the session stays
     /// open until idle. Media is stopped with [`MediaHandle::stop`].
     pub fn stop(&self) {
+        self.inner.voice_epoch.fetch_add(1, Ordering::SeqCst);
         let _ = self.inner.tx.send(Cmd::Stop);
     }
 
@@ -304,10 +497,10 @@ impl Speaker {
 }
 
 // ---------------------------------------------------------------------------
-// Feeder: queued clips -> volume-scaled s16le stereo chunks (pure, testable)
+// Feeder: queued voice items -> volume-scaled s16le stereo chunks (pure, testable)
 
 struct Feeder {
-    queue: VecDeque<Clip>,
+    queue: VecDeque<VoiceItem>,
     /// Master gain as of the last chunk.
     gain: f32,
     voice_gain: Ramp,
@@ -317,7 +510,8 @@ struct Feeder {
     /// The last chunk's media lane as mono (before ducking and gain).
     media_mono: Vec<f32>,
     /// RMS of the voice samples in the last chunk (before any gain); `None`
-    /// when the chunk had no voice.
+    /// when the chunk had no voice, `Some(0.0)` when a started stream was
+    /// waiting for data (a pause in speech, not the end of it).
     voice_rms: Option<f32>,
 }
 
@@ -325,12 +519,6 @@ impl Default for Feeder {
     fn default() -> Self {
         Feeder::new(-20.0)
     }
-}
-
-/// A clip that ended inside a chunk, at `frame` (frames into the chunk).
-struct Ended {
-    done: oneshot::Sender<Result<()>>,
-    frame: usize,
 }
 
 impl Feeder {
@@ -354,32 +542,83 @@ impl Feeder {
     /// Fill `out` with `frames` frames of s16le stereo (silence when nothing is
     /// queued): `voice * voice_gain + media * duck`, saturated, then the master
     /// gain ramped linearly to `target_gain` across the chunk.
-    fn next_chunk(&mut self, frames: usize, target_gain: f32, out: &mut Vec<u8>) -> Vec<Ended> {
+    ///
+    /// A stream at the front with nothing to sound yet holds the lane: its
+    /// frames are silent (the items behind it wait), and media stays ducked.
+    fn next_chunk(&mut self, frames: usize, target_gain: f32, out: &mut Vec<u8>) -> Vec<Mark> {
         out.clear();
         self.media_mono.clear();
-        let mut ended = Vec::new();
+        let mut marks = Vec::new();
         let start_gain = self.gain;
         let (mut voice_power, mut voice_samples) = (0.0f64, 0u32);
+        let mut stalled = false;
         for f in 0..frames {
             let mut voice = None;
-            if let Some(clip) = self.queue.front_mut() {
-                let (l, r) = (
-                    f32::from(clip.samples[clip.pos]),
-                    f32::from(clip.samples[clip.pos + 1]),
-                );
-                voice_power += f64::from(l * l) + f64::from(r * r);
-                voice_samples += 2;
-                voice = Some((l, r));
-                clip.pos += 2;
-                if clip.pos + 1 >= clip.samples.len() {
-                    let clip = self.queue.pop_front().unwrap();
-                    ended.push(Ended {
-                        done: clip.done,
-                        frame: f + 1,
-                    });
+            let mut waiting = false;
+            loop {
+                let step = match self.queue.front_mut() {
+                    None => break,
+                    Some(VoiceItem::Clip(c)) => c.next_frame(),
+                    Some(VoiceItem::Stream(s)) => {
+                        let step = s.next_frame();
+                        match step {
+                            Step::Sound { .. } => {
+                                if let Some(tx) = s.started.take() {
+                                    marks.push(Mark {
+                                        frame: f,
+                                        ev: Event::Started(tx),
+                                    });
+                                }
+                            }
+                            // A pause in speech once it has started.
+                            Step::Wait => stalled |= s.started.is_none(),
+                            Step::End(_) => {}
+                        }
+                        step
+                    }
+                };
+                match step {
+                    Step::Sound { l, r, last } => {
+                        voice = Some((l, r));
+                        if last {
+                            let VoiceItem::Clip(c) = self.queue.pop_front().unwrap() else {
+                                unreachable!("only clips know their last frame")
+                            };
+                            marks.push(Mark {
+                                frame: f + 1,
+                                ev: Event::Done(c.done, Ok(())),
+                            });
+                        }
+                        break;
+                    }
+                    Step::Wait => {
+                        waiting = true;
+                        break;
+                    }
+                    Step::End(r) => {
+                        let VoiceItem::Stream(s) = self.queue.pop_front().unwrap() else {
+                            unreachable!("only streams end on their own")
+                        };
+                        if s.src.stalls() > 0 {
+                            tracing::info!(
+                                "voice stream: fell behind {} time(s), {:.1} s of silence",
+                                s.src.stalls(),
+                                s.stalled as f64 / f64::from(OUT_RATE)
+                            );
+                        }
+                        marks.push(Mark {
+                            frame: f,
+                            ev: Event::Done(s.done, r),
+                        });
+                        // The next item may sound in this same frame.
+                    }
                 }
             }
-            let duck = self.ducker.tick(voice.is_some(), self.held_duck);
+            if let Some((l, r)) = voice {
+                voice_power += f64::from(l * l) + f64::from(r * r);
+                voice_samples += 2;
+            }
+            let duck = self.ducker.tick(voice.is_some() || waiting, self.held_duck);
             let vg = self.voice_gain.tick();
             let (vl, vr) = voice.unwrap_or((0.0, 0.0));
             let (ml, mr) = self.media.pull();
@@ -393,20 +632,24 @@ impl Feeder {
             }
         }
         self.gain = target_gain;
-        self.voice_rms =
-            (voice_samples > 0).then(|| (voice_power / f64::from(voice_samples)).sqrt() as f32);
-        ended
+        self.voice_rms = if voice_samples > 0 {
+            Some((voice_power / f64::from(voice_samples)).sqrt() as f32)
+        } else {
+            stalled.then_some(0.0)
+        };
+        marks
     }
 
+    /// Drop everything queued; dropping a stream closes its download.
     fn cancel_all(&mut self) {
-        for c in self.queue.drain(..) {
-            let _ = c.done.send(Ok(()));
+        for item in self.queue.drain(..) {
+            item.complete(Ok(()));
         }
     }
 
     fn fail_all(&mut self, msg: &str) {
-        for c in self.queue.drain(..) {
-            let _ = c.done.send(Err(Error::Other(msg.to_string())));
+        for item in self.queue.drain(..) {
+            item.complete(Err(Error::Other(msg.to_string())));
         }
     }
 }
@@ -589,13 +832,16 @@ struct Actor {
     held_duck: Arc<AtomicBool>,
     session_open: Arc<AtomicBool>,
     feeder: Feeder,
-    /// Clips fully handed to the player, completing at the given frame.
-    finishing: VecDeque<(u64, oneshot::Sender<Result<()>>)>,
+    /// Events handed to the player, firing once the given frame sounds.
+    finishing: VecDeque<(u64, Event)>,
     session: Option<Session>,
     idle_since: Instant,
     analyzer: Analyzer,
     spectrum: Spectrum,
     level: VoiceLevel,
+    /// Open the session even without audio ([`Speaker::warm`]).
+    warm: bool,
+    voice_epoch: Arc<AtomicU64>,
 }
 
 /// Player command line.
@@ -675,13 +921,25 @@ impl Actor {
                 if clip.samples.len() < 2 {
                     let _ = clip.done.send(Ok(()));
                 } else {
-                    self.feeder.queue.push_back(clip);
+                    self.feeder.queue.push_back(VoiceItem::Clip(clip));
                 }
+            }
+            Cmd::PlayStream(item) => {
+                if item.epoch == self.voice_epoch.load(Ordering::SeqCst) {
+                    self.feeder.queue.push_back(VoiceItem::Stream(item));
+                } else {
+                    // Requested before a stop that overtook it.
+                    let _ = item.done.send(Ok(()));
+                }
+            }
+            Cmd::Warm => {
+                self.warm = self.session.is_none();
+                self.idle_since = Instant::now();
             }
             Cmd::Stop => {
                 self.feeder.cancel_all();
-                for (_, d) in self.finishing.drain(..) {
-                    let _ = d.send(Ok(()));
+                for (_, ev) in self.finishing.drain(..) {
+                    ev.cancel();
                 }
             }
         }
@@ -692,7 +950,7 @@ impl Actor {
         loop {
             self.publish_media();
             if self.session.is_none() {
-                if !self.feeder.has_audio() && !self.feeder.media.wants_session() {
+                if !self.feeder.has_audio() && !self.feeder.media.wants_session() && !self.warm {
                     self.set_state(PlaybackState::Idle);
                     match self.rx.recv().await {
                         Some(c) => self.handle(c),
@@ -705,6 +963,7 @@ impl Actor {
                 } else {
                     PlaybackState::Idle
                 });
+                self.warm = false;
                 match self.open_session().await {
                     Ok(s) => {
                         self.session = Some(s);
@@ -770,8 +1029,8 @@ impl Actor {
                     .as_ref()
                     .is_some_and(|s| s.time_of(*end) <= now)
                 {
-                    let (_, d) = self.finishing.pop_front().unwrap();
-                    let _ = d.send(Ok(()));
+                    let (_, ev) = self.finishing.pop_front().unwrap();
+                    ev.fire();
                 } else {
                     break;
                 }
@@ -801,7 +1060,7 @@ impl Actor {
                 .voice_gain
                 .set(f32::from(self.voice_gain.load(Ordering::Relaxed)) / 100.0);
             self.feeder.held_duck = self.held_duck.load(Ordering::Relaxed);
-            let ended = self.feeder.next_chunk(CHUNK_FRAMES, gain, &mut chunk);
+            let marks = self.feeder.next_chunk(CHUNK_FRAMES, gain, &mut chunk);
             let base = s.frames_written;
             if self.feeder.media.phase() == MediaPhase::Playing {
                 if gain <= 0.0 {
@@ -814,13 +1073,11 @@ impl Actor {
                 tracing::error!("speaker write failed: {e}");
                 self.feeder.fail_all("speaker process died");
                 self.feeder.media.fail("speaker process died");
-                for e in ended {
-                    let _ = e
-                        .done
-                        .send(Err(Error::Other("speaker process died".into())));
+                for m in marks {
+                    m.ev.fail("speaker process died");
                 }
-                for (_, d) in self.finishing.drain(..) {
-                    let _ = d.send(Err(Error::Other("speaker process died".into())));
+                for (_, ev) in self.finishing.drain(..) {
+                    ev.fail("speaker process died");
                 }
                 self.close_session().await;
                 continue;
@@ -828,8 +1085,8 @@ impl Actor {
             if let Some(rms) = self.feeder.voice_rms {
                 self.level.push(s.time_of(base), rms);
             }
-            for e in ended {
-                self.finishing.push_back((base + e.frame as u64, e.done));
+            for m in marks {
+                self.finishing.push_back((base + m.frame as u64, m.ev));
             }
         }
     }
@@ -949,16 +1206,54 @@ impl Actor {
 mod tests {
     use super::*;
 
-    fn clip(samples: Vec<i16>) -> (Clip, oneshot::Receiver<Result<()>>) {
+    fn clip(samples: Vec<i16>) -> (VoiceItem, oneshot::Receiver<Result<()>>) {
         let (done, rx) = oneshot::channel();
         (
-            Clip {
+            VoiceItem::Clip(Clip {
                 samples,
                 pos: 0,
                 done,
-            },
+            }),
             rx,
         )
+    }
+
+    /// A voice stream fed by hand: 20 ms chunks of `level` (see `send`).
+    struct TestStream {
+        tx: SyncSender<Item>,
+        started: oneshot::Receiver<()>,
+        done: oneshot::Receiver<Result<()>>,
+    }
+
+    impl TestStream {
+        fn send(&self, level: i16, chunks: usize) {
+            for _ in 0..chunks {
+                self.tx
+                    .send(Item::Data(vec![level; CHUNK_FRAMES * 2]))
+                    .unwrap();
+            }
+        }
+
+        fn end(&self, err: Option<&str>) {
+            self.tx.send(Item::End(err.map(String::from))).unwrap();
+        }
+    }
+
+    fn stream() -> (VoiceItem, TestStream) {
+        let (tx, rx) = sync_channel(100);
+        let (started_tx, started) = oneshot::channel();
+        let (done_tx, done) = oneshot::channel();
+        let item = VoiceItem::Stream(StreamItem {
+            src: VoiceSource::new(Decoder::detached(rx)),
+            cur: Vec::new(),
+            pos: 0,
+            started: Some(started_tx),
+            done: done_tx,
+            epoch: 0,
+            waiting: 0,
+            stalled: 0,
+        });
+        (item, TestStream { tx, started, done })
     }
 
     fn decode_chunk(b: &[u8]) -> Vec<i16> {
@@ -1183,6 +1478,118 @@ mod tests {
             l.windows(2)
                 .all(|w| (i32::from(w[1]) - i32::from(w[0])).abs() < 30)
         );
+    }
+
+    #[test]
+    fn stream_marks_its_first_and_last_frame_and_holds_the_queue() {
+        let mut f = Feeder {
+            gain: 1.0,
+            ..Default::default()
+        };
+        let (item, mut ts) = stream();
+        f.queue.push_back(item);
+        let (c, _rx) = clip(vec![7; 4]); // behind the stream
+        f.queue.push_back(c);
+        let mut out = Vec::new();
+        // Gathering: silent, nothing marked, the lane stays busy.
+        ts.send(1000, 4);
+        assert!(f.next_chunk(CHUNK_FRAMES, 1.0, &mut out).is_empty());
+        assert!(decode_chunk(&out).iter().all(|&s| s == 0));
+        assert!(f.has_audio());
+        assert_eq!(f.voice_rms, None, "nothing has sounded yet");
+        // The target is there: it starts at frame 0.
+        ts.send(1000, 1);
+        let m = f.next_chunk(CHUNK_FRAMES, 1.0, &mut out);
+        assert!(matches!(
+            m[..],
+            [Mark {
+                frame: 0,
+                ev: Event::Started(_)
+            }]
+        ));
+        assert_eq!(decode_chunk(&out)[0], 1000);
+        for _ in 0..4 {
+            assert!(f.next_chunk(CHUNK_FRAMES, 1.0, &mut out).is_empty());
+        }
+        // Ran dry (the last chunk faded): a stall, not the end; the clip waits.
+        f.next_chunk(CHUNK_FRAMES, 1.0, &mut out);
+        assert!(decode_chunk(&out).iter().all(|&s| s == 0));
+        assert_eq!(f.voice_rms, Some(0.0), "a pause in speech");
+        // It ends: done right after its last frame, then the clip plays.
+        ts.end(None);
+        let m = f.next_chunk(4, 1.0, &mut out);
+        assert_eq!(m.len(), 2);
+        assert!(matches!(
+            m[0],
+            Mark {
+                frame: 0,
+                ev: Event::Done(_, Ok(()))
+            }
+        ));
+        assert!(matches!(
+            m[1],
+            Mark {
+                frame: 2,
+                ev: Event::Done(_, Ok(()))
+            }
+        ));
+        assert_eq!(decode_chunk(&out), [7, 7, 7, 7, 0, 0, 0, 0]);
+        assert!(!f.has_audio());
+        assert!(ts.started.try_recv().is_err(), "the actor fires events");
+        assert!(ts.done.try_recv().is_err());
+    }
+
+    #[test]
+    fn stream_failing_mid_reply_reports_the_error() {
+        let mut f = Feeder::default();
+        let (item, ts) = stream();
+        f.queue.push_back(item);
+        ts.send(1000, 5);
+        ts.end(Some("cut off"));
+        let mut out = Vec::new();
+        let mut marks = Vec::new();
+        for _ in 0..6 {
+            marks.extend(f.next_chunk(CHUNK_FRAMES, 1.0, &mut out));
+        }
+        let Some(Mark {
+            ev: Event::Done(_, Err(e)),
+            ..
+        }) = marks.pop()
+        else {
+            panic!("expected a failed end");
+        };
+        assert!(e.to_string().contains("cut off"));
+    }
+
+    #[test]
+    fn media_stays_ducked_while_a_stream_waits() {
+        // 3 s of media at 10000; the stream is silent so the media level
+        // reads directly.
+        let (mut f, _tx) = media_feeder(-20.0, 10000, 150);
+        let (item, ts) = stream();
+        f.queue.push_back(item);
+        // Ducked before the first audio...
+        let l = left(&mut f, ms(200));
+        assert!((f64::from(l[ms(190)]) - 1000.0).abs() < 50.0);
+        // ...through 100 ms of speech and a 1 s stall...
+        ts.send(0, 5);
+        let l = left(&mut f, ms(1100));
+        assert!(l.iter().skip(ms(10)).all(|&s| (900..=1100).contains(&s)));
+        // ...and released after the end (hold 300 ms, release 500 ms).
+        ts.end(None);
+        let l = left(&mut f, ms(1000));
+        assert!((f64::from(l[ms(200)]) - 1000.0).abs() < 50.0);
+        assert!(l[ms(900)] >= 9990, "{}", l[ms(900)]);
+    }
+
+    #[test]
+    fn cancel_drops_a_stream_and_its_download() {
+        let mut f = Feeder::default();
+        let (item, mut ts) = stream();
+        f.queue.push_back(item);
+        f.cancel_all();
+        assert!(matches!(ts.done.try_recv(), Ok(Ok(()))));
+        assert!(ts.tx.send(Item::End(None)).is_err(), "decoder dropped");
     }
 
     #[test]
