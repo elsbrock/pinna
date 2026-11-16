@@ -27,7 +27,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from aioesphomeapi import APIClient, VoiceAssistantEventType
+from aioesphomeapi import APIClient, VoiceAssistantEventType, VoiceAssistantTimerEventType
 from aioesphomeapi.model import Event
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -382,3 +382,55 @@ def test_home_assistant_chooses_wake_words(pinnad_jarvis):
     port, proc, settings_file = pinnad_jarvis
     asyncio.run(choose_words(port, settings_file))
     assert proc.poll() is None, "pinnad exited"
+
+
+async def alarm_flow(port: int):
+    client = APIClient("127.0.0.1", port, None)
+    for _ in range(50):
+        try:
+            await client.connect(login=True)
+            break
+        except Exception:
+            await asyncio.sleep(0.1)
+    await client.device_info()
+
+    starts: list[str] = []
+    started = asyncio.Event()
+
+    async def handle_start(conversation_id, flags, audio_settings, wake_word_phrase):
+        starts.append(wake_word_phrase)
+        started.set()
+        return 0
+
+    async def handle_stop(abort):
+        pass
+
+    async def handle_audio(data: bytes, data2: bytes = b""):
+        pass
+
+    unsub = client.subscribe_voice_assistant(
+        handle_start=handle_start, handle_stop=handle_stop, handle_audio=handle_audio
+    )
+
+    # A timer ends before the fixture's first "Alexa" (~1.6 s), which stops
+    # the alarm and starts no request.
+    client.send_voice_assistant_timer_event(
+        VoiceAssistantTimerEventType.VOICE_ASSISTANT_TIMER_FINISHED, "t1", "tea", 60, 0, False
+    )
+    await asyncio.sleep(5)
+    assert starts == [], starts
+
+    # The alarm is over: the second "Alexa" (~8.7 s) starts a request.
+    await asyncio.wait_for(started.wait(), timeout=10)
+    assert starts == ["Alexa"], starts
+
+    unsub()
+    await client.disconnect()
+
+
+def test_wake_word_stops_a_ringing_alarm(pinnad):
+    port, proc, settings_file = pinnad
+    asyncio.run(alarm_flow(port))
+    assert proc.poll() is None, "pinnad exited"
+    log = (settings_file.parent / "pinnad.log").read_text()
+    assert "timer alarm dismissed by wake word" in log, "the alarm stopped some other way"
