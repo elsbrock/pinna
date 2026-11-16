@@ -25,8 +25,9 @@ owner yet.
   in the device tree (`/sys/firmware/devicetree/base/idme/serial/value`); on
   6.1 in `/proc/idme/serial`. The USB gadget and rescue mode take it as the
   device's identity (ADR 0012).
-- Wi-Fi, the name and the API key already move to the dashboard (ADRs
-  0007–0009). SSH keys stay baked into the image (ADR 0010).
+- Wi-Fi and the name already move to the dashboard (ADRs 0007–0009). Home
+  Assistant sets the API key (ADR 0018). SSH keys stay baked into the image
+  (ADR 0010).
 - The openWakeWord models are CC BY-NC-SA 4.0. The build fetches them; the
   repository never holds them.
 
@@ -89,9 +90,10 @@ owner yet.
   images carry no key. An owner adds one there from the USB serial console,
   which logs in as root already; a later installer writes it. Builds with
   `secrets/authorized_keys` keep baking it in. *(default)*
-- **Wi-Fi, name and API key** are not in release images. They come from the
-  dashboard (ADRs 0007–0009). Builds with `secrets/` keep seeding them as
-  today.
+- **Wi-Fi, node name and API key** are not in release images. Wi-Fi and the
+  name Home Assistant shows come from the dashboard (ADRs 0007–0009); the
+  node name follows the MAC; Home Assistant sets the API key (ADR 0018).
+  Builds with `secrets/` keep seeding them as today.
 - **Wake word models.** Release images carry the openWakeWord v0.5.1 `.onnx`
   models, unchanged, with a `NOTICE` that names their source and licence.
   Releases are free of charge, which the non-commercial term requires.

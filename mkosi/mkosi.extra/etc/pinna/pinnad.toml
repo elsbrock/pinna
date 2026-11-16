@@ -1,16 +1,19 @@
-# pinnad configuration (Echo Dot 2nd gen). See crates/pinnad/src/config.rs.
+# pinnad configuration (Echo Dot and Echo, 2nd gen). See crates/pinnad/src/config.rs.
+
+# For developers: owners set the name, the wake sound and host names on the
+# dashboard (ADR 0007), which wins over this file.
 
 [device]
 # ESPHome node name; empty = "pinna-" + last three MAC bytes.
 name = ""
-friendly_name = "Echo Dot"
-model = "Echo Dot (2nd Gen)"
+# friendly_name and model are unset: the model and the last three MAC bytes
+# ("Echo Dot 2a914e"), and the model the hardware reports.
 manufacturer = "Pinna"
 
 [audio]
 backend = "auto"          # echodot-pipewire on the device (echodot without the graph), pipewire on a laptop
 volume = 50
-speaker_profile = "Flat"  # biscuit; the full-size Echo uses "Radar"
+# speaker_profile is unset: Radar on the Echo (2nd gen), Flat otherwise.
 wake_sound = false
 # Live PCM streams into the media lane (raw s16le, 48 kHz stereo; ADR 0011).
 # Empty = off.
@@ -27,9 +30,8 @@ threshold = 0.55
 [esphome]
 port = 6053
 mdns = true
-# Noise encryption: base64 of 32 bytes, empty = plaintext. A key in key_file
-# wins; Home Assistant can rotate the key over an encrypted connection and the
-# new key is stored there.
+# Noise encryption: base64 of 32 bytes. Empty: none until Home Assistant sets
+# one, which is stored in key_file (ADR 0018). A key in key_file wins.
 encryption_key = ""
 key_file = "/var/lib/pinna/esphome-key"
 
@@ -43,10 +45,10 @@ listen = "127.0.0.1:7470"
 
 [web]
 # The dashboard and the same control API for your LAN (ADR 0005). No
-# authentication: anyone on the network can control this satellite. Set
-# listen = "" in /var/lib/pinna/pinnad.toml to turn it off.
+# authentication: anyone on the network can control this satellite.
+# listen = "" in /var/lib/pinna/pinnad.toml turns it off.
 listen = "[::]:80"
 root = "/usr/share/pinna/web"
 # Host names to open the dashboard by, besides IP addresses, localhost, *.local
-# and the hostname (for example a name your router's DNS gives the satellite).
+# and the hostname. Names added on the dashboard's Network page add to these.
 allowed_hosts = []

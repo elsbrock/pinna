@@ -8,6 +8,7 @@
     title,
     action,
     danger = false,
+    ready = true,
     confirm,
     children,
   }: {
@@ -16,6 +17,8 @@
     /** The confirming button's words: the action itself ("Restart"). */
     action: string;
     danger?: boolean;
+    /** False keeps the action disabled, until something in the dialog is filled in. */
+    ready?: boolean;
     confirm: () => unknown;
     children: Snippet;
   } = $props();
@@ -41,8 +44,11 @@
     <h2 id={titleId} class="pn-type-heading">{title}</h2>
     {@render children()}
     <div class="pn-dialog-actions">
-      <button class="pn-btn" value="cancel">Cancel</button>
-      <button class="pn-btn {danger ? 'pn-btn-danger' : 'pn-btn-primary'}" value="confirm">{action}</button>
+      <!-- Not a submit button: Enter confirms, once the action is ready. -->
+      <button class="pn-btn" type="button" onclick={() => dialog?.close()}>Cancel</button>
+      <button class="pn-btn {danger ? 'pn-btn-danger' : 'pn-btn-primary'}" value="confirm" disabled={!ready}>
+        {action}
+      </button>
     </div>
   </form>
 </dialog>

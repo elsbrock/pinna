@@ -92,9 +92,9 @@ device. `pinnad` serves it in two places:
   `pinnactl` and the boot health check use this address.
 - On port 80, with the dashboard, for your network (`[web]` in the
   [configuration](/docs/configure/#web)). This one only answers requests for IP
-  addresses, `localhost`, `.local` names, the device's own hostname (`pinna`)
-  and the names in `[web] allowed_hosts`. Other names get
-  `421 Misdirected Request`.
+  addresses, `localhost`, `.local` names, the device's own hostname (its node name, such as `pinna-2a914e`)
+  and the names added on the dashboard's **Network** page or in
+  `[web] allowed_hosts`. Other names get `421 Misdirected Request`.
 
 ### Methods
 

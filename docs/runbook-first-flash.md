@@ -201,7 +201,7 @@ Within ~20 s the host should see a new USB device "Pinna (Echo Dot 2nd gen)":
 
 - serial console: `/dev/ttyACM0` (root autologin) — `picocom -b 115200 /dev/ttyACM0`
   (picocom is not in the dev shell)
-- network: the host gets 10.42.0.x by DHCP; `ssh root@10.42.0.1` (or `root@pinna.local`)
+- network: the host gets 10.42.0.x by DHCP; `ssh root@10.42.0.1` (or `root@pinna-<mac suffix>.local`)
 
 A device named "Pinna rescue" instead means pinna-init found nothing to boot
 and stayed in rescue mode (ADR 0012): http://10.42.0.1 says why and offers the

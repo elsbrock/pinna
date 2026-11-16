@@ -25,10 +25,11 @@
 //! * At most two clients are served; idle ones are pinged after 60 s and dropped after 120 s.
 //! * [`mdns_txt`] returns the TXT records for `_esphomelib._tcp`; publishing is the caller's job.
 //! * Framing is behind [`frame::FrameCodec`]. With `cfg.encryption_key` set the server speaks
-//!   only Noise (`Noise_NNpsk0_25519_ChaChaPoly_SHA256`) and [`mdns_txt`] advertises it; without
-//!   a key it is plaintext. A key pushed by Home Assistant over an encrypted connection is
-//!   used for new connections at once and reported as [`HaCommand::EncryptionKeySet`] so
-//!   the caller can persist it.
+//!   only Noise (`Noise_NNpsk0_25519_ChaChaPoly_SHA256`) and [`mdns_txt`] advertises it.
+//!   Without a key it is provisionable: plaintext, or Noise with the all-zero key, and the
+//!   first key anyone sends is taken. A key, first or rotated over a connection encrypted
+//!   with the current one, is used for new connections at once and reported as
+//!   [`HaCommand::EncryptionKeySet`] so the caller can persist it.
 
 pub mod frame;
 mod profile;

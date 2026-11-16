@@ -90,6 +90,11 @@ pub struct SettingsPatch {
     pub led_brightness: Option<u8>,
     /// Already checked against the catalogue (`Catalogue::validate`).
     pub wake_words: Option<Vec<String>>,
+    /// Already checked (`settings::check_friendly_name`).
+    pub friendly_name: Option<String>,
+    pub wake_sound: Option<bool>,
+    /// Already checked (`settings::check_host_names`).
+    pub allowed_hosts: Option<Vec<String>>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -148,6 +153,12 @@ pub struct Snapshot {
     pub calibration: Option<CalibrationSnapshot>,
     /// The ids of the words listening now (ADR 0013).
     pub active_wake_words: Vec<String>,
+    /// The name Home Assistant shows, and whether it is still the default.
+    pub friendly_name: String,
+    pub default_name: bool,
+    pub wake_sound: bool,
+    /// The ESPHome API is encrypted.
+    pub encrypted: bool,
 }
 
 /// A running calibration, as the API shows it.
@@ -175,6 +186,10 @@ impl Default for Snapshot {
             recent_wakes: Vec::new(),
             calibration: None,
             active_wake_words: Vec::new(),
+            friendly_name: String::new(),
+            default_name: true,
+            wake_sound: false,
+            encrypted: false,
         }
     }
 }
@@ -239,12 +254,27 @@ pub struct Options {
     /// Where newly chosen words' classifiers go: the capture loop. `None`
     /// without a detector.
     pub keywords: Option<mpsc::UnboundedSender<KeywordSet>>,
-    pub wake_sound: bool,
+    /// What the dashboard's settings fall back to (ADR 0007).
+    pub defaults: Defaults,
+    /// The mDNS record, rewritten when the satellite is renamed; `None`
+    /// without mDNS.
+    pub mdns: Option<pinna_esphome::DeviceConfig>,
+    /// The ESPHome API is encrypted at start.
+    pub encrypted: bool,
     pub has_hw_privacy: bool,
     /// Where runtime settings are persisted.
     pub settings_file: std::path::PathBuf,
     /// Settings at startup (already loaded from `settings_file`).
     pub settings: Settings,
+}
+
+/// The values `settings.toml` falls back to: pinnad.toml's, or the hardware's.
+#[derive(Debug, Clone)]
+pub struct Defaults {
+    pub friendly_name: String,
+    /// The name is the model and MAC suffix: nobody chose one.
+    pub default_name: bool,
+    pub wake_sound: bool,
 }
 
 pub struct Brain {
@@ -309,6 +339,10 @@ pub struct Brain {
     recent_wakes: VecDeque<WakeRecord>,
     /// The sensitivity tuning with the device's buttons, while it runs.
     calibration: Option<Calibration>,
+    /// Renamed while Home Assistant was connected: make it reconnect, and read
+    /// the new name, once the satellite is idle.
+    reconnect_pending: bool,
+    encrypted: bool,
 }
 
 const START_TIMEOUT: Duration = Duration::from_secs(5);
@@ -351,7 +385,6 @@ impl Brain {
             leds,
             status,
             self_tx,
-            opts,
             phase: Phase::Idle,
             conversation_id: String::new(),
             continue_conversation: false,
@@ -388,6 +421,9 @@ impl Brain {
             speaker_quiet_since: Instant::now(),
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
+            reconnect_pending: false,
+            encrypted: opts.encrypted,
+            opts,
         }
     }
 
@@ -456,7 +492,7 @@ impl Brain {
                         // Calibration acknowledges the wake itself: no request.
                         c.woke(score, self.settings.wake_sensitivity, Instant::now());
                         self.overlay(Effect::CalibrationHeard);
-                        if self.opts.wake_sound {
+                        if self.wake_sound() {
                             self.play_pcm(tone::wake_chime(), PlaybackKind::Cue);
                         }
                     } else {
@@ -555,6 +591,16 @@ impl Brain {
             }
             ApiCommand::UpdateSettings(patch, reply) => {
                 // The same paths as Home Assistant's entities, so it sees the change.
+                if let Some(name) = patch.friendly_name {
+                    self.set_friendly_name(name).await;
+                }
+                if let Some(on) = patch.wake_sound {
+                    self.set_wake_sound(on).await;
+                }
+                if let Some(hosts) = patch.allowed_hosts {
+                    tracing::info!("dashboard host names: {hosts:?}");
+                    self.settings.allowed_hosts = Some(hosts);
+                }
                 if let Some(ids) = patch.wake_words {
                     self.set_wake_words(ids, false).await;
                 }
@@ -568,7 +614,15 @@ impl Brain {
                 if let Some(on) = patch.wake_word {
                     self.set_wake_word(on).await;
                 }
-                (Ok(()), reply)
+                // Applied, but a restart would undo it: say so (ADR 0007).
+                let saved = self.store.try_save(&self.settings).map_err(|e| {
+                    tracing::warn!("saving the settings: {e}");
+                    format!(
+                        "The change applies now, but the satellite couldn't save it ({e}). \
+                         It is lost when the satellite restarts."
+                    )
+                });
+                (saved, reply)
             }
             ApiCommand::StartCalibration(reply) => (self.set_calibration(true).await, reply),
             ApiCommand::StopCalibration(reply) => {
@@ -616,7 +670,67 @@ impl Brain {
                 events: c.events.iter().copied().collect(),
             }),
             active_wake_words: self.active_wake.clone(),
+            friendly_name: self.friendly_name(),
+            default_name: self.settings.friendly_name.is_none() && self.opts.defaults.default_name,
+            wake_sound: self.wake_sound(),
+            encrypted: self.encrypted,
         }
+    }
+
+    fn friendly_name(&self) -> String {
+        self.settings
+            .friendly_name
+            .clone()
+            .unwrap_or_else(|| self.opts.defaults.friendly_name.clone())
+    }
+
+    fn wake_sound(&self) -> bool {
+        self.settings
+            .wake_sound
+            .unwrap_or(self.opts.defaults.wake_sound)
+    }
+
+    async fn set_wake_sound(&mut self, on: bool) {
+        tracing::info!("wake sound: {on}");
+        self.settings.wake_sound = Some(on);
+        self.send(DeviceEvent::SwitchState {
+            object_id: "wake_sound".into(),
+            on,
+        })
+        .await;
+    }
+
+    /// Rename (ADR 0007): the device info and the mDNS record at once; Home
+    /// Assistant reads the name when it reconnects, once the satellite is idle.
+    async fn set_friendly_name(&mut self, name: String) {
+        if self.settings.friendly_name.as_ref() == Some(&name) {
+            return;
+        }
+        tracing::info!("renamed to {name:?}");
+        self.settings.friendly_name = Some(name.clone());
+        self.send(DeviceEvent::FriendlyName(name.clone())).await;
+        if let Some(dc) = &mut self.opts.mdns {
+            dc.friendly_name = name;
+            let dc = dc.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::identity::publish_mdns(&dc) {
+                    tracing::warn!("mDNS: {e:#}");
+                }
+            });
+        }
+        self.reconnect_pending = self.clients > 0;
+    }
+
+    /// Nothing a reconnect would cut off: no request, alarm, reply,
+    /// announcement or media playing.
+    fn quiet(&self) -> bool {
+        self.phase == Phase::Idle
+            && self.ringing.is_none()
+            && self.playback.is_none()
+            && !matches!(
+                self.media_state,
+                MediaPlayerStateKind::Playing | MediaPlayerStateKind::Announcing
+            )
     }
 
     fn record_wake(&mut self, record: WakeRecord) {
@@ -649,6 +763,11 @@ impl Brain {
                 self.send(DeviceEvent::SwitchState {
                     object_id: "notification".into(),
                     on: self.settings.notification,
+                })
+                .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "wake_sound".into(),
+                    on: self.wake_sound(),
                 })
                 .await;
                 self.send_calibration_switch(self.calibration.is_some())
@@ -746,6 +865,10 @@ impl Brain {
                 self.store.save(&self.settings);
                 self.send(DeviceEvent::SwitchState { object_id, on }).await;
             }
+            HaCommand::Switch { object_id, on } if object_id == "wake_sound" => {
+                self.set_wake_sound(on).await;
+                self.store.save(&self.settings);
+            }
             HaCommand::Switch { object_id, on } if object_id == "notification" => {
                 self.set_notification(on).await;
             }
@@ -767,12 +890,23 @@ impl Brain {
             } => self.media(command, volume, media_url, announcement).await,
             HaCommand::SetActiveWakeWords(ids) => self.set_wake_words(ids, true).await,
             HaCommand::EncryptionKeySet(key) => {
+                self.encrypted = true;
                 match crate::identity::store_encryption_key(&self.opts.key_file, &key) {
                     Ok(()) => tracing::info!(
                         "Home Assistant provisioned an encryption key; stored in {}",
                         self.opts.key_file.display()
                     ),
                     Err(e) => tracing::error!("could not persist the encryption key: {e:#}"),
+                }
+                // Announce it, so Home Assistant asks for Noise (ADR 0018).
+                if let Some(dc) = &mut self.opts.mdns {
+                    dc.encryption_key = Some(key);
+                    let dc = dc.clone();
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(e) = crate::identity::publish_mdns(&dc) {
+                            tracing::warn!("mDNS: {e:#}");
+                        }
+                    });
                 }
             }
             other => tracing::debug!("ignored: {other:?}"),
@@ -1370,7 +1504,7 @@ impl Brain {
             use_vad: true,
         })
         .await;
-        if self.opts.wake_sound {
+        if self.wake_sound() {
             self.play_pcm(tone::wake_chime(), PlaybackKind::Cue);
         }
     }
@@ -1634,6 +1768,13 @@ impl Brain {
         }
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
             self.end_calibration().await;
+        }
+        if self.reconnect_pending && self.quiet() {
+            self.reconnect_pending = false;
+            if self.clients > 0 {
+                tracing::info!("asking Home Assistant to reconnect for the new name");
+                self.send(DeviceEvent::Disconnect).await;
+            }
         }
         if !self.boot_done && now - self.booted_at > BOOT_ANIMATION {
             self.boot_done = true;

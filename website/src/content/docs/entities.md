@@ -5,8 +5,9 @@ description: Every entity that a Pinna device adds to Home Assistant, with its t
 
 When you add a Pinna device to Home Assistant, it creates the entities on this
 page. Object IDs are shown in code font. Home Assistant builds entity IDs from
-the device name and the entity name, for example `light.echo_dot_led_ring` for
-a device named **Echo Dot**.
+the device name and the entity name, for example
+`light.echo_dot_2a914e_led_ring` for a device named **Echo Dot 2a914e**. They
+keep the name the device had when you added it.
 
 ## Controls
 
@@ -16,6 +17,7 @@ a device named **Echo Dot**.
 | Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button |
 | Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The words themselves are chosen with the **Wake word** and **Wake word 2** selectors on the device page. The Action button still starts a request |
 | Listening direction | `listening_direction` | Switch (configuration) | On, off | While the device listens, points the light ring at the person speaking. Off shows the plain listening ring. On by default |
+| Wake sound | `wake_sound` | Switch (configuration) | On, off | Plays a short chime when the device starts listening. The dashboard has the same switch, under **Voice & sound** |
 | Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | Notification | `notification` | Switch | On, off | Turn it on to show a waiting notification on the ring. It turns off when someone clears it on the device or the dashboard. See [Notifications](/docs/ring-and-buttons/#notifications) |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
@@ -84,7 +86,7 @@ wake word only stops the alarm; it doesn't start a request.
 
 ## What's next
 
-- To change the device name and other settings that aren't entities, see
-  [Configure Pinna](/docs/configure/).
+- To change the device name, see
+  [Name the device](/docs/dashboard/#name-the-device).
 - To control the device from its command line, see
   [pinnactl and the control API](/docs/control-api/).

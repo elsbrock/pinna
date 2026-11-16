@@ -9,7 +9,9 @@
   import Ring from "./lib/Ring.svelte";
   import { SECTIONS, pageOf, router } from "./lib/router.svelte.ts";
   import Toasts from "./lib/Toasts.svelte";
-  import { DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
+  import { wifi } from "./lib/wifi.svelte.ts";
+  import WifiTrial from "./lib/WifiTrial.svelte";
+  import { displayName, DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
   import HomeAssistant from "./pages/HomeAssistant.svelte";
   import Logs from "./pages/Logs.svelte";
   import Network from "./pages/Network.svelte";
@@ -24,9 +26,12 @@
   const page = $derived(pageOf(router.path));
   const groups = [...new Set(SECTIONS.map((x) => x.group))];
 
+  // A Wi-Fi network on trial shows on every page (ADR 0008).
+  $effect(() => wifi.watch());
+
   $effect(() => {
     const where = page.path === "/" ? "" : `${page.title} · `;
-    document.title = s ? `${where}${s.name} · Pinna` : "Pinna";
+    document.title = s ? `${where}${displayName(s)} · Pinna` : "Pinna";
   });
 </script>
 
@@ -52,7 +57,7 @@
     {#if s}
       <div class="pn-ident">
         <Device model={s.model} effect="idle" width={48} label="Ring: {ring.replace('-', ' ')}" />
-        <span class="pn-ident-name">{s.name}</span>
+        <span class="pn-ident-name">{displayName(s)}</span>
         <span class="pn-health" data-tone={line.tone} title={line.text}>Home Assistant</span>
       </div>
     {:else}
@@ -68,7 +73,7 @@
   <header class="appbar">
     {#if s}
       <Ring effect={ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
-      <a class="appbar-name" href="#/">{s.name}</a>
+      <a class="appbar-name" href="#/">{displayName(s)}</a>
       <span class="pn-health" data-tone={line.tone} title={line.text}>{healthWord(line)}</span>
     {:else}
       <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
@@ -76,10 +81,35 @@
   </header>
 
   <div class="main">
-    {#if device.restarting && device.link !== "live"}
+    {#if device.restarting && device.resetting && device.link !== "live"}
+      <div class="pn-banner" data-tone="neutral" role="status">
+        <Icon name="restart" />
+        <p>
+          Resetting. The satellite restarts as it was installed. If its image doesn't set up Wi-Fi, it is then at
+          <code class="pn-code">http://10.42.0.1/</code> over USB only; otherwise this page reconnects on its own.
+        </p>
+      </div>
+    {:else if device.restarting && device.link !== "live"}
       <div class="pn-banner" data-tone="neutral" role="status">
         <Icon name="restart" />
         <p>Restarting. The satellite is back in a minute or two; this page reconnects on its own.</p>
+      </div>
+    {:else if device.link === "offline" && wifi.lost}
+      <div class="pn-banner" data-tone="neutral" role="status">
+        <Icon name="wifi" />
+        <p>
+          The satellite is probably on {wifi.lost} now. Within 5 minutes, connect to {wifi.lost} and open
+          <code class="pn-code">http://{s?.name ?? "pinna"}.local/</code> or its address from your router: it then
+          stays there. Otherwise it comes back here, and this page finds it again.
+        </p>
+      </div>
+    {:else if device.link === "offline" && device.misdirected}
+      <div class="pn-banner" role="status">
+        <Icon name="alert" />
+        <p>
+          This satellite no longer answers to the name {location.hostname}: it was removed from its other names. Open it
+          by its IP address or its .local name, and add {location.hostname} again under Network.
+        </p>
       </div>
     {:else if device.link === "offline"}
       <div class="pn-banner" role="status">
@@ -124,8 +154,10 @@
           </div>
         {/if}
       {:else if page.path === "/"}
+        <WifiTrial />
         <Overview />
       {:else}
+        <WifiTrial />
         {#if page.path === "/voice"}<Voice />
         {:else if page.path === "/voice/wake-word"}<WakeWord />
         {:else if page.path === "/home-assistant"}<HomeAssistant />

@@ -46,7 +46,7 @@ export const SECTIONS: Section[] = [
     short: "System",
     icon: "cpu",
     group: "Maintenance",
-    description: "Software, updates, restarts and logs.",
+    description: "Name, software, updates, restarts and logs.",
   },
 ];
 

@@ -1,6 +1,6 @@
 # USB network to the host over the micro-USB cable (NCM gadget).
 # The host gets 10.42.0.x by DHCP; no default route or DNS is pushed, so the
-# host's own networking is unaffected. ssh root@10.42.0.1 or root@pinna.local.
+# host's own networking is unaffected. ssh root@10.42.0.1.
 [Match]
 Name=usb0
 

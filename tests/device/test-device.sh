@@ -3,7 +3,7 @@
 # run against a device that already runs Pinna. Read-only except for playing a
 # short clip through the speaker (acoustic loopback) and an LED test.
 #
-#   PINNA_HOST        ssh destination (default root@pinna.local)
+#   PINNA_HOST        ssh destination (default root@10.42.0.1)
 #   PINNA_SSH         ssh command (default ssh)
 #   PINNA_API_HOST    address for the ESPHome API from this machine
 #                     (default: the device's wlan0 IPv4, read over ssh)
@@ -14,7 +14,7 @@
 set -uo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-host=${PINNA_HOST:-root@pinna.local}
+host=${PINNA_HOST:-root@10.42.0.1}
 read -r -a ssh <<<"${PINNA_SSH:-ssh}"
 fails=0
 

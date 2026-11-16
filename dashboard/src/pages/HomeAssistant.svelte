@@ -12,7 +12,9 @@
   $effect(() => network.watch());
   // The satellite's own address on the network. The page's host may be one Home
   // Assistant can't reach: USB (10.42.0.1), a port forward, a proxy.
-  const host = $derived(network.ipv4 ?? (location.hostname === "10.42.0.1" ? "pinna.local" : location.hostname));
+  const host = $derived(
+    network.ipv4 ?? (location.hostname === "10.42.0.1" && s ? `${s.name}.local` : location.hostname),
+  );
   // The ESPHome API port; the image doesn't change it.
   const PORT = "6053";
 
@@ -54,6 +56,25 @@
         </span>
       </div>
     {/if}
+    <div class="pn-row">
+      <div class="pn-row-text">
+        <span class="pn-row-label">Encryption</span>
+        <span class="pn-row-hint">
+          {#if s.apiEncrypted && s.apiKeyFromImage}
+            The image carries this satellite's key. A factory reset keeps it.
+          {:else if s.apiEncrypted}
+            Home Assistant set the key. Only a factory reset removes it.
+          {:else if s.haConnected}
+            Home Assistant connected without turning it on, so it may be older than the versions that do. Anyone on your
+            network can read what the satellite and Home Assistant send each other.
+          {:else}
+            Home Assistant turns it on when it adds the satellite. Until then, anyone on your network can read what the
+            satellite sends.
+          {/if}
+        </span>
+      </div>
+      <span class="pn-row-value">{s.apiEncrypted ? "On" : "Off"}</span>
+    </div>
   </Group>
 
   <Group title="Add it to Home Assistant">
@@ -61,6 +82,18 @@
       Home Assistant usually finds the satellite on its own under Settings › Devices &amp; services. If it doesn't, add
       the ESPHome integration with this host and port.
     {/snippet}
+    <a class="pn-row" href="#/system">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Name</span>
+        <span class="pn-row-hint">
+          {s.settings?.defaultName
+            ? "Name it before you add it: Home Assistant's entity IDs keep the first name."
+            : "The name Home Assistant shows"}
+        </span>
+      </span>
+      <span class="pn-row-value">{s.settings?.friendlyName ?? s.name}</span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
     <div class="pn-row">
       <div class="pn-row-text"><span class="pn-row-label">Host</span></div>
       <span class="pn-row-value is-mono">{host}</span>

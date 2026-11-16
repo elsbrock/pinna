@@ -16,7 +16,9 @@ systemctl enable \
     pinna-boot-ok.service \
     systemd-sysext.service \
     pinna-pipewire.service \
-    pinna-wireplumber.service
+    pinna-wireplumber.service \
+    pinna-factory-reset.service \
+    pinna-hostname.service
 
 # wpa_supplicant and the USB serial getty are started by udev when wlan0 /
 # ttyGS0 appear (see 90-pinna.rules), never by a static dependency on a device

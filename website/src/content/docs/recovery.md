@@ -134,10 +134,15 @@ Writing a boot image keeps your settings. Writing a root filesystem with
 
 ## Recover a device that doesn't start
 
+To start over on a device that still runs Pinna, use
+[Factory reset](/docs/dashboard/#reset-the-device) on the dashboard instead:
+it keeps the installed version and needs no fastboot.
+
 If the device doesn't boot Pinna at all, install it again from fastboot.
 This erases the data partition: your Wi-Fi settings, the settings from Home
-Assistant and the encryption key. After that, set up Wi-Fi again, and if the
-connection to Home Assistant was encrypted, give the device its key again.
+Assistant and the encryption key. After that, set up Wi-Fi again, then remove
+the device from Home Assistant and add it again, so that Home Assistant gives
+it a new key.
 
 1. [Start fastboot](#start-fastboot).
 2. Check the device:

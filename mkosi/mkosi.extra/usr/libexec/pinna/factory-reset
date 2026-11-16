@@ -1,0 +1,9 @@
+#!/bin/sh
+# Factory reset (ADR 0010), early in the boot after the dashboard asked for
+# one: the settings, Wi-Fi networks, Home Assistant key and SSH keys added on
+# the device (all in /var/lib/pinna), and the SSH host key. tmpfiles then seeds
+# /var/lib/pinna again from the image, as on the first boot.
+set -u
+echo "pinna-factory-reset: forgetting this satellite's settings"
+rm -rf /var/lib/pinna /var/lib/ssh/ssh_host_*
+sync

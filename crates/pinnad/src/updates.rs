@@ -28,6 +28,8 @@ pub struct UpdaterPaths {
     pub run_dir: PathBuf,
     pub pinnactl: PathBuf,
     pub reboot: Vec<String>,
+    /// Asks the next boot for a factory reset (ADR 0010).
+    pub reset_mark: PathBuf,
 }
 
 impl Default for UpdaterPaths {
@@ -38,6 +40,7 @@ impl Default for UpdaterPaths {
             run_dir: slot::RUN_DIR.into(),
             pinnactl: "pinnactl".into(),
             reboot: vec!["systemctl".into(), "reboot".into()],
+            reset_mark: "/var/lib/pinna/factory-reset".into(),
         }
     }
 }
@@ -185,12 +188,30 @@ impl Updater {
         }
     }
 
-    pub async fn reboot(&self) -> Result<()> {
+    /// Mark the next boot for a factory reset, then reboot (ADR 0010):
+    /// `pinna-factory-reset.service` clears /var before anything uses it.
+    pub async fn factory_reset(&self) -> Result<()> {
+        let mark = &self.paths.reset_mark;
+        let write = || -> std::io::Result<()> {
+            let f = std::fs::File::create(mark)?;
+            f.sync_all()?;
+            if let Some(dir) = mark.parent() {
+                std::fs::File::open(dir)?.sync_all()?;
+            }
+            Ok(())
+        };
+        write().with_context(|| format!("writing {}", mark.display()))?;
+        tracing::warn!("factory reset requested: restarting");
+        self.reboot("factory-reset").await
+    }
+
+    /// Reboot, recording `reason` for the next boot's report (ADR 0012).
+    pub async fn reboot(&self, reason: &str) -> Result<()> {
         let [program, args @ ..] = self.paths.reboot.as_slice() else {
             bail!("no reboot command");
         };
         // Remember why, for the next boot's report (ADR 0012). Best effort.
-        let _ = pinna_bootctl::reboot::record_at(&self.paths.run_dir, "user");
+        let _ = pinna_bootctl::reboot::record_at(&self.paths.run_dir, reason);
         let status =
             tokio::time::timeout(REBOOT_TIMEOUT, Command::new(program).args(args).status())
                 .await

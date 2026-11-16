@@ -115,6 +115,15 @@
         commit={(v) => device.setVolume(v)}
       />
     </div>
+    <SwitchRow
+      id="wake-sound"
+      label="Wake sound"
+      checked={set.wakeSound}
+      disabled={!live}
+      busy={device.busy}
+      hint="A short chime when it starts listening."
+      toggle={(on) => device.updateSettings({ wakeSound: on })}
+    />
   </Group>
 
   <Group title="Light ring">

@@ -4,7 +4,8 @@
 //! the API is Noise encrypted). Prints one JSON object per
 //! line on stdout (`ready`, `command`, `sent`); logs go to stderr. Commands on stdin:
 //! `voice [wake word phrase]` starts a voice run, `stop` aborts the run, `time` requests the time,
-//! `event <object_id> <type>` fires an event, `text <object_id> <value>` sets a text sensor, `quit` exits.
+//! `event <object_id> <type>` fires an event, `text <object_id> <value>` sets a text sensor,
+//! `rename <friendly name>` renames the device and disconnects every client, `quit` exits.
 //! Pressing the `Cancel request` button emits the `action` press event and sets `Last wake word` to Alexa.
 
 use std::time::Duration;
@@ -121,6 +122,10 @@ async fn main() -> anyhow::Result<()> {
                             object_id: object_id.to_owned(),
                             value: value.to_owned(),
                         }).await?;
+                    }
+                    ("rename", name) => {
+                        handle.send(DeviceEvent::FriendlyName(name.to_owned())).await?;
+                        handle.send(DeviceEvent::Disconnect).await?;
                     }
                     ("quit", _) => break,
                     _ => {}

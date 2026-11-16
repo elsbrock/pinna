@@ -3,7 +3,7 @@
 # systemd-sysext overlay (/var/lib/extensions/pinna-dev), then restart pinnad.
 # The image itself stays untouched; `push-dev.sh --remove` drops the overlay.
 #
-#   PINNA_HOST    ssh destination (default root@pinna.local)
+#   PINNA_HOST    ssh destination (default root@10.42.0.1)
 #   PINNA_SSH     ssh command, e.g. "ssh -F ~/.ssh/pinna_config" (default ssh)
 #   PINNA_TARGET  Rust target of the binaries (default the Dot's; `just push-vm`
 #                 sets the virtual Echo Dot's x86_64 one)
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-host=${PINNA_HOST:-root@pinna.local}
+host=${PINNA_HOST:-root@10.42.0.1}
 read -r -a ssh <<<"${PINNA_SSH:-ssh}"
 target=${PINNA_TARGET:-armv7-unknown-linux-musleabihf}
 ext=${PINNA_SYSEXT_DIR:-/var/lib/extensions}

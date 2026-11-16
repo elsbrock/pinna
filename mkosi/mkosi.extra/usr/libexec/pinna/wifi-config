@@ -1,0 +1,31 @@
+#!/bin/sh
+# Ready the Wi-Fi client's configuration for the dashboard (ADR 0008), before
+# wpa_supplicant starts: create it without networks when it is missing, so
+# wpa_supplicant runs and can scan, and make sure it has the control socket
+# and lets wpa_supplicant save it. Network blocks are kept as written.
+#
+#   wifi-config /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+set -eu
+conf=$(readlink -m "${1:?usage: wifi-config <file>}")
+dir=$(dirname "$conf")
+[ -d "$dir" ] || install -d -m 0700 "$dir"
+if [ ! -e "$conf" ]; then
+    (umask 077 && : > "$conf")
+    echo "wifi-config: created $conf without networks"
+fi
+
+head=""
+grep -q '^[[:space:]]*ctrl_interface=' "$conf" || head="ctrl_interface=/run/wpa_supplicant
+"
+if ! grep -q '^[[:space:]]*update_config=' "$conf"; then
+    head="${head}update_config=1
+"
+fi
+# A file that forbids saving would lose every network joined on the dashboard.
+if [ -n "$head" ] || grep -q '^[[:space:]]*update_config=[^1]' "$conf"; then
+    tmp="$conf.tmp"
+    (umask 077 && { printf '%s' "$head"; sed 's/^[[:space:]]*update_config=.*/update_config=1/' "$conf"; } > "$tmp")
+    sync "$tmp" 2>/dev/null || true
+    mv "$tmp" "$conf"
+    echo "wifi-config: added the control socket and update_config to $conf"
+fi

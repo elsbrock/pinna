@@ -1,13 +1,18 @@
 ---
 title: Configure Pinna
-description: Change the device name, audio, wake word, Home Assistant connection and other settings in pinnad.toml.
+description: The developer settings in pinnad.toml, such as the audio and LED backends, the ports and the first-boot defaults. Owners set the name and the rest on the dashboard.
 ---
 
-Most everyday settings, such as the volume, the wake word sensitivity and the
-ring brightness, are [entities in Home Assistant](/docs/entities/). This page
-covers the settings that aren't: the device name, the audio and LED hardware,
-the wake words on the first boot, and the network ports. They live in a
-configuration file for `pinnad`, the program that runs the voice satellite.
+You don't need this page to use Pinna. The device's name, the wake words,
+the wake sound, the volume, the sensitivity, the ring brightness and the names
+to open the dashboard by are on the [dashboard](/docs/dashboard/), and most of
+them are [entities in Home Assistant](/docs/entities/) too.
+
+This page is for developers. It covers the configuration file for `pinnad`,
+the program that runs the voice satellite: the audio and LED hardware, the
+ports, and the defaults that apply until someone sets a value on the dashboard
+or in Home Assistant. The model and the speaker tuning follow the hardware, so
+they need no setting either.
 
 ## Where the settings are
 
@@ -23,20 +28,20 @@ but keep this file. To give every device that you install the same settings,
 put the file into `secrets/device/pinnad.toml` before you build. Pinna copies it
 to `/var/lib/pinna/pinnad.toml` on first boot.
 
-Pinna also keeps the values you change in Home Assistant, such as the volume,
-in `/var/lib/pinna/settings.toml`. Don't edit that file: Pinna writes it
-itself.
+Pinna also keeps the values you change on the dashboard or in Home Assistant,
+such as the name and the volume, in `/var/lib/pinna/settings.toml`. Don't edit
+that file: Pinna writes it itself.
 
 ## Change a setting
 
 1. On the device, open `/var/lib/pinna/pinnad.toml` in an editor. Create it if
    it doesn't exist.
-2. Add the setting under its section. For example, to name the device:
+2. Add the setting under its section. For example, to raise the microphone
+   gain:
 
    ```toml
-   [device]
-   name = "kitchen-dot"
-   friendly_name = "Kitchen"
+   [audio]
+   capture_gain_db = 18.0
    ```
 
 3. Restart Pinna:
@@ -63,9 +68,9 @@ How the device introduces itself to Home Assistant.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `name` | `""` | The device name in Home Assistant and in mDNS discovery. It doesn't change the hostname, which is always `pinna`. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
-| `friendly_name` | `"Echo Dot"` | The name that Home Assistant shows |
-| `model` | `"Echo Dot (2nd Gen)"` | The model that Home Assistant shows |
+| `name` | `""` | The node name: the device's ID in the ESPHome connection and in mDNS discovery, shown as **Node name** under **System** on the dashboard. Home Assistant shows `friendly_name` instead. It is also the device's hostname, so `name = "kitchen-dot"` makes it `kitchen-dot.local`. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
+| `friendly_name` | Not set | The name that Home Assistant shows, until someone [names the device on the dashboard](/docs/dashboard/#name-the-device), which wins. Not set means the model and the last six characters of the MAC address, for example `Echo Dot 2a914e` |
+| `model` | Not set | The model that the device reports. Not set means the hardware's: `Echo Dot (2nd Gen)` or `Echo (2nd Gen)` |
 | `manufacturer` | `"Pinna"` | The manufacturer that Home Assistant shows |
 | `suggested_area` | Not set | The area that Home Assistant suggests when you add the device |
 
@@ -75,8 +80,8 @@ How the device introduces itself to Home Assistant.
 | --- | --- | --- |
 | `backend` | `"auto"` | How Pinna reaches the microphones and the speaker. Leave it at `"auto"`. See [Audio](/docs/audio/) |
 | `volume` | `50` | The volume on the first boot, from 0 to 100. After that, Pinna keeps the last volume you set |
-| `speaker_profile` | `"Flat"` | The speaker tuning of the audio codec. `"Flat"` is the tuning for the Echo Dot (2nd gen); set `"Radar"` on the Echo (2nd gen) |
-| `wake_sound` | `false` | Plays a short sound when the device starts listening |
+| `speaker_profile` | Not set | The speaker tuning of the audio codec, `"Flat"` or `"Radar"`. Not set means the hardware's: `"Radar"` on the Echo (2nd gen), `"Flat"` otherwise |
+| `wake_sound` | `false` | Plays a short sound when the device starts listening, until someone sets **Wake sound** on the dashboard or in Home Assistant, which wins |
 | `capture_gain_db` | Not set | The gain applied to the microphone audio before wake word detection and before it goes to Home Assistant, in dB. Not set means +12 dB on the Echo Dot with PipeWire, and 0 dB otherwise |
 | `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio (s16le, 48 kHz, stereo) into the media lane. Empty turns it off |
 
@@ -111,8 +116,8 @@ The connection to Home Assistant. See
 | --- | --- | --- |
 | `port` | `6053` | The port Home Assistant connects to |
 | `mdns` | `true` | Whether Pinna announces itself on the network, so Home Assistant finds it |
-| `encryption_key` | `""` | The encryption key, 32 bytes encoded as base64. Empty means no encryption. A valid key in `key_file` takes precedence |
-| `key_file` | `"/var/lib/pinna/esphome-key"` | The file that holds the encryption key. Home Assistant writes new keys here |
+| `encryption_key` | `""` | The encryption key, 32 bytes encoded as base64. Empty means none until Home Assistant sets one ([Encryption](/docs/home-assistant/#encryption)). A valid key in `key_file` takes precedence |
+| `key_file` | `"/var/lib/pinna/esphome-key"` | The file that holds the encryption key Home Assistant set |
 
 ### `[leds]`
 
@@ -131,16 +136,18 @@ The connection to Home Assistant. See
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `listen` | `"[::]:80"` | The address of the [dashboard](/docs/dashboard/) and of the same control API, for your network. It has no authentication. `""` turns it off |
+| `listen` | `"[::]:80"` | The address of the [dashboard](/docs/dashboard/) and of the same control API, for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
 | `root` | `"/usr/share/pinna/web"` | The dashboard's files |
-| `allowed_hosts` | `[]` | Names to open the dashboard by, besides IP addresses, `localhost`, `.local` names and the hostname. See [Open the dashboard by another name](/docs/dashboard/#open-the-dashboard-by-another-name) |
+| `allowed_hosts` | `[]` | Names to open the dashboard by, besides IP addresses, `localhost`, `.local` names and the hostname. Names added on the dashboard's **Network** page count too. See [Open the dashboard by another name](/docs/dashboard/#open-the-dashboard-by-another-name) |
 
-## Settings that Home Assistant controls
+## Settings that the dashboard and Home Assistant control
 
-These values come from Home Assistant or the [dashboard](/docs/dashboard/)
-after the first boot, so changing them in `pinnad.toml` has no effect once the
-device has run:
+These values come from the [dashboard](/docs/dashboard/) or Home Assistant
+once someone sets them there. After that, changing them in `pinnad.toml` has
+no effect:
 
+- The name (`[device] friendly_name`)
+- The wake sound (`[audio] wake_sound`)
 - The volume (`[audio] volume`)
 - The wake word sensitivity (`[wake] threshold`)
 - The wake words (`[wake] keyword`, `id` and `phrase` name only the first

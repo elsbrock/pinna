@@ -15,6 +15,7 @@
   import {
     badge,
     band,
+    displayName,
     health,
     ringEffect,
     signalWord,
@@ -78,7 +79,7 @@
     />
     <div class="who">
       {#if modelName}<span class="pn-eyebrow">{modelName}</span>{/if}
-      <h1 class="pn-type-display-l">{s.name}</h1>
+      <h1 class="pn-type-display-l">{displayName(s)}</h1>
       <div class="state">
         {#if live}<PhaseBadge badge={badge(s)} />{/if}
         <span class="pn-health" data-tone={line.tone}>{line.text}</span>
@@ -102,6 +103,12 @@
       <Icon name="info" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
         <p class="pn-notice-title">Add this satellite to Home Assistant</p>
+        {#if s.settings?.defaultName}
+          <p>
+            First <a href="#/system">give it a name</a>: Home Assistant's entity IDs keep the name it has when you add
+            it.
+          </p>
+        {/if}
         <p>
           Home Assistant usually finds the satellite on its own under Settings › Devices &amp; services.
           <a href="#/home-assistant">How to add it by hand</a>

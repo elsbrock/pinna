@@ -18,6 +18,7 @@ mod virtual_device;
 mod voice;
 mod wakewords;
 mod web;
+mod wifi;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -53,6 +54,10 @@ struct Cli {
     /// Read button presses from stdin (up/down/action/mute) — development.
     #[arg(long)]
     stdin_buttons: bool,
+    /// Make the node name the hostname and exit (pinna-hostname.service, early
+    /// in the boot; ADR 0010).
+    #[arg(long)]
+    set_hostname: bool,
 }
 
 fn audio_backend(spec: &str) -> Option<Backend> {
@@ -273,6 +278,13 @@ async fn main() -> Result<()> {
     }
     let cli = Cli::parse();
     let cfg = Config::load_layered(&cli.config, &cli.local_config)?;
+    if cli.set_hostname {
+        let name = identity::node_name(&cfg.device.name, &identity::device_mac());
+        if identity::set_hostname(&name)? {
+            tracing::info!("hostname: {name}");
+        }
+        return Ok(());
+    }
     let defaults = settings::Settings {
         volume: cfg.audio.volume,
         wake_sensitivity: settings::sensitivity_for_threshold(cfg.wake.threshold),
@@ -297,16 +309,44 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Which hardware this is; the virtual Dot stands in for the Echo Dot.
+    let model = if virt.is_some() {
+        "echo-dot-2"
+    } else {
+        pinna_hal::ident::board_model()
+    };
+
     // Identity + ESPHome API.
     let mac = identity::device_mac();
-    let name = if cfg.device.name.is_empty() {
-        identity::default_name(&mac)
-    } else {
-        cfg.device.name.clone()
+    let name = identity::node_name(&cfg.device.name, &mac);
+    // Again here: a board without the MAC in its idme record only knows it
+    // once wlan0 exists, after pinna-hostname.service ran (ADR 0010).
+    match identity::set_hostname(&name) {
+        Ok(true) => tracing::info!("hostname: {name}"),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("hostname: {e:#}"),
+    }
+    // The dashboard's name wins over pinnad.toml's, which wins over the
+    // model and MAC suffix (ADR 0007).
+    let defaults = voice::Defaults {
+        default_name: cfg.device.friendly_name.is_none(),
+        friendly_name: cfg
+            .device
+            .friendly_name
+            .clone()
+            .unwrap_or_else(|| identity::default_friendly_name(model, &mac)),
+        wake_sound: cfg.audio.wake_sound,
     };
     let mut dc = DeviceConfig::new(name, mac);
-    dc.friendly_name = cfg.device.friendly_name.clone();
-    dc.model = cfg.device.model.clone();
+    dc.friendly_name = initial
+        .friendly_name
+        .clone()
+        .unwrap_or_else(|| defaults.friendly_name.clone());
+    dc.model = cfg
+        .device
+        .model
+        .clone()
+        .unwrap_or_else(|| identity::model_name(model).into());
     dc.manufacturer = cfg.device.manufacturer.clone();
     dc.suggested_area = cfg.device.suggested_area.clone();
     dc.port = cfg.esphome.port;
@@ -371,6 +411,8 @@ async fn main() -> Result<()> {
         tracing::warn!("mDNS: {e:#}");
     }
     let (dc_name, dc_mac) = (dc.name.clone(), dc.mac_string());
+    let mdns = cfg.esphome.mdns.then(|| dc.clone());
+    let encrypted = dc.encryption_key.is_some();
     let (esp, mut ha) = pinna_esphome::serve(dc).await?;
     tracing::info!("ESPHome API listening on {}", esp.local_addr());
 
@@ -409,7 +451,7 @@ async fn main() -> Result<()> {
         let echo_dot = b.echo_dot_mixer();
         let mut sc = SpeakerConfig::new(b);
         sc.initial_volume = initial.volume;
-        sc.profile.codec_flat = cfg.audio.speaker_profile.eq_ignore_ascii_case("flat");
+        sc.profile.codec_flat = identity::speaker_flat(cfg.audio.speaker_profile.as_deref(), model);
         if echo_dot && sc.profile.codec_flat {
             // The Echo Dot (biscuit) speaker: +6 dB on top of the volume
             // curve (which tops out at -12 dB), plus the stock firmware's
@@ -564,18 +606,19 @@ async fn main() -> Result<()> {
             wake_words: catalogue.clone(),
             audio_backend: audio_backend.into(),
             led_backend: led_backend.into(),
-            // The virtual Dot is drawn as the Dot it stands in for.
-            model: if virt.is_some() {
-                "echo-dot-2".into()
-            } else {
-                pinna_hal::ident::board_model().into()
-            },
+            model: model.into(),
             virtual_device: virt.is_some(),
             last_boot,
+            // tmpfiles seeds the key file from the image again after a reset.
+            key_from_image: !cfg.esphome.encryption_key.trim().is_empty()
+                || std::path::Path::new("/usr/share/pinna/device/esphome-key").exists(),
         },
         status_rx,
         in_tx.clone(),
     ));
+    // A Wi-Fi trial that a stopped pinnad left behind goes back (ADR 0008).
+    let wifi_api = device_api.clone();
+    tokio::spawn(async move { wifi_api.recover_wifi().await });
     let api_addr = api::start(device_api.clone(), &cfg.api.listen).await?;
     tracing::info!("control API listening on {api_addr}");
 
@@ -612,7 +655,9 @@ async fn main() -> Result<()> {
             wake_words: catalogue,
             active_wake_words: active_wake,
             keywords: keyword_tx,
-            wake_sound: cfg.audio.wake_sound,
+            defaults,
+            mdns,
+            encrypted,
             has_hw_privacy,
             settings_file: cli.settings.clone(),
             settings: initial,

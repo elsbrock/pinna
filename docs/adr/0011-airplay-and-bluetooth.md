@@ -29,7 +29,7 @@ What the repository has today, and what it does not:
   powers on only the Wi-Fi function, and no BlueZ package is in the image.
   The chip tolerates one activation attempt per boot, shared by both
   functions.
-- **systemd-resolved owns mDNS today.** It advertises `pinna.local`, and
+- **systemd-resolved owns mDNS today.** It advertises the hostname (`pinna-2a914e.local`, ADR 0010), and
   `pinnad` publishes `_esphomelib._tcp` for Home Assistant discovery through
   `/run/systemd/dnssd` (`pinnad::identity`, `pinna_esphome::mdns_txt`).
   Debian's shairport-sync depends on `avahi-daemon`, and two mDNS responders
@@ -106,7 +106,7 @@ What was considered and rejected:
    session is active, with the front-panel volume on top as today.
 3. **Avahi becomes the one mDNS/DNS-SD stack.** `avahi-daemon` and
    `libnss-mdns` come in with shairport-sync; systemd-resolved turns
-   `MulticastDNS=off`; Avahi advertises `pinna.local`, and `pinnad`'s
+   `MulticastDNS=off`; Avahi advertises the hostname, and `pinnad`'s
    `_esphomelib._tcp` publication moves from resolved's `/run/systemd/dnssd`
    to Avahi registration. `nqptp` runs as its own service for AirPlay 2
    timing (UDP 319/320, multicast 224.0.1.129).

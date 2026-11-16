@@ -27,8 +27,13 @@ class Device {
   identifying = $state(false);
   /** A restart was asked for: being unreachable is expected, not an error. */
   restarting = $state(false);
+  /** A factory reset was asked for: the satellite may come back over USB only. */
+  resetting = $state(false);
   /** A one-second clock for everything that counts. */
   now = $state(Date.now());
+  /** The satellite answers, but not to the name this page is open by: it was
+   *  removed from its other names (ADR 0007). */
+  misdirected = $state(false);
 
   #stream: AbortController | null = null;
   #wake: (() => void) | null = null;
@@ -49,6 +54,7 @@ class Device {
 
   #accept(s: Status | undefined) {
     if (!s) return;
+    this.misdirected = false;
     // A new image after an update: its page may differ from this one.
     if (this.#version && s.version !== this.#version) location.reload();
     this.#version ??= s.version;
@@ -56,7 +62,13 @@ class Device {
     this.receivedAt = Date.now();
     this.link = "live";
     this.restarting = false;
+    this.resetting = false;
     this.offlineSince = null;
+  }
+
+  /** 421 Misdirected Request: the satellite refuses this page's host name. */
+  #misdirected(e: unknown) {
+    if (ConnectError.from(e).rawMessage === "HTTP 421") this.misdirected = true;
   }
 
   #offline() {
@@ -73,8 +85,9 @@ class Device {
           this.#accept(res.status);
           attempt = 0;
         }
-      } catch {
+      } catch (e) {
         // Unreachable, pinnad restarting, or aborted by a failed ping.
+        this.#misdirected(e);
       }
       this.#offline();
       const delay = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];
@@ -93,22 +106,28 @@ class Device {
     if (this.link !== "live" || document.visibilityState !== "visible") return;
     try {
       await client.getStatus({}, { timeoutMs: PING_TIMEOUT_MS });
-    } catch {
+    } catch (e) {
+      this.#misdirected(e);
       this.#offline();
       this.#stream?.abort();
     }
   }
 
-  /** Run a command; its reply's Status wins. A rejection shows as a toast. */
-  async #command(run: () => Promise<{ status?: Status }>, done?: string) {
+  /** Run a command; its reply's Status wins. A rejection shows as a toast,
+   *  or, `inline`, only comes back for a form to show. Resolves to the
+   *  rejection's sentence, or null. */
+  async #command(run: () => Promise<{ status?: Status }>, done?: string, inline = false): Promise<string | null> {
     this.busy = true;
     try {
       this.#accept((await run()).status);
       if (done) toasts.show(done);
+      return null;
     } catch (e) {
-      toasts.show(errorSentence(e), "danger");
+      const why = errorSentence(e);
+      if (!inline) toasts.show(why, "danger");
       // The satellite may be gone: find out now, not at the next ping.
       if (unreachable(e)) void this.#ping();
+      return why;
     } finally {
       this.busy = false;
     }
@@ -122,6 +141,10 @@ class Device {
   }
   updateSettings(patch: Partial<Omit<UpdateSettingsRequest, "$typeName">>) {
     return this.#command(() => client.updateSettings(patch), "Saved");
+  }
+  /** updateSettings for a form: a rejection comes back to show by the field. */
+  saveSettings(patch: Partial<Omit<UpdateSettingsRequest, "$typeName">>, done = "Saved") {
+    return this.#command(() => client.updateSettings(patch), done, true);
   }
   startConversation() {
     return this.#command(() => client.startConversation({}));
@@ -152,11 +175,19 @@ class Device {
     return this.#command(() => client.stopCalibration({}), "Calibration done");
   }
   /** Ask for a restart; returns why it failed, for the caller to show. */
-  async restart(): Promise<string | null> {
+  /** Forget everything set on the satellite and restart it (ADR 0010). */
+  async factoryReset(name: string): Promise<string | null> {
+    this.resetting = true;
+    const failed = await this.restart(() => client.factoryReset({ name }));
+    if (failed) this.resetting = false;
+    return failed;
+  }
+
+  async restart(run: () => Promise<unknown> = () => client.reboot({})): Promise<string | null> {
     this.busy = true;
     this.restarting = true;
     try {
-      await client.reboot({});
+      await run();
       return null;
     } catch (e) {
       this.restarting = false;
@@ -171,12 +202,13 @@ class Device {
 const sentence = (m: string) => (m ? m[0].toUpperCase() + m.slice(1).replace(/\.?$/, ".") : "The satellite refused.");
 
 /** The request never got an answer: no network, or the satellite is down. */
+/** No answer came: the request failed, timed out, or a proxy said so. An
+ *  `unavailable` with pinnad's own sentence is an answer, and says why. */
 function unreachable(e: unknown): boolean {
   const err = ConnectError.from(e);
   return (
-    err.code === Code.Unavailable ||
     err.code === Code.DeadlineExceeded ||
-    /failed to fetch|networkerror|load failed/i.test(err.rawMessage)
+    /failed to fetch|networkerror|load failed|^HTTP 50[234]$/i.test(err.rawMessage)
   );
 }
 

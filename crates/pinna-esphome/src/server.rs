@@ -84,6 +84,17 @@ fn check_keys(cfg: &DeviceConfig) -> anyhow::Result<()> {
 }
 
 const MAX_CLIENTS: usize = 2;
+
+/// The key in a `NoiseEncryptionSetKeyRequest`: base64 text, as Home
+/// Assistant and ESPHome send it, or 32 raw bytes. Never all zeros: that is
+/// the key for unprovisioned devices.
+fn set_key_value(key: &[u8]) -> Option<[u8; 32]> {
+    let key = std::str::from_utf8(key)
+        .ok()
+        .and_then(|s| crate::parse_encryption_key(s).ok())
+        .or_else(|| <[u8; 32]>::try_from(key).ok())?;
+    (key != [0; 32]).then_some(key)
+}
 const API_VERSION: (u32, u32) = (1, 14);
 /// Close a connection that stayed silent this long (after hello).
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -93,6 +104,8 @@ const PING_AFTER: Duration = Duration::from_secs(60);
 const PING_EVERY: Duration = Duration::from_secs(30);
 /// Time a new connection has to send its hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
+/// Time a client has to acknowledge our disconnect request.
+const DISCONNECT_GRACE: Duration = Duration::from_secs(5);
 const OUT_QUEUE: usize = 512;
 
 /// Returned when the server task has stopped.
@@ -191,20 +204,33 @@ async fn accept_loop(
         let id = next_id;
         let inputs = inputs.clone();
         let live = live.clone();
-        let noise = key.lock().ok().and_then(|k| *k).map(|psk| {
-            let m = ident.1;
-            let mac = format!(
-                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                m[0], m[1], m[2], m[3], m[4], m[5]
-            );
-            NoiseHandshake::new(psk, &ident.0, &mac)
-        });
+        let m = ident.1;
+        let mac = format!(
+            "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            m[0], m[1], m[2], m[3], m[4], m[5]
+        );
+        // With a key, only the key. Without one, plaintext or the all-zero
+        // key, so Home Assistant can send one without it travelling in
+        // plaintext (ADR 0018).
+        let mode = match key.lock().ok().and_then(|k| *k) {
+            Some(psk) => Mode::Noise(NoiseHandshake::new(psk, &ident.0, &mac)),
+            None => Mode::Provisionable(NoiseHandshake::new([0; 32], &ident.0, &mac)),
+        };
         tokio::spawn(async move {
             let _ = stream.set_nodelay(true);
-            run_client(id, stream, peer, noise, inputs).await;
+            run_client(id, stream, peer, mode, inputs).await;
             live.fetch_sub(1, Ordering::SeqCst);
         });
     }
+}
+
+/// How a connection is to be spoken.
+enum Mode {
+    /// Noise with the device's key.
+    Noise(NoiseHandshake),
+    /// No key yet: plaintext, or Noise with the all-zero key; the client's
+    /// first byte says which.
+    Provisionable(NoiseHandshake),
 }
 
 /// Per-connection I/O: framing, idle detection and keep-alive pings.
@@ -212,9 +238,13 @@ async fn run_client(
     id: u64,
     mut stream: TcpStream,
     peer: SocketAddr,
-    mut noise: Option<NoiseHandshake>,
+    mode: Mode,
     inputs: mpsc::Sender<Input>,
 ) {
+    let (mut noise, mut zero_key) = match mode {
+        Mode::Noise(hs) => (Some(hs), None),
+        Mode::Provisionable(hs) => (None, Some(hs)),
+    };
     let (out_tx, mut out_rx) = mpsc::channel::<(u32, Bytes)>(OUT_QUEUE);
     if inputs
         .send(Input::Connected {
@@ -248,6 +278,12 @@ async fn run_client(
                     Err(e) => { debug!(id, "read error: {e}"); break; }
                 }
                 last_seen = Instant::now();
+                if !rbuf.is_empty()
+                    && let Some(hs) = zero_key.take()
+                    && rbuf[0] == 0x01
+                {
+                    noise = Some(hs);
+                }
                 if let Some(hs) = noise.as_mut() {
                     wbuf.clear();
                     let step = hs.feed(&mut rbuf, &mut wbuf);
@@ -315,6 +351,9 @@ struct Client {
     encrypted: bool,
     hello: bool,
     states: bool,
+    /// We asked it to disconnect, at this time; closed on its acknowledgement
+    /// or after [`DISCONNECT_GRACE`].
+    closing: Option<Instant>,
 }
 
 struct Actor {
@@ -354,7 +393,19 @@ impl Actor {
     }
 
     async fn run(mut self, mut rx: mpsc::Receiver<Input>) {
-        while let Some(input) = rx.recv().await {
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            let input = tokio::select! {
+                input = rx.recv() => match input {
+                    Some(input) => input,
+                    None => return,
+                },
+                _ = tick.tick() => {
+                    self.close_unacknowledged();
+                    continue;
+                }
+            };
             match input {
                 Input::Device(ev) => self.device_event(ev),
                 Input::Connected {
@@ -371,6 +422,7 @@ impl Actor {
                             encrypted,
                             hello: false,
                             states: false,
+                            closing: None,
                         },
                     );
                 }
@@ -409,6 +461,20 @@ impl Actor {
             .collect();
         for id in ids {
             self.send(id, msg);
+        }
+    }
+
+    /// Close the connections that didn't acknowledge our disconnect request in time.
+    fn close_unacknowledged(&mut self) {
+        let late: Vec<u64> = self
+            .clients
+            .iter()
+            .filter(|(_, c)| c.closing.is_some_and(|t| t.elapsed() >= DISCONNECT_GRACE))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in late {
+            warn!(id, "client did not acknowledge the disconnect request");
+            self.drop_client(id);
         }
     }
 
@@ -553,6 +619,22 @@ impl Actor {
             }
             DeviceEvent::ActiveWakeWords(ids) => {
                 self.active_wake = self.known_wake_words(ids);
+            }
+            DeviceEvent::FriendlyName(name) => self.cfg.friendly_name = name,
+            DeviceEvent::Disconnect => {
+                let ids: Vec<u64> = self
+                    .clients
+                    .iter()
+                    .filter(|(_, c)| c.hello && c.closing.is_none())
+                    .map(|(id, _)| *id)
+                    .collect();
+                for id in ids {
+                    // The client acknowledges, then both sides close.
+                    self.send(id, &proto::DisconnectRequest::default());
+                    if let Some(c) = self.clients.get_mut(&id) {
+                        c.closing = Some(Instant::now());
+                    }
+                }
             }
             DeviceEvent::MediaPlayerState {
                 state,
@@ -704,6 +786,7 @@ impl Actor {
         match frame.id {
             proto::PingRequest::ID => self.send(id, &proto::PingResponse {}),
             proto::PingResponse::ID => {}
+            proto::DisconnectResponse::ID => self.drop_client(id),
             proto::DisconnectRequest::ID => {
                 self.send(id, &proto::DisconnectResponse {});
                 // Queue is drained before the connection task sees the close.
@@ -712,14 +795,17 @@ impl Actor {
             proto::NoiseEncryptionSetKeyRequest::ID => {
                 let r = parse!(proto::NoiseEncryptionSetKeyRequest);
                 let encrypted = self.clients.get(&id).is_some_and(|c| c.encrypted);
-                // Only over an encrypted connection, so the key is never sent in clear.
-                let key = <[u8; 32]>::try_from(&r.key[..]).ok().filter(|_| encrypted);
+                // The first key from anyone (ADR 0018); a new one only over a
+                // connection encrypted with the current key.
+                let provisioning = self.cfg.encryption_key.is_none();
+                let key = set_key_value(&r.key).filter(|_| encrypted || provisioning);
                 if let Some(key) = key {
                     if let Ok(mut k) = self.key.lock() {
                         *k = Some(key);
                     }
                     self.cfg.encryption_key = Some(key);
                     self.command(HaCommand::EncryptionKeySet(key));
+                    info!(id, provisioning, "encryption key set");
                 } else {
                     warn!(id, "rejecting encryption key");
                 }
@@ -729,6 +815,19 @@ impl Actor {
                         success: key.is_some(),
                     },
                 );
+                if key.is_some() && provisioning {
+                    // Plaintext and all-zero connections end; Home Assistant
+                    // reconnects with the key. Queues drain before they close.
+                    let open: Vec<u64> = self
+                        .clients
+                        .iter()
+                        .filter(|(_, c)| !c.encrypted)
+                        .map(|(id, _)| *id)
+                        .collect();
+                    for id in open {
+                        self.drop_client(id);
+                    }
+                }
             }
             proto::DeviceInfoRequest::ID => self.device_info(id),
             proto::ListEntitiesRequest::ID => self.list_entities(id),
@@ -992,6 +1091,7 @@ impl Actor {
             suggested_area: c.suggested_area.clone().unwrap_or_default(),
             voice_assistant_feature_flags: VOICE_FEATURE_FLAGS,
             api_encryption_supported: true,
+            api_encryption_provisionable: c.encryption_key.is_none(),
             webserver_port: c.webserver_port.into(),
             ..Default::default()
         };
@@ -1140,6 +1240,18 @@ impl Actor {
 mod tests {
     use super::*;
     use crate::{echo_dot_entities, types::ButtonConfig};
+
+    #[test]
+    fn set_key_takes_base64_or_raw_but_never_zeros() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let key: [u8; 32] = std::array::from_fn(|i| i as u8 + 1);
+        assert_eq!(set_key_value(STANDARD.encode(key).as_bytes()), Some(key));
+        assert_eq!(set_key_value(&key), Some(key));
+        assert_eq!(set_key_value(STANDARD.encode([0u8; 32]).as_bytes()), None);
+        assert_eq!(set_key_value(&[0u8; 32]), None);
+        assert_eq!(set_key_value(b""), None);
+        assert_eq!(set_key_value(b"short"), None);
+    }
 
     #[test]
     fn echo_profile_keys_are_unique() {

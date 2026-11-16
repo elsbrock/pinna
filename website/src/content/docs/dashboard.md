@@ -15,18 +15,18 @@ connection: the page and its fonts come from the device itself.
 
 Open one of these addresses in a browser on the same network as the device:
 
-- `http://pinna.local/`, if your computer resolves `.local` names. macOS, iOS,
-  Windows 10 and later, and most Linux desktops do. On Android, use the IP
-  address if the name doesn't work.
+- `http://pinna-2a914e.local/`, with the device's name on the network:
+  `pinna-` and the last six characters of its MAC address. Your router lists
+  it, Home Assistant shows it when it discovers the device, and the dashboard
+  shows it under **System** as **Node name**. This works if your computer
+  resolves `.local` names; macOS, iOS, Windows 10 and later, and most Linux
+  desktops do. On Android, use the IP address if the name doesn't work.
 - `http://<address>/`, with the device's IP address from your router.
 - In Home Assistant, open the device under **Settings > Devices & services >
   ESPHome** and select **Visit**.
 - Over the USB cable: `http://10.42.0.1/`. This works when the Wi-Fi doesn't.
 
-Every Pinna device has the hostname `pinna`. With two devices on the network,
-mDNS renames one of them by adding a number, for example to `pinna2.local`. To
-tell them apart, use their IP addresses or the **Visit** link in Home
-Assistant.
+Each device has its own name on the network, so two of them never share one.
 
 ## What the dashboard shows
 
@@ -36,14 +36,82 @@ phone they are in a bar at the bottom.
 | Section | What you can do |
 | --- | --- |
 | **Overview** | See the device with its light ring, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. **Identify** runs the ring's test pattern, to find the device among others |
-| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, and set the volume and the ring brightness. **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
-| **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device. Copy the host and port to add the device by hand |
-| **Network** | See the Wi-Fi network, the signal strength, the addresses and the hostname. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies |
-| **System** | See which version runs from which slot, install an update and follow its steps, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad` as it is written. Debug lines are left out, because they can contain what was said |
+| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the ring brightness, and turn the **Wake sound** on or off. **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
+| **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted. See the device's name, and copy the host and port to add the device by hand |
+| **Network** | See the Wi-Fi network, the signal strength, the addresses and the hostname. [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. Add [other names to open the dashboard by](#open-the-dashboard-by-another-name) |
+| **System** | [Name the device](#name-the-device), [reset it](#reset-the-device), see which version runs from which slot, install an update and follow its steps, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad` as it is written. Debug lines are left out, because they can contain what was said |
 
-You change the Wi-Fi network over SSH, not in the dashboard, and the dashboard
-only offers the wake words whose models the image ships. See
-[Configure Pinna](/docs/configure/).
+The dashboard only offers the wake words whose models the image ships.
+
+## Name the device
+
+Home Assistant shows the device by its name. Until you choose one, the name is
+the model and the last six characters of the MAC address, for example
+`Echo Dot 2a914e`. To rename the device, open **System**, change **Name** and
+select **Save**. The dashboard shows the new name at once. The **Node name**
+under **System**, such as `pinna-2a914e`, stays: it is the device's ID for
+Home Assistant and mDNS, not the name that people see.
+
+Name the device before you add it to Home Assistant. Home Assistant takes a
+new name the next time it connects, and shows it on the device page and in the
+device list. The device asks it to reconnect as soon as no request, reply,
+announcement, music or timer alarm is playing. The entity
+IDs, such as `switch.echo_dot_2a914e_wake_sound`, and the entry under
+**Settings > Devices & services > ESPHome** keep the name that the device had
+when you added it. A name that you give the device in Home Assistant itself
+wins over the device's.
+
+## Change the Wi-Fi network
+
+Open **Network**. **Saved networks** lists the networks that the device
+joins: the first one it finds, from the top. **Forget** removes one. Forgetting
+the network in use disconnects the device, and if it was the only one, the
+device is reachable over USB only.
+
+To join another network, select **Scan** under **Join a network**, select the
+network and enter its password. For a network that doesn't show its name,
+select **Join a hidden network** and type the name exactly as the router has
+it. The device joins open and WPA2 networks, WPA2/WPA3 networks included; its
+Wi-Fi chip can't join networks that allow only WPA3, enterprise networks or WEP
+networks.
+
+Joining is a trial, so that a mistake can't strand the device on a network you
+can't reach, such as a guest network that keeps its devices apart:
+
+1. The device tries the network for up to a minute. If the password is wrong,
+   or the network gives it no address, it goes back to the network it was on,
+   and the page says why.
+2. Once it is on the new network, it keeps the network as soon as someone
+   opens the dashboard at its new address: connect a phone or computer to that
+   network and open the device's `.local` address, which the page shows before
+   you join, or the device's address from your
+   router. Over USB, the page shows **Keep** instead.
+3. Until then, every page shows the network on trial and the time left. After
+   5 minutes, on **Go back**, or when the device restarts, it goes back to its
+   saved networks.
+
+If you open the dashboard over Wi-Fi, the page loses the device when it
+switches networks. Before you select **Join**, the page says where to find it,
+including its MAC address to look for in your router.
+
+## Reset the device
+
+To start over, as if the device were just installed, open **System** and
+select **Reset…** next to **Factory reset**. Type the device's name to confirm.
+The device forgets:
+
+- its name and every setting made on the dashboard or in Home Assistant
+- its saved Wi-Fi networks
+- the encryption key that Home Assistant set; a key that came with the image
+  stays
+- SSH keys added on the device, and its SSH host key.
+
+It then restarts as it was installed. Its log stays, and so does the version
+of Pinna it runs. If its image doesn't set up Wi-Fi, which a prebuilt release
+doesn't, the device is reachable over USB only afterwards, at
+`http://10.42.0.1/`: [connect it to Wi-Fi](/docs/flash/#connect-to-wi-fi)
+again. If Home Assistant had set its key, Home Assistant shows it as
+unavailable until you add it again.
 
 ## Tune the wake word
 
@@ -122,48 +190,36 @@ Assistant connects, because a calibration wake starts no request.
 ## Who can use the dashboard
 
 The dashboard has no login. **Anyone on your network can use it.** That
-includes restarting the device and installing an update. Only an update that
+includes renaming the device, adding a name to open it by, moving it to
+another Wi-Fi network or forgetting the one it uses, restarting the device and
+installing an update. Only an update that
 is signed with your release key installs, and the device goes back to the
 previous version if the new one doesn't start. An older release that you
 signed installs too, so someone with a copy of it can downgrade the device.
 
-To turn the dashboard off, set `listen` to an empty string under `[web]` in
-`/var/lib/pinna/pinnad.toml`. If the file has no `[web]` section yet, add one:
-
-```toml
-[web]
-listen = ""
-```
-
-Then restart `pinnad`. See [Change a setting](/docs/configure/#change-a-setting).
-
-```sh
-systemctl restart pinnad
-```
-
-`pinnactl` and the boot health check keep working, because they use the
-control API on `127.0.0.1:7470`.
+The dashboard itself has no switch to turn it off: on a page without a login,
+anyone could turn it back on. Developers can turn it off with `listen = ""`
+under `[web]` in `pinnad.toml`, as [Configure Pinna](/docs/configure/#web)
+describes. `pinnactl` and the boot health check keep working then, because
+they use the control API on `127.0.0.1:7470`.
 
 ## Open the dashboard by another name
 
 The dashboard answers to IP addresses, to `localhost`, to names that end in
-`.local` and to the hostname `pinna`. That stops other web sites from reaching
-it through your browser. If you open it by another name, for example one that
-your router's DNS gives the device, the browser shows a short message from the
-device, such as
-`This satellite does not answer to the name "kitchen.home.arpa".` Add the name
-under `[web]` in `/var/lib/pinna/pinnad.toml`:
+`.local` and to the device's hostname. That stops other web sites from
+reaching it through your browser. If you open it by another name, for example
+`kitchen.home.arpa` that you set up for the device in your router's DNS, the
+browser shows a short message from the device, such as
+`This satellite does not answer to the name "kitchen.home.arpa".` To add the
+name:
 
-```toml
-[web]
-allowed_hosts = ["kitchen.home.arpa"]
-```
+1. Open the dashboard by the device's IP address or its `.local` name.
+2. Open **Network**. Under **Other names**, enter the name, for example
+   `kitchen.home.arpa`, and select **Add**.
 
-Then restart `pinnad`:
-
-```sh
-systemctl restart pinnad
-```
+The name works at once. Anyone who can use the dashboard can add a name, and
+each name stays until someone removes it, so check the list now and then. The
+dashboard won't remove the name that it is open by.
 
 ## What's next
 

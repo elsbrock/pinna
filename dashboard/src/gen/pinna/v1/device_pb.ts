@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file pinna/v1/device.proto.
  */
 export const file_pinna_v1_device: GenFile = /*@__PURE__*/
-  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIrwBCghXYWtlV29yZBIOCgZwaHJhc2UYASABKAkSDwoHZW5hYmxlZBgCIAEoCBIRCgl0aHJlc2hvbGQYAyABKAISIwoGcmVjZW50GAQgAygLMhMucGlubmEudjEuV2FrZUV2ZW50EioKC2NhbGlicmF0aW9uGAUgASgLMhUucGlubmEudjEuQ2FsaWJyYXRpb24SKwoJYXZhaWxhYmxlGAYgAygLMhgucGlubmEudjEuV2FrZVdvcmRPcHRpb24iLAoOV2FrZVdvcmRPcHRpb24SCgoCaWQYASABKAkSDgoGcGhyYXNlGAIgASgJIhoKC1dha2VXb3JkSWRzEgsKA2lkcxgBIAMoCSJPCgtDYWxpYnJhdGlvbhIUCgxzdGFydGVkX2Zyb20YASABKA0SKgoGZXZlbnRzGAIgAygLMhoucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudCKTAQoQQ2FsaWJyYXRpb25FdmVudBIKCgJpZBgBIAEoDRIsCgRraW5kGAIgASgOMh4ucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudEtpbmQSDQoFcmFpc2UYAyABKAgSEgoFc2NvcmUYBCABKAJIAIgBARIMCgRmcm9tGAUgASgNEgoKAnRvGAYgASgNQggKBl9zY29yZSJ8CglXYWtlRXZlbnQSDwoHdW5peF9tcxgBIAEoBBIMCgR3b2tlGAIgASgIEg0KBXNjb3JlGAMgASgCEhcKCndha2VzX2Zyb20YBCABKA1IAIgBARIZChFyZWFjaGVkX3RocmVzaG9sZBgFIAEoCEINCgtfd2FrZXNfZnJvbSKABAoGU3RhdHVzEg8KB3ZlcnNpb24YASABKAkSDAoEbmFtZRgCIAEoCRILCgNtYWMYAyABKAkSFgoOdXB0aW1lX3NlY29uZHMYBCABKAQSHgoFcGhhc2UYBSABKA4yDy5waW5uYS52MS5QaGFzZRINCgVtdXRlZBgGIAEoCBIWCg5oYXJkd2FyZV9tdXRlZBgHIAEoCBIWCg5zb2Z0d2FyZV9tdXRlZBgIIAEoCBIOCgZ2b2x1bWUYCSABKA0SFAoMaGFfY29ubmVjdGVkGAogASgIEhgKEHZvaWNlX3N1YnNjcmliZWQYCyABKAgSJQoJd2FrZV93b3JkGAwgASgLMhIucGlubmEudjEuV2FrZVdvcmQSHwoGdGltZXJzGA0gAygLMg8ucGlubmEudjEuVGltZXISFQoNYXVkaW9fYmFja2VuZBgOIAEoCRITCgtsZWRfYmFja2VuZBgPIAEoCRIVCg1hbGFybV9yaW5naW5nGBAgASgIEiQKCHNldHRpbmdzGBEgASgLMhIucGlubmEudjEuU2V0dGluZ3MSDQoFbW9kZWwYEiABKAkSFAoMbm90aWZpY2F0aW9uGBMgASgIEhYKDnZpcnR1YWxfZGV2aWNlGBQgASgIEiUKCWxhc3RfYm9vdBgVIAEoCzISLnBpbm5hLnYxLkxhc3RCb290IlcKCExhc3RCb290EioKB291dGNvbWUYASABKA4yGS5waW5uYS52MS5MYXN0Qm9vdE91dGNvbWUSDgoGcmVhc29uGAIgASgJEg8KB3N1bW1hcnkYAyABKAkiaQoIU2V0dGluZ3MSEQoJd2FrZV93b3JkGAIgASgIEhgKEHdha2Vfc2Vuc2l0aXZpdHkYAyABKA0SFgoObGVkX2JyaWdodG5lc3MYBCABKA0SEgoKd2FrZV93b3JkcxgFIAMoCUoECAEQAiISChBHZXRTdGF0dXNSZXF1ZXN0IjUKEUdldFN0YXR1c1Jlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIjChBTZXRWb2x1bWVSZXF1ZXN0Eg8KB3BlcmNlbnQYASABKA0iNQoRU2V0Vm9sdW1lUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIh8KDlNldE11dGVSZXF1ZXN0Eg0KBW11dGVkGAEgASgIIjMKD1NldE11dGVSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGgoYU3RhcnRDb252ZXJzYXRpb25SZXF1ZXN0Ij0KGVN0YXJ0Q29udmVyc2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhkKF1N0b3BDb252ZXJzYXRpb25SZXF1ZXN0IjwKGFN0b3BDb252ZXJzYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiEAoOTGVkVGVzdFJlcXVlc3QiEQoPTGVkVGVzdFJlc3BvbnNlIhoKGENsZWFyTm90aWZpY2F0aW9uUmVxdWVzdCI9ChlDbGVhck5vdGlmaWNhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIUChJXYXRjaFN0YXR1c1JlcXVlc3QiNwoTV2F0Y2hTdGF0dXNSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMi0gEKFVVwZGF0ZVNldHRpbmdzUmVxdWVzdBIWCgl3YWtlX3dvcmQYAiABKAhIAIgBARIdChB3YWtlX3NlbnNpdGl2aXR5GAMgASgNSAGIAQESGwoObGVkX2JyaWdodG5lc3MYBCABKA1IAogBARIpCgp3YWtlX3dvcmRzGAUgASgLMhUucGlubmEudjEuV2FrZVdvcmRJZHNCDAoKX3dha2Vfd29yZEITChFfd2FrZV9zZW5zaXRpdml0eUIRCg9fbGVkX2JyaWdodG5lc3NKBAgBEAIiOgoWVXBkYXRlU2V0dGluZ3NSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGQoXU3RhcnRDYWxpYnJhdGlvblJlcXVlc3QiPAoYU3RhcnRDYWxpYnJhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIYChZTdG9wQ2FsaWJyYXRpb25SZXF1ZXN0IjsKF1N0b3BDYWxpYnJhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyITChFHZXROZXR3b3JrUmVxdWVzdCJTCgRXaWZpEgwKBHNzaWQYASABKAkSEgoKc2lnbmFsX2RibRgCIAEoBRIVCg1mcmVxdWVuY3lfbWh6GAMgASgNEhIKCnR4X2JpdHJhdGUYBCABKAkidQoJSW50ZXJmYWNlEgwKBG5hbWUYASABKAkSCwoDbWFjGAIgASgJEgoKAnVwGAMgASgIEhEKCWFkZHJlc3NlcxgEIAMoCRIcCgR3aWZpGAUgASgLMg4ucGlubmEudjEuV2lmaRIQCgh3aXJlbGVzcxgGIAEoCCJPChJHZXROZXR3b3JrUmVzcG9uc2USEAoIaG9zdG5hbWUYASABKAkSJwoKaW50ZXJmYWNlcxgCIAMoCzITLnBpbm5hLnYxLkludGVyZmFjZSISChBXYXRjaExvZ3NSZXF1ZXN0IkoKB0xvZ0xpbmUSDwoHdW5peF9tcxgBIAEoBBINCgVsZXZlbBgCIAEoCRIOCgZ0YXJnZXQYAyABKAkSDwoHbWVzc2FnZRgEIAEoCSI0ChFXYXRjaExvZ3NSZXNwb25zZRIfCgRsaW5lGAEgASgLMhEucGlubmEudjEuTG9nTGluZSITChFHZXRVcGRhdGVzUmVxdWVzdCJoCgRTbG90EgwKBG5hbWUYASABKAkSDwoHdmVyc2lvbhgCIAEoCRINCgVzdGF0ZRgDIAEoCRISCgp0cmllc19sZWZ0GAQgASgNEg4KBmFjdGl2ZRgFIAEoCBIOCgZib290ZWQYBiABKAgi2QEKEkdldFVwZGF0ZXNSZXNwb25zZRIRCglhdmFpbGFibGUYASABKAgSGgoSdW5hdmFpbGFibGVfcmVhc29uGAIgASgJEhYKDmJvb3RlZF92ZXJzaW9uGAMgASgJEh0KBXNsb3RzGAQgAygLMg4ucGlubmEudjEuU2xvdBISCgppbnN0YWxsaW5nGAUgASgIEi0KDGxhc3RfaW5zdGFsbBgGIAEoCzIXLnBpbm5hLnYxLkluc3RhbGxSZXN1bHQSGgoSc3VnZ2VzdGVkX21hbmlmZXN0GAcgASgJIloKDUluc3RhbGxSZXN1bHQSCgoCb2sYASABKAgSEAoIbWFuaWZlc3QYAiABKAkSGAoQZmluaXNoZWRfdW5peF9tcxgDIAEoBBIRCglsYXN0X2xpbmUYBCABKAkiKAoUSW5zdGFsbFVwZGF0ZVJlcXVlc3QSEAoIbWFuaWZlc3QYASABKAkiFwoVSW5zdGFsbFVwZGF0ZVJlc3BvbnNlIhUKE1dhdGNoSW5zdGFsbFJlcXVlc3QiZQoUV2F0Y2hJbnN0YWxsUmVzcG9uc2USDAoEbGluZRgBIAEoCRIMCgRkb25lGAIgASgIEgoKAm9rGAMgASgIEiUKBXN0YWdlGAQgASgOMhYucGlubmEudjEuSW5zdGFsbFN0YWdlIg8KDVJlYm9vdFJlcXVlc3QiEAoOUmVib290UmVzcG9uc2UqawoFUGhhc2USFQoRUEhBU0VfVU5TUEVDSUZJRUQQABIOCgpQSEFTRV9JRExFEAESEwoPUEhBU0VfTElTVEVOSU5HEAISEgoOUEhBU0VfVEhJTktJTkcQAxISCg5QSEFTRV9TUEVBS0lORxAEKqQCChRDYWxpYnJhdGlvbkV2ZW50S2luZBImCiJDQUxJQlJBVElPTl9FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASHwobQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9XT0tFEAESIQodQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9SQUlTRUQQAhIiCh5DQUxJQlJBVElPTl9FVkVOVF9LSU5EX0xPV0VSRUQQAxIoCiRDQUxJQlJBVElPTl9FVkVOVF9LSU5EX05PVEhJTkdfSEVBUkQQBBIrCidDQUxJQlJBVElPTl9FVkVOVF9LSU5EX05PX1NFVFRJTkdfSEVMUFMQBRIlCiFDQUxJQlJBVElPTl9FVkVOVF9LSU5EX1dPVUxEX1VORE8QBirRAQoPTGFzdEJvb3RPdXRjb21lEiEKHUxBU1RfQk9PVF9PVVRDT01FX1VOU1BFQ0lGSUVEEAASIAocTEFTVF9CT09UX09VVENPTUVfQ09MRF9TVEFSVBABEh8KG0xBU1RfQk9PVF9PVVRDT01FX1JFU1RBUlRFRBACEhwKGExBU1RfQk9PVF9PVVRDT01FX1JFU0NVRRADEh0KGUxBU1RfQk9PVF9PVVRDT01FX0NSQVNIRUQQBBIbChdMQVNUX0JPT1RfT1VUQ09NRV9SRVNFVBAFKrIBCgxJbnN0YWxsU3RhZ2USHQoZSU5TVEFMTF9TVEFHRV9VTlNQRUNJRklFRBAAEhcKE0lOU1RBTExfU1RBR0VfQ0hFQ0sQARIaChZJTlNUQUxMX1NUQUdFX0RPV05MT0FEEAISFwoTSU5TVEFMTF9TVEFHRV9XUklURRADEhgKFElOU1RBTExfU1RBR0VfVkVSSUZZEAQSGwoXSU5TVEFMTF9TVEFHRV9JTlNUQUxMRUQQBTLCCgoNRGV2aWNlU2VydmljZRJECglHZXRTdGF0dXMSGi5waW5uYS52MS5HZXRTdGF0dXNSZXF1ZXN0GhsucGlubmEudjEuR2V0U3RhdHVzUmVzcG9uc2USRAoJU2V0Vm9sdW1lEhoucGlubmEudjEuU2V0Vm9sdW1lUmVxdWVzdBobLnBpbm5hLnYxLlNldFZvbHVtZVJlc3BvbnNlEj4KB1NldE11dGUSGC5waW5uYS52MS5TZXRNdXRlUmVxdWVzdBoZLnBpbm5hLnYxLlNldE11dGVSZXNwb25zZRJcChFTdGFydENvbnZlcnNhdGlvbhIiLnBpbm5hLnYxLlN0YXJ0Q29udmVyc2F0aW9uUmVxdWVzdBojLnBpbm5hLnYxLlN0YXJ0Q29udmVyc2F0aW9uUmVzcG9uc2USWQoQU3RvcENvbnZlcnNhdGlvbhIhLnBpbm5hLnYxLlN0b3BDb252ZXJzYXRpb25SZXF1ZXN0GiIucGlubmEudjEuU3RvcENvbnZlcnNhdGlvblJlc3BvbnNlEj4KB0xlZFRlc3QSGC5waW5uYS52MS5MZWRUZXN0UmVxdWVzdBoZLnBpbm5hLnYxLkxlZFRlc3RSZXNwb25zZRJcChFDbGVhck5vdGlmaWNhdGlvbhIiLnBpbm5hLnYxLkNsZWFyTm90aWZpY2F0aW9uUmVxdWVzdBojLnBpbm5hLnYxLkNsZWFyTm90aWZpY2F0aW9uUmVzcG9uc2USTAoLV2F0Y2hTdGF0dXMSHC5waW5uYS52MS5XYXRjaFN0YXR1c1JlcXVlc3QaHS5waW5uYS52MS5XYXRjaFN0YXR1c1Jlc3BvbnNlMAESUwoOVXBkYXRlU2V0dGluZ3MSHy5waW5uYS52MS5VcGRhdGVTZXR0aW5nc1JlcXVlc3QaIC5waW5uYS52MS5VcGRhdGVTZXR0aW5nc1Jlc3BvbnNlElkKEFN0YXJ0Q2FsaWJyYXRpb24SIS5waW5uYS52MS5TdGFydENhbGlicmF0aW9uUmVxdWVzdBoiLnBpbm5hLnYxLlN0YXJ0Q2FsaWJyYXRpb25SZXNwb25zZRJWCg9TdG9wQ2FsaWJyYXRpb24SIC5waW5uYS52MS5TdG9wQ2FsaWJyYXRpb25SZXF1ZXN0GiEucGlubmEudjEuU3RvcENhbGlicmF0aW9uUmVzcG9uc2USRwoKR2V0TmV0d29yaxIbLnBpbm5hLnYxLkdldE5ldHdvcmtSZXF1ZXN0GhwucGlubmEudjEuR2V0TmV0d29ya1Jlc3BvbnNlEkYKCVdhdGNoTG9ncxIaLnBpbm5hLnYxLldhdGNoTG9nc1JlcXVlc3QaGy5waW5uYS52MS5XYXRjaExvZ3NSZXNwb25zZTABEkcKCkdldFVwZGF0ZXMSGy5waW5uYS52MS5HZXRVcGRhdGVzUmVxdWVzdBocLnBpbm5hLnYxLkdldFVwZGF0ZXNSZXNwb25zZRJQCg1JbnN0YWxsVXBkYXRlEh4ucGlubmEudjEuSW5zdGFsbFVwZGF0ZVJlcXVlc3QaHy5waW5uYS52MS5JbnN0YWxsVXBkYXRlUmVzcG9uc2USTwoMV2F0Y2hJbnN0YWxsEh0ucGlubmEudjEuV2F0Y2hJbnN0YWxsUmVxdWVzdBoeLnBpbm5hLnYxLldhdGNoSW5zdGFsbFJlc3BvbnNlMAESOwoGUmVib290EhcucGlubmEudjEuUmVib290UmVxdWVzdBoYLnBpbm5hLnYxLlJlYm9vdFJlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChVwaW5uYS92MS9kZXZpY2UucHJvdG8SCHBpbm5hLnYxIl4KBVRpbWVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFAoMc2Vjb25kc19sZWZ0GAMgASgNEhUKDXRvdGFsX3NlY29uZHMYBCABKA0SDgoGYWN0aXZlGAUgASgIIrwBCghXYWtlV29yZBIOCgZwaHJhc2UYASABKAkSDwoHZW5hYmxlZBgCIAEoCBIRCgl0aHJlc2hvbGQYAyABKAISIwoGcmVjZW50GAQgAygLMhMucGlubmEudjEuV2FrZUV2ZW50EioKC2NhbGlicmF0aW9uGAUgASgLMhUucGlubmEudjEuQ2FsaWJyYXRpb24SKwoJYXZhaWxhYmxlGAYgAygLMhgucGlubmEudjEuV2FrZVdvcmRPcHRpb24iLAoOV2FrZVdvcmRPcHRpb24SCgoCaWQYASABKAkSDgoGcGhyYXNlGAIgASgJIhoKC1dha2VXb3JkSWRzEgsKA2lkcxgBIAMoCSJPCgtDYWxpYnJhdGlvbhIUCgxzdGFydGVkX2Zyb20YASABKA0SKgoGZXZlbnRzGAIgAygLMhoucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudCKTAQoQQ2FsaWJyYXRpb25FdmVudBIKCgJpZBgBIAEoDRIsCgRraW5kGAIgASgOMh4ucGlubmEudjEuQ2FsaWJyYXRpb25FdmVudEtpbmQSDQoFcmFpc2UYAyABKAgSEgoFc2NvcmUYBCABKAJIAIgBARIMCgRmcm9tGAUgASgNEgoKAnRvGAYgASgNQggKBl9zY29yZSJ8CglXYWtlRXZlbnQSDwoHdW5peF9tcxgBIAEoBBIMCgR3b2tlGAIgASgIEg0KBXNjb3JlGAMgASgCEhcKCndha2VzX2Zyb20YBCABKA1IAIgBARIZChFyZWFjaGVkX3RocmVzaG9sZBgFIAEoCEINCgtfd2FrZXNfZnJvbSKzBAoGU3RhdHVzEg8KB3ZlcnNpb24YASABKAkSDAoEbmFtZRgCIAEoCRILCgNtYWMYAyABKAkSFgoOdXB0aW1lX3NlY29uZHMYBCABKAQSHgoFcGhhc2UYBSABKA4yDy5waW5uYS52MS5QaGFzZRINCgVtdXRlZBgGIAEoCBIWCg5oYXJkd2FyZV9tdXRlZBgHIAEoCBIWCg5zb2Z0d2FyZV9tdXRlZBgIIAEoCBIOCgZ2b2x1bWUYCSABKA0SFAoMaGFfY29ubmVjdGVkGAogASgIEhgKEHZvaWNlX3N1YnNjcmliZWQYCyABKAgSJQoJd2FrZV93b3JkGAwgASgLMhIucGlubmEudjEuV2FrZVdvcmQSHwoGdGltZXJzGA0gAygLMg8ucGlubmEudjEuVGltZXISFQoNYXVkaW9fYmFja2VuZBgOIAEoCRITCgtsZWRfYmFja2VuZBgPIAEoCRIVCg1hbGFybV9yaW5naW5nGBAgASgIEiQKCHNldHRpbmdzGBEgASgLMhIucGlubmEudjEuU2V0dGluZ3MSDQoFbW9kZWwYEiABKAkSFAoMbm90aWZpY2F0aW9uGBMgASgIEhYKDnZpcnR1YWxfZGV2aWNlGBQgASgIEiUKCWxhc3RfYm9vdBgVIAEoCzISLnBpbm5hLnYxLkxhc3RCb290EhUKDWFwaV9lbmNyeXB0ZWQYFiABKAgSGgoSYXBpX2tleV9mcm9tX2ltYWdlGBcgASgIIlcKCExhc3RCb290EioKB291dGNvbWUYASABKA4yGS5waW5uYS52MS5MYXN0Qm9vdE91dGNvbWUSDgoGcmVhc29uGAIgASgJEg8KB3N1bW1hcnkYAyABKAkiwQEKCFNldHRpbmdzEhEKCXdha2Vfd29yZBgCIAEoCBIYChB3YWtlX3NlbnNpdGl2aXR5GAMgASgNEhYKDmxlZF9icmlnaHRuZXNzGAQgASgNEhIKCndha2Vfd29yZHMYBSADKAkSFQoNZnJpZW5kbHlfbmFtZRgGIAEoCRIUCgxkZWZhdWx0X25hbWUYByABKAgSEgoKd2FrZV9zb3VuZBgIIAEoCBIVCg1hbGxvd2VkX2hvc3RzGAkgAygJSgQIARACIhIKEEdldFN0YXR1c1JlcXVlc3QiNQoRR2V0U3RhdHVzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIiMKEFNldFZvbHVtZVJlcXVlc3QSDwoHcGVyY2VudBgBIAEoDSI1ChFTZXRWb2x1bWVSZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiHwoOU2V0TXV0ZVJlcXVlc3QSDQoFbXV0ZWQYASABKAgiMwoPU2V0TXV0ZVJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIaChhTdGFydENvbnZlcnNhdGlvblJlcXVlc3QiPQoZU3RhcnRDb252ZXJzYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGQoXU3RvcENvbnZlcnNhdGlvblJlcXVlc3QiPAoYU3RvcENvbnZlcnNhdGlvblJlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyIQCg5MZWRUZXN0UmVxdWVzdCIRCg9MZWRUZXN0UmVzcG9uc2UiGgoYQ2xlYXJOb3RpZmljYXRpb25SZXF1ZXN0Ij0KGUNsZWFyTm90aWZpY2F0aW9uUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhQKEldhdGNoU3RhdHVzUmVxdWVzdCI3ChNXYXRjaFN0YXR1c1Jlc3BvbnNlEiAKBnN0YXR1cxgBIAEoCzIQLnBpbm5hLnYxLlN0YXR1cyLUAgoVVXBkYXRlU2V0dGluZ3NSZXF1ZXN0EhYKCXdha2Vfd29yZBgCIAEoCEgAiAEBEh0KEHdha2Vfc2Vuc2l0aXZpdHkYAyABKA1IAYgBARIbCg5sZWRfYnJpZ2h0bmVzcxgEIAEoDUgCiAEBEikKCndha2Vfd29yZHMYBSABKAsyFS5waW5uYS52MS5XYWtlV29yZElkcxIaCg1mcmllbmRseV9uYW1lGAYgASgJSAOIAQESFwoKd2FrZV9zb3VuZBgHIAEoCEgEiAEBEioKDWFsbG93ZWRfaG9zdHMYCCABKAsyEy5waW5uYS52MS5Ib3N0TmFtZXNCDAoKX3dha2Vfd29yZEITChFfd2FrZV9zZW5zaXRpdml0eUIRCg9fbGVkX2JyaWdodG5lc3NCEAoOX2ZyaWVuZGx5X25hbWVCDQoLX3dha2Vfc291bmRKBAgBEAIiGgoJSG9zdE5hbWVzEg0KBW5hbWVzGAEgAygJIjoKFlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USIAoGc3RhdHVzGAEgASgLMhAucGlubmEudjEuU3RhdHVzIhkKF1N0YXJ0Q2FsaWJyYXRpb25SZXF1ZXN0IjwKGFN0YXJ0Q2FsaWJyYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiGAoWU3RvcENhbGlicmF0aW9uUmVxdWVzdCI7ChdTdG9wQ2FsaWJyYXRpb25SZXNwb25zZRIgCgZzdGF0dXMYASABKAsyEC5waW5uYS52MS5TdGF0dXMiEwoRR2V0TmV0d29ya1JlcXVlc3QiUwoEV2lmaRIMCgRzc2lkGAEgASgJEhIKCnNpZ25hbF9kYm0YAiABKAUSFQoNZnJlcXVlbmN5X21oehgDIAEoDRISCgp0eF9iaXRyYXRlGAQgASgJInUKCUludGVyZmFjZRIMCgRuYW1lGAEgASgJEgsKA21hYxgCIAEoCRIKCgJ1cBgDIAEoCBIRCglhZGRyZXNzZXMYBCADKAkSHAoEd2lmaRgFIAEoCzIOLnBpbm5hLnYxLldpZmkSEAoId2lyZWxlc3MYBiABKAgiTwoSR2V0TmV0d29ya1Jlc3BvbnNlEhAKCGhvc3RuYW1lGAEgASgJEicKCmludGVyZmFjZXMYAiADKAsyEy5waW5uYS52MS5JbnRlcmZhY2UiEgoQV2F0Y2hMb2dzUmVxdWVzdCJKCgdMb2dMaW5lEg8KB3VuaXhfbXMYASABKAQSDQoFbGV2ZWwYAiABKAkSDgoGdGFyZ2V0GAMgASgJEg8KB21lc3NhZ2UYBCABKAkiNAoRV2F0Y2hMb2dzUmVzcG9uc2USHwoEbGluZRgBIAEoCzIRLnBpbm5hLnYxLkxvZ0xpbmUiEwoRR2V0VXBkYXRlc1JlcXVlc3QiaAoEU2xvdBIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSDQoFc3RhdGUYAyABKAkSEgoKdHJpZXNfbGVmdBgEIAEoDRIOCgZhY3RpdmUYBSABKAgSDgoGYm9vdGVkGAYgASgIItkBChJHZXRVcGRhdGVzUmVzcG9uc2USEQoJYXZhaWxhYmxlGAEgASgIEhoKEnVuYXZhaWxhYmxlX3JlYXNvbhgCIAEoCRIWCg5ib290ZWRfdmVyc2lvbhgDIAEoCRIdCgVzbG90cxgEIAMoCzIOLnBpbm5hLnYxLlNsb3QSEgoKaW5zdGFsbGluZxgFIAEoCBItCgxsYXN0X2luc3RhbGwYBiABKAsyFy5waW5uYS52MS5JbnN0YWxsUmVzdWx0EhoKEnN1Z2dlc3RlZF9tYW5pZmVzdBgHIAEoCSJaCg1JbnN0YWxsUmVzdWx0EgoKAm9rGAEgASgIEhAKCG1hbmlmZXN0GAIgASgJEhgKEGZpbmlzaGVkX3VuaXhfbXMYAyABKAQSEQoJbGFzdF9saW5lGAQgASgJIigKFEluc3RhbGxVcGRhdGVSZXF1ZXN0EhAKCG1hbmlmZXN0GAEgASgJIhcKFUluc3RhbGxVcGRhdGVSZXNwb25zZSIVChNXYXRjaEluc3RhbGxSZXF1ZXN0ImUKFFdhdGNoSW5zdGFsbFJlc3BvbnNlEgwKBGxpbmUYASABKAkSDAoEZG9uZRgCIAEoCBIKCgJvaxgDIAEoCBIlCgVzdGFnZRgEIAEoDjIWLnBpbm5hLnYxLkluc3RhbGxTdGFnZSIPCg1SZWJvb3RSZXF1ZXN0IhAKDlJlYm9vdFJlc3BvbnNlIpABCgtXaWZpTmV0d29yaxIMCgRzc2lkGAEgASgJEhIKCnNpZ25hbF9kYm0YAiABKAUSFQoNZnJlcXVlbmN5X21oehgDIAEoDRIoCghzZWN1cml0eRgEIAEoDjIWLnBpbm5hLnYxLldpZmlTZWN1cml0eRINCgVzYXZlZBgFIAEoCBIPCgdjdXJyZW50GAYgASgIIhEKD1NjYW5XaWZpUmVxdWVzdCI7ChBTY2FuV2lmaVJlc3BvbnNlEicKCG5ldHdvcmtzGAEgAygLMhUucGlubmEudjEuV2lmaU5ldHdvcmsiZAoJU2F2ZWRXaWZpEgwKBHNzaWQYASABKAkSKAoIc2VjdXJpdHkYAiABKA4yFi5waW5uYS52MS5XaWZpU2VjdXJpdHkSDgoGaGlkZGVuGAMgASgIEg8KB2N1cnJlbnQYBCABKAgiEQoPTGlzdFdpZmlSZXF1ZXN0IqEBChBMaXN0V2lmaVJlc3BvbnNlEiIKBXNhdmVkGAEgAygLMhMucGlubmEudjEuU2F2ZWRXaWZpEg8KB2pvaW5pbmcYAiABKAgSLQoJbGFzdF9qb2luGAMgASgLMhoucGlubmEudjEuSm9pbldpZmlSZXNwb25zZRIpCgV0cmlhbBgEIAEoCzIaLnBpbm5hLnYxLkpvaW5XaWZpUmVzcG9uc2UibQoPSm9pbldpZmlSZXF1ZXN0EgwKBHNzaWQYASABKAkSKAoIc2VjdXJpdHkYAiABKA4yFi5waW5uYS52MS5XaWZpU2VjdXJpdHkSEgoKcGFzc3BocmFzZRgDIAEoCRIOCgZoaWRkZW4YBCABKAgitgEKEEpvaW5XaWZpUmVzcG9uc2USDAoEc3NpZBgBIAEoCRIiCgVzdGFnZRgCIAEoDjITLnBpbm5hLnYxLkpvaW5TdGFnZRIPCgdtZXNzYWdlGAMgASgJEg8KB2FkZHJlc3MYBCABKAkSJgoHZmFpbHVyZRgFIAEoDjIVLnBpbm5hLnYxLkpvaW5GYWlsdXJlEhAKCGZhbGxiYWNrGAYgASgJEhQKDGtlZXBfc2Vjb25kcxgHIAEoDSIfCg9LZWVwV2lmaVJlcXVlc3QSDAoEa2VlcBgBIAEoCCI+ChBLZWVwV2lmaVJlc3BvbnNlEioKBnJlc3VsdBgBIAEoCzIaLnBpbm5hLnYxLkpvaW5XaWZpUmVzcG9uc2UiIQoRRm9yZ2V0V2lmaVJlcXVlc3QSDAoEc3NpZBgBIAEoCSI4ChJGb3JnZXRXaWZpUmVzcG9uc2USIgoFc2F2ZWQYASADKAsyEy5waW5uYS52MS5TYXZlZFdpZmkiIwoTRmFjdG9yeVJlc2V0UmVxdWVzdBIMCgRuYW1lGAEgASgJIhYKFEZhY3RvcnlSZXNldFJlc3BvbnNlKmsKBVBoYXNlEhUKEVBIQVNFX1VOU1BFQ0lGSUVEEAASDgoKUEhBU0VfSURMRRABEhMKD1BIQVNFX0xJU1RFTklORxACEhIKDlBIQVNFX1RISU5LSU5HEAMSEgoOUEhBU0VfU1BFQUtJTkcQBCqkAgoUQ2FsaWJyYXRpb25FdmVudEtpbmQSJgoiQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9VTlNQRUNJRklFRBAAEh8KG0NBTElCUkFUSU9OX0VWRU5UX0tJTkRfV09LRRABEiEKHUNBTElCUkFUSU9OX0VWRU5UX0tJTkRfUkFJU0VEEAISIgoeQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9MT1dFUkVEEAMSKAokQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9OT1RISU5HX0hFQVJEEAQSKwonQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9OT19TRVRUSU5HX0hFTFBTEAUSJQohQ0FMSUJSQVRJT05fRVZFTlRfS0lORF9XT1VMRF9VTkRPEAYq0QEKD0xhc3RCb290T3V0Y29tZRIhCh1MQVNUX0JPT1RfT1VUQ09NRV9VTlNQRUNJRklFRBAAEiAKHExBU1RfQk9PVF9PVVRDT01FX0NPTERfU1RBUlQQARIfChtMQVNUX0JPT1RfT1VUQ09NRV9SRVNUQVJURUQQAhIcChhMQVNUX0JPT1RfT1VUQ09NRV9SRVNDVUUQAxIdChlMQVNUX0JPT1RfT1VUQ09NRV9DUkFTSEVEEAQSGwoXTEFTVF9CT09UX09VVENPTUVfUkVTRVQQBSqyAQoMSW5zdGFsbFN0YWdlEh0KGUlOU1RBTExfU1RBR0VfVU5TUEVDSUZJRUQQABIXChNJTlNUQUxMX1NUQUdFX0NIRUNLEAESGgoWSU5TVEFMTF9TVEFHRV9ET1dOTE9BRBACEhcKE0lOU1RBTExfU1RBR0VfV1JJVEUQAxIYChRJTlNUQUxMX1NUQUdFX1ZFUklGWRAEEhsKF0lOU1RBTExfU1RBR0VfSU5TVEFMTEVEEAUqrAEKDFdpZmlTZWN1cml0eRIdChlXSUZJX1NFQ1VSSVRZX1VOU1BFQ0lGSUVEEAASFgoSV0lGSV9TRUNVUklUWV9PUEVOEAESGQoVV0lGSV9TRUNVUklUWV9XUEFfUFNLEAISFQoRV0lGSV9TRUNVUklUWV9TQUUQAxIcChhXSUZJX1NFQ1VSSVRZX0VOVEVSUFJJU0UQBBIVChFXSUZJX1NFQ1VSSVRZX1dFUBAFKp4BCglKb2luU3RhZ2USGgoWSk9JTl9TVEFHRV9VTlNQRUNJRklFRBAAEhkKFUpPSU5fU1RBR0VfQ09OTkVDVElORxABEhYKEkpPSU5fU1RBR0VfQUREUkVTUxACEhQKEEpPSU5fU1RBR0VfVFJJQUwQAxIVChFKT0lOX1NUQUdFX0pPSU5FRBAEEhUKEUpPSU5fU1RBR0VfRkFJTEVEEAUquAEKC0pvaW5GYWlsdXJlEhwKGEpPSU5fRkFJTFVSRV9VTlNQRUNJRklFRBAAEh8KG0pPSU5fRkFJTFVSRV9XUk9OR19QQVNTV09SRBABEhoKFkpPSU5fRkFJTFVSRV9OT1RfRk9VTkQQAhIbChdKT0lOX0ZBSUxVUkVfTk9fQUREUkVTUxADEhYKEkpPSU5fRkFJTFVSRV9PVEhFUhAEEhkKFUpPSU5fRkFJTFVSRV9OT1RfS0VQVBAFMugNCg1EZXZpY2VTZXJ2aWNlEkQKCUdldFN0YXR1cxIaLnBpbm5hLnYxLkdldFN0YXR1c1JlcXVlc3QaGy5waW5uYS52MS5HZXRTdGF0dXNSZXNwb25zZRJECglTZXRWb2x1bWUSGi5waW5uYS52MS5TZXRWb2x1bWVSZXF1ZXN0GhsucGlubmEudjEuU2V0Vm9sdW1lUmVzcG9uc2USPgoHU2V0TXV0ZRIYLnBpbm5hLnYxLlNldE11dGVSZXF1ZXN0GhkucGlubmEudjEuU2V0TXV0ZVJlc3BvbnNlElwKEVN0YXJ0Q29udmVyc2F0aW9uEiIucGlubmEudjEuU3RhcnRDb252ZXJzYXRpb25SZXF1ZXN0GiMucGlubmEudjEuU3RhcnRDb252ZXJzYXRpb25SZXNwb25zZRJZChBTdG9wQ29udmVyc2F0aW9uEiEucGlubmEudjEuU3RvcENvbnZlcnNhdGlvblJlcXVlc3QaIi5waW5uYS52MS5TdG9wQ29udmVyc2F0aW9uUmVzcG9uc2USPgoHTGVkVGVzdBIYLnBpbm5hLnYxLkxlZFRlc3RSZXF1ZXN0GhkucGlubmEudjEuTGVkVGVzdFJlc3BvbnNlElwKEUNsZWFyTm90aWZpY2F0aW9uEiIucGlubmEudjEuQ2xlYXJOb3RpZmljYXRpb25SZXF1ZXN0GiMucGlubmEudjEuQ2xlYXJOb3RpZmljYXRpb25SZXNwb25zZRJMCgtXYXRjaFN0YXR1cxIcLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVxdWVzdBodLnBpbm5hLnYxLldhdGNoU3RhdHVzUmVzcG9uc2UwARJTCg5VcGRhdGVTZXR0aW5ncxIfLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVxdWVzdBogLnBpbm5hLnYxLlVwZGF0ZVNldHRpbmdzUmVzcG9uc2USWQoQU3RhcnRDYWxpYnJhdGlvbhIhLnBpbm5hLnYxLlN0YXJ0Q2FsaWJyYXRpb25SZXF1ZXN0GiIucGlubmEudjEuU3RhcnRDYWxpYnJhdGlvblJlc3BvbnNlElYKD1N0b3BDYWxpYnJhdGlvbhIgLnBpbm5hLnYxLlN0b3BDYWxpYnJhdGlvblJlcXVlc3QaIS5waW5uYS52MS5TdG9wQ2FsaWJyYXRpb25SZXNwb25zZRJHCgpHZXROZXR3b3JrEhsucGlubmEudjEuR2V0TmV0d29ya1JlcXVlc3QaHC5waW5uYS52MS5HZXROZXR3b3JrUmVzcG9uc2USRgoJV2F0Y2hMb2dzEhoucGlubmEudjEuV2F0Y2hMb2dzUmVxdWVzdBobLnBpbm5hLnYxLldhdGNoTG9nc1Jlc3BvbnNlMAESRwoKR2V0VXBkYXRlcxIbLnBpbm5hLnYxLkdldFVwZGF0ZXNSZXF1ZXN0GhwucGlubmEudjEuR2V0VXBkYXRlc1Jlc3BvbnNlElAKDUluc3RhbGxVcGRhdGUSHi5waW5uYS52MS5JbnN0YWxsVXBkYXRlUmVxdWVzdBofLnBpbm5hLnYxLkluc3RhbGxVcGRhdGVSZXNwb25zZRJPCgxXYXRjaEluc3RhbGwSHS5waW5uYS52MS5XYXRjaEluc3RhbGxSZXF1ZXN0Gh4ucGlubmEudjEuV2F0Y2hJbnN0YWxsUmVzcG9uc2UwARI7CgZSZWJvb3QSFy5waW5uYS52MS5SZWJvb3RSZXF1ZXN0GhgucGlubmEudjEuUmVib290UmVzcG9uc2USTQoMRmFjdG9yeVJlc2V0Eh0ucGlubmEudjEuRmFjdG9yeVJlc2V0UmVxdWVzdBoeLnBpbm5hLnYxLkZhY3RvcnlSZXNldFJlc3BvbnNlEkEKCFNjYW5XaWZpEhkucGlubmEudjEuU2NhbldpZmlSZXF1ZXN0GhoucGlubmEudjEuU2NhbldpZmlSZXNwb25zZRJBCghMaXN0V2lmaRIZLnBpbm5hLnYxLkxpc3RXaWZpUmVxdWVzdBoaLnBpbm5hLnYxLkxpc3RXaWZpUmVzcG9uc2USQwoISm9pbldpZmkSGS5waW5uYS52MS5Kb2luV2lmaVJlcXVlc3QaGi5waW5uYS52MS5Kb2luV2lmaVJlc3BvbnNlMAESQQoIS2VlcFdpZmkSGS5waW5uYS52MS5LZWVwV2lmaVJlcXVlc3QaGi5waW5uYS52MS5LZWVwV2lmaVJlc3BvbnNlEkcKCkZvcmdldFdpZmkSGy5waW5uYS52MS5Gb3JnZXRXaWZpUmVxdWVzdBocLnBpbm5hLnYxLkZvcmdldFdpZmlSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * @generated from message pinna.v1.Timer
@@ -417,6 +417,21 @@ export type Status = Message<"pinna.v1.Status"> & {
    * @generated from field: pinna.v1.LastBoot last_boot = 21;
    */
   lastBoot?: LastBoot | undefined;
+
+  /**
+   * The ESPHome API to Home Assistant is encrypted (Noise).
+   *
+   * @generated from field: bool api_encrypted = 22;
+   */
+  apiEncrypted: boolean;
+
+  /**
+   * The image carries the key (a builder's `secrets/device/esphome-key` or
+   * `[esphome] encryption_key`): a factory reset keeps it (ADR 0018).
+   *
+   * @generated from field: bool api_key_from_image = 23;
+   */
+  apiKeyFromImage: boolean;
 };
 
 /**
@@ -490,6 +505,36 @@ export type Settings = Message<"pinna.v1.Settings"> & {
    * @generated from field: repeated string wake_words = 5;
    */
   wakeWords: string[];
+
+  /**
+   * The name Home Assistant shows (ADR 0007).
+   *
+   * @generated from field: string friendly_name = 6;
+   */
+  friendlyName: string;
+
+  /**
+   * Nobody chose a name yet: `friendly_name` is the model and the last three
+   * bytes of the MAC, e.g. "Echo Dot 2a914e".
+   *
+   * @generated from field: bool default_name = 7;
+   */
+  defaultName: boolean;
+
+  /**
+   * A chime when listening starts.
+   *
+   * @generated from field: bool wake_sound = 8;
+   */
+  wakeSound: boolean;
+
+  /**
+   * Names the dashboard answers to, added on the dashboard. IP addresses,
+   * localhost, .local names and the hostname always work.
+   *
+   * @generated from field: repeated string allowed_hosts = 9;
+   */
+  allowedHosts: string[];
 };
 
 /**
@@ -773,6 +818,27 @@ export type UpdateSettingsRequest = Message<"pinna.v1.UpdateSettingsRequest"> & 
    * @generated from field: pinna.v1.WakeWordIds wake_words = 5;
    */
   wakeWords?: WakeWordIds | undefined;
+
+  /**
+   * 1 to 64 characters (at most 200 bytes), no control characters; trimmed.
+   * Home Assistant reads it when it next connects: pinnad makes it reconnect
+   * once the satellite is idle.
+   *
+   * @generated from field: optional string friendly_name = 6;
+   */
+  friendlyName?: string | undefined;
+
+  /**
+   * @generated from field: optional bool wake_sound = 7;
+   */
+  wakeSound?: boolean | undefined;
+
+  /**
+   * Replaces the dashboard's list: at most 16 DNS names, without a port.
+   *
+   * @generated from field: pinna.v1.HostNames allowed_hosts = 8;
+   */
+  allowedHosts?: HostNames | undefined;
 };
 
 /**
@@ -781,6 +847,26 @@ export type UpdateSettingsRequest = Message<"pinna.v1.UpdateSettingsRequest"> & 
  */
 export const UpdateSettingsRequestSchema: GenMessage<UpdateSettingsRequest> = /*@__PURE__*/
   messageDesc(file_pinna_v1_device, 26);
+
+/**
+ * A list of host names, so that UpdateSettingsRequest can tell "unchanged"
+ * from "none".
+ *
+ * @generated from message pinna.v1.HostNames
+ */
+export type HostNames = Message<"pinna.v1.HostNames"> & {
+  /**
+   * @generated from field: repeated string names = 1;
+   */
+  names: string[];
+};
+
+/**
+ * Describes the message pinna.v1.HostNames.
+ * Use `create(HostNamesSchema)` to create a new message.
+ */
+export const HostNamesSchema: GenMessage<HostNames> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 27);
 
 /**
  * @generated from message pinna.v1.UpdateSettingsResponse
@@ -797,7 +883,7 @@ export type UpdateSettingsResponse = Message<"pinna.v1.UpdateSettingsResponse"> 
  * Use `create(UpdateSettingsResponseSchema)` to create a new message.
  */
 export const UpdateSettingsResponseSchema: GenMessage<UpdateSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 27);
+  messageDesc(file_pinna_v1_device, 28);
 
 /**
  * @generated from message pinna.v1.StartCalibrationRequest
@@ -810,7 +896,7 @@ export type StartCalibrationRequest = Message<"pinna.v1.StartCalibrationRequest"
  * Use `create(StartCalibrationRequestSchema)` to create a new message.
  */
 export const StartCalibrationRequestSchema: GenMessage<StartCalibrationRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 28);
+  messageDesc(file_pinna_v1_device, 29);
 
 /**
  * @generated from message pinna.v1.StartCalibrationResponse
@@ -827,7 +913,7 @@ export type StartCalibrationResponse = Message<"pinna.v1.StartCalibrationRespons
  * Use `create(StartCalibrationResponseSchema)` to create a new message.
  */
 export const StartCalibrationResponseSchema: GenMessage<StartCalibrationResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 29);
+  messageDesc(file_pinna_v1_device, 30);
 
 /**
  * @generated from message pinna.v1.StopCalibrationRequest
@@ -840,7 +926,7 @@ export type StopCalibrationRequest = Message<"pinna.v1.StopCalibrationRequest"> 
  * Use `create(StopCalibrationRequestSchema)` to create a new message.
  */
 export const StopCalibrationRequestSchema: GenMessage<StopCalibrationRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 30);
+  messageDesc(file_pinna_v1_device, 31);
 
 /**
  * @generated from message pinna.v1.StopCalibrationResponse
@@ -857,7 +943,7 @@ export type StopCalibrationResponse = Message<"pinna.v1.StopCalibrationResponse"
  * Use `create(StopCalibrationResponseSchema)` to create a new message.
  */
 export const StopCalibrationResponseSchema: GenMessage<StopCalibrationResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 31);
+  messageDesc(file_pinna_v1_device, 32);
 
 /**
  * @generated from message pinna.v1.GetNetworkRequest
@@ -870,7 +956,7 @@ export type GetNetworkRequest = Message<"pinna.v1.GetNetworkRequest"> & {
  * Use `create(GetNetworkRequestSchema)` to create a new message.
  */
 export const GetNetworkRequestSchema: GenMessage<GetNetworkRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 32);
+  messageDesc(file_pinna_v1_device, 33);
 
 /**
  * @generated from message pinna.v1.Wifi
@@ -906,7 +992,7 @@ export type Wifi = Message<"pinna.v1.Wifi"> & {
  * Use `create(WifiSchema)` to create a new message.
  */
 export const WifiSchema: GenMessage<Wifi> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 33);
+  messageDesc(file_pinna_v1_device, 34);
 
 /**
  * @generated from message pinna.v1.Interface
@@ -954,7 +1040,7 @@ export type Interface = Message<"pinna.v1.Interface"> & {
  * Use `create(InterfaceSchema)` to create a new message.
  */
 export const InterfaceSchema: GenMessage<Interface> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 34);
+  messageDesc(file_pinna_v1_device, 35);
 
 /**
  * @generated from message pinna.v1.GetNetworkResponse
@@ -976,7 +1062,7 @@ export type GetNetworkResponse = Message<"pinna.v1.GetNetworkResponse"> & {
  * Use `create(GetNetworkResponseSchema)` to create a new message.
  */
 export const GetNetworkResponseSchema: GenMessage<GetNetworkResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 35);
+  messageDesc(file_pinna_v1_device, 36);
 
 /**
  * @generated from message pinna.v1.WatchLogsRequest
@@ -989,7 +1075,7 @@ export type WatchLogsRequest = Message<"pinna.v1.WatchLogsRequest"> & {
  * Use `create(WatchLogsRequestSchema)` to create a new message.
  */
 export const WatchLogsRequestSchema: GenMessage<WatchLogsRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 36);
+  messageDesc(file_pinna_v1_device, 37);
 
 /**
  * @generated from message pinna.v1.LogLine
@@ -1029,7 +1115,7 @@ export type LogLine = Message<"pinna.v1.LogLine"> & {
  * Use `create(LogLineSchema)` to create a new message.
  */
 export const LogLineSchema: GenMessage<LogLine> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 37);
+  messageDesc(file_pinna_v1_device, 38);
 
 /**
  * @generated from message pinna.v1.WatchLogsResponse
@@ -1046,7 +1132,7 @@ export type WatchLogsResponse = Message<"pinna.v1.WatchLogsResponse"> & {
  * Use `create(WatchLogsResponseSchema)` to create a new message.
  */
 export const WatchLogsResponseSchema: GenMessage<WatchLogsResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 38);
+  messageDesc(file_pinna_v1_device, 39);
 
 /**
  * @generated from message pinna.v1.GetUpdatesRequest
@@ -1059,7 +1145,7 @@ export type GetUpdatesRequest = Message<"pinna.v1.GetUpdatesRequest"> & {
  * Use `create(GetUpdatesRequestSchema)` to create a new message.
  */
 export const GetUpdatesRequestSchema: GenMessage<GetUpdatesRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 39);
+  messageDesc(file_pinna_v1_device, 40);
 
 /**
  * @generated from message pinna.v1.Slot
@@ -1111,7 +1197,7 @@ export type Slot = Message<"pinna.v1.Slot"> & {
  * Use `create(SlotSchema)` to create a new message.
  */
 export const SlotSchema: GenMessage<Slot> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 40);
+  messageDesc(file_pinna_v1_device, 41);
 
 /**
  * @generated from message pinna.v1.GetUpdatesResponse
@@ -1169,7 +1255,7 @@ export type GetUpdatesResponse = Message<"pinna.v1.GetUpdatesResponse"> & {
  * Use `create(GetUpdatesResponseSchema)` to create a new message.
  */
 export const GetUpdatesResponseSchema: GenMessage<GetUpdatesResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 41);
+  messageDesc(file_pinna_v1_device, 42);
 
 /**
  * @generated from message pinna.v1.InstallResult
@@ -1205,7 +1291,7 @@ export type InstallResult = Message<"pinna.v1.InstallResult"> & {
  * Use `create(InstallResultSchema)` to create a new message.
  */
 export const InstallResultSchema: GenMessage<InstallResult> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 42);
+  messageDesc(file_pinna_v1_device, 43);
 
 /**
  * @generated from message pinna.v1.InstallUpdateRequest
@@ -1224,7 +1310,7 @@ export type InstallUpdateRequest = Message<"pinna.v1.InstallUpdateRequest"> & {
  * Use `create(InstallUpdateRequestSchema)` to create a new message.
  */
 export const InstallUpdateRequestSchema: GenMessage<InstallUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 43);
+  messageDesc(file_pinna_v1_device, 44);
 
 /**
  * @generated from message pinna.v1.InstallUpdateResponse
@@ -1237,7 +1323,7 @@ export type InstallUpdateResponse = Message<"pinna.v1.InstallUpdateResponse"> & 
  * Use `create(InstallUpdateResponseSchema)` to create a new message.
  */
 export const InstallUpdateResponseSchema: GenMessage<InstallUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 44);
+  messageDesc(file_pinna_v1_device, 45);
 
 /**
  * @generated from message pinna.v1.WatchInstallRequest
@@ -1250,7 +1336,7 @@ export type WatchInstallRequest = Message<"pinna.v1.WatchInstallRequest"> & {
  * Use `create(WatchInstallRequestSchema)` to create a new message.
  */
 export const WatchInstallRequestSchema: GenMessage<WatchInstallRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 45);
+  messageDesc(file_pinna_v1_device, 46);
 
 /**
  * @generated from message pinna.v1.WatchInstallResponse
@@ -1288,7 +1374,7 @@ export type WatchInstallResponse = Message<"pinna.v1.WatchInstallResponse"> & {
  * Use `create(WatchInstallResponseSchema)` to create a new message.
  */
 export const WatchInstallResponseSchema: GenMessage<WatchInstallResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 46);
+  messageDesc(file_pinna_v1_device, 47);
 
 /**
  * @generated from message pinna.v1.RebootRequest
@@ -1301,7 +1387,7 @@ export type RebootRequest = Message<"pinna.v1.RebootRequest"> & {
  * Use `create(RebootRequestSchema)` to create a new message.
  */
 export const RebootRequestSchema: GenMessage<RebootRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 47);
+  messageDesc(file_pinna_v1_device, 48);
 
 /**
  * @generated from message pinna.v1.RebootResponse
@@ -1314,7 +1400,384 @@ export type RebootResponse = Message<"pinna.v1.RebootResponse"> & {
  * Use `create(RebootResponseSchema)` to create a new message.
  */
 export const RebootResponseSchema: GenMessage<RebootResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_device, 48);
+  messageDesc(file_pinna_v1_device, 49);
+
+/**
+ * A network in range: the strongest access point with that name.
+ *
+ * @generated from message pinna.v1.WifiNetwork
+ */
+export type WifiNetwork = Message<"pinna.v1.WifiNetwork"> & {
+  /**
+   * @generated from field: string ssid = 1;
+   */
+  ssid: string;
+
+  /**
+   * dBm, negative; closer to 0 is stronger.
+   *
+   * @generated from field: int32 signal_dbm = 2;
+   */
+  signalDbm: number;
+
+  /**
+   * @generated from field: uint32 frequency_mhz = 3;
+   */
+  frequencyMhz: number;
+
+  /**
+   * @generated from field: pinna.v1.WifiSecurity security = 4;
+   */
+  security: WifiSecurity;
+
+  /**
+   * Saved on the satellite.
+   *
+   * @generated from field: bool saved = 5;
+   */
+  saved: boolean;
+
+  /**
+   * The one in use.
+   *
+   * @generated from field: bool current = 6;
+   */
+  current: boolean;
+};
+
+/**
+ * Describes the message pinna.v1.WifiNetwork.
+ * Use `create(WifiNetworkSchema)` to create a new message.
+ */
+export const WifiNetworkSchema: GenMessage<WifiNetwork> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 50);
+
+/**
+ * @generated from message pinna.v1.ScanWifiRequest
+ */
+export type ScanWifiRequest = Message<"pinna.v1.ScanWifiRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.ScanWifiRequest.
+ * Use `create(ScanWifiRequestSchema)` to create a new message.
+ */
+export const ScanWifiRequestSchema: GenMessage<ScanWifiRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 51);
+
+/**
+ * @generated from message pinna.v1.ScanWifiResponse
+ */
+export type ScanWifiResponse = Message<"pinna.v1.ScanWifiResponse"> & {
+  /**
+   * Strongest first, one per name. Networks that hide their name are left out:
+   * join those by name.
+   *
+   * @generated from field: repeated pinna.v1.WifiNetwork networks = 1;
+   */
+  networks: WifiNetwork[];
+};
+
+/**
+ * Describes the message pinna.v1.ScanWifiResponse.
+ * Use `create(ScanWifiResponseSchema)` to create a new message.
+ */
+export const ScanWifiResponseSchema: GenMessage<ScanWifiResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 52);
+
+/**
+ * A saved network. Its passphrase never leaves the satellite.
+ *
+ * @generated from message pinna.v1.SavedWifi
+ */
+export type SavedWifi = Message<"pinna.v1.SavedWifi"> & {
+  /**
+   * @generated from field: string ssid = 1;
+   */
+  ssid: string;
+
+  /**
+   * @generated from field: pinna.v1.WifiSecurity security = 2;
+   */
+  security: WifiSecurity;
+
+  /**
+   * Joined by name: the network doesn't broadcast it.
+   *
+   * @generated from field: bool hidden = 3;
+   */
+  hidden: boolean;
+
+  /**
+   * The one in use.
+   *
+   * @generated from field: bool current = 4;
+   */
+  current: boolean;
+};
+
+/**
+ * Describes the message pinna.v1.SavedWifi.
+ * Use `create(SavedWifiSchema)` to create a new message.
+ */
+export const SavedWifiSchema: GenMessage<SavedWifi> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 53);
+
+/**
+ * @generated from message pinna.v1.ListWifiRequest
+ */
+export type ListWifiRequest = Message<"pinna.v1.ListWifiRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.ListWifiRequest.
+ * Use `create(ListWifiRequestSchema)` to create a new message.
+ */
+export const ListWifiRequestSchema: GenMessage<ListWifiRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 54);
+
+/**
+ * @generated from message pinna.v1.ListWifiResponse
+ */
+export type ListWifiResponse = Message<"pinna.v1.ListWifiResponse"> & {
+  /**
+   * Tried first to last.
+   *
+   * @generated from field: repeated pinna.v1.SavedWifi saved = 1;
+   */
+  saved: SavedWifi[];
+
+  /**
+   * A join runs; JoinWifi's stream shows it.
+   *
+   * @generated from field: bool joining = 2;
+   */
+  joining: boolean;
+
+  /**
+   * The last finished join since pinnad started: its final step.
+   *
+   * @generated from field: pinna.v1.JoinWifiResponse last_join = 3;
+   */
+  lastJoin?: JoinWifiResponse | undefined;
+
+  /**
+   * The network on trial, with `keep_seconds` left.
+   *
+   * @generated from field: pinna.v1.JoinWifiResponse trial = 4;
+   */
+  trial?: JoinWifiResponse | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.ListWifiResponse.
+ * Use `create(ListWifiResponseSchema)` to create a new message.
+ */
+export const ListWifiResponseSchema: GenMessage<ListWifiResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 55);
+
+/**
+ * @generated from message pinna.v1.JoinWifiRequest
+ */
+export type JoinWifiRequest = Message<"pinna.v1.JoinWifiRequest"> & {
+  /**
+   * 1 to 32 bytes.
+   *
+   * @generated from field: string ssid = 1;
+   */
+  ssid: string;
+
+  /**
+   * OPEN or WPA_PSK.
+   *
+   * @generated from field: pinna.v1.WifiSecurity security = 2;
+   */
+  security: WifiSecurity;
+
+  /**
+   * WPA_PSK: 8 to 63 characters, or 64 hex digits. Empty for OPEN. Never
+   * returned or logged.
+   *
+   * @generated from field: string passphrase = 3;
+   */
+  passphrase: string;
+
+  /**
+   * The network hides its name: probe for it by name.
+   *
+   * @generated from field: bool hidden = 4;
+   */
+  hidden: boolean;
+};
+
+/**
+ * Describes the message pinna.v1.JoinWifiRequest.
+ * Use `create(JoinWifiRequestSchema)` to create a new message.
+ */
+export const JoinWifiRequestSchema: GenMessage<JoinWifiRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 56);
+
+/**
+ * @generated from message pinna.v1.JoinWifiResponse
+ */
+export type JoinWifiResponse = Message<"pinna.v1.JoinWifiResponse"> & {
+  /**
+   * @generated from field: string ssid = 1;
+   */
+  ssid: string;
+
+  /**
+   * @generated from field: pinna.v1.JoinStage stage = 2;
+   */
+  stage: JoinStage;
+
+  /**
+   * One sentence for people.
+   *
+   * @generated from field: string message = 3;
+   */
+  message: string;
+
+  /**
+   * JOINED: the new IPv4 address.
+   *
+   * @generated from field: string address = 4;
+   */
+  address: string;
+
+  /**
+   * FAILED: why.
+   *
+   * @generated from field: pinna.v1.JoinFailure failure = 5;
+   */
+  failure: JoinFailure;
+
+  /**
+   * FAILED and TRIAL: the network it goes back to; empty for none.
+   *
+   * @generated from field: string fallback = 6;
+   */
+  fallback: string;
+
+  /**
+   * TRIAL: seconds left to keep it.
+   *
+   * @generated from field: uint32 keep_seconds = 7;
+   */
+  keepSeconds: number;
+};
+
+/**
+ * Describes the message pinna.v1.JoinWifiResponse.
+ * Use `create(JoinWifiResponseSchema)` to create a new message.
+ */
+export const JoinWifiResponseSchema: GenMessage<JoinWifiResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 57);
+
+/**
+ * @generated from message pinna.v1.KeepWifiRequest
+ */
+export type KeepWifiRequest = Message<"pinna.v1.KeepWifiRequest"> & {
+  /**
+   * False: go back now.
+   *
+   * @generated from field: bool keep = 1;
+   */
+  keep: boolean;
+};
+
+/**
+ * Describes the message pinna.v1.KeepWifiRequest.
+ * Use `create(KeepWifiRequestSchema)` to create a new message.
+ */
+export const KeepWifiRequestSchema: GenMessage<KeepWifiRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 58);
+
+/**
+ * @generated from message pinna.v1.KeepWifiResponse
+ */
+export type KeepWifiResponse = Message<"pinna.v1.KeepWifiResponse"> & {
+  /**
+   * JOINED or FAILED.
+   *
+   * @generated from field: pinna.v1.JoinWifiResponse result = 1;
+   */
+  result?: JoinWifiResponse | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.KeepWifiResponse.
+ * Use `create(KeepWifiResponseSchema)` to create a new message.
+ */
+export const KeepWifiResponseSchema: GenMessage<KeepWifiResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 59);
+
+/**
+ * @generated from message pinna.v1.ForgetWifiRequest
+ */
+export type ForgetWifiRequest = Message<"pinna.v1.ForgetWifiRequest"> & {
+  /**
+   * @generated from field: string ssid = 1;
+   */
+  ssid: string;
+};
+
+/**
+ * Describes the message pinna.v1.ForgetWifiRequest.
+ * Use `create(ForgetWifiRequestSchema)` to create a new message.
+ */
+export const ForgetWifiRequestSchema: GenMessage<ForgetWifiRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 60);
+
+/**
+ * @generated from message pinna.v1.ForgetWifiResponse
+ */
+export type ForgetWifiResponse = Message<"pinna.v1.ForgetWifiResponse"> & {
+  /**
+   * @generated from field: repeated pinna.v1.SavedWifi saved = 1;
+   */
+  saved: SavedWifi[];
+};
+
+/**
+ * Describes the message pinna.v1.ForgetWifiResponse.
+ * Use `create(ForgetWifiResponseSchema)` to create a new message.
+ */
+export const ForgetWifiResponseSchema: GenMessage<ForgetWifiResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 61);
+
+/**
+ * @generated from message pinna.v1.FactoryResetRequest
+ */
+export type FactoryResetRequest = Message<"pinna.v1.FactoryResetRequest"> & {
+  /**
+   * The satellite's name, as typed by the person resetting it: the name Home
+   * Assistant shows, or the node name. Case and surrounding spaces don't matter.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message pinna.v1.FactoryResetRequest.
+ * Use `create(FactoryResetRequestSchema)` to create a new message.
+ */
+export const FactoryResetRequestSchema: GenMessage<FactoryResetRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 62);
+
+/**
+ * @generated from message pinna.v1.FactoryResetResponse
+ */
+export type FactoryResetResponse = Message<"pinna.v1.FactoryResetResponse"> & {
+};
+
+/**
+ * Describes the message pinna.v1.FactoryResetResponse.
+ * Use `create(FactoryResetResponseSchema)` to create a new message.
+ */
+export const FactoryResetResponseSchema: GenMessage<FactoryResetResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_device, 63);
 
 /**
  * @generated from enum pinna.v1.Phase
@@ -1521,6 +1984,159 @@ export const InstallStageSchema: GenEnum<InstallStage> = /*@__PURE__*/
   enumDesc(file_pinna_v1_device, 3);
 
 /**
+ * @generated from enum pinna.v1.WifiSecurity
+ */
+export enum WifiSecurity {
+  /**
+   * @generated from enum value: WIFI_SECURITY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WIFI_SECURITY_OPEN = 1;
+   */
+  OPEN = 1,
+
+  /**
+   * WPA/WPA2-Personal.
+   *
+   * @generated from enum value: WIFI_SECURITY_WPA_PSK = 2;
+   */
+  WPA_PSK = 2,
+
+  /**
+   * WPA3-Personal only: listed, this Wi-Fi chip can't join it.
+   *
+   * @generated from enum value: WIFI_SECURITY_SAE = 3;
+   */
+  SAE = 3,
+
+  /**
+   * 802.1X: listed, can't be joined.
+   *
+   * @generated from enum value: WIFI_SECURITY_ENTERPRISE = 4;
+   */
+  ENTERPRISE = 4,
+
+  /**
+   * Listed, can't be joined.
+   *
+   * @generated from enum value: WIFI_SECURITY_WEP = 5;
+   */
+  WEP = 5,
+}
+
+/**
+ * Describes the enum pinna.v1.WifiSecurity.
+ */
+export const WifiSecuritySchema: GenEnum<WifiSecurity> = /*@__PURE__*/
+  enumDesc(file_pinna_v1_device, 4);
+
+/**
+ * @generated from enum pinna.v1.JoinStage
+ */
+export enum JoinStage {
+  /**
+   * @generated from enum value: JOIN_STAGE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Finding the network and checking the password.
+   *
+   * @generated from enum value: JOIN_STAGE_CONNECTING = 1;
+   */
+  CONNECTING = 1,
+
+  /**
+   * Connected; waiting for an address from the network's DHCP server.
+   *
+   * @generated from enum value: JOIN_STAGE_ADDRESS = 2;
+   */
+  ADDRESS = 2,
+
+  /**
+   * On the new network at `address`, not saved: kept once the dashboard is
+   * opened there or KeepWifi keeps it; back after `keep_seconds` otherwise,
+   * or when the satellite restarts.
+   *
+   * @generated from enum value: JOIN_STAGE_TRIAL = 3;
+   */
+  TRIAL = 3,
+
+  /**
+   * Done: kept and saved.
+   *
+   * @generated from enum value: JOIN_STAGE_JOINED = 4;
+   */
+  JOINED = 4,
+
+  /**
+   * Done: not joined, or not kept; back on the saved networks.
+   *
+   * @generated from enum value: JOIN_STAGE_FAILED = 5;
+   */
+  FAILED = 5,
+}
+
+/**
+ * Describes the enum pinna.v1.JoinStage.
+ */
+export const JoinStageSchema: GenEnum<JoinStage> = /*@__PURE__*/
+  enumDesc(file_pinna_v1_device, 5);
+
+/**
+ * @generated from enum pinna.v1.JoinFailure
+ */
+export enum JoinFailure {
+  /**
+   * @generated from enum value: JOIN_FAILURE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The network refused the password.
+   *
+   * @generated from enum value: JOIN_FAILURE_WRONG_PASSWORD = 1;
+   */
+  WRONG_PASSWORD = 1,
+
+  /**
+   * No network with that name answered.
+   *
+   * @generated from enum value: JOIN_FAILURE_NOT_FOUND = 2;
+   */
+  NOT_FOUND = 2,
+
+  /**
+   * Connected, but no address came.
+   *
+   * @generated from enum value: JOIN_FAILURE_NO_ADDRESS = 3;
+   */
+  NO_ADDRESS = 3,
+
+  /**
+   * wpa_supplicant failed; `message` says how.
+   *
+   * @generated from enum value: JOIN_FAILURE_OTHER = 4;
+   */
+  OTHER = 4,
+
+  /**
+   * On trial, but nobody kept it in time, or someone chose to go back.
+   *
+   * @generated from enum value: JOIN_FAILURE_NOT_KEPT = 5;
+   */
+  NOT_KEPT = 5,
+}
+
+/**
+ * Describes the enum pinna.v1.JoinFailure.
+ */
+export const JoinFailureSchema: GenEnum<JoinFailure> = /*@__PURE__*/
+  enumDesc(file_pinna_v1_device, 6);
+
+/**
  * Control API of pinnad, without authentication. Served on 127.0.0.1:7470 for
  * pinnactl, and with the dashboard on the LAN (`[web]`, ADR 0005): anyone who can
  * reach either listener can control the device.
@@ -1610,7 +2226,8 @@ export const DeviceService: GenService<{
     output: typeof WatchStatusResponseSchema;
   },
   /**
-   * Change runtime settings; the same as changing them in Home Assistant.
+   * Change settings; the same as changing them in Home Assistant. Fails when
+   * the satellite can't save them, so a restart would undo them.
    *
    * @generated from rpc pinna.v1.DeviceService.UpdateSettings
    */
@@ -1702,6 +2319,71 @@ export const DeviceService: GenService<{
     methodKind: "unary";
     input: typeof RebootRequestSchema;
     output: typeof RebootResponseSchema;
+  },
+  /**
+   * Forget everything set on this satellite and restart it as it was
+   * installed (ADR 0010): settings, Wi-Fi networks, the Home Assistant
+   * encryption key, SSH keys added on it, its SSH host key. The log stays.
+   *
+   * @generated from rpc pinna.v1.DeviceService.FactoryReset
+   */
+  factoryReset: {
+    methodKind: "unary";
+    input: typeof FactoryResetRequestSchema;
+    output: typeof FactoryResetResponseSchema;
+  },
+  /**
+   * Wi-Fi networks in range, from a fresh scan (a few seconds; ADR 0008).
+   *
+   * @generated from rpc pinna.v1.DeviceService.ScanWifi
+   */
+  scanWifi: {
+    methodKind: "unary";
+    input: typeof ScanWifiRequestSchema;
+    output: typeof ScanWifiResponseSchema;
+  },
+  /**
+   * The saved networks, whether a join runs, and how the last one ended.
+   *
+   * @generated from rpc pinna.v1.DeviceService.ListWifi
+   */
+  listWifi: {
+    methodKind: "unary";
+    input: typeof ListWifiRequestSchema;
+    output: typeof ListWifiResponseSchema;
+  },
+  /**
+   * Try a network: back to the previous one unless it gives an address
+   * within 45 s. Streams the steps, ending with TRIAL or FAILED; the join
+   * goes on when the caller goes away. One at a time.
+   *
+   * @generated from rpc pinna.v1.DeviceService.JoinWifi
+   */
+  joinWifi: {
+    methodKind: "server_streaming";
+    input: typeof JoinWifiRequestSchema;
+    output: typeof JoinWifiResponseSchema;
+  },
+  /**
+   * Keep the network on trial (save it), or go back now. Opening the
+   * dashboard at the trial's address keeps it too.
+   *
+   * @generated from rpc pinna.v1.DeviceService.KeepWifi
+   */
+  keepWifi: {
+    methodKind: "unary";
+    input: typeof KeepWifiRequestSchema;
+    output: typeof KeepWifiResponseSchema;
+  },
+  /**
+   * Forget a saved network. Forgetting the one in use disconnects.
+   *
+   * @generated from rpc pinna.v1.DeviceService.ForgetWifi
+   */
+  forgetWifi: {
+    methodKind: "unary";
+    input: typeof ForgetWifiRequestSchema;
+    output: typeof ForgetWifiResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_pinna_v1_device, 0);

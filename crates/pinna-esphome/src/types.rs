@@ -316,6 +316,12 @@ pub enum DeviceEvent {
     /// The device chose its active wake words itself (ids from
     /// `DeviceConfig::wake_words`); Home Assistant reads them when it next asks.
     ActiveWakeWords(Vec<String>),
+    /// The device was renamed. Home Assistant reads the name when it connects;
+    /// [`DeviceEvent::Disconnect`] makes it reconnect.
+    FriendlyName(String),
+    /// Ask every client to disconnect. Home Assistant reconnects on its own
+    /// and reads the device info again.
+    Disconnect,
 }
 
 /// State of the media player.

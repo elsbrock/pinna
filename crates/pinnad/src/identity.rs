@@ -48,6 +48,9 @@ pub fn store_encryption_key(path: &Path, key: &[u8; 32]) -> Result<()> {
     )?;
     f.sync_all()?;
     std::fs::rename(&tmp, path)?;
+    if let Some(dir) = path.parent() {
+        std::fs::File::open(dir)?.sync_all()?;
+    }
     Ok(())
 }
 
@@ -87,6 +90,75 @@ pub fn device_mac() -> [u8; 6] {
 
 pub fn default_name(mac: &[u8; 6]) -> String {
     format!("pinna-{:02x}{:02x}{:02x}", mac[3], mac[4], mac[5])
+}
+
+/// The ESPHome node name: `[device] name`, or `pinna-` and the MAC suffix.
+pub fn node_name(configured: &str, mac: &[u8; 6]) -> String {
+    if configured.is_empty() {
+        default_name(mac)
+    } else {
+        configured.to_owned()
+    }
+}
+
+/// Whether `name` can be a hostname: one DNS label, as mDNS announces it.
+pub fn valid_hostname(name: &str) -> bool {
+    (1..=63).contains(&name.len())
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+}
+
+/// The image's static hostname: only a satellite image is renamed, never the
+/// computer a developer runs pinnad on.
+const IMAGE_HOSTNAME: &str = "pinna";
+
+/// Make `name` the kernel hostname (ADR 0010), which systemd-resolved
+/// announces over mDNS and systemd-networkd sends with DHCP. Leaves a name
+/// that is already set alone, and a machine that isn't a satellite image.
+pub fn set_hostname(name: &str) -> Result<bool> {
+    anyhow::ensure!(valid_hostname(name), "{name:?} can't be a hostname");
+    let image = std::fs::read_to_string("/etc/hostname").unwrap_or_default();
+    if image.trim() != IMAGE_HOSTNAME {
+        return Ok(false);
+    }
+    let current = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
+    if current.trim() == name {
+        return Ok(false);
+    }
+    // SAFETY: a valid pointer and length for the duration of the call.
+    let r = unsafe { libc::sethostname(name.as_ptr().cast(), name.len()) };
+    if r != 0 {
+        return Err(std::io::Error::last_os_error()).context("sethostname");
+    }
+    Ok(true)
+}
+
+/// The model Home Assistant shows, from `board_model()`'s id. Unknown
+/// hardware (a VM, a PC) reports as the Echo Dot, like `board_model()`.
+pub fn model_name(model: &str) -> &'static str {
+    match model {
+        "echo-2" => "Echo (2nd Gen)",
+        _ => "Echo Dot (2nd Gen)",
+    }
+}
+
+/// The name until one is chosen (ADR 0007): the model and the last three MAC
+/// bytes, the way Home Assistant Voice PE names itself.
+pub fn default_friendly_name(model: &str, mac: &[u8; 6]) -> String {
+    let short = match model {
+        "echo-2" => "Echo",
+        _ => "Echo Dot",
+    };
+    format!("{short} {:02x}{:02x}{:02x}", mac[3], mac[4], mac[5])
+}
+
+/// The speaker profile follows the hardware unless a developer set one.
+pub fn speaker_flat(profile: Option<&str>, model: &str) -> bool {
+    match profile {
+        Some(p) => p.eq_ignore_ascii_case("flat"),
+        None => model != "echo-2",
+    }
 }
 
 fn quote_txt(k: &str, v: &str) -> String {
@@ -167,6 +239,33 @@ mod tests {
         std::fs::remove_file(&file).unwrap();
         assert!(load_encryption_key(&cfg).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn node_names_make_hostnames() {
+        let mac = [0xf0, 0x27, 0x2d, 0x2a, 0x91, 0x4e];
+        assert_eq!(node_name("", &mac), "pinna-2a914e");
+        assert_eq!(node_name("kitchen-dot", &mac), "kitchen-dot");
+        assert!(valid_hostname("pinna-2a914e"));
+        for bad in ["", "-x", "x-", "a.b", "küche", &"a".repeat(64)] {
+            assert!(!valid_hostname(bad), "{bad:?}");
+        }
+        assert!(set_hostname("not a hostname").is_err());
+    }
+
+    #[test]
+    fn names_and_profile_follow_the_hardware() {
+        let mac = [0xf0, 0x27, 0x2d, 0x2a, 0x91, 0x4e];
+        assert_eq!(default_friendly_name("echo-dot-2", &mac), "Echo Dot 2a914e");
+        assert_eq!(default_friendly_name("echo-2", &mac), "Echo 2a914e");
+        assert_eq!(default_friendly_name("", &mac), "Echo Dot 2a914e");
+        assert_eq!(model_name("echo-2"), "Echo (2nd Gen)");
+        assert_eq!(model_name("echo-dot-2"), "Echo Dot (2nd Gen)");
+        assert!(!speaker_flat(None, "echo-2"));
+        assert!(speaker_flat(None, "echo-dot-2"));
+        assert!(speaker_flat(None, ""));
+        assert!(speaker_flat(Some("Flat"), "echo-2"));
+        assert!(!speaker_flat(Some("Radar"), "echo-dot-2"));
     }
 
     #[test]

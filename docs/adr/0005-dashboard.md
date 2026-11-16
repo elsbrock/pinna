@@ -1,6 +1,8 @@
 # ADR 0005: The dashboard is served by pinnad on the LAN, without authentication
 
 Status: accepted (2026-11-15). Amends the "Local control API" part of ADR 0002.
+Amended by ADR 0007 (2026-11-16): host names and the satellite's name are set
+on the dashboard.
 
 ## Context
 
@@ -36,7 +38,8 @@ Constraints:
   - `localhost`
   - any `*.local` name (which only mDNS on the local network resolves)
   - the system hostname
-  - a name in `[web] allowed_hosts`.
+  - a name added on the dashboard's Network page (ADR 0007), or in
+    `[web] allowed_hosts`.
 
   Any other Host gets `421 Misdirected Request`. Cross-site requests are
   already blocked by the Connect protocol: JSON and proto bodies need a CORS
@@ -54,15 +57,16 @@ Constraints:
   device page.
 - **What the dashboard can do.** Everything is in `DeviceService`:
   - status and controls
-  - settings (wake word, sensitivity, ring brightness), through the same paths
-    as Home Assistant's entities
+  - settings (wake word, sensitivity, ring brightness, wake sound), through the
+    same paths as Home Assistant's entities, and the name and host names
+    (ADR 0007)
   - tuning the wake word sensitivity with the device's + and − buttons, until
     the calibration ends
-  - the network (read-only)
+  - the network: Wi-Fi (ADR 0008) and the host names; the rest read-only
   - pinnad's journal at info level and above (debug lines can carry transcripts)
   - the A/B slots
   - installing an update
-  - restarting
+  - restarting, and a factory reset (ADR 0010)
   - running the ring's test pattern (Identify).
 - **Updates run in pinnad.** pinnad runs `pinnactl update -- <manifest>` itself
   (http and https manifests only) and keeps its output, so a browser that goes
@@ -74,13 +78,20 @@ Constraints:
 - Anyone on the LAN can do all of the following:
   - change the volume, the settings and the software microphone switch (the
     hardware microphone switch stays out of reach)
+  - rename the satellite, which Home Assistant's device name follows
+  - move the satellite to another Wi-Fi network, which it keeps only once
+    someone reaches it there, or forget the network it uses (ADR 0008)
+  - add a name the dashboard answers to. It stays until someone removes it,
+    and opens the satellite to DNS rebinding through that name. The Network
+    page lists every name added.
   - start a conversation, stop an alarm and clear a waiting notification
   - start a wake word calibration, which takes the volume buttons over and
     keeps the wake word from starting requests until it ends, 5 minutes after
     the last + or − press
   - read pinnad's log and the network details
   - run the ring's test pattern
-  - restart the satellite
+  - restart the satellite, or reset it to how it was installed, which also
+    removes the encryption key Home Assistant set (ADR 0010, ADR 0018)
   - install an update.
 
   Only images signed with the owner's release key install. The satellite falls
@@ -89,13 +100,15 @@ Constraints:
 
   The controls match what a plaintext ESPHome API already exposes. Reading the
   log and the network details (SSID, signal, every address), the ring's test
-  pattern, restarting and installing go beyond it. So does clearing a
+  pattern, restarting, a factory reset, installing, renaming, moving or
+  forgetting Wi-Fi and adding a host name go beyond it; a host name widens the DNS rebinding allowlist. So does clearing a
   notification: it fires the `cleared` event, which tells Home Assistant that
   someone at the device acknowledged it. An ESPHome client can only turn the
-  switch off. An owner who doesn't want any of it sets `[web] listen = ""` in
-  `/var/lib/pinna/pinnad.toml`.
-- A satellite opened by a custom DNS name (not `.local`) needs that name in
-  `[web] allowed_hosts`. The 421 response says so.
+  switch off. Turning the web listener off (`[web] listen = ""` in
+  `/var/lib/pinna/pinnad.toml`) is a developer setting until authentication
+  exists (ADR 0007).
+- A satellite opened by a custom DNS name (not `.local`) needs that name added
+  on the Network page. The 421 response says so.
 - Authentication (for example a password seeded from `secrets/device/`) is
   deferred. Adding it would amend this ADR and probably split the listener's
   API from the loopback one.

@@ -122,10 +122,9 @@ firmware doesn't boot properly.
 2. Log in. Use either connection:
 
    - Over the network: your computer gets an address from the device
-     automatically. Run `ssh root@10.42.0.1` or `ssh root@pinna.local`. This
-     needs your SSH key on the device: `secrets/authorized_keys` is baked in
-     when you built the image; in a release image, add yours over the serial
-     console first.
+     automatically. Run `ssh root@10.42.0.1`. This needs your SSH key on the
+     device: `secrets/authorized_keys` is baked in when you built the image; in
+     a release image, add yours over the serial console first.
    - Over the serial console: run `picocom -b 115200 /dev/ttyACM0`. You're
      logged in as `root` without a password.
 
@@ -152,39 +151,29 @@ firmware doesn't boot properly.
 
 ## Connect to Wi-Fi
 
-If you put your Wi-Fi settings into `secrets/wifi/wpa_supplicant-wlan0.conf`
-before the build, the device connects on its own. To set up Wi-Fi on the
-device instead:
+Set up Wi-Fi on the device's dashboard, over the USB cable:
 
-1. Log in to the device over USB, as described in
-   [Check the device](#check-the-device).
-2. Create or edit `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`, for
-   example with `vi`. It's a standard wpa_supplicant configuration file:
+1. Connect the device to your computer and open `http://10.42.0.1/` in a
+   browser.
+2. Open **Network**. Under **Join a network**, select **Scan**.
+3. Select your network and enter its password. For a network that doesn't
+   show its name, select **Join a hidden network** and type the name.
+4. Select **Join**. The device tries the network for up to a minute. If the
+   password is wrong, or the network gives it no address, the page says so.
+5. When it is on the network, the page asks **Keep** followed by the
+   network's name, with the device's new address. Select **Keep**. Until you
+   do, the device goes back after 5 minutes, or when it restarts.
 
-   ```text
-   ctrl_interface=/run/wpa_supplicant
-   update_config=1
+The device joins open networks and WPA2 networks, WPA2/WPA3 networks
+included. Its Wi-Fi chip can't join networks that allow only WPA3, enterprise
+(802.1X) networks or WEP networks. See
+[Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network).
 
-   network={
-       ssid="Your network"
-       psk="Your password"
-   }
-   ```
-
-3. Restart the Wi-Fi client:
-
-   ```sh
-   systemctl restart wpa_supplicant@wlan0
-   ```
-
-4. Check the connection:
-
-   ```sh
-   ip addr show wlan0
-   ```
-
-The file on the device takes precedence over the file in the image. Updates
-don't change it.
+If you build Pinna yourself, you can give every device that you install the
+same network: put a standard wpa_supplicant configuration file into
+`secrets/wifi/wpa_supplicant-wlan0.conf` before the build. The device copies
+it to `/var/lib/pinna/wifi/` on first boot and connects on its own. The
+dashboard saves the networks you join into the same file, and updates keep it.
 
 ## Check that the installation is healthy
 

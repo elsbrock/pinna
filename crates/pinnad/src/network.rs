@@ -113,9 +113,39 @@ pub async fn interfaces() -> Result<Vec<Interface>> {
     Ok(interfaces)
 }
 
+/// Every address of `ip -j addr show dev <iface>`, link-local included.
+pub fn parse_addresses(json: &str) -> Vec<std::net::IpAddr> {
+    serde_json::from_str::<Vec<IpLink>>(json)
+        .unwrap_or_default()
+        .iter()
+        .flat_map(|l| &l.addr_info)
+        .filter_map(|a| a.local.parse().ok())
+        .collect()
+}
+
+/// The addresses `iface` has now; none when `ip` fails.
+pub async fn addresses(iface: &str) -> Vec<std::net::IpAddr> {
+    match run("ip", &["-j", "addr", "show", "dev", iface]).await {
+        Ok(json) => parse_addresses(&json),
+        Err(_) => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn addresses_of_an_interface_include_link_local() {
+        let json = r#"[{"ifname":"wlan0","addr_info":[
+            {"local":"192.168.1.20","prefixlen":24,"scope":"global"},
+            {"local":"fe80::1","prefixlen":64,"scope":"link"},
+            {"local":"2001:db8::5","prefixlen":64,"scope":"global"}]}]"#;
+        let got = parse_addresses(json);
+        assert_eq!(got.len(), 3);
+        assert!(got.contains(&"fe80::1".parse().unwrap()));
+        assert!(parse_addresses("not json").is_empty());
+    }
 
     const IP: &str = r#"[
 {"ifindex":1,"ifname":"lo","flags":["LOOPBACK","UP","LOWER_UP"],"mtu":65536,"operstate":"UNKNOWN","link_type":"loopback","address":"00:00:00:00:00:00","addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8,"scope":"host","label":"lo"}]},

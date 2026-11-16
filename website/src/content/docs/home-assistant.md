@@ -11,6 +11,9 @@ you add it like any other ESPHome device. You don't need YAML or an add-on.
 
 - The device runs Pinna and is connected to Wi-Fi. See
   [Install Pinna](/docs/flash/).
+- You gave the device a name on its dashboard, for example `Kitchen`. See
+  [Name the device](/docs/dashboard/#name-the-device). Home Assistant builds
+  the entity IDs from the name the device has when you add it.
 - Home Assistant runs on the same network as the device, so that it can find
   the device by mDNS.
 - You have an Assist pipeline with speech-to-text and text-to-speech. To set
@@ -18,57 +21,43 @@ you add it like any other ESPHome device. You don't need YAML or an add-on.
   [Assist](https://www.home-assistant.io/voice_control/) in the Home Assistant
   documentation.
 
-## Set an encryption key (optional)
+## Encryption
 
-Without a key, the connection between Home Assistant and the device isn't
-encrypted. With a key, it uses the same encryption as ESPHome devices. Use a
-key unless you trust everything on your network. Set the key before you add
-the device, so that the connection is never unencrypted.
+Home Assistant encrypts the connection itself. When it adds the device, it
+gives the device a key, the same encryption that ESPHome devices use, and from
+then on the device accepts nothing else. A device that Home Assistant added
+unencrypted gets its key the next time Home Assistant connects. You never see
+or type the key. The **Home Assistant** page of the
+[dashboard](/docs/dashboard/) shows whether the connection is encrypted.
 
-1. Create a key: 32 random bytes, encoded as base64.
+This needs a Home Assistant whose ESPHome integration sets keys on devices. An
+older one keeps the connection unencrypted, and the dashboard says so.
 
-   ```sh
-   openssl rand -base64 32
-   ```
+Until it has a key, the device takes the first key that anyone on your network
+sends it. If someone else sets one first, Home Assistant can't connect.
+[Reset the device](/docs/dashboard/#reset-the-device), which removes the key,
+and add it again.
 
-2. Give the key to the device. Use one of these options:
-
-   - Before you build: save the key to `secrets/device/esphome-key`. The image
-     then carries it as the device's first key.
-   - On a running device: save the key to `/var/lib/pinna/esphome-key`, make
-     the file readable only by `root`, and restart Pinna:
-
-     ```sh
-     chmod 600 /var/lib/pinna/esphome-key
-     systemctl restart pinnad
-     ```
-
-3. Keep the key at hand. Home Assistant asks for it when you add the device.
-
-If the key file contains something that isn't a valid key, Pinna doesn't
-start. Check the log with `journalctl -u pinnad`.
-
-If you add a key to a device that Home Assistant already uses without one,
-Home Assistant can't connect anymore and asks you for the key.
+If you build Pinna yourself, you can give the device a key instead: save 32
+random bytes, encoded as base64 (`openssl rand -base64 32`), to
+`secrets/device/esphome-key` before the build. Home Assistant then asks for that
+key when you add the device.
 
 ## Add the device
 
 1. In Home Assistant, go to **Settings > Devices & services**.
-2. Under **Discovered**, find the ESPHome device. It appears under its
-   friendly name, `Echo Dot` unless you changed it in the
-   [configuration](/docs/configure/), and select **Add**.
-3. If you set a key, enter it when Home Assistant asks for it.
+2. Under **Discovered**, find the ESPHome device and select **Add**. It
+   appears under its name: the one you gave it on the
+   [dashboard](/docs/dashboard/#name-the-device), or the model and the end of
+   its MAC address, for example `Echo Dot 2a914e`. Name it before you add it:
+   Home Assistant keeps the first name in the entity IDs.
+3. If you built the device with a key, enter it when Home Assistant asks for
+   it. Otherwise Home Assistant sets one itself; see [Encryption](#encryption).
 
-If the device doesn't appear, add it by hand:
-
-1. Find the device's address. On the device, run:
-
-   ```sh
-   ip -4 addr show wlan0
-   ```
-
-2. In Home Assistant, select **Add integration > ESPHome**, and enter the
-   address and port `6053`.
+If the device doesn't appear, add it by hand: open the **Home Assistant** page
+of the [dashboard](/docs/dashboard/), copy the host and the port under **Add it
+to Home Assistant**, and enter them in Home Assistant under **Add integration >
+ESPHome**.
 
 ## Choose the Assist pipeline
 
@@ -107,26 +96,19 @@ restarts.
 
 ## Change the key later
 
-Once the connection is encrypted, Home Assistant can replace the key. Pinna
-stores the new key in `/var/lib/pinna/esphome-key` and uses it for the next
-connection.
+Home Assistant can replace the key over the encrypted connection. Pinna stores
+the new key and uses it for the next connection.
 
-Reinstalling Pinna from fastboot erases `/var`, and with it the key. After a
-reinstall, give the device its key again, as in
-[Set an encryption key](#set-an-encryption-key-optional), or remove the device
-from Home Assistant and add it again.
+A [factory reset](/docs/dashboard/#reset-the-device) or a reinstall from
+fastboot removes the key. After either, remove the device from Home Assistant
+and add it again, and Home Assistant gives it a new key.
 
 ## Check the connection
 
-On the device, run:
-
-```sh
-pinnactl status
-```
-
-The `home assistant` line shows `connected, voice subscribed` when Home
-Assistant is connected and has an Assist pipeline for the device. The
-`wake word` line shows `armed` when the device listens for the wake word.
+Open the **Home Assistant** page of the [dashboard](/docs/dashboard/).
+**Home Assistant** shows **Connected** when Home Assistant is connected, and
+**Voice pipeline** shows **Ready** when it has an Assist pipeline for the
+device. **Encryption** shows whether the connection is encrypted.
 
 ## What's next
 

@@ -1,0 +1,16 @@
+# The satellite's hostname is its node name, pinna-2a914e (ADR 0010): set it
+# before systemd-networkd sends it with DHCP and systemd-resolved announces it
+# over mDNS. pinnad sets it again at start.
+[Unit]
+Description=Name this satellite on the network
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-networkd.service systemd-resolved.service network-pre.target sysinit.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pinnad --set-hostname
+
+[Install]
+WantedBy=sysinit.target

@@ -80,6 +80,13 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             icon: "mdi:tune-vertical".into(),
             entity_category: EntityCategory::Config,
         },
+        // A chime when listening starts (ADR 0007).
+        SwitchConfig {
+            object_id: "wake_sound".into(),
+            name: "Wake sound".into(),
+            icon: "mdi:bell-outline".into(),
+            entity_category: EntityCategory::Config,
+        },
         // Pending notification: the ring pulses until the Action button, the
         // dashboard or Home Assistant clears it.
         SwitchConfig {

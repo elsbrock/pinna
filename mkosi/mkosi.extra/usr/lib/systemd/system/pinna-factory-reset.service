@@ -1,0 +1,17 @@
+# Factory reset (ADR 0010): the dashboard asked for one and restarted. Clear
+# what the satellite keeps on /var before tmpfiles seeds it again from the
+# image and before pinnad, wpa_supplicant and sshd use it. The journal stays.
+[Unit]
+Description=Factory reset: forget this satellite's settings
+DefaultDependencies=no
+ConditionPathExists=/var/lib/pinna/factory-reset
+RequiresMountsFor=/var/lib
+After=local-fs.target
+Before=systemd-tmpfiles-setup.service sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/pinna/factory-reset
+
+[Install]
+WantedBy=sysinit.target

@@ -21,6 +21,10 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   wakeSensitivity: 50,
   ledBrightness: 100,
   wakeWords: [],
+  friendlyName: "Echo Dot aabbcc",
+  defaultName: true,
+  wakeSound: false,
+  allowedHosts: [],
   ...over,
 });
 import {
@@ -30,6 +34,12 @@ import {
   calibrationBlocked,
   canStop,
   clock,
+  displayName,
+  joinDone,
+  joinTone,
+  mmss,
+  securityWord,
+  unjoinable,
   downloadProgress,
   bitrate,
   health,
@@ -92,6 +102,12 @@ test("a waiting notification shows while idle, below a running timer", () => {
   assert.equal(ringEffect(status({ notification: true, muted: true }), "live"), "muted");
   assert.equal(ringEffect(status({ notification: true, timers: [tea] }), "live"), "idle");
   assert.equal(ringEffect(status({ notification: true, timers: [{ ...tea, active: false }] }), "live"), "notification");
+});
+
+test("the satellite goes by the name Home Assistant shows, else its node name", () => {
+  assert.equal(displayName(status({ settings: settings({ friendlyName: "Küche" }) })), "Küche");
+  assert.equal(displayName(status({ settings: settings({ friendlyName: "" }) })), "pinna-test");
+  assert.equal(displayName(status({ settings: undefined })), "pinna-test");
 });
 
 test("badge words are the proto's", () => {
@@ -409,4 +425,21 @@ test("when: time today, yesterday, or the date", () => {
   assert.equal(when(new Date(2026, 10, 15, 9, 5).getTime(), now), "09:05");
   assert.equal(when(new Date(2026, 10, 14, 23, 59).getTime(), now), "Yesterday 23:59");
   assert.equal(when(new Date(2026, 10, 12, 14, 2).getTime(), now), "12 Nov 14:02");
+});
+
+test("Wi-Fi words: security, what can't be joined, a join's end", () => {
+  assert.equal(securityWord(2), "WPA2");
+  assert.equal(securityWord(3), "WPA3 only");
+  assert.equal(unjoinable(1), null);
+  assert.equal(unjoinable(2), null);
+  assert.match(unjoinable(3) ?? "", /can't join/);
+  assert.match(unjoinable(4) ?? "", /Enterprise/);
+  // CONNECTING, ADDRESS run on; TRIAL, JOINED, FAILED end the stream.
+  assert.deepEqual([1, 2, 3, 4, 5].map((stage) => joinDone({ stage })), [false, false, true, true, true]);
+  assert.equal(joinTone({ stage: 4 }), "ok");
+  assert.equal(joinTone({ stage: 5 }), "caution");
+  assert.equal(joinTone({ stage: 3 }), null);
+  assert.equal(joinTone(null), null);
+  assert.equal(mmss(245), "4:05");
+  assert.equal(mmss(-3), "0:00");
 });

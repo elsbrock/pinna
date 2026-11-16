@@ -34,14 +34,14 @@ under **Troubleshooting**.
 - **Over SSH:** Pinna only accepts SSH keys, no passwords. The key comes from
   `secrets/authorized_keys` at build time. Without it, use the serial console:
   `picocom -b 115200 /dev/ttyACM0`.
-- **At `pinna.local`:** your computer needs mDNS. If the name doesn't resolve,
-  use the IP address.
+- **At its `.local` name**, such as `pinna-2a914e.local`: your computer needs
+  mDNS. If the name doesn't resolve, use the IP address.
 - **After a reinstall:** the device has a new SSH host key, and `ssh` refuses
   to connect. Remove the old key from your computer:
 
   ```sh
   ssh-keygen -R 10.42.0.1
-  ssh-keygen -R pinna.local
+  ssh-keygen -R pinna-2a914e.local   # your device's name
   ```
 
 ## The device has no Wi-Fi
@@ -58,27 +58,26 @@ under **Troubleshooting**.
    `wlan0 did not appear`. The Wi-Fi chip allows one power-up attempt per
    start, so restart the device to try again.
 
-3. If `wlan0` exists but has no address, check the network name and password
-   in `/var/lib/pinna/wifi/wpa_supplicant-wlan0.conf`. See
-   [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi).
+3. If `wlan0` exists but has no address, connect the device over USB, open
+   `http://10.42.0.1/` and join your network again on the **Network** page.
+   See [Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network).
 
 ## Home Assistant doesn't find the device
 
-1. Check that Pinna announces itself. The log contains
-   `published _esphomelib._tcp as …`:
-
-   ```sh
-   journalctl -b -u pinnad | grep _esphomelib
-   ```
+1. Check that Pinna announces itself. On the dashboard, open **System >
+   Logs**: it contains `published _esphomelib._tcp as …`, written when Pinna
+   starts. If the log doesn't reach back that far, restart the device.
 
 2. Home Assistant finds devices by mDNS, which doesn't cross network
    boundaries. If Home Assistant runs in another network, VLAN or container
-   network, add the device by IP address: **Add integration > ESPHome**, port
-   `6053`.
-3. If Home Assistant connects and then fails, check the encryption key. The
-   log says `ESPHome API encryption: Noise` when the device expects a key, and
-   `none (plaintext)` when it doesn't. The key in Home Assistant must match
-   `/var/lib/pinna/esphome-key`.
+   network, add the device by hand with the host and port from the
+   dashboard's **Home Assistant** page: **Add integration > ESPHome**.
+3. If Home Assistant connects and then fails, its key and the device's don't
+   match, for example after a factory reset or a reinstall. The dashboard's
+   **Home Assistant** page shows whether the device has a key. Remove the
+   device from Home Assistant and add it again; if the device has a key that
+   Home Assistant doesn't know,
+   [reset the device](/docs/dashboard/#reset-the-device) first.
 
 ## The device doesn't react to the wake word
 

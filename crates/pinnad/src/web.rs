@@ -6,7 +6,7 @@
 //! Connect protocol (JSON and proto bodies need a CORS preflight, which this
 //! server never grants).
 
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -15,20 +15,28 @@ use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
+use tokio::sync::watch;
 use tower_http::services::ServeDir;
 
 use crate::api::{self, DeviceApi};
 use crate::config::Web;
 use crate::virtual_device::{self, VirtualDevice};
+use crate::voice::Snapshot;
 
 /// Host names the dashboard answers to besides IP addresses and `*.local`:
-/// lowercase, no port.
+/// lowercase, no port. Those from the configuration, and those added on the
+/// dashboard (ADR 0007), read from the latest status so they apply at once.
 ///
 /// Any `.local` name is fine: only mDNS on this network resolves it, so a remote
 /// site cannot rebind one. That also covers the name mDNS picks when two
 /// satellites both start as `pinna.local`.
 #[derive(Debug, Clone)]
-pub struct Hosts(Arc<Vec<String>>);
+pub struct Hosts {
+    fixed: Arc<Vec<String>>,
+    added: Option<watch::Receiver<Snapshot>>,
+    /// The system hostname, for the 421 page's `.local` link.
+    hostname: Option<String>,
+}
 
 impl Hosts {
     pub fn new(hostname: Option<&str>, extra: &[String]) -> Self {
@@ -37,7 +45,28 @@ impl Hosts {
         names.extend(extra.iter().map(|n| normalise(n)));
         names.sort();
         names.dedup();
-        Self(Arc::new(names))
+        Self {
+            fixed: Arc::new(names),
+            added: None,
+            hostname: hostname.map(normalise).filter(|n| !n.is_empty()),
+        }
+    }
+
+    /// Also allow the names added on the dashboard (already normalised).
+    pub fn with_added(mut self, status: watch::Receiver<Snapshot>) -> Self {
+        self.added = Some(status);
+        self
+    }
+
+    fn known(&self, host: &str) -> bool {
+        self.fixed.iter().any(|n| n == host)
+            || self.added.as_ref().is_some_and(|rx| {
+                rx.borrow()
+                    .settings
+                    .allowed_hosts
+                    .as_ref()
+                    .is_some_and(|names| names.iter().any(|n| n == host))
+            })
     }
 
     /// Whether a request's authority (`host[:port]`) may reach the dashboard.
@@ -52,7 +81,7 @@ impl Hosts {
             return true;
         }
         let host = normalise(host);
-        host.strip_suffix(".local").is_some_and(|l| !l.is_empty()) || self.0.contains(&host)
+        host.strip_suffix(".local").is_some_and(|l| !l.is_empty()) || self.known(&host)
     }
 }
 
@@ -74,7 +103,7 @@ pub fn app(
         .layer(middleware::from_fn(cache_control));
     let mut router = axum::Router::new().route_service(
         "/pinna.v1.DeviceService/{method}",
-        api::router(api).into_axum_service(),
+        api::router(api.clone()).into_axum_service(),
     );
     if let Some(v) = virt {
         router = router.route(
@@ -85,16 +114,80 @@ pub fn app(
     router
         .fallback_service(files)
         .layer(middleware::from_fn_with_state(hosts, check_host))
-        .layer(middleware::from_fn(peer_addr))
+        .layer(middleware::from_fn_with_state(api, connection))
+}
+
+/// Who connected, and to which of the satellite's addresses.
+#[derive(Debug, Clone, Copy)]
+pub struct Conn {
+    pub peer: SocketAddr,
+    pub local: Option<SocketAddr>,
+}
+
+impl
+    axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, tokio::net::TcpListener>>
+    for Conn
+{
+    fn connect_info(stream: axum::serve::IncomingStream<'_, tokio::net::TcpListener>) -> Self {
+        Self {
+            peer: *stream.remote_addr(),
+            local: stream.io().local_addr().ok(),
+        }
+    }
 }
 
 /// `axum::serve` knows the peer, but only connectrpc's own `Server` hands it to
-/// handlers (`ctx.peer_addr()`); pass it on.
-async fn peer_addr(mut req: Request, next: Next) -> Response {
-    if let Some(ConnectInfo(addr)) = req.extensions().get::<ConnectInfo<SocketAddr>>().copied() {
-        req.extensions_mut().insert(connectrpc::PeerAddr(addr));
+/// handlers (`ctx.peer_addr()`); pass it on. A request that reached a Wi-Fi
+/// network's address on trial keeps that network (ADR 0008).
+async fn connection(State(api): State<Arc<DeviceApi>>, mut req: Request, next: Next) -> Response {
+    if let Some(ConnectInfo(c)) = req.extensions().get::<ConnectInfo<Conn>>().copied() {
+        req.extensions_mut().insert(connectrpc::PeerAddr(c.peer));
+        if let Some(local) = c.local {
+            api.reached(local.ip());
+        }
     }
     next.run(req).await
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// The 421 page: the name it doesn't answer to, and links that work: the
+/// address the request reached, and the hostname's `.local` name.
+fn misdirected_page(host: &str, local: Option<SocketAddr>, hostname: Option<&str>) -> String {
+    let host = html_escape(host);
+    let port = local
+        .map(|a| a.port())
+        .filter(|&p| p != 80)
+        .map_or_else(String::new, |p| format!(":{p}"));
+    let mut links = Vec::new();
+    if let Some(ip) = local.map(|a| a.ip().to_canonical()) {
+        let url = match ip {
+            IpAddr::V4(v4) => format!("http://{v4}{port}/"),
+            IpAddr::V6(v6) => format!("http://[{v6}]{port}/"),
+        };
+        links.push(format!("<a href=\"{url}\">{url}</a>"));
+    }
+    if let Some(h) = hostname {
+        let url = html_escape(&format!("http://{h}.local{port}/"));
+        links.push(format!("<a href=\"{url}\">{url}</a>"));
+    }
+    let open = if links.is_empty() {
+        "Open it by its IP address or its .local name".to_owned()
+    } else {
+        format!("Open it at {}", links.join(" or "))
+    };
+    format!(
+        "<!doctype html><meta charset=\"utf-8\">\
+         <meta name=\"viewport\" content=\"width=device-width\"><title>Pinna</title>\
+         <p>This satellite does not answer to the name \u{201c}{host}\u{201d}.</p>\
+         <p>{open}, then add \u{201c}{host}\u{201d} under Network, Other names.</p>\n"
+    )
 }
 
 async fn check_host(State(hosts): State<Hosts>, req: Request, next: Next) -> Response {
@@ -114,15 +207,15 @@ async fn check_host(State(hosts): State<Hosts>, req: Request, next: Next) -> Res
         other => {
             let host = other.as_deref().unwrap_or("");
             let host = host.split_once(':').map_or(host, |(h, _)| h);
-            let body = format!(
-                "This satellite does not answer to the name \"{host}\".\n\
-                 Open it by its IP address, or add \"{host}\" to allowed_hosts under [web] \
-                 in /var/lib/pinna/pinnad.toml and restart pinnad.\n"
-            );
+            let local = req
+                .extensions()
+                .get::<ConnectInfo<Conn>>()
+                .and_then(|c| c.0.local);
+            let body = misdirected_page(host, local, hosts.hostname.as_deref());
             (
                 StatusCode::MISDIRECTED_REQUEST,
                 [
-                    (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8"),
                     (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
                 ],
                 body,
@@ -164,18 +257,15 @@ pub async fn start(
         );
     }
     let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname").ok();
-    let hosts = Hosts::new(hostname.as_deref(), &cfg.allowed_hosts);
+    let hosts = Hosts::new(hostname.as_deref(), &cfg.allowed_hosts).with_added(api.watch());
     let listener = tokio::net::TcpListener::bind(&cfg.listen)
         .await
         .with_context(|| format!("binding the dashboard on {}", cfg.listen))?;
     let addr = listener.local_addr()?;
     let app = app(api, &cfg.root, hosts, virt);
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
+        if let Err(e) =
+            axum::serve(listener, app.into_make_service_with_connect_info::<Conn>()).await
         {
             tracing::error!("dashboard server stopped: {e}");
         }
@@ -186,16 +276,43 @@ pub async fn start(
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use tokio::sync::{mpsc, watch};
+    use tokio::sync::mpsc;
     use tower::ServiceExt;
 
     use super::*;
     use crate::api::Info;
     use crate::boot;
-    use crate::voice::Snapshot;
 
     fn hosts() -> Hosts {
         Hosts::new(Some("pinna\n"), &["Kitchen.home.arpa.".into()])
+    }
+
+    #[test]
+    fn the_misdirected_page_links_back_and_escapes_the_name() {
+        let page = misdirected_page(
+            "<script>x</script>",
+            Some("[::ffff:192.168.1.20]:80".parse().unwrap()),
+            Some("pinna"),
+        );
+        assert!(!page.contains("<script>"), "{page}");
+        assert!(page.contains("&lt;script&gt;"));
+        assert!(page.contains("<a href=\"http://192.168.1.20/\">"), "{page}");
+        assert!(page.contains("<a href=\"http://pinna.local/\">"));
+        let page = misdirected_page("x", Some("[fd00::5]:8080".parse().unwrap()), Some("pinna"));
+        assert!(page.contains("http://[fd00::5]:8080/"), "{page}");
+        assert!(page.contains("http://pinna.local:8080/"), "{page}");
+        assert!(misdirected_page("x", None, None).contains("by its IP address"));
+    }
+
+    #[test]
+    fn allows_names_added_on_the_dashboard_at_once() {
+        let (tx, rx) = watch::channel(Snapshot::default());
+        let h = hosts().with_added(rx);
+        assert!(!h.allows("dot.home.arpa"));
+        tx.send_modify(|s| s.settings.allowed_hosts = Some(vec!["dot.home.arpa".into()]));
+        assert!(h.allows("dot.home.arpa:80") && h.allows("kitchen.home.arpa"));
+        tx.send_modify(|s| s.settings.allowed_hosts = Some(Vec::new()));
+        assert!(!h.allows("dot.home.arpa"));
     }
 
     #[test]
@@ -267,6 +384,7 @@ mod tests {
             model: String::new(),
             virtual_device: false,
             last_boot: boot::LastBoot::cold(),
+            key_from_image: false,
         };
         let api = Arc::new(DeviceApi::new(info, status_rx, in_tx));
         Fixture {
@@ -333,7 +451,8 @@ mod tests {
         let f = fixture("rebind", true);
         let (status, _, body) = send(&f, get("evil.example", "/")).await;
         assert_eq!(status, StatusCode::MISDIRECTED_REQUEST);
-        assert!(body.contains("\"evil.example\""), "{body}");
+        assert!(body.contains("\u{201c}evil.example\u{201d}"), "{body}");
+        assert!(body.contains("<a href=\"http://pinna.local/\">"), "{body}");
         let req = rpc(
             "evil.example:80",
             "GetStatus",
@@ -382,7 +501,8 @@ mod tests {
             b"{}".to_vec(),
         );
         let peer: SocketAddr = "192.168.1.77:51234".parse().unwrap();
-        req.extensions_mut().insert(ConnectInfo(peer));
+        req.extensions_mut()
+            .insert(ConnectInfo(Conn { peer, local: None }));
         let (status, _, body) = send(&f, req).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(
@@ -422,6 +542,7 @@ mod tests {
             model: String::new(),
             virtual_device: false,
             last_boot: boot::LastBoot::cold(),
+            key_from_image: false,
         };
         let api = Arc::new(DeviceApi::new(info, rx, tx));
         let cfg = Web {

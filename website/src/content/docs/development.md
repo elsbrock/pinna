@@ -96,7 +96,7 @@ them to the device over SSH as a system extension in
 `/var/lib/extensions/pinna-dev`, and restarts `pinnad`. The root filesystem
 stays read-only and unchanged.
 
-By default it connects to `root@pinna.local`. To use another address, set
+By default it connects to `root@10.42.0.1`, over USB. To use another address, set
 `PINNA_HOST`:
 
 ```sh

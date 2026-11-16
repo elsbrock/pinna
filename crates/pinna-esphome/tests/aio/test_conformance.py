@@ -167,9 +167,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    # 1 light, 5 switches, 4 numbers, 1 button, 8 events, 1 text sensor and
+    # 1 light, 6 switches, 4 numbers, 1 button, 8 events, 1 text sensor and
     # 1 media player.
-    assert len(by_key) == len(entities) == 1 + 5 + 4 + 1 + 8 + 1 + 1
+    assert len(by_key) == len(entities) == 1 + 6 + 4 + 1 + 8 + 1 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -563,6 +563,29 @@ async def test_time_request_and_disconnect(demo):
 
 
 @pytest.mark.asyncio
+async def test_rename_disconnects_and_reports_the_new_name(demo):
+    stopped = asyncio.Event()
+    expected = []
+
+    async def on_stop(expected_disconnect):
+        expected.append(expected_disconnect)
+        stopped.set()
+
+    c = demo.client("rename")
+    await c.connect(on_stop=on_stop, login=True)
+    await demo.wait(demo.cmd("client_connected"), "client_connected")
+    demo.send("rename Küche")
+    await asyncio.wait_for(stopped.wait(), 5)
+    assert expected == [True], "the device asked the client to disconnect"
+    again = demo.client("rename-again")
+    await again.connect(login=True)
+    info = await again.device_info()
+    assert info.friendly_name == "Küche"
+    assert info.name == "pinna-demo"
+    await again.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_noise_device_info_advertises_encryption(noise_demo):
     c = noise_demo.client("info")
     await c.connect(login=True)
@@ -591,7 +614,8 @@ async def test_noise_set_key_rotates_key(noise_demo):
     c = noise_demo.client("rot")
     await c.connect(login=True)
     new = bytes(range(100, 132))
-    assert await c.noise_encryption_set_key(new)
+    # Base64 text, as Home Assistant sends it.
+    assert await c.noise_encryption_set_key(base64.b64encode(new))
     got = await noise_demo.wait(noise_demo.cmd("encryption_key_set"), "encryption_key_set")
     assert bytes(got["key"]) == new
     await c.disconnect()
@@ -607,12 +631,47 @@ async def test_noise_set_key_rotates_key(noise_demo):
 
 
 @pytest.mark.asyncio
-async def test_plaintext_set_key_is_refused(request):
+async def test_home_assistant_provisions_the_first_key_over_the_zero_key(request):
+    from aioesphomeapi.core import ZERO_NOISE_PSK
+    d = await start_demo(None)
+    try:
+        main = d.client("main")
+        stopped = asyncio.Event()
+
+        async def on_stop(expected):
+            stopped.set()
+
+        await main.connect(on_stop=on_stop, login=True)
+        assert (await main.device_info()).api_encryption_provisionable
+        side = d.client("provision", psk=ZERO_NOISE_PSK)
+        await side.connect(login=True)
+        # The all-zero key is no key.
+        assert not await side.noise_encryption_set_key(base64.b64encode(bytes(32)))
+        new = bytes(range(1, 33))
+        assert await side.noise_encryption_set_key(base64.b64encode(new))
+        got = await d.wait(d.cmd("encryption_key_set"), "encryption_key_set")
+        assert bytes(got["key"]) == new
+        # The plaintext connection ends; only the key works from now on.
+        await asyncio.wait_for(stopped.wait(), 5)
+        with pytest.raises(RequiresEncryptionAPIError):
+            await d.client("pt", psk=None).connect(login=True)
+        with pytest.raises(InvalidEncryptionKeyAPIError):
+            await d.client("zero", psk=ZERO_NOISE_PSK).connect(login=True)
+        c = d.client("keyed", psk=base64.b64encode(new).decode())
+        await c.connect(login=True)
+        assert not (await c.device_info()).api_encryption_provisionable
+        await c.disconnect()
+    finally:
+        await d.stop()
+
+
+@pytest.mark.asyncio
+async def test_older_home_assistant_provisions_over_plaintext(request):
     d = await start_demo(None)
     try:
         c = d.client("pt")
         await c.connect(login=True)
-        assert not await c.noise_encryption_set_key(bytes(32))
-        await c.disconnect()
+        assert await c.noise_encryption_set_key(base64.b64encode(bytes(range(2, 34))))
+        await d.wait(d.cmd("encryption_key_set"), "encryption_key_set")
     finally:
         await d.stop()

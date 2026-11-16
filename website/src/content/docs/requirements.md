@@ -86,8 +86,8 @@ Git ignores the folder, so they never end up in the repository.
 | `secrets/release.key` | Signs your own root filesystem images. Only to sign your own builds | `just keygen` (writes `secrets/release.pub` too; the build compiles it in) |
 | `secrets/machine-id` | Not needed: each device derives its machine id from its serial number | — |
 | `secrets/authorized_keys` | Your SSH public key. Without it, you can't log in over SSH | Copy your public key, for example `~/.ssh/id_ed25519.pub` |
-| `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network, so the device connects on first boot. Optional: you can also set it up on the device | See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi) |
-| `secrets/device/pinnad.toml` | Settings for this device, such as its name. Optional | See [Configure Pinna](/docs/configure/) |
+| `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network, so the device connects on first boot. Optional: you can also set it up on the dashboard over USB | See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi) |
+| `secrets/device/pinnad.toml` | Developer settings for this device, such as its node name. Optional | See [Configure Pinna](/docs/configure/) |
 | `secrets/device/esphome-key` | The encryption key for the Home Assistant connection. Optional | See [Connect to Home Assistant](/docs/home-assistant/) |
 
 ## Wake word models

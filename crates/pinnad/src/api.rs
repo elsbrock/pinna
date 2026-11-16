@@ -26,12 +26,18 @@ use pinna_api::{
     WakeWord, WakeWordOption, WatchInstallRequest, WatchInstallResponse, WatchLogsRequest,
     WatchLogsResponse, WatchStatusRequest, WatchStatusResponse,
 };
+use pinna_api::{
+    FactoryResetRequest, FactoryResetResponse, ForgetWifiRequest, ForgetWifiResponse,
+    JoinWifiRequest, JoinWifiResponse, KeepWifiRequest, KeepWifiResponse, ListWifiRequest,
+    ListWifiResponse, ScanWifiRequest, ScanWifiResponse,
+};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::boot;
 use crate::updates::{Event, Updater, UpdaterPaths, stage_of};
 use crate::voice::{ApiCommand, ApiReply, Input, SettingsPatch, Snapshot};
-use crate::{logs, network};
+use crate::wifi::{Wifi, WifiPaths};
+use crate::{logs, network, wifi};
 
 /// What does not change while pinnad runs.
 #[derive(Debug, Clone)]
@@ -50,6 +56,8 @@ pub struct Info {
     pub virtual_device: bool,
     /// How the boot before this one ended (pstore, ADR 0012).
     pub last_boot: boot::LastBoot,
+    /// The image carries the ESPHome key, so a factory reset keeps it.
+    pub key_from_image: bool,
 }
 
 pub struct DeviceApi {
@@ -58,6 +66,7 @@ pub struct DeviceApi {
     status: watch::Receiver<Snapshot>,
     inputs: mpsc::Sender<Input>,
     updater: Arc<Updater>,
+    wifi: Arc<Wifi>,
 }
 
 impl DeviceApi {
@@ -77,11 +86,35 @@ impl DeviceApi {
             status,
             inputs,
             updater: Arc::new(updater),
+            wifi: Arc::new(Wifi::new(WifiPaths::default())),
         }
+    }
+
+    /// A request reached the dashboard at this local address (ADR 0008: a
+    /// network on trial is kept once someone reaches it there).
+    pub fn reached(&self, local: IpAddr) {
+        self.wifi.reached(local);
+    }
+
+    /// Undo a Wi-Fi trial that a stopped pinnad left behind.
+    pub async fn recover_wifi(&self) {
+        self.wifi.recover().await;
+    }
+
+    /// Talk to another wpa_supplicant (tests).
+    #[cfg(test)]
+    pub fn with_wifi(mut self, wifi: Wifi) -> Self {
+        self.wifi = Arc::new(wifi);
+        self
     }
 
     fn render(&self, s: &Snapshot) -> Status {
         render(&self.info, self.started, s)
+    }
+
+    /// The latest state, as it changes.
+    pub fn watch(&self) -> watch::Receiver<Snapshot> {
+        self.status.clone()
     }
 
     async fn command(
@@ -190,8 +223,14 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             wake_sensitivity: s.settings.wake_sensitivity.into(),
             led_brightness: s.settings.led_brightness.into(),
             wake_words: s.active_wake_words.clone(),
+            friendly_name: s.friendly_name.clone(),
+            default_name: s.default_name,
+            wake_sound: s.wake_sound,
+            allowed_hosts: s.settings.allowed_hosts.clone().unwrap_or_default(),
             ..Default::default()
         }),
+        api_encrypted: s.encrypted,
+        api_key_from_image: info.key_from_image,
         ..Default::default()
     }
 }
@@ -371,11 +410,29 @@ impl DeviceService for DeviceApi {
             }
             None => None,
         };
+        let friendly_name = request
+            .friendly_name
+            .map(crate::settings::check_friendly_name)
+            .transpose()
+            .map_err(ConnectError::invalid_argument)?;
+        let allowed_hosts = match request.allowed_hosts.as_option() {
+            Some(h) => {
+                let names: Vec<String> = h.names.iter().map(|n| (*n).to_owned()).collect();
+                Some(
+                    crate::settings::check_host_names(&names)
+                        .map_err(ConnectError::invalid_argument)?,
+                )
+            }
+            None => None,
+        };
         let patch = SettingsPatch {
             wake_word: request.wake_word,
             wake_sensitivity: percent("wake_sensitivity", request.wake_sensitivity)?,
             led_brightness: percent("led_brightness", request.led_brightness)?,
             wake_words,
+            friendly_name,
+            wake_sound: request.wake_sound,
+            allowed_hosts,
         };
         let snap = self
             .command(|r| ApiCommand::UpdateSettings(patch, r))
@@ -513,16 +570,103 @@ impl DeviceService for DeviceApi {
         Response::ok(Box::pin(history.chain(tail).map(Ok)))
     }
 
+    async fn scan_wifi(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ScanWifiRequest>,
+    ) -> ServiceResult<ScanWifiResponse> {
+        Response::ok(ScanWifiResponse {
+            networks: self.wifi.scan().await?,
+            ..Default::default()
+        })
+    }
+
+    async fn list_wifi(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ListWifiRequest>,
+    ) -> ServiceResult<ListWifiResponse> {
+        Response::ok(self.wifi.list().await?)
+    }
+
+    async fn join_wifi(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, JoinWifiRequest>,
+    ) -> ServiceResult<ServiceStream<JoinWifiResponse>> {
+        let req = request.to_owned_message();
+        let join = wifi::check_join(&req).map_err(ConnectError::invalid_argument)?;
+        let live = self.wifi.join(join)?;
+        // Until the final step; a lagging reader just skips ahead.
+        let stream = futures::stream::unfold(Some(live), |rx| async move {
+            let mut rx = rx?;
+            loop {
+                match rx.recv().await {
+                    Ok(step) => {
+                        let done = wifi::done(&step);
+                        return Some((Ok(step), (!done).then_some(rx)));
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => return None,
+                }
+            }
+        });
+        Response::ok(Box::pin(stream))
+    }
+
+    async fn keep_wifi(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, KeepWifiRequest>,
+    ) -> ServiceResult<KeepWifiResponse> {
+        Response::ok(KeepWifiResponse {
+            result: MessageField::some(self.wifi.keep(request.keep).await?),
+            ..Default::default()
+        })
+    }
+
+    async fn forget_wifi(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, ForgetWifiRequest>,
+    ) -> ServiceResult<ForgetWifiResponse> {
+        Response::ok(ForgetWifiResponse {
+            saved: self.wifi.forget(request.ssid).await?,
+            ..Default::default()
+        })
+    }
+
     async fn reboot(
         &self,
         _ctx: RequestContext,
         _request: ServiceRequest<'_, RebootRequest>,
     ) -> ServiceResult<RebootResponse> {
         self.updater
-            .reboot()
+            .reboot("user")
             .await
             .map_err(|e| ConnectError::internal(format!("rebooting: {e:#}")))?;
         Response::ok(RebootResponse::default())
+    }
+
+    async fn factory_reset(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, FactoryResetRequest>,
+    ) -> ServiceResult<FactoryResetResponse> {
+        // The person typed the name: a reset never happens by a stray call.
+        let friendly = self.status.borrow().friendly_name.clone();
+        let typed = request.name.trim();
+        let matches = |n: &str| !n.is_empty() && typed.eq_ignore_ascii_case(n.trim());
+        if !matches(&friendly) && !matches(&self.info.name) {
+            return Err(ConnectError::invalid_argument(format!(
+                "Type the satellite's name, {friendly}, to confirm."
+            )));
+        }
+        self.updater
+            .factory_reset()
+            .await
+            .map_err(|e| ConnectError::internal(format!("factory reset: {e:#}")))?;
+        Response::ok(FactoryResetResponse::default())
     }
 }
 
@@ -561,12 +705,21 @@ mod tests {
 
     type Client = DeviceServiceClient<HttpClient>;
 
+    static NEXT_DEVICE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
     /// The real brain without audio or LED backends, served on an ephemeral port.
     async fn start_device() -> (Client, mpsc::Sender<Input>) {
         start_device_with(Updater::new(UpdaterPaths::default())).await
     }
 
     async fn start_device_with(updater: Updater) -> (Client, mpsc::Sender<Input>) {
+        start_device_inner(updater, None).await
+    }
+
+    async fn start_device_inner(
+        updater: Updater,
+        wifi: Option<crate::wifi::Wifi>,
+    ) -> (Client, mpsc::Sender<Input>) {
         let mut dc = DeviceConfig::new("pinna-test", [2, 0, 0, 0xaa, 0xbb, 0xcc]);
         dc.port = 0;
         let (esp, _ha) = pinna_esphome::serve(dc).await.unwrap();
@@ -585,11 +738,20 @@ mod tests {
                 wake_words: crate::wakewords::test_catalogue(),
                 active_wake_words: vec!["alexa_v0.1".into()],
                 keywords: None,
-                wake_sound: false,
+                defaults: crate::voice::Defaults {
+                    friendly_name: "Echo Dot aabbcc".into(),
+                    default_name: true,
+                    wake_sound: false,
+                },
+                mdns: None,
+                encrypted: false,
                 has_hw_privacy: false,
+                // One file per device: tests run in parallel, and a failed
+                // save is an error.
                 settings_file: std::env::temp_dir().join(format!(
-                    "pinnad-api-test-settings-{}.toml",
-                    std::process::id()
+                    "pinnad-api-test-{}-{}/settings.toml",
+                    std::process::id(),
+                    NEXT_DEVICE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                 )),
                 settings: crate::settings::Settings {
                     volume: 40,
@@ -608,18 +770,13 @@ mod tests {
             model: "echo-dot-2".into(),
             virtual_device: false,
             last_boot: boot::LastBoot::cold(),
+            key_from_image: false,
         };
-        let addr = start(
-            Arc::new(DeviceApi::with_updater(
-                info,
-                status_rx,
-                in_tx.clone(),
-                updater,
-            )),
-            "127.0.0.1:0",
-        )
-        .await
-        .unwrap();
+        let mut api = DeviceApi::with_updater(info, status_rx, in_tx.clone(), updater);
+        if let Some(w) = wifi {
+            api = api.with_wifi(w);
+        }
+        let addr = start(Arc::new(api), "127.0.0.1:0").await.unwrap();
         let config = ClientConfig::new(format!("http://{addr}").parse().unwrap());
         (Client::new(HttpClient::plaintext(), config), in_tx)
     }
@@ -946,6 +1103,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn name_wake_sound_and_hosts_round_trip() {
+        let (c, _inputs) = start_device().await;
+        let settings = |s: Status| s.settings.into_option().unwrap();
+        let before = settings(status(&c).await);
+        assert_eq!(before.friendly_name, "Echo Dot aabbcc");
+        assert!(before.default_name && !before.wake_sound);
+        assert!(before.allowed_hosts.is_empty());
+
+        let update = async |req: pinna_api::UpdateSettingsRequest| {
+            c.update_settings(req).await.map(|r| {
+                settings(
+                    r.into_view()
+                        .to_owned_message()
+                        .status
+                        .into_option()
+                        .unwrap(),
+                )
+            })
+        };
+        let after = update(pinna_api::UpdateSettingsRequest {
+            friendly_name: Some("  Küche ".into()),
+            wake_sound: Some(true),
+            allowed_hosts: MessageField::some(pinna_api::HostNames {
+                names: vec!["Kitchen.home.arpa.".into(), "kitchen.home.arpa".into()],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(after.friendly_name, "Küche");
+        assert!(!after.default_name && after.wake_sound);
+        assert_eq!(after.allowed_hosts, ["kitchen.home.arpa"]);
+
+        for bad in [
+            pinna_api::UpdateSettingsRequest {
+                friendly_name: Some(" ".into()),
+                ..Default::default()
+            },
+            pinna_api::UpdateSettingsRequest {
+                allowed_hosts: MessageField::some(pinna_api::HostNames {
+                    names: vec!["pinna.local".into()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        ] {
+            let err = update(bad).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        }
+        // An empty list clears the dashboard's names; the rest stays.
+        let cleared = update(pinna_api::UpdateSettingsRequest {
+            allowed_hosts: MessageField::some(pinna_api::HostNames::default()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert!(cleared.allowed_hosts.is_empty());
+        assert_eq!(cleared.friendly_name, "Küche");
+    }
+
+    #[tokio::test]
     async fn recent_wakes_carry_the_setting_that_wakes_on_them() {
         let (c, inputs) = start_device().await;
         let near = |score, reached_threshold| Input::NearMiss {
@@ -1130,6 +1349,7 @@ mod tests {
             model: "echo-dot-2".into(),
             virtual_device: false,
             last_boot: boot::LastBoot::cold(),
+            key_from_image: false,
         };
         let mut snap = Snapshot::default();
         assert!(!render(&info, Instant::now(), &snap).alarm_ringing);
@@ -1178,6 +1398,7 @@ mod tests {
                 run_dir: dir.join("run"),
                 pinnactl: script,
                 reboot: vec!["true".into()],
+                reset_mark: dir.join("factory-reset"),
             };
             Self { dir, paths }
         }
@@ -1206,6 +1427,88 @@ mod tests {
             manifest: manifest.into(),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn wifi_scan_and_a_streamed_join() {
+        use crate::wifi::fake::{Fake, Outcome};
+        use pinna_api::JoinStage;
+        let fake = Fake::start(Outcome::Joins);
+        let wifi = crate::wifi::Wifi::with_timeouts(
+            fake.paths(),
+            Duration::from_secs(3),
+            Duration::from_secs(60),
+        );
+        let (c, _inputs) =
+            start_device_inner(Updater::new(UpdaterPaths::default()), Some(wifi)).await;
+
+        let scan = c.scan_wifi(ScanWifiRequest::default()).await.unwrap();
+        let names: Vec<String> = scan
+            .into_view()
+            .to_owned_message()
+            .networks
+            .into_iter()
+            .map(|n| n.ssid)
+            .collect();
+        assert_eq!(names, ["Work", "Home", "Café", "Neighbour"]);
+
+        let join = |pass: &str| JoinWifiRequest {
+            ssid: "Café".into(),
+            security: pinna_api::WifiSecurity::WIFI_SECURITY_WPA_PSK.into(),
+            passphrase: pass.into(),
+            ..Default::default()
+        };
+        // Checked before anything reaches wpa_supplicant; a streaming call
+        // reports it on the stream.
+        let err = match c.join_wifi(join("short")).await {
+            Err(e) => e,
+            Ok(mut s) => s
+                .message::<JoinWifiResponse>()
+                .await
+                .map(|_| ())
+                .expect_err("refused"),
+        };
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+
+        let mut stream = c.join_wifi(join("long enough")).await.unwrap();
+        let mut stages = Vec::new();
+        while let Some(m) = tokio::time::timeout(
+            Duration::from_secs(10),
+            stream.message::<JoinWifiResponse>(),
+        )
+        .await
+        .expect("JoinWifi stalled")
+        .unwrap()
+        {
+            stages.push(m.to_owned_message().stage.as_known().unwrap());
+        }
+        assert_eq!(
+            stages,
+            [
+                JoinStage::JOIN_STAGE_CONNECTING,
+                JoinStage::JOIN_STAGE_ADDRESS,
+                JoinStage::JOIN_STAGE_TRIAL
+            ]
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let list = c.list_wifi(ListWifiRequest::default()).await.unwrap();
+        let list = list.into_view().to_owned_message();
+        assert!(!list.joining);
+        assert_eq!(list.trial.as_option().unwrap().ssid, "Café");
+        let kept = c
+            .keep_wifi(KeepWifiRequest {
+                keep: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let kept = kept
+            .into_view()
+            .to_owned_message()
+            .result
+            .into_option()
+            .unwrap();
+        assert_eq!(kept.stage.as_known(), Some(JoinStage::JOIN_STAGE_JOINED));
     }
 
     /// Every message of a WatchInstall until it ends.
@@ -1377,6 +1680,32 @@ mod tests {
         let r = u.last_install.as_option().unwrap();
         assert!(r.ok);
         assert_eq!(r.last_line, "end");
+    }
+
+    #[tokio::test]
+    async fn factory_reset_needs_the_name_typed() {
+        let rig = Rig::new("reset", "");
+        let (c, _) = start_device_with(rig.updater()).await;
+        let reset = async |name: &str| {
+            c.factory_reset(pinna_api::FactoryResetRequest {
+                name: name.into(),
+                ..Default::default()
+            })
+            .await
+        };
+        let err = reset("").await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        assert!(err.message.unwrap_or_default().contains("Echo Dot aabbcc"));
+        assert!(reset("Kitchen").await.is_err());
+        assert!(!rig.paths.reset_mark.exists());
+        // The name Home Assistant shows, or the node name, in any case.
+        reset("  echo dot AABBCC ").await.unwrap();
+        assert!(rig.paths.reset_mark.exists());
+        std::fs::remove_file(&rig.paths.reset_mark).unwrap();
+        reset("pinna-test").await.unwrap();
+        assert!(rig.paths.reset_mark.exists());
+        let reason = std::fs::read_to_string(rig.paths.run_dir.join("reboot-reason")).unwrap();
+        assert_eq!(reason.trim(), "factory-reset");
     }
 
     #[tokio::test]

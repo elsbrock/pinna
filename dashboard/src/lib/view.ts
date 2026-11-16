@@ -17,6 +17,11 @@ const PHASE_WORDS: Record<number, "listening" | "thinking" | "speaking"> = {
  * The ring effect, in the device's own order: muted, a ringing alarm, the phase,
  * then a waiting notification unless a running timer's arc shows above it.
  */
+/** The satellite's name for people: the one Home Assistant shows (ADR 0007). */
+export function displayName(s: Status): string {
+  return s.settings?.friendlyName || s.name;
+}
+
 export function ringEffect(s: Status | null, link: Link): Effect {
   if (!s || link !== "live") return "idle";
   if (s.muted) return "muted";
@@ -297,6 +302,59 @@ export function when(unixMs: number, now: Date): string {
 /** The project's documentation (the dashboard works offline; these are plain links). */
 export const DOCS = "https://elsbrock.github.io/pinna/docs/";
 
+// pinna.v1.WifiSecurity and JoinStage values (TS enums node --test can't load).
+const SECURITY_WORDS: Record<number, string> = {
+  1: "Open",
+  2: "WPA2",
+  3: "WPA3 only",
+  4: "Enterprise",
+  5: "WEP",
+};
+const JOIN_TRIAL = 3;
+const JOIN_JOINED = 4;
+const JOIN_FAILED = 5;
+
+/** A network's security as people know it. */
+export function securityWord(security: number): string {
+  return SECURITY_WORDS[security] ?? "Unknown";
+}
+
+/** Why the satellite can't join a network with this security; null when it can. */
+export function unjoinable(security: number): string | null {
+  switch (security) {
+    case 1:
+    case 2:
+      return null;
+    case 3:
+      return "WPA3 only: this satellite's Wi-Fi can't join it.";
+    case 4:
+      return "Enterprise networks aren't supported.";
+    case 5:
+      return "WEP isn't supported: it isn't safe.";
+    default:
+      return "Unknown security.";
+  }
+}
+
+/** The last step a JoinWifi stream sends. */
+export function joinDone(step: { stage: number }): boolean {
+  return step.stage === JOIN_TRIAL || step.stage === JOIN_JOINED || step.stage === JOIN_FAILED;
+}
+
+/** How a join ended, for a notice: its tone, or null while it runs. */
+export function joinTone(step: { stage: number } | null | undefined): "ok" | "caution" | null {
+  if (!step) return null;
+  if (step.stage === JOIN_JOINED) return "ok";
+  if (step.stage === JOIN_FAILED) return "caution";
+  return null;
+}
+
+/** Minutes and seconds, "4:05". */
+export function mmss(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 /** Wi-Fi signal as a word people use: thresholds as common for dBm. */
 export function signalWord(dbm: number): string {
   if (dbm >= -55) return "Excellent";
@@ -342,7 +400,7 @@ export function wifiIssue(
   if (!wifi.wifi)
     return {
       title: "Not connected to a Wi-Fi network",
-      body: "Check the network name and password in /var/lib/pinna/wifi/wpa_supplicant-wlan0.conf.",
+      body: "Choose your network under Join a network, below.",
       href: doc,
     };
   if (!v4)

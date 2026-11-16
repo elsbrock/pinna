@@ -23,7 +23,8 @@ service DeviceService {
   rpc ClearNotification(ClearNotificationRequest) returns (ClearNotificationResponse);
   // Current state, then again on every change.
   rpc WatchStatus(WatchStatusRequest) returns (stream WatchStatusResponse);
-  // Change runtime settings; the same as changing them in Home Assistant.
+  // Change settings; the same as changing them in Home Assistant. Fails when
+  // the satellite can't save them, so a restart would undo them.
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
   // Start tuning the wake word sensitivity with the satellite's + and −
   // buttons. Fails while the microphones are muted, the wake word is off, or
@@ -45,6 +46,23 @@ service DeviceService {
   rpc WatchInstall(WatchInstallRequest) returns (stream WatchInstallResponse);
   // Restart the satellite.
   rpc Reboot(RebootRequest) returns (RebootResponse);
+  // Forget everything set on this satellite and restart it as it was
+  // installed (ADR 0010): settings, Wi-Fi networks, the Home Assistant
+  // encryption key, SSH keys added on it, its SSH host key. The log stays.
+  rpc FactoryReset(FactoryResetRequest) returns (FactoryResetResponse);
+  // Wi-Fi networks in range, from a fresh scan (a few seconds; ADR 0008).
+  rpc ScanWifi(ScanWifiRequest) returns (ScanWifiResponse);
+  // The saved networks, whether a join runs, and how the last one ended.
+  rpc ListWifi(ListWifiRequest) returns (ListWifiResponse);
+  // Try a network: back to the previous one unless it gives an address
+  // within 45 s. Streams the steps, ending with TRIAL or FAILED; the join
+  // goes on when the caller goes away. One at a time.
+  rpc JoinWifi(JoinWifiRequest) returns (stream JoinWifiResponse);
+  // Keep the network on trial (save it), or go back now. Opening the
+  // dashboard at the trial's address keeps it too.
+  rpc KeepWifi(KeepWifiRequest) returns (KeepWifiResponse);
+  // Forget a saved network. Forgetting the one in use disconnects.
+  rpc ForgetWifi(ForgetWifiRequest) returns (ForgetWifiResponse);
 }
 
 enum Phase {
@@ -189,6 +207,11 @@ message Status {
   bool virtual_device = 20;
   // How the boot before this one ended, from pstore (ADR 0012).
   LastBoot last_boot = 21;
+  // The ESPHome API to Home Assistant is encrypted (Noise).
+  bool api_encrypted = 22;
+  // The image carries the key (a builder's `secrets/device/esphome-key` or
+  // `[esphome] encryption_key`): a factory reset keeps it (ADR 0018).
+  bool api_key_from_image = 23;
 }
 
 // How the previous boot ended, as pinnad read it back from the pstore records
@@ -227,6 +250,16 @@ message Settings {
   uint32 led_brightness = 4;
   // The active wake words' ids, at most two, in Home Assistant's order.
   repeated string wake_words = 5;
+  // The name Home Assistant shows (ADR 0007).
+  string friendly_name = 6;
+  // Nobody chose a name yet: `friendly_name` is the model and the last three
+  // bytes of the MAC, e.g. "Echo Dot 2a914e".
+  bool default_name = 7;
+  // A chime when listening starts.
+  bool wake_sound = 8;
+  // Names the dashboard answers to, added on the dashboard. IP addresses,
+  // localhost, .local names and the hostname always work.
+  repeated string allowed_hosts = 9;
 }
 
 message GetStatusRequest {}
@@ -289,6 +322,19 @@ message UpdateSettingsRequest {
   // At most two ids from Status.wake_word.available. Refused while Home
   // Assistant is connected: it chooses the wake words then.
   WakeWordIds wake_words = 5;
+  // 1 to 64 characters (at most 200 bytes), no control characters; trimmed.
+  // Home Assistant reads it when it next connects: pinnad makes it reconnect
+  // once the satellite is idle.
+  optional string friendly_name = 6;
+  optional bool wake_sound = 7;
+  // Replaces the dashboard's list: at most 16 DNS names, without a port.
+  HostNames allowed_hosts = 8;
+}
+
+// A list of host names, so that UpdateSettingsRequest can tell "unchanged"
+// from "none".
+message HostNames {
+  repeated string names = 1;
 }
 
 message UpdateSettingsResponse {
@@ -430,3 +476,143 @@ enum InstallStage {
 message RebootRequest {}
 
 message RebootResponse {}
+
+enum WifiSecurity {
+  WIFI_SECURITY_UNSPECIFIED = 0;
+  WIFI_SECURITY_OPEN = 1;
+  // WPA/WPA2-Personal.
+  WIFI_SECURITY_WPA_PSK = 2;
+  // WPA3-Personal only: listed, this Wi-Fi chip can't join it.
+  WIFI_SECURITY_SAE = 3;
+  // 802.1X: listed, can't be joined.
+  WIFI_SECURITY_ENTERPRISE = 4;
+  // Listed, can't be joined.
+  WIFI_SECURITY_WEP = 5;
+}
+
+// A network in range: the strongest access point with that name.
+message WifiNetwork {
+  string ssid = 1;
+  // dBm, negative; closer to 0 is stronger.
+  int32 signal_dbm = 2;
+  uint32 frequency_mhz = 3;
+  WifiSecurity security = 4;
+  // Saved on the satellite.
+  bool saved = 5;
+  // The one in use.
+  bool current = 6;
+}
+
+message ScanWifiRequest {}
+
+message ScanWifiResponse {
+  // Strongest first, one per name. Networks that hide their name are left out:
+  // join those by name.
+  repeated WifiNetwork networks = 1;
+}
+
+// A saved network. Its passphrase never leaves the satellite.
+message SavedWifi {
+  string ssid = 1;
+  WifiSecurity security = 2;
+  // Joined by name: the network doesn't broadcast it.
+  bool hidden = 3;
+  // The one in use.
+  bool current = 4;
+}
+
+message ListWifiRequest {}
+
+message ListWifiResponse {
+  // Tried first to last.
+  repeated SavedWifi saved = 1;
+  // A join runs; JoinWifi's stream shows it.
+  bool joining = 2;
+  // The last finished join since pinnad started: its final step.
+  JoinWifiResponse last_join = 3;
+  // The network on trial, with `keep_seconds` left.
+  JoinWifiResponse trial = 4;
+}
+
+message JoinWifiRequest {
+  // 1 to 32 bytes.
+  string ssid = 1;
+  // OPEN or WPA_PSK.
+  WifiSecurity security = 2;
+  // WPA_PSK: 8 to 63 characters, or 64 hex digits. Empty for OPEN. Never
+  // returned or logged.
+  string passphrase = 3;
+  // The network hides its name: probe for it by name.
+  bool hidden = 4;
+}
+
+enum JoinStage {
+  JOIN_STAGE_UNSPECIFIED = 0;
+  // Finding the network and checking the password.
+  JOIN_STAGE_CONNECTING = 1;
+  // Connected; waiting for an address from the network's DHCP server.
+  JOIN_STAGE_ADDRESS = 2;
+  // On the new network at `address`, not saved: kept once the dashboard is
+  // opened there or KeepWifi keeps it; back after `keep_seconds` otherwise,
+  // or when the satellite restarts.
+  JOIN_STAGE_TRIAL = 3;
+  // Done: kept and saved.
+  JOIN_STAGE_JOINED = 4;
+  // Done: not joined, or not kept; back on the saved networks.
+  JOIN_STAGE_FAILED = 5;
+}
+
+enum JoinFailure {
+  JOIN_FAILURE_UNSPECIFIED = 0;
+  // The network refused the password.
+  JOIN_FAILURE_WRONG_PASSWORD = 1;
+  // No network with that name answered.
+  JOIN_FAILURE_NOT_FOUND = 2;
+  // Connected, but no address came.
+  JOIN_FAILURE_NO_ADDRESS = 3;
+  // wpa_supplicant failed; `message` says how.
+  JOIN_FAILURE_OTHER = 4;
+  // On trial, but nobody kept it in time, or someone chose to go back.
+  JOIN_FAILURE_NOT_KEPT = 5;
+}
+
+message JoinWifiResponse {
+  string ssid = 1;
+  JoinStage stage = 2;
+  // One sentence for people.
+  string message = 3;
+  // JOINED: the new IPv4 address.
+  string address = 4;
+  // FAILED: why.
+  JoinFailure failure = 5;
+  // FAILED and TRIAL: the network it goes back to; empty for none.
+  string fallback = 6;
+  // TRIAL: seconds left to keep it.
+  uint32 keep_seconds = 7;
+}
+
+message KeepWifiRequest {
+  // False: go back now.
+  bool keep = 1;
+}
+
+message KeepWifiResponse {
+  // JOINED or FAILED.
+  JoinWifiResponse result = 1;
+}
+
+message ForgetWifiRequest {
+  string ssid = 1;
+}
+
+message ForgetWifiResponse {
+  repeated SavedWifi saved = 1;
+}
+
+message FactoryResetRequest {
+  // The satellite's name, as typed by the person resetting it: the name Home
+  // Assistant shows, or the node name. Case and surrounding spaces don't matter.
+  string name = 1;
+}
+
+message FactoryResetResponse {}

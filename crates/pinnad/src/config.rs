@@ -21,8 +21,11 @@ pub struct Config {
 pub struct Device {
     /// ESPHome node name. Empty: "pinna-" + last three MAC bytes.
     pub name: String,
-    pub friendly_name: String,
-    pub model: String,
+    /// The name Home Assistant shows until one is chosen on the dashboard
+    /// (ADR 0007). Unset: the model and the last three MAC bytes.
+    pub friendly_name: Option<String>,
+    /// The model Home Assistant shows. Unset: the hardware's.
+    pub model: Option<String>,
     pub manufacturer: String,
     pub suggested_area: Option<String>,
 }
@@ -34,8 +37,9 @@ pub struct Audio {
     pub backend: String,
     /// Startup volume 0..=100.
     pub volume: u8,
-    /// Speaker codec profile on the Echo Dot ("Flat" on biscuit, "Radar" on the Echo).
-    pub speaker_profile: String,
+    /// Speaker codec profile ("Flat" or "Radar"). Unset: the hardware's,
+    /// Radar on the Echo (2nd gen), Flat otherwise.
+    pub speaker_profile: Option<String>,
     /// Play a short chime when the wake word is detected.
     pub wake_sound: bool,
     /// Digital gain on the captured (mono) stream before the wake word and Home
@@ -74,8 +78,8 @@ pub struct Esphome {
     pub port: u16,
     /// Publish `_esphomelib._tcp` via systemd-resolved (writes /run/systemd/dnssd).
     pub mdns: bool,
-    /// Noise encryption key (base64 of 32 bytes). Empty = plaintext API.
-    /// A key stored in `key_file` (e.g. pushed by Home Assistant) takes precedence.
+    /// Noise encryption key (base64 of 32 bytes). Empty: none until Home
+    /// Assistant sets one (ADR 0018). A key stored in `key_file` takes precedence.
     pub encryption_key: String,
     /// Where a key provisioned by Home Assistant is persisted.
     pub key_file: PathBuf,
@@ -124,8 +128,8 @@ impl Default for Device {
     fn default() -> Self {
         Self {
             name: String::new(),
-            friendly_name: "Pinna".into(),
-            model: "Echo Dot (2nd Gen)".into(),
+            friendly_name: None,
+            model: None,
             manufacturer: "Pinna".into(),
             suggested_area: None,
         }
@@ -137,7 +141,7 @@ impl Default for Audio {
         Self {
             backend: "auto".into(),
             volume: 50,
-            speaker_profile: "Flat".into(),
+            speaker_profile: None,
             wake_sound: false,
             capture_gain_db: None,
             stream_socket: PathBuf::new(),
@@ -257,7 +261,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(c.device.friendly_name, "Kitchen");
+        assert_eq!(c.device.friendly_name.as_deref(), Some("Kitchen"));
         assert_eq!(c.wake.threshold, 0.6);
         assert_eq!(c.esphome.port, 6053);
         assert_eq!(c.api.listen, "127.0.0.1:7470");
@@ -308,10 +312,10 @@ mod tests {
         assert_eq!(
             (
                 c.device.name.as_str(),
-                c.device.friendly_name.as_str(),
-                c.device.model.as_str()
+                c.device.friendly_name.as_deref(),
+                c.device.model.as_deref()
             ),
-            ("echodot2", "Büro", "Dot")
+            ("echodot2", Some("Büro"), Some("Dot"))
         );
         let c =
             Config::load_layered(std::slice::from_ref(&image), &dir.join("missing.toml")).unwrap();
@@ -325,13 +329,31 @@ mod tests {
         .unwrap();
         let c = Config::load_layered(&[image.clone(), vm], &local).unwrap();
         assert_eq!(
-            (c.device.model.as_str(), c.device.name.as_str()),
-            ("VM", "echodot2")
+            (c.device.model.as_deref(), c.device.name.as_str()),
+            (Some("VM"), "echodot2")
         );
         assert!(c.dev.virtual_device);
         std::fs::write(&local, "[device]\nnmae = 1\n").unwrap();
         assert!(Config::load_layered(std::slice::from_ref(&image), &local).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The image's files parse, and leave what follows the hardware unset
+    /// (ADR 0007): the base layer would otherwise always win.
+    #[test]
+    fn image_files_leave_hardware_and_name_unset() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mkosi");
+        let image = root.join("mkosi.extra/etc/pinna/pinnad.toml");
+        let c =
+            Config::load_layered(std::slice::from_ref(&image), Path::new("/nonexistent")).unwrap();
+        assert_eq!(c.device.model, None);
+        assert_eq!(c.device.friendly_name, None);
+        assert_eq!(c.audio.speaker_profile, None);
+        assert_eq!(c.web.listen, "[::]:80");
+        let vm = root.join("vm.extra/etc/pinna/vm.toml");
+        let c = Config::load_layered(&[image, vm], Path::new("/nonexistent")).unwrap();
+        assert!(c.dev.virtual_device);
+        assert_eq!(c.audio.speaker_profile, None);
     }
 
     #[test]

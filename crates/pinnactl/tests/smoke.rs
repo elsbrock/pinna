@@ -183,6 +183,54 @@ impl DeviceService for Fake {
     ) -> ServiceResult<RebootResponse> {
         Err(ConnectError::unimplemented("fake"))
     }
+
+    async fn factory_reset(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, FactoryResetRequest>,
+    ) -> ServiceResult<FactoryResetResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn scan_wifi(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ScanWifiRequest>,
+    ) -> ServiceResult<ScanWifiResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn list_wifi(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ListWifiRequest>,
+    ) -> ServiceResult<ListWifiResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn join_wifi(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, JoinWifiRequest>,
+    ) -> ServiceResult<ServiceStream<JoinWifiResponse>> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn keep_wifi(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, KeepWifiRequest>,
+    ) -> ServiceResult<KeepWifiResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn forget_wifi(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, ForgetWifiRequest>,
+    ) -> ServiceResult<ForgetWifiResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
 }
 
 async fn pinnactl(addr: std::net::SocketAddr, args: &[&str]) -> (bool, String, String) {
