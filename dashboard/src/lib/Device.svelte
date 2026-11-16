@@ -2,7 +2,7 @@
      lit the way the device lights it. A model without a drawing gets the flat
      Ring. One still frame under reduced motion. -->
 <script lang="ts">
-  import { drawingFor } from "../../../design/devices/index.ts";
+  import { BOX_ASPECT, drawingFor } from "../../../design/devices/index.ts";
   import { STILL_MS, displayLevel, ringFrame, type Effect, type Frame } from "../../../design/ring.ts";
   import Ring from "./Ring.svelte";
 
@@ -18,7 +18,7 @@
     effect: Effect;
     /** The ring as the satellite drew it (the virtual Echo Dot); `effect` still picks the halo. */
     frame?: Frame | null;
-    /** Rendered width in px; the flat Ring fallback takes the nearest ring size below. */
+    /** Width of the box in px, at the Dot's proportions; a taller model keeps its height and narrows. The flat Ring fallback takes the nearest ring size below. */
     width: number;
     label: string;
     /** Light the surface behind with the ring's colour. */
@@ -28,6 +28,7 @@
   // `npm run dev` against a PC's pinnad (model ""): draw the Dot, which is
   // what the dashboard is designed around.
   const drawing = $derived(drawingFor(model || (import.meta.env.DEV ? "echo-dot-2" : "")));
+  const drawn = $derived(drawing ? Math.min(width, Math.round((width / BOX_ASPECT) * drawing.aspect)) : width);
   const id = `dev${Math.random().toString(36).slice(2, 8)}`;
   // Built once per model; the effect below lights it.
   const svg = $derived(drawing?.svg(id) ?? "");
@@ -85,7 +86,7 @@
     bind:this={root}
     class="pn-drawing"
     class:has-halo={halo}
-    style:width="{width}px"
+    style:width="{drawn}px"
     role="img"
     aria-label="{drawing.name}. {label}"
   >

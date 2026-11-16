@@ -20,6 +20,9 @@ const DRAWINGS: Record<string, Drawing> = {
   "echo-2": { name: "Echo (2nd gen)", aspect: echo2.ASPECT, glow: echo2.GLOW, svg: echo2.svg },
 };
 
+/** Width over height of the box every drawing fits: the Dot's. A taller model keeps its height and narrows. */
+export const BOX_ASPECT = echoDot2.ASPECT;
+
 export function drawingFor(model: string): Drawing | undefined {
   return DRAWINGS[model];
 }
