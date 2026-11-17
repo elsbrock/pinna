@@ -9,9 +9,8 @@
 use jiff::civil::Date;
 use pinna_assist::config::Place;
 use pinna_http::{ClientKind, NetError, classify, reqwest};
-use pinna_mcp::{ToolOutput, ToolSpec};
+use pinna_mcp::ToolOutput;
 use serde::Deserialize;
-use serde_json::json;
 
 pub const NAME: &str = "weather";
 
@@ -64,15 +63,6 @@ impl OpenMeteo {
             http,
             forecast: forecast.into(),
             geocoding: geocoding.into(),
-        }
-    }
-
-    pub fn spec() -> ToolSpec {
-        ToolSpec {
-            name: NAME.into(),
-            description: "The weather now and for the next two days at the satellite's place."
-                .into(),
-            input_schema: json!({"type": "object", "properties": {}}),
         }
     }
 
@@ -459,7 +449,6 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn no_place_is_an_error_without_a_request() {
-        assert_eq!(OpenMeteo::spec().name, NAME);
         let server = FakeServer::start().await;
         let output = open_meteo(&server).forecast(None, Some("de")).await;
         assert!(output.is_error);

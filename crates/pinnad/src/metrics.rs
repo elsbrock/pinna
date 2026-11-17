@@ -233,6 +233,28 @@ impl Default for StandaloneCounters {
     }
 }
 
+#[cfg(test)]
+impl StandaloneCounters {
+    /// How often `guard` was counted.
+    pub fn guard_total(&self, guard: Guard) -> u64 {
+        self.guards
+            .get_or_create(&GuardKind {
+                guard: guard_label(guard),
+            })
+            .get()
+    }
+
+    /// How often a failure in `slot` for `reason` was counted.
+    pub fn failure_total(&self, slot: Slot, reason: pinna_assist::error::Reason) -> u64 {
+        self.errors
+            .get_or_create(&Failure {
+                slot: slot.label(),
+                reason: reason.label(),
+            })
+            .get()
+    }
+}
+
 fn guard_label(guard: Guard) -> &'static str {
     match guard {
         Guard::NoSpeech => "no_speech",

@@ -11,7 +11,7 @@ use pinna_assist::audio::MicInput;
 use pinna_assist::conversation::{Conversation, Turn};
 use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::limits::RunLimits;
-use pinna_assist::observe::Guard;
+use pinna_assist::observe::{Guard, Observer};
 use pinna_assist::presets::PresetId;
 use pinna_assist::reply::{
     AudioBody, AudioKind, ReplySink, ReplySource, SpeechAudio, reply_channel,
@@ -303,20 +303,20 @@ impl Brain {
             return;
         };
         let step = step(self.phase, &current.kind, &ev, now);
-        if current.kind == RunKind::FollowUp
+        let follow_up_heard = current.kind == RunKind::FollowUp
             && matches!(ev, RunEvent::SpeechEnded)
-            && matches!(step.phase, Phase::Thinking(_))
-        {
-            // A follow-up counts as a run once it hears speech.
-            self.shared.counters.runs.inc();
-            local_guard(Guard::FollowUp);
-        }
+            && matches!(step.phase, Phase::Thinking(_));
         if let RunEvent::Done { turn, spoke } = ev {
             current.done = true;
             current.spoke = spoke;
             if let Some(turn) = turn {
                 self.local.conversation.push(turn, now);
             }
+        }
+        if follow_up_heard {
+            // A follow-up counts as a run once it hears speech.
+            self.shared.counters.runs.inc();
+            self.count_guard(Guard::FollowUp);
         }
         if let Some(current) = self.local.run.as_mut() {
             let limits = current.limits;
@@ -337,7 +337,8 @@ impl Brain {
                 Effect::StartPlayer => self.start_reply_player(),
                 Effect::Finish => self.finish_local().await,
                 Effect::Fail(error) => self.fail_local(error).await,
-                Effect::Guard(guard) => local_guard(guard),
+                // The run counted it through its observer.
+                Effect::Guard(guard) => tracing::debug!("standalone guard: {guard:?}"),
             }
         }
         match &self.local.run {
@@ -371,7 +372,7 @@ impl Brain {
             run.id.0
         );
         let preset = self.slot_preset(slot);
-        self.fail_local(ProviderError::new(slot, preset, Reason::Timeout))
+        self.fail_from_brain(ProviderError::new(slot, preset, Reason::Timeout))
             .await;
     }
 
@@ -390,8 +391,15 @@ impl Brain {
             .map_or(PresetId::Custom, |p| p.presets[index])
     }
 
+    /// A failure only the Brain saw: a passed deadline or a reply that didn't
+    /// play. The run never reported it, so it is counted here.
+    async fn fail_from_brain(&mut self, error: ProviderError) {
+        self.shared.counters.standalone.failed(&error);
+        self.fail_local(error).await;
+    }
+
     /// End the run with its failure: stop it and everything it plays, then
-    /// tell the owner.
+    /// tell the owner. A failure the run reported was counted by the run.
     pub(super) async fn fail_local(&mut self, error: ProviderError) {
         self.cancel_local();
         self.stop_playback();
@@ -420,6 +428,13 @@ impl Brain {
             }
             cmd => self.api(cmd).await,
         }
+    }
+
+    /// Count a guard only the Brain sees: a follow-up that heard speech, or a
+    /// run the wake word or the button stopped. The run counts its own.
+    pub(super) fn count_guard(&self, guard: Guard) {
+        tracing::debug!("standalone guard: {guard:?}");
+        self.shared.counters.standalone.guard(guard);
     }
 
     /// The run is gone: mute the microphone if it asked to.
@@ -466,7 +481,7 @@ impl Brain {
             self.finish_local().await;
         } else if !ok {
             let preset = self.slot_preset(Slot::Tts);
-            self.fail_local(ProviderError::new(Slot::Tts, preset, Reason::Protocol))
+            self.fail_from_brain(ProviderError::new(Slot::Tts, preset, Reason::Protocol))
                 .await;
         }
     }
@@ -633,11 +648,6 @@ fn open_reply_item(
     }
 }
 
-/// A standalone guard fired: no speech, an invented transcript, and so on.
-fn local_guard(guard: Guard) {
-    tracing::debug!("standalone guard: {guard:?}");
-}
-
 #[derive(Clone, Debug, PartialEq)]
 enum Effect {
     CloseMic,
@@ -742,15 +752,16 @@ pub(crate) trait RunSpawner: Send + Sync {
     fn spawn(&self, start: LocalStart) -> JoinHandle<()>;
 }
 
+#[cfg(test)]
 pub(crate) struct NoopSpawner;
 
+#[cfg(test)]
 impl RunSpawner for NoopSpawner {
     fn spawn(&self, _start: LocalStart) -> JoinHandle<()> {
         tokio::spawn(std::future::pending())
     }
 }
 
-#[allow(dead_code)]
 pub(crate) struct LocalStart {
     pub run: RunId,
     pub kind: RunKind,
@@ -2036,6 +2047,14 @@ mod tests {
             .await;
         assert!(matches!(device.brain.phase, Phase::Thinking(_)));
         assert_eq!(device.shared.counters.runs.get(), 2);
+        assert_eq!(
+            device
+                .shared
+                .counters
+                .standalone
+                .guard_total(Guard::FollowUp),
+            1
+        );
     }
 
     #[tokio::test]
@@ -2169,5 +2188,41 @@ mod tests {
         // The next request is refused: the microphone is muted.
         device.brain.start_local_run(RunKind::Request, None).await;
         assert_eq!(device.spawner.count(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_brain_counts_only_what_the_run_cannot_see() {
+        let mut device = TestDevice::ready();
+        // The run reports these through its observer itself.
+        let run = device.request().await.start.run;
+        device
+            .assist(run, RunEvent::NoSpeech { invented: false })
+            .await;
+        let run = device.request().await.start.run;
+        device.assist(run, RunEvent::Failed(failure())).await;
+        let counted = device.shared.counters.standalone.clone();
+        assert_eq!(counted.guard_total(Guard::NoSpeech), 0);
+        assert_eq!(counted.failure_total(Slot::Chat, Reason::Timeout), 0);
+
+        // Only the Brain sees a stop by the button or the wake word, and a
+        // passed deadline.
+        device.request().await;
+        device
+            .brain
+            .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+            .await;
+        device.request().await;
+        // The detector runs once the run stops listening.
+        device.brain.phase = Phase::Thinking(Instant::now());
+        device.wake().await;
+        assert!(matches!(device.brain.phase, Phase::Listening(_)));
+        device
+            .brain
+            .tick_local(Instant::now() + Duration::from_secs(60))
+            .await;
+
+        assert_eq!(counted.guard_total(Guard::StoppedByButton), 1);
+        assert_eq!(counted.guard_total(Guard::StoppedByWake), 1);
+        assert_eq!(counted.failure_total(Slot::Stt, Reason::Timeout), 1);
     }
 }

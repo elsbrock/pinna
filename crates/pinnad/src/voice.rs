@@ -29,7 +29,10 @@ use crate::leds::{self, LedState, LightEffect};
 use crate::settings::{FILE_MODE, Mode, Settings};
 use crate::store::Store;
 use crate::wakewords::{Catalogue, KeywordSet};
-pub(crate) use local::{LocalOptions, NoopSpawner};
+#[cfg(test)]
+pub(crate) use local::NoopSpawner;
+pub(crate) use local::{DeviceFacts, LocalOptions, LocalStart, RunSpawner};
+pub(crate) use timers::clock_synced;
 use timers::{Origin, Timer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,12 +94,10 @@ pub enum Input {
     /// The media lane changed state (playing, paused, ended, failed).
     Media(MediaState),
     Api(ApiCommand),
-    #[allow(dead_code)]
     Assist {
         run: RunId,
         ev: pinna_assist::run::RunEvent,
     },
-    #[allow(dead_code)]
     RunTool {
         run: RunId,
         cmd: ApiCommand,
@@ -134,16 +135,13 @@ pub enum ApiCommand {
     /// Already checked: http(s), not too long.
     PlayMedia(String, ApiReply),
     /// Reply once audio is decoding, or with the reason it failed.
-    #[allow(dead_code)]
     PlayMediaChecked(String, oneshot::Sender<Result<(), String>>),
-    #[allow(dead_code)]
     SetTimer {
         name: Option<String>,
         seconds: u32,
         reply: oneshot::Sender<Result<String, String>>,
     },
     /// A timer id, or its name when the id is unknown.
-    #[allow(dead_code)]
     CancelTimer(String, ApiReply),
 }
 
@@ -837,6 +835,9 @@ impl Brain {
                             "request"
                         };
                         tracing::info!("{what} interrupted by the wake word");
+                        if self.local.run.is_some() {
+                            self.count_guard(pinna_assist::observe::Guard::StoppedByWake);
+                        }
                         self.interrupt().await;
                     }
                     if self.ringing.is_some() {
@@ -2020,6 +2021,9 @@ impl Brain {
                     self.end_calibration().await;
                 } else if self.phase != Phase::Idle {
                     tracing::info!("run cancelled by button");
+                    if self.local.run.is_some() {
+                        self.count_guard(pinna_assist::observe::Guard::StoppedByButton);
+                    }
                     self.abort_run(true).await;
                 } else if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) {
                     // The ring shows it speaking: stop it, as for a reply.

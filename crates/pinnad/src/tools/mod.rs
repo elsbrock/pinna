@@ -4,9 +4,6 @@
 //! arguments. The owner switches tools off per name in standalone.toml; a
 //! tool that is off is left out of the list and refused when called anyway.
 
-// The run spawner (T55) and the `/mcp` handler (T67) build `DeviceTools`.
-#![cfg_attr(not(test), allow(dead_code))]
-
 mod device;
 pub mod weather;
 
@@ -35,6 +32,8 @@ pub enum Surface {
     /// The brain's tool loop in a standalone run.
     Brain,
     /// Pinna's MCP server.
+    // The `/mcp` handler (T67) offers this surface.
+    #[allow(dead_code)]
     Mcp,
 }
 
@@ -45,6 +44,8 @@ pub enum Caller {
     /// is current.
     Run(RunId),
     /// An MCP client.
+    // The `/mcp` handler (T67) calls as one.
+    #[allow(dead_code)]
     Mcp,
 }
 

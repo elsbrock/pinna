@@ -143,7 +143,7 @@ impl TimerStore {
     }
 }
 
-pub(super) fn clock_synced() -> bool {
+pub(crate) fn clock_synced() -> bool {
     Path::new(CLOCK_SYNCED).exists()
 }
 

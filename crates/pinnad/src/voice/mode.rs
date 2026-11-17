@@ -3,7 +3,7 @@
 
 use std::time::{Instant, SystemTime};
 
-use pinna_esphome::{DeviceEvent, HaCommand, VOICE_FEATURE_FLAGS};
+use pinna_esphome::{DeviceEvent, HaCommand};
 
 use super::{Brain, Phase, timers};
 use crate::settings::Mode;
@@ -38,11 +38,8 @@ impl Brain {
         self.continue_conversation = false;
         self.stale_run = false;
         self.settings.mode = new;
-        let flags = match new {
-            Mode::HomeAssistant => VOICE_FEATURE_FLAGS,
-            Mode::Standalone => 0,
-        };
-        self.send(DeviceEvent::VoiceFeatureFlags(flags)).await;
+        self.send(DeviceEvent::VoiceFeatureFlags(new.voice_feature_flags()))
+            .await;
         self.reconnect_for_mode = self.clients > 0;
         self.refresh();
         Ok(())
@@ -80,7 +77,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use pinna_audio::{MediaPhase, MediaState};
-    use pinna_esphome::{EsphomeHandle, TimerEventType, VoiceEventType};
+    use pinna_esphome::{EsphomeHandle, TimerEventType, VOICE_FEATURE_FLAGS, VoiceEventType};
     use tokio::sync::{mpsc, oneshot, watch};
 
     use super::*;

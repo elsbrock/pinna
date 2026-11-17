@@ -5,7 +5,8 @@
 //! newer image never resets the rest. Saving converts back to the file form and
 //! writes it atomically, owner-only, through [`write_durable`].
 
-// The service wires these in a later change; the codec stands on its own here.
+// The service saves on an owner's edit, which the AssistantService handlers
+// (T57) make.
 #![cfg_attr(not(test), allow(dead_code))]
 
 use std::io;

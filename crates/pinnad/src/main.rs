@@ -48,7 +48,9 @@ use tokio::sync::{mpsc, watch};
 use crate::config::Config;
 use crate::leds::LedState;
 use crate::mic::MicRouter;
-use crate::voice::{Brain, Input, LocalOptions, NoopSpawner, Options, Shared, Snapshot};
+use crate::standalone::service::{Paths, Service};
+use crate::standalone::spawn::ProdSpawner;
+use crate::voice::{Brain, Input, LocalOptions, Options, Shared, Snapshot};
 use crate::wakewords::{Catalogue, KeywordSet};
 
 #[derive(Parser)]
@@ -472,6 +474,8 @@ async fn main() -> Result<()> {
         .parse::<std::net::SocketAddr>()
         .map_or(0, |a| a.port());
     dc.dashboard_url.clone_from(&initial.url);
+    // Standalone mode offers Home Assistant no voice assistant (ADR 0017).
+    dc.voice_feature_flags = initial.mode.voice_feature_flags();
     // Wake words (ADR 0013): those installed, and the ones chosen last.
     let catalogue = Arc::new(Catalogue::new(&cfg.wake));
     let active_wake = catalogue.sanitize(
@@ -597,7 +601,9 @@ async fn main() -> Result<()> {
     // the stage helper keeps drawing the boot stages (ADR 0012).
 
     let shared = Arc::new(Shared::default());
-    let (_live_tx, live) = watch::channel(Arc::new(standalone::AssistLive::empty()));
+    let (status_tx, status_rx) = watch::channel(Snapshot::default());
+    // The standalone configuration (ADR 0017): its files sit beside settings.toml.
+    let assistant = Service::load(Paths::beside(&cli.settings), status_rx.clone());
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);
 
     // Microphone + wake word. Words chosen later reach the detector here.
@@ -743,7 +749,6 @@ async fn main() -> Result<()> {
     tokio::spawn(satellites::run(dc_mac.clone(), satellites_tx));
 
     // Local control API.
-    let (status_tx, status_rx) = watch::channel(Snapshot::default());
     let device_api = api::DeviceApi::with_updater(
         api::Info {
             version: booted_version,
@@ -759,7 +764,7 @@ async fn main() -> Result<()> {
             key_from_image: !cfg.esphome.encryption_key.trim().is_empty()
                 || std::path::Path::new("/usr/share/pinna/device/esphome-key").exists(),
         },
-        status_rx,
+        status_rx.clone(),
         in_tx.clone(),
         updater.clone(),
     );
@@ -801,6 +806,11 @@ async fn main() -> Result<()> {
     let airplay = speaker.is_some() && !cfg.audio.stream_socket.as_os_str().is_empty();
     // Bluetooth needs the same, and a controller.
     let bluetooth = airplay && bluetooth::present();
+    let spawner = ProdSpawner::new(
+        in_tx.clone(),
+        status_rx,
+        Arc::new(shared.counters.standalone.clone()),
+    );
     let brain = Brain::new_with_local(
         esp,
         speaker,
@@ -824,8 +834,8 @@ async fn main() -> Result<()> {
             updates: Some(updater),
         },
         LocalOptions {
-            live,
-            spawner: Arc::new(NoopSpawner),
+            live: assistant.live(),
+            spawner: Arc::new(spawner),
             timers_file: cli.settings.with_file_name("timers.toml"),
         },
     );

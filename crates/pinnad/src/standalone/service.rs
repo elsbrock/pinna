@@ -5,7 +5,8 @@
 //! compare-and-set on the connection revision. Commits are serialised, written
 //! off the runtime, and each one publishes a new [`AssistLive`] for the Brain.
 
-// main.rs (T55) and the AssistantService handlers (T57) wire the service in.
+// main.rs loads the service and reads `live`; the AssistantService handlers
+// (T57) call the rest.
 #![cfg_attr(not(test), allow(dead_code))]
 
 use std::collections::{BTreeMap, VecDeque};

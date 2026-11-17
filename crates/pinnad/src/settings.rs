@@ -16,6 +16,15 @@ impl Mode {
     pub fn is_home_assistant(&self) -> bool {
         *self == Self::HomeAssistant
     }
+
+    /// The voice features the ESPHome device info advertises: none in
+    /// standalone mode, so Home Assistant offers no Assist satellite.
+    pub fn voice_feature_flags(self) -> u32 {
+        match self {
+            Self::HomeAssistant => pinna_esphome::VOICE_FEATURE_FLAGS,
+            Self::Standalone => 0,
+        }
+    }
 }
 
 fn lenient_mode<'de, D>(deserializer: D) -> Result<Mode, D::Error>

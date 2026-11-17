@@ -4,9 +4,6 @@
 //! tzdb; `libc::localtime_r` is not used because musl caches `/etc/localtime`,
 //! which pinnad repoints at runtime.
 
-// The time tool and the request context are wired later.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::time::SystemTime;
 
 use jiff::Timestamp;
