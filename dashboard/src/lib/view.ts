@@ -499,6 +499,30 @@ export function routeOf(hash: string): Path | null {
   return MOVED[p] ?? null;
 }
 
+/** pinna.v1.ReleaseAction values: what Install does with the release a check found (ADR 0022). */
+export const ACTION = { install: 1, upToDate: 2, older: 3, start: 4, restart: 5, failed: 6, blocked: 7 } as const;
+
+/** pinna.v1.UpdateChannel values, by the setting's names. */
+export const CHANNEL = { stable: 1, beta: 2, off: 3 } as const;
+export type ChannelName = keyof typeof CHANNEL;
+
+/** The channel's name for a pinna.v1.UpdateChannel value. */
+export function channelName(value: number | undefined): ChannelName {
+  return (Object.keys(CHANNEL) as ChannelName[]).find((k) => CHANNEL[k] === value) ?? "off";
+}
+
+type CheckLike = { checking: boolean; finishedUnixMs: bigint; error: string; noRelease: boolean };
+
+/** Where the update checks stand, in one sentence. */
+export function checkStatus(check: CheckLike | undefined, off: boolean, now: Date): string {
+  if (off) return "Off: the satellite doesn't look for releases.";
+  if (check?.checking) return "Checking…";
+  if (!check || check.finishedUnixMs === 0n) return "Not checked yet since the satellite started.";
+  const at = new Date(Number(check.finishedUnixMs));
+  const day = at.toDateString() === now.toDateString() ? "at" : at.toLocaleDateString("en", { weekday: "short" });
+  return `Checked ${day} ${hhmm(at)}.`;
+}
+
 /** pinna.v1.InstallStage values (a generated TS enum, which `node --test` cannot load). */
 export const STAGE = { check: 1, download: 2, write: 3, verify: 4, installed: 5 } as const;
 

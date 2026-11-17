@@ -1,6 +1,7 @@
-<!-- The A/B slots and installing an update: Software, then Install an update.
-     pinnad runs the install, so it survives a closed tab; this page follows it
-     with WatchInstall and shows its stages as steps. -->
+<!-- Updates: the update channel and the release its check found (ADR 0022),
+     the A/B slots, and installing. pinnad runs the install, so it survives a
+     closed tab; this page follows it with WatchInstall and shows its stages as
+     steps. A manifest URL is the way for satellites without internet access. -->
 <script lang="ts">
   import { ConnectError } from "@connectrpc/connect";
   import { tick } from "svelte";
@@ -11,8 +12,14 @@
   import External from "./External.svelte";
   import Group from "./Group.svelte";
   import Icon from "./Icon.svelte";
+  import Select from "./Select.svelte";
   import { toasts } from "./toast.svelte.ts";
   import {
+    ACTION,
+    CHANNEL,
+    type ChannelName,
+    channelName,
+    checkStatus,
     DOCS,
     downloadProgress,
     installSteps,
@@ -27,6 +34,8 @@
 
   let u = $state<GetUpdatesResponse | null>(null);
   let error = $state<string | null>(null);
+  // Someone installed from a manifest URL here before: keep that way open.
+  const usedManifest = read() !== "";
   let manifest = $state(read());
   let urlError = $state<string | null>(null);
   let lines = $state<string[]>([]);
@@ -38,6 +47,9 @@
   let confirmingSwitch = $state(false);
   let switchError = $state<string | null>(null);
   let keeping = $state(false);
+  let checking = $state(false);
+  let checkError = $state<string | null>(null);
+  let confirmingOlder = $state(false);
   let switchButton = $state<HTMLButtonElement>();
   let watching: AbortController | null = null;
   // The install whose output is on screen, by when it finished.
@@ -94,6 +106,52 @@
     watching = null;
     // After a live install, read the slots once to show what changed.
     if (live && !abort.signal.aborted) void refresh();
+  }
+
+  // The release the last check found, by the version this page shows (ADR 0022).
+  async function installRelease(older = false) {
+    const r = u?.release;
+    if (!r) return;
+    starting = true;
+    lines = [];
+    stage = 0;
+    progress = null;
+    result = null;
+    error = null;
+    try {
+      await client.installUpdate({ version: r.version, older });
+      await refresh();
+      if (r.action === ACTION.start) toasts.show(`${r.version} starts on the next restart.`, "ok");
+    } catch (e) {
+      error = ConnectError.from(e).rawMessage;
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function checkNow() {
+    checking = true;
+    checkError = null;
+    try {
+      // pinnad answers when the check has finished.
+      await client.checkForUpdates({}, { timeoutMs: 200_000 });
+    } catch (e) {
+      checkError = ConnectError.from(e).rawMessage;
+    } finally {
+      checking = false;
+      await refresh();
+    }
+  }
+
+  async function setChannel(id: string) {
+    const name = id as ChannelName;
+    const failed = await device.saveSettings(
+      { updateChannel: CHANNEL[name] },
+      name === "off" ? "Updates off" : `Updates from ${name}`,
+    );
+    if (failed) toasts.show(failed, "danger");
+    // A new channel is checked at once.
+    else await refresh();
   }
 
   async function install() {
@@ -169,6 +227,12 @@
       watching?.abort();
     };
   });
+  // While pinnad checks on its own (a new channel), look again soon.
+  $effect(() => {
+    if (!u?.check?.checking) return;
+    const timer = setTimeout(() => void refresh(), 2_000);
+    return () => clearTimeout(timer);
+  });
   let wasLive = device.link === "live";
   $effect(() => {
     const live = device.link === "live";
@@ -187,6 +251,18 @@
   const running = $derived(phase === "installing" || starting);
   const steps = $derived(installSteps(stage, result));
   const ucfirst = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const channel = $derived(channelName(device.status?.settings?.updateChannel));
+  const off = $derived(!u?.manifestOverride && channel === "off");
+  const release = $derived(u?.release);
+  // Going back: start the other slot when it holds that version, else install it.
+  const olderInSlot = $derived(
+    release && other?.version === release.version && other.state !== "unbootable" ? other : undefined,
+  );
+  const CHANNELS = [
+    { id: "stable", label: "Stable" },
+    { id: "beta", label: "Beta" },
+    { id: "off", label: "Off" },
+  ];
 </script>
 
 {#snippet pendingActions()}
@@ -216,6 +292,155 @@
     </div>
   </Group>
 {:else}
+  <Group title="Updates">
+    {#if u.manifestOverride}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label">Updates</span>
+          <span class="pn-row-hint">
+            From <code class="pn-code">[update] manifest</code> in pinnad.toml, instead of a channel.
+          </span>
+        </div>
+        <span class="pn-row-value is-mono url">{u.manifestOverride}</span>
+      </div>
+    {:else}
+      <Select
+        id="update-channel"
+        label="Updates"
+        hint={u.developmentBuild
+          ? "This development build installs only images signed with your own key, so it starts with updates off."
+          : "Stable has finished releases. Beta also has releases before they are finished. The satellite checks updates.getpinna.dev once a day and installs nothing without you."}
+        value={channel}
+        options={CHANNELS}
+        disabled={!live || device.busy}
+        choose={setChannel}
+      />
+    {/if}
+    <div class="pn-row">
+      <div class="pn-row-text">
+        <span class="pn-row-label">Check for updates</span>
+        <span class="pn-row-hint">{checkStatus(u.check, off, new Date(device.now))}</span>
+      </div>
+      <button
+        class="pn-btn"
+        disabled={!live || off || checking || !!u.check?.checking || running}
+        onclick={checkNow}
+      >
+        <Icon name="restart" />{checking || u.check?.checking ? "Checking…" : "Check now"}
+      </button>
+    </div>
+    {#if (checkError || u.check?.error) && !off}
+      <div class="pn-row">
+        <p class="pn-field-error" role="alert"><Icon name="alert" />{checkError ?? u.check?.error}</p>
+      </div>
+    {/if}
+
+    {#if release && !off && release.action !== ACTION.restart}
+      <div class="pn-row is-stack">
+        <div class="release">
+          <div class="pn-row-text">
+            <span class="pn-row-label">
+              {#if release.action === ACTION.upToDate}
+                Up to date
+              {:else if release.action === ACTION.failed}
+                Pinna {release.version} failed to start
+              {:else}
+                Pinna {release.version}{release.channel === "beta" ? " (beta)" : ""}
+              {/if}
+            </span>
+            {#if release.action === ACTION.upToDate}
+              <span class="pn-row-hint">Pinna {release.version} is the newest release on {u.manifestOverride ? "that address" : channel}.</span>
+            {:else if release.action === ACTION.failed}
+              <span class="pn-row-hint is-danger">
+                {release.note} The satellite runs {u.bootedVersion}. A newer release is offered when there is one.
+              </span>
+            {:else if release.action === ACTION.older}
+              <span class="pn-row-hint">
+                Older than the running {u.bootedVersion}. The satellite never goes back on its own; you can.
+              </span>
+            {:else if release.summary}
+              <span class="pn-row-hint">{release.summary}</span>
+            {/if}
+            {#if release.notesUrl && release.action !== ACTION.upToDate}
+              <span class="pn-row-hint"><External href={release.notesUrl}>Release notes</External></span>
+            {/if}
+          </div>
+          {#if release.action === ACTION.install}
+            <button class="pn-btn pn-btn-primary" disabled={!live || running || device.busy} onclick={() => installRelease()}>
+              <Icon name="download" />Install
+            </button>
+          {:else if release.action === ACTION.start}
+            <button class="pn-btn pn-btn-primary" disabled={!live || running || device.busy} onclick={() => installRelease()}>
+              Start it
+            </button>
+          {:else if release.action === ACTION.older && phase === "ready"}
+            <button
+              class="pn-btn"
+              disabled={!live || running || device.busy}
+              onclick={() => {
+                switchError = null;
+                if (olderInSlot) confirmingSwitch = true;
+                else confirmingOlder = true;
+              }}
+            >
+              {olderInSlot ? `Start ${release.version}…` : `Install ${release.version} (older)…`}
+            </button>
+          {/if}
+        </div>
+        {#if release.action === ACTION.blocked}
+          <p class="pn-field-hint is-caution"><Icon name="alert" />{release.note}</p>
+        {:else if release.action === ACTION.install}
+          <p class="pn-field-hint">
+            Installs into slot {target?.name.toUpperCase() ?? "?"} and starts after a restart. {u.bootedVersion} stays in
+            slot {booted?.name.toUpperCase()}, and the satellite goes back to it if the new version doesn't come up.
+          </p>
+        {:else if release.action === ACTION.start}
+          <p class="pn-field-hint">
+            It is in slot {target?.name.toUpperCase() ?? "?"} already, from an update you held back. It starts on the next
+            restart.
+          </p>
+        {/if}
+      </div>
+    {:else if u.check?.noRelease && !off}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label">No release yet</span>
+          <span class="pn-row-hint">There is no release on {channel} yet.</span>
+        </div>
+      </div>
+    {/if}
+  </Group>
+
+  {#if u.developmentOverlay}
+    <div class="pn-notice" data-tone="caution" role="status">
+      <Icon name="alert" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">A development overlay is active</p>
+        <p>
+          <code class="pn-code">just push</code> put programs in /var/lib/extensions/pinna-dev. They would hide an
+          update's programs, so installing waits until they are gone. Remove them with
+          <code class="pn-code">scripts/push-dev.sh --remove</code>, on your computer.
+        </p>
+      </div>
+    </div>
+  {/if}
+
+  {#if release && release.action === ACTION.older && !olderInSlot}
+    <Confirm
+      bind:open={confirmingOlder}
+      title="Go back to {release.version}?"
+      action="Install {release.version}"
+      confirm={() => installRelease(true)}
+    >
+      <p>
+        The satellite installs {release.version} into slot {target?.name.toUpperCase() ?? "?"}, which replaces what is
+        there. It starts after a restart, and {u.bootedVersion} stays in slot {booted?.name.toUpperCase()} as the
+        fallback.
+      </p>
+      <p>Your settings stay. Settings that only {u.bootedVersion} knows come back when you update again.</p>
+    </Confirm>
+  {/if}
+
   <Group title="Software">
     {#each u.slots as s (s.name)}
       <div class="pn-row">
@@ -292,7 +517,7 @@
   {/if}
 
   {#if phase === "ready" || phase === "installing" || lines.length || result}
-    <Group title="Install an update">
+    <Group title={lines.length || result || running ? "Installing" : "Other releases"}>
       {#if lines.length || result || running}
         <ol class="pn-steps" aria-live="polite">
           {#each steps as step, i (step.label)}
@@ -335,6 +560,8 @@
       {/if}
 
       {#if !running && (phase === "ready" || (result && !result.ok))}
+        <details class="manual" open={usedManifest}>
+          <summary>Install from a manifest URL</summary>
         <form
           class="pn-row is-stack"
           onsubmit={(e) => {
@@ -370,12 +597,16 @@
             </div>
             {#if urlError}<span class="pn-field-error" role="alert"><Icon name="alert" />{urlError}</span>{/if}
             <span id="manifest-hint" class="pn-field-hint">
-              Installing writes slot {target?.name.toUpperCase() ?? "?"}; {u.bootedVersion} stays in slot
-              {booted?.name.toUpperCase()} as the fallback. Only images signed with your release key install. Serve a
-              release with <code class="pn-code">python3 -m http.server 8000 --directory build/release</code>.
+              For a satellite without internet access, or a build of your own. Copy a release folder to a computer on
+              your network and serve it, for example with
+              <code class="pn-code">python3 -m http.server 8000 --directory build/release</code> on that computer. The
+              satellite installs it when its signature checks out, an older version too. Installing writes slot
+              {target?.name.toUpperCase() ?? "?"}; {u.bootedVersion} stays in slot {booted?.name.toUpperCase()} as the
+              fallback.
             </span>
           </div>
         </form>
+        </details>
       {/if}
     </Group>
   {/if}
@@ -396,6 +627,28 @@
   .is-danger {
     color: var(--danger);
     font-weight: 650;
+  }
+  .release {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+  }
+  .url {
+    overflow-wrap: anywhere;
+    max-width: 50%;
+  }
+  .manual summary {
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--ink-muted);
+  }
+  .manual summary:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--focus);
   }
   .install {
     display: flex;

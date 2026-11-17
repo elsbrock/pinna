@@ -29,6 +29,8 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   bluetooth: false,
   timeZone: "UTC",
   listeningDirection: true,
+  // UPDATE_CHANNEL_STABLE
+  updateChannel: 1,
   ...over,
 });
 import {
@@ -584,4 +586,25 @@ test("a URL shows as its server and file, without the folders or the query", () 
   assert.equal(shortUrl("http://radio.example/"), "radio.example");
   assert.equal(shortUrl("http://radio.example/a/%E0%A4%A.mp3"), "radio.example/…/%E0%A4%A.mp3");
   assert.equal(shortUrl("not a url"), "not a url");
+});
+
+test("update checks in words", async () => {
+  const { checkStatus, channelName, CHANNEL } = await import("./view.ts");
+  const now = new Date(2026, 10, 17, 15, 0);
+  const check = (c: Partial<{ checking: boolean; finishedUnixMs: bigint; error: string; noRelease: boolean }>) => ({
+    checking: false,
+    finishedUnixMs: 0n,
+    error: "",
+    noRelease: false,
+    ...c,
+  });
+  assert.equal(checkStatus(check({}), true, now), "Off: the satellite doesn't look for releases.");
+  assert.equal(checkStatus(undefined, false, now), "Not checked yet since the satellite started.");
+  assert.equal(checkStatus(check({ checking: true }), false, now), "Checking…");
+  const at = BigInt(new Date(2026, 10, 17, 14, 2).getTime());
+  assert.equal(checkStatus(check({ finishedUnixMs: at }), false, now), "Checked at 14:02.");
+  const monday = BigInt(new Date(2026, 10, 16, 9, 5).getTime());
+  assert.equal(checkStatus(check({ finishedUnixMs: monday }), false, now), "Checked Mon 09:05.");
+  assert.equal(channelName(CHANNEL.beta), "beta");
+  assert.equal(channelName(0), "off");
 });
