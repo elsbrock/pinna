@@ -1,7 +1,8 @@
 # ADR 0004: The Echo Dot's microphone path runs in PipeWire; pinnad keeps the speaker
 
 Status: accepted (2026-11-15). Supersedes the "audio goes straight to ALSA" part
-of ADR 0002.
+of ADR 0002. Amended 2026-11-17: pinnad sets the microphone gain itself (AGC),
+after echo cancellation; until then the gain was fixed.
 
 ## Context
 
@@ -37,7 +38,7 @@ device monitors) at the microphone's native 16 kHz:
 ```
 dot_mics (hw:0,24, graph clock, IRQ mode)
   -> filter-chain: LADSPA pinna_beam (calibration, gain, beamformer) -> dot_beam (mono)
-  -> module-echo-cancel (WebRTC, mono) -> dot_mic_aec -> pinnad (wake word, Home Assistant)
+  -> module-echo-cancel (WebRTC, mono) -> dot_mic_aec -> pinnad (AGC, wake word, Home Assistant)
 pinnad -> dot_ref (16 kHz mono copy of everything it plays) = echo reference
 ```
 
@@ -70,6 +71,32 @@ aplay's underrun messages are logged as warnings.
   superdirective fixed-beam design, ported to Rust (within 1 LSB of the C on
   ≥ 99.9 % of samples) and loaded into
   PipeWire as a LADSPA plugin (`crates/pinna-ladspa`).
+- **Automatic gain after echo cancellation, in pinnad** (amended
+  2026-11-17): `pinna_audio::agc` sets the gain on pinnad's 20 ms frames
+  before the pre-roll, the wake word and the stream to Home Assistant, on
+  every backend. It tracks the noise floor (falls at once, rises 3 dB/s) and
+  the level of speech (frames 9 dB or more above the floor; without speech it
+  decays at 1 dB/s), and aims for the
+  lowest of: speech at −24 dBFS RMS, room noise at −65 dBFS, and +36 dB;
+  never below 0 dB. The gain rises at 3 dB/s and falls at 30 dB/s, ramped
+  across each frame, and drops within a frame so that peaks stay at or below
+  −1 dBFS (input already louder than that passes at 0 dB). It starts at the
+  old fixed gain (+12 dB on this graph, 0 dB elsewhere). `capture_gain_db` in
+  `pinnad.toml` replaces it with a fixed gain.
+  The noise ceiling sits below the wake word detector's energy VAD, which
+  needs more than about −58.5 dBFS whatever the noise (an absolute floor from
+  the previous firmware): lifted noise never opens it, so its
+  speech-over-noise rule decides. Measured (Echo (2nd gen), living room,
+  2026-11-17): the detector's scores don't depend on level (the
+  `alexa-twice` fixture scores 0.997–1.000 from 0 to −42 dB, nothing at
+  −45 dB, where it falls under that floor). With the old fixed gain, speech
+  from about 4 m reached the detector at speech-band peaks of −35 to −53 dB,
+  close to the floor, and about 30 dB below speech from 0.5 m.
+  Rejected: WebRTC's own AGC in the echo canceller (`webrtc.gain_control`).
+  PipeWire 1.4.2 doesn't expose its settings, and on the same device it added
+  a constant +7 dB to near speech, far speech and room noise alike, with no
+  change over 115 s. A gain before the echo canceller (in `pinna_beam`) would
+  change the echo path the canceller adapts to.
 - **The speaker stays out of PipeWire**: full 48 kHz playback, and only
   pinnad's session starts and stops the PCM (and with it the amp) — no
   PipeWire graph restart can reach the speaker.
@@ -86,6 +113,11 @@ The hardware gate (`just test-device`) requires at least 20 dB.
   PipeWire socket is absent at startup. The choice is made once: a graph that
   fails later, or runs without `dot_mic_aec`, is not detected.
 - The first seconds of new audio are not fully cancelled while WebRTC adapts.
+- Leftover echo during replies and music counts as noise or speech for the
+  AGC and lowers the gain; it comes back at 1 dB/s afterwards if it counted
+  as speech, 3 dB/s if only as noise. The
+  hardware gate's echo measurement (`dot_beam` against `dot_mic_aec`) is
+  inside PipeWire and doesn't see the AGC.
 - Laptops keep using the plain `PipeWire` backend. The VM images ran without
   an audio backend at first; since ADR 0014 the virtual Echo Dot uses the
   plain `PipeWire` backend too, set in its `vm.toml`.
