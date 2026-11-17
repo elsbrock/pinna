@@ -6,9 +6,11 @@
 //! connection names. A failed save-time check or a run both use the same
 //! adapter, so the transcripts and errors are identical.
 
+mod elevenlabs;
 mod guard;
 mod openai;
 
+pub use elevenlabs::ElevenLabsStt;
 pub use guard::is_invented;
 pub use openai::OpenAiStt;
 
