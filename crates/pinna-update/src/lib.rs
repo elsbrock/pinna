@@ -251,10 +251,14 @@ impl fmt::Display for Blocked {
             Blocked::Model { model, models } => write!(
                 f,
                 "This release is for {}, not for {}.",
-                models.join(" and "),
+                models
+                    .iter()
+                    .map(|m| model_name(m))
+                    .collect::<Vec<_>>()
+                    .join(" and "),
                 model
                     .as_deref()
-                    .unwrap_or("this satellite's model, which is unknown")
+                    .map_or("this satellite's model, which is unknown", model_name)
             ),
             Blocked::Overlay(p) => write!(
                 f,
@@ -263,6 +267,15 @@ impl fmt::Display for Blocked {
                 p.display()
             ),
         }
+    }
+}
+
+/// A model id as owners know the device.
+fn model_name(id: &str) -> &str {
+    match id {
+        "echo-dot-2" => "the Echo Dot (2nd gen)",
+        "echo-2" => "the Echo (2nd gen)",
+        other => other,
     }
 }
 
@@ -304,8 +317,20 @@ pub fn open(url: &Url) -> Result<Box<dyn Read>> {
             let resp = client()?
                 .get(url.clone())
                 .send()
-                .with_context(|| format!("GET {url}"))?
-                .error_for_status()?;
+                .with_context(|| format!("GET {url}"))?;
+            let status = resp.status();
+            if !status.is_success() {
+                let file = url
+                    .path_segments()
+                    .and_then(|mut p| p.next_back())
+                    .unwrap_or("");
+                bail!(
+                    "{} answered {} for {file}. Check that the release folder holds all of the \
+                     release's files",
+                    url.host_str().unwrap_or("the server"),
+                    status.as_u16()
+                );
+            }
             Ok(Box::new(resp))
         }
         other => bail!("unsupported URL scheme {other:?} ({url})"),

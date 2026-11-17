@@ -603,7 +603,7 @@ fn a_release_for_another_model_is_refused() {
     assert_eq!(blocked.as_ref().map(Blocked::kind), Some("model"));
     assert_eq!(
         blocked.unwrap().to_string(),
-        "This release is for echo-2, not for echo-dot-2."
+        "This release is for the Echo (2nd gen), not for the Echo Dot (2nd gen)."
     );
     assert!(e.install(&path).is_err());
     e.opts.model = None;
