@@ -14,6 +14,7 @@ piece by piece; the speaker plays to nothing in real time.
 Run: just e2e   (needs `just models`)
 """
 
+import array
 import asyncio
 import functools
 import http.server
@@ -27,6 +28,7 @@ import subprocess
 import tempfile
 import threading
 import urllib.request
+import wave
 from pathlib import Path
 
 import pytest
@@ -55,8 +57,8 @@ def pinnad():
     yield from start_pinnad()
 
 
-def start_pinnad(settings: str | None = None, extra: str = ""):
-    """Run pinnad on the fixture; `settings` seeds its settings.toml, `extra`
+def start_pinnad(settings: str | None = None, extra: str = "", fixture: Path = FIXTURE):
+    """Run pinnad on `fixture`; `settings` seeds its settings.toml, `extra`
     adds to its pinnad.toml."""
     if not MODELS.exists():
         pytest.skip("wake word models missing (just models)")
@@ -72,7 +74,7 @@ def start_pinnad(settings: str | None = None, extra: str = ""):
 name = "pinna-e2e"
 friendly_name = "E2E"
 [audio]
-backend = "wav:{FIXTURE}"
+backend = "wav:{fixture}"
 [wake]
 models = "{MODELS}"
 [esphome]
@@ -171,6 +173,34 @@ def test_wake_word_drives_assist_run(pinnad):
     assert proc.poll() is None, "pinnad exited"
     assert len(starts) == 2
     assert audio >= 640 * 25
+
+
+def attenuate(src: Path, dst: Path, db: float):
+    with wave.open(str(src)) as w:
+        params = w.getparams()
+        samples = array.array("h", w.readframes(w.getnframes()))
+    g = 10 ** (db / 20)
+    quiet = array.array("h", (round(s * g) for s in samples))
+    with wave.open(str(dst), "wb") as w:
+        w.setparams(params)
+        w.writeframes(quiet.tobytes())
+
+
+@pytest.fixture
+def quiet_pinnad(tmp_path):
+    """The fixture 48 dB quieter, like a talker across a room: at a fixed gain
+    it stays under the wake word detector's absolute VAD floor (about
+    -58.5 dBFS) and never wakes it. The automatic gain (ADR 0004) lifts it."""
+    quiet = tmp_path / "alexa-twice-48db.wav"
+    attenuate(FIXTURE, quiet, -48.0)
+    yield from start_pinnad(fixture=quiet)
+
+
+def test_quiet_wake_word_drives_assist_run(quiet_pinnad):
+    port, proc, _ = quiet_pinnad
+    starts, _ = asyncio.run(run_flow(port))
+    assert proc.poll() is None, "pinnad exited"
+    assert [w for _, w in starts] == ["Alexa", "Alexa"]
 
 
 class GatedReply:

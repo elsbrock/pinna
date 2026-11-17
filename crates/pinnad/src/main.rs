@@ -33,7 +33,7 @@ use std::sync::atomic::Ordering;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
-use pinna_audio::{Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
+use pinna_audio::{Agc, Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle, WakeWordInfo};
 use pinna_hal::anim::Effect;
 use pinna_hal::led::{Is31Sysfs, LedHandle, MockLeds, RING_PIXELS, Rgb};
@@ -147,6 +147,33 @@ fn led_ring(cfg: &config::Leds) -> Result<Option<LedHandle>> {
     }
 }
 
+/// Gain on the captured stream before the wake word and Home Assistant:
+/// automatic (ADR 0004), or fixed when `capture_gain_db` is set.
+enum CaptureGain {
+    Auto {
+        agc: Agc,
+        /// Gain last logged, so that only changes of 3 dB or more are.
+        logged: f32,
+    },
+    Fixed(f32),
+}
+
+impl CaptureGain {
+    fn apply(&mut self, frame: &mut [i16]) {
+        match self {
+            CaptureGain::Auto { agc, logged } => {
+                agc.process(frame);
+                let g = agc.gain_db();
+                if (g - *logged).abs() >= 3.0 {
+                    tracing::debug!("capture gain {g:+.1} dB");
+                    *logged = g;
+                }
+            }
+            CaptureGain::Fixed(g) => apply_gain(frame, *g),
+        }
+    }
+}
+
 fn frame_bytes(frame: &[i16]) -> Bytes {
     let mut out = Vec::with_capacity(frame.len() * 2);
     for s in frame {
@@ -169,7 +196,7 @@ fn apply_gain(frame: &mut [i16], gain: f32) {
 
 async fn capture_loop(
     capture: CaptureConfig,
-    gain: f32,
+    mut gain: CaptureGain,
     mut detector: Option<pinna_wakeword::Detector>,
     mut keywords: mpsc::UnboundedReceiver<KeywordSet>,
     shared: Arc<Shared>,
@@ -206,7 +233,6 @@ async fn capture_loop(
                 d.set_keywords(set.keywords);
             }
         }
-        apply_gain(&mut frame, gain);
         if let Some(d) = detector.as_mut() {
             let t = f32::from_bits(shared.threshold.load(Ordering::Relaxed));
             if t > 0.0 && t != d.threshold() {
@@ -220,6 +246,7 @@ async fn capture_loop(
             }
             continue;
         }
+        gain.apply(&mut frame);
         let streaming = shared.streaming.load(Ordering::SeqCst);
         if streaming {
             if !was_streaming {
@@ -545,12 +572,25 @@ async fn main() -> Result<()> {
         } else {
             None
         };
-        let gain_db = cfg.audio.capture_gain_db.unwrap_or(match b {
-            Backend::EchoDotPipeWire => 12.0,
-            _ => 0.0,
-        });
-        tracing::info!("capture gain: {gain_db:+.1} dB");
-        let gain = 10f32.powf(gain_db / 20.0);
+        let gain = match cfg.audio.capture_gain_db {
+            Some(db) => {
+                tracing::info!("capture gain: fixed, {db:+.1} dB");
+                CaptureGain::Fixed(10f32.powf(db / 20.0))
+            }
+            None => {
+                // The echo canceller's output is far below what the wake
+                // word model expects; start where the fixed gain was.
+                let start = match b {
+                    Backend::EchoDotPipeWire => 12.0,
+                    _ => 0.0,
+                };
+                tracing::info!("capture gain: automatic, from {start:+.1} dB");
+                CaptureGain::Auto {
+                    agc: Agc::new(start),
+                    logged: start,
+                }
+            }
+        };
         let mut capture = CaptureConfig::new(b);
         capture.pw_target = cfg.audio.capture_target.clone();
         let (tx, rx) = mpsc::unbounded_channel();

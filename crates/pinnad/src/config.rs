@@ -42,9 +42,9 @@ pub struct Audio {
     pub speaker_profile: Option<String>,
     /// Play a short chime when the wake word is detected.
     pub wake_sound: bool,
-    /// Digital gain on the captured (mono) stream before the wake word and Home
-    /// Assistant, in dB. Unset: +12 dB on the Echo Dot's PipeWire graph (the echo
-    /// canceller's output is far below what the wake word model expects), 0 otherwise.
+    /// Fixed digital gain on the captured (mono) stream before the wake word and
+    /// Home Assistant, in dB. Unset: automatic gain (ADR 0004), starting at
+    /// +12 dB on the Echo Dot's PipeWire graph and 0 dB otherwise.
     pub capture_gain_db: Option<f32>,
     /// Unix socket for live PCM streams into the media lane (a header line
     /// `s16le <44100|48000> 2`, then stereo PCM; AirPlay/Bluetooth bridges,
