@@ -171,7 +171,6 @@ impl MicRouter {
         tap.report_shadow(self.shadow_report);
     }
 
-    #[allow(dead_code)]
     pub fn dropped(&self) -> u64 {
         self.dropped
     }

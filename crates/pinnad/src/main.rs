@@ -260,6 +260,7 @@ async fn capture_loop(
             energy => Some(energy),
         };
         let routed = router.route(frame_bytes(&frame), streaming, &shared.mic, noise_seed);
+        shared.counters.mic_dropped(router.dropped());
         if routed.end_home_assistant {
             let _ = esp.send(DeviceEvent::VoiceAudioEnd).await;
         }

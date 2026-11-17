@@ -3,13 +3,19 @@
 //!
 //! The host's numbers are read from /proc and /sys when scraped, named as
 //! node_exporter names them. pinnad's come from its status, from counters the
-//! brain keeps ([`Counters`]) and from its own process. A file that can't be
+//! brain keeps ([`Counters`]), from what standalone requests report
+//! ([`StandaloneCounters`]) and from its own process. A file that can't be
 //! read leaves its metrics out; the scrape still succeeds.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
+use pinna_assist::error::{ProviderError, Slot};
+use pinna_assist::observe::{Guard, Observer, Spend};
+use pinna_assist::presets::PresetId;
 use procfs::FromRead;
 use prometheus_client::collector::Collector;
 use prometheus_client::encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric};
@@ -23,12 +29,51 @@ use tokio::sync::watch;
 
 use crate::airplay::State;
 use crate::api::Info;
+use crate::settings::Mode;
 use crate::voice::Snapshot;
 
 pub use prometheus_client::encoding::prometheus_text::CONTENT_TYPE;
 
 /// Seconds from the end of speech to the reply's first audio.
 const FIRST_AUDIO_BUCKETS: [f64; 10] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 13.0];
+
+/// Seconds a standalone stage took. An agent may think for two minutes.
+const STAGE_BUCKETS: [f64; 12] = [
+    0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 20.0, 30.0, 60.0, 120.0,
+];
+
+/// The standalone slots in `AssistStatus::slots` order.
+const SLOTS: [Slot; 3] = [Slot::Stt, Slot::Chat, Slot::Tts];
+
+/// The device's own tools (ADR 0017). They, and the owner's MCP servers, are
+/// the only `tool` labels.
+const TOOLS: [&str; 22] = [
+    "set_volume",
+    "change_volume",
+    "set_reply_volume",
+    "ring_light",
+    "play_url",
+    "pause_media",
+    "resume_media",
+    "stop_media",
+    "play_station",
+    "list_stations",
+    "search_radio",
+    "set_notification",
+    "clear_notification",
+    "mute_microphone",
+    "set_timer",
+    "list_timers",
+    "cancel_timer",
+    "time",
+    "weather",
+    "cancel_request",
+    "speak",
+    "status",
+];
+
+/// The most owner MCP servers that become `tool` labels.
+const MAX_SERVERS: usize = 8;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct Word {
@@ -53,6 +98,40 @@ const ERROR_CODES: [&str; 8] = [
     "pipeline-not-found",
 ];
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct Failure {
+    slot: &'static str,
+    reason: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct Stage {
+    slot: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct Preset {
+    preset: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct Tokens {
+    preset: &'static str,
+    direction: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct GuardKind {
+    guard: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct ToolUse {
+    tool: Cow<'static, str>,
+    outcome: &'static str,
+    via: &'static str,
+}
+
 /// What the brain counts. Clones share the counts.
 #[derive(Clone, Debug)]
 pub struct Counters {
@@ -61,6 +140,20 @@ pub struct Counters {
     pub runs: Counter,
     errors: Family<Code, Counter>,
     pub first_audio: Histogram,
+    pub standalone: StandaloneCounters,
+    tool_calls: Family<ToolUse, Counter>,
+    mic_frames_dropped: Counter,
+}
+
+/// Who asked for a tool call.
+// DeviceTools (T61) is the first caller.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Via {
+    /// The brain's tool loop in a standalone request.
+    Brain,
+    /// A client of Pinna's MCP server.
+    Mcp,
 }
 
 impl Counters {
@@ -73,6 +166,33 @@ impl Counters {
             .unwrap_or("other");
         self.errors.get_or_create(&Code { code }).inc();
     }
+
+    /// A tool call ended. `tool` is the name as called; `servers` are the
+    /// owner's MCP servers, as configured.
+    // DeviceTools (T61) counts its calls here.
+    #[allow(dead_code)]
+    pub fn tool_call(&self, tool: &str, servers: &[&str], via: Via, ok: bool) {
+        self.tool_calls
+            .get_or_create(&ToolUse {
+                tool: tool_label(tool, servers),
+                outcome: if ok { "ok" } else { "error" },
+                via: match via {
+                    Via::Brain => "brain",
+                    Via::Mcp => "mcp",
+                },
+            })
+            .inc();
+    }
+
+    /// The capture loop's running total of microphone frames a standalone
+    /// request did not take in time. There is one capture loop, so the
+    /// counter itself holds the total already counted.
+    pub fn mic_dropped(&self, total: u64) {
+        let counted = self.mic_frames_dropped.get();
+        if total > counted {
+            self.mic_frames_dropped.inc_by(total - counted);
+        }
+    }
 }
 
 impl Default for Counters {
@@ -83,7 +203,120 @@ impl Default for Counters {
             runs: Counter::default(),
             errors: Family::default(),
             first_audio: Histogram::new(FIRST_AUDIO_BUCKETS),
+            standalone: StandaloneCounters::default(),
+            tool_calls: Family::default(),
+            mic_frames_dropped: Counter::default(),
         }
+    }
+}
+
+/// The `tool` label of a call: a device tool's own name, else the owner's
+/// MCP server whose `<server>_<tool>` namespace it is in, else `other`. A name
+/// the brain made up or an MCP client sent never becomes a label.
+fn tool_label(tool: &str, servers: &[&str]) -> Cow<'static, str> {
+    if let Some(own) = TOOLS.iter().find(|t| **t == tool) {
+        return Cow::Borrowed(own);
+    }
+    servers
+        .iter()
+        .take(MAX_SERVERS)
+        .filter(|server| !server.is_empty())
+        // Namespacing turns a server's hyphens into underscores.
+        .filter(|server| {
+            tool.strip_prefix(server.replace('-', "_").as_str())
+                .and_then(|rest| rest.strip_prefix('_'))
+                .is_some_and(|rest| !rest.is_empty())
+        })
+        // "home_lab_x" belongs to "home_lab" rather than "home".
+        .max_by_key(|server| server.len())
+        .map_or(Cow::Borrowed("other"), |server| {
+            Cow::Owned((*server).to_owned())
+        })
+}
+
+/// What standalone requests count (ADR 0017). Runs report through
+/// [`Observer`]; the brain counts its own guards and failures here as well.
+/// Clones share the counts.
+#[derive(Clone, Debug)]
+pub struct StandaloneCounters {
+    errors: Family<Failure, Counter>,
+    stages: Family<Stage, Histogram>,
+    audio: Family<Preset, Counter<f64, AtomicU64>>,
+    tokens: Family<Tokens, Counter>,
+    characters: Family<Preset, Counter>,
+    guards: Family<GuardKind, Counter>,
+}
+
+impl Default for StandaloneCounters {
+    fn default() -> Self {
+        Self {
+            errors: Family::default(),
+            stages: Family::new_with_constructor(|| Histogram::new(STAGE_BUCKETS)),
+            audio: Family::default(),
+            tokens: Family::default(),
+            characters: Family::default(),
+            guards: Family::default(),
+        }
+    }
+}
+
+fn guard_label(guard: Guard) -> &'static str {
+    match guard {
+        Guard::NoSpeech => "no_speech",
+        Guard::Invented => "invented",
+        Guard::FollowUp => "follow_up",
+        Guard::Ack => "ack",
+        Guard::StoppedByWake => "stopped_by_wake",
+        Guard::StoppedByButton => "stopped_by_button",
+    }
+}
+
+impl Observer for StandaloneCounters {
+    fn stage(&self, slot: Slot, seconds: f64) {
+        self.stages
+            .get_or_create(&Stage { slot: slot.label() })
+            .observe(seconds);
+    }
+
+    fn spent(&self, preset: PresetId, spend: Spend) {
+        let preset = preset.label();
+        match spend {
+            Spend::AudioSeconds(seconds) => {
+                // A float counter would go down on a negative value.
+                if seconds.is_finite() && seconds > 0.0 {
+                    self.audio
+                        .get_or_create(&Preset { preset })
+                        .inc_by(f64::from(seconds));
+                }
+            }
+            Spend::Tokens { input, output } => {
+                for (direction, n) in [("input", input), ("output", output)] {
+                    self.tokens
+                        .get_or_create(&Tokens { preset, direction })
+                        .inc_by(n);
+                }
+            }
+            Spend::Characters(n) => {
+                self.characters.get_or_create(&Preset { preset }).inc_by(n);
+            }
+        }
+    }
+
+    fn guard(&self, guard: Guard) {
+        self.guards
+            .get_or_create(&GuardKind {
+                guard: guard_label(guard),
+            })
+            .inc();
+    }
+
+    fn failed(&self, error: &ProviderError) {
+        self.errors
+            .get_or_create(&Failure {
+                slot: error.slot.label(),
+                reason: error.reason.label(),
+            })
+            .inc();
     }
 }
 
@@ -140,6 +373,47 @@ pub fn registry(
         "pinna_reply_first_audio_seconds",
         "Time from the end of speech to the reply's first audio",
         counters.first_audio.clone(),
+    );
+    let s = &counters.standalone;
+    r.register(
+        "pinna_standalone_errors",
+        "Standalone requests that failed, by slot and reason",
+        s.errors.clone(),
+    );
+    r.register(
+        "pinna_standalone_stage_seconds",
+        "Time a standalone stage took: speech-to-text, the brain's first text, text-to-speech's first audio",
+        s.stages.clone(),
+    );
+    r.register(
+        "pinna_standalone_audio_seconds",
+        "Seconds of speech sent to speech-to-text, by preset",
+        s.audio.clone(),
+    );
+    r.register(
+        "pinna_standalone_tokens",
+        "Tokens the brain read (input) and wrote (output), by preset",
+        s.tokens.clone(),
+    );
+    r.register(
+        "pinna_standalone_characters",
+        "Characters sent to text-to-speech, by preset",
+        s.characters.clone(),
+    );
+    r.register(
+        "pinna_standalone_guards",
+        "Times a standalone guard acted: no speech, an invented transcript, a follow-up, an acknowledgment, or a stop by the wake word or the button",
+        s.guards.clone(),
+    );
+    r.register(
+        "pinna_tool_calls",
+        "Tool calls from the brain or an MCP client, by tool and outcome",
+        counters.tool_calls.clone(),
+    );
+    r.register(
+        "pinna_mic_frames_dropped",
+        "Microphone frames a standalone request did not take in time",
+        counters.mic_frames_dropped.clone(),
     );
     r.register_collector(Box::new(Status {
         info,
@@ -293,6 +567,21 @@ impl Collector for Status {
             "pinna_voice_subscribed",
             "Home Assistant subscribed to the voice assistant.",
             one(flag(s.voice_subscribed)),
+        )?;
+        gauge(
+            &mut enc,
+            "pinna_standalone_mode",
+            "Pinna answers requests itself (standalone mode), not through Home Assistant.",
+            one(flag(s.mode == Mode::Standalone)),
+        )?;
+        gauge(
+            &mut enc,
+            "pinna_standalone_slot_ready",
+            "A standalone slot (speech-to-text, brain, text-to-speech) is set up and its check passed.",
+            SLOTS
+                .iter()
+                .zip(s.assist.slots)
+                .map(|(slot, ready)| (vec![("slot", slot.label())], flag(ready))),
         )?;
         gauge(
             &mut enc,
@@ -1136,5 +1425,243 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         // pinnad's own process.
         assert!(t.contains("\nprocess_resident_memory_bytes "), "{t}");
         assert!(t.contains("\nprocess_open_fds "), "{t}");
+    }
+
+    #[test]
+    fn standalone_families_render() {
+        use pinna_assist::error::Reason;
+
+        let dir = tempfile::tempdir().unwrap();
+        let c = Counters::default();
+        let o: &dyn Observer = &c.standalone;
+        o.failed(&ProviderError::new(
+            Slot::Chat,
+            PresetId::OpenRouter,
+            Reason::Http(402),
+        ));
+        o.failed(&ProviderError::new(
+            Slot::Stt,
+            PresetId::OpenAi,
+            Reason::Timeout,
+        ));
+        o.stage(Slot::Stt, 0.8);
+        o.stage(Slot::Chat, 1.5);
+        o.stage(Slot::Tts, 0.4);
+        o.spent(PresetId::OpenAi, Spend::AudioSeconds(2.5));
+        o.spent(PresetId::OpenAi, Spend::AudioSeconds(1.0));
+        o.spent(
+            PresetId::Anthropic,
+            Spend::Tokens {
+                input: 1200,
+                output: 80,
+            },
+        );
+        o.spent(PresetId::ElevenLabs, Spend::Characters(42));
+        for g in [
+            Guard::NoSpeech,
+            Guard::Invented,
+            Guard::FollowUp,
+            Guard::Ack,
+            Guard::StoppedByWake,
+            Guard::StoppedByButton,
+            Guard::Ack,
+        ] {
+            o.guard(g);
+        }
+        c.tool_call("set_volume", &[], Via::Brain, true);
+        c.tool_call("set_volume", &[], Via::Brain, true);
+        c.tool_call("play_url", &[], Via::Mcp, false);
+        c.mic_dropped(3);
+        let s = Snapshot {
+            mode: Mode::Standalone,
+            assist: crate::voice::AssistStatus {
+                slots: [true, false, true],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let t = scrape(s, &c, dir.path());
+
+        has(
+            &t,
+            "pinna_standalone_errors_total{slot=\"brain\",reason=\"http_402\"} 1",
+        );
+        has(
+            &t,
+            "pinna_standalone_errors_total{slot=\"stt\",reason=\"timeout\"} 1",
+        );
+        has(
+            &t,
+            "pinna_standalone_stage_seconds_bucket{slot=\"stt\",le=\"0.5\"} 0",
+        );
+        has(
+            &t,
+            "pinna_standalone_stage_seconds_bucket{slot=\"stt\",le=\"1\"} 1",
+        );
+        has(
+            &t,
+            "pinna_standalone_stage_seconds_bucket{slot=\"brain\",le=\"120\"} 1",
+        );
+        has(&t, "pinna_standalone_stage_seconds_count{slot=\"tts\"} 1");
+        has(
+            &t,
+            "pinna_standalone_audio_seconds_total{preset=\"openai\"} 3.5",
+        );
+        has(
+            &t,
+            "pinna_standalone_tokens_total{preset=\"anthropic\",direction=\"input\"} 1200",
+        );
+        has(
+            &t,
+            "pinna_standalone_tokens_total{preset=\"anthropic\",direction=\"output\"} 80",
+        );
+        has(
+            &t,
+            "pinna_standalone_characters_total{preset=\"elevenlabs\"} 42",
+        );
+        for guard in [
+            "no_speech",
+            "invented",
+            "follow_up",
+            "stopped_by_wake",
+            "stopped_by_button",
+        ] {
+            has(
+                &t,
+                &format!("pinna_standalone_guards_total{{guard=\"{guard}\"}} 1"),
+            );
+        }
+        has(&t, "pinna_standalone_guards_total{guard=\"ack\"} 2");
+        has(
+            &t,
+            "pinna_tool_calls_total{tool=\"set_volume\",outcome=\"ok\",via=\"brain\"} 2",
+        );
+        has(
+            &t,
+            "pinna_tool_calls_total{tool=\"play_url\",outcome=\"error\",via=\"mcp\"} 1",
+        );
+        has(&t, "pinna_mic_frames_dropped_total 3");
+        has(&t, "pinna_standalone_mode 1.0");
+        has(&t, "pinna_standalone_slot_ready{slot=\"stt\"} 1.0");
+        has(&t, "pinna_standalone_slot_ready{slot=\"brain\"} 0.0");
+        has(&t, "pinna_standalone_slot_ready{slot=\"tts\"} 1.0");
+        // Help text gets one full stop, from the encoder.
+        has(
+            &t,
+            "# HELP pinna_standalone_errors_total Standalone requests that failed, by slot and reason.",
+        );
+        has(&t, "# TYPE pinna_standalone_stage_seconds histogram");
+    }
+
+    #[test]
+    fn standalone_gauges_in_home_assistant_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = scrape(Snapshot::default(), &Counters::default(), dir.path());
+        has(&t, "pinna_standalone_mode 0.0");
+        for slot in ["stt", "brain", "tts"] {
+            has(
+                &t,
+                &format!("pinna_standalone_slot_ready{{slot=\"{slot}\"}} 0.0"),
+            );
+        }
+        // A family with nothing counted yet is left out.
+        assert!(!t.contains("pinna_standalone_errors"), "{t}");
+        assert!(!t.contains("pinna_tool_calls"), "{t}");
+        has(&t, "pinna_mic_frames_dropped_total 0");
+    }
+
+    #[test]
+    fn unknown_labels_become_custom_or_other() {
+        assert_eq!(tool_label("set_timer", &[]), "set_timer");
+        // A name a brain made up, or an MCP client sent.
+        for name in ["", "rm -rf /", "https://example.com/x", "SET_VOLUME"] {
+            assert_eq!(tool_label(name, &["home"]), "other", "{name:?}");
+        }
+        // An owner MCP server's tools count as the server.
+        assert_eq!(tool_label("home_lights_on", &["home"]), "home");
+        assert_eq!(tool_label("my_ha_lights_on", &["my-ha"]), "my-ha");
+        assert_eq!(
+            tool_label("home_lab_reboot", &["home", "home_lab"]),
+            "home_lab"
+        );
+        // A bare server prefix is no tool of that server.
+        assert_eq!(tool_label("home_", &["home"]), "other");
+        assert_eq!(tool_label("homework", &["home"]), "other");
+        // A device tool keeps its own name even if a server shares a prefix.
+        assert_eq!(tool_label("set_volume", &["set"]), "set_volume");
+        // Only the first eight servers become labels.
+        let servers = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
+        assert_eq!(tool_label("s8_x", &servers), "s8");
+        assert_eq!(tool_label("s9_x", &servers), "other");
+
+        let dir = tempfile::tempdir().unwrap();
+        let c = Counters::default();
+        c.tool_call("made up", &["home"], Via::Mcp, false);
+        // The owner's own URL is the Custom preset, so it never shows.
+        c.standalone.spent(PresetId::Custom, Spend::Characters(5));
+        let t = scrape(Snapshot::default(), &c, dir.path());
+        has(
+            &t,
+            "pinna_tool_calls_total{tool=\"other\",outcome=\"error\",via=\"mcp\"} 1",
+        );
+        assert!(!t.contains("made up"), "{t}");
+        has(&t, "pinna_standalone_characters_total{preset=\"custom\"} 5");
+    }
+
+    #[test]
+    fn audio_seconds_never_go_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = Counters::default();
+        for seconds in [1.5, -2.0, f32::NAN, f32::INFINITY, 0.0] {
+            c.standalone
+                .spent(PresetId::Groq, Spend::AudioSeconds(seconds));
+        }
+        let t = scrape(Snapshot::default(), &c, dir.path());
+        has(
+            &t,
+            "pinna_standalone_audio_seconds_total{preset=\"groq\"} 1.5",
+        );
+    }
+
+    #[test]
+    fn mic_drops_follow_the_capture_loops_total() {
+        let c = Counters::default();
+        c.mic_dropped(0);
+        assert_eq!(c.mic_frames_dropped.get(), 0);
+        c.mic_dropped(3);
+        c.mic_dropped(3);
+        assert_eq!(c.mic_frames_dropped.get(), 3);
+        c.mic_dropped(5);
+        assert_eq!(c.mic_frames_dropped.get(), 5);
+    }
+
+    #[test]
+    fn home_assistant_errors_render_as_before() {
+        use pinna_assist::error::Reason;
+
+        let dir = tempfile::tempdir().unwrap();
+        let c = Counters::default();
+        c.error("tts-failed");
+        c.error("tts-failed");
+        // Standalone failures have their own family.
+        c.standalone.failed(&ProviderError::new(
+            Slot::Tts,
+            PresetId::OpenAi,
+            Reason::Http(500),
+        ));
+        let t = scrape(Snapshot::default(), &c, dir.path());
+        let lines: Vec<&str> = t
+            .lines()
+            .filter(|l| l.contains("pinna_assist_errors"))
+            .collect();
+        // As rendered before standalone mode existed.
+        assert_eq!(
+            lines,
+            [
+                "# HELP pinna_assist_errors_total Assist runs that Home Assistant ended with an error, by its error code.",
+                "# TYPE pinna_assist_errors_total counter",
+                "pinna_assist_errors_total{code=\"tts-failed\"} 2",
+            ]
+        );
     }
 }
