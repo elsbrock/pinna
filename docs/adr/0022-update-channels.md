@@ -166,7 +166,8 @@ marked *default* are not confirmed by the owner yet.
 - Nothing else waits for the release service: the voice path, the health
   check and rescue mode never contact it.
 - The scheduled check carries the counts of ADR 0023, unless the owner turned
-  them off.
+  them off. Not built: it waits for ADR 0023, and until then a check carries
+  nothing but its request for the channel.
 
 ### Installing
 
@@ -187,8 +188,8 @@ marked *default* are not confirmed by the owner yet.
   version to be the release the check found: an install that stopped part
   way also leaves the slot unbootable, with the previous version still in
   it. A newer release is offered as usual.
-- Where Install would be refused (the boot level, the model, a `just push`
-  overlay, a running slot on trial), the entity's summary and the Updates
+- Where Install would be refused (the boot level, a `just push` overlay, a
+  running slot on trial), the entity's summary and the Updates
   page say why before anyone presses it. Home Assistant's Install sends a
   command that has no answer.
 - After an install started from Home Assistant, pinnad restarts the
@@ -271,13 +272,16 @@ download fails.
   into `requires.boot_level`. Both are constants in the source tree and
   start at 1. The updater refuses a release when the boot image that will
   start the target slot provides less: the release's own when the updater
-  writes it, else the one that stays in that slot's boot partition. The
+  writes it; the running one when the release has none and the updater
+  copies it; otherwise the kernel the bootloader will load for that slot,
+  which is `boot_a` while the slot keeps its kernel. The
   release is still shown, with the summary "Needs a new boot image: install
   it over USB", and Install is refused.
 - **Models.** `requires.models`, when present, lists the models a release is
   for, as `board_model()` names them: `echo-dot-2`, `echo-2`. Without it a
   release is for every model. The updater refuses a release for another
-  model, and the check doesn't offer it. A release that hurts one model can
+  model, and the check doesn't offer it: Home Assistant shows no update, and
+  the Updates page says the release is for another model. A release that hurts one model can
   then be replaced by one for the other model only; withdrawing it reaches
   every model.
 - The `boot` entry lets the installer check the boot image against a signed
@@ -338,8 +342,10 @@ download fails.
   it with one button. Nothing installs without them.
 - The project runs a Worker and keeps a Cloudflare account and the domain. If
   the Worker is down, satellites report a failed check and nothing else
-  changes. Once the repository is public, `pinnactl update` with a GitHub URL
-  works without the Worker.
+  changes. A GitHub download URL doesn't replace it: GitHub redirects its
+  downloads to storage addresses without the file names, so the signature
+  and the images can't be found next to the manifest. A copy of a release on
+  any other web server works, as `just release` output does.
 - The release key now signs manifests too. A leaked key is as bad as before.
 - Raising the boot level stops network updates for satellites whose
   bootloader keeps the slot's kernel and whose kernel is older, for that
