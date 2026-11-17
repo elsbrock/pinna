@@ -16,8 +16,10 @@ use pinna_http::reqwest;
 
 use crate::{error::ProviderError, reply::SpeechAudio};
 
+pub mod elevenlabs;
 pub mod openai;
 
+pub use elevenlabs::ElevenLabsTts;
 pub use openai::OpenAiTts;
 
 /// Synthesise one phrase into audio for the voice lane.
