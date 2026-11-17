@@ -28,6 +28,7 @@ use crate::speaker::Cmd;
 use crate::track::{self, IcyDemux, Track};
 use crate::{Error, Result};
 use bytes::Bytes;
+use pinna_http::{ClientKind, reqwest};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::net::Shutdown;
@@ -1018,14 +1019,8 @@ impl Shared {
     }
 
     fn client(&self) -> &reqwest::Client {
-        self.client.get_or_init(|| {
-            reqwest::Client::builder()
-                .user_agent("pinna")
-                .connect_timeout(Duration::from_secs(10))
-                .read_timeout(Duration::from_secs(20))
-                .build()
-                .expect("reqwest client")
-        })
+        self.client
+            .get_or_init(|| pinna_http::client(ClientKind::Media))
     }
 }
 
