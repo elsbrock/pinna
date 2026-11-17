@@ -30,7 +30,9 @@ function contentType(name: string) {
   return 'application/octet-stream';
 }
 
-export async function handle(request: Request, env: Env, deps: Deps = { fetch: globalThis.fetch, now: Date.now, withdrawn }) {
+// Workers' fetch must be called as a plain function: detached as `deps.fetch`
+// it throws "Illegal invocation". Node's doesn't, so the tests can't show it.
+export async function handle(request: Request, env: Env, deps: Deps = { fetch: (input, init) => fetch(input, init), now: Date.now, withdrawn }) {
   const { method } = request;
   const text = (status: number, message: string, headers = {}) => new Response(method === 'HEAD' ? null : message, {
     status, headers: { ...cors, 'Content-Type': plain, ...headers },
