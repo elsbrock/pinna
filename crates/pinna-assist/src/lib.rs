@@ -6,6 +6,7 @@
 
 pub mod audio;
 pub mod chat;
+pub mod check;
 pub mod config;
 pub mod conversation;
 pub mod error;
