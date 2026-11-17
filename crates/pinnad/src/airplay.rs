@@ -278,11 +278,12 @@ fn unit_state_of(active: &str, result: &str) -> State {
     }
 }
 
-/// AirPlay off: the record goes first, so senders stop listing the device at
-/// once however long shairport-sync takes to stop, then the bridge. Blocks.
+/// AirPlay off: the record goes first, so senders stop listing the device
+/// within a second however long shairport-sync takes to stop, then the
+/// bridge. Blocks.
 pub fn off() {
     if std::fs::remove_file(DNSSD).is_ok() && Path::new("/run/systemd/resolve").exists() {
-        systemctl(&["reload-or-restart", "systemd-resolved.service"]);
+        crate::identity::reread_dnssd(true);
     }
     systemctl(&["stop", UNIT]);
     tracing::info!("airplay: off");
@@ -305,10 +306,11 @@ pub fn apply(airplay: &AirPlay, on: bool) -> Result<()> {
         match device_mac() {
             Some(mac) => {
                 let record = airplay.record(mac);
-                if std::fs::read_to_string(DNSSD).ok().as_deref() != Some(record.as_str()) {
+                let old = std::fs::read_to_string(DNSSD).ok();
+                if old.as_deref() != Some(record.as_str()) {
                     std::fs::create_dir_all("/run/systemd/dnssd")?;
                     std::fs::write(DNSSD, record).with_context(|| format!("writing {DNSSD}"))?;
-                    systemctl(&["reload-or-restart", "systemd-resolved.service"]);
+                    crate::identity::reread_dnssd(old.is_some());
                 }
             }
             None => tracing::warn!("airplay: no network interface; not advertised"),

@@ -2,6 +2,9 @@
 //! systemd-resolved's DNS-SD support.
 
 use std::path::Path;
+use std::sync::OnceLock;
+use std::sync::mpsc::{Sender, channel};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use pinna_esphome::{DeviceConfig, mdns_txt, parse_encryption_key};
@@ -227,7 +230,7 @@ pub fn dnssd_unit(cfg: &DeviceConfig) -> String {
     )
 }
 
-/// Publish via resolved: write /run/systemd/dnssd/ and ask resolved to reload.
+/// Publish via resolved: write /run/systemd/dnssd/ and have resolved read it.
 pub fn publish_mdns(cfg: &DeviceConfig) -> Result<()> {
     if !Path::new("/run/systemd/resolve").exists() {
         tracing::info!("systemd-resolved not running; skipping mDNS publication");
@@ -237,17 +240,57 @@ pub fn publish_mdns(cfg: &DeviceConfig) -> Result<()> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join("pinna-esphome.dnssd");
     let unit = dnssd_unit(cfg);
-    if std::fs::read_to_string(&path).ok().as_deref() != Some(unit.as_str()) {
+    let old = std::fs::read_to_string(&path).ok();
+    if old.as_deref() != Some(unit.as_str()) {
         std::fs::write(&path, &unit).with_context(|| format!("writing {}", path.display()))?;
-        let status = std::process::Command::new("systemctl")
-            .args(["reload-or-restart", "systemd-resolved.service"])
-            .status();
-        match status {
-            Ok(s) if s.success() => tracing::info!("published _esphomelib._tcp as {}", cfg.name),
-            other => tracing::warn!("could not reload systemd-resolved: {other:?}"),
-        }
+        tracing::info!("publishing _esphomelib._tcp");
+        reread_dnssd(old.is_some());
     }
     Ok(())
+}
+
+/// How long requests gather before resolved reads the files once.
+const REREAD_BATCH: Duration = Duration::from_secs(1);
+
+/// Have systemd-resolved read the `.dnssd` files again (ADR 0024). `replaced`:
+/// a file that resolved already read changed or went away. resolved 257
+/// keeps the records of a reloaded file published, so that takes a restart;
+/// a new file only needs a reload, which doesn't announce the host name again
+/// (every boot writes the files anew). Requests within a second share one
+/// reload or restart: a change to both records (the friendly name) restarts
+/// once. Returns at once.
+pub fn reread_dnssd(replaced: bool) {
+    static TX: OnceLock<Sender<bool>> = OnceLock::new();
+    let tx = TX.get_or_init(|| {
+        batched(REREAD_BATCH, |restart| {
+            let verb = if restart { "restart" } else { "reload" };
+            let status = std::process::Command::new("systemctl")
+                .args([verb, "systemd-resolved.service"])
+                .status();
+            match status {
+                Ok(s) if s.success() => tracing::info!("systemd-resolved: {verb}"),
+                other => tracing::warn!("could not {verb} systemd-resolved: {other:?}"),
+            }
+        })
+    });
+    let _ = tx.send(replaced);
+}
+
+/// A thread that runs `action` once for each burst of requests (after the
+/// first, until none has come for `window`), with whether any of them asked
+/// for `true`.
+fn batched(window: Duration, action: impl Fn(bool) + Send + 'static) -> Sender<bool> {
+    let (tx, rx) = channel::<bool>();
+    std::thread::spawn(move || {
+        while let Ok(first) = rx.recv() {
+            let mut any = first;
+            while let Ok(more) = rx.recv_timeout(window) {
+                any |= more;
+            }
+            action(any);
+        }
+    });
+    tx
 }
 
 #[cfg(test)]
@@ -341,6 +384,27 @@ mod tests {
         );
         assert!(unit.contains("\"friendly_name=Echo Dot\""));
         assert!(unit.contains("mac=02:00:00:0a:0b:0c"));
+    }
+
+    #[test]
+    fn requests_close_together_share_one_run() {
+        use std::sync::{Arc, Mutex};
+        let runs = Arc::new(Mutex::new(Vec::new()));
+        let seen = runs.clone();
+        let tx = batched(Duration::from_millis(100), move |restart| {
+            seen.lock().unwrap().push(restart);
+        });
+        let burst = |asks: &[bool]| {
+            for &a in asks {
+                tx.send(a).unwrap();
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        };
+        burst(&[false, true, false]);
+        assert_eq!(*runs.lock().unwrap(), [true], "one run, a restart");
+        burst(&[false, false]);
+        assert_eq!(*runs.lock().unwrap(), [true, false], "new files: a reload");
     }
 
     #[test]
