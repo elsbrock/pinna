@@ -17,9 +17,10 @@
 
   const current = $derived(device.status?.name || net?.hostname || "");
   // After a name conflict systemd-resolved announces another name until
-  // pinnad restarts it (ADR 0024).
+  // pinnad restarts it (ADR 0024). It announces the hostname's first label.
   const announced = $derived(net?.mdnsHostname ?? "");
-  const renamed = $derived(!!announced && !!current && announced.toLowerCase() !== current.toLowerCase());
+  const hostLabel = $derived((net?.hostname ?? "").split(".")[0]);
+  const renamed = $derived(!!announced && !!hostLabel && announced.toLowerCase() !== hostLabel.toLowerCase());
 
   // The dashboard address (ADR 0021). The page can't change or remove it while
   // it is open by that address's host: it would stop answering.
@@ -76,7 +77,7 @@
       <div class="pn-notice-body">
         <p class="pn-notice-title">This satellite answers as {announced}.local</p>
         <p>
-          After a name conflict on the network, it answers as {announced}.local instead of {current}.local. It takes its
+          After a name conflict on the network, it answers as {announced}.local instead of {hostLabel}.local. It takes its
           name back within a few minutes.
         </p>
       </div>

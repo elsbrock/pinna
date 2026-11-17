@@ -951,11 +951,16 @@ impl DeviceService for DeviceApi {
         let interfaces = network::interfaces()
             .await
             .map_err(|e| ConnectError::unavailable(format!("reading network interfaces: {e:#}")))?;
-        let mdns_hostname = tokio::task::spawn_blocking(crate::identity::published_hostname)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        // Only where pinnad puts a renamed host back, which the page promises.
+        let mdns_hostname = tokio::task::spawn_blocking(|| {
+            crate::identity::watches_name()
+                .then(crate::identity::published_hostname)
+                .flatten()
+        })
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
         Response::ok(GetNetworkResponse {
             hostname: network::hostname(),
             interfaces,

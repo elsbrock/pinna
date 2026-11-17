@@ -217,18 +217,33 @@ fn quote_txt(k: &str, v: &str) -> String {
     }
 }
 
-/// systemd.dnssd(5) unit advertising the ESPHome native API. The instance is
-/// named `%H`, the host name resolved publishes, so resolved moves the record
-/// with a rename by itself and withdraws the old one (ADR 0024): a rename
-/// never rewrites this file.
-pub fn dnssd_unit(cfg: &DeviceConfig) -> String {
+/// systemd.dnssd(5) unit advertising the ESPHome native API. On a satellite
+/// the node name is the hostname (ADR 0010), and the instance is named `%H`,
+/// the host name resolved publishes, so resolved moves the record with a
+/// rename by itself and withdraws the old one (ADR 0024): a rename never
+/// rewrites this file. Elsewhere (pinnad on a developer's machine) it keeps
+/// the configured node name.
+pub fn dnssd_unit(cfg: &DeviceConfig, hostname: &str) -> String {
     let txt: Vec<String> = mdns_txt(cfg).iter().map(|(k, v)| quote_txt(k, v)).collect();
+    let name = if cfg.name.eq_ignore_ascii_case(first_label(hostname)) {
+        "%H"
+    } else {
+        cfg.name.as_str()
+    };
     format!(
-        "# Written by pinnad.\n[Service]\nName=%H\nType=_esphomelib._tcp\nPort={}\nTxtText={}\n",
+        "# Written by pinnad.\n[Service]\nName={name}\nType=_esphomelib._tcp\nPort={}\nTxtText={}\n",
         cfg.port,
         txt.join(" ")
     )
 }
+
+/// The label resolved announces for a hostname: the part before the first dot.
+fn first_label(hostname: &str) -> &str {
+    hostname.split('.').next().unwrap_or_default()
+}
+
+/// pinnad's ESPHome record.
+const ESPHOME_DNSSD: &str = "/run/systemd/dnssd/pinna-esphome.dnssd";
 
 /// Publish via resolved: write /run/systemd/dnssd/ and have resolved read it.
 pub fn publish_mdns(cfg: &DeviceConfig) -> Result<()> {
@@ -236,13 +251,14 @@ pub fn publish_mdns(cfg: &DeviceConfig) -> Result<()> {
         tracing::info!("systemd-resolved not running; skipping mDNS publication");
         return Ok(());
     }
-    let dir = Path::new("/run/systemd/dnssd");
-    std::fs::create_dir_all(dir)?;
-    let path = dir.join("pinna-esphome.dnssd");
-    let unit = dnssd_unit(cfg);
-    let old = std::fs::read_to_string(&path).ok();
+    let path = Path::new(ESPHOME_DNSSD);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let unit = dnssd_unit(cfg, &crate::network::hostname());
+    let old = std::fs::read_to_string(path).ok();
     if old.as_deref() != Some(unit.as_str()) {
-        std::fs::write(&path, &unit).with_context(|| format!("writing {}", path.display()))?;
+        std::fs::write(path, &unit).with_context(|| format!("writing {}", path.display()))?;
         // The VM boot test and the troubleshooting page look for this line.
         tracing::info!("published _esphomelib._tcp as {}", cfg.name);
         reread_dnssd(old.is_some());
@@ -295,7 +311,7 @@ impl NameWatch {
     /// at most once every ten minutes, so a network that keeps answering for
     /// the name doesn't make the satellite announce itself without end.
     fn check(&mut self, hostname: &str, published: &str, now: Instant) -> bool {
-        if published.eq_ignore_ascii_case(hostname) {
+        if published.eq_ignore_ascii_case(first_label(hostname)) {
             self.missed = 0;
             return false;
         }
@@ -313,16 +329,29 @@ impl NameWatch {
     }
 }
 
+/// Whether pinnad watches the announced name: on a satellite image, where
+/// the hostname is the node name, while it publishes its ESPHome record. On
+/// another machine it would restart that machine's resolved for a name that
+/// was never meant to match.
+pub fn watches_name() -> bool {
+    on_pinna_image() && Path::new(ESPHOME_DNSSD).exists()
+}
+
 /// Put back a host name that resolved changed after a name conflict (ADR
 /// 0024). A restart reads the hostname and the files again; setting the
 /// hostname again wouldn't reset a renamed service instance. Runs for as long
 /// as pinnad does.
 pub async fn watch_name() {
+    if !watches_name() {
+        return;
+    }
     let mut watch = NameWatch::default();
     loop {
         tokio::time::sleep(NAME_CHECK).await;
         let hostname = crate::network::hostname();
         let Ok(Some(published)) = tokio::task::spawn_blocking(published_hostname).await else {
+            // Nothing known: the next two reads decide.
+            watch.missed = 0;
             continue;
         };
         if !hostname.is_empty() && watch.check(&hostname, &published, Instant::now()) {
@@ -456,13 +485,13 @@ mod tests {
     fn dnssd_quotes_spaces() {
         let mut cfg = DeviceConfig::new("pinna-0a0b0c", [2, 0, 0, 0xa, 0xb, 0xc]);
         cfg.friendly_name = "Echo Dot".into();
-        let unit = dnssd_unit(&cfg);
+        let unit = dnssd_unit(&cfg, "pinna-0a0b0c");
         assert!(unit.contains("\nName=%H\n"), "{unit}");
         assert!(unit.contains("Type=_esphomelib._tcp"));
         assert!(unit.contains("Port=6053"));
         cfg.webserver_port = 80;
         cfg.dashboard_url = Some("https://dot.example.com:8443/".into());
-        let unit = dnssd_unit(&cfg);
+        let unit = dnssd_unit(&cfg, "pinna-0a0b0c");
         assert!(unit.contains(" web_port=80"), "{unit}");
         assert!(
             unit.contains(" url=https://dot.example.com:8443/"),
@@ -516,16 +545,24 @@ mod tests {
             assert!(!w.check("echo2", "echo9", at(m)), "minute {m}");
         }
         assert!(w.check("echo2", "echo9", at(12)));
-        // Back to normal resets the count.
-        assert!(!w.check("echo2", "ECHO2", at(13)));
+        // Back to normal resets the count; resolved announces only the first
+        // label of a hostname with dots.
+        assert!(!w.check("echo2.lan", "ECHO2", at(13)));
         assert!(!w.check("echo2", "echo3", at(30)));
     }
 
     #[test]
     fn a_rename_leaves_the_record_alone() {
         let mut cfg = DeviceConfig::new("kitchen", [2, 0, 0, 0xa, 0xb, 0xc]);
-        let before = dnssd_unit(&cfg);
+        let before = dnssd_unit(&cfg, "kitchen");
         cfg.name = "hall".into();
-        assert_eq!(dnssd_unit(&cfg), before);
+        assert_eq!(dnssd_unit(&cfg, "hall"), before);
+    }
+
+    #[test]
+    fn off_a_satellite_the_record_keeps_the_node_name() {
+        let cfg = DeviceConfig::new("pinna-dev", [2, 0, 0, 0xa, 0xb, 0xc]);
+        assert!(dnssd_unit(&cfg, "laptop.example.com").contains("\nName=pinna-dev\n"));
+        assert!(dnssd_unit(&cfg, "pinna-dev.lan").contains("\nName=%H\n"));
     }
 }

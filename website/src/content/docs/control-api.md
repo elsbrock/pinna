@@ -126,7 +126,7 @@ device. `pinnad` serves it in two places:
 | `StopBluetoothPairing` | Empty | Closes it. Does nothing if it is closed |
 | `ForgetBluetoothDevice` | `address` (from `Status.bluetooth.devices`) | Removes a paired phone, which has to pair again to play. Returns `failed_precondition` while Bluetooth is off |
 | `ReportBluetooth` | `ready`, `address`, `devices`, `error` | Used by `pinna-bt` to report the adapter and the paired phones. Only the device's own programs can call it, on `127.0.0.1` |
-| `GetNetwork` | Empty | Returns the hostname and each interface: name, MAC, addresses, and for Wi-Fi the network, signal, band and bitrate |
+| `GetNetwork` | Empty | Returns the hostname; each interface: name, MAC, addresses, and for Wi-Fi the network, signal, band and bitrate; and `mdns_hostname`, the name the device announces over mDNS, which differs from the hostname for a few minutes after a name conflict. `mdns_hostname` is empty when the device doesn't publish its mDNS record |
 | `WatchLogs` | Empty | Streams the last 1000 lines of the journal of `pinnad` and of the AirPlay and Bluetooth services, then new lines. Debug and trace lines are left out |
 | `GetUpdates` | Empty | Returns the A/B slots (version, state, tries left, which one runs and which one starts next), whether an install runs, the last install's result, and a suggested manifest URL |
 | `InstallUpdate` | `manifest` (an `http://` or `https://` URL) | Starts `pinnactl update` on the device. Returns `failed_precondition` while another install runs |
