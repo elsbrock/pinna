@@ -1,6 +1,7 @@
 ---
 import Icon from "./Icon.astro";
 import Logo from "./Logo.astro";
+import ThemeToggle from "./ThemeToggle.astro";
 import { href, SITE } from "../lib/site";
 ---
 
@@ -36,6 +37,7 @@ import { href, SITE } from "../lib/site";
     </nav>
 
     <div class="ml-auto flex items-center gap-2">
+      <ThemeToggle />
       <a
         class="pn-btn px-2.5"
         href={SITE.repo}

@@ -1,0 +1,77 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<button
+  type="button"
+  class="pn-btn px-2.5"
+  data-theme-toggle
+  aria-label="Switch theme: system"
+  title="Theme: system"
+>
+  <span data-theme-icon="system"><Icon name="contrast" size={16} /></span>
+  <span data-theme-icon="light" class="hidden"><Icon name="sun" size={16} /></span>
+  <span data-theme-icon="dark" class="hidden"><Icon name="moon" size={16} /></span>
+</button>
+
+<script>
+  const KEY = "pinna-theme";
+  const ORDER = ["system", "light", "dark"] as const;
+  type Mode = (typeof ORDER)[number];
+
+  const root = document.documentElement;
+  const buttons =
+    document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]");
+
+  const read = (): Mode => {
+    try {
+      const saved = localStorage.getItem(KEY);
+      if (saved === "light" || saved === "dark" || saved === "system") {
+        return saved;
+      }
+    } catch {
+      // A browser that blocks storage falls back to the system theme.
+    }
+    return "system";
+  };
+
+  let mode = read();
+
+  const apply = (next: Mode, persist = true) => {
+    mode = next;
+
+    if (mode === "system") {
+      delete root.dataset.theme;
+    } else {
+      root.dataset.theme = mode;
+    }
+
+    if (persist) {
+      try {
+        localStorage.setItem(KEY, mode);
+      } catch {
+        // The switch still works for this page.
+      }
+    }
+
+    for (const button of buttons) {
+      button.setAttribute("aria-label", `Switch theme: ${mode}`);
+      button.title = `Theme: ${mode}`;
+      for (const icon of button.querySelectorAll<HTMLElement>("[data-theme-icon]")) {
+        icon.classList.toggle("hidden", icon.dataset.themeIcon !== mode);
+      }
+    }
+  };
+
+  apply(mode, false);
+
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      apply(ORDER[(ORDER.indexOf(mode) + 1) % ORDER.length]);
+    });
+  }
+
+  window.addEventListener("storage", (event) => {
+    if (event.key === KEY) apply(read(), false);
+  });
+</script>

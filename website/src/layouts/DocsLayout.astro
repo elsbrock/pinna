@@ -5,6 +5,7 @@ import DocsSidebar from "../components/DocsSidebar.astro";
 import DocsToc from "../components/DocsToc.astro";
 import Icon from "../components/Icon.astro";
 import Logo from "../components/Logo.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
 import { DOCS_FLAT, docEditHref, docHref, href, SITE } from "../lib/site";
 
 type Props = {
@@ -49,6 +50,7 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
       </a>
 
       <div class="ml-auto flex items-center gap-2">
+        <ThemeToggle />
         <a class="pn-btn hidden sm:inline-flex" href={SITE.repo}>
           <Icon name="github" size={16} />
           GitHub

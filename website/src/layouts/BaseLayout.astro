@@ -47,6 +47,17 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? SITE.repo);
       content="#0e1215"
       media="(prefers-color-scheme: dark)"
     />
+    <script is:inline>
+      // Runs before the first paint, so a chosen theme never flashes.
+      try {
+        const theme = localStorage.getItem("pinna-theme");
+        if (theme === "light" || theme === "dark") {
+          document.documentElement.dataset.theme = theme;
+        }
+      } catch {
+        // A browser that blocks storage keeps the system theme.
+      }
+    </script>
     <slot name="head" />
   </head>
   <body class="flex min-h-dvh flex-col">
