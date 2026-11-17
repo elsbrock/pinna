@@ -95,6 +95,12 @@ the device next joins the Wi-Fi, for example after a restart. A reverse proxy
 that reaches the device by its old `.local` name stops working: point it at the
 new name, or better at the device's IP address.
 
+After a name conflict on the network, the device can answer by another
+`.local` name for a few minutes, such as `kitchen-dot3.local`. **Network** then
+says which name it answers to. The device takes its own name back by itself,
+at most once every ten minutes, so if the conflict comes back, it keeps the
+other name for a while.
+
 ## Change the Wi-Fi network
 
 Open **Network**. **Saved networks** lists the networks that the device
