@@ -1,9 +1,11 @@
 # ADR 0019: Recovery, backup and restore
 
-Status: proposed (2026-11-16). When accepted, it replaces where rescue mode
-lives (ADR 0012), the target of the boot guard (ADR 0003), the device fact
-"LK always loads `boot_a`" (ADR 0001) and the backup in the browser installer
-(ADR 0016).
+Status: proposed (2026-11-16, revised 2026-11-17). When accepted, it replaces:
+- where rescue mode lives (ADR 0012);
+- the root-only A/B, its own slot record, and the target of the boot guard
+  (ADR 0003);
+- the device fact "LK always loads `boot_a`" (ADR 0001);
+- the backup in the browser installer (ADR 0016).
 
 ## Context
 
@@ -13,10 +15,27 @@ Measured on the owner's Echo Dot (2nd gen), Kaeru `v2.0.0-gab93750`, on
 - **Kaeru loads `boot_a` or `boot_b` by the slot record** at `0x360` in
   `misc`. Before commit `ab93750` ("Fix A/B slot boot on Echos", Kaeru issue
   #102) it always loaded `boot_a`. ADR 0001 recorded that bug as a device fact.
-- **Kaeru never counts tries and never falls back** to the other slot.
-  `set_active:<slot>` marks that slot good and blanks the other one. The
-  preloader reads the same record, and Kaeru always keeps one slot marked good
-  because "the defaults will eventually brick the device".
+- **The preloader counts tries and falls back. Kaeru doesn't count**, so tries
+  aren't counted twice. Measured on the Dot, 2026-11-17, starting with B at
+  priority 15, 3 tries and not good, and A at priority 14 and good:
+
+  | Boot | Kernel | B's tries after the boot |
+  | --- | --- | --- |
+  | 1 | `boot_b` | 2 |
+  | 2 | `boot_b` | 1 |
+  | 3 | `boot_a` | 0 |
+  | 4 | `boot_a` | B at priority 0 |
+
+  - On boot 3 the preloader used up B's last try. Kaeru then saw no tries left
+    and loaded `boot_a`, so 3 tries give a new kernel **2 attempts**. The
+    preloader then set B's priority to 0.
+  - Slot B's boot chain (`tee2`, which differs from `tee1`) started.
+  - The previous firmware reset the record on every boot for the same reason:
+    its tries ran out.
+  - `set_active:<slot>` (Kaeru) marks that slot good and blanks the other.
+  - Kaeru repairs a record without a good slot, but only in LK, after the
+    preloader. Kaeru's comments say a record without a good slot "will
+    eventually brick the device".
 - **Kaeru boots `recovery` instead of the slot's boot partition** when Volume
   Up is held at power-on, or when `misc` holds `boot-recovery` at offset 0.
   `fastboot reboot recovery` writes that request, and so can Linux.
@@ -41,8 +60,9 @@ Measured on the owner's Echo Dot (2nd gen), Kaeru `v2.0.0-gab93750`, on
     side. Afterwards the link refused new connections for a while.
   - Throughput was 1.9 to 5.2 MB/s, limited by SSH.
   - Windows 10 may not bind NCM without a Microsoft OS descriptor.
-- **A restart from Pinna takes about two minutes:** shutting down took about
-  100 s of that.
+- **Restarts over Wi-Fi took 26 to 29 s,** from the command until the network
+  answered (2026-11-17). Two restarts while connected over USB took about two
+  minutes each, and shutting down took about 100 s of that.
 
 ## Decision
 
@@ -50,14 +70,27 @@ Measured on the owner's Echo Dot (2nd gen), Kaeru `v2.0.0-gab93750`, on
 
 | Layer | Covers | Lives in |
 | --- | --- | --- |
-| Normal system | updates and rollback of the root (ADR 0003) | `boot_a` = `boot_b`, `system_a`/`system_b` |
-| Recovery | everything that stops the normal system from starting: root, kernel, settings | `recovery` |
+| Normal system | updates and their rollback, kernel and root together | `boot_a`+`system_a`, `boot_b`+`system_b` |
+| Recovery | everything rollback can't fix: both slots bad, settings, backup and restore | `recovery` |
 | Kaeru fastboot | everything else; the installer | Kaeru, untouched |
 
-- **The kernel is not A/B.** `boot_a` and `boot_b` always hold the same boot
-  image, and Pinna never writes Kaeru's slot record. Whatever slot the record
-  names boots the same kernel. A kernel that doesn't start is fixed from
-  recovery.
+- **One slot holds a kernel and a root together, as on Android.**
+  - An update writes the boot image and the root into the other slot.
+  - It sets that slot in Kaeru's record to priority 15, 3 tries, not good.
+  - The running slot drops to priority 14 and stays good.
+  - After the health check (ADR 0003), Pinna marks the new slot good.
+  - A kernel that doesn't start gets 2 attempts; then the preloader goes back
+    to the old slot by itself.
+- **pinna-init boots the root of the slot LK started,** read from
+  `androidboot.slot_suffix` in the device tree. When that root fails, it marks
+  the slot unbootable in Kaeru's record (priority 0) and restarts, so the
+  preloader takes the other slot. Pinna's own root record at `0x40000` and its
+  try counting are no longer needed.
+- **One slot is always good.** Pinna never writes a record without a good
+  slot, and it writes the record only in this order: new slot first (not
+  good), then lower the old slot's priority. The preloader refuses to start
+  without a good slot, and nothing short of the BootROM tool (amonet) gets the
+  device back from that.
 
 ### The recovery image
 
@@ -77,17 +110,20 @@ Measured on the owner's Echo Dot (2nd gen), Kaeru `v2.0.0-gab93750`, on
   for fastboot, `WINNCM` for the network). Windows then needs no extra driver
   for recovery. Kaeru's fastboot still needs WinUSB from Zadig.
 - **On the ring:** recovery shows that it is recovery, and why.
-- **pinna-init loses its own rescue mode.** For every reason that started
-  rescue (ADR 0012), it records the reason in the boot record, writes
-  `boot-recovery` and restarts.
+- **pinna-init loses its own rescue mode.** When a slot fails, the other slot
+  comes first: pinna-init marks the failed slot unbootable and restarts. Only
+  when no other slot is left, or for a reason another slot can't fix (Action
+  held, a request from the dashboard), does it record the reason in the boot
+  record, write `boot-recovery` and restart.
 
 ### Ways into recovery
 
 - **Volume Up held at power-on.** This works when nothing else does.
 - **`boot-recovery` in `misc`,** written by:
-  - pinna-init, when nothing can start;
-  - the boot guard (ADR 0003), in place of `bootonce-bootloader`, so a boot
-    that never gets healthy lands in recovery and not in bare fastboot;
+  - pinna-init, when no slot can start;
+  - the boot guard (ADR 0003), in place of `bootonce-bootloader`, when the
+    last good slot never gets healthy, so the device lands in recovery and
+    not in bare fastboot;
   - the dashboard ("Restart in recovery") and Action held at start;
   - the installer, with `fastboot reboot recovery`.
 - **A broken recovery can't trap the device:** Kaeru clears the request as it
@@ -142,8 +178,14 @@ not here.
   fastboot.
 - **Why the USB network stalls:** its own investigation. The rescue page and
   the dashboard depend on it.
-- **Why shutdown takes about 100 s.** Entering recovery from a running system
-  waits for it.
+- **Why shutdown took about 100 s while connected over USB.** Over Wi-Fi it
+  took seconds.
+- **The slot record on the Echo (2nd gen):** both of its slots are marked
+  good, `lk_a` equals `lk_b`, and `tee1` differs from `tee2`. Counting and
+  fallback were measured on the Dot only.
+- **A boot of the old slot after a fallback:** the preloader may have started
+  slot B's TEE with slot A's kernel (boot 3 above). It started, but it's worth
+  a look.
 - **WebUSB speed for `fetch`:** expected well above 10 MB/s.
 
 ## Consequences
@@ -164,8 +206,9 @@ not here.
 
 - **Rescue in both `boot_a` and `recovery`:** two copies to keep in step. One
   dedicated image is simpler.
-- **An A/B kernel with automatic rollback:** Kaeru doesn't count tries, and a
-  slot record without a good slot risks a brick in the preloader.
+- **Keeping `boot_a` = `boot_b` and leaving bad kernels to recovery:** the
+  preloader already counts and falls back (measured), so a bad kernel can roll
+  back by itself, without anyone pressing a button.
 - **Backup as HTTP downloads from the rescue page:** the stall, a page served
   over HTTPS fetching HTTP, and NCM on Windows.
 - **Backup through the inactive slot:** it loses that slot, and needs LK's slot
