@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+pinna-vad = { path = "../pinna-vad" }
 tract-onnx = "0.22"
 tract-tflite = "0.22"
 

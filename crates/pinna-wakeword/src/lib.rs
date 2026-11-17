@@ -12,15 +12,12 @@
 //! is a [`Keyword`], a small classifier on the last 16 embeddings, loaded from
 //! `.onnx` or `.tflite` (ADR 0013).
 
-mod vad;
-
 use std::io::Cursor;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
+use pinna_vad::Vad;
 use tract_onnx::prelude::*;
-
-use vad::Vad;
 
 /// Samples per inference block (80 ms at 16 kHz).
 pub const BLOCK_SAMPLES: usize = 1280;
@@ -423,6 +420,13 @@ impl Detector {
     /// While playing, a peak needs only one supporting score instead of two.
     pub fn set_playback(&mut self, playing: bool) {
         self.playing = playing;
+    }
+
+    /// The VAD's tracked noise energy, or `None` before it has seen a frame.
+    /// Standalone mode seeds its endpointer with this, the noise before the
+    /// wake word.
+    pub fn noise_energy(&self) -> Option<u64> {
+        self.vad.noise_energy()
     }
 
     /// Change the accept threshold (see [`WakeConfig::threshold_for_sensitivity`]).

@@ -1,0 +1,7 @@
+[package]
+name = "pinna-vad"
+description = "Dependency-free energy VAD and endpointer for end-of-speech detection"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true

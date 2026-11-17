@@ -2251,11 +2251,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinna-vad"
+version = "0.1.0"
+
+[[package]]
 name = "pinna-wakeword"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "hound",
+ "pinna-vad",
  "serde_json",
  "tract-onnx",
  "tract-tflite",
