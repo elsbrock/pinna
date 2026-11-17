@@ -4,6 +4,7 @@
 
 #[cfg(test)]
 mod tests;
+mod timers;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -26,6 +27,7 @@ use crate::leds::{self, LedState, LightEffect};
 use crate::settings::{FILE_MODE, Mode, Settings};
 use crate::store::Store;
 use crate::wakewords::{Catalogue, KeywordSet};
+use timers::{Origin, Timer};
 
 /// Flags shared with the capture task.
 #[derive(Default)]
@@ -353,25 +355,6 @@ const DOUBLE_PRESS: Duration = Duration::from_millis(400);
 /// Wakes and near misses kept for the dashboard.
 const RECENT_WAKES: usize = 20;
 
-struct HaTimer {
-    name: String,
-    total: u32,
-    left: u32,
-    active: bool,
-    at: Instant,
-}
-
-impl HaTimer {
-    fn remaining(&self, now: Instant) -> u32 {
-        if self.active {
-            self.left
-                .saturating_sub(now.saturating_duration_since(self.at).as_secs() as u32)
-        } else {
-            self.left
-        }
-    }
-}
-
 pub struct Options {
     /// Where a Noise key pushed by Home Assistant is persisted.
     pub key_file: std::path::PathBuf,
@@ -476,7 +459,7 @@ pub struct Brain {
     stream_volume: u8,
     ducked: bool,
 
-    timers: HashMap<String, HaTimer>,
+    timers: HashMap<String, Timer>,
     ringing: Option<(String, Instant)>,
 
     playback: Option<(u64, PlaybackKind, tokio::task::JoinHandle<()>)>,
@@ -1662,28 +1645,31 @@ impl Brain {
             TimerEventType::Started | TimerEventType::Updated => {
                 self.timers.insert(
                     id,
-                    HaTimer {
+                    Timer {
                         name,
                         total: total.max(1),
                         left,
                         active,
                         at: Instant::now(),
+                        origin: Origin::Ha,
                     },
                 );
             }
             TimerEventType::Cancelled => {
                 self.timers.remove(&id);
             }
-            TimerEventType::Finished => {
-                self.timers.remove(&id);
-                if self.phase != Phase::Idle {
-                    self.abort_run(true).await;
-                }
-                self.ringing = Some((id, Instant::now()));
-                self.play_pcm(tone::timer_alarm(), PlaybackKind::Alarm);
-            }
+            TimerEventType::Finished => self.timer_finished(id).await,
             TimerEventType::Unknown(_) => {}
         }
+    }
+
+    async fn timer_finished(&mut self, id: String) {
+        self.timers.remove(&id);
+        if self.phase != Phase::Idle {
+            self.abort_run(true).await;
+        }
+        self.ringing = Some((id, Instant::now()));
+        self.play_pcm(tone::timer_alarm(), PlaybackKind::Alarm);
     }
 
     /// The ring light, from Home Assistant or the dashboard; Home Assistant
