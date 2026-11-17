@@ -86,8 +86,9 @@ The hardware gate (`just test-device`) requires at least 20 dB.
   PipeWire socket is absent at startup. The choice is made once: a graph that
   fails later, or runs without `dot_mic_aec`, is not detected.
 - The first seconds of new audio are not fully cancelled while WebRTC adapts.
-- Laptops keep using the plain `PipeWire` backend; the VM images run without
-  an audio backend.
+- Laptops keep using the plain `PipeWire` backend. The VM images ran without
+  an audio backend at first; since ADR 0014 the virtual Echo Dot uses the
+  plain `PipeWire` backend too, set in its `vm.toml`.
 - The beamformer runs in PipeWire's process, so pinnad cannot ask it which
   beam it follows. After every cycle the plugin writes a seqlock snapshot
   (selected beam, per-beam power) to `/run/pipewire/pinna-beam`

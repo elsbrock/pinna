@@ -1,7 +1,14 @@
 # ADR 0012: Rescue mode, boot stages on the ring, and how the last boot ended
 
-Status: proposed (2026-11-15). Amends ADR 0003: when nothing can be booted,
-pinna-init enters rescue mode instead of rebooting in a loop.
+Status: proposed (2026-11-15), accepted in part (2026-11-17). Amends ADR 0003:
+when nothing can be booted, pinna-init enters rescue mode instead of rebooting
+in a loop.
+
+Built: phases 1 and 2 of "Order of work". Not built yet: phase 3 (the boot
+record at `misc` + 0x41000, the reasons `failed-boots`, `button` and
+`requested`, `pinna-bootctl reboot-rescue`, the 10-minute way out, and every
+action on the rescue page except restart) and phase 4 (the panic frame). The
+rescue page's restart and "Download diagnostics" are built.
 
 ## Context
 
@@ -270,6 +277,7 @@ Already checked on one healthy 6.12 boot:
 - Later, not decided: a Wi-Fi setup hotspot as a last resort when neither USB
   nor Wi-Fi works (ADR 0009 keeps no access point mode), and pacing the arc by
   the previous boot's timings.
-- Separate work: the support bundle and "Download diagnostics", the kernel
+- Separate work: the support bundle (the rescue page's "Download diagnostics"
+  is built), the kernel
   config parity and hardware smoke gates, and the script that tries a new
   kernel unattended.

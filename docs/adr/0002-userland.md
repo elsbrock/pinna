@@ -24,6 +24,16 @@ time, logging, watchdog, USB gadget via configfs). Pinna's own code is the
 | `pinna-update` | Installs a release into the inactive slot (library behind `pinnactl update`) |
 | `pinna-ladspa` | LADSPA plugin running the microphone front end (beamformer) inside PipeWire (ADR 0004) |
 
+Update 2026-11-17: later records added crates, each still a small tool beside
+`pinnad`:
+
+| Crate | Role |
+|---|---|
+| `pinna-bootstages` | The boot stages 4–6 on the ring after switch root, until `pinnad` claims it (ADR 0012); `pinna-bootctl` also holds the ring and stage code it shares with `pinna-init`, and `reboot-bootloader` |
+| `pinna-airplay` | Runs `shairport-sync` and bridges its PCM and volume to `pinnad`'s stream socket (ADR 0011) |
+| `pinna-bt` | Bridges BlueZ and BlueALSA to `pinnad`: pairing window, paired phones, A2DP audio (ADR 0011) |
+| `pinna-bridge` | What the two bridges share: stream socket sessions and the loopback control API (ADR 0011) |
+
 - **One process for now.** Pure-Rust inference removed the main reason for a
   separate voice process (C++ crash isolation). Crates keep the seams to split
   later.

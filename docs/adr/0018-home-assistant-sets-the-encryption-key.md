@@ -1,6 +1,6 @@
 # ADR 0018: Home Assistant sets the encryption key
 
-Status: proposed (2026-11-16). Amends ADR 0007 and ADR 0015 (the key was
+Status: accepted (2026-11-16). Amends ADR 0007 and ADR 0015 (the key was
 file-only) and the key handling of pinna-esphome. Builds on ADR 0005 and ADR
 0010.
 

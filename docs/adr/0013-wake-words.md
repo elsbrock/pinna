@@ -1,6 +1,13 @@
 # ADR 0013: Several wake words, two at a time, custom ones from the dashboard
 
-Status: proposed (2026-11-15). Amends ADR 0007; builds on ADR 0005.
+Status: proposed (2026-11-15), accepted in part (2026-11-17). Amends ADR 0007; builds on ADR 0005.
+
+Built: several words with at most two active, the built-in table, `wake_words`
+in `settings.toml`, the dashboard choosing only while Home Assistant isn't
+connected, the detection rules and the patched `vendor/tract-tflite`. Not
+built yet: custom words from the dashboard (`AddWakeWord`, `RemoveWakeWord`,
+`/var/lib/pinna/wakewords/`, the loading mark) and the per-word peak score;
+the near-miss log line names the word that scored instead.
 
 ## Context
 

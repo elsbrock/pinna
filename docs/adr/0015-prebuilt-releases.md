@@ -5,6 +5,13 @@ which public key a build compiles in) and ADR 0010 (SSH keys are no longer
 baked into release images). Points marked *default* are not confirmed by the
 owner yet.
 
+Built (noted 2026-11-17): the key handling, `.github/workflows/release.yml`,
+`PINNA_RELEASE=1`, the checks in `flash-gen2.sh`, the machine id from the
+serial number and the SSH keys under `/var`. No release has been published
+yet, so the `releases/latest` manifest URL below doesn't resolve. Release
+images also carry the Okay Nabu `.tflite` model (ADR 0013), listed in the same
+`NOTICE`.
+
 ## Context
 
 - Installing Pinna means building it first: x86_64 Linux, Nix, a kernel build,

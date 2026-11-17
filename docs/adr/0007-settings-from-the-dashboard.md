@@ -1,9 +1,9 @@
 # ADR 0007: Settings the dashboard writes live in settings.toml
 
-Status: proposed (2026-11-15), amended 2026-11-16: `pinnad.toml` is for
-developers only, and owners need neither a file nor SSH. Amended 2026-11-16:
-every entity is on the dashboard too, unless only Home Assistant uses it.
-Builds on ADR 0005.
+Status: accepted (2026-11-16; proposed 2026-11-15), amended 2026-11-16:
+`pinnad.toml` is for developers only, and owners need neither a file nor SSH.
+Amended 2026-11-16: every entity is on the dashboard too, unless only Home
+Assistant uses it. Builds on ADR 0005.
 
 ## Context
 

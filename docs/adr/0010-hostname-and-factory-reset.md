@@ -1,6 +1,6 @@
 # ADR 0010: A hostname per satellite, and a factory reset
 
-Status: proposed (2026-11-15), amended 2026-11-16: `pinna.local` goes, the reset checks the typed name, and the hostname is a setting with no static hostname in the image. Builds on ADR 0005; amends what ADR 0005 says about the hostname.
+Status: accepted (2026-11-16; proposed 2026-11-15), amended 2026-11-16: `pinna.local` goes, the reset checks the typed name, and the hostname is a setting with no static hostname in the image. Builds on ADR 0005; amends what ADR 0005 says about the hostname.
 
 ## Context
 

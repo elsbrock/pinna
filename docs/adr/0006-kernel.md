@@ -24,7 +24,7 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 - **Board support in `kernel/patches`**, applied after Debian's series: the
   previous firmware's board support ported to 6.12 (one patch per subsystem) with
   Pinna's audio and device-tree fixes, then the CONSYS driver (imported
-  unmodified, then ported) with Pinna's Wi-Fi fixes. Not carried:
+  unmodified, then ported) with Pinna's Wi-Fi and Bluetooth fixes. Not carried:
   diagnostic-only changes (SPI firmware-transfer tracing, FunctionFS and MUSB
   debug logging, a log line per watchdog ping), a `/proc` fix that is upstream
   in 6.12, and the Fire HD 8 (Giza) board with its bq24190 charger IDs (the

@@ -29,7 +29,8 @@ Device facts that constrain the design:
   persistent `/var` (ext4, `x-systemd.makefs`) on `userdata`. systemd,
   networkd, resolved (mDNS), wpa_supplicant, OpenSSH.
 - **Kernel:** the previous firmware's Linux tree (release 0.14.5) + patches in `kernel/patches`,
-  plus `kernel/pinna.config`; packaged as a `.deb`. `CONFIG_CMDLINE_FORCE` sets
+  plus `kernel/pinna.config` (since ADR 0006: `kernel/common.config` and a
+  fragment per variant); packaged as a `.deb`. `CONFIG_CMDLINE_FORCE` sets
   our own command line (`root=PARTLABEL=system_a rootfstype=erofs …`), so LK's
   injected root is ignored. Originally no initramfs: the boot image carried a
   placeholder cpio without `/init` so LK still saw a ramdisk. Since ADR 0003
@@ -42,8 +43,10 @@ Device facts that constrain the design:
   decompiles (`dtc -I dtb -O dts`) to the identical tree, so the build no
   longer needs a file from another firmware.
 - **Safety net:** a one-shot `bootonce-bootloader` in `misc` armed early each
-  boot and cleared once healthy (dev images); since ADR 0003 not during the
-  trial boot of a new slot that has a good fallback.
+  boot and cleared once healthy; since ADR 0003 not during the trial boot of
+  a new slot that has a good fallback. Amended 2026-11-17: first planned for
+  dev images only, it is armed in every image (`/etc/pinna/fastboot-guard`,
+  ADR 0003).
 
 ## Consequences
 

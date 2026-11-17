@@ -1,9 +1,9 @@
 # ADR 0008: Wi-Fi from the dashboard, joined with confirm-or-revert
 
-Status: proposed (2026-11-15), amended 2026-11-16: hidden networks, the
-security types, who prepares the file, a join that outlives the page, and a
-trial that is kept only once the satellite is reached on the new network.
-Builds on ADR 0005 and ADR 0007.
+Status: accepted (2026-11-16; proposed 2026-11-15), amended 2026-11-16: hidden
+networks, the security types, who prepares the file, a join that outlives the
+page, and a trial that is kept only once the satellite is reached on the new
+network. Builds on ADR 0005 and ADR 0007.
 
 ## Context
 

@@ -66,16 +66,19 @@ Constraints:
 - **What the dashboard can do.** Everything is in `DeviceService`:
   - status and controls
   - settings (wake word, sensitivity, ring brightness, wake sound, reply
-    volume, listening direction), through the same paths as Home Assistant's
-    entities, the name (ADR 0007), the hostname (ADR 0010) and the dashboard
-    address (ADR 0021)
+    volume, listening direction, AirPlay and Bluetooth), through the same
+    paths as Home Assistant's entities, the wake words while Home Assistant
+    isn't connected (ADR 0013), the name and the time zone (ADR 0007), the
+    hostname (ADR 0010) and the dashboard address (ADR 0021)
   - the ring light and the media player, through the same paths as Home
     Assistant's light and media player, and playing an http(s) URL
   - tuning the wake word sensitivity with the device's + and − buttons, until
     the calibration ends
   - the network: Wi-Fi (ADR 0008), the hostname (ADR 0010) and the
     dashboard address (ADR 0021); the rest read-only
-  - pinnad's journal at info level and above (debug lines can carry transcripts)
+  - the journal of pinnad and of the AirPlay and Bluetooth services it
+    starts (ADR 0011), at info level and above (debug lines can carry
+    transcripts)
   - the A/B slots
   - installing an update, switching to the other slot, or keeping an installed
     update back
@@ -124,7 +127,8 @@ Constraints:
   - start a wake word calibration, which takes the volume buttons over and
     keeps the wake word from starting requests until it ends, 5 minutes after
     the last + or − press
-  - read pinnad's log and the network details
+  - read the log of pinnad and its AirPlay and Bluetooth services, and the
+    network details
   - read the metrics: the host's load, memory, traffic, temperatures and
     services, and pinnad's counters (ADR 0020)
   - run the ring's test pattern

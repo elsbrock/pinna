@@ -1,6 +1,11 @@
 # ADR 0011: AirPlay and Bluetooth playback feed pinnad's media lane
 
-Status: proposed (2026-11-15).
+Status: proposed (2026-11-15), accepted (2026-11-16), amended 2026-11-17:
+the dashboard also sets the media volume and mutes the music (`ControlMedia`,
+**Now playing** on Overview), replies have their own volume (`reply_volume`),
+so the volume no longer has to scale replies with the music, and track
+metadata is not shown anywhere yet: the dashboard says only "From AirPlay or
+Bluetooth". AirPlay's 0.34 s pipeline latency is still an estimate.
 
 Follows the speaker-ownership decision of
 [ADR 0004](0004-audio-graph.md) and the kernel decisions of

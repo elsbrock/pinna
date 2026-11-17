@@ -1,6 +1,6 @@
 # ADR 0020: pinnad serves Prometheus metrics on the dashboard listener
 
-Status: proposed (2026-11-16). Amends ADR 0005 (what the web listener serves
+Status: accepted (2026-11-16). Amends ADR 0005 (what the web listener serves
 and what anyone on the LAN can read).
 
 ## Context
