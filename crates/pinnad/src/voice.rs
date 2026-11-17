@@ -108,6 +108,9 @@ pub enum ApiCommand {
     ControlMedia(Option<MediaPlayerCommand>, Option<u8>, ApiReply),
     /// Already checked: http(s), not too long.
     PlayMedia(String, ApiReply),
+    /// Reply once audio is decoding, or with the reason it failed.
+    #[allow(dead_code)]
+    PlayMediaChecked(String, oneshot::Sender<Result<(), String>>),
     #[allow(dead_code)]
     SetTimer {
         name: Option<String>,
@@ -1006,6 +1009,11 @@ impl Brain {
             ApiCommand::PlayMedia(url, reply) => {
                 self.media(None, None, Some(url), false).await;
                 (Ok(()), reply)
+            }
+            ApiCommand::PlayMediaChecked(url, reply) => {
+                self.play_media_checked(url, reply);
+                self.refresh();
+                return;
             }
             ApiCommand::CancelTimer(id_or_name, reply) => {
                 (self.cancel_timer(&id_or_name).await, reply)
@@ -2446,6 +2454,30 @@ impl Brain {
         }
     }
 
+    fn play_media_checked(&self, url: String, reply: oneshot::Sender<Result<(), String>>) {
+        let Some(speaker) = &self.speaker else {
+            let _ = reply.send(Err(
+                "This satellite has no working speaker, so it can't play media. \
+                 Logs, under System, says why."
+                    .into(),
+            ));
+            return;
+        };
+        let media = speaker.media();
+        tokio::spawn(async move {
+            let host = url::Url::parse(&url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_owned))
+                .unwrap_or_else(|| "local media".into());
+            let result = media.play_url(&url).await;
+            match &result {
+                Ok(()) => tracing::info!("media host {host}: audio is decoding"),
+                Err(_) => tracing::warn!("media host {host}: playback failed"),
+            }
+            let _ = reply.send(result.map_err(|e| e.to_string()));
+        });
+    }
+
     // --- runs -----------------------------------------------------------------
 
     async fn start_run(&mut self, wake_phrase: Option<String>) {
@@ -2973,4 +3005,123 @@ async fn play_in_turn(
         }
     }
     ok
+}
+
+#[cfg(test)]
+mod checked_media_tests {
+    use std::path::Path;
+
+    use pinna_audio::{Backend, SpeakerConfig};
+
+    use super::*;
+
+    fn brain_at(dir: &Path, with_speaker: bool) -> Brain {
+        let (esp, _events) = EsphomeHandle::detached(8);
+        let speaker = with_speaker.then(|| {
+            Arc::new(Speaker::new(SpeakerConfig::new(Backend::WavFile(
+                dir.join("output.wav"),
+            ))))
+        });
+        Brain::new(
+            esp,
+            speaker,
+            Arc::new(Shared::default()),
+            watch::channel(LedState::default()).0,
+            watch::channel(Snapshot::default()).0,
+            mpsc::channel(8).0,
+            Options {
+                key_file: dir.join("key"),
+                settings_file: dir.join("settings.toml"),
+                wake_words: crate::wakewords::test_catalogue(),
+                active_wake_words: vec!["alexa_v0.1".into()],
+                keywords: None,
+                defaults: Defaults {
+                    node_name: "pinna-test".into(),
+                    friendly_name: "Test".into(),
+                    default_name: true,
+                    wake_sound: false,
+                },
+                mdns: None,
+                encrypted: false,
+                has_hw_privacy: false,
+                airplay: false,
+                bluetooth: false,
+                settings: Settings::default(),
+            },
+        )
+    }
+
+    async fn play(brain: &mut Brain, url: String) -> Result<(), String> {
+        let (reply, result) = oneshot::channel();
+        brain
+            .handle(Input::Api(ApiCommand::PlayMediaChecked(url, reply)))
+            .await;
+        tokio::time::timeout(Duration::from_secs(5), result)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    fn wav() -> Vec<u8> {
+        let samples = vec![0i16; 1_600];
+        let data_len = (samples.len() * 2) as u32;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&16_000u32.to_le_bytes());
+        bytes.extend_from_slice(&32_000u32.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        for sample in samples {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[tokio::test]
+    async fn checked_media_keeps_the_no_speaker_refusal() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut brain = brain_at(dir.path(), false);
+
+        let error = play(&mut brain, "http://radio.test/stream".into())
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            "This satellite has no working speaker, so it can't play media. \
+             Logs, under System, says why."
+        );
+    }
+
+    #[tokio::test]
+    async fn checked_media_replies_when_a_local_wav_decodes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.wav");
+        std::fs::write(&path, wav()).unwrap();
+        let mut brain = brain_at(dir.path(), true);
+
+        play(&mut brain, path.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn checked_media_returns_an_unreachable_url_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut brain = brain_at(dir.path(), true);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/stream", listener.local_addr().unwrap());
+        drop(listener);
+
+        let error = play(&mut brain, url).await.unwrap_err();
+
+        assert!(!error.is_empty());
+    }
 }
