@@ -1,6 +1,6 @@
 # ADR 0019: Recovery, backup and restore
 
-Status: proposed (2026-11-16, revised 2026-11-17). When accepted, it replaces:
+Status: accepted (2026-11-17). It replaces:
 - where rescue mode lives (ADR 0012);
 - the root-only A/B, its own slot record, and the target of the boot guard
   (ADR 0003);
@@ -172,8 +172,9 @@ not here.
 
 ## Open before building
 
-- **Volume Up:** does holding it at power-on boot `recovery` on the Echo Dot
-  (2nd gen) and the Echo (2nd gen)? It needs someone at the device.
+- **Volume Up:** decided as the way into recovery (2026-11-17). Kaeru's
+  source says it boots `recovery`; the first boot of the recovery image on the
+  Echo Dot (2nd gen) and the Echo (2nd gen) measures it.
 - **A `recovery` without a bootable image:** what does Kaeru do? Expected:
   fastboot.
 - **Why the USB network stalls:** its own investigation. The rescue page and
