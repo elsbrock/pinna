@@ -3,10 +3,6 @@ title: Play music with AirPlay
 description: Turn on the AirPlay receiver, play music from an iPhone, a Mac or Music Assistant, and find out why the device doesn't show up.
 ---
 
-> **Untested on a device.** AirPlay starts, reports that it is ready and stops
-> in the virtual machine, but no AirPlay sender has played to Pinna yet. See
-> [Status and roadmap](/docs/status/#known-gaps).
-
 The device can receive AirPlay. iPhones, iPads, Macs and Music Assistant can
 then play music on it. The music goes through the device's own speaker and
 audio processing, so the wake word keeps working while it plays, and replies,

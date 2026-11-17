@@ -11,10 +11,6 @@ it.
 Bluetooth is off until you turn it on. Only phones that you pair while the
 pairing window is open can connect.
 
-> **Not yet tested with Pinna on the Echo Dot (2nd gen).** Bluetooth was
-> tested with an iPhone on the Echo (2nd gen). See
-> [Status and roadmap](/docs/status/#known-gaps).
-
 ## Before you begin
 
 - Use a 5 GHz Wi-Fi if you can. The device's Wi-Fi and Bluetooth share one

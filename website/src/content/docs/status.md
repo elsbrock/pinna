@@ -44,9 +44,10 @@ On the devices:
   checks the backup. See [What you need](/docs/requirements/#backup-of-the-device).
 - A hardware test (`just test-device`) checks the speaker, the microphones,
   the light ring and the Home Assistant connection on a running device.
-- [Bluetooth](/docs/bluetooth/) works on the Echo (2nd gen) with an iPhone:
-  turning it on, pairing in the window, playing, the phone's volume,
-  reconnecting, forgetting, turning it off, and starting after a restart.
+- Music plays over [AirPlay](/docs/airplay/) and
+  [Bluetooth](/docs/bluetooth/) from phones and computers: turning a source on,
+  pairing a phone, playing, the sender's volume, reconnecting, forgetting,
+  turning it off, and starting after a restart.
 
 ## Known gaps
 
@@ -67,15 +68,6 @@ On the devices:
 - **No automated test runs.** The tests run when contributors run them; there
   is no CI for them yet. The release workflow builds the images but doesn't
   run the tests.
-- **AirPlay is untested on a device.** No AirPlay sender has played to Pinna
-  yet, in the virtual machine or on a device. Whether iPhones accept the record
-  that Pinna publishes, and how often music wakes the device or stops it
-  hearing you over hours, hasn't been checked. The delay that AirPlay allows
-  for is estimated, not measured.
-- **Bluetooth is new.** It was tested with one iPhone on the Echo (2nd gen)
-  for minutes, not hours, and not yet on the Echo Dot (2nd gen) with Pinna's
-  own setup. Home Assistant can stop the music on the device, but can't pause
-  or skip on the phone.
 
 ## Planned
 
