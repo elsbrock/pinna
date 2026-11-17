@@ -23,6 +23,7 @@ use tokio::task::JoinHandle;
 
 use super::{AssistStatus, Brain, Input, Phase, PlaybackKind, RunId};
 use crate::mic::MIC_QUEUE;
+use crate::settings::Mode;
 use crate::standalone::AssistLive;
 
 /// Sentences a run may synthesise before the first of them sounds.
@@ -302,6 +303,14 @@ impl Brain {
             return;
         };
         let step = step(self.phase, &current.kind, &ev, now);
+        if current.kind == RunKind::FollowUp
+            && matches!(ev, RunEvent::SpeechEnded)
+            && matches!(step.phase, Phase::Thinking(_))
+        {
+            // A follow-up counts as a run once it hears speech.
+            self.shared.counters.runs.inc();
+            local_guard(Guard::FollowUp);
+        }
         if let RunEvent::Done { turn, spoke } = ev {
             current.done = true;
             current.spoke = spoke;
@@ -430,13 +439,31 @@ impl Brain {
         }
     }
 
-    /// The run is over and nothing of it is left to play.
+    /// The run is over and nothing of it is left to play. After a spoken
+    /// reply the conversation may go on without the wake word.
     async fn finish_local(&mut self) {
-        if self.local.run.take().is_none() {
+        let Some(run) = self.local.run.take() else {
             return;
-        }
+        };
         self.phase = Phase::Idle;
         self.event("voice_assistant", "finished").await;
+        if self.follows_up(&run) {
+            self.start_local_run(RunKind::FollowUp, None).await;
+        }
+    }
+
+    /// Listen once more after a spoken reply to a request or follow-up:
+    /// the owner left follow-ups on, the microphone is on, no alarm rings
+    /// and standalone mode is still set up. There is no count cap; a window
+    /// that hears nothing ends the conversation.
+    fn follows_up(&self, run: &LocalRun) -> bool {
+        run.spoke
+            && matches!(run.kind, RunKind::Request | RunKind::FollowUp)
+            && self.local.live.borrow().follow_ups
+            && !self.muted()
+            && self.ringing.is_none()
+            && self.mode() == Mode::Standalone
+            && self.assist_ready()
     }
 }
 
@@ -1689,9 +1716,16 @@ mod tests {
         sentence(first.chain(rest).boxed())
     }
 
-    /// A ready device with a speaker, thinking about its request.
+    /// A ready device with a speaker, thinking about its request. Follow-ups
+    /// are off, so a reply's end is the end of the conversation.
     async fn thinking_with_speaker() -> (TestDevice, RunId, ReplySink) {
         let mut device = TestDevice::ready_with(true);
+        device.set_live(AssistLive {
+            ready: true,
+            slots: [true; 3],
+            follow_ups: false,
+            ..AssistLive::empty()
+        });
         let FakeRun { start, .. } = device.request().await;
         let LocalStart { run, reply, .. } = start;
         device.assist(run, RunEvent::SpeechEnded).await;
@@ -1877,5 +1911,126 @@ mod tests {
             device.brain.snapshot().assist.last_error.as_deref(),
             Some(error)
         );
+    }
+
+    /// Play a reply without a speaker: the Brain sees its player start and end.
+    async fn speak_reply(device: &mut TestDevice, run: RunId, spoke: bool) {
+        device.assist(run, RunEvent::ReplyReady).await;
+        let token = match &device.brain.playback {
+            Some((token, PlaybackKind::Reply, _)) => *token,
+            other => panic!("no reply player: {other:?}"),
+        };
+        device.brain.handle(Input::PlaybackStarted { token }).await;
+        device
+            .brain
+            .handle(Input::PlaybackDone { token, ok: true })
+            .await;
+        device
+            .assist(
+                run,
+                RunEvent::Done {
+                    turn: Some(turn("Question", "Answer?")),
+                    spoke,
+                },
+            )
+            .await;
+    }
+
+    /// A request that is speaking its reply, without a speaker.
+    async fn replying(device: &mut TestDevice) -> RunId {
+        let run = device.request().await.start.run;
+        device.assist(run, RunEvent::SpeechEnded).await;
+        run
+    }
+
+    #[tokio::test]
+    async fn a_spoken_reply_opens_a_follow_up_with_the_same_noise_seed() {
+        let mut device = TestDevice::ready();
+        device.brain.settings.wake_sound = Some(true);
+        device.shared.noise_energy.store(4_096, Ordering::Relaxed);
+        let run = device.request().await.start.run;
+        assert!(matches!(
+            device.brain.playback,
+            Some((_, PlaybackKind::Cue, _))
+        ));
+        device.assist(run, RunEvent::SpeechEnded).await;
+        // The reply's tail must not become the follow-up's noise floor.
+        device.shared.noise_energy.store(60_000, Ordering::Relaxed);
+        device.events();
+
+        speak_reply(&mut device, run, true).await;
+
+        assert_eq!(
+            device.events(),
+            [
+                voice_event("replying"),
+                voice_event("finished"),
+                voice_event("listening"),
+            ]
+        );
+        assert!(matches!(device.brain.phase, Phase::Listening(_)));
+        assert!(
+            device.brain.playback.is_none(),
+            "a follow-up plays no chime"
+        );
+        assert_eq!(device.shared.counters.runs.get(), 1);
+        let follow_up = device.spawner.take();
+        assert_eq!(follow_up.start.kind, RunKind::FollowUp);
+        assert_eq!(follow_up.start.history, [turn("Question", "Answer?")]);
+        let mic = follow_up.start.mic.as_ref().unwrap();
+        assert!(mic.follow_up);
+        assert_eq!(mic.noise_seed, Some(4_096));
+
+        // Speech in the window turns it into a counted request.
+        device
+            .assist(follow_up.start.run, RunEvent::SpeechEnded)
+            .await;
+        assert!(matches!(device.brain.phase, Phase::Thinking(_)));
+        assert_eq!(device.shared.counters.runs.get(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_follow_up_that_hears_nothing_ends_quietly() {
+        let mut device = TestDevice::ready();
+        let run = replying(&mut device).await;
+        speak_reply(&mut device, run, true).await;
+        let mut follow_up = device.spawner.take();
+        device.events();
+
+        device
+            .assist(follow_up.start.run, RunEvent::NoSpeech { invented: true })
+            .await;
+
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert!(mic_closed(&mut follow_up));
+        assert_eq!(device.events(), [voice_event("finished")]);
+        assert_eq!(device.overlay(), None);
+        assert_eq!(device.spawner.count(), 0, "silence ends the conversation");
+    }
+
+    #[tokio::test]
+    async fn no_follow_up_when_muted_ringing_switched_off_or_silent() {
+        for case in ["muted", "ringing", "off", "silent"] {
+            let mut device = TestDevice::ready();
+            let run = replying(&mut device).await;
+            match case {
+                "muted" => device.brain.hw_muted = true,
+                "ringing" => device.brain.ringing = Some(("tea".into(), Instant::now())),
+                "off" => device.set_live(AssistLive {
+                    ready: true,
+                    slots: [true; 3],
+                    follow_ups: false,
+                    ..AssistLive::empty()
+                }),
+                _ => {}
+            }
+
+            speak_reply(&mut device, run, case != "silent").await;
+
+            assert_eq!(device.spawner.count(), 0, "{case}");
+            assert!(device.brain.local.run.is_none(), "{case}");
+            assert_eq!(device.brain.phase, Phase::Idle, "{case}");
+        }
     }
 }
