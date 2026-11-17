@@ -282,13 +282,16 @@ download fails.
   every model.
 - The `boot` entry lets the installer check the boot image against a signed
   list.
-- `summary` is the message of the annotated release tag, written by hand;
-  the release workflow refuses a tag without one, or with more than 255
-  characters. `notes_url` is the release's page on GitHub, whose text the
-  workflow drafts from the Conventional Commits since the previous release
-  (for a stable release, the previous stable one): new features, then
-  fixes, without docs, tests and chores. `just release` on a developer's
-  computer leaves `notes_url` out.
+- Each release has notes in `releases/<version>.md`, in the style of Home
+  Assistant's release notes: a summary paragraph, then what to do before
+  updating, highlights, fixes and the full list of changes. The project's
+  `release-notes` skill drafts them from the commits since the previous
+  release (for a stable release, the previous stable one); the owner reviews
+  and commits them before tagging. The release workflow refuses a tag
+  without them. Their first paragraph, at most 255 characters, is the
+  manifest's `summary`; the file is the GitHub release's text, which
+  `notes_url` points to. `just release` on a developer's computer leaves
+  `notes_url` out.
 
 ### The browser installer
 
