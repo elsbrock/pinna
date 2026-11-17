@@ -8,9 +8,12 @@
 #
 #   boot 1  slot a, N     marked good; installs N+1 into b, reboots
 #   boot 2  slot b, N+1   trial (guard not armed), marked good; installs N+2
-#                         into a with --tries 1, reboots
+#                         into a with 1 attempt (--tries 1), reboots
 #   boot 3  slot a, N+2   trial, health check fails -> reboot
-#   boot 4  slot b, N+1   a is out of tries: rolled back
+#   boot 4  slot b, N+1   a has no attempts left: rolled back
+#
+# The VM kernel says pinna.bootloader=none, so pinna-init counts the boots on
+# the bootloader's slot record as the Echo's preloader does (ADR 0019).
 #
 # Commands run inside the VM come from a test-only systemd-sysext written into
 # the VM's /var (userdata) before the first boot; it is never part of an image
@@ -157,7 +160,7 @@ start=$SECONDS
 done=
 while [ $((SECONDS - start)) -lt "$timeout_s" ]; do
   sleep 10
-  mapfile -t lines < <(console_text "$work/console.log" | grep -aE "pinna-init: (booting|.*rolling back|trial boot|slot .* not bootable)" || true)
+  mapfile -t lines < <(console_text "$work/console.log" | grep -aE "pinna-init: (booting|no bootloader: slot|slot .* not bootable|slot .* retired)" || true)
   for l in "${lines[@]:$seen}"; do printf '     [%4ss] %s\n' $((SECONDS - start)) "${l#*] }"; done
   seen=${#lines[@]}
   if grep -q '"GET /done' "$work/http.log"; then done=1; break; fi
@@ -187,12 +190,12 @@ bcheck 1 "slot a, N ($v0)" "pinna-init: booting slot a, version $(re "$v0")$"
 bcheck 1 "root on dm-verity" "pinna-init: slot [a-z0-9]+ -> dm-0 \(dm-verity"
 bcheck 1 "slot a marked good" "slot a marked good \(version $(re "$v0")\)"
 bcheck 1 "N+1 downloaded, verified and installed into slot b" "installed version $(re "$v1") into slot b"
-bcheck 2 "trial boot of slot b" "pinna-init: trial boot of slot b \(2 tries left after this one\)"
+bcheck 2 "trial boot of slot b" "pinna-init: no bootloader: slot b, as the preloader and LK would choose \(trial attempts=2"
 bcheck 2 "slot b, N+1 ($v1)" "pinna-init: booting slot b, version $(re "$v1")$"
 bcheck 2 "fastboot guard not armed during the trial" "not arming: trial boot of slot b"
 bcheck 2 "slot b marked good" "slot b marked good \(version $(re "$v1")\)"
-bcheck 2 "N+2 installed into slot a with 1 try" "installed version $(re "$v2") into slot a: the next boot tries it \(1 tries\)"
-bcheck 3 "trial boot of slot a" "pinna-init: trial boot of slot a \(0 tries left after this one\)"
+bcheck 2 "N+2 installed into slot a with 1 attempt" "installed version $(re "$v2") into slot a: the next boot tries it \(1 attempts\)"
+bcheck 3 "trial boot of slot a" "pinna-init: no bootloader: slot a, as the preloader and LK would choose \(trial attempts=0"
 bcheck 3 "slot a, N+2 ($v2)" "pinna-init: booting slot a, version $(re "$v2")$"
 bcheck 3 "fastboot guard not armed during the trial" "not arming: trial boot of slot a"
 bcheck 3 "pinnad does not start" "pinnad.service.*(skipped|unmet condition)"
@@ -206,7 +209,7 @@ else
   fail "boot 3: the failed check reboots (FailureAction=reboot)"
 fi
 if grep -q "slot a marked good" "$work/boot3.txt" 2>/dev/null; then fail "boot 3: broken slot a was marked good"; else pass "boot 3: broken slot a not marked good"; fi
-bcheck 4 "rolled back: slot a out of tries" "pinna-init: slot a is out of tries: rolling back to slot b"
+bcheck 4 "rolled back: slot a has no attempts left" "pinna-init: no bootloader: slot b, as the preloader and LK would choose \(good"
 bcheck 4 "slot b, N+1 ($v1) again" "pinna-init: booting slot b, version $(re "$v1")$"
 bcheck 4 "fastboot guard armed on the good slot" "armed: next boot enters fastboot unless cleared"
 bcheck 4 "health check passes" "slot b marked good \(version $(re "$v1")\)"
@@ -215,7 +218,7 @@ bcheck 4 "the test saw the rollback" "pinna-test: back on $(re "$v1") in slot b"
 slot_status "$work/disk.raw" "$work" > "$work/slot-status.txt"
 sed 's/^/     /' "$work/slot-status.txt"
 if grep -qx "active: b" "$work/slot-status.txt" && grep -q "^b: good" "$work/slot-status.txt" &&
-   grep -q "^a: unbootable tries=0" "$work/slot-status.txt"; then
+   grep -q "^a: unbootable attempts=0" "$work/slot-status.txt"; then
   pass "misc slot state: active b (good), a unbootable"
 else
   fail "misc slot state"

@@ -207,7 +207,7 @@ extract_journal "$work/disk.raw" "$work"
 journalctl --directory="$work/journal/journal" --no-pager -o short-monotonic > "$work/journal.txt" 2>/dev/null || true
 jcheck() { if grep -qE "$2" "$work/journal.txt"; then pass "$1"; else fail "$1"; fi; }
 v_re=${version//./\\.}
-jcheck "pinna-init: no slot state yet, slot a" "pinna-init: no slot state \(first flash\): slot a"
+jcheck "pinna-init: no bootloader, slot a" "pinna-init: no bootloader: slot a, as the preloader and LK would choose \(good"
 jcheck "pinna-init booted slot a, version $version" "pinna-init: booting slot a, version ${v_re}$"
 jcheck "root is the dm-verity device dm-0" "pinna-init: slot [a-z0-9]+ -> dm-0 \(dm-verity, root hash"
 jcheck "kernel: erofs mounted from dm-0" "erofs: \(device dm-0\): mounted"
