@@ -18,6 +18,7 @@ pub mod refsink;
 pub mod speaker;
 pub mod spectrum;
 pub mod tone;
+pub mod track;
 pub mod volume;
 
 use std::io;
@@ -28,6 +29,7 @@ pub use decode::{Pcm, decode};
 pub use media::{MediaHandle, MediaPhase, MediaState, STREAM_URL};
 pub use speaker::{PlaybackState, Speaker, SpeakerConfig, VoiceLevel, VoicePlayback};
 pub use spectrum::{Bands, Spectrum};
+pub use track::Track;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -25,9 +25,10 @@
 use crate::decode::{OUT_RATE, StreamResampler, VarResampler};
 use crate::mix::{FADE, Ramp};
 use crate::speaker::Cmd;
+use crate::track::{self, IcyDemux, Track};
 use crate::{Error, Result};
 use bytes::Bytes;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 use std::net::Shutdown;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
@@ -70,6 +71,8 @@ const VOICE_TARGETS: [usize; 3] = [5, 25, BUFFER_CHUNKS];
 const LIVE_RATES: [u32; 2] = [44_100, 48_000];
 /// Live stream: the longest header line accepted, newline included.
 const LIVE_HEADER_MAX: usize = 32;
+/// Live stream: the longest source name a header may give.
+pub const SOURCE_MAX: usize = 16;
 /// Live stream rate control: ppm of ratio adjustment per frame of queue
 /// error, and per frame of error per chunk (integral). Tuned in simulation
 /// for a damped response: locks onto a sender 300 ppm off within ~2 min and
@@ -102,6 +105,11 @@ pub struct MediaState {
     pub muted: bool,
     /// Why the last media ended, if it ended badly. Cleared by the next play.
     pub error: Option<String>,
+    /// What plays, as its source names it; empty while idle.
+    pub track: Track,
+    /// The name a stream's header gives its source (ADR 0011), while a
+    /// stream plays; empty otherwise.
+    pub source: String,
 }
 
 impl Default for MediaState {
@@ -111,6 +119,8 @@ impl Default for MediaState {
             url: None,
             muted: false,
             error: None,
+            track: Track::default(),
+            source: String::new(),
         }
     }
 }
@@ -165,6 +175,7 @@ impl Decoder {
         source: Box<dyn MediaSource>,
         hint: Hint,
         pump: Option<JoinHandle<()>>,
+        sink: Option<TrackSink>,
     ) -> Result<(Decoder, oneshot::Receiver<std::result::Result<(), String>>)> {
         let (tx, rx) = sync_channel(BUFFER_CHUNKS);
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -182,7 +193,7 @@ impl Decoder {
             .stack_size(512 * 1024)
             .spawn(move || {
                 let _alive = alive;
-                run_decoder(source, hint, tx, cancel, ready_tx);
+                run_decoder(source, hint, tx, cancel, ready_tx, sink);
             })
             .map_err(|e| Error::Other(format!("spawn decoder: {e}")))?;
         Ok((decoder, ready_rx))
@@ -364,24 +375,36 @@ impl LiveIngest {
     }
 }
 
-/// A live stream's header: `s16le <rate> 2`, rate one of [`LIVE_RATES`].
-/// Returns the rate.
-fn parse_header(line: &str) -> std::result::Result<u32, String> {
-    let bad = || format!("stream: bad header {line:?} (want \"s16le 44100|48000 2\")");
-    match line.split_whitespace().collect::<Vec<_>>()[..] {
-        ["s16le", rate, "2"] => rate
-            .parse()
-            .ok()
-            .filter(|r| LIVE_RATES.contains(r))
-            .ok_or_else(bad),
-        _ => Err(bad()),
-    }
+/// Whether `name` can name a stream's source (ADR 0011): 1 to
+/// [`SOURCE_MAX`] of `a-z`, `0-9` and `-`.
+pub fn is_source_name(name: &str) -> bool {
+    (1..=SOURCE_MAX).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// A live stream's header: `s16le <rate> 2 [<source>]`, rate one of
+/// [`LIVE_RATES`]. Returns the rate and the source's name (empty when the
+/// header gives none).
+fn parse_header(line: &str) -> std::result::Result<(u32, String), String> {
+    let bad = || format!("stream: bad header {line:?} (want \"s16le 44100|48000 2 [source]\")");
+    let (rate, source) = match line.split_whitespace().collect::<Vec<_>>()[..] {
+        ["s16le", rate, "2"] => (rate, ""),
+        ["s16le", rate, "2", source] if is_source_name(source) => (rate, source),
+        _ => return Err(bad()),
+    };
+    rate.parse()
+        .ok()
+        .filter(|r| LIVE_RATES.contains(r))
+        .map(|r| (r, source.to_string()))
+        .ok_or_else(bad)
 }
 
 /// Read the header line, one byte at a time so no audio is consumed. `None`
 /// for a client that closed or stayed quiet before sending one: like a client
 /// that never sends audio, it changes nothing.
-fn read_header(conn: &mut UnixStream) -> std::result::Result<u32, Option<String>> {
+fn read_header(conn: &mut UnixStream) -> std::result::Result<(u32, String), Option<String>> {
     let mut line = Vec::with_capacity(LIVE_HEADER_MAX);
     let mut b = [0u8; 1];
     while line.len() < LIVE_HEADER_MAX {
@@ -449,8 +472,8 @@ fn read_stream(
     media: MediaHandle,
     mut decoder: Option<Decoder>,
 ) {
-    let rate = match read_header(&mut conn) {
-        Ok(rate) => rate,
+    let (rate, source) = match read_header(&mut conn) {
+        Ok(header) => header,
         Err(e) => {
             match e {
                 Some(e) => tracing::warn!("{e}"),
@@ -466,8 +489,8 @@ fn read_stream(
     let mut idle = false;
     let start = |decoder: &mut Option<Decoder>| {
         if let Some(d) = decoder.take() {
-            tracing::info!("stream: session started ({rate} Hz)");
-            media.attach_stream(d);
+            tracing::info!("stream: session started ({rate} Hz) from {source:?}");
+            media.attach_stream(d, source.clone());
         }
     };
     let end = loop {
@@ -578,6 +601,7 @@ fn run_decoder(
     tx: SyncSender<Item>,
     cancel: Arc<AtomicBool>,
     ready: oneshot::Sender<std::result::Result<(), String>>,
+    sink: Option<TrackSink>,
 ) {
     let mut out = Out {
         tx: tx.clone(),
@@ -586,7 +610,7 @@ fn run_decoder(
         buf: Vec::new(),
         sent: false,
     };
-    let result = decode_stream(source, hint, &mut out);
+    let result = decode_stream(source, hint, &mut out, sink);
     let end = match result {
         Ok(()) if out.sent => None,
         Ok(()) => Some("no audio decoded".to_string()),
@@ -614,6 +638,7 @@ fn decode_stream(
     source: Box<dyn MediaSource>,
     hint: Hint,
     out: &mut Out,
+    sink: Option<TrackSink>,
 ) -> std::result::Result<(), String> {
     let err = |e: SymError| e.to_string();
     let mss = MediaSourceStream::new(source, Default::default());
@@ -625,6 +650,28 @@ fn decode_stream(
             &MetadataOptions::default(),
         )
         .map_err(|e| format!("unrecognised audio stream: {e}"))?;
+    let mut probed = probed;
+    // Tags ahead of the container (ID3v2), then the container's own.
+    if let Some(sink) = &sink {
+        let mut tags = Track::default();
+        if let Some(rev) = probed.metadata.get().as_ref().and_then(|m| m.current()) {
+            tags.add_tags(rev);
+        }
+        if let Some(rev) = probed.format.metadata().current() {
+            tags.add_tags(rev);
+        }
+        sink.update(|t| {
+            for (field, tag) in [
+                (&mut t.title, tags.title),
+                (&mut t.artist, tags.artist),
+                (&mut t.album, tags.album),
+            ] {
+                if !tag.is_empty() {
+                    *field = tag;
+                }
+            }
+        });
+    }
     let mut format = probed.format;
     let track = format
         .default_track()
@@ -739,7 +786,35 @@ impl Read for ChanReader {
     }
 }
 
-async fn pump(mut resp: reqwest::Response, tx: mpsc::Sender<std::io::Result<Bytes>>) {
+/// Where a URL's track goes: merged here, then sent to the lane under the
+/// play's generation. Tags and ICY metadata each set only their own fields.
+#[derive(Clone)]
+pub(crate) struct TrackSink {
+    gen_: u64,
+    tx: mpsc::UnboundedSender<Cmd>,
+    cur: Arc<Mutex<Track>>,
+}
+
+impl TrackSink {
+    fn update(&self, f: impl FnOnce(&mut Track)) {
+        let mut t = self.cur.lock().unwrap_or_else(|e| e.into_inner());
+        let before = t.clone();
+        f(&mut t);
+        if *t != before {
+            let _ = self.tx.send(Cmd::MediaTrack {
+                gen_: self.gen_,
+                track: t.clone(),
+            });
+        }
+    }
+}
+
+async fn pump(
+    mut resp: reqwest::Response,
+    tx: mpsc::Sender<std::io::Result<Bytes>>,
+    mut icy: Option<(IcyDemux, Option<TrackSink>)>,
+) {
+    let mut audio = Vec::new();
     loop {
         let chunk = tokio::select! {
             c = resp.chunk() => c,
@@ -747,6 +822,23 @@ async fn pump(mut resp: reqwest::Response, tx: mpsc::Sender<std::io::Result<Byte
         };
         match chunk {
             Ok(Some(b)) => {
+                let b = match &mut icy {
+                    Some((demux, sink)) => {
+                        audio.clear();
+                        if let Some(title) = demux
+                            .feed(&b, &mut audio)
+                            .and_then(|block| track::stream_title(&block))
+                            && let Some(sink) = sink
+                        {
+                            sink.update(|t| t.title = title);
+                        }
+                        if audio.is_empty() {
+                            continue;
+                        }
+                        Bytes::copy_from_slice(&audio)
+                    }
+                    None => b,
+                };
                 if tx.send(Ok(b)).await.is_err() {
                     return;
                 }
@@ -772,22 +864,41 @@ fn is_http(url: &str) -> bool {
     u.starts_with("http://") || u.starts_with("https://")
 }
 
+/// Open `url` for decoding. With a `sink` (music, not replies), its tags and
+/// an internet radio's ICY metadata go there (ADR 0011).
 async fn open(
     client: &reqwest::Client,
     url: &str,
+    sink: Option<TrackSink>,
 ) -> Result<(Decoder, oneshot::Receiver<std::result::Result<(), String>>)> {
     let mut hint = Hint::new();
     if let Some(ext) = extension_of(url) {
         hint.with_extension(ext);
     }
     if is_http(url) {
-        let resp = client
-            .get(url)
+        let mut req = client.get(url);
+        if sink.is_some() {
+            req = req.header("Icy-MetaData", "1");
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| Error::Other(format!("open {url}: {e}")))?;
         if !resp.status().is_success() {
             return Err(Error::Other(format!("open {url}: HTTP {}", resp.status())));
+        }
+        // A server that interleaves ICY metadata says how often; without
+        // removing it, the decoder would hear it as noise.
+        let metaint = resp
+            .headers()
+            .get("icy-metaint")
+            .and_then(|v| v.to_str().ok()?.trim().parse::<usize>().ok())
+            .filter(|&n| n > 0);
+        if let Some(sink) = &sink
+            && let Some(name) = resp.headers().get("icy-name")
+        {
+            let station = track::text(name.as_bytes());
+            sink.update(|t| t.station = station);
         }
         if let Some(ct) = resp
             .headers()
@@ -812,13 +923,19 @@ async fn open(
             }
             hint.mime_type(&mime);
         }
+        let icy = metaint.map(|n| (IcyDemux::new(n), sink.clone()));
         let (tx, rx) = mpsc::channel(NET_CHUNKS);
-        let pump = tokio::spawn(pump(resp, tx));
+        let pump = tokio::spawn(pump(resp, tx, icy));
         let reader = ChanReader {
             rx,
             cur: Bytes::new(),
         };
-        Decoder::start(Box::new(ReadOnlySource::new(reader)), hint, Some(pump))
+        Decoder::start(
+            Box::new(ReadOnlySource::new(reader)),
+            hint,
+            Some(pump),
+            sink,
+        )
     } else {
         let path = url.strip_prefix("file://").unwrap_or(url);
         if path.contains("://") {
@@ -829,7 +946,7 @@ async fn open(
             .map_err(|e| Error::Other(format!("open {path}: {e}")))?
             .into_std()
             .await;
-        Decoder::start(Box::new(file), hint, None)
+        Decoder::start(Box::new(file), hint, None, sink)
     }
 }
 
@@ -905,7 +1022,12 @@ impl MediaHandle {
             });
             Error::Other(msg)
         };
-        let (decoder, ready) = match open(self.shared.client(), url).await {
+        let sink = TrackSink {
+            gen_,
+            tx: self.shared.tx.clone(),
+            cur: Arc::default(),
+        };
+        let (decoder, ready) = match open(self.shared.client(), url, Some(sink)).await {
             Ok(v) => v,
             Err(e) => return Err(fail(e.to_string())),
         };
@@ -995,12 +1117,12 @@ impl MediaHandle {
         Ok(())
     }
 
-    /// Replace the current media with a live stream that has data.
-    fn attach_stream(&self, decoder: Decoder) {
-        let gen_ = self.shared.send_gen(|gen_| Cmd::MediaBegin {
-            gen_,
-            url: STREAM_URL.to_string(),
-        });
+    /// Replace the current media with a live stream from `source` that has
+    /// data.
+    fn attach_stream(&self, decoder: Decoder, source: String) {
+        let gen_ = self
+            .shared
+            .send_gen(|gen_| Cmd::StreamBegin { gen_, source });
         let _ = self.shared.tx.send(Cmd::MediaAttach { gen_, decoder });
     }
 
@@ -1147,7 +1269,7 @@ impl VoiceSource {
 /// Resolves once the first audio is decoded, or with the open/probe error
 /// (an empty stream is an error); nothing keeps running after an error.
 pub(crate) async fn open_voice(client: &reqwest::Client, url: &str) -> Result<VoiceSource> {
-    let (decoder, ready) = open(client, url).await?;
+    let (decoder, ready) = open(client, url, None).await?;
     match ready.await {
         Ok(Ok(())) => Ok(VoiceSource::new(decoder)),
         Ok(Err(msg)) => Err(Error::Other(msg)),
@@ -1250,6 +1372,14 @@ pub(crate) struct MediaLane {
     /// A live stream's own volume (the sender's, ADR 0011); other sources
     /// play at full level.
     stream_gain: Ramp,
+    /// What the current URL's tags or ICY metadata name.
+    track: Track,
+    /// The current stream's source, from its header.
+    source: String,
+    /// What each stream bridge last named, by source (ADR 0011). Kept across
+    /// sessions, so a pause that ends one doesn't lose it; a source's track
+    /// shows only while that source's stream plays.
+    stream_tracks: HashMap<String, Track>,
 }
 
 impl Default for MediaLane {
@@ -1269,6 +1399,9 @@ impl Default for MediaLane {
             play: Ramp::new(1.0, FADE),
             mute: Ramp::new(1.0, FADE),
             stream_gain: Ramp::new(1.0, FADE),
+            track: Track::default(),
+            source: String::new(),
+            stream_tracks: HashMap::new(),
         }
     }
 }
@@ -1278,6 +1411,33 @@ impl MediaLane {
     /// playing now and is held by one that fades out.
     pub fn set_stream_gain(&mut self, gain: f32) {
         self.stream_gain.set(gain);
+    }
+
+    /// The track the stream bridge `source` plays.
+    pub fn set_stream_track(&mut self, source: String, track: Track) {
+        self.stream_tracks.insert(source, track.capped());
+    }
+
+    /// The track the play `gen_` names; ignored once another play began.
+    pub fn set_track(&mut self, gen_: u64, track: Track) {
+        if gen_ == self.gen_ && (self.pending || self.decoder.is_some()) {
+            self.track = track.capped();
+        }
+    }
+
+    /// The track of what plays now.
+    fn current_track(&self) -> &Track {
+        static NONE: Track = Track {
+            title: String::new(),
+            artist: String::new(),
+            album: String::new(),
+            station: String::new(),
+        };
+        if self.url.as_deref() == Some(STREAM_URL) {
+            self.stream_tracks.get(&self.source).unwrap_or(&NONE)
+        } else {
+            &self.track
+        }
     }
 
     pub fn phase(&self) -> MediaPhase {
@@ -1310,10 +1470,13 @@ impl MediaLane {
     /// Copy the observable state into `cur`; true if anything changed.
     pub fn publish(&self, cur: &mut MediaState) -> bool {
         let phase = self.phase();
+        let track = self.current_track();
         if cur.phase == phase
             && cur.muted == self.muted
             && cur.url == self.url
             && cur.error == self.error
+            && cur.track == *track
+            && cur.source == self.source
         {
             return false;
         }
@@ -1321,6 +1484,8 @@ impl MediaLane {
         cur.muted = self.muted;
         cur.url.clone_from(&self.url);
         cur.error.clone_from(&self.error);
+        cur.track.clone_from(track);
+        cur.source.clone_from(&self.source);
         true
     }
 
@@ -1331,6 +1496,8 @@ impl MediaLane {
         self.pos = 0;
         self.pending = false;
         self.url = None;
+        self.track = Track::default();
+        self.source.clear();
         self.paused = false;
         self.starved = false;
         self.play.jump(1.0);
@@ -1372,6 +1539,12 @@ impl MediaLane {
         self.pending = true;
         self.url = Some(url);
         self.error = None;
+    }
+
+    /// A live stream from `source` begins.
+    pub fn begin_stream(&mut self, gen_: u64, source: String) {
+        self.begin(gen_, STREAM_URL.to_string());
+        self.source = source;
     }
 
     pub fn attach(&mut self, gen_: u64, decoder: Decoder) {
@@ -1693,6 +1866,8 @@ mod tests {
         /// Connections whose peer went away while we were writing.
         closed: AtomicUsize,
         requests: AtomicUsize,
+        /// Requests that asked for ICY metadata.
+        icy: AtomicUsize,
     }
 
     struct Server {
@@ -1706,8 +1881,12 @@ mod tests {
         }
     }
 
+    /// Audio bytes between ICY metadata blocks on `/icy<path>`.
+    const ICY_METAINT: usize = 1000;
+
     /// `files`: path -> (content type, body). `/live.wav` is an endless
     /// 48 kHz stereo sine, paced in real time after a 1 s head start.
+    /// `/icy<path>` serves `<path>` with ICY metadata to a client that asks.
     async fn serve(files: Vec<(&'static str, &'static str, Vec<u8>)>) -> Server {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -1742,7 +1921,38 @@ mod tests {
         stats.requests.fetch_add(1, Ordering::Relaxed);
         let text = String::from_utf8_lossy(&req).to_string();
         let path = text.split_whitespace().nth(1).unwrap_or("/").to_string();
-        let ok = if path == "/live.wav" {
+        let icy = text
+            .to_ascii_lowercase()
+            .contains("\r\nicy-metadata: 1\r\n");
+        if icy {
+            stats.icy.fetch_add(1, Ordering::Relaxed);
+        }
+        let ok = if let (true, Some((ct, body))) =
+            (icy, path.strip_prefix("/icy").and_then(|p| files.get(p)))
+        {
+            // `/icy<path>`: the file at `<path>` as an ICY radio server sends
+            // it to a client that asks, a title every `ICY_METAINT` bytes.
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {ct}\r\nicy-metaint: {ICY_METAINT}\r\nicy-name: Test FM\r\nConnection: close\r\n\r\n"
+            );
+            let mut out = head.into_bytes();
+            for (i, block) in body.chunks(ICY_METAINT).enumerate() {
+                out.extend_from_slice(block);
+                if block.len() == ICY_METAINT {
+                    // A new title on the first block, then "no change".
+                    let meta: &[u8] = if i == 0 {
+                        b"StreamTitle='Caf\xe9 - Song';"
+                    } else {
+                        b""
+                    };
+                    let n = meta.len().div_ceil(16);
+                    out.push(n as u8);
+                    out.extend_from_slice(meta);
+                    out.resize(out.len() + n * 16 - meta.len(), 0);
+                }
+            }
+            s.write_all(&out).await.is_ok()
+        } else if path == "/live.wav" {
             let head = b"HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nConnection: close\r\n\r\n";
             let mut out = head.to_vec();
             out.extend(wav_header(48000, 2, u32::MAX));
@@ -1891,6 +2101,104 @@ mod tests {
     async fn streams_flac() {
         let body = flac_44k_mono(&sine(44100, 1, 1000, 12000.0));
         plays_to_end("/a.flac", "audio/flac", body, 44_000).await;
+    }
+
+    /// An ID3v2.3 tag with Latin-1 text frames.
+    fn id3(frames: &[(&[u8; 4], &str)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (id, text) in frames {
+            body.extend_from_slice(*id);
+            body.extend_from_slice(&(text.len() as u32 + 1).to_be_bytes());
+            body.extend_from_slice(&[0, 0, 0]); // flags, then Latin-1
+            body.extend_from_slice(text.as_bytes());
+        }
+        let n = body.len() as u32;
+        let mut tag = b"ID3\x03\x00\x00".to_vec();
+        tag.extend(
+            [
+                (n >> 21) & 0x7f,
+                (n >> 14) & 0x7f,
+                (n >> 7) & 0x7f,
+                n & 0x7f,
+            ]
+            .map(|b| b as u8),
+        );
+        tag.extend(body);
+        tag
+    }
+
+    async fn track_while_playing(m: &MediaHandle, want: &Track) {
+        wait_phase(m, MediaPhase::Playing, Duration::from_secs(2)).await;
+        let got = until(Duration::from_secs(1), || m.state().borrow().track == *want).await;
+        let st = m.state().borrow().clone();
+        assert!(got, "track {:?}, phase {:?}", st.track, st.phase);
+        assert_eq!(st.phase, MediaPhase::Playing);
+    }
+
+    #[tokio::test]
+    async fn a_files_tags_name_the_track_until_it_ends() {
+        let mut body = id3(&[(b"TIT2", "Song"), (b"TPE1", "Artist"), (b"TALB", "Album")]);
+        body.extend(silent_mp3(80));
+        let srv = serve(vec![("/a.mp3", "audio/mpeg", body)]).await;
+        let rig = rig(Duration::from_secs(5));
+        let m = rig.speaker.media();
+        m.play_url(&srv.url("/a.mp3")).await.unwrap();
+        let want = Track {
+            title: "Song".into(),
+            artist: "Artist".into(),
+            album: "Album".into(),
+            station: String::new(),
+        };
+        track_while_playing(&m, &want).await;
+        wait_phase(&m, MediaPhase::Idle, Duration::from_secs(6)).await;
+        assert_eq!(m.state().borrow().track, Track::default());
+    }
+
+    /// Max absolute sample and sounding frames in a sink.
+    fn loudness(sink: &Path) -> (i16, usize) {
+        let b = std::fs::read(sink).unwrap_or_default();
+        let max = b
+            .chunks_exact(2)
+            .map(|s| i16::from_le_bytes([s[0], s[1]]).saturating_abs())
+            .max()
+            .unwrap_or(0);
+        (max, sounding_frames(sink))
+    }
+
+    #[tokio::test]
+    async fn icy_radio_names_the_track_and_plays_the_same_audio() {
+        let body = wav(48000, 2, &sine(48000, 2, 1500, 12000.0));
+        let srv = serve(vec![("/radio.wav", "audio/wav", body)]).await;
+
+        let plain = rig(Duration::from_secs(5));
+        let m = plain.speaker.media();
+        // A voice URL doesn't ask for ICY metadata; this one, played as
+        // music, does but gets the plain file.
+        m.play_url(&srv.url("/radio.wav")).await.unwrap();
+        wait_phase(&m, MediaPhase::Idle, Duration::from_secs(6)).await;
+        assert_eq!(m.state().borrow().error, None);
+
+        let radio = rig(Duration::from_secs(5));
+        let m = radio.speaker.media();
+        m.play_url(&srv.url("/icy/radio.wav")).await.unwrap();
+        let want = Track {
+            title: "Café - Song".into(),
+            station: "Test FM".into(),
+            ..Default::default()
+        };
+        track_while_playing(&m, &want).await;
+        wait_phase(&m, MediaPhase::Idle, Duration::from_secs(6)).await;
+        assert_eq!(m.state().borrow().error, None);
+        assert_eq!(srv.stats.icy.load(Ordering::Relaxed), 2);
+
+        // Metadata left in the audio would shift the samples into noise.
+        let (plain_max, plain_frames) = loudness(&plain.sink);
+        let (radio_max, radio_frames) = loudness(&radio.sink);
+        assert_eq!(radio_max, plain_max);
+        assert!(
+            radio_frames.abs_diff(plain_frames) < CHUNK_FRAMES,
+            "{radio_frames} vs {plain_frames}"
+        );
     }
 
     #[tokio::test]
@@ -2054,7 +2362,7 @@ mod tests {
     async fn decoder_thread_exits_when_dropped() {
         let srv = serve(vec![]).await;
         let client = reqwest::Client::new();
-        let (d, ready) = open(&client, &srv.url("/live.wav")).await.unwrap();
+        let (d, ready) = open(&client, &srv.url("/live.wav"), None).await.unwrap();
         ready.await.unwrap().unwrap();
         let alive = Arc::downgrade(&d.alive);
         assert!(alive.strong_count() > 0);
@@ -2081,7 +2389,7 @@ mod tests {
             tokio::time::sleep(Duration::from_secs(60)).await;
         });
         let client = reqwest::Client::new();
-        let (d, ready) = open(&client, &url).await.unwrap();
+        let (d, ready) = open(&client, &url, None).await.unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         let alive = Arc::downgrade(&d.alive);
         drop(ready);
@@ -2333,6 +2641,65 @@ mod tests {
 
     // -- live streams: the lane ------------------------------------------------
 
+    #[test]
+    fn a_sources_track_shows_only_while_its_stream_plays() {
+        let named = |title: &str| Track {
+            title: title.into(),
+            ..Default::default()
+        };
+        let mut lane = MediaLane::default();
+        let mut st = MediaState::default();
+        // Sent before the session connects, as the bridges do.
+        lane.set_stream_track("airplay".into(), named("Song"));
+        lane.begin_stream(1, "airplay".into());
+        lane.attach(1, Decoder::live_detached(Arc::new(LiveQueue::default())));
+        lane.publish(&mut st);
+        assert_eq!(
+            (st.track.title.as_str(), st.source.as_str()),
+            ("Song", "airplay")
+        );
+
+        // Another source's change doesn't touch this session.
+        assert!(!{
+            lane.set_stream_track("bluetooth".into(), named("Other"));
+            lane.publish(&mut st)
+        });
+        lane.set_stream_track("airplay".into(), named("Next"));
+        assert!(lane.publish(&mut st));
+        assert_eq!(st.track.title, "Next");
+
+        // Bluetooth takes over: its own track, kept from before.
+        lane.begin_stream(2, "bluetooth".into());
+        lane.publish(&mut st);
+        assert_eq!(
+            (st.track.title.as_str(), st.source.as_str()),
+            ("Other", "bluetooth")
+        );
+
+        // A URL shows its own track, from its own play only.
+        lane.begin(3, "http://x/a.mp3".into());
+        lane.set_track(2, named("Stale"));
+        lane.publish(&mut st);
+        assert_eq!(
+            (st.track.clone(), st.source.as_str()),
+            (Track::default(), "")
+        );
+        lane.set_track(3, named("Tagged"));
+        lane.publish(&mut st);
+        assert_eq!(st.track.title, "Tagged");
+
+        // Idle shows nothing; a stream that comes back still has its track.
+        lane.stop(4);
+        lane.publish(&mut st);
+        assert_eq!(st.track, Track::default());
+        lane.set_track(3, named("Late"));
+        lane.publish(&mut st);
+        assert_eq!(st.track, Track::default());
+        lane.begin_stream(5, "airplay".into());
+        lane.publish(&mut st);
+        assert_eq!(st.track.title, "Next");
+    }
+
     fn live_lane() -> (MediaLane, Arc<LiveQueue>) {
         let q = Arc::new(LiveQueue::default());
         let mut lane = MediaLane::default();
@@ -2443,16 +2810,26 @@ mod tests {
     }
 
     #[test]
-    fn stream_header_takes_the_two_rates_only() {
-        assert_eq!(parse_header("s16le 44100 2"), Ok(44100));
-        assert_eq!(parse_header("s16le 48000 2\r"), Ok(48000));
+    fn stream_header_takes_the_two_rates_and_a_source_name() {
+        assert_eq!(parse_header("s16le 44100 2"), Ok((44100, String::new())));
+        assert_eq!(parse_header("s16le 48000 2\r"), Ok((48000, String::new())));
+        assert_eq!(
+            parse_header("s16le 44100 2 airplay"),
+            Ok((44100, "airplay".into()))
+        );
+        assert_eq!(
+            parse_header("s16le 48000 2 bluetooth\r"),
+            Ok((48000, "bluetooth".into()))
+        );
         for bad in [
             "",
             "s16le 48000",
             "s16le 48000 1",
             "s16le 96000 2",
             "S16LE 48000 2",
-            "s16le 48000 2 x",
+            "s16le 48000 2 AirPlay",
+            "s16le 48000 2 a b",
+            "s16le 48000 2 a-name-longer-than16",
         ] {
             assert!(parse_header(bad).is_err(), "{bad:?}");
         }

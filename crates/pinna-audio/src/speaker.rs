@@ -21,6 +21,7 @@ use crate::media::{
 use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
 use crate::spectrum::{Analyzer, Spectrum};
+use crate::track::Track;
 use crate::volume::{stream_gain, top_boost_db, volume_gain};
 use crate::{Backend, Error, Result, decode};
 use std::collections::VecDeque;
@@ -290,6 +291,11 @@ pub(crate) enum Cmd {
         gen_: u64,
         url: String,
     },
+    /// A live stream from the source its header names begins.
+    StreamBegin {
+        gen_: u64,
+        source: String,
+    },
     MediaAttach {
         gen_: u64,
         decoder: Decoder,
@@ -304,6 +310,16 @@ pub(crate) enum Cmd {
     MediaPause,
     MediaResume,
     MediaMute(bool),
+    /// What the play `gen_` names (its tags or ICY metadata).
+    MediaTrack {
+        gen_: u64,
+        track: Track,
+    },
+    /// What a stream bridge names.
+    StreamTrack {
+        source: String,
+        track: Track,
+    },
 }
 
 struct Inner {
@@ -480,6 +496,16 @@ impl Speaker {
         self.inner
             .stream_volume
             .store(percent.min(100), Ordering::Relaxed);
+    }
+
+    /// The track the stream bridge `source` plays, as it names it (ADR
+    /// 0011). Kept across sessions, and shown in the media state only while
+    /// a stream from `source` plays.
+    pub fn set_stream_track(&self, source: &str, track: Track) {
+        let _ = self.inner.tx.send(Cmd::StreamTrack {
+            source: source.to_string(),
+            track,
+        });
     }
 
     /// Hold the media lane ducked (e.g. while the mic is listening), on top of
@@ -968,12 +994,15 @@ impl Actor {
         let media = &mut self.feeder.media;
         match cmd {
             Cmd::MediaBegin { gen_, url } => media.begin(gen_, url),
+            Cmd::StreamBegin { gen_, source } => media.begin_stream(gen_, source),
             Cmd::MediaAttach { gen_, decoder } => media.attach(gen_, decoder),
             Cmd::MediaFail { gen_, msg } => media.open_failed(gen_, msg),
             Cmd::MediaStop { gen_ } => media.stop(gen_),
             Cmd::MediaPause => media.pause(),
             Cmd::MediaResume => media.resume(),
             Cmd::MediaMute(m) => media.set_muted(m),
+            Cmd::MediaTrack { gen_, track } => media.set_track(gen_, track),
+            Cmd::StreamTrack { source, track } => media.set_stream_track(source, track),
             Cmd::Play(clip) => {
                 if clip.samples.len() < 2 {
                     let _ = clip.done.send(Ok(()));
