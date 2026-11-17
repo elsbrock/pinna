@@ -22,3 +22,4 @@ pub mod sentences;
 pub mod stt;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod tts;
