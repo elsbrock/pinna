@@ -21,8 +21,7 @@ fn builder(kind: ClientKind, tls: rustls::ClientConfig) -> ClientBuilder {
             .read_timeout(secs(20)),
         ClientKind::Update => b
             .user_agent(concat!("pinna-update/", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(secs(30))
-            .read_timeout(secs(60)),
+            .connect_timeout(secs(30)),
         ClientKind::Provider { .. } | ClientKind::Mcp => {
             let b = b
                 .redirect(Policy::none())

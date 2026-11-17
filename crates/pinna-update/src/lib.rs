@@ -33,11 +33,11 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileExt, FileTypeExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use pinna_bootctl::bcb;
 use pinna_bootctl::slot::{self, KernelSlots, Slot};
+use pinna_http::reqwest;
 use pinna_image::ReadAt;
 use pinna_image::keys::{self, VerifyingKey};
 use pinna_image::manifest::{self as signed, MANIFEST_MAX, SIGNATURE_LEN};
@@ -295,11 +295,7 @@ pub fn resolve(base: Option<&Url>, s: &str) -> Result<Url> {
 
 fn client() -> reqwest::Result<reqwest::blocking::Client> {
     // The timeout applies to each read: a stalled download fails.
-    reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(60))
-        .user_agent(concat!("pinna-update/", env!("CARGO_PKG_VERSION")))
-        .build()
+    Ok(pinna_http::blocking_client(pinna_http::ClientKind::Update))
 }
 
 /// Open a URL for reading.

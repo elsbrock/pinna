@@ -83,7 +83,7 @@ struct UpdateArgs {
     run_dir: std::path::PathBuf,
 }
 
-/// Blocking (no tokio): the download uses reqwest's blocking client.
+/// Blocking (no tokio): the download uses pinna-http's blocking client.
 fn update(args: UpdateArgs) -> Result<()> {
     let model = pinna_hal::ident::board_model();
     let opts = pinna_update::Options {
