@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
+use pinna_vad::{Endpoint, EndpointConfig, Endpointer};
 use tokio::sync::mpsc;
 
 #[allow(dead_code)]
@@ -17,6 +18,9 @@ const PREROLL_FRAMES: usize = 10;
 pub struct MicTap {
     gen_: AtomicU64,
     slot: Mutex<Option<mpsc::Sender<Bytes>>>,
+    /// The shadow endpointer's decision on the current Home Assistant stream,
+    /// shared so the Brain can log it beside Home Assistant's own end of speech.
+    shadow: Mutex<Option<Endpoint>>,
 }
 
 impl MicTap {
@@ -31,6 +35,18 @@ impl MicTap {
         let mut slot = self.slot.lock().unwrap();
         slot.take();
         self.gen_.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Record the shadow endpointer's decision, or clear it at the start of a
+    /// Home Assistant stream. It is only ever read for a log line.
+    pub fn set_shadow_end(&self, end: Option<Endpoint>) {
+        *self.shadow.lock().unwrap() = end;
+    }
+
+    /// The shadow endpointer's decision on the current Home Assistant stream,
+    /// if it has reached one.
+    pub fn shadow_end(&self) -> Option<Endpoint> {
+        *self.shadow.lock().unwrap()
     }
 
     /// Refresh a capture loop's cached sender. Returns true only at a route edge.
@@ -68,10 +84,20 @@ pub struct MicRouter {
     was_local: bool,
     was_streaming: bool,
     dropped: u64,
+    /// A private endpointer run beside Home Assistant's own VAD (ADR 0017).
+    /// Its decision is logged, never sent to Home Assistant.
+    shadow: Option<Endpointer>,
+    shadow_ended: bool,
 }
 
 impl MicRouter {
-    pub fn route(&mut self, frame: Bytes, streaming: bool, tap: &MicTap) -> Routed {
+    pub fn route(
+        &mut self,
+        frame: Bytes,
+        streaming: bool,
+        tap: &MicTap,
+        noise_seed: Option<u64>,
+    ) -> Routed {
         let route_changed = tap.current(&mut self.generation, &mut self.local);
         let local = !streaming && self.local.is_some();
         let new_local = local && (!self.was_local || route_changed);
@@ -86,8 +112,16 @@ impl MicRouter {
         // Home Assistant keeps priority if a stale local route overlaps its stream.
         if streaming {
             if !self.was_streaming {
-                routed.home_assistant.extend(self.preroll.drain(..));
+                tap.set_shadow_end(None);
+                self.shadow = Some(Endpointer::new(EndpointConfig::REQUEST, noise_seed));
+                self.shadow_ended = false;
+                let preroll: Vec<_> = self.preroll.drain(..).collect();
+                for frame in preroll {
+                    self.feed_shadow(&frame, tap);
+                    routed.home_assistant.push(frame);
+                }
             }
+            self.feed_shadow(&frame, tap);
             routed.home_assistant.push(frame);
         } else if local {
             if new_local {
@@ -108,6 +142,24 @@ impl MicRouter {
         self.was_streaming = streaming;
         self.was_local = local;
         routed
+    }
+
+    /// Run the shadow endpointer over a frame that is going to Home Assistant.
+    /// Its decision is stored on the tap; nothing here changes what Home
+    /// Assistant receives.
+    fn feed_shadow(&mut self, frame: &Bytes, tap: &MicTap) {
+        if self.shadow.is_none() {
+            return;
+        }
+        let pcm: Vec<i16> = frame
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        let state = self.shadow.as_mut().unwrap().push(&pcm);
+        if state.is_terminal() && !self.shadow_ended {
+            self.shadow_ended = true;
+            tap.set_shadow_end(Some(state));
+        }
     }
 
     #[allow(dead_code)]
@@ -149,12 +201,12 @@ mod tests {
     fn a_new_local_route_flushes_preroll_without_home_assistant_audio() {
         let tap = MicTap::default();
         let mut router = MicRouter::default();
-        router.route(frame(1), false, &tap);
-        router.route(frame(2), false, &tap);
+        router.route(frame(1), false, &tap, None);
+        router.route(frame(2), false, &tap, None);
 
         let (tx, mut rx) = mpsc::channel(MIC_QUEUE);
         tap.open(tx);
-        let routed = router.route(frame(3), false, &tap);
+        let routed = router.route(frame(3), false, &tap, None);
 
         assert!(routed.home_assistant.is_empty());
         assert!(!routed.end_home_assistant);
@@ -163,7 +215,7 @@ mod tests {
         assert_eq!(values(&mut rx), [1, 2, 3]);
 
         tap.close();
-        let routed = router.route(frame(4), false, &tap);
+        let routed = router.route(frame(4), false, &tap, None);
         assert!(routed.home_assistant.is_empty());
         assert!(!routed.end_home_assistant);
         assert!(routed.detect_wake);
@@ -177,8 +229,8 @@ mod tests {
         tap.open(tx);
         let mut router = MicRouter::default();
 
-        router.route(frame(1), false, &tap);
-        router.route(frame(2), false, &tap);
+        router.route(frame(1), false, &tap, None);
+        router.route(frame(2), false, &tap, None);
 
         assert_eq!(router.dropped(), 1);
         assert_eq!(values(&mut rx), [1]);
@@ -190,15 +242,15 @@ mod tests {
         let mut router = MicRouter::default();
         let (first, mut first_rx) = mpsc::channel(MIC_QUEUE);
         tap.open(first);
-        router.route(frame(1), false, &tap);
+        router.route(frame(1), false, &tap, None);
         assert_eq!(values(&mut first_rx), [1]);
 
         tap.close();
-        router.route(frame(2), false, &tap);
-        router.route(frame(3), false, &tap);
+        router.route(frame(2), false, &tap, None);
+        router.route(frame(3), false, &tap, None);
         let (second, mut second_rx) = mpsc::channel(MIC_QUEUE);
         tap.open(second);
-        router.route(frame(4), false, &tap);
+        router.route(frame(4), false, &tap, None);
 
         assert_eq!(values(&mut second_rx), [2, 3, 4]);
     }
@@ -207,18 +259,72 @@ mod tests {
     fn home_assistant_routing_keeps_its_preroll_and_end_event() {
         let tap = MicTap::default();
         let mut router = MicRouter::default();
-        router.route(frame(1), false, &tap);
-        router.route(frame(2), false, &tap);
+        router.route(frame(1), false, &tap, None);
+        router.route(frame(2), false, &tap, None);
 
-        let routed = router.route(frame(3), true, &tap);
+        let routed = router.route(frame(3), true, &tap, None);
         assert_eq!(routed.home_assistant, [frame(1), frame(2), frame(3)]);
         assert!(!routed.end_home_assistant);
         assert!(!routed.detect_wake);
 
-        let routed = router.route(frame(4), false, &tap);
+        let routed = router.route(frame(4), false, &tap, None);
         assert!(routed.home_assistant.is_empty());
         assert!(routed.end_home_assistant);
         assert!(routed.detect_wake);
         assert!(routed.reset_detector);
+    }
+
+    /// One endpointer frame: 160 samples of 16-bit PCM, as the capture loop
+    /// hands Home Assistant.
+    fn pcm(amp: i16) -> Bytes {
+        let mut out = Vec::with_capacity(320);
+        for _ in 0..160 {
+            out.extend_from_slice(&amp.to_le_bytes());
+        }
+        Bytes::from(out)
+    }
+
+    #[test]
+    fn the_shadow_endpointer_runs_only_for_home_assistant_streams() {
+        let tap = MicTap::default();
+        let mut router = MicRouter::default();
+
+        // Idle frames feed the wake word, never the shadow endpointer.
+        for _ in 0..600 {
+            router.route(pcm(10), false, &tap, Some(256));
+        }
+        assert_eq!(tap.shadow_end(), None);
+
+        // A standalone route is not Home Assistant either.
+        let (tx, _rx) = mpsc::channel(MIC_QUEUE);
+        tap.open(tx);
+        for _ in 0..100 {
+            router.route(pcm(3000), false, &tap, Some(256));
+        }
+        assert_eq!(tap.shadow_end(), None);
+        tap.close();
+    }
+
+    #[test]
+    fn the_shadow_endpointer_reports_the_end_of_speech_on_the_home_assistant_stream() {
+        let tap = MicTap::default();
+        let mut router = MicRouter::default();
+        for _ in 0..100 {
+            router.route(pcm(3000), true, &tap, Some(256));
+        }
+        for _ in 0..120 {
+            router.route(pcm(10), true, &tap, Some(256));
+        }
+        assert_eq!(tap.shadow_end(), Some(Endpoint::Ended));
+    }
+
+    #[test]
+    fn the_shadow_endpointer_reports_no_speech_on_a_quiet_stream() {
+        let tap = MicTap::default();
+        let mut router = MicRouter::default();
+        for _ in 0..520 {
+            router.route(pcm(10), true, &tap, Some(256));
+        }
+        assert_eq!(tap.shadow_end(), Some(Endpoint::NoSpeech));
     }
 }

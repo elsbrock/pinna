@@ -252,7 +252,12 @@ async fn capture_loop(
         }
         gain.apply(&mut frame);
         let streaming = shared.streaming.load(Ordering::SeqCst);
-        let routed = router.route(frame_bytes(&frame), streaming, &shared.mic);
+        // The wake detector's latest noise floor seeds the shadow endpointer.
+        let noise_seed = match shared.noise_energy.load(Ordering::Relaxed) {
+            0 => None,
+            energy => Some(energy),
+        };
+        let routed = router.route(frame_bytes(&frame), streaming, &shared.mic, noise_seed);
         if routed.end_home_assistant {
             let _ = esp.send(DeviceEvent::VoiceAudioEnd).await;
         }

@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 pinna-assist = { path = "../pinna-assist" }
+pinna-vad = { path = "../pinna-vad" }
 pinna-esphome = { path = "../pinna-esphome" }
 pinna-hal = { path = "../pinna-hal" }
 pinna-audio = { path = "../pinna-audio" }

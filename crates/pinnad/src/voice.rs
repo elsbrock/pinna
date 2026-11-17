@@ -1608,6 +1608,10 @@ impl Brain {
             VoiceEventType::SttVadEnd | VoiceEventType::SttEnd => {
                 self.stop_streaming();
                 if matches!(self.phase, Phase::Listening(_) | Phase::Starting(_)) {
+                    tracing::info!(
+                        "Home Assistant end of speech: shadow endpointer {:?}",
+                        self.shared.mic.shadow_end()
+                    );
                     self.end_of_speech(Instant::now());
                     self.event("voice_assistant", "thinking").await;
                 }
