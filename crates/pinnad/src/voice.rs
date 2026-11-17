@@ -20,7 +20,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::calibration::{Calibration, Event as CalibrationEvent};
 use crate::leds::{self, LedState, LightEffect};
-use crate::settings::{Settings, Store};
+use crate::settings::{FILE_MODE, Settings};
+use crate::store::Store;
 use crate::wakewords::{Catalogue, KeywordSet};
 
 /// Flags shared with the capture task.
@@ -447,7 +448,7 @@ pub struct Brain {
     light_effect: LightEffect,
 
     settings: Settings,
-    store: Store,
+    store: Store<Settings>,
     last_press: HashMap<Button, Instant>,
     media_state: MediaPlayerStateKind,
     media_muted: bool,
@@ -546,7 +547,7 @@ impl Brain {
         self_tx: mpsc::Sender<Input>,
         opts: Options,
     ) -> Self {
-        let (store, _) = Store::load(&opts.settings_file, opts.settings.clone());
+        let store = Store::new(&opts.settings_file, FILE_MODE);
         let active_wake = opts.active_wake_words.clone();
         let settings = opts.settings.clone();
         shared

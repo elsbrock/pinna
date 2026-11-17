@@ -17,6 +17,7 @@ mod metrics;
 mod network;
 mod satellites;
 mod settings;
+mod store;
 mod timezone;
 mod updates;
 mod virtual_device;
@@ -342,7 +343,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::load_layered(&cli.config, &cli.local_config)?;
     if cli.set_hostname {
-        let settings = settings::Store::load(&cli.settings, settings::Settings::default()).1;
+        let settings = store::Store::load(
+            &cli.settings,
+            settings::FILE_MODE,
+            settings::Settings::default(),
+        )
+        .1;
         let name = identity::node_name(
             settings.hostname.as_deref(),
             &cfg.device.name,
@@ -358,7 +364,7 @@ async fn main() -> Result<()> {
         wake_sensitivity: settings::sensitivity_for_threshold(cfg.wake.threshold),
         ..Default::default()
     };
-    let (_, initial) = settings::Store::load(&cli.settings, defaults);
+    let (_, initial, _) = store::Store::load(&cli.settings, settings::FILE_MODE, defaults);
 
     // The time zone (ADR 0007): UTC until one is chosen.
     let zone = initial.time_zone.as_deref().unwrap_or("UTC");

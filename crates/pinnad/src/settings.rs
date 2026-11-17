@@ -1,6 +1,6 @@
 //! Settings that Home Assistant or the local API change at runtime, persisted on /var.
 
-use std::path::{Path, PathBuf};
+pub const FILE_MODE: u32 = 0o644;
 
 use serde::{Deserialize, Serialize};
 
@@ -102,54 +102,6 @@ impl Settings {
 /// Inverse of `WakeConfig::threshold_for_sensitivity`, for a configured threshold.
 pub fn sensitivity_for_threshold(threshold: f32) -> u8 {
     ((0.85 - threshold) / 0.0044).round().clamp(0.0, 100.0) as u8
-}
-
-pub struct Store {
-    path: PathBuf,
-}
-
-impl Store {
-    /// Read the persisted settings; a missing or unreadable file yields `defaults`.
-    pub fn load(path: &Path, defaults: Settings) -> (Self, Settings) {
-        let settings = match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).unwrap_or_else(|e| {
-                tracing::warn!("{}: {e}; using defaults", path.display());
-                defaults
-            }),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => defaults,
-            Err(e) => {
-                tracing::warn!("{}: {e}; using defaults", path.display());
-                defaults
-            }
-        };
-        (
-            Self {
-                path: path.to_owned(),
-            },
-            settings,
-        )
-    }
-
-    /// Write durably: a temporary file, fsync, rename, fsync the directory.
-    pub fn try_save(&self, s: &Settings) -> std::io::Result<()> {
-        use std::io::Write as _;
-        let dir = self.path.parent().unwrap_or(Path::new("."));
-        std::fs::create_dir_all(dir)?;
-        let tmp = self.path.with_extension("tmp");
-        let text = toml::to_string(s).map_err(std::io::Error::other)?;
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(text.as_bytes())?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, &self.path)?;
-        std::fs::File::open(dir)?.sync_all()
-    }
-
-    /// [`Store::try_save`], with errors logged, not returned.
-    pub fn save(&self, s: &Settings) {
-        if let Err(e) = self.try_save(s) {
-            tracing::warn!("saving {}: {e}", self.path.display());
-        }
-    }
 }
 
 /// The most characters a friendly name may have.
@@ -258,6 +210,7 @@ pub fn check_url(s: &str) -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Store;
 
     #[test]
     fn sensitivity_roundtrip() {
@@ -376,7 +329,7 @@ mod tests {
     fn store_roundtrip_and_defaults() {
         let dir = std::env::temp_dir().join(format!("pinnad-settings-{}", std::process::id()));
         let path = dir.join("settings.toml");
-        let (store, s) = Store::load(&path, Settings::default());
+        let (store, s, _) = Store::load(&path, FILE_MODE, Settings::default());
         assert_eq!(s, Settings::default());
         // Never chosen: the key is left out, so the pinnad.toml word applies.
         store.save(&s);
@@ -391,7 +344,7 @@ mod tests {
             ..Default::default()
         };
         store.save(&none);
-        assert_eq!(Store::load(&path, Settings::default()).1, none);
+        assert_eq!(Store::load(&path, FILE_MODE, Settings::default()).1, none);
         let changed = Settings {
             volume: 33,
             reply_volume: Some(70),
@@ -406,21 +359,27 @@ mod tests {
                 .unwrap()
                 .contains("wake_words")
         );
-        assert_eq!(Store::load(&path, Settings::default()).1, changed);
+        assert_eq!(
+            Store::load(&path, FILE_MODE, Settings::default()).1,
+            changed
+        );
         // A key from a newer pinnad (after a rollback) keeps everything else.
         std::fs::write(
             &path,
             "muted = true\nvolume = 20\nsetting_from_the_future = [1, 2]\n",
         )
         .unwrap();
-        let rolled_back = Store::load(&path, Settings::default()).1;
+        let rolled_back = Store::load(&path, FILE_MODE, Settings::default()).1;
         assert!(rolled_back.muted);
         assert_eq!(rolled_back.volume, 20);
         // ...and is written back, so it survives until the newer pinnad returns.
         store.save(&rolled_back);
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("setting_from_the_future = [1, 2]"), "{text}");
-        assert_eq!(Store::load(&path, Settings::default()).1, rolled_back);
+        assert_eq!(
+            Store::load(&path, FILE_MODE, Settings::default()).1,
+            rolled_back
+        );
         // The dashboard's settings: unset means "the file's", and stays out.
         assert!(
             !text.contains("friendly_name")
@@ -438,10 +397,10 @@ mod tests {
             ..Default::default()
         };
         store.try_save(&named).unwrap();
-        assert_eq!(Store::load(&path, Settings::default()).1, named);
+        assert_eq!(Store::load(&path, FILE_MODE, Settings::default()).1, named);
         // The old host names are no setting any more, but stay in the file.
         std::fs::write(&path, "allowed_hosts = [\"x\"]\n").unwrap();
-        let old = Store::load(&path, Settings::default()).1;
+        let old = Store::load(&path, FILE_MODE, Settings::default()).1;
         assert_eq!(old.url, None);
         assert!(old.extra.contains_key("allowed_hosts"));
         store.save(&old);
@@ -449,7 +408,7 @@ mod tests {
         assert!(text.contains("allowed_hosts = [\"x\"]"), "{text}");
         std::fs::write(&path, "garbage = [").unwrap();
         assert_eq!(
-            Store::load(&path, Settings::default()).1,
+            Store::load(&path, FILE_MODE, Settings::default()).1,
             Settings::default()
         );
         std::fs::remove_dir_all(&dir).unwrap();
