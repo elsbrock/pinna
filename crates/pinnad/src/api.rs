@@ -28,6 +28,7 @@ use pinna_api::{
     WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchRingRequest, WatchRingResponse,
     WatchStatusRequest, WatchStatusResponse,
 };
+use pinna_api::{CheckForUpdatesRequest, CheckForUpdatesResponse};
 use pinna_api::{
     ControlMediaRequest, ControlMediaResponse, Media, MediaCommand, MediaState, PlayMediaRequest,
     PlayMediaResponse, RingLight, SetRingLightRequest, SetRingLightResponse,
@@ -48,7 +49,9 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::boot;
 use crate::leds::LightEffect;
-use crate::updates::{Event, Updater, UpdaterPaths, stage_of};
+#[cfg(test)]
+use crate::updates::UpdaterPaths;
+use crate::updates::{Event, Origin, Source, UpdateChannel, Updater, stage_of};
 use crate::voice::{ApiCommand, ApiReply, Input, RingLightPatch, SettingsPatch, Snapshot};
 use crate::wifi::{Wifi, WifiPaths};
 use crate::{logs, network, satellites, wifi};
@@ -92,6 +95,7 @@ pub struct DeviceApi {
 const RING_INTERVAL: std::time::Duration = std::time::Duration::from_millis(40);
 
 impl DeviceApi {
+    #[cfg(test)]
     pub fn new(info: Info, status: watch::Receiver<Snapshot>, inputs: mpsc::Sender<Input>) -> Self {
         Self::with_updater(info, status, inputs, Updater::new(UpdaterPaths::default()))
     }
@@ -100,7 +104,7 @@ impl DeviceApi {
         info: Info,
         status: watch::Receiver<Snapshot>,
         inputs: mpsc::Sender<Input>,
-        updater: Updater,
+        updater: impl Into<Arc<Updater>>,
     ) -> Self {
         Self {
             info,
@@ -108,7 +112,7 @@ impl DeviceApi {
             status,
             ring: watch::channel([Rgb::OFF; RING_PIXELS]).1,
             inputs,
-            updater: Arc::new(updater),
+            updater: updater.into(),
             wifi: Arc::new(Wifi::new(WifiPaths::default())),
             satellites: watch::channel(satellites::Seen::default()).1,
         }
@@ -274,6 +278,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             time_zone: s.settings.time_zone.clone().unwrap_or_else(|| "UTC".into()),
             reply_volume: s.settings.reply_volume.map(u32::from),
             listening_direction: s.settings.listening_direction,
+            update_channel: proto_channel(s.update_channel).into(),
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
@@ -282,6 +287,14 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         ring_light: MessageField::some(ring_light(&s.ring_light)),
         media: MessageField::some(media(&s.media)),
         ..Default::default()
+    }
+}
+
+fn proto_channel(c: UpdateChannel) -> pinna_api::UpdateChannel {
+    match c {
+        UpdateChannel::Stable => pinna_api::UpdateChannel::UPDATE_CHANNEL_STABLE,
+        UpdateChannel::Beta => pinna_api::UpdateChannel::UPDATE_CHANNEL_BETA,
+        UpdateChannel::Off => pinna_api::UpdateChannel::UPDATE_CHANNEL_OFF,
     }
 }
 
@@ -685,7 +698,27 @@ impl DeviceService for DeviceApi {
             .map(crate::settings::check_url)
             .transpose()
             .map_err(ConnectError::invalid_argument)?;
+        let update_channel = match request.update_channel.map(|c| c.as_known()) {
+            None => None,
+            Some(Some(pinna_api::UpdateChannel::UPDATE_CHANNEL_STABLE)) => {
+                Some(UpdateChannel::Stable)
+            }
+            Some(Some(pinna_api::UpdateChannel::UPDATE_CHANNEL_BETA)) => Some(UpdateChannel::Beta),
+            Some(Some(pinna_api::UpdateChannel::UPDATE_CHANNEL_OFF)) => Some(UpdateChannel::Off),
+            Some(_) => {
+                return Err(ConnectError::invalid_argument(
+                    "Choose stable, beta or off for Updates.",
+                ));
+            }
+        };
+        if update_channel.is_some() && matches!(self.updater.source(), Source::Manifest(_)) {
+            return Err(ConnectError::failed_precondition(
+                "pinnad.toml sets [update] manifest, which replaces the channel. Remove it there \
+                 to choose a channel.",
+            ));
+        }
         let patch = SettingsPatch {
+            update_channel,
             wake_word: request.wake_word,
             wake_sensitivity: percent("wake_sensitivity", request.wake_sensitivity)?,
             led_brightness: percent("led_brightness", request.led_brightness)?,
@@ -1000,12 +1033,28 @@ impl DeviceService for DeviceApi {
         Response::ok(resp)
     }
 
+    async fn check_for_updates(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, CheckForUpdatesRequest>,
+    ) -> ServiceResult<CheckForUpdatesResponse> {
+        self.updater.check().await?;
+        Response::ok(CheckForUpdatesResponse::default())
+    }
+
     async fn install_update(
         &self,
         _ctx: RequestContext,
         request: ServiceRequest<'_, InstallUpdateRequest>,
     ) -> ServiceResult<InstallUpdateResponse> {
         let manifest = request.manifest.trim();
+        if manifest.is_empty() {
+            // The release the last check found (ADR 0022).
+            self.updater
+                .install_release(request.version.trim(), request.older, Origin::Dashboard)
+                .await?;
+            return Response::ok(InstallUpdateResponse::default());
+        }
         let valid = url::Url::parse(manifest).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
         if !valid {
             return Err(ConnectError::invalid_argument(
@@ -1213,12 +1262,12 @@ mod tests {
         start_device_with(Updater::new(UpdaterPaths::default())).await
     }
 
-    async fn start_device_with(updater: Updater) -> (Client, mpsc::Sender<Input>) {
+    async fn start_device_with(updater: impl Into<Arc<Updater>>) -> (Client, mpsc::Sender<Input>) {
         start_device_inner(updater, None, None).await
     }
 
     async fn start_device_inner(
-        updater: Updater,
+        updater: impl Into<Arc<Updater>>,
         wifi: Option<crate::wifi::Wifi>,
         sats: Option<watch::Receiver<satellites::Seen>>,
     ) -> (Client, mpsc::Sender<Input>) {
@@ -1245,6 +1294,7 @@ mod tests {
                     friendly_name: "Echo Dot aabbcc".into(),
                     default_name: true,
                     wake_sound: false,
+                    update_channel: crate::updates::UpdateChannel::Off,
                 },
                 mdns: None,
                 encrypted: false,
@@ -1262,6 +1312,7 @@ mod tests {
                     volume: 40,
                     ..Default::default()
                 },
+                updates: None,
             },
         );
         tokio::spawn(brain.run(in_rx));
@@ -2522,6 +2573,11 @@ mod tests {
                 reboot: vec!["true".into()],
                 reset_mark: dir.join("factory-reset"),
                 key: slot_key().verifying_key(),
+                overlay: dir.join("pinna-dev"),
+                check_minute: dir.join("update-check"),
+                restart_mark: dir.join("run/update-restart"),
+                clock: crate::updates::Clock::Fixed(true),
+                development_build: false,
             };
             Self { dir, paths }
         }
@@ -2853,10 +2909,13 @@ mod tests {
     async fn install_rejects_other_schemes() {
         let rig = Rig::new("scheme", "exit 0");
         let (c, _) = start_device_with(rig.updater()).await;
-        for bad in ["file:///x", "ftp://h/m.json", "not a url", ""] {
+        for bad in ["file:///x", "ftp://h/m.json", "not a url"] {
             let err = c.install_update(install_request(bad)).await.unwrap_err();
             assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument, "{bad}");
         }
+        // No manifest: the release a check found, and there is none yet.
+        let err = c.install_update(install_request("")).await.unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
     }
 
     #[tokio::test]
@@ -2907,6 +2966,138 @@ mod tests {
         assert!(rig.paths.reset_mark.exists());
         let reason = std::fs::read_to_string(rig.paths.run_dir.join("reboot-reason")).unwrap();
         assert_eq!(reason.trim(), "factory-reset");
+    }
+
+    /// A `pinnactl` whose check finds `version` on the channel and whose
+    /// install prints its arguments.
+    fn release_rig(name: &str, version: &str) -> Rig {
+        let rig = Rig::new(
+            name,
+            &format!(
+                r#"if [ "$2" = --check ]; then echo '{{"ok":true,"url":"https://u/v1/releases/v{version}/manifest.json","manifest":{{"version":"{version}","channel":"stable","summary":"S.","notes_url":"https://n"}},"blocked":null}}'; else echo "args: $*"; fi"#
+            ),
+        );
+        rig.slots("a", st(Slot::A, (0, true), (0, true)), "0.9.0", &slot_key());
+        std::fs::write(rig.paths.run_dir.join("boot-version"), "1.0.0\n").unwrap();
+        rig
+    }
+
+    #[tokio::test]
+    async fn a_check_finds_a_release_and_install_takes_exactly_it() {
+        let rig = release_rig("release", "2.0.0");
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        let (c, _) = start_device_with(updater.clone()).await;
+        c.check_for_updates(CheckForUpdatesRequest::default())
+            .await
+            .unwrap();
+        let u = updates(&c).await;
+        let check = u.check.as_option().unwrap();
+        assert!(check.error.is_empty() && check.finished_unix_ms > 0);
+        let r = u.release.as_option().unwrap();
+        assert_eq!((r.version.as_str(), r.summary.as_str()), ("2.0.0", "S."));
+        assert_eq!(
+            r.action.as_known(),
+            Some(pinna_api::ReleaseAction::RELEASE_ACTION_INSTALL)
+        );
+
+        // Not the version the page showed: refused.
+        let err = c
+            .install_update(InstallUpdateRequest {
+                version: "2.0.1".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        assert!(err.message.unwrap_or_default().contains("found 2.0.0"));
+
+        c.install_update(InstallUpdateRequest {
+            version: "2.0.0".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let u = wait_until_idle(&c).await;
+        let last = u.last_install.as_option().unwrap();
+        assert!(last.ok);
+        assert_eq!(
+            last.last_line,
+            "args: update --channel stable --expect-version 2.0.0 -- \
+             https://u/v1/releases/v2.0.0/manifest.json"
+        );
+        // From the dashboard: the owner restarts, not pinnad.
+        assert!(!u.restart_pending);
+    }
+
+    #[tokio::test]
+    async fn an_install_from_home_assistant_restarts_once_quiet() {
+        let rig = release_rig("ha-install", "2.0.0");
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.check().await.unwrap();
+        updater
+            .install_release("2.0.0", false, Origin::HomeAssistant)
+            .await
+            .unwrap();
+        let (c, _) = start_device_with(updater.clone()).await;
+        let u = wait_until_idle(&c).await;
+        assert!(u.last_install.as_option().unwrap().ok);
+        assert!(u.restart_pending && updater.restart_pending());
+        // "Start it later" keeps the running slot, and the restart waits for the owner.
+        c.set_active_slot(slot_request("a")).await.unwrap();
+        assert!(!updates(&c).await.restart_pending);
+    }
+
+    #[tokio::test]
+    async fn checks_say_why_they_dont_run() {
+        let rig = Rig::new("checks-off", "exit 1");
+        let updater = Arc::new(rig.updater());
+        let (c, _) = start_device_with(updater.clone()).await;
+        // Off.
+        let err = c
+            .check_for_updates(CheckForUpdatesRequest::default())
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        assert!(err.message.unwrap_or_default().contains("Updates are off"));
+
+        // A check that can't reach the service keeps nothing and says why.
+        let rig = Rig::new(
+            "checks-down",
+            r#"echo '{"ok":false,"kind":"no_answer","message":"updates.getpinna.dev did not answer. Check that the satellite can reach the internet."}'; exit 1"#,
+        );
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Beta));
+        let (c, _) = start_device_with(updater).await;
+        c.check_for_updates(CheckForUpdatesRequest::default())
+            .await
+            .unwrap();
+        let u = updates(&c).await;
+        assert!(u.release.as_option().is_none());
+        assert!(
+            u.check
+                .as_option()
+                .unwrap()
+                .error
+                .starts_with("updates.getpinna.dev did not answer")
+        );
+
+        // The clock isn't set.
+        let rig = Rig::new("checks-clock", "exit 1");
+        let mut paths = rig.paths.clone();
+        paths.clock = crate::updates::Clock::Fixed(false);
+        let updater = Arc::new(Updater::new(paths));
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.check().await.unwrap();
+        let u = updater.get_updates().await;
+        assert!(
+            u.check
+                .as_option()
+                .unwrap()
+                .error
+                .contains("clock is not set")
+        );
     }
 
     #[tokio::test]

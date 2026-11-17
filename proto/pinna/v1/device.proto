@@ -50,10 +50,16 @@ service DeviceService {
   rpc GetNetwork(GetNetworkRequest) returns (GetNetworkResponse);
   // pinnad's recent log lines, then new ones as they are written.
   rpc WatchLogs(WatchLogsRequest) returns (stream WatchLogsResponse);
-  // The A/B slots and the running version.
+  // The A/B slots, the running version, and the release the last check
+  // found on the update channel (ADR 0022).
   rpc GetUpdates(GetUpdatesRequest) returns (GetUpdatesResponse);
-  // Start installing a release into the inactive slot (`pinnactl update`).
-  // pinnad runs the install; it goes on when the caller goes away.
+  // Check the update channel now and answer when the check has finished;
+  // GetUpdates shows what it found. Refused while Updates is off or an
+  // install runs.
+  rpc CheckForUpdates(CheckForUpdatesRequest) returns (CheckForUpdatesResponse);
+  // Start installing a release into the inactive slot (`pinnactl update`):
+  // the one the last check found, or one from a manifest URL. pinnad runs
+  // the install; it goes on when the caller goes away.
   rpc InstallUpdate(InstallUpdateRequest) returns (InstallUpdateResponse);
   // Progress of the running (or last) install: its lines so far, then new ones,
   // ending after the line marked done.
@@ -443,6 +449,20 @@ message Settings {
   optional uint32 reply_volume = 14;
   // The listening ring points at the talker.
   bool listening_direction = 15;
+  // Where the satellite looks for releases (ADR 0022). Ignored while
+  // pinnad.toml sets `[update] manifest` (GetUpdates.manifest_override).
+  UpdateChannel update_channel = 16;
+}
+
+// Where the satellite looks for releases (ADR 0022).
+enum UpdateChannel {
+  UPDATE_CHANNEL_UNSPECIFIED = 0;
+  // Full releases only.
+  UPDATE_CHANNEL_STABLE = 1;
+  // Betas and full releases, whichever is newer.
+  UPDATE_CHANNEL_BETA = 2;
+  // No checks: releases are installed by hand.
+  UPDATE_CHANNEL_OFF = 3;
 }
 
 message GetStatusRequest {}
@@ -564,6 +584,9 @@ message UpdateSettingsRequest {
   // changes it.
   optional bool reply_follows_volume = 15;
   optional bool listening_direction = 16;
+  // Not UNSPECIFIED. Refused while pinnad.toml sets `[update] manifest`. A
+  // change checks the new channel at once.
+  optional UpdateChannel update_channel = 17;
 }
 
 // Only the fields that are set change.
@@ -758,7 +781,81 @@ message GetUpdatesResponse {
   // Where a release is probably served: the browser's own address, port 8000
   // (`python3 -m http.server` in build/release, as the update docs show).
   string suggested_manifest = 7;
+  // pinnad.toml's `[update] manifest`, checked instead of the channel;
+  // empty when unset.
+  string manifest_override = 8;
+  UpdateCheck check = 9;
+  // The release the last successful check found. Unset before one, while
+  // Updates is off, and while the channel has no release.
+  Release release = 10;
+  // An install started from Home Assistant has finished: pinnad restarts the
+  // satellite once it is Idle with no timer set and nothing playing.
+  bool restart_pending = 11;
+  // A `just push` overlay is active (/var/lib/extensions/pinna-dev):
+  // installs are refused until it is removed.
+  bool development_overlay = 12;
+  // This build compiles in a developer's key: it installs only images signed
+  // with that key, and starts with Updates off.
+  bool development_build = 13;
 }
+
+// The update channel's checks (ADR 0022).
+message UpdateCheck {
+  // A check runs now.
+  bool checking = 1;
+  // When the last check finished, in milliseconds since the Unix epoch; 0
+  // when none has since pinnad started.
+  uint64 finished_unix_ms = 2;
+  // Why the last check failed, in words for people; empty when it
+  // succeeded. A failed check keeps the release an earlier one found.
+  string error = 3;
+  // The last check succeeded and the channel has no release yet.
+  bool no_release = 4;
+  // When the next scheduled check runs; 0 while Updates is off.
+  uint64 next_unix_ms = 5;
+}
+
+// A release a check found.
+message Release {
+  string version = 1;
+  // "stable" or "beta".
+  string channel = 2;
+  // One line, at most 255 characters.
+  string summary = 3;
+  // The release notes; may be empty.
+  string notes_url = 4;
+  // What InstallUpdate does with it.
+  ReleaseAction action = 5;
+  // For people: why it can't be installed (BLOCKED, FAILED); empty otherwise.
+  string note = 6;
+}
+
+enum ReleaseAction {
+  RELEASE_ACTION_UNSPECIFIED = 0;
+  // Newer than the running version: InstallUpdate installs it.
+  RELEASE_ACTION_INSTALL = 1;
+  // The running version.
+  RELEASE_ACTION_UP_TO_DATE = 2;
+  // Older than the running version: only after the owner confirmed it,
+  // InstallUpdate with `older`. When the other slot holds it, SetActiveSlot
+  // starts it instead.
+  RELEASE_ACTION_OLDER = 3;
+  // The other slot holds it, verified, but doesn't boot next (held back):
+  // InstallUpdate makes it boot next without downloading it again.
+  RELEASE_ACTION_START = 4;
+  // Installed in the other slot, which boots next: it runs after a restart.
+  RELEASE_ACTION_RESTART = 5;
+  // It failed its trial boot and was rolled back; not offered again.
+  RELEASE_ACTION_FAILED = 6;
+  // InstallUpdate would refuse it: a newer boot image is needed, it is for
+  // another model, a `just push` overlay is active, or the running version
+  // is still on trial. `note` says which.
+  RELEASE_ACTION_BLOCKED = 7;
+}
+
+message CheckForUpdatesRequest {}
+
+message CheckForUpdatesResponse {}
 
 message InstallResult {
   bool ok = 1;
@@ -770,8 +867,16 @@ message InstallResult {
 }
 
 message InstallUpdateRequest {
-  // Release manifest: an http:// or https:// URL.
+  // A release's manifest, an http:// or https:// URL: installed as given
+  // after the signature checks, an older version too. Empty: the release in
+  // GetUpdates.release, by its action (INSTALL, START, or OLDER with `older`).
   string manifest = 1;
+  // With an empty manifest: the version the caller shows. Refused when the
+  // last check found another.
+  string version = 2;
+  // With an empty manifest: install an older release, which the owner
+  // confirmed.
+  bool older = 3;
 }
 
 message InstallUpdateResponse {}

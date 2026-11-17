@@ -192,6 +192,8 @@ pub struct SettingsPatch {
     /// Never `true` together with `reply_volume` (the API refuses that).
     pub reply_follows_volume: Option<bool>,
     pub listening_direction: Option<bool>,
+    /// Never set while pinnad.toml sets `[update] manifest` (the API refuses it).
+    pub update_channel: Option<crate::updates::UpdateChannel>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -269,6 +271,8 @@ pub struct Snapshot {
     pub bluetooth: crate::bluetooth::Report,
     pub ring_light: RingLight,
     pub media: MediaSnapshot,
+    /// The "Updates" setting in effect (ADR 0022).
+    pub update_channel: crate::updates::UpdateChannel,
 }
 
 /// A running calibration, as the API shows it.
@@ -306,6 +310,7 @@ impl Default for Snapshot {
             bluetooth: Default::default(),
             ring_light: RingLight::default(),
             media: MediaSnapshot::default(),
+            update_channel: crate::updates::UpdateChannel::Off,
         }
     }
 }
@@ -386,6 +391,9 @@ pub struct Options {
     pub bluetooth: bool,
     /// Settings at startup (already loaded from `settings_file`).
     pub settings: Settings,
+    /// Update channels and installs (ADR 0022); `None` in tests that don't
+    /// need them.
+    pub updates: Option<Arc<crate::updates::Updater>>,
 }
 
 /// The values `settings.toml` falls back to: pinnad.toml's, or the hardware's.
@@ -397,6 +405,8 @@ pub struct Defaults {
     /// The name is the model and MAC suffix: nobody chose one.
     pub default_name: bool,
     pub wake_sound: bool,
+    /// "Updates" without a setting (`updates::default_channel`).
+    pub update_channel: crate::updates::UpdateChannel,
 }
 
 pub struct Brain {
@@ -502,7 +512,12 @@ pub struct Brain {
     /// the new name, once the satellite is idle.
     reconnect_pending: bool,
     encrypted: bool,
+    /// When the restart after an update from Home Assistant was last tried.
+    update_restart_tried: Option<Instant>,
 }
+
+/// A restart after an update that didn't happen is tried again after this.
+const UPDATE_RESTART_RETRY: Duration = Duration::from_secs(60);
 
 const START_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTEN_TIMEOUT: Duration = Duration::from_secs(15);
@@ -608,6 +623,7 @@ impl Brain {
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
             reconnect_pending: false,
+            update_restart_tried: None,
             encrypted: opts.encrypted,
             opts,
         }
@@ -649,6 +665,7 @@ impl Brain {
         // Home Assistant's "Bluetooth pairing" switch follows the window,
         // however it opened or closed.
         let mut sent_pairing = false;
+        let mut updates = self.opts.updates.as_ref().map(|u| u.subscribe());
         loop {
             tokio::select! {
                 input = inputs.recv() => match input {
@@ -656,6 +673,12 @@ impl Brain {
                     None => return,
                 },
                 _ = tick.tick() => self.tick().await,
+                Some(()) = async {
+                    match &mut updates {
+                        Some(rx) => rx.changed().await.ok(),
+                        None => std::future::pending().await,
+                    }
+                } => self.send_update_state().await,
             }
             let media = (self.media_state, self.media_volume(), self.media_muted);
             if media != sent_media {
@@ -902,6 +925,9 @@ impl Brain {
                 if let Some(on) = patch.listening_direction {
                     self.set_listening_direction(on).await;
                 }
+                if let Some(c) = patch.update_channel {
+                    self.set_update_channel(c).await;
+                }
                 // Applied, but a restart would undo it: say so (ADR 0007).
                 let saved = self.store.try_save(&self.settings).map_err(|e| {
                     tracing::warn!("saving the settings: {e}");
@@ -1033,6 +1059,7 @@ impl Brain {
                 rgb: self.light_rgb,
                 effect: self.light_effect,
             },
+            update_channel: self.update_channel(),
             airplay: self.airplay_report.borrow().clone(),
             bluetooth: crate::bluetooth::report(
                 self.opts.bluetooth,
@@ -1164,6 +1191,123 @@ impl Brain {
         });
     }
 
+    // --- Updates (ADR 0022) ---------------------------------------------------
+
+    fn update_channel(&self) -> crate::updates::UpdateChannel {
+        self.settings
+            .update_channel
+            .unwrap_or(self.opts.defaults.update_channel)
+    }
+
+    /// pinnad.toml's `[update] manifest` replaces the channel.
+    fn update_override(&self) -> bool {
+        self.opts
+            .updates
+            .as_ref()
+            .is_some_and(|u| matches!(u.source(), crate::updates::Source::Manifest(_)))
+    }
+
+    async fn set_update_channel(&mut self, c: crate::updates::UpdateChannel) {
+        if self.update_override() {
+            return;
+        }
+        tracing::info!("updates: {}", c.as_str());
+        self.settings.update_channel = Some(c);
+        if let Some(u) = &self.opts.updates {
+            u.set_source(crate::updates::Source::Channel(c));
+        }
+        self.send_update_channel().await;
+    }
+
+    /// The "Updates" select: the channel, or the URL that replaces it.
+    async fn send_update_channel(&self) {
+        let state = match self.opts.updates.as_ref().map(|u| u.source()) {
+            Some(crate::updates::Source::Manifest(url)) => url,
+            _ => self.update_channel().as_str().to_owned(),
+        };
+        self.send(DeviceEvent::SelectState {
+            object_id: "update_channel".into(),
+            state,
+        })
+        .await;
+    }
+
+    /// The "Firmware" update entity, from what GetUpdates shows.
+    async fn send_update_state(&self) {
+        let Some(u) = &self.opts.updates else {
+            return;
+        };
+        if self.clients == 0 {
+            return;
+        }
+        let resp = u.get_updates().await;
+        let state = crate::updates::home_assistant_state(&resp, u.install_progress());
+        self.send(DeviceEvent::UpdateState {
+            object_id: "firmware".into(),
+            state,
+        })
+        .await;
+    }
+
+    /// Home Assistant's Install and Check (ADR 0022). Install takes the
+    /// release the entity shows; its command has no answer, so a refusal
+    /// only reaches the log (the entity's summary said why beforehand).
+    async fn update_command(&mut self, command: pinna_esphome::UpdateCommand) {
+        let Some(u) = self.opts.updates.clone() else {
+            return;
+        };
+        match command {
+            pinna_esphome::UpdateCommand::Check => {
+                tokio::spawn(async move {
+                    if let Err(e) = u.check().await {
+                        tracing::info!("update check: {}", e.message.unwrap_or_default());
+                    }
+                });
+            }
+            pinna_esphome::UpdateCommand::Install => {
+                let resp = u.get_updates().await;
+                let Some(version) = resp.release.as_option().map(|r| r.version.clone()) else {
+                    tracing::info!(
+                        "updates: Home Assistant asked to install, but no release is known"
+                    );
+                    return;
+                };
+                if let Err(e) = u
+                    .install_release(&version, false, crate::updates::Origin::HomeAssistant)
+                    .await
+                {
+                    tracing::warn!(
+                        "updates: Home Assistant's install refused: {}",
+                        e.message.unwrap_or_default()
+                    );
+                }
+            }
+        }
+    }
+
+    /// After an update from Home Assistant: restart once nothing would be
+    /// cut off, no timer runs and nothing plays (ADR 0022).
+    async fn restart_for_update(&mut self) {
+        let Some(u) = self.opts.updates.clone() else {
+            return;
+        };
+        let now = Instant::now();
+        if !self.quiet()
+            || !self.timers.is_empty()
+            || self
+                .update_restart_tried
+                .is_some_and(|t| now - t < UPDATE_RESTART_RETRY)
+            || !u.restart_pending()
+        {
+            return;
+        }
+        self.update_restart_tried = Some(now);
+        tracing::info!("updates: restarting into the installed update");
+        if let Err(e) = u.reboot("update").await {
+            tracing::warn!("updates: the restart failed: {e:#}");
+        }
+    }
+
     /// Nothing a reconnect would cut off: no request, alarm, reply,
     /// announcement or media playing.
     fn quiet(&self) -> bool {
@@ -1191,6 +1335,8 @@ impl Brain {
                 self.clients += 1;
                 tracing::info!("Home Assistant connected from {peer}");
                 self.send(DeviceEvent::MuteState(self.muted())).await;
+                self.send_update_channel().await;
+                self.send_update_state().await;
                 self.send_light().await;
                 self.send_numbers().await;
                 self.send(DeviceEvent::SwitchState {
@@ -1334,6 +1480,21 @@ impl Brain {
                     tracing::info!("calibration: not started: {why}");
                     self.send_calibration_switch(false).await;
                 }
+            }
+            HaCommand::Select { object_id, state } if object_id == "update_channel" => {
+                match crate::updates::UpdateChannel::parse(&state) {
+                    Some(c) if !self.update_override() => {
+                        self.set_update_channel(c).await;
+                        if let Err(e) = self.store.try_save(&self.settings) {
+                            tracing::warn!("saving the settings: {e}");
+                        }
+                    }
+                    // The URL from pinnad.toml, its only option: nothing to change.
+                    _ => self.send_update_channel().await,
+                }
+            }
+            HaCommand::Update { object_id, command } if object_id == "firmware" => {
+                self.update_command(command).await;
             }
             HaCommand::Switch { object_id, on } if object_id == "bluetooth_pairing" => {
                 if !on {
@@ -2440,6 +2601,7 @@ impl Brain {
     // --- housekeeping -------------------------------------------------------------
 
     async fn tick(&mut self) {
+        self.restart_for_update().await;
         let now = Instant::now();
         if self.bt_pairing_until.is_some_and(|(until, _)| now >= until) {
             tracing::info!("bluetooth: pairing window closed");

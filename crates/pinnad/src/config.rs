@@ -13,6 +13,7 @@ pub struct Config {
     pub leds: Leds,
     pub api: Api,
     pub web: Web,
+    pub update: Update,
     pub dev: Dev,
 }
 
@@ -114,6 +115,15 @@ pub struct Web {
     /// `localhost`, the hostname and the node name (each also with `.local`),
     /// and the host of the dashboard address setting (ADR 0021).
     pub allowed_hosts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Update {
+    /// A manifest URL checked instead of the update channel (ADR 0022), for
+    /// a developer serving `just release` output. Its version is offered when
+    /// it is newer than the booted one.
+    pub manifest: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

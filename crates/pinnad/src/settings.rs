@@ -55,6 +55,10 @@ pub struct Settings {
     /// Bluetooth on or off ("Bluetooth" switch, ADR 0011). Off by default.
     #[serde(default)]
     pub bluetooth: bool,
+    /// Where the satellite looks for releases ("Updates" select, ADR 0022).
+    /// `None`: `updates::default_channel`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_channel: Option<crate::updates::UpdateChannel>,
     /// Keys a newer pinnad wrote, kept as they are.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -79,6 +83,7 @@ impl Default for Settings {
             url: None,
             airplay: false,
             bluetooth: false,
+            update_channel: None,
             extra: toml::Table::new(),
         }
     }

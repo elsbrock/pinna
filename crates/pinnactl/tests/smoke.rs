@@ -231,6 +231,14 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn check_for_updates(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, CheckForUpdatesRequest>,
+    ) -> ServiceResult<CheckForUpdatesResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn install_update(
         &self,
         _: RequestContext,

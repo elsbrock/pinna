@@ -405,6 +405,18 @@ async fn main() -> Result<()> {
         Ok(false) => {}
         Err(e) => tracing::warn!("hostname: {e:#}"),
     }
+    // The release that booted, and the update channel's source (ADR 0022).
+    let booted_version =
+        pinna_bootctl::slot::booted_version(std::path::Path::new(pinna_bootctl::slot::RUN_DIR))
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into());
+    let updater = Arc::new(updates::Updater::new(updates::UpdaterPaths::default()));
+    let default_channel = updates::default_channel(updater.development_build(), &booted_version);
+    updater.init_source(match &cfg.update.manifest {
+        Some(url) => updates::Source::Manifest(url.clone()),
+        None => updates::Source::Channel(initial.update_channel.unwrap_or(default_channel)),
+    });
     // The dashboard's name wins over pinnad.toml's, which wins over the
     // model and MAC suffix (ADR 0007).
     let defaults = voice::Defaults {
@@ -416,6 +428,7 @@ async fn main() -> Result<()> {
             .clone()
             .unwrap_or_else(|| identity::default_friendly_name(model, &mac)),
         wake_sound: cfg.audio.wake_sound,
+        update_channel: default_channel,
     };
     let mut dc = DeviceConfig::new(name, mac);
     dc.friendly_name = initial
@@ -475,6 +488,16 @@ async fn main() -> Result<()> {
     dc.active_wake_words = active_wake.clone();
     dc.max_active_wake_words = wakewords::MAX_ACTIVE as u32;
     pinna_esphome::echo_dot_entities(&mut dc);
+    if let Some(url) = &cfg.update.manifest {
+        // The URL replaces the channel: it is the "Updates" select's only option.
+        for s in dc
+            .selects
+            .iter_mut()
+            .filter(|s| s.object_id == "update_channel")
+        {
+            s.options = vec![url.clone()];
+        }
+    }
     dc.encryption_key = identity::load_encryption_key(&cfg.esphome)?;
     // How the previous boot ended (ADR 0012), for the dashboard and the log.
     let last_boot = boot::LastBoot::read(std::path::Path::new(pinna_bootctl::slot::RUN_DIR));
@@ -705,14 +728,9 @@ async fn main() -> Result<()> {
 
     // Local control API.
     let (status_tx, status_rx) = watch::channel(Snapshot::default());
-    let device_api = api::DeviceApi::new(
+    let device_api = api::DeviceApi::with_updater(
         api::Info {
-            version: pinna_bootctl::slot::booted_version(std::path::Path::new(
-                pinna_bootctl::slot::RUN_DIR,
-            ))
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
+            version: booted_version,
             mac: dc_mac,
             time_zones: Arc::new(timezone::zones(Path::new(timezone::ZONEINFO))),
             wake_words: catalogue.clone(),
@@ -727,7 +745,9 @@ async fn main() -> Result<()> {
         },
         status_rx,
         in_tx.clone(),
+        updater.clone(),
     );
+    tokio::spawn(updater.clone().run_checks());
     let device_api = Arc::new(
         device_api
             .with_ring(shown_rx)
@@ -785,6 +805,7 @@ async fn main() -> Result<()> {
             airplay,
             bluetooth,
             settings: initial,
+            updates: Some(updater),
         },
     );
     tokio::select! {
