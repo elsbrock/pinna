@@ -104,9 +104,10 @@ What was considered and rejected:
 1. **One ingest, `pinnad`'s media lane.** `pinnad` gains a PCM stream input
    next to the URL decoder in the media lane: a Unix socket under `/run`
    (`/run/pinna/stream.sock`, mode 0660, group `pinna-stream`). A client
-   first writes one line, `s16le <rate> 2` (rate 44100 or 48000), then raw
-   stereo PCM in real time; any other first line closes the connection
-   without touching the lane. A connection is one session. Its first 20 ms
+   first writes one line, `s16le <rate> 2 [<source>]` (rate 44100 or 48000;
+   source, the bridge's name: `airplay` or `bluetooth`, up to 16 of `a-z`,
+   `0-9` and `-`), then raw stereo PCM in real time; any other first line
+   closes the connection without touching the lane. A connection is one session. Its first 20 ms
    of data start the session (Home Assistant shows `playing`) and replace
    whatever the lane was playing, another connection included; a client that
    connects and sends nothing changes nothing. EOF or a read error ends the
@@ -229,6 +230,36 @@ What was considered and rejected:
    20 ms before its stream closes, and whatever it joins mid-signal (a
    stream, a resume) fades in. A URL starts and ends as recorded. Replies,
    announcements and timers always win, through the existing ducking.
+7. **What plays shows on the dashboard.** The media state carries the
+   track as its source names it (title, artist, album, and an internet
+   radio station's name) and the source of a stream. Now playing shows
+   them; Home Assistant's media player can't (see above).
+   - **Streams.** Each bridge sends its track through `SetStreamMetadata`
+     under the name its header gives, loopback only like `SetStreamVolume`.
+     `pinnad` keeps the latest track of each source and shows the one whose
+     stream plays, so a sender that changes track while another source
+     plays never shows on that session. A bridge sends its track before
+     each session connects and on every change, so a pause that ends the
+     session (2 s without audio) doesn't lose it. `pinna-airplay` takes
+     `minm`, `asar` and `asal` from each bundle on shairport-sync's metadata
+     pipe (`mdst` to `mden`) and forgets them when play ends (`pend`).
+     `pinna-bt` reads BlueZ's `MediaPlayer1` `Track` (AVRCP) from the
+     player that the phone whose audio it plays addresses (`MediaControl1`
+     `Player`), or from that phone's first player; a phone that shares none
+     shows none.
+   - **URLs.** The lane reads a file's tags (ID3v2, Vorbis comments, FLAC,
+     RIFF INFO). Every URL played as music asks for ICY metadata
+     (`Icy-MetaData: 1`), which servers without it ignore. An internet radio
+     server that sends it interleaves blocks every `icy-metaint` bytes: the
+     lane removes them before decoding, and shows `StreamTitle` as the
+     title, as sent (stations order artist and title differently, so it
+     isn't split), and `icy-name` as the station. ICY text that isn't UTF-8
+     is read as Latin-1. Only addresses played from the dashboard carry them:
+     Home Assistant plays through its ffmpeg proxy, which strips tags and
+     ICY metadata, so the dashboard says such media comes from Home
+     Assistant instead of showing the proxy's address.
+   - Each field is capped at 256 bytes. Cover art stays off: shairport-sync
+     runs without it, and nothing else reads it.
 
 ## Consequences
 
@@ -255,6 +286,9 @@ What was considered and rejected:
   Bluetooth (the owner chose not to give it a virtual controller).
 - No AirPlay grouping with Apple speakers. Multi-room with Music Assistant
   is Sendspin's job, decided in its own record.
+- The dashboard has no authentication (ADR 0005): anyone on the network who can open
+  it sees the title of what plays, from a phone over Bluetooth too, as
+  they already see a URL that plays.
 - Scope: the device now does more than being a voice satellite. When this
   lands, `goals.md` and `status.md` get a short "media sources" wording
   rather than leaving the goals silent.
