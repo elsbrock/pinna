@@ -82,7 +82,10 @@ While [AirPlay](/docs/airplay/#play-music) or
 the music's own, and pause stops the music.
 
 The [dashboard](/docs/dashboard/#play-music-from-a-url) shows the same media
-player and plays a URL too.
+player and plays a URL too. Its **Now playing** shows media that Home Assistant
+plays as **From Home Assistant**, without a title or a station's name: Home
+Assistant converts the media for the device first, and that removes them. A
+radio station's address played from the dashboard shows its titles.
 
 ## Voice assistant and timers
 

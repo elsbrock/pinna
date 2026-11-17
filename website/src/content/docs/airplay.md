@@ -57,6 +57,9 @@ While AirPlay plays:
 - The sender's volume sets how loud the music is. **Volume**, on the dashboard,
   the device's buttons or the **Volume** entity in Home Assistant, sets how loud
   the device is overall.
+- **Now playing** on the dashboard's **Overview** shows the title, artist and
+  album that the sender shares. Anyone who can open the dashboard sees them.
+  Home Assistant's media player can't show them.
 - The Home Assistant media player's volume, and **Music volume** under
   **Now playing** on the dashboard's **Overview**, is the music's volume, and
   changing it changes the music. The sender's slider doesn't move. When you next move

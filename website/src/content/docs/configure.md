@@ -83,7 +83,7 @@ How the device introduces itself to Home Assistant.
 | `speaker_profile` | Not set | The speaker tuning of the audio codec, `"Flat"` or `"Radar"`. Not set means the hardware's: `"Radar"` on the Echo (2nd gen), `"Flat"` otherwise |
 | `wake_sound` | `false` | Plays a short sound when the device starts listening, until someone sets **Wake sound** on the dashboard or in Home Assistant, which wins |
 | `capture_gain_db` | Not set | A fixed gain on the microphone audio before wake word detection and before it goes to Home Assistant, in dB. It turns off the automatic gain. Not set means automatic gain, which starts at +12 dB on the Echo Dot with PipeWire and at 0 dB otherwise. See [Audio](/docs/audio/) |
-| `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane: a first line `s16le 44100 2` or `s16le 48000 2`, then stereo samples. Empty turns it off |
+| `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane: a first line `s16le 44100 2` or `s16le 48000 2`, optionally followed by a name for the program (see [Audio](/docs/audio/)), then stereo samples. Empty turns it off |
 | `capture_target` | Not set | The PipeWire node to record from, with the `pipewire` backend. Not set means the default source. The virtual Echo Dot's image sets it to `"dev_mic"` |
 
 ### `[wake]`

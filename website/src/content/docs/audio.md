@@ -74,6 +74,13 @@ always holds 100 ms of it: the delay stays the same however long the music
 plays. A program that writes to the socket first sends one line with the
 format, `s16le 44100 2` or `s16le 48000 2`, then the samples.
 
+The line can end with a name for the program: 1 to 16 characters, each
+`a-z`, `0-9` or `-`, for example `s16le 44100 2 my-player`. AirPlay and
+Bluetooth use `airplay` and `bluetooth`. To show a track on **Now playing**,
+the program passes the same name as `source` to `SetStreamMetadata` in the
+[control API](/docs/control-api/). The track shows only while that program's
+audio plays. Audio sent without a name shows no track.
+
 Replies and announcements play while they download. If the audio arrives
 slower than it plays, the reply pauses in silence until enough audio is
 there, and then continues. Nothing is skipped. After each pause it waits for
