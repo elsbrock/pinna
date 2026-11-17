@@ -2,7 +2,11 @@
 import { assess, formatReport, identify, maskSerial, MODELS, PARTITIONS, type Assessment, type Bootloader, type DeviceReport, type ModelId } from "./device.ts";
 import { Fastboot, FastbootError } from "./fastboot.ts";
 import { install, InstallError, plan, type Progress } from "./install.ts";
+import { DownloadError, fetchRelease, parseKey, type Channel } from "./download.ts";
 import { matchRelease, type Release } from "./release.ts";
+
+/** keys/release.pub, put in at build time (astro.config.mjs). */
+declare const __PINNA_RELEASE_KEY__: string;
 import { ConnectError, requestFastbootDevice, webUsb, WebUsbTransport, type UsbDevice } from "./webusb.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -67,6 +71,7 @@ export function startInstallPage(): void {
   const problem = $<HTMLDivElement>("install-problem");
   const reportBox = $<HTMLElement>("install-report-box");
   const done = $<HTMLDivElement>("install-done");
+  const download = $<HTMLButtonElement>("install-download");
 
   const usb = webUsb();
   if (!usb) {
@@ -92,12 +97,13 @@ export function startInstallPage(): void {
     const model = chosenModel();
     for (const input of form.querySelectorAll("input")) input.disabled = busy;
     connect.disabled = busy || model === null;
+    download.disabled = busy;
     if (!busy && !checked && status.textContent === "Choose your device first." && model) status.textContent = "";
     const ready = checked?.assessment.state === "ready";
     confirm.hidden = !ready;
     agree.disabled = busy;
     start.disabled = busy || !ready || !release || !agree.checked;
-    startHint.textContent = !ready || busy ? "" : !release ? "Choose the release files in step 2 first." : !agree.checked ? "Tick the box first." : "";
+    startHint.textContent = !ready || busy ? "" : !release ? "Get Pinna in step 2 first." : !agree.checked ? "Tick the box first." : "";
   };
 
   const clearOutcome = () => {
@@ -222,9 +228,45 @@ export function startInstallPage(): void {
   // Back/forward restores the radios without a change event.
   window.addEventListener("pageshow", sync);
 
+  // The release service (ADR 0022): signature and files checked here.
+  download.addEventListener("click", async () => {
+    if (busy) return;
+    const list = $("install-download-status");
+    const channel = (form.querySelector<HTMLInputElement>('input[name="channel"]:checked')?.value ?? "stable") as Channel;
+    release = null;
+    $("install-files-status").replaceChildren();
+    busy = true;
+    sync();
+    const line = (text: string, tone: "ok" | "danger" | "muted") => {
+      const li = document.createElement("li");
+      li.className = tone === "ok" ? "text-ink" : tone === "danger" ? "text-danger" : "text-ink-muted";
+      li.textContent = `${tone === "ok" ? "✓" : tone === "danger" ? "✗" : "…"} ${text}`;
+      return li;
+    };
+    try {
+      const got = await fetchRelease(channel, parseKey(__PINNA_RELEASE_KEY__), {
+        progress: (text) => list.replaceChildren(line(text, "muted")),
+      });
+      release = got;
+      list.replaceChildren(
+        line(`Pinna ${got.version}, signed with Pinna's release key`, "ok"),
+        ...(got.summary ? [line(got.summary, "muted")] : []),
+        line(`${got.root.name} (${MiB(got.root.bytes.length)} MiB), checked`, "ok"),
+        line(`${got.boot.name} (${MiB(got.boot.bytes.length)} MiB), checked`, "ok"),
+      );
+    } catch (error) {
+      const text = error instanceof DownloadError ? error.message : `The download failed: ${String(error)}. Try again, or download the files and choose them below.`;
+      list.replaceChildren(line(text, "danger"));
+    } finally {
+      busy = false;
+      sync();
+    }
+  });
+
   files.addEventListener("change", async () => {
     const list = $("install-files-status");
     release = null;
+    $("install-download-status").replaceChildren();
     list.replaceChildren();
     if (!files.files || files.files.length === 0) return sync();
     busy = true;

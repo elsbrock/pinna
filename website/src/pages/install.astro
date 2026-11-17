@@ -41,10 +41,10 @@ const UDEV_RULE =
   <ul>
     <li>Chrome, Edge, Brave or Opera on a computer.</li>
     <li>
-      The release files. From the
-      <a class="link" href={`${SITE.repo}/releases/latest`}>latest release</a>,
-      download <code>pinna-boot.img</code>, <code>pinna-&lt;version&gt;.root.img</code>
-      and <code>SHA256SUMS</code>.
+      An internet connection: the page downloads the release from
+      <code>updates.getpinna.dev</code>. For a build of your own, its
+      <code>pinna-boot.img</code>, <code>pinna-&lt;version&gt;.root.img</code>
+      and <code>SHA256SUMS</code> instead.
     </li>
     <li>
       For the Echo Dot (2nd gen): a micro-USB cable that carries data, plugged
@@ -84,14 +84,37 @@ const UDEV_RULE =
       </label>
     </fieldset>
 
-    <p class="text-ink mt-6 mb-2 font-semibold">2. Choose the release files</p>
-    <p class="text-ink-muted mt-0 mb-2 text-sm">
-      Select <code>pinna-boot.img</code>, <code>pinna-&lt;version&gt;.root.img</code> and
-      <code>SHA256SUMS</code> together. The page checks each file against
-      <code>SHA256SUMS</code>.
-    </p>
-    <input id="install-files" type="file" multiple class="pn-input w-full py-2" />
-    <ul id="install-files-status" class="mt-2 flex flex-col gap-1 text-sm"></ul>
+    <fieldset id="install-channels" class="mt-6 flex flex-col gap-2">
+      <legend class="text-ink mb-2 font-semibold">2. Get Pinna</legend>
+      <p class="text-ink-muted !mt-0 !mb-1 text-sm">
+        The page downloads the newest release and checks its signature and
+        each file before it writes anything.
+      </p>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="channel" value="stable" checked />
+        Stable: finished releases
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="channel" value="beta" />
+        Beta: also releases before they are finished
+      </label>
+    </fieldset>
+    <div class="mt-3 flex flex-wrap items-center gap-3">
+      <button id="install-download" type="button" class="pn-btn">Download</button>
+    </div>
+    <ul id="install-download-status" class="mt-2 flex flex-col gap-1 text-sm" aria-live="polite"></ul>
+    <details class="mt-3">
+      <summary class="text-ink-muted cursor-pointer text-sm font-semibold">
+        Use files you downloaded or built
+      </summary>
+      <p class="text-ink-muted mt-2 mb-2 text-sm">
+        Select <code>pinna-boot.img</code>, <code>pinna-&lt;version&gt;.root.img</code> and
+        <code>SHA256SUMS</code> together. The page checks each file against
+        <code>SHA256SUMS</code>; the device checks the root image's signature.
+      </p>
+      <input id="install-files" type="file" multiple class="pn-input w-full py-2" />
+      <ul id="install-files-status" class="mt-2 flex flex-col gap-1 text-sm"></ul>
+    </details>
   </form>
 
   <p class="text-ink mt-6 mb-2 font-semibold">3. Start the device in fastboot</p>
