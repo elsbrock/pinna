@@ -3,6 +3,7 @@
 mod client;
 mod error;
 mod secret;
+mod sse;
 mod tls;
 
 #[cfg(feature = "blocking")]
@@ -11,4 +12,5 @@ pub use client::{ClientKind, client};
 pub use error::{NetError, classify};
 pub use reqwest;
 pub use secret::Secret;
+pub use sse::{SseDecoder, SseError, SseEvent};
 pub use tls::{CA_BUNDLE, tls, tls_from};
