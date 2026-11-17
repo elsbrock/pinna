@@ -24,9 +24,10 @@ MediaTek MT8163 processor, which runs Pinna in 32-bit ARM mode, and about
 
 ## Boot
 
-1. The bootloader's preloader reads the slot record in the `misc` partition,
-   counts the boot if the slot is on trial, and the bootloader loads that
-   slot's boot image: `boot_a` or `boot_b`. It contains the Linux kernel
+1. The bootloader's first stage, the preloader, reads the slot record in the
+   `misc` partition: which slot starts, and how many attempts a slot on trial
+   has left. It counts the boot if the slot is on trial, and the bootloader
+   loads that slot's boot image: `boot_a` or `boot_b`. It contains the Linux kernel
    (Debian's 6.12, with the MT8163 board support ported to it), the device
    tree, and a small initramfs.
 2. The kernel ignores the command line from the bootloader and uses its own.
@@ -74,9 +75,11 @@ filesystem together. The running slot stays good the whole time, so one slot
 can always start. For the steps, see [Update Pinna](/docs/update/).
 
 Each boot image is marked with its slot (`pinna.boot=a` or `=b`), and the
-bootloader passes the mark on. Kaeru builds from before October 2026 load
-`boot_a` whichever slot they start; Pinna notices this on a boot from slot B
-and then leaves `boot_a` to fastboot. See
+bootloader passes the mark on, so Pinna sees which boot partition the kernel
+came from. Pinna writes `boot_a` in an update only after a healthy boot from
+slot B has shown that the bootloader loads `boot_b`. Kaeru builds from before
+October 2026 always load `boot_a`; there, updates leave the kernel alone and
+a new kernel needs fastboot. See
 [Update the boot image](/docs/update/#update-the-boot-image).
 
 ## The fastboot request

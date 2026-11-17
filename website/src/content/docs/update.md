@@ -25,7 +25,8 @@ doesn't work, it goes back to the old one on its own, kernel included.
 4. If the check fails or doesn't finish in time, the device restarts. Each
    boot on trial uses one attempt. When no attempts are left, the bootloader
    starts the previous slot, its kernel and its root filesystem, and the new
-   slot counts as **unbootable**. A root filesystem that doesn't start at all
+   slot counts as **unbootable**. A version that fails before its system
+   runs, for example a root filesystem that Pinna can't verify or mount,
    doesn't wait for its attempts: the device marks its slot unbootable and
    restarts into the other one straight away.
 
@@ -54,6 +55,9 @@ them and restarts into it, as described above.
 - The device runs Pinna, and its current slot is marked `good`. Pinna refuses
   to install an update while the running slot is still on trial. To check, run
   `pinna-bootctl slot-status` on the device.
+- The device runs a Pinna built on or after 17 November 2026. An older one
+  keeps its own slot record, which the new version doesn't read: move it over
+  once, as in [Move a device from an older Pinna](#move-a-device-from-an-older-pinna).
 - The device can reach your computer over the network, either over Wi-Fi or
   over the USB cable.
 - Your copy of the repository is up to date. `keys/release.pub` is the
@@ -87,9 +91,11 @@ them and restarts into it, as described above.
    use the address that your computer got from the device, in the range
    `10.42.0.10` to `10.42.0.29`.
 
-   `pinnactl` prints each step: the downloads, the checksums, the boot image,
-   the signature and the hash tree, and which slot the device starts next.
-   Without `--reboot`, the update waits for the next restart.
+   `pinnactl` prints each step: the slot it installs into, the boot image
+   (`kernel from … written to …`, or why the kernel stays), the root
+   filesystem download and its checksum, the signature and the hash tree,
+   and which slot the device starts next. Without `--reboot`, the update
+   waits for the next restart.
 
 4. After the device restarts, check the result:
 
@@ -97,7 +103,21 @@ them and restarts into it, as described above.
    pinna-bootctl slot-status
    ```
 
-   Within a few minutes, the new slot is the running slot and marked `good`.
+   Within a few minutes, the new slot is the running slot and marked `good`:
+
+   ```text
+   state: valid
+   active: b
+   a: good attempts=0 (priority 14, tries 0), version 2026.11.15.1432-d032e69
+   b: good attempts=0 (priority 15, tries 0), version 2026.11.17.0910-1a2b3c4
+   booted: b (version 2026.11.17.0910-1a2b3c4)
+   kernel: from boot_b
+   bootloader: loads the kernel of the slot it starts
+   ```
+
+   `active` is the slot that starts next. `attempts` counts the boots a slot
+   on trial has left; the bootloader stores one try more. `kernel` shows the
+   boot partition the running kernel came from.
 
 To give the new version more or fewer attempts than three, add
 `--tries <number>` to `pinnactl update`.
@@ -156,21 +176,25 @@ switch to one of them, install an update to leave it.
 
 ## Update the boot image
 
-An update writes the boot image into the slot it installs, so you don't need
-fastboot for it. There is one exception, for slot A:
+An update writes the boot image, and with it the kernel, into the slot it
+installs, so you don't need fastboot for it. The exception is an older Kaeru,
+the bootloader addition that the unlock installs (see
+[What you need](/docs/requirements/)): Kaeru builds from before October 2026
+load the kernel from `boot_a` even when they start slot B.
 
-- An update into slot B always writes `boot_b`.
-- An update into slot A writes `boot_a` only once the device has started
-  slot B with the kernel from `boot_b`. Kaeru builds from before October 2026
-  start `boot_a` whichever slot they report, and a new kernel there would
-  have no other kernel to fall back to.
+Pinna finds out which kind it has. The first update after an installation
+goes into slot B. When slot B starts and passes its health check, Pinna knows
+whether the kernel came from `boot_b`:
 
-Until the device has shown that it starts `boot_b`, an update into slot A
-keeps the kernel in `boot_a` and says so in its output: `the kernel in boot_a
-stays`. The first update after an installation goes into slot B and shows it.
+- If it did, later updates into slot A write `boot_a` too.
+- If it didn't, updates leave the kernel alone and say so: `the kernel stays:
+  this bootloader loads boot_a whichever slot it starts`.
 
-If an update keeps saying that, your Kaeru is older. Install new boot images
-from fastboot, on your computer:
+Until Pinna knows, an update into slot A keeps the kernel in `boot_a`, because
+a new kernel there might have no other kernel to fall back to. The
+`bootloader:` line of `pinna-bootctl slot-status` shows what Pinna knows.
+
+With an older Kaeru, install new boot images from fastboot, on your computer:
 
 ```sh
 scripts/flash-gen2.sh boot
@@ -178,6 +202,44 @@ scripts/flash-gen2.sh boot
 
 This writes the boot image to `boot_a` and `boot_b` and doesn't change which
 slot starts. See [Install Pinna](/docs/flash/#install-the-boot-image).
+
+## Move a device from an older Pinna
+
+A Pinna built before 17 November 2026 keeps the slot state in its own record,
+and doesn't write the boot image in updates. Move it over once. This keeps
+your settings, but the new version has no previous version to fall back to
+until its next update.
+
+1. On the device, install the update without restarting:
+
+   ```sh
+   pinnactl update http://192.168.1.20:8000/manifest.json
+   ```
+
+   Note the slot in its first line, `installing version … into slot b`.
+
+2. On the device, open fastboot:
+
+   ```sh
+   pinna-bootctl reboot-bootloader
+   ```
+
+3. On your computer, tell the bootloader to start that slot. Replace `b` with
+   the slot from step 1:
+
+   ```sh
+   fastboot set_active b
+   ```
+
+4. On your computer, write the new boot image to both boot partitions. The
+   device restarts into the new version:
+
+   ```sh
+   scripts/flash-gen2.sh boot
+   ```
+
+If the new version doesn't start, open fastboot (hold **Volume Down** while
+you plug the device in) and run `fastboot set_active a` with the other slot.
 
 ## Update manifest
 

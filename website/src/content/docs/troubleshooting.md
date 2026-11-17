@@ -228,16 +228,19 @@ either, and the number of flashes says why. See
 [Rescue mode](/docs/recovery/#rescue-mode).
 
 If the ring stays dark, no USB device appears, or the device restarts over
-and over, Pinna doesn't get as far as its services:
+and over, Pinna doesn't get as far as its services.
+
+If this started after an update, unplug the device and plug it in again, up
+to three times: after the third start, the bootloader starts the previous
+version. See
+[Recover from a failed update](/docs/recovery/#recover-from-a-failed-update).
+
+Otherwise, install Pinna again. This erases the data partition:
 
 1. Unplug the device and open fastboot with **Volume Down**. See
    [Recover a device](/docs/recovery/).
 2. Install the root filesystem and the boot image again with
    `scripts/flash-gen2.sh root` and `scripts/flash-gen2.sh boot`.
-
-After an update, the device goes back to the previous version on its own after
-three failed attempts. See
-[Recover from a failed update](/docs/recovery/#recover-from-a-failed-update).
 
 ## Pinna doesn't start after a configuration change
 

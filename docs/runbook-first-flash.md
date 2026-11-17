@@ -15,9 +15,10 @@ them from the step 1 backup.
 | `userdata` (p16) | previous firmware's `/data` | wiped; Pinna formats it as `/var` on first boot |
 
 Never written: preloader/boot areas, `lk_a`/`lk_b`, `tee1`/`tee2`, `expdb`
-(Kaeru payload), `persist` (identity, calibration, MAC). `misc` only at
-runtime: the bootloader command field (fastboot guard) and Pinna's A/B slot
-state at offset 0x40000 (ADR 0003).
+(Kaeru payload), `persist` (identity, calibration, MAC). `misc`: `root` and
+`restore` set Kaeru's slot record (0x360) to slot a with `fastboot set_active
+a`; at runtime Pinna writes the bootloader command field (fastboot guard) and
+that record (ADR 0019).
 
 The Wi-Fi firmware that used to come from `system_a` is baked into the Pinna
 root (`firmware/` in the repository). The microphone FPGA bitstream is in the
@@ -311,7 +312,9 @@ switches by hand (as a trial).
 
 An update into slot A writes `boot_a` only once a boot from slot B has shown
 that the bootloader loads `boot_b` (`/var/lib/pinna/kernel-slots`); a Kaeru
-before `ab93750` always loads `boot_a`. There, flash new boot images by hand:
+before `ab93750` (22 October 2026) always loads `boot_a`; once a boot from
+slot b has shown that, updates write no kernel at all. There, flash new boot
+images by hand:
 `pinna-bootctl reboot-bootloader` on the device, then
 `scripts/flash-gen2.sh boot` (step 5).
 When the signing key changed — you built with a new `secrets/release.key` —

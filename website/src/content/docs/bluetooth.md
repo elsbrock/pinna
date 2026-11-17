@@ -32,10 +32,10 @@ pairing window is open can connect.
 
    If there is no **Media sources**, or no **Bluetooth** on it, the device runs
    a Pinna from before Bluetooth. Build a new image and
-   [update the device](/docs/update/). The update installs the new boot image
-   too, except in the case that
-   [Update the boot image](/docs/update/#update-the-boot-image) describes:
-   with an older boot image, phones see every Echo under the same address.
+   [update the device](/docs/update/). Check that the update also installed
+   the new boot image (see
+   [Update the boot image](/docs/update/#update-the-boot-image)): with an
+   older boot image, phones see every Echo under the same address.
 2. Turn on **Bluetooth**. After a few seconds the page shows **Ready as** and
    the name that phones list it under.
 

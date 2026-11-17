@@ -24,10 +24,14 @@ to undo it.
 
 ## What gets written
 
+Pinna keeps two copies of its system, called slots: slot A (`boot_a` and
+`system_a`) and slot B (`boot_b` and `system_b`). The bootloader's slot
+record in `misc` says which one starts.
+
 | Partition | After installation |
 | --- | --- |
 | `boot_a` | Pinna's boot image (the kernel), slot A |
-| `boot_b` | The same boot image, slot B. Pinna installs updates here and in `system_b` |
+| `boot_b` | The same boot image, for slot B. The first update goes into slot B |
 | `system_a` | Pinna's root filesystem, slot A |
 | `system_b` | Its beginning is cleared |
 | `userdata` | Its beginning is cleared. Pinna creates its data partition (`/var`) here on first boot |
@@ -103,8 +107,7 @@ scripts/flash-gen2.sh boot
 ```
 
 The script asks you to confirm, writes `boot_a` and `boot_b`, and restarts the
-device. Each copy is marked with its slot (`pinna.boot=a` or `=b` in the
-image's header), so Pinna can tell which one the bootloader started. From now on, the device starts Pinna. Until this step, the previous
+device. From now on, the device starts Pinna. Until this step, the previous
 firmware doesn't boot properly.
 
 ## Check the device

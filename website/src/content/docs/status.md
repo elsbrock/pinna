@@ -21,7 +21,8 @@ These parts are covered by tests that run without hardware:
   [rescue mode](/docs/recovery/#rescue-mode) instead of restarting.
 - An update installs a kernel and a root filesystem into the second slot and
   boots on trial, and a broken update rolls back to the previous slot, kernel
-  included, automatically.
+  included, automatically. The bootloader's part of this is tested on the
+  Echo Dot (2nd gen) only.
 - The Home Assistant connection passes tests with Home Assistant's own client
   library, including encryption and key rotation.
 - The wake word detection gives the same results as the reference
@@ -60,10 +61,9 @@ On the devices:
   once, chosen in Home Assistant or on the dashboard. The openWakeWord models'
   licence doesn't allow commercial use, and the dashboard can't accept extra
   models yet.
-- **On a Kaeru from before October 2026, updates can't replace the kernel in
-  slot A.** That Kaeru always starts `boot_a`, so a new kernel there would
-  have no fallback; such an update keeps it, and a new kernel in `boot_a`
-  needs fastboot.
+- **On a Kaeru from before October 2026, updates don't change the kernel.**
+  That Kaeru loads `boot_a` for both slots, and updates leave `boot_a`
+  alone. Install new kernels from fastboot.
 - **No automated test runs.** The tests run when contributors run them; there
   is no CI for them yet. The release workflow builds the images but doesn't
   run the tests.

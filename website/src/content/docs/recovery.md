@@ -61,7 +61,15 @@ attempt already returns to the previous system. See
 
 You usually don't need to do anything. Pinna tries a new update up to three
 times. If it doesn't pass the health check in that time, the device goes back
-to the previous system on its own: its kernel and its root filesystem.
+to the previous system on its own: its kernel and its root filesystem. A new
+version that fails while it starts goes back on its own too.
+
+If the ring stays dark, the device stays in rescue mode, or it doesn't come
+back within a few minutes, restart it: select **Restart** on
+`http://10.42.0.1`, or unplug the device and plug it in again. Do this up to
+three times. Each start of the new version uses one attempt, and after the
+last one the bootloader starts the previous version. A kernel that hangs
+instead of restarting needs this.
 
 To see what happened, run:
 
@@ -111,7 +119,7 @@ in rescue mode, so you can find out why. In rescue mode:
   every log in one text file: attach it when you
   [report a problem](/docs/troubleshooting/#report-a-problem). **Restart**
   boots the same way again, so it ends in rescue mode again unless something
-  changed.
+  changed. On a new version on trial, each restart uses one of its attempts.
 - The USB serial console has a root shell: `picocom -b 115200 /dev/ttyACM0`.
   SSH doesn't run in rescue mode.
 
