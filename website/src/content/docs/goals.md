@@ -78,8 +78,8 @@ apart from Pinna's own code and isn't under Pinna's license.
   of the project that a device contacts is `updates.getpinna.dev`, to look for
   new releases: once a day and after each start. It learns what any web server
   learns, the address a request comes from and when, and the channel the
-  device asks for (`stable` or `beta`), nothing else, and it keeps no logs.
-  Cloudflare, which runs it, sees each request's address too. Set **Updates**
+  device asks for (`stable` or `beta`), nothing else. Its logs keep these for
+  a few days, at Cloudflare, which runs it. Set **Updates**
   to **Off** on the dashboard and the device contacts no service of the
   project. If you want to reach your devices from outside your home, set that
   up in Home Assistant.

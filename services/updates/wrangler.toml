@@ -1,12 +1,15 @@
 name = "pinna-updates"
 main = "src/index.ts"
 compatibility_date = "2026-11-01"
+# Only updates.getpinna.dev: no workers.dev address, no preview URLs.
 workers_dev = false
+preview_urls = false
 routes = [{ pattern = "updates.getpinna.dev", custom_domain = true }]
 
-# No logs: the Worker sees where checks come from and keeps nothing (ADR 0023).
+# Workers Logs and metrics, to see what the service answers. A request's log
+# holds the address it came from; Cloudflare keeps the logs for a few days.
 [observability]
-enabled = false
+enabled = true
 
 [vars]
 GITHUB_REPO = "elsbrock/pinna"
