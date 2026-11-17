@@ -6,4 +6,5 @@
 
 pub mod limits;
 pub mod presets;
+pub mod prompt;
 pub mod sentences;
