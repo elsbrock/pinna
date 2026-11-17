@@ -96,8 +96,10 @@ marked *default* are not confirmed by the owner yet.
 - Development builds are versioned
   `<next patch>-dev.<YYYYMMDDHHMM>.g<commit>`, for example
   `0.4.1-dev.202611171405.gabc1234`. The next patch is the newest `v*` tag
-  reachable from the commit with its patch number raised by one; with no such
-  tag it is `0.0.1`. Such a version sorts after the release it builds on and
+  reachable from the commit with its patch number raised by one; after a beta
+  tag it is that tag's version without the prerelease part, so
+  `0.5.0-dev.…` comes after every `0.5.0-beta.<n>` and before `0.5.0`; with no
+  such tag it is `0.0.1`. Such a version sorts after the release it builds on and
   before the next release. The `g` keeps a commit hash that is all digits a
   valid part of a semantic version. Manual dry runs of the release workflow
   are versioned `0.0.0-dryrun.<run number>.g<commit>`.
