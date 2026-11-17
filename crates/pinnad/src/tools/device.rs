@@ -41,7 +41,8 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
     match op {
         Op::Time => {
             let zone = tools.status.borrow().settings.time_zone.clone();
-            let (time, zone) = crate::clock::local_now(zone.as_deref(), std::time::SystemTime::now());
+            let (time, zone) =
+                crate::clock::local_now(zone.as_deref(), std::time::SystemTime::now());
             Ok(format!("{time} ({zone})"))
         }
         Op::Weather => {
@@ -49,7 +50,11 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
                 .weather
                 .forecast(tools.live.place.as_ref(), tools.live.language.as_deref())
                 .await;
-            if out.is_error { Err(out.text) } else { Ok(out.text) }
+            if out.is_error {
+                Err(out.text)
+            } else {
+                Ok(out.text)
+            }
         }
         Op::SetVolume => {
             let percent = percent(args, "percent")?;

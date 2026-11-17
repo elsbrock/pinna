@@ -454,13 +454,6 @@ impl DeviceTools {
         }
     }
 
-    /// The same tools with the weather fetched from other addresses.
-    #[cfg(test)]
-    pub fn with_weather(mut self, weather: OpenMeteo) -> Self {
-        self.weather = weather;
-        self
-    }
-
     /// The owner's switch for a tool; a tool without one is on.
     fn switched_on(&self, name: &str) -> bool {
         self.live.switches.get(name).copied().unwrap_or(true)
