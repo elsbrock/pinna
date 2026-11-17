@@ -2098,7 +2098,13 @@ dependencies = [
 name = "pinna-assist"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "futures-core",
+ "hound",
+ "pinna-mcp",
  "serde",
+ "serde_json",
+ "tokio",
  "toml",
  "url",
 ]

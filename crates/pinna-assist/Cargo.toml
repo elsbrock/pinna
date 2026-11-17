@@ -1,12 +1,24 @@
 [package]
 name = "pinna-assist"
-description = "One standalone voice request: presets, limits, prompts, sentence handling and settings"
+description = "One standalone voice request, without device state"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
 
+[features]
+fakes = []
+
 [dependencies]
+bytes = "1"
+futures-core = "0.3"
+pinna-mcp = { path = "../pinna-mcp" }
 serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
 toml.workspace = true
 url = "2"
+
+[dev-dependencies]
+hound = "3"
+tokio = { workspace = true, features = ["test-util"] }
