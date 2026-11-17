@@ -1,6 +1,6 @@
 <!-- The media player, as Home Assistant's media player shows it: what plays,
-     pause, resume, stop, a stream's own volume and the music's own mute. Shown while something
-     plays, while the music is muted, or after the last play failed. -->
+     pause, resume, stop, a stream's own volume and the music's own mute. Shown on every
+     satellite with a speaker; with nothing to show, it says how to play something, as Timers does. -->
 <script lang="ts">
   import { MediaCommand, MediaState } from "../gen/pinna/v1/device_pb.ts";
   import { device } from "./device.svelte.ts";
@@ -9,13 +9,13 @@
   import SwitchRow from "./SwitchRow.svelte";
 
   const m = $derived(device.status?.media);
+  const set = $derived(device.status?.settings);
   const live = $derived(device.link === "live");
   const active = $derived(
     m?.state === MediaState.PLAYING || m?.state === MediaState.PAUSED || m?.state === MediaState.ANNOUNCING,
   );
   // A failure stays until the next play; dismissing it hides it on this page.
   const failed = $derived(!!m && !active && !!m.error && m.error !== device.mediaErrorDismissed);
-  const shown = $derived(!!m?.available && (active || m.muted || failed));
   const STATE: Partial<Record<MediaState, string>> = {
     [MediaState.PLAYING]: "Playing",
     [MediaState.PAUSED]: "Paused",
@@ -26,7 +26,7 @@
   };
 </script>
 
-{#if m && shown}
+{#if m?.available}
   <Group title="Now playing">
     {#if active}
       <div class="pn-row">
@@ -62,12 +62,25 @@
         </div>
         <button class="pn-btn pn-btn-quiet pn-btn-sm" onclick={() => (device.mediaErrorDismissed = m.error)}>Dismiss</button>
       </div>
-    {:else}
+    {:else if m.muted}
       <div class="pn-row">
         <div class="pn-row-text">
           <span class="pn-row-label">Not playing</span>
           <span class="pn-row-hint">The music stays muted until you turn Mute music off.</span>
         </div>
+      </div>
+    {:else}
+      <div class="pn-empty">
+        <span class="pn-empty-title">Not playing</span>
+        <p>
+          {#if set?.airplay || set?.bluetooth}
+            Play to this satellite from a phone or computer, or play a URL under <a href="#/voice/media-sources"
+              >Media sources</a
+            >.
+          {:else}
+            Turn on AirPlay or Bluetooth, or play a URL, under <a href="#/voice/media-sources">Media sources</a>.
+          {/if}
+        </p>
       </div>
     {/if}
     {#if active && m.stream}
