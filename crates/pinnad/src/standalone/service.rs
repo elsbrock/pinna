@@ -757,8 +757,7 @@ impl Service {
 
     /// Remember an MCP client for the dashboard. The name is the client's own
     /// `clientInfo.name`, cut short and stripped of control characters.
-    // The `/mcp` handler (T67) records its callers here.
-    #[allow(dead_code)]
+    /// The `/mcp` handler records its callers here.
     pub fn agent_seen(&self, name: &str, peer: IpAddr) {
         let name: String = name
             .chars()

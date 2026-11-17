@@ -29,7 +29,7 @@ use weather::OpenMeteo;
 
 /// Free Brain queue slots an MCP call leaves for the wake word and buttons.
 const BRAIN_RESERVE: usize = 16;
-const BUSY: &str = "The satellite is busy. Try again in a moment.";
+pub const BUSY: &str = "The satellite is busy. Try again in a moment.";
 const SHUTTING_DOWN: &str = "pinnad is shutting down.";
 
 /// Where a tool list is offered.

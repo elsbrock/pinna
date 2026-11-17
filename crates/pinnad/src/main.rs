@@ -16,6 +16,7 @@ mod config;
 mod identity;
 mod leds;
 mod logs;
+mod mcp;
 mod metrics;
 mod mic;
 mod network;
@@ -752,7 +753,7 @@ async fn main() -> Result<()> {
     // Local control API.
     let device_api = api::DeviceApi::with_updater(
         api::Info {
-            version: booted_version,
+            version: booted_version.clone(),
             mac: dc_mac,
             time_zones: Arc::new(timezone::zones(Path::new(timezone::ZONEINFO))),
             wake_words: catalogue.clone(),
@@ -801,7 +802,22 @@ async fn main() -> Result<()> {
         assistant.clone(),
         in_tx.clone(),
     ));
-    match web::start(device_api, assistant_api, &cfg.web, virt, &shared.counters).await {
+    let mcp_server = Arc::new(mcp::McpServer::new(
+        assistant.clone(),
+        in_tx.clone(),
+        status_rx.clone(),
+        booted_version.clone(),
+    ));
+    match web::start(
+        device_api,
+        assistant_api,
+        &cfg.web,
+        virt,
+        Some(mcp_server),
+        &shared.counters,
+    )
+    .await
+    {
         Ok(Some(addr)) => tracing::info!("dashboard listening on http://{addr}"),
         Ok(None) => {}
         Err(e) => tracing::error!("dashboard: {e:#}"),

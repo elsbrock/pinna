@@ -23,6 +23,7 @@ use tower_http::services::ServeDir;
 use crate::api::{self, DeviceApi};
 use crate::assistant_api::{self, AssistantApi};
 use crate::config::Web;
+use crate::mcp::{self, McpServer};
 use crate::metrics::{self, Counters};
 use crate::virtual_device::{self, VirtualDevice};
 use crate::voice::Snapshot;
@@ -111,7 +112,8 @@ fn normalise(name: &str) -> String {
 
 /// The routes: Connect procedures under `/pinna.v1.DeviceService/` and
 /// `/pinna.v1.AssistantService/`, `/metrics` (ADR 0020), the virtual Echo
-/// Dot's socket in the development VM (ADR 0014), the dashboard's files for
+/// Dot's socket in the development VM (ADR 0014), Pinna's MCP server
+/// (ADR 0017), the dashboard's files for
 /// everything else.
 pub fn app(
     api: Arc<DeviceApi>,
@@ -119,6 +121,7 @@ pub fn app(
     root: &Path,
     hosts: Hosts,
     virt: Option<Arc<VirtualDevice>>,
+    mcp: Option<Arc<McpServer>>,
     registry: Arc<Registry>,
 ) -> axum::Router {
     let files = axum::Router::new()
@@ -139,6 +142,9 @@ pub fn app(
             virtual_device::ROUTE,
             axum::routing::get(virtual_device::socket).with_state(v),
         );
+    }
+    if let Some(server) = mcp {
+        router = router.route(mcp::ROUTE, mcp::route(server, hosts.clone()));
     }
     router
         .fallback_service(files)
@@ -294,6 +300,7 @@ pub async fn start(
     assistant: Arc<AssistantApi>,
     cfg: &Web,
     virt: Option<Arc<VirtualDevice>>,
+    mcp: Option<Arc<McpServer>>,
     counters: &Counters,
 ) -> Result<Option<SocketAddr>> {
     if cfg.listen.is_empty() {
@@ -317,7 +324,15 @@ pub async fn start(
         counters,
         metrics::Sources::default(),
     );
-    let app = app(api, assistant, &cfg.root, hosts, virt, Arc::new(registry));
+    let app = app(
+        api,
+        assistant,
+        &cfg.root,
+        hosts,
+        virt,
+        mcp,
+        Arc::new(registry),
+    );
     tokio::spawn(async move {
         if let Err(e) =
             axum::serve(listener, app.into_make_service_with_connect_info::<Conn>()).await
@@ -453,6 +468,7 @@ mod tests {
                 assistant(&dir, status_rx),
                 &dir,
                 hosts(),
+                None,
                 None,
                 Arc::new(registry()),
             ),
@@ -682,7 +698,7 @@ mod tests {
         };
         let counters = Counters::default();
         assert_eq!(
-            start(api.clone(), assistant.clone(), &cfg, None, &counters)
+            start(api.clone(), assistant.clone(), &cfg, None, None, &counters)
                 .await
                 .unwrap(),
             None
@@ -692,6 +708,10 @@ mod tests {
             listen: "0.0.0.0:eighty".into(),
             ..cfg
         };
-        assert!(start(api, assistant, &cfg, None, &counters).await.is_err());
+        assert!(
+            start(api, assistant, &cfg, None, None, &counters)
+                .await
+                .is_err()
+        );
     }
 }
