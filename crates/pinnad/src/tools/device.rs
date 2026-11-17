@@ -7,7 +7,7 @@ use std::time::Instant;
 use pinna_esphome::{MediaPlayerCommand, MediaPlayerStateKind};
 use serde_json::{Value, json};
 
-use super::{Args, Caller, DeviceTools};
+use super::{Args, Caller, DeviceTools, radio};
 use crate::checks;
 use crate::leds::LightEffect;
 use crate::voice::{ApiCommand, RingLight, RingLightPatch, SettingsPatch, Snapshot, TimerSnapshot};
@@ -35,6 +35,9 @@ pub(super) enum Op {
     Status,
     Time,
     Weather,
+    PlayStation,
+    ListStations,
+    SearchRadio,
 }
 
 /// Runs a device tool: what it did, or why not.
@@ -87,6 +90,9 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
             tools.ask(|r| ApiCommand::PlayMediaChecked(url, r)).await?;
             Ok("Playing.".into())
         }
+        Op::PlayStation => radio::play_station(tools, args.need_text("name")?).await,
+        Op::ListStations => Ok(radio::list_stations(&tools.live.stations)),
+        Op::SearchRadio => tools.radio.search(args.need_text("name")?).await,
         Op::PauseMedia => media(tools, MediaPlayerCommand::Pause, "Paused.").await,
         Op::ResumeMedia => media(tools, MediaPlayerCommand::Play, "Resumed.").await,
         Op::StopMedia => media(tools, MediaPlayerCommand::Stop, "Stopped.").await,

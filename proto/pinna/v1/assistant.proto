@@ -261,6 +261,12 @@ message UpdateAssistantRequest {
   BrainOverride brain_override = 7;
   // A place name to look up, such as a town; empty clears it.
   optional string place = 8;
+  // Replaces every station.
+  StationList stations = 9;
+}
+
+message StationList {
+  repeated Station stations = 1;
 }
 
 message ToolSwitches {

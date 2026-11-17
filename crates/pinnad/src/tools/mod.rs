@@ -8,6 +8,7 @@
 //! `<server>_<tool>`. A device tool's name is never lent to one of them.
 
 mod device;
+pub mod radio;
 pub mod weather;
 
 use std::collections::HashSet;
@@ -25,6 +26,7 @@ use crate::leds::LightEffect;
 use crate::standalone::{AssistLive, OwnerMcp};
 use crate::voice::{ApiCommand, Input, RunId, Snapshot};
 use device::Op;
+use radio::RadioBrowser;
 use weather::OpenMeteo;
 
 /// Free Brain queue slots an MCP call leaves for the wake word and buttons.
@@ -277,6 +279,37 @@ static TOOLS: &[Tool] = &[
         op: Op::StopMedia,
     },
     Tool {
+        name: "play_station",
+        reach: Reach::Both,
+        about: "Play one of the owner's radio stations, found by its name.",
+        params: &[Param {
+            name: "name",
+            kind: Kind::Text,
+            required: true,
+            about: "The station's name, or part of it.",
+        }],
+        op: Op::PlayStation,
+    },
+    Tool {
+        name: "list_stations",
+        reach: Reach::Both,
+        about: "List the names of the owner's radio stations.",
+        params: &[],
+        op: Op::ListStations,
+    },
+    Tool {
+        name: "search_radio",
+        reach: Reach::Both,
+        about: "Search the radio-browser.info directory for internet radio stations this satellite can play. Play a result with play_url.",
+        params: &[Param {
+            name: "name",
+            kind: Kind::Text,
+            required: true,
+            about: "The station's name, or part of it.",
+        }],
+        op: Op::SearchRadio,
+    },
+    Tool {
         name: "clear_notification",
         reach: Reach::Both,
         about: "Clear the notification the light ring shows.",
@@ -459,6 +492,7 @@ pub struct DeviceTools {
     surface: Surface,
     caller: Caller,
     weather: OpenMeteo,
+    radio: RadioBrowser,
 }
 
 impl DeviceTools {
@@ -476,6 +510,7 @@ impl DeviceTools {
             surface,
             caller,
             weather: OpenMeteo::default(),
+            radio: RadioBrowser::default(),
         }
     }
 

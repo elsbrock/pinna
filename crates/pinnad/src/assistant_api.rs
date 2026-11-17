@@ -20,7 +20,7 @@ use pinna_api::{
     SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse, SetSlotRequest,
     SetSlotResponse, SlotChoice, UpdateAssistantRequest, UpdateAssistantResponse,
 };
-use pinna_assist::config::Ack;
+use pinna_assist::config::{Ack, Station};
 use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId};
 use pinna_http::Secret;
 
@@ -359,6 +359,15 @@ impl AssistantService for AssistantApi {
                 .map(chat_override)
                 .transpose()?,
             place: r.place.map(Some),
+            stations: r.stations.into_option().map(|list| {
+                list.stations
+                    .into_iter()
+                    .map(|s| Station {
+                        name: s.name,
+                        url: s.url,
+                    })
+                    .collect()
+            }),
         };
         let view = self.service.update(patch).await.map_err(refused)?;
         Response::ok(UpdateAssistantResponse {

@@ -33,8 +33,10 @@ use pinna_http::{ClientKind, Secret, reqwest};
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
 use super::{AssistLive, OwnerMcp};
+use crate::checks;
 use crate::settings::{self, Mode};
 use crate::store::Store;
+use crate::tools::radio;
 use crate::tools::weather::{OpenMeteo, PlaceError};
 use crate::voice::Snapshot;
 
@@ -52,6 +54,8 @@ const KEY_MAX: usize = 1024;
 const ACK_MAX: usize = 100;
 /// At most this many per-tool switches.
 const MAX_SWITCHES: usize = 128;
+/// A station name is at most this many characters.
+const STATION_NAME_MAX: usize = 60;
 /// A tool name is at most this many characters (the model's limit).
 const TOOL_NAME_MAX: usize = 64;
 /// The Advanced first-text limit, in seconds.
@@ -235,6 +239,9 @@ pub struct AssistantPatch {
     pub chat_override: Option<ChatOverride>,
     /// A place name to look up; the coordinates are stored with it.
     pub place: Option<Option<String>>,
+    /// The whole station list. Names must differ, as `play_station` finds a
+    /// station by its name.
+    pub stations: Option<Vec<Station>>,
 }
 
 /// Everything the Assistant pages show. Keys appear only as "set" and their
@@ -619,6 +626,7 @@ impl Service {
         let ack = p.ack.map(ack_value).transpose()?;
         let tools = p.tools.map(switches_value).transpose()?;
         let chat_override = p.chat_override.map(override_value).transpose()?;
+        let stations = p.stations.map(stations_value).transpose()?;
         let place = match p.place {
             Some(Some(name)) if !name.trim().is_empty() => {
                 let language = match &language {
@@ -661,6 +669,9 @@ impl Service {
             }
             if let Some(place) = place {
                 c.place = place;
+            }
+            if let Some(stations) = stations {
+                c.stations = stations;
             }
             Ok(())
         })
@@ -1194,6 +1205,46 @@ fn switches_value(tools: BTreeMap<String, bool>) -> Result<BTreeMap<String, bool
         return Err(Refusal::Invalid(format!("{name:?} isn't a tool name.")));
     }
     Ok(tools)
+}
+
+/// The owner's stations as they are stored. An address is checked as the
+/// media lane's (`checks::media_url`): stream addresses often carry a query.
+fn stations_value(stations: Vec<Station>) -> Result<Vec<Station>, Refusal> {
+    if stations.len() > assist::MAX_STATIONS {
+        return Err(Refusal::Invalid(format!(
+            "At most {} stations.",
+            assist::MAX_STATIONS
+        )));
+    }
+    let mut names = std::collections::HashSet::new();
+    stations
+        .into_iter()
+        .map(|station| {
+            let name = station.name.trim();
+            if name.is_empty() || radio::key(name).is_empty() {
+                return Err(Refusal::Invalid("Enter a station name.".into()));
+            }
+            if name.chars().count() > STATION_NAME_MAX || name.chars().any(char::is_control) {
+                return Err(Refusal::Invalid(format!(
+                    "A station name is at most {STATION_NAME_MAX} characters on one line."
+                )));
+            }
+            if !names.insert(radio::key(name)) {
+                return Err(Refusal::Invalid(format!(
+                    "Two stations are named {name}. Give each its own name."
+                )));
+            }
+            let url = checks::media_url(&station.url).map_err(|_| {
+                Refusal::Invalid(format!(
+                    "Enter the address of {name}, starting with http:// or https://."
+                ))
+            })?;
+            Ok(Station {
+                name: name.to_owned(),
+                url,
+            })
+        })
+        .collect()
 }
 
 fn override_value(o: ChatOverride) -> Result<ChatOverride, Refusal> {
@@ -1857,6 +1908,7 @@ mod tests {
                     ..ChatOverride::default()
                 }),
                 place: None,
+                stations: None,
             })
             .await
             .unwrap();
@@ -2280,6 +2332,72 @@ mod tests {
             .await
             .unwrap();
         assert!(!Arc::ptr_eq(&before, &f.live().mcp[0]));
+    }
+
+    #[tokio::test]
+    async fn stations_are_validated_and_published() {
+        let f = Fixture::new(Mode::Standalone);
+        let station = |name: &str, url: &str| Station {
+            name: name.into(),
+            url: url.into(),
+        };
+        let stations = |list: Vec<Station>| AssistantPatch {
+            stations: Some(list),
+            ..AssistantPatch::default()
+        };
+
+        let view = f
+            .service
+            .update(stations(vec![
+                station(" Radio One ", " https://radio.test/one.mp3?listener=pinna "),
+                station("Jazz FM", "http://jazz.test/live.pls"),
+            ]))
+            .await
+            .unwrap();
+
+        let saved = vec![
+            station("Radio One", "https://radio.test/one.mp3?listener=pinna"),
+            station("Jazz FM", "http://jazz.test/live.pls"),
+        ];
+        assert_eq!(view.stations, saved);
+        assert_eq!(*f.live().stations, saved);
+        assert_eq!(f.saved().stations, saved);
+
+        let too_many = (0..=assist::MAX_STATIONS)
+            .map(|i| station(&format!("Station {i}"), "https://radio.test/"))
+            .collect();
+        for (list, sentence) in [
+            (
+                vec![
+                    station("Radio One", "https://radio.test/1"),
+                    station("radio  ONE!", "https://radio.test/2"),
+                ],
+                "Two stations are named radio  ONE!. Give each its own name.",
+            ),
+            (
+                vec![station(" ", "https://radio.test/")],
+                "Enter a station name.",
+            ),
+            (
+                vec![station("Radio\nOne", "https://radio.test/")],
+                "A station name is at most 60 characters on one line.",
+            ),
+            (
+                vec![station("Radio One", "ftp://radio.test/one")],
+                "Enter the address of Radio One, starting with http:// or https://.",
+            ),
+            (too_many, "At most 50 stations."),
+        ] {
+            assert_eq!(
+                f.service.update(stations(list)).await.unwrap_err(),
+                Refusal::Invalid(sentence.into())
+            );
+        }
+        assert_eq!(f.saved().stations, saved);
+
+        let view = f.service.update(stations(Vec::new())).await.unwrap();
+        assert!(view.stations.is_empty());
+        assert!(f.live().stations.is_empty());
     }
 
     #[test]
