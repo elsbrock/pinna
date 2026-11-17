@@ -349,6 +349,7 @@ pub(crate) mod test_util {
     enum Round {
         Now(Vec<ChatDelta>),
         Delayed(Duration, Vec<ChatDelta>),
+        PendingAfter(Vec<ChatDelta>),
         Pending,
     }
 
@@ -368,6 +369,13 @@ pub(crate) mod test_util {
         pub(crate) fn delayed(delay: Duration, deltas: Vec<ChatDelta>) -> Self {
             Self {
                 rounds: Mutex::new(VecDeque::from([Round::Delayed(delay, deltas)])),
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        pub(crate) fn pending_after(deltas: Vec<ChatDelta>) -> Self {
+            Self {
+                rounds: Mutex::new(VecDeque::from([Round::PendingAfter(deltas)])),
                 requests: Mutex::new(Vec::new()),
             }
         }
@@ -408,6 +416,11 @@ pub(crate) mod test_util {
                     Round::Delayed(delay, deltas) => {
                         tokio::time::sleep(delay).await;
                         deltas
+                    }
+                    Round::PendingAfter(deltas) => {
+                        return Ok(stream::iter(deltas.into_iter().map(Ok))
+                            .chain(stream::pending())
+                            .boxed());
                     }
                     Round::Pending => std::future::pending().await,
                 };

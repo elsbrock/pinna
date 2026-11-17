@@ -15,6 +15,7 @@ pub mod harness;
 pub mod http;
 pub mod limits;
 pub mod observe;
+pub mod pipeline;
 pub mod presets;
 pub mod prompt;
 pub mod reply;
