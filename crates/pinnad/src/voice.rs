@@ -1119,15 +1119,11 @@ impl Brain {
         if let Some(dc) = &mut self.opts.mdns {
             dc.name.clone_from(&name);
         }
-        let dc = self.opts.mdns.clone();
+        // resolved moves the ESPHome record with the hostname (`Name=%H`,
+        // ADR 0024): rewriting it here would leave the old one published.
         tokio::task::spawn_blocking(move || {
             if let Err(e) = crate::identity::set_hostname_live(&name) {
                 tracing::warn!("hostname: {e:#}");
-            }
-            if let Some(dc) = dc
-                && let Err(e) = crate::identity::publish_mdns(&dc)
-            {
-                tracing::warn!("mDNS: {e:#}");
             }
         });
         self.reconnect_pending = self.clients > 0;

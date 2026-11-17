@@ -214,12 +214,14 @@ fn quote_txt(k: &str, v: &str) -> String {
     }
 }
 
-/// systemd.dnssd(5) unit advertising the ESPHome native API.
+/// systemd.dnssd(5) unit advertising the ESPHome native API. The instance is
+/// named `%H`, the host name resolved publishes, so resolved moves the record
+/// with a rename by itself and withdraws the old one (ADR 0024): a rename
+/// never rewrites this file.
 pub fn dnssd_unit(cfg: &DeviceConfig) -> String {
     let txt: Vec<String> = mdns_txt(cfg).iter().map(|(k, v)| quote_txt(k, v)).collect();
     format!(
-        "# Written by pinnad.\n[Service]\nName={}\nType=_esphomelib._tcp\nPort={}\nTxtText={}\n",
-        cfg.name,
+        "# Written by pinnad.\n[Service]\nName=%H\nType=_esphomelib._tcp\nPort={}\nTxtText={}\n",
         cfg.port,
         txt.join(" ")
     )
@@ -326,7 +328,7 @@ mod tests {
         let mut cfg = DeviceConfig::new("pinna-0a0b0c", [2, 0, 0, 0xa, 0xb, 0xc]);
         cfg.friendly_name = "Echo Dot".into();
         let unit = dnssd_unit(&cfg);
-        assert!(unit.contains("Name=pinna-0a0b0c"));
+        assert!(unit.contains("\nName=%H\n"), "{unit}");
         assert!(unit.contains("Type=_esphomelib._tcp"));
         assert!(unit.contains("Port=6053"));
         cfg.webserver_port = 80;
@@ -339,5 +341,13 @@ mod tests {
         );
         assert!(unit.contains("\"friendly_name=Echo Dot\""));
         assert!(unit.contains("mac=02:00:00:0a:0b:0c"));
+    }
+
+    #[test]
+    fn a_rename_leaves_the_record_alone() {
+        let mut cfg = DeviceConfig::new("kitchen", [2, 0, 0, 0xa, 0xb, 0xc]);
+        let before = dnssd_unit(&cfg);
+        cfg.name = "hall".into();
+        assert_eq!(dnssd_unit(&cfg), before);
     }
 }
