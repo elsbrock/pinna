@@ -38,5 +38,6 @@ procfs = { version = "0.18", default-features = false }
 simple-dns = "0.13"
 
 [dev-dependencies]
+pinna-esphome = { path = "../pinna-esphome", features = ["test-util"] }
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3"

@@ -6,6 +6,9 @@ license.workspace = true
 version.workspace = true
 rust-version.workspace = true
 
+[features]
+test-util = []
+
 [dependencies]
 anyhow.workspace = true
 base64 = "0.23.1"

@@ -135,19 +135,46 @@ enum Input {
 /// Handle used by the device side to push [`DeviceEvent`]s. Cloneable.
 #[derive(Clone)]
 pub struct EsphomeHandle {
-    tx: mpsc::Sender<Input>,
+    tx: EventSender,
     addr: SocketAddr,
 }
 
+#[derive(Clone)]
+enum EventSender {
+    Server(mpsc::Sender<Input>),
+    #[cfg(feature = "test-util")]
+    Detached(mpsc::Sender<DeviceEvent>),
+}
+
 impl EsphomeHandle {
+    #[cfg(feature = "test-util")]
+    pub fn detached(cap: usize) -> (Self, mpsc::Receiver<DeviceEvent>) {
+        let (tx, rx) = mpsc::channel(cap);
+        (
+            Self {
+                tx: EventSender::Detached(tx),
+                addr: ([127, 0, 0, 1], 0).into(),
+            },
+            rx,
+        )
+    }
+
     /// Send an event; waits if the server is momentarily backed up.
     pub async fn send(&self, ev: DeviceEvent) -> Result<(), Stopped> {
-        self.tx.send(Input::Device(ev)).await.map_err(|_| Stopped)
+        match &self.tx {
+            EventSender::Server(tx) => tx.send(Input::Device(ev)).await.map_err(|_| Stopped),
+            #[cfg(feature = "test-util")]
+            EventSender::Detached(tx) => tx.send(ev).await.map_err(|_| Stopped),
+        }
     }
 
     /// Non-blocking variant; fails if the queue is full or the server stopped.
     pub fn try_send(&self, ev: DeviceEvent) -> Result<(), Stopped> {
-        self.tx.try_send(Input::Device(ev)).map_err(|_| Stopped)
+        match &self.tx {
+            EventSender::Server(tx) => tx.try_send(Input::Device(ev)).map_err(|_| Stopped),
+            #[cfg(feature = "test-util")]
+            EventSender::Detached(tx) => tx.try_send(ev).map_err(|_| Stopped),
+        }
     }
 
     /// Address the server is listening on (useful with port 0).
@@ -171,7 +198,24 @@ pub async fn serve(
     let actor = Actor::new(cfg, cmd_tx, key.clone(), ident.0.clone());
     tokio::spawn(actor.run(in_rx));
     tokio::spawn(accept_loop(listener, in_tx.clone(), key, ident));
-    Ok((EsphomeHandle { tx: in_tx, addr }, cmd_rx))
+    Ok((
+        EsphomeHandle {
+            tx: EventSender::Server(in_tx),
+            addr,
+        },
+        cmd_rx,
+    ))
+}
+
+#[cfg(all(test, feature = "test-util"))]
+#[tokio::test]
+async fn detached_events_arrive_in_order() {
+    let (handle, mut events) = EsphomeHandle::detached(2);
+    handle.send(DeviceEvent::VoiceStop).await.unwrap();
+    handle.try_send(DeviceEvent::RequestTime).unwrap();
+    assert!(handle.try_send(DeviceEvent::RequestTime).is_err());
+    assert_eq!(events.recv().await, Some(DeviceEvent::VoiceStop));
+    assert_eq!(events.recv().await, Some(DeviceEvent::RequestTime));
 }
 
 /// Encryption key shared between the actor (which updates it) and the accept loop.
