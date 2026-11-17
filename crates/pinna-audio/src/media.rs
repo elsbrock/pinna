@@ -105,6 +105,8 @@ pub struct MediaState {
     pub muted: bool,
     /// Why the last media ended, if it ended badly. Cleared by the next play.
     pub error: Option<String>,
+    /// The URL whose play failed, with `error`: what still plays is `url`.
+    pub error_url: Option<String>,
     /// What plays, as its source names it; empty while idle.
     pub track: Track,
     /// The name a stream's header gives its source (ADR 0011), while a
@@ -119,6 +121,7 @@ impl Default for MediaState {
             url: None,
             muted: false,
             error: None,
+            error_url: None,
             track: Track::default(),
             source: String::new(),
         }
@@ -1007,9 +1010,10 @@ impl MediaHandle {
         }
     }
 
-    /// Stream `url` (http, https, `file://` or a plain path), replacing any
-    /// current media. Resolves once audio is decoding, or with the
-    /// open/probe error (the state then reads `Idle` with `error` set).
+    /// Stream `url` (http, https, `file://` or a plain path). It replaces the
+    /// current media once it has audio (ADR 0011). Resolves once audio is
+    /// decoding, or with the open/probe error: the state then has `error`
+    /// and `error_url` set, and what played before plays on.
     pub async fn play_url(&self, url: &str) -> Result<()> {
         let gen_ = self.shared.send_gen(|gen_| Cmd::MediaBegin {
             gen_,
@@ -1358,14 +1362,18 @@ pub(crate) struct MediaLane {
     outgoing: Vec<Outgoing>,
     cur: Vec<i16>,
     pos: usize,
+    /// Generation of the latest play or stop, and of the current source.
     gen_: u64,
-    /// A play is opening (no decoder attached yet).
-    pending: bool,
+    cur_gen: u64,
+    /// A play that is opening. The current source plays on until it has
+    /// audio, and also if it fails (ADR 0011).
+    next: Option<Next>,
     url: Option<String>,
     paused: bool,
     muted: bool,
     starved: bool,
     error: Option<String>,
+    error_url: Option<String>,
     /// Pause fade; samples keep being consumed until it reaches silence.
     play: Ramp,
     mute: Ramp,
@@ -1382,6 +1390,18 @@ pub(crate) struct MediaLane {
     stream_tracks: HashMap<String, Track>,
 }
 
+/// A play that is opening.
+struct Next {
+    gen_: u64,
+    url: String,
+    /// A stream's source, from its header.
+    source: String,
+    /// What its tags name, read while it opens.
+    track: Track,
+    /// Paused while it opened, with nothing playing to pause.
+    paused: bool,
+}
+
 impl Default for MediaLane {
     fn default() -> Self {
         MediaLane {
@@ -1390,12 +1410,14 @@ impl Default for MediaLane {
             cur: Vec::new(),
             pos: 0,
             gen_: 0,
-            pending: false,
+            cur_gen: 0,
+            next: None,
             url: None,
             paused: false,
             muted: false,
             starved: false,
             error: None,
+            error_url: None,
             play: Ramp::new(1.0, FADE),
             mute: Ramp::new(1.0, FADE),
             stream_gain: Ramp::new(1.0, FADE),
@@ -1418,25 +1440,34 @@ impl MediaLane {
         self.stream_tracks.insert(source, track.capped());
     }
 
-    /// The track the play `gen_` names; ignored once another play began.
+    /// The track the play `gen_` names, opening or playing; ignored once it
+    /// is gone.
     pub fn set_track(&mut self, gen_: u64, track: Track) {
-        if gen_ == self.gen_ && (self.pending || self.decoder.is_some()) {
-            self.track = track.capped();
+        match &mut self.next {
+            Some(n) if n.gen_ == gen_ => n.track = track.capped(),
+            _ if gen_ == self.cur_gen && self.decoder.is_some() => self.track = track.capped(),
+            _ => {}
         }
     }
 
-    /// The track of what plays now.
-    fn current_track(&self) -> &Track {
+    /// What the state shows: the current source, or else the play opening.
+    /// Its URL, its stream source and its track.
+    fn shown(&self) -> (Option<&str>, &str, &Track) {
         static NONE: Track = Track {
             title: String::new(),
             artist: String::new(),
             album: String::new(),
             station: String::new(),
         };
-        if self.url.as_deref() == Some(STREAM_URL) {
-            self.stream_tracks.get(&self.source).unwrap_or(&NONE)
+        let (url, source, track) = match (&self.decoder, &self.next) {
+            (Some(_), _) => (self.url.as_deref(), self.source.as_str(), &self.track),
+            (None, Some(n)) => (Some(n.url.as_str()), n.source.as_str(), &n.track),
+            (None, None) => (None, "", &NONE),
+        };
+        if url == Some(STREAM_URL) {
+            (url, source, self.stream_tracks.get(source).unwrap_or(&NONE))
         } else {
-            &self.track
+            (url, source, track)
         }
     }
 
@@ -1449,7 +1480,7 @@ impl MediaLane {
             } else {
                 MediaPhase::Playing
             }
-        } else if self.pending {
+        } else if self.next.is_some() {
             MediaPhase::Buffering
         } else {
             MediaPhase::Idle
@@ -1464,37 +1495,39 @@ impl MediaLane {
     /// Whether the speaker session must be open for this lane (also while a
     /// fade-out plays, so a stopped stream is always pulled and closed).
     pub fn wants_session(&self) -> bool {
-        self.pending || (self.decoder.is_some() && !self.paused) || !self.outgoing.is_empty()
+        self.next.is_some() || (self.decoder.is_some() && !self.paused) || !self.outgoing.is_empty()
     }
 
     /// Copy the observable state into `cur`; true if anything changed.
     pub fn publish(&self, cur: &mut MediaState) -> bool {
         let phase = self.phase();
-        let track = self.current_track();
+        let (url, source, track) = self.shown();
         if cur.phase == phase
             && cur.muted == self.muted
-            && cur.url == self.url
+            && cur.url.as_deref() == url
             && cur.error == self.error
+            && cur.error_url == self.error_url
             && cur.track == *track
-            && cur.source == self.source
+            && cur.source == source
         {
             return false;
         }
         cur.phase = phase;
         cur.muted = self.muted;
-        cur.url.clone_from(&self.url);
+        cur.url = url.map(str::to_string);
         cur.error.clone_from(&self.error);
+        cur.error_url.clone_from(&self.error_url);
         cur.track.clone_from(track);
-        cur.source.clone_from(&self.source);
+        cur.source = source.to_string();
         true
     }
 
-    /// Reset to idle; fades already running (`outgoing`) carry on.
+    /// Drop the current source; fades already running (`outgoing`) and a
+    /// play opening (`next`) carry on.
     fn clear(&mut self) {
         self.decoder = None;
         self.cur.clear();
         self.pos = 0;
-        self.pending = false;
         self.url = None;
         self.track = Track::default();
         self.source.clear();
@@ -1532,30 +1565,49 @@ impl MediaLane {
         });
     }
 
+    /// A play of `url` begins opening. Whatever plays keeps playing until it
+    /// has audio ([`MediaLane::attach`]); a play still opening is
+    /// superseded, and its decoder is dropped when it comes.
     pub fn begin(&mut self, gen_: u64, url: String) {
-        self.retire();
-        self.clear();
-        self.gen_ = gen_;
-        self.pending = true;
-        self.url = Some(url);
-        self.error = None;
+        self.begin_next(gen_, url, String::new());
     }
 
     /// A live stream from `source` begins.
     pub fn begin_stream(&mut self, gen_: u64, source: String) {
-        self.begin(gen_, STREAM_URL.to_string());
-        self.source = source;
+        self.begin_next(gen_, STREAM_URL.to_string(), source);
     }
 
+    fn begin_next(&mut self, gen_: u64, url: String, source: String) {
+        self.gen_ = gen_;
+        self.next = Some(Next {
+            gen_,
+            url,
+            source,
+            track: Track::default(),
+            paused: false,
+        });
+        self.error = None;
+        self.error_url = None;
+    }
+
+    /// The play `gen_` has audio: it replaces the current source.
     pub fn attach(&mut self, gen_: u64, decoder: Decoder) {
-        if gen_ != self.gen_ || !self.pending {
+        let Some(next) = self.next.take_if(|n| n.gen_ == gen_) else {
             return; // superseded: dropping the decoder tears it down
+        };
+        if decoder.is_live() && next.paused {
+            return; // paused while starting: a stream cannot pause
         }
-        if decoder.is_live() && self.paused {
-            self.clear(); // paused while starting: a stream cannot pause
-            return;
-        }
-        self.pending = false;
+        self.retire();
+        self.clear();
+        self.cur_gen = gen_;
+        self.url = Some(next.url);
+        self.source = next.source;
+        self.track = next.track;
+        self.paused = next.paused;
+        // What the old source ended with is no longer news.
+        self.error = None;
+        self.error_url = None;
         // A live stream buffers first, then fades in (see `refill_live`).
         self.starved = decoder.is_live();
         self.decoder = Some(decoder);
@@ -1563,10 +1615,12 @@ impl MediaLane {
         self.mute.jump(if self.muted { 0.0 } else { 1.0 });
     }
 
+    /// The play `gen_` didn't open: whatever plays keeps playing, and the
+    /// state says why the URL failed.
     pub fn open_failed(&mut self, gen_: u64, msg: String) {
-        if gen_ == self.gen_ && self.pending {
-            self.clear();
+        if let Some(next) = self.next.take_if(|n| n.gen_ == gen_) {
             self.error = Some(msg);
+            self.error_url = Some(next.url).filter(|u| u != STREAM_URL);
         }
     }
 
@@ -1574,17 +1628,21 @@ impl MediaLane {
     /// so everything is dropped at once.
     pub fn fail(&mut self, msg: &str) {
         self.outgoing.clear();
-        if self.pending || self.decoder.is_some() {
+        let url = self.shown().0.map(str::to_string);
+        if self.next.take().is_some() | self.decoder.is_some() {
             self.clear();
             self.error = Some(msg.to_string());
+            self.error_url = url.filter(|u| u != STREAM_URL);
         }
     }
 
     pub fn stop(&mut self, gen_: u64) {
         self.retire();
         self.clear();
+        self.next = None;
         self.gen_ = gen_;
         self.error = None;
+        self.error_url = None;
     }
 
     pub fn pause(&mut self) {
@@ -1594,11 +1652,14 @@ impl MediaLane {
             self.retire();
             self.clear();
             self.error = None;
+            self.error_url = None;
             return;
         }
-        if self.pending || self.decoder.is_some() {
+        if self.decoder.is_some() {
             self.paused = true;
             self.play.set(0.0);
+        } else if let Some(n) = &mut self.next {
+            n.paused = true;
         }
     }
 
@@ -1606,6 +1667,8 @@ impl MediaLane {
         if self.paused {
             self.paused = false;
             self.play.set(1.0);
+        } else if let Some(n) = &mut self.next {
+            n.paused = false;
         }
     }
 
@@ -1734,8 +1797,14 @@ impl MediaLane {
     }
 
     fn finish(&mut self, err: Option<String>) {
+        let url = self.url.take();
         self.clear();
-        self.error = err;
+        // A clean end leaves a failure beside it standing: it is still news
+        // until the next play or a stop (ADR 0011).
+        if err.is_some() {
+            self.error_url = url.filter(|u| u != STREAM_URL);
+            self.error = err;
+        }
     }
 }
 
@@ -2670,23 +2739,26 @@ mod tests {
 
         // Bluetooth takes over: its own track, kept from before.
         lane.begin_stream(2, "bluetooth".into());
+        lane.attach(2, Decoder::live_detached(Arc::new(LiveQueue::default())));
         lane.publish(&mut st);
         assert_eq!(
             (st.track.title.as_str(), st.source.as_str()),
             ("Other", "bluetooth")
         );
 
-        // A URL shows its own track, from its own play only.
+        // A URL's tags, read while it opens, show once it plays; until then
+        // the stream it replaces shows.
         lane.begin(3, "http://x/a.mp3".into());
         lane.set_track(2, named("Stale"));
-        lane.publish(&mut st);
-        assert_eq!(
-            (st.track.clone(), st.source.as_str()),
-            (Track::default(), "")
-        );
         lane.set_track(3, named("Tagged"));
         lane.publish(&mut st);
-        assert_eq!(st.track.title, "Tagged");
+        assert_eq!(st.track.title, "Other");
+        lane.attach(3, Decoder::detached(sync_channel(1).1));
+        lane.publish(&mut st);
+        assert_eq!(
+            (st.track.title.as_str(), st.source.as_str()),
+            ("Tagged", "")
+        );
 
         // Idle shows nothing; a stream that comes back still has its track.
         lane.stop(4);
@@ -2698,6 +2770,87 @@ mod tests {
         lane.begin_stream(5, "airplay".into());
         lane.publish(&mut st);
         assert_eq!(st.track.title, "Next");
+    }
+
+    #[test]
+    fn a_url_opening_or_failing_leaves_what_plays_playing() {
+        let (mut lane, _tx) = decoded_lane(1, 5000);
+        let mut st = MediaState::default();
+        let shown = |st: &MediaState| {
+            (
+                st.phase,
+                st.url.clone(),
+                st.error.clone(),
+                st.error_url.clone(),
+            )
+        };
+        lane.begin(2, "http://x/bad.mp3".into());
+        lane.publish(&mut st);
+        assert_eq!(
+            shown(&st),
+            (MediaPhase::Playing, Some("url1".into()), None, None)
+        );
+        assert_eq!(pull_left(&mut lane, 1), [5000.0]);
+
+        lane.open_failed(2, "Not audio".into());
+        lane.publish(&mut st);
+        assert_eq!(
+            shown(&st),
+            (
+                MediaPhase::Playing,
+                Some("url1".into()),
+                Some("Not audio".into()),
+                Some("http://x/bad.mp3".into())
+            )
+        );
+        assert_eq!(pull_left(&mut lane, 1), [5000.0], "still playing");
+
+        // What plays ending on its own leaves the failure standing.
+        _tx.send(Item::End(None)).unwrap();
+        pull_left(&mut lane, 11 * CHUNK_FRAMES);
+        lane.publish(&mut st);
+        assert_eq!(
+            shown(&st),
+            (
+                MediaPhase::Idle,
+                None,
+                Some("Not audio".into()),
+                Some("http://x/bad.mp3".into())
+            )
+        );
+
+        // The next play clears the failure; so does a stop.
+        lane.begin(3, "http://x/next.mp3".into());
+        lane.publish(&mut st);
+        assert_eq!((st.error.clone(), st.error_url.clone()), (None, None));
+        lane.open_failed(3, "HTTP 404".into());
+        lane.stop(4);
+        lane.publish(&mut st);
+        assert_eq!(shown(&st), (MediaPhase::Idle, None, None, None));
+
+        // With nothing playing, the play opening shows, and its failure.
+        lane.begin(5, "http://x/c.mp3".into());
+        lane.publish(&mut st);
+        assert_eq!(
+            shown(&st),
+            (
+                MediaPhase::Buffering,
+                Some("http://x/c.mp3".into()),
+                None,
+                None
+            )
+        );
+        lane.open_failed(5, "Unreachable".into());
+        lane.publish(&mut st);
+        assert_eq!(
+            shown(&st),
+            (
+                MediaPhase::Idle,
+                None,
+                Some("Unreachable".into()),
+                Some("http://x/c.mp3".into())
+            )
+        );
     }
 
     fn live_lane() -> (MediaLane, Arc<LiveQueue>) {
@@ -3029,12 +3182,16 @@ mod tests {
             q.push(chunk(10000));
         }
         pull_left(&mut lane, CHUNK_FRAMES + 100); // past the fade-in
+        // Opening, the URL leaves the stream playing.
         lane.begin(2, "url2".into());
+        assert!(pull_left(&mut lane, 10).iter().all(|&s| s > 9900.0));
+        // With audio (silent here), it replaces it: the stream fades out.
+        let _silent = attach_decoded(&mut lane, 2, 0);
         let l = pull_left(&mut lane, CHUNK_FRAMES + 10);
         assert!(l[0] > 9900.0 && l[CHUNK_FRAMES - 1] < 1.0);
         assert!(max_step(&l) < FADE_STEP, "click: {}", max_step(&l));
         assert_eq!(Arc::strong_count(&q), 1, "stream not dropped");
-        // The URL starts at its own beginning, at full level.
+        // A URL starts at its own beginning, at full level.
         let _tx = attach_decoded(&mut lane, 3, 6000);
         assert_eq!(pull_left(&mut lane, 1), [6000.0]);
     }
