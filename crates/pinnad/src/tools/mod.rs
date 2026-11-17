@@ -355,6 +355,12 @@ static TOOLS: &[Tool] = &[
     },
 ];
 
+/// The registry's own spelling of a device tool's name, for metric labels;
+/// `None` for any other name.
+pub fn device_tool_name(name: &str) -> Option<&'static str> {
+    TOOLS.iter().map(|t| t.name).find(|t| *t == name)
+}
+
 /// A tool call's arguments, checked against the tool's parameters.
 struct Args {
     tool: &'static str,

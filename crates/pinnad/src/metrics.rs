@@ -45,33 +45,6 @@ const STAGE_BUCKETS: [f64; 12] = [
 /// The standalone slots in `AssistStatus::slots` order.
 const SLOTS: [Slot; 3] = [Slot::Stt, Slot::Chat, Slot::Tts];
 
-/// The device's own tools (ADR 0017). They, and the owner's MCP servers, are
-/// the only `tool` labels.
-const TOOLS: [&str; 22] = [
-    "set_volume",
-    "change_volume",
-    "set_reply_volume",
-    "ring_light",
-    "play_url",
-    "pause_media",
-    "resume_media",
-    "stop_media",
-    "play_station",
-    "list_stations",
-    "search_radio",
-    "set_notification",
-    "clear_notification",
-    "mute_microphone",
-    "set_timer",
-    "list_timers",
-    "cancel_timer",
-    "time",
-    "weather",
-    "cancel_request",
-    "speak",
-    "status",
-];
-
 /// The most owner MCP servers that become `tool` labels.
 const MAX_SERVERS: usize = 8;
 
@@ -214,7 +187,7 @@ impl Default for Counters {
 /// MCP server whose `<server>_<tool>` namespace it is in, else `other`. A name
 /// the brain made up or an MCP client sent never becomes a label.
 fn tool_label(tool: &str, servers: &[&str]) -> Cow<'static, str> {
-    if let Some(own) = TOOLS.iter().find(|t| **t == tool) {
+    if let Some(own) = crate::tools::device_tool_name(tool) {
         return Cow::Borrowed(own);
     }
     servers
