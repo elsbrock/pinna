@@ -330,8 +330,11 @@ name at the top. A list opens with this device first, then the other devices
 on the same subnet, each with its name and the address it opens. Devices on
 another subnet or VLAN aren't listed, even if your router passes mDNS between
 them. Select one
-to open its dashboard in the same tab. The list is made when you open it, so a
-device that is off isn't in it.
+to open its dashboard in the same tab.
+
+Each device looks for the others once a minute, so the list opens at once. A
+device you just turned on can take a minute to show up. One that you turn off,
+or whose dashboard stops answering, leaves the list within two minutes.
 
 The link goes to the other device's dashboard address if it has one. If not, it
 goes to its `.local` name when you opened this dashboard by a `.local` name, and
