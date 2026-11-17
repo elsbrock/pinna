@@ -2,6 +2,9 @@
 //! over the ESPHome API → TTS playback, plus timers, announcements, mute, the
 //! light entity and volume. Single task, all inputs arrive on one channel.
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
