@@ -500,7 +500,16 @@ export function routeOf(hash: string): Path | null {
 }
 
 /** pinna.v1.ReleaseAction values: what Install does with the release a check found (ADR 0022). */
-export const ACTION = { install: 1, upToDate: 2, older: 3, start: 4, restart: 5, failed: 6, blocked: 7 } as const;
+export const ACTION = {
+  install: 1,
+  upToDate: 2,
+  older: 3,
+  start: 4,
+  restart: 5,
+  failed: 6,
+  blocked: 7,
+  otherModel: 8,
+} as const;
 
 /** pinna.v1.UpdateChannel values, by the setting's names. */
 export const CHANNEL = { stable: 1, beta: 2, off: 3 } as const;
@@ -520,7 +529,7 @@ export function checkStatus(check: CheckLike | undefined, off: boolean, now: Dat
   if (!check || check.finishedUnixMs === 0n) return "Not checked yet since the satellite started.";
   const at = new Date(Number(check.finishedUnixMs));
   const day = at.toDateString() === now.toDateString() ? "at" : at.toLocaleDateString("en", { weekday: "short" });
-  return `Checked ${day} ${hhmm(at)}.`;
+  return `${check.error ? "Last check failed" : "Checked"} ${day} ${hhmm(at)}.`;
 }
 
 /** pinna.v1.InstallStage values (a generated TS enum, which `node --test` cannot load). */

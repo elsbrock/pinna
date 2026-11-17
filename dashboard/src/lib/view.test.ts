@@ -605,6 +605,7 @@ test("update checks in words", async () => {
   assert.equal(checkStatus(check({ finishedUnixMs: at }), false, now), "Checked at 14:02.");
   const monday = BigInt(new Date(2026, 10, 16, 9, 5).getTime());
   assert.equal(checkStatus(check({ finishedUnixMs: monday }), false, now), "Checked Mon 09:05.");
+  assert.equal(checkStatus(check({ finishedUnixMs: at, error: "x" }), false, now), "Last check failed at 14:02.");
   assert.equal(channelName(CHANNEL.beta), "beta");
   assert.equal(channelName(0), "off");
 });

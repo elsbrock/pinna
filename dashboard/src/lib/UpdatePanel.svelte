@@ -35,8 +35,10 @@
   let u = $state<GetUpdatesResponse | null>(null);
   let error = $state<string | null>(null);
   // Someone installed from a manifest URL here before: keep that way open.
-  const usedManifest = read() !== "";
+  let manualOpen = $state(read() !== "");
   let manifest = $state(read());
+  // The suggested address goes in once; after that the field is the owner's.
+  let suggested = false;
   let urlError = $state<string | null>(null);
   let lines = $state<string[]>([]);
   let stage = $state(0);
@@ -71,7 +73,8 @@
       error = ConnectError.from(e).rawMessage;
       return;
     }
-    if (!manifest && u.suggestedManifest) manifest = u.suggestedManifest;
+    if (!suggested && !manifest && u.suggestedManifest) manifest = u.suggestedManifest;
+    suggested = true;
     if (watching) return;
     if (u.installing) {
       void watch();
@@ -122,6 +125,9 @@
       await client.installUpdate({ version: r.version, older });
       await refresh();
       if (r.action === ACTION.start) toasts.show(`${r.version} starts on the next restart.`, "ok");
+      // The steps sit below the release: bring them into view.
+      await tick();
+      document.querySelector(".pn-steps")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     } catch (e) {
       error = ConnectError.from(e).rawMessage;
     } finally {
@@ -253,6 +259,7 @@
   const ucfirst = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   const channel = $derived(channelName(device.status?.settings?.updateChannel));
   const off = $derived(!u?.manifestOverride && channel === "off");
+  const channelLabel = $derived(channel === "beta" ? "Beta" : "Stable");
   const release = $derived(u?.release);
   // Going back: start the other slot when it holds that version, else install it.
   const olderInSlot = $derived(
@@ -308,7 +315,7 @@
         id="update-channel"
         label="Updates"
         hint={u.developmentBuild
-          ? "This development build installs only images signed with your own key, so it starts with updates off."
+          ? "This development build installs only images signed with your own key: releases from the channels don't install on it."
           : "Stable has finished releases. Beta also has releases before they are finished. The satellite checks updates.getpinna.dev once a day and installs nothing without you."}
         value={channel}
         options={CHANNELS}
@@ -344,12 +351,18 @@
                 Up to date
               {:else if release.action === ACTION.failed}
                 Pinna {release.version} failed to start
+              {:else if release.action === ACTION.otherModel}
+                Pinna {release.version} is for another model
               {:else}
-                Pinna {release.version}{release.channel === "beta" ? " (beta)" : ""}
+                Pinna {release.version}
               {/if}
             </span>
             {#if release.action === ACTION.upToDate}
-              <span class="pn-row-hint">Pinna {release.version} is the newest release on {u.manifestOverride ? "that address" : channel}.</span>
+              <span class="pn-row-hint">
+                Pinna {release.version} is the newest release {u.manifestOverride ? "at that address" : `on the ${channelLabel} channel`}.
+              </span>
+            {:else if release.action === ACTION.otherModel}
+              <span class="pn-row-hint">{release.note} It isn't offered on this satellite.</span>
             {:else if release.action === ACTION.failed}
               <span class="pn-row-hint is-danger">
                 {release.note} The satellite runs {u.bootedVersion}. A newer release is offered when there is one.
@@ -361,7 +374,7 @@
             {:else if release.summary}
               <span class="pn-row-hint">{release.summary}</span>
             {/if}
-            {#if release.notesUrl && release.action !== ACTION.upToDate}
+            {#if release.notesUrl && release.action !== ACTION.upToDate && release.action !== ACTION.otherModel}
               <span class="pn-row-hint"><External href={release.notesUrl}>Release notes</External></span>
             {/if}
           </div>
@@ -371,7 +384,7 @@
             </button>
           {:else if release.action === ACTION.start}
             <button class="pn-btn pn-btn-primary" disabled={!live || running || device.busy} onclick={() => installRelease()}>
-              Start it
+              Start on next restart
             </button>
           {:else if release.action === ACTION.older && phase === "ready"}
             <button
@@ -388,7 +401,9 @@
           {/if}
         </div>
         {#if release.action === ACTION.blocked}
-          <p class="pn-field-hint is-caution"><Icon name="alert" />{release.note}</p>
+          {#if !u.developmentOverlay && phase !== "trial"}
+            <p class="pn-field-hint is-caution note"><Icon name="alert" />{release.note}</p>
+          {/if}
         {:else if release.action === ACTION.install}
           <p class="pn-field-hint">
             Installs into slot {target?.name.toUpperCase() ?? "?"} and starts after a restart. {u.bootedVersion} stays in
@@ -405,7 +420,11 @@
       <div class="pn-row">
         <div class="pn-row-text">
           <span class="pn-row-label">No release yet</span>
-          <span class="pn-row-hint">There is no release on {channel} yet.</span>
+          <span class="pn-row-hint">
+            {u.manifestOverride
+              ? "Nothing answers at that address. Check that the release folder is served there."
+              : `There is no release on the ${channelLabel} channel yet.`}
+          </span>
         </div>
       </div>
     {/if}
@@ -417,7 +436,7 @@
       <div class="pn-notice-body">
         <p class="pn-notice-title">A development overlay is active</p>
         <p>
-          <code class="pn-code">just push</code> put programs in /var/lib/extensions/pinna-dev. They would hide an
+          Programs from <code class="pn-code">just push</code> are in /var/lib/extensions/pinna-dev. They would hide an
           update's programs, so installing waits until they are gone. Remove them with
           <code class="pn-code">scripts/push-dev.sh --remove</code>, on your computer.
         </p>
@@ -453,7 +472,7 @@
         <span class="pn-row-value is-mono">{s.version || "—"}</span>
       </div>
     {/each}
-    {#if other}
+    {#if other && release?.action !== ACTION.start}
       <div class="pn-row">
         <div class="pn-row-text">
           <span class="pn-row-label">Switch to slot {other.name.toUpperCase()}</span>
@@ -517,7 +536,7 @@
   {/if}
 
   {#if phase === "ready" || phase === "installing" || lines.length || result}
-    <Group title={lines.length || result || running ? "Installing" : "Other releases"}>
+    <Group title={running ? "Installing" : lines.length || result ? "Last install" : "Other releases"}>
       {#if lines.length || result || running}
         <ol class="pn-steps" aria-live="polite">
           {#each steps as step, i (step.label)}
@@ -545,7 +564,7 @@
         {#if result && !result.ok}
           <div class="pn-row">
             <p class="pn-field-error" role="alert">
-              <Icon name="alert" />The update was not installed: {u.lastInstall?.lastLine || "see the output"}. The
+              <Icon name="alert" />The update was not installed: {(u.lastInstall?.lastLine || "see the output").replace(/\.+$/, "")}. The
               satellite keeps running {u.bootedVersion}.
             </p>
           </div>
@@ -560,9 +579,10 @@
       {/if}
 
       {#if !running && (phase === "ready" || (result && !result.ok))}
-        <details class="manual" open={usedManifest}>
+        <details class="manual" bind:open={manualOpen}>
           <summary>Install from a manifest URL</summary>
         <form
+          novalidate
           class="pn-row is-stack"
           onsubmit={(e) => {
             e.preventDefault();
@@ -599,7 +619,8 @@
             <span id="manifest-hint" class="pn-field-hint">
               For a satellite without internet access, or a build of your own. Copy a release folder to a computer on
               your network and serve it, for example with
-              <code class="pn-code">python3 -m http.server 8000 --directory build/release</code> on that computer. The
+              <code class="pn-code">python3 -m http.server 8000 --directory pinna-0.4.0</code> on that computer, with the
+              release's folder in place of <code class="pn-code">pinna-0.4.0</code>. The
               satellite installs it when its signature checks out, an older version too. Installing writes slot
               {target?.name.toUpperCase() ?? "?"}; {u.bootedVersion} stays in slot {booted?.name.toUpperCase()} as the
               fallback.
@@ -638,6 +659,10 @@
   .url {
     overflow-wrap: anywhere;
     max-width: 50%;
+  }
+  .note {
+    display: flex;
+    gap: var(--space-2);
   }
   .manual summary {
     padding: var(--space-3) var(--space-4);
