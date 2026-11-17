@@ -3,6 +3,7 @@
 //! No C bindings: audio moves through subprocesses (`arecord`/`aplay`/
 //! `amixer` from alsa-utils on the device, `pw-record`/`pw-play` on a laptop).
 
+pub mod agc;
 pub mod beamformer;
 pub mod beamview;
 pub mod capture;
@@ -21,6 +22,7 @@ pub mod volume;
 
 use std::io;
 
+pub use agc::Agc;
 pub use capture::{CaptureConfig, CaptureStatus, CaptureStream, start_capture};
 pub use decode::{Pcm, decode};
 pub use media::{MediaHandle, MediaPhase, MediaState, STREAM_URL};
