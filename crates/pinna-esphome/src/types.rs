@@ -209,6 +209,7 @@ pub struct DeviceConfig {
     /// Address to listen on. The default `::` takes IPv4 too (Linux's
     /// `bindv6only` is 0): mDNS announces every address of the satellite.
     pub bind: IpAddr,
+    pub voice_feature_flags: u32,
     pub wake_words: Vec<WakeWordInfo>,
     pub active_wake_words: Vec<String>,
     /// How many wake words Home Assistant may activate at once.
@@ -259,6 +260,7 @@ impl DeviceConfig {
             suggested_area: None,
             port: 6053,
             bind: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            voice_feature_flags: VOICE_FEATURE_FLAGS,
             wake_words: Vec::new(),
             active_wake_words: Vec::new(),
             max_active_wake_words: 1,
@@ -346,6 +348,7 @@ pub enum DeviceEvent {
         effect: Option<String>,
     },
     MuteState(bool),
+    VoiceFeatureFlags(u32),
     /// Begin a voice run; ignored unless a client is subscribed to the voice assistant.
     VoiceStart {
         conversation_id: String,

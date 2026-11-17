@@ -26,7 +26,7 @@ use crate::{
     types::{
         DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory, HaCommand, LightState,
         MediaPlayerCommand, MediaPlayerStateKind, MediaPurpose, NumberMode, TimerEventType,
-        UpdateCommand, UpdateState, VOICE_FEATURE_FLAGS, VoiceEventType,
+        UpdateCommand, UpdateState, VoiceEventType,
     },
 };
 
@@ -404,6 +404,44 @@ struct Client {
     /// We asked it to disconnect, at this time; closed on its acknowledgement
     /// or after [`DISCONNECT_GRACE`].
     closing: Option<Instant>,
+}
+
+fn voice_subscription(
+    flags: u32,
+    req_flags: u32,
+    owner: Option<u64>,
+    id: u64,
+) -> Result<bool, &'static str> {
+    if flags == 0 {
+        return Ok(false);
+    }
+    // aioesphomeapi sets 1<<2 for API audio (the proto enum says 1); take either.
+    if req_flags & (1 | 4) == 0 {
+        return Err("voice subscription without API audio");
+    }
+    if owner.is_some_and(|o| o != id) {
+        return Err("voice assistant already has a subscriber");
+    }
+    Ok(true)
+}
+
+fn device_info_message(c: &DeviceConfig) -> proto::DeviceInfoResponse {
+    proto::DeviceInfoResponse {
+        name: c.name.clone(),
+        mac_address: c.mac_string(),
+        esphome_version: ESPHOME_VERSION.into(),
+        model: c.model.clone(),
+        project_name: c.project_name.clone(),
+        project_version: c.project_version.clone(),
+        manufacturer: c.manufacturer.clone(),
+        friendly_name: c.friendly_name.clone(),
+        suggested_area: c.suggested_area.clone().unwrap_or_default(),
+        voice_assistant_feature_flags: c.voice_feature_flags,
+        api_encryption_supported: true,
+        api_encryption_provisionable: c.encryption_key.is_none(),
+        webserver_port: c.webserver_port.into(),
+        ..Default::default()
+    }
 }
 
 struct Actor {
@@ -784,6 +822,16 @@ impl Actor {
                     self.broadcast(&m, true);
                 }
             }
+            DeviceEvent::VoiceFeatureFlags(flags) => {
+                self.cfg.voice_feature_flags = flags;
+                if flags == 0 {
+                    self.run_active = false;
+                }
+            }
+            DeviceEvent::VoiceStart { .. }
+            | DeviceEvent::VoiceAudio(_)
+            | DeviceEvent::VoiceAudioEnd
+                if self.cfg.voice_feature_flags == 0 => {}
             DeviceEvent::VoiceStart {
                 conversation_id,
                 wake_word_phrase,
@@ -1129,6 +1177,9 @@ impl Actor {
             proto::SubscribeVoiceAssistantRequest::ID => {
                 let r = parse!(proto::SubscribeVoiceAssistantRequest);
                 if !r.subscribe {
+                    if self.cfg.voice_feature_flags == 0 {
+                        return Ok(());
+                    }
                     if self.voice_owner == Some(id) {
                         self.voice_owner = None;
                         self.run_active = false;
@@ -1136,15 +1187,11 @@ impl Actor {
                     }
                     return Ok(());
                 }
-                // aioesphomeapi sets 1<<2 for API audio (the proto enum says 1); take either.
-                if r.flags & (1 | 4) == 0 {
-                    return Err("voice subscription without API audio".into());
+                if voice_subscription(self.cfg.voice_feature_flags, r.flags, self.voice_owner, id)?
+                {
+                    self.voice_owner = Some(id);
+                    self.command(HaCommand::VoiceSubscribed(true));
                 }
-                if self.voice_owner.is_some_and(|o| o != id) {
-                    return Err("voice assistant already has a subscriber".into());
-                }
-                self.voice_owner = Some(id);
-                self.command(HaCommand::VoiceSubscribed(true));
             }
             proto::VoiceAssistantResponse::ID => {
                 let r = parse!(proto::VoiceAssistantResponse);
@@ -1242,24 +1289,7 @@ impl Actor {
     }
 
     fn device_info(&mut self, id: u64) {
-        let c = &self.cfg;
-        let m = proto::DeviceInfoResponse {
-            name: c.name.clone(),
-            mac_address: c.mac_string(),
-            esphome_version: ESPHOME_VERSION.into(),
-            model: c.model.clone(),
-            project_name: c.project_name.clone(),
-            project_version: c.project_version.clone(),
-            manufacturer: c.manufacturer.clone(),
-            friendly_name: c.friendly_name.clone(),
-            suggested_area: c.suggested_area.clone().unwrap_or_default(),
-            voice_assistant_feature_flags: VOICE_FEATURE_FLAGS,
-            api_encryption_supported: true,
-            api_encryption_provisionable: c.encryption_key.is_none(),
-            webserver_port: c.webserver_port.into(),
-            ..Default::default()
-        };
-        self.send(id, &m);
+        self.send(id, &device_info_message(&self.cfg));
     }
 
     fn list_entities(&mut self, id: u64) {
@@ -1432,6 +1462,79 @@ impl Actor {
 mod tests {
     use super::*;
     use crate::{echo_dot_entities, types::ButtonConfig};
+
+    #[test]
+    fn subscriptions_require_api_audio_and_one_owner() {
+        use crate::types::VOICE_FEATURE_FLAGS as FLAGS;
+        assert_eq!(voice_subscription(FLAGS, 1, None, 1), Ok(true));
+        assert_eq!(voice_subscription(FLAGS, 4, Some(1), 1), Ok(true));
+        assert!(voice_subscription(FLAGS, 0, None, 1).is_err());
+        assert!(voice_subscription(FLAGS, 4, Some(2), 1).is_err());
+        assert_eq!(voice_subscription(0, 0, Some(2), 1), Ok(false));
+    }
+
+    #[test]
+    fn disabling_voice_keeps_the_client_but_sends_no_voice_frames() {
+        use crate::types::VOICE_FEATURE_FLAGS;
+        let cfg = DeviceConfig::new("dot", [0; 6]);
+        let (cmd, mut commands) = mpsc::channel(8);
+        let mut actor = Actor::new(cfg, cmd, Default::default(), Default::default());
+        let (out, mut wire) = mpsc::channel(8);
+        actor.clients.insert(
+            1,
+            Client {
+                out,
+                peer: "test".into(),
+                encrypted: false,
+                hello: true,
+                states: false,
+                closing: None,
+            },
+        );
+        actor.voice_owner = Some(1);
+        actor.run_active = true;
+        for flags in [VOICE_FEATURE_FLAGS, 0] {
+            if flags == 0 {
+                actor.device_event(DeviceEvent::VoiceFeatureFlags(0));
+            }
+            actor.device_info(1);
+            let (id, bytes) = wire.try_recv().unwrap();
+            assert_eq!(id, proto::DeviceInfoResponse::ID);
+            assert_eq!(
+                proto::DeviceInfoResponse::decode(bytes)
+                    .unwrap()
+                    .voice_assistant_feature_flags,
+                flags
+            );
+        }
+        actor.frame(
+            1,
+            Frame {
+                id: proto::SubscribeVoiceAssistantRequest::ID,
+                payload: proto::SubscribeVoiceAssistantRequest {
+                    subscribe: true,
+                    flags: 0,
+                }
+                .encode_to_vec()
+                .into(),
+            },
+        );
+        assert!(actor.clients.contains_key(&1));
+        assert!(commands.try_recv().is_err());
+        actor.device_event(DeviceEvent::VoiceStart {
+            conversation_id: "test".into(),
+            wake_word_phrase: None,
+            use_vad: true,
+        });
+        actor.device_event(DeviceEvent::VoiceAudio(Bytes::from_static(b"pcm")));
+        actor.device_event(DeviceEvent::VoiceAudioEnd);
+        assert!(wire.try_recv().is_err());
+        actor.device_event(DeviceEvent::VoiceFeatureFlags(VOICE_FEATURE_FLAGS));
+        assert_eq!(
+            device_info_message(&actor.cfg).voice_assistant_feature_flags,
+            VOICE_FEATURE_FLAGS
+        );
+    }
 
     #[test]
     fn set_key_takes_base64_or_raw_but_never_zeros() {
