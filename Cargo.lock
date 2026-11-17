@@ -2317,6 +2317,7 @@ dependencies = [
  "libc",
  "md-5",
  "pinna-api",
+ "pinna-assist",
  "pinna-audio",
  "pinna-bootctl",
  "pinna-esphome",

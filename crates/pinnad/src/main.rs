@@ -17,6 +17,7 @@ mod logs;
 mod metrics;
 mod network;
 mod satellites;
+mod secrets;
 mod settings;
 mod store;
 mod timezone;
