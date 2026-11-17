@@ -11,6 +11,7 @@ pub mod conversation;
 pub mod error;
 #[cfg(feature = "fakes")]
 pub mod fakes;
+pub mod harness;
 pub mod http;
 pub mod limits;
 pub mod observe;
