@@ -1289,6 +1289,21 @@ mod tests {
         assert!(check_keys(&cfg).is_err());
     }
 
+    /// mDNS announces the satellite's IPv6 addresses too, and Home Assistant
+    /// stores whichever one it picks as the host; an IPv4-only listener
+    /// refuses it.
+    #[tokio::test]
+    async fn default_bind_accepts_ipv4_and_ipv6() {
+        let mut cfg = DeviceConfig::new("t", [0; 6]);
+        cfg.port = 0;
+        let (handle, _cmds) = serve(cfg).await.unwrap();
+        let port = handle.local_addr().port();
+        tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        tokio::net::TcpStream::connect(("::1", port)).await.unwrap();
+    }
+
     #[test]
     fn keys_are_per_platform() {
         assert_ne!(

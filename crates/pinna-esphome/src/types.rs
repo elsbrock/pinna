@@ -1,6 +1,6 @@
 //! Public configuration, event and command types.
 
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv6Addr};
 
 use bytes::Bytes;
 
@@ -148,7 +148,8 @@ pub struct DeviceConfig {
     pub project_version: String,
     pub suggested_area: Option<String>,
     pub port: u16,
-    /// Address to listen on.
+    /// Address to listen on. The default `::` takes IPv4 too (Linux's
+    /// `bindv6only` is 0): mDNS announces every address of the satellite.
     pub bind: IpAddr,
     pub wake_words: Vec<WakeWordInfo>,
     pub active_wake_words: Vec<String>,
@@ -197,7 +198,7 @@ impl DeviceConfig {
             project_version: env!("CARGO_PKG_VERSION").into(),
             suggested_area: None,
             port: 6053,
-            bind: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            bind: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
             wake_words: Vec::new(),
             active_wake_words: Vec::new(),
             max_active_wake_words: 1,
