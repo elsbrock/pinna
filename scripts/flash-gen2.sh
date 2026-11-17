@@ -111,7 +111,7 @@ case "${1:-}" in
       die "cannot check $root_img: no SHA256SUMS next to it, and no repository with cargo"
     fi
     say "system_a <- $(basename "$root_img") ($(stat -c %s "$root_img") bytes)"
-    say "system_b <- cleared (first MiB zeroed: no image, so slot a boots)"
+    say "system_b <- cleared (first MiB zeroed: no image there)"
     say "userdata <- wiped (Pinna formats it as /var on first boot)"
     confirm "This replaces system_a, clears system_b and erases userdata. Continue?"
     $fb flash system_a "$root_img"

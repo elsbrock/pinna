@@ -52,9 +52,10 @@ Device facts that constrain the design:
 
 ## Consequences
 
-- Kernel updates are separate from root updates. A/B for the root
-  (`system_a`/`system_b`) with dm-verity: ADR 0003 (the initramfs chooses the
-  slot, so the command line stays fixed).
+- *(Superseded by ADR 0019: kernel and root share a slot, and the bootloader
+  chooses it.)* Kernel updates are separate from root updates. A/B for the
+  root (`system_a`/`system_b`) with dm-verity: ADR 0003 (the initramfs chooses
+  the slot, so the command line stays fixed).
 - Wi-Fi/BT firmware is committed (`firmware/`), like the microphone FPGA
   bitstream (`kernel/firmware/`, ADR 0006): neither has a source other than
   the device's stock firmware or the previous firmware, so an owner without them would

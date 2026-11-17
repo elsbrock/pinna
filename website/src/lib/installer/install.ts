@@ -49,7 +49,7 @@ export function plan(report: DeviceReport, images: { boot: Uint8Array; root: Uin
   const bootFor = (slot: "a" | "b") => payloads(tagSlot(images.boot, slot), max);
   return [
     { partition: "system_a", label: "Writing the root image to system_a", payloads: payloads(images.root, max) },
-    // No image in system_b, so slot a boots, whatever misc says.
+    // No image in system_b; `set_active:a` below makes slot a start.
     { partition: "system_b", label: "Clearing system_b", payloads: payloads(new Uint8Array(MiB), max) },
     // Pinna formats userdata as /var on the first start.
     { partition: "userdata", label: "Erasing userdata", payloads: payloads(new Uint8Array(4 * MiB), max) },

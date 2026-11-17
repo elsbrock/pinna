@@ -1,8 +1,13 @@
 # ADR 0003: Updates — signed A/B root slots, dm-verity, pinna-init
 
 Status: accepted (2026-11-15). Amends ADR 0001 (the boot image now carries an
-initramfs). The slot record, its try counting and the rollback are superseded
-by ADR 0019: kernel and root share a slot in the bootloader's slot record.
+initramfs). Superseded by ADR 0019, where kernel and root share a slot in the
+bootloader's slot record: the slot record at `0x40000` and its try counting,
+the rollback, "boot_a is not A/B" and "LK always loads boot_a" (so kernel
+updates are no longer a manual fastboot flash, and the manifest gains
+`boot`), the reason given against systemd-sysupdate, and clearing `system_b`
+to make slot a boot (`set_active a` does that now). The boot guard's target
+changes once the recovery image exists (ADR 0019).
 
 ## Context
 

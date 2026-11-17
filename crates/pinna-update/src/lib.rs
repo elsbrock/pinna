@@ -7,9 +7,9 @@
 //!
 //! 1. The booted slot must be marked good: the other slot is its only fallback.
 //! 2. The kernel: the manifest's boot image, or without one the running
-//!    slot's, marked for the target slot. boot_b is always written (a
-//!    bootloader that ignores the slot never loads it); boot_a only once a
-//!    boot from b showed that the bootloader loads boot_b too.
+//!    slot's, marked for the target slot. boot_b is written unless a boot
+//!    from b showed that the bootloader ignores the slot for the kernel;
+//!    boot_a only once a boot from b showed that it loads boot_b.
 //! 3. The target slot is marked unbootable before it is overwritten.
 //! 4. The kernel is written and read back; the root is streamed into the
 //!    target partition while its size and sha256 are checked.

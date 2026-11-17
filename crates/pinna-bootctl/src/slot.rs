@@ -27,12 +27,14 @@ pub enum KernelSlots {
 }
 
 impl KernelSlots {
-    /// What one boot shows: only a boot of slot b tells the two apart.
+    /// What one boot shows: only a boot of slot b tells the two apart. A
+    /// boot of slot a with another kernel says something is odd about the
+    /// boot images, not about the bootloader.
     pub fn seen(booted: Slot, kernel: Option<Slot>) -> Option<KernelSlots> {
         match (booted, kernel?) {
             (Slot::B, Slot::B) => Some(KernelSlots::Honoured),
-            (b, k) if b != k => Some(KernelSlots::Ignored),
-            _ => None,
+            (Slot::B, Slot::A) => Some(KernelSlots::Ignored),
+            (Slot::A, _) => None,
         }
     }
 
@@ -149,6 +151,7 @@ mod tests {
         assert_eq!(KernelSlots::seen(Slot::B, Some(Slot::B)), Some(Honoured));
         assert_eq!(KernelSlots::seen(Slot::B, Some(Slot::A)), Some(Ignored));
         assert_eq!(KernelSlots::seen(Slot::A, Some(Slot::A)), None);
+        assert_eq!(KernelSlots::seen(Slot::A, Some(Slot::B)), None);
         assert_eq!(KernelSlots::seen(Slot::B, None), None);
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("pinna/kernel-slots");
