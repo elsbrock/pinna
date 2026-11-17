@@ -21,9 +21,11 @@ use crate::{
 };
 
 mod anthropic;
+mod gemini;
 mod openai;
 
 pub use anthropic::AnthropicChat;
+pub use gemini::GeminiChat;
 pub use openai::OpenAiChat;
 
 const SSE_LINE_MAX: usize = 256 * 1024;
