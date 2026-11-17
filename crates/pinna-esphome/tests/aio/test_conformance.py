@@ -36,10 +36,15 @@ from aioesphomeapi.model import (
     NumberInfo,
     NumberMode,
     NumberState,
+    SelectInfo,
+    SelectState,
     SwitchInfo,
     SwitchState,
     TextSensorInfo,
     TextSensorState,
+    UpdateCommand,
+    UpdateInfo,
+    UpdateState,
     VoiceAssistantEventType as VE,
     VoiceAssistantTimerEventType as VT,
 )
@@ -167,9 +172,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    # 1 light, 9 switches, 4 numbers, 1 button, 8 events, 1 text sensor and
-    # 1 media player.
-    assert len(by_key) == len(entities) == 1 + 9 + 4 + 1 + 8 + 1 + 1
+    # 1 light, 9 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
+    # 1 media player, 1 select and 1 update.
+    assert len(by_key) == len(entities) == 1 + 9 + 4 + 1 + 8 + 1 + 1 + 1 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -418,6 +423,50 @@ async def test_notification_switch(client, demo):
     cmd = await demo.wait(demo.cmd("switch"), "switch command")
     assert cmd["object_id"] == "notification" and cmd["state"] is True
     await eventually(lambda: states[n.key].state is True, "echoed notification switch")
+
+
+@pytest.mark.asyncio
+async def test_update_channel_select(client, demo):
+    sel = (await infos(client, SelectInfo))["Updates"]
+    assert sel.object_id == "update_channel" and sel.icon == "mdi:update"
+    assert list(sel.options) == ["stable", "beta", "off"]
+    assert int(sel.entity_category) == 1  # config
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: sel.key in states, "initial select state")
+    assert isinstance(states[sel.key], SelectState)
+    assert states[sel.key].state == "stable" and not states[sel.key].missing_state
+    client.select_command(sel.key, "beta")
+    cmd = await demo.wait(demo.cmd("select"), "select command")
+    assert cmd["object_id"] == "update_channel" and cmd["state"] == "beta"
+    await eventually(lambda: states[sel.key].state == "beta", "echoed select state")
+
+
+@pytest.mark.asyncio
+async def test_firmware_update(client, demo):
+    fw = (await infos(client, UpdateInfo))["Firmware"]
+    assert fw.object_id == "firmware" and fw.device_class == "firmware"
+    assert int(fw.entity_category) == 1  # config
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: fw.key in states, "initial update state")
+    assert isinstance(states[fw.key], UpdateState) and states[fw.key].missing_state
+
+    client.update_command(fw.key, UpdateCommand.CHECK)
+    cmd = await demo.wait(demo.cmd("update"), "check command")
+    assert cmd["object_id"] == "firmware" and cmd["action"] == "check"
+    await eventually(lambda: not states[fw.key].missing_state, "checked update state")
+    s = states[fw.key]
+    assert (s.current_version, s.latest_version, s.title) == ("0.1.0", "0.2.0", "Pinna 0.2.0")
+    assert (s.release_summary, s.release_url) == ("Summary.", "https://example.org/notes")
+    assert not s.in_progress and not s.has_progress
+
+    client.update_command(fw.key, UpdateCommand.INSTALL)
+    await demo.wait(
+        lambda line: demo.cmd("update")(line) and line["action"] == "install", "install command"
+    )
+    await eventually(lambda: states[fw.key].in_progress, "install in progress")
+    assert states[fw.key].has_progress and states[fw.key].progress == 50.0
 
 
 @pytest.mark.asyncio

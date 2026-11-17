@@ -95,6 +95,64 @@ pub struct SwitchConfig {
     pub entity_category: EntityCategory,
 }
 
+/// A select entity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    pub options: Vec<String>,
+    pub entity_category: EntityCategory,
+}
+
+/// An update entity (Home Assistant's update card).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    /// For example, "firmware".
+    pub device_class: Option<String>,
+    pub entity_category: EntityCategory,
+}
+
+/// What an update entity shows. The default is unknown until the device reports a state.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateState {
+    /// Home Assistant shows the entity as unknown when this is true.
+    pub missing: bool,
+    pub in_progress: bool,
+    /// 0..=100; `None` means no progress is known.
+    pub progress: Option<f32>,
+    pub current_version: String,
+    pub latest_version: String,
+    pub title: String,
+    pub release_summary: String,
+    pub release_url: String,
+}
+
+impl Default for UpdateState {
+    fn default() -> Self {
+        Self {
+            missing: true,
+            in_progress: false,
+            progress: None,
+            current_version: String::new(),
+            latest_version: String::new(),
+            title: String::new(),
+            release_summary: String::new(),
+            release_url: String::new(),
+        }
+    }
+}
+
+/// Home Assistant's update command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateCommand {
+    Install,
+    Check,
+}
+
 /// Purpose of a media player format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MediaPurpose {
@@ -162,6 +220,8 @@ pub struct DeviceConfig {
     pub events: Vec<EventConfig>,
     pub text_sensors: Vec<TextSensorConfig>,
     pub switches: Vec<SwitchConfig>,
+    pub selects: Vec<SelectConfig>,
+    pub updates: Vec<UpdateConfig>,
     pub media_player: Option<MediaPlayerConfig>,
     /// Noise pre-shared key. `None` serves the plaintext API.
     pub encryption_key: Option<[u8; 32]>,
@@ -209,6 +269,8 @@ impl DeviceConfig {
             events: Vec::new(),
             text_sensors: Vec::new(),
             switches: Vec::new(),
+            selects: Vec::new(),
+            updates: Vec::new(),
             media_player: None,
             encryption_key: None,
             webserver_port: 0,
@@ -319,6 +381,14 @@ pub enum DeviceEvent {
         object_id: String,
         on: bool,
     },
+    SelectState {
+        object_id: String,
+        state: String,
+    },
+    UpdateState {
+        object_id: String,
+        state: UpdateState,
+    },
     MediaPlayerState {
         state: MediaPlayerStateKind,
         /// 0..1
@@ -370,6 +440,14 @@ pub enum HaCommand {
     Switch {
         object_id: String,
         on: bool,
+    },
+    Select {
+        object_id: String,
+        state: String,
+    },
+    Update {
+        object_id: String,
+        command: UpdateCommand,
     },
     /// Fields HA did not set are `None`.
     MediaPlayer {
@@ -462,6 +540,11 @@ wire_enum! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_state_starts_missing() {
+        assert!(UpdateState::default().missing);
+    }
 
     #[test]
     fn enum_roundtrip() {

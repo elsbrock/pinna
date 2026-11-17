@@ -26,7 +26,7 @@ use crate::{
     types::{
         DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory, HaCommand, LightState,
         MediaPlayerCommand, MediaPlayerStateKind, MediaPurpose, NumberMode, TimerEventType,
-        VOICE_FEATURE_FLAGS, VoiceEventType,
+        UpdateCommand, UpdateState, VOICE_FEATURE_FLAGS, VoiceEventType,
     },
 };
 
@@ -75,6 +75,8 @@ fn check_keys(cfg: &DeviceConfig) -> anyhow::Result<()> {
             "switch",
             cfg.switches.iter().map(|e| &e.object_id).collect(),
         ),
+        ("select", cfg.selects.iter().map(|e| &e.object_id).collect()),
+        ("update", cfg.updates.iter().map(|e| &e.object_id).collect()),
     ] {
         for id in ids {
             add(entity_key(platform, id), format!("{platform} {id}"))?;
@@ -373,6 +375,8 @@ struct Actor {
     numbers: HashMap<String, f32>,
     texts: HashMap<String, String>,
     switches: HashMap<String, bool>,
+    selects: HashMap<String, String>,
+    updates: HashMap<String, UpdateState>,
     media: (MediaPlayerStateKind, f32, bool),
     active_wake: Vec<String>,
 }
@@ -398,6 +402,8 @@ impl Actor {
             numbers: HashMap::new(),
             texts: HashMap::new(),
             switches: HashMap::new(),
+            selects: HashMap::new(),
+            updates: HashMap::new(),
             media: (MediaPlayerStateKind::Idle, 0.0, false),
             active_wake,
         }
@@ -537,6 +543,33 @@ impl Actor {
         }
     }
 
+    fn select_state_msg(&self, object_id: &str) -> proto::SelectStateResponse {
+        let state = self.selects.get(object_id);
+        proto::SelectStateResponse {
+            key: entity_key("select", object_id),
+            state: state.cloned().unwrap_or_default(),
+            missing_state: state.is_none(),
+            ..Default::default()
+        }
+    }
+
+    fn update_state_msg(&self, object_id: &str) -> proto::UpdateStateResponse {
+        let state = self.updates.get(object_id).cloned().unwrap_or_default();
+        proto::UpdateStateResponse {
+            key: entity_key("update", object_id),
+            missing_state: state.missing,
+            in_progress: state.in_progress,
+            has_progress: state.progress.is_some(),
+            progress: state.progress.unwrap_or_default(),
+            current_version: state.current_version,
+            latest_version: state.latest_version,
+            title: state.title,
+            release_summary: state.release_summary,
+            release_url: state.release_url,
+            ..Default::default()
+        }
+    }
+
     fn number_state_msg(&self, object_id: &str) -> proto::NumberStateResponse {
         let value = self.numbers.get(object_id).copied();
         proto::NumberStateResponse {
@@ -613,6 +646,26 @@ impl Actor {
                 self.switches.insert(object_id.clone(), on);
                 let m = self.switch_state_msg(&object_id);
                 self.broadcast(&m, true);
+            }
+            DeviceEvent::SelectState { object_id, state } => {
+                let Some(s) = self.cfg.selects.iter().find(|s| s.object_id == object_id) else {
+                    warn!(%object_id, "state for unknown select dropped");
+                    return;
+                };
+                if !s.options.contains(&state) {
+                    warn!(%object_id, %state, "unknown select option dropped");
+                    return;
+                }
+                self.selects.insert(object_id.clone(), state);
+                self.broadcast(&self.select_state_msg(&object_id), true);
+            }
+            DeviceEvent::UpdateState { object_id, state } => {
+                if !self.cfg.updates.iter().any(|u| u.object_id == object_id) {
+                    warn!(%object_id, "state for unknown update entity dropped");
+                    return;
+                }
+                self.updates.insert(object_id.clone(), state);
+                self.broadcast(&self.update_state_msg(&object_id), true);
             }
             DeviceEvent::TextSensorState { object_id, value } => {
                 if !self
@@ -870,6 +923,14 @@ impl Actor {
                     let m = self.switch_state_msg(&o);
                     self.send(id, &m);
                 }
+                for i in 0..self.cfg.selects.len() {
+                    let m = self.select_state_msg(&self.cfg.selects[i].object_id);
+                    self.send(id, &m);
+                }
+                for i in 0..self.cfg.updates.len() {
+                    let m = self.update_state_msg(&self.cfg.updates[i].object_id);
+                    self.send(id, &m);
+                }
                 let ids: Vec<String> = self
                     .cfg
                     .numbers
@@ -972,6 +1033,48 @@ impl Actor {
                 } else {
                     return Err(format!("switch command for unknown key {}", r.key));
                 }
+            }
+            proto::SelectCommandRequest::ID => {
+                let r = parse!(proto::SelectCommandRequest);
+                let Some(s) = self
+                    .cfg
+                    .selects
+                    .iter()
+                    .find(|s| entity_key("select", &s.object_id) == r.key)
+                else {
+                    return Err(format!("select command for unknown key {}", r.key));
+                };
+                if !s.options.contains(&r.state) {
+                    return Err(format!(
+                        "unknown option {:?} for select {}",
+                        r.state, s.object_id
+                    ));
+                }
+                self.command(HaCommand::Select {
+                    object_id: s.object_id.clone(),
+                    state: r.state,
+                });
+            }
+            proto::UpdateCommandRequest::ID => {
+                let r = parse!(proto::UpdateCommandRequest);
+                let command = match proto::UpdateCommand::try_from(r.command) {
+                    Ok(proto::UpdateCommand::None) => return Ok(()),
+                    Ok(proto::UpdateCommand::Update) => UpdateCommand::Install,
+                    Ok(proto::UpdateCommand::Check) => UpdateCommand::Check,
+                    Err(_) => return Err(format!("unknown update command {}", r.command)),
+                };
+                let Some(u) = self
+                    .cfg
+                    .updates
+                    .iter()
+                    .find(|u| entity_key("update", &u.object_id) == r.key)
+                else {
+                    return Err(format!("update command for unknown key {}", r.key));
+                };
+                self.command(HaCommand::Update {
+                    object_id: u.object_id.clone(),
+                    command,
+                });
             }
             proto::GetTimeResponse::ID => {
                 let r = parse!(proto::GetTimeResponse);
@@ -1156,6 +1259,34 @@ impl Actor {
                     name: s.name,
                     icon: s.icon,
                     entity_category: cat(s.entity_category),
+                    ..Default::default()
+                },
+            );
+        }
+        for s in self.cfg.selects.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesSelectResponse {
+                    key: entity_key("select", &s.object_id),
+                    object_id: s.object_id,
+                    name: s.name,
+                    icon: s.icon,
+                    options: s.options,
+                    entity_category: cat(s.entity_category),
+                    ..Default::default()
+                },
+            );
+        }
+        for u in self.cfg.updates.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesUpdateResponse {
+                    key: entity_key("update", &u.object_id),
+                    object_id: u.object_id,
+                    name: u.name,
+                    icon: u.icon,
+                    device_class: u.device_class.unwrap_or_default(),
+                    entity_category: cat(u.entity_category),
                     ..Default::default()
                 },
             );

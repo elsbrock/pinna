@@ -2,8 +2,8 @@
 
 use crate::types::{
     ButtonConfig, DeviceConfig, EntityCategory, EventConfig, LightConfig, MediaFormat,
-    MediaPlayerConfig, MediaPurpose, NumberConfig, NumberMode, SwitchConfig, TextSensorConfig,
-    media_feature,
+    MediaPlayerConfig, MediaPurpose, NumberConfig, NumberMode, SelectConfig, SwitchConfig,
+    TextSensorConfig, UpdateConfig, media_feature,
 };
 
 fn strings(v: &[&str]) -> Vec<String> {
@@ -51,7 +51,7 @@ fn format(
 }
 
 /// Fill `cfg` with the entities the previous firmware exposed (names are part of the HA unique id),
-/// plus Pinna's own: the "Listening direction" switch.
+/// plus Pinna's own controls.
 pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
     cfg.light = Some(LightConfig {
         name: "LED ring".into(),
@@ -206,4 +206,21 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             format("wav", 22050, 1, MediaPurpose::Announcement, 2),
         ],
     });
+    // The update channel (ADR 0022). When pinnad.toml sets a manifest URL,
+    // pinnad replaces these options with that URL.
+    cfg.selects = vec![SelectConfig {
+        object_id: "update_channel".into(),
+        name: "Updates".into(),
+        icon: "mdi:update".into(),
+        options: strings(&["stable", "beta", "off"]),
+        entity_category: EntityCategory::Config,
+    }];
+    // The release the satellite runs and the newest on its channel (ADR 0022).
+    cfg.updates = vec![UpdateConfig {
+        object_id: "firmware".into(),
+        name: "Firmware".into(),
+        icon: String::new(),
+        device_class: Some("firmware".into()),
+        entity_category: EntityCategory::Config,
+    }];
 }

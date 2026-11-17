@@ -7,13 +7,15 @@
 //! `event <object_id> <type>` fires an event, `text <object_id> <value>` sets a text sensor,
 //! `rename <friendly name>` renames the device and disconnects every client, `quit` exits.
 //! Pressing the `Cancel request` button emits the `action` press event and sets `Last wake word` to Alexa.
+//! The Updates select starts on `stable` and echoes channel changes. Firmware starts unknown;
+//! checking shows a sample release and installing reports 50% progress.
 
 use std::time::Duration;
 
 use bytes::Bytes;
 use pinna_esphome::{
     DeviceConfig, DeviceEvent, HaCommand, LightState, MediaPlayerCommand, MediaPlayerStateKind,
-    WakeWordInfo, echo_dot_entities, parse_encryption_key, serve,
+    UpdateCommand, UpdateState, WakeWordInfo, echo_dot_entities, parse_encryption_key, serve,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -75,6 +77,12 @@ async fn main() -> anyhow::Result<()> {
 
     let (handle, mut cmds) = serve(cfg).await?;
     handle.send(DeviceEvent::MuteState(false)).await?;
+    handle
+        .send(DeviceEvent::SelectState {
+            object_id: "update_channel".into(),
+            state: "stable".into(),
+        })
+        .await?;
     handle
         .send(DeviceEvent::LightState {
             on: false,
@@ -153,6 +161,29 @@ async fn main() -> anyhow::Result<()> {
                     HaCommand::Switch { object_id, on } => {
                         out(json!({"command": "switch", "object_id": object_id, "state": on}));
                         handle.send(DeviceEvent::SwitchState { object_id, on }).await?;
+                    }
+                    HaCommand::Select { object_id, state } => {
+                        out(json!({"command": "select", "object_id": object_id, "state": state}));
+                        handle.send(DeviceEvent::SelectState { object_id, state }).await?;
+                    }
+                    HaCommand::Update { object_id, command } => {
+                        let action = match command {
+                            UpdateCommand::Check => "check",
+                            UpdateCommand::Install => "install",
+                        };
+                        out(json!({"command": "update", "object_id": object_id, "action": action}));
+                        let in_progress = command == UpdateCommand::Install;
+                        let state = UpdateState {
+                            missing: false,
+                            in_progress,
+                            progress: in_progress.then_some(50.0),
+                            current_version: "0.1.0".into(),
+                            latest_version: "0.2.0".into(),
+                            title: "Pinna 0.2.0".into(),
+                            release_summary: "Summary.".into(),
+                            release_url: "https://example.org/notes".into(),
+                        };
+                        handle.send(DeviceEvent::UpdateState { object_id, state }).await?;
                     }
                     HaCommand::Number { object_id, value } => {
                         out(json!({"command": "number", "object_id": object_id, "value": value}));

@@ -45,12 +45,18 @@ mod tests {
         assert_eq!(SwitchCommandRequest::ID, 33);
         assert_eq!(GetTimeRequest::ID, 36);
         assert_eq!(GetTimeResponse::ID, 37);
+        assert_eq!(ListEntitiesSelectResponse::ID, 52);
+        assert_eq!(SelectStateResponse::ID, 53);
+        assert_eq!(SelectCommandRequest::ID, 54);
         assert_eq!(SubscribeVoiceAssistantRequest::ID, 89);
         assert_eq!(VoiceAssistantRequest::ID, 90);
         assert_eq!(VoiceAssistantResponse::ID, 91);
         assert_eq!(VoiceAssistantEventResponse::ID, 92);
         assert_eq!(VoiceAssistantAudio::ID, 106);
         assert_eq!(VoiceAssistantTimerEventResponse::ID, 115);
+        assert_eq!(ListEntitiesUpdateResponse::ID, 116);
+        assert_eq!(UpdateStateResponse::ID, 117);
+        assert_eq!(UpdateCommandRequest::ID, 118);
         assert_eq!(VoiceAssistantAnnounceRequest::ID, 119);
         assert_eq!(VoiceAssistantAnnounceFinished::ID, 120);
         assert_eq!(VoiceAssistantConfigurationRequest::ID, 121);
