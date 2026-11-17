@@ -33,6 +33,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
 });
 import {
   badge,
+  byline,
   CAL_KIND,
   calibrationAdvice,
   calibrationBlocked,
@@ -41,6 +42,7 @@ import {
   displayName,
   joinDone,
   joinTone,
+  mediaFrom,
   mmss,
   securityWord,
   unjoinable,
@@ -543,4 +545,25 @@ test("the drawing follows the board", () => {
   assert.equal(satelliteModel("Echo (2nd Gen)"), "echo-2");
   assert.equal(satelliteModel("Echo Dot (2nd Gen)"), "echo-dot-2");
   assert.equal(satelliteModel(""), "echo-dot-2");
+});
+
+test("now playing says where media comes from: a stream's source, a station, Home Assistant, or the address", () => {
+  const m = { stream: false, source: "", station: "", url: "" };
+  assert.deepEqual(mediaFrom({ ...m, stream: true, source: "airplay" }), { text: "From AirPlay", url: false });
+  assert.deepEqual(mediaFrom({ ...m, stream: true, source: "bluetooth" }), { text: "From Bluetooth", url: false });
+  assert.deepEqual(mediaFrom({ ...m, stream: true }), { text: "From AirPlay or Bluetooth", url: false });
+  assert.deepEqual(mediaFrom({ ...m, stream: true, source: "my-player" }), { text: "From my-player", url: false });
+  const radio = "http://radio.example/live.mp3";
+  assert.deepEqual(mediaFrom({ ...m, url: radio, station: "Radio One" }), { text: "From Radio One", url: false });
+  assert.deepEqual(mediaFrom({ ...m, url: "http://ha.local:8123/api/esphome/ffmpeg_proxy/abc/def.mp3" }), {
+    text: "From Home Assistant",
+    url: false,
+  });
+  assert.deepEqual(mediaFrom({ ...m, url: radio }), { text: radio, url: true });
+});
+
+test("a track's byline joins the artist and album it has", () => {
+  assert.equal(byline({ artist: "Artist", album: "Album" }), "Artist · Album");
+  assert.equal(byline({ artist: "", album: "Album" }), "Album");
+  assert.equal(byline({ artist: "", album: "" }), "");
 });

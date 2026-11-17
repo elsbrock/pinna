@@ -615,3 +615,30 @@ export function satelliteFallbacks(sat: SatelliteLike): SatLink[] {
 export function satelliteModel(board: string): string {
   return board === "Echo (2nd Gen)" ? "echo-2" : "echo-dot-2";
 }
+
+// A stream's source as its header names it (ADR 0011).
+const STREAM_SOURCES: Record<string, string> = { airplay: "AirPlay", bluetooth: "Bluetooth" };
+
+/**
+ * Where the media on Now playing comes from: a stream's source (AirPlay and
+ * Bluetooth by their names, another program by the name its header gives), a
+ * radio station, or Home Assistant, which plays everything through its ffmpeg
+ * proxy (ADR 0011). Otherwise the address itself, shown as code (`url`).
+ */
+export function mediaFrom(m: { stream: boolean; source: string; station: string; url: string }): {
+  text: string;
+  url: boolean;
+} {
+  if (m.stream) {
+    const name = STREAM_SOURCES[m.source] ?? (m.source || "AirPlay or Bluetooth");
+    return { text: `From ${name}`, url: false };
+  }
+  if (m.station) return { text: `From ${m.station}`, url: false };
+  if (m.url.includes("/api/esphome/ffmpeg_proxy/")) return { text: "From Home Assistant", url: false };
+  return { text: m.url, url: true };
+}
+
+/** The line under a track's title: its artist and album, where known. */
+export function byline(m: { artist: string; album: string }): string {
+  return [m.artist, m.album].filter(Boolean).join(" · ");
+}

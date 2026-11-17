@@ -1,12 +1,15 @@
 <!-- The media player, as Home Assistant's media player shows it: what plays,
-     pause, resume, stop, a stream's own volume and the music's own mute. Shown on every
-     satellite with a speaker; with nothing to show, it says how to play something, as Timers does. -->
+     pause, resume, stop, a stream's own volume and the music's own mute. What plays is the
+     track its source names, where it names one, and where it comes from (ADR 0011). Shown on
+     every satellite with a speaker; with nothing to show, it says how to play something, as
+     Timers does. -->
 <script lang="ts">
   import { MediaCommand, MediaState } from "../gen/pinna/v1/device_pb.ts";
   import { device } from "./device.svelte.ts";
   import Group from "./Group.svelte";
   import Slider from "./Slider.svelte";
   import SwitchRow from "./SwitchRow.svelte";
+  import { byline, mediaFrom } from "./view.ts";
 
   const m = $derived(device.status?.media);
   const set = $derived(device.status?.settings);
@@ -29,10 +32,19 @@
 {#if m?.available}
   <Group title="Now playing">
     {#if active}
+      {@const from = mediaFrom(m)}
+      {@const by = byline(m)}
       <div class="pn-row">
         <div class="pn-row-text">
-          <span class="pn-row-label">{STATE[m.state]}</span>
-          <span class="pn-row-hint" class:is-mono={!m.stream}>{m.stream ? "From AirPlay or Bluetooth" : m.url}</span>
+          <!-- Without a title, the state is the label; with one, a state other
+               than Playing leads the line that says where it comes from. -->
+          <span class="pn-row-label">{m.title || STATE[m.state]}</span>
+          {#if by}<span class="pn-row-hint">{by}</span>{/if}
+          <span class="pn-row-hint"
+            >{#if m.title && m.state !== MediaState.PLAYING}{`${STATE[m.state]} · `}{/if}<span
+              class:is-mono={from.url}>{from.text}</span
+            ></span
+          >
         </div>
         <div class="actions">
           <!-- A stream can't pause: pausing ends its session, as Stop does. -->
