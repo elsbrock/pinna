@@ -195,8 +195,12 @@
   <div class="cols">
     {#if s.virtualDevice}<VirtualDevice />{/if}
     <Controls />
-    <Timers />
-    <NowPlaying />
+    <!-- One column: beside the tall controls on a wide screen, so Now
+         playing is in view without scrolling. -->
+    <div class="stack">
+      <Timers />
+      <NowPlaying />
+    </div>
   </div>
 {/if}
 
@@ -252,6 +256,11 @@
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-6);
     align-items: start;
+  }
+  .stack {
+    display: grid;
+    gap: var(--space-6);
+    min-width: 0;
   }
   /* Two columns once the content (beside the sidebar) has room for the name. */
   @media (min-width: 1000px) {
