@@ -24,6 +24,7 @@ mod settings;
 mod standalone;
 mod store;
 mod timezone;
+mod tools;
 mod updates;
 mod virtual_device;
 mod voice;

@@ -34,6 +34,7 @@ use tokio::sync::{Mutex as AsyncMutex, watch};
 use super::AssistLive;
 use crate::settings::{self, Mode};
 use crate::store::Store;
+use crate::tools::weather::{OpenMeteo, PlaceError};
 use crate::voice::Snapshot;
 
 /// At most this many connections.
@@ -63,6 +64,7 @@ const CLOCK_SYNCED: &str = "/run/systemd/timesync/synchronized";
 const NOT_SAVED: &str = "The assistant settings couldn't be saved. Try again.";
 const CHANGED: &str = "This connection was changed meanwhile. Reload and try again.";
 const REMOVED: &str = "This connection was removed meanwhile. Reload and try again.";
+const NO_SUCH_PLACE: &str = "No place by that name was found. Try the nearest town or city.";
 
 /// Where the service keeps its files: beside `settings.toml`.
 #[derive(Clone, Debug)]
@@ -212,6 +214,8 @@ pub struct AssistantPatch {
     /// The whole switch table; an absent name means on.
     pub tools: Option<BTreeMap<String, bool>>,
     pub chat_override: Option<ChatOverride>,
+    /// A place name to look up; the coordinates are stored with it.
+    pub place: Option<Option<String>>,
 }
 
 /// Everything the Assistant pages show. Keys appear only as "set" and their
@@ -276,6 +280,8 @@ pub struct Service {
     status: watch::Receiver<Snapshot>,
     /// The client for save-time checks.
     http: reqwest::Client,
+    /// The place search.
+    places: OpenMeteo,
     /// Serialises commits, including their file writes.
     writer: Arc<AsyncMutex<()>>,
     committed: Arc<Committed>,
@@ -316,6 +322,10 @@ struct Draft {
 impl Service {
     /// Load both files, salvaging them key by key, and publish the result.
     pub fn load(paths: Paths, status: watch::Receiver<Snapshot>) -> Arc<Self> {
+        Self::load_with(paths, status, OpenMeteo::default())
+    }
+
+    fn load_with(paths: Paths, status: watch::Receiver<Snapshot>, places: OpenMeteo) -> Arc<Self> {
         let (_, config, _) =
             Store::load(&paths.config, settings::FILE_MODE, AssistConfig::default());
         let (secrets, _) = crate::secrets::load(&paths.secrets);
@@ -333,6 +343,7 @@ impl Service {
             http: pinna_http::client(ClientKind::Provider {
                 read: Some(CHECK_TIMEOUT),
             }),
+            places,
             writer: Arc::new(AsyncMutex::new(())),
             committed: Arc::new(Committed {
                 state: Mutex::new(state),
@@ -586,6 +597,25 @@ impl Service {
         let ack = p.ack.map(ack_value).transpose()?;
         let tools = p.tools.map(switches_value).transpose()?;
         let chat_override = p.chat_override.map(override_value).transpose()?;
+        let place = match p.place {
+            Some(Some(name)) if !name.trim().is_empty() => {
+                let language = match &language {
+                    Some(language) => language.clone(),
+                    None => self.committed.state.lock().unwrap().config.language.clone(),
+                };
+                match self.places.geocode(&name, language.as_deref()).await {
+                    Ok(place) => Some(Some(place)),
+                    Err(PlaceError::NotFound) => {
+                        return Err(Refusal::Invalid(NO_SUCH_PLACE.into()));
+                    }
+                    Err(PlaceError::Unavailable(sentence)) => {
+                        return Err(Refusal::Precondition(sentence));
+                    }
+                }
+            }
+            Some(_) => Some(None),
+            None => None,
+        };
 
         self.commit(|d| {
             let c = &mut d.config;
@@ -606,6 +636,9 @@ impl Service {
             }
             if let Some(chat_override) = chat_override {
                 c.chat_override = chat_override;
+            }
+            if let Some(place) = place {
+                c.place = place;
             }
             Ok(())
         })
@@ -1039,12 +1072,17 @@ mod tests {
 
     impl Fixture {
         fn new(mode: Mode) -> Self {
+            Self::with_places(mode, OpenMeteo::default())
+        }
+
+        fn with_places(mode: Mode, places: OpenMeteo) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let (status, rx) = watch::channel(Snapshot {
                 mode,
                 ..Snapshot::default()
             });
-            let service = Service::load(Paths::beside(&dir.path().join("settings.toml")), rx);
+            let service =
+                Service::load_with(Paths::beside(&dir.path().join("settings.toml")), rx, places);
             Self {
                 service,
                 status,
@@ -1647,6 +1685,7 @@ mod tests {
                     first_text_s: Some(90),
                     ..ChatOverride::default()
                 }),
+                place: None,
             })
             .await
             .unwrap();
@@ -1758,6 +1797,72 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(f.live().chat_gen, chat_gen + 2);
+    }
+
+    #[tokio::test]
+    async fn a_place_is_looked_up_in_the_owner_language_and_published() {
+        let server = FakeServer::start().await;
+        let f = Fixture::with_places(
+            Mode::Standalone,
+            crate::tools::weather::tests::open_meteo(&server),
+        );
+        server.script(
+            Method::GET,
+            "/v1/search?name=Munich&count=1&language=de&format=json",
+            FakeResponse::new(
+                StatusCode::OK,
+                r#"{"results": [{"name": "München", "latitude": 48.13743,
+                    "longitude": 11.57549, "admin1": "Bayern", "country": "Deutschland"}]}"#,
+            ),
+        );
+        let munich = Place {
+            name: "München, Bayern, Deutschland".into(),
+            lat: 48.13743,
+            lon: 11.57549,
+        };
+
+        let view = f
+            .service
+            .update(AssistantPatch {
+                language: Some(Some("de".into())),
+                place: Some(Some("Munich".into())),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(view.place.as_ref(), Some(&munich));
+        assert_eq!(f.live().place.as_ref(), Some(&munich));
+        assert_eq!(f.saved().place.as_ref(), Some(&munich));
+
+        server.script(
+            Method::GET,
+            "/v1/search?name=Nowhere&count=1&language=de&format=json",
+            FakeResponse::new(StatusCode::OK, "{}"),
+        );
+        let place = |name: &str| AssistantPatch {
+            place: Some(Some(name.into())),
+            ..AssistantPatch::default()
+        };
+        assert_eq!(
+            f.service.update(place("Nowhere")).await.unwrap_err(),
+            Refusal::Invalid(NO_SUCH_PLACE.into())
+        );
+        assert_eq!(
+            f.service.update(place("Elsewhere")).await.unwrap_err(),
+            Refusal::Precondition("The place search answered 404. Try again later.".into())
+        );
+        assert_eq!(f.service.view().place.as_ref(), Some(&munich));
+
+        let view = f
+            .service
+            .update(AssistantPatch {
+                place: Some(None),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(view.place, None);
+        assert_eq!(f.live().place, None);
     }
 
     #[test]
