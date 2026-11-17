@@ -17,4 +17,10 @@ fn main() {
         "cargo:rustc-env=PINNA_RELEASE_PUB_SOURCE={}",
         chosen.display()
     );
+    // A build with a developer's key is a development build (ADR 0022, until
+    // ADR 0025's trusted keys exist).
+    println!(
+        "cargo:rustc-env=PINNA_DEVELOPMENT_BUILD={}",
+        if chosen == &local { 1 } else { 0 }
+    );
 }

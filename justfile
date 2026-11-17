@@ -124,7 +124,8 @@ bootimg: initramfs
 all: kernel models image bootimg
     ls -l {{build}}/pinna-boot.img {{build}}/pinna.root.img
 
-# release artifacts: build/release/{pinna-<version>.root.img, pinna-boot.img, manifest.json}
+# release artifacts: build/release/{pinna-<version>.root.img, pinna-boot.img, manifest.json(.sig)}
+# PINNA_SUMMARY, PINNA_NOTES_URL and PINNA_MODELS (space-separated) go into the signed manifest (ADR 0022)
 release: image bootimg
     #!/usr/bin/env bash
     set -euo pipefail
@@ -134,9 +135,14 @@ release: image bootimg
     cp --reflink=auto {{build}}/pinna.root.img {{build}}/release/pinna-$v.root.img
     cp {{build}}/pinna-boot.img {{build}}/release/pinna-boot.img
     cargo run -q --release -p pinna-image -- verify {{build}}/release/pinna-$v.root.img
-    cargo run -q --release -p pinna-image -- manifest --boot {{build}}/release/pinna-boot.img {{build}}/release/pinna-$v.root.img > {{build}}/release/manifest.json
+    args=()
+    [ -z "${PINNA_SUMMARY:-}" ] || args+=(--summary "$PINNA_SUMMARY")
+    [ -z "${PINNA_NOTES_URL:-}" ] || args+=(--notes-url "$PINNA_NOTES_URL")
+    for m in ${PINNA_MODELS:-}; do args+=(--model "$m"); done
+    cargo run -q --release -p pinna-image -- manifest --boot {{build}}/release/pinna-boot.img \
+        --out {{build}}/release "${args[@]}" {{build}}/release/pinna-$v.root.img
     install -m0755 scripts/flash-gen2.sh {{build}}/release/flash-gen2.sh
-    (cd {{build}}/release && sha256sum -- pinna-*.root.img pinna-boot.img manifest.json flash-gen2.sh > SHA256SUMS)
+    (cd {{build}}/release && sha256sum -- pinna-*.root.img pinna-boot.img manifest.json manifest.json.sig flash-gen2.sh > SHA256SUMS)
     ls -l {{build}}/release
     cat {{build}}/release/manifest.json
 

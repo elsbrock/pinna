@@ -21,6 +21,7 @@ use ed25519_dalek::{SigningKey, VerifyingKey};
 pub mod erofs;
 pub mod footer;
 pub mod keys;
+pub mod manifest;
 pub mod verity;
 pub mod version;
 

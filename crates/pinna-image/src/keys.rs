@@ -42,6 +42,10 @@ const fn parse_hex_key(text: &[u8]) -> [u8; 32] {
 pub const RELEASE_PUBLIC_KEY: [u8; 32] =
     parse_hex_key(include_bytes!(concat!(env!("OUT_DIR"), "/release.pub")));
 
+/// This build compiles in a developer's key (`secrets/release.pub`), not the
+/// project key: a development build (ADR 0022). It starts with Updates off.
+pub const DEVELOPMENT_BUILD: bool = env!("PINNA_DEVELOPMENT_BUILD").as_bytes()[0] == b'1';
+
 pub fn release_key() -> VerifyingKey {
     VerifyingKey::from_bytes(&RELEASE_PUBLIC_KEY)
         .expect("the release public key is not a valid key")
