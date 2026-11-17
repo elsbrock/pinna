@@ -1,6 +1,6 @@
 # ADR 0010: A hostname per satellite, and a factory reset
 
-Status: accepted (2026-11-16; proposed 2026-11-15), amended 2026-11-16: `pinna.local` goes, the reset checks the typed name, and the hostname is a setting with no static hostname in the image. Builds on ADR 0005; amends what ADR 0005 says about the hostname.
+Status: accepted (2026-11-16; proposed 2026-11-15), amended 2026-11-16: `pinna.local` goes, the reset checks the typed name, and the hostname is a setting with no static hostname in the image. Amended 2026-11-17 by ADR 0024: a rename only sets the hostname. Builds on ADR 0005; amends what ADR 0005 says about the hostname.
 
 ## Context
 
@@ -25,7 +25,7 @@ Status: accepted (2026-11-16; proposed 2026-11-15), amended 2026-11-16: `pinna.l
   - A change from the dashboard goes through systemd-hostnamed (`hostnamectl --transient hostname`).
   - `UseHostname=no` keeps a DHCP server from renaming the satellite.
   - pinnad renames only a Pinna image (os-release `IMAGE_ID` `pinna` or `pinna-*`), never the computer a developer runs it on.
-- **A rename applies at once.** systemd-resolved announces the new `.local` name as soon as the hostname changes. pinnad republishes the ESPHome service and, as for `friendly_name` (ADR 0007), closes Home Assistant's connection once the satellite is idle. Home Assistant (checked in 2026.11) matches the device by MAC and stores the new name when it reconnects. The router's DHCP list shows the new name after the next Wi-Fi reconnect or restart. A dashboard opened by the old `.local` name moves to the new one.
+- **A rename applies at once.** systemd-resolved announces the new `.local` name as soon as the hostname changes, and moves the ESPHome service with it: the record is named `%H` (ADR 0024). pinnad doesn't rewrite the record or reload resolved, and, as for `friendly_name` (ADR 0007), closes Home Assistant's connection once the satellite is idle. Home Assistant (checked in 2026.11) matches the device by MAC and stores the new name when it reconnects. The router's DHCP list shows the new name after the next Wi-Fi reconnect or restart. A dashboard opened by the old `.local` name moves to the new one.
 - **No `pinna.local`.** systemd-resolved announces only the machine's hostname, and a second mDNS responder for an alias isn't worth it. The docs and the dashboard name the satellite by its node name, which the dashboard shows and Home Assistant's discovery lists; over USB it stays `http://10.42.0.1/`. The Host allowlist already accepts every `.local` name.
 - **Factory reset**, an RPC that the dashboard puts behind a dialog asking for the satellite's name; pinnad checks the typed name too, so no stray call resets it:
   1. pinnad writes a marker to `/var` and reboots.

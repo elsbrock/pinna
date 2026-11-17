@@ -156,7 +156,9 @@ What was considered and rejected:
    comes in with shairport-sync, is masked, so Home Assistant discovery and
    `.local` names stay as they are. `pinnad` publishes shairport-sync's
    `_raop._tcp` record itself, through a second `/run/systemd/dnssd` file
-   like its `_esphomelib._tcp` one, while AirPlay is on: the name carries
+   like its `_esphomelib._tcp` one, while AirPlay is on (written and
+   removed as ADR 0024 says: a changed or removed record restarts resolved
+   instead of reloading it): the name carries
    the hardware address shairport-sync answers challenges with, and the TXT
    list is the stock build's (its `fv` is the package version). The record
    follows the trixie package; a new shairport-sync version means checking
