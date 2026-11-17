@@ -61,7 +61,7 @@ attempt already returns to the previous system. See
 
 You usually don't need to do anything. Pinna tries a new update up to three
 times. If it doesn't pass the health check in that time, the device goes back
-to the previous system on its own.
+to the previous system on its own: its kernel and its root filesystem.
 
 To see what happened, run:
 
@@ -69,8 +69,8 @@ To see what happened, run:
 pinna-bootctl slot-status
 ```
 
-The output lists both root filesystem slots with their version and state:
-`good`, `trial` or `unbootable`, and which slot is running.
+The output lists both slots with their version and state: `good`, `trial` or
+`unbootable`, the attempts left, and which slot is running.
 
 To go back to the other slot yourself, use **Switch…** on the dashboard's
 **System** page. See
@@ -95,9 +95,11 @@ Over SSH:
 
 ## Rescue mode
 
-If Pinna can't find the storage's partitions, can't verify and mount the root
-filesystem in either slot, or can't start the system on it, it doesn't
-restart. It stays in rescue mode, so you can find out why. In rescue mode:
+When the root filesystem in the slot that started can't be verified or
+mounted, Pinna marks that slot unbootable and restarts into the other slot,
+if the other slot is marked good. Otherwise, and when Pinna can't find the
+storage's partitions or can't start the system, it doesn't restart. It stays
+in rescue mode, so you can find out why. In rescue mode:
 
 - The light ring is green. It gets slowly brighter and dimmer until a
   computer connects over USB, then it stays on.
@@ -120,7 +122,7 @@ reason, and the page shows the same reason by name:
 | Flashes | Reason | What usually fixes it |
 | --- | --- | --- |
 | 1 | `no-storage`: Pinna didn't find the storage's partitions within 15 seconds | The kernel can't drive the storage. Write a boot image that worked before: `BOOT_IMG=<file> scripts/flash-gen2.sh boot` |
-| 2 | `no-root`: neither slot holds a root filesystem that Pinna can verify and mount | Write a root filesystem and a boot image from the same build. If the log says the signature doesn't verify, the two were signed with different keys |
+| 2 | `no-root`: the slot that started holds no root filesystem that Pinna can verify and mount, and the other slot isn't marked good | Write a root filesystem and a boot image from the same build. If the log says the signature doesn't verify, the two were signed with different keys |
 | 3 | `no-system`: the root filesystem was mounted, but the system on it didn't start | Write the root filesystem again, and a boot image from the same build |
 
 A `crashed` reason means that Pinna's own start-up program failed. Write a
@@ -190,7 +192,8 @@ fastboot:
 
 The script checks the files against `SHA256SUMS` and asks you to confirm.
 It then writes `boot_a`, `boot_b`, `system_a`, `system_b` (if the backup
-contains it) and `userdata`, and restarts the device.
+contains it) and `userdata`, sets the bootloader to start slot A, and restarts
+the device.
 
 ## What's next
 

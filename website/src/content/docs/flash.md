@@ -26,12 +26,12 @@ to undo it.
 
 | Partition | After installation |
 | --- | --- |
-| `boot_a` | Pinna's boot image. The bootloader always starts this partition |
-| `boot_b` | A second copy of Pinna's boot image |
-| `system_a` | Pinna's root filesystem |
-| `system_b` | Its beginning is cleared. Pinna installs updates here |
+| `boot_a` | Pinna's boot image (the kernel), slot A |
+| `boot_b` | The same boot image, slot B. Pinna installs updates here and in `system_b` |
+| `system_a` | Pinna's root filesystem, slot A |
+| `system_b` | Its beginning is cleared |
 | `userdata` | Its beginning is cleared. Pinna creates its data partition (`/var`) here on first boot |
-| `misc` | Pinna stores its fastboot request and its update state here |
+| `misc` | The bootloader's slot record, set to start slot A. Pinna also stores its fastboot request here |
 
 Pinna never writes these partitions:
 
@@ -80,7 +80,8 @@ and the device uses its own power adapter.
    The script checks the files against `SHA256SUMS` when they come from a
    release, and the image signature when you built them yourself. It asks you
    to confirm, writes `system_a`, and clears the start of `system_b` and
-   `userdata`. After this step, the data on `userdata` is gone.
+   `userdata`. Then it sets the bootloader to start slot A. After this step,
+   the data on `userdata` is gone.
 
 2. If fastboot rejects the image because it's larger than the device accepts
    in one transfer, convert it to a sparse image and write that instead:
@@ -102,7 +103,8 @@ scripts/flash-gen2.sh boot
 ```
 
 The script asks you to confirm, writes `boot_a` and `boot_b`, and restarts the
-device. From now on, the device starts Pinna. Until this step, the previous
+device. Each copy is marked with its slot (`pinna.boot=a` or `=b` in the
+image's header), so Pinna can tell which one the bootloader started. From now on, the device starts Pinna. Until this step, the previous
 firmware doesn't boot properly.
 
 ## Check the device
@@ -179,8 +181,8 @@ dashboard saves the networks you join into the same file, and updates keep it.
 
 ## Check that the installation is healthy
 
-Pinna has two copies of its root filesystem, called slots: `system_a` and
-`system_b`. After each boot, Pinna checks itself: `pinnad` must answer and SSH
+Pinna has two copies of its system, called slots: slot A (`boot_a` and
+`system_a`) and slot B (`boot_b` and `system_b`). After each boot, Pinna checks itself: `pinnad` must answer and SSH
 must run. When the check passes, Pinna marks the slot as good. To see the
 result, run:
 

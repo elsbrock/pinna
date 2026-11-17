@@ -3,25 +3,31 @@ title: Update Pinna
 description: Install a new version of Pinna on a running device, and how the device falls back if the new version doesn't work.
 ---
 
-Pinna keeps two copies of its root filesystem, in the partitions `system_a`
-and `system_b`. An update goes into the copy that isn't running. The device
-then tries the new version, and if the new version doesn't work, it goes back
-to the old one on its own.
+Pinna keeps two copies of its system, called slots. Slot A is the boot image
+in `boot_a` and the root filesystem in `system_a`; slot B is `boot_b` and
+`system_b`. The boot image holds the kernel. An update goes into the slot that
+isn't running. The device then tries the new version, and if the new version
+doesn't work, it goes back to the old one on its own, kernel included.
 
 ## How an update works
 
-1. `pinnactl update` downloads the new root filesystem image and writes it to
-   the slot that isn't running. It checks the download against the checksum in
-   the update manifest. After writing, it checks the image's signature and its
-   hash tree, which lets the device detect any changed block.
-2. On the next boot, the device boots the new slot **on trial**, with three
-   attempts.
+1. `pinnactl update` downloads the new boot image and root filesystem image
+   and writes them to the slot that isn't running. It checks each download
+   against its checksum in the update manifest. After writing, it reads the
+   boot image back, and checks the root filesystem's signature and its hash
+   tree, which lets the device detect any changed block.
+2. On the next boot, the bootloader starts the new slot **on trial**, with
+   three attempts. The bootloader counts them itself, so a kernel that doesn't
+   start uses up attempts too.
 3. When the new system is up, Pinna checks itself: `pinnad` must answer and
    SSH must run within five minutes. If the check passes, the slot is marked
    **good** and stays in use.
 4. If the check fails or doesn't finish in time, the device restarts. Each
-   boot on trial uses one attempt. When no attempts are left, the device
-   returns to the previous slot and marks the new one as **unbootable**.
+   boot on trial uses one attempt. When no attempts are left, the bootloader
+   starts the previous slot, its kernel and its root filesystem, and the new
+   slot counts as **unbootable**. A root filesystem that doesn't start at all
+   doesn't wait for its attempts: the device marks its slot unbootable and
+   restarts into the other one straight away.
 
 Pinna only installs images that are signed with the key whose public part is
 built into the device: the project key `keys/release.pub` in a release,
@@ -40,10 +46,8 @@ device, with Wi-Fi and internet access:
 pinnactl update https://github.com/elsbrock/pinna/releases/latest/download/manifest.json --reboot
 ```
 
-It writes the new root filesystem into the other slot, checks it and restarts
-into it, as described above. When the release also changes the boot image,
-that still needs fastboot: download `pinna-boot.img` from the release and
-flash it as in [Update the boot image](#update-the-boot-image).
+It writes the new boot image and root filesystem into the other slot, checks
+them and restarts into it, as described above.
 
 ## Before you begin
 
@@ -83,9 +87,9 @@ flash it as in [Update the boot image](#update-the-boot-image).
    use the address that your computer got from the device, in the range
    `10.42.0.10` to `10.42.0.29`.
 
-   `pinnactl` prints each step: the download, the checksum, the signature and
-   the hash tree, and which slot the device starts next. Without `--reboot`,
-   the update waits for the next restart.
+   `pinnactl` prints each step: the downloads, the checksums, the boot image,
+   the signature and the hash tree, and which slot the device starts next.
+   Without `--reboot`, the update waits for the next restart.
 
 4. After the device restarts, check the result:
 
@@ -152,16 +156,28 @@ switch to one of them, install an update to leave it.
 
 ## Update the boot image
 
-Updates only replace the root filesystem. The bootloader always boots
-`boot_a`, so the boot image, which holds the kernel and the program that
-chooses a slot, has no fallback, and `pinnactl update` doesn't change it. When a release changes the boot image,
-install it from fastboot:
+An update writes the boot image into the slot it installs, so you don't need
+fastboot for it. There is one exception, for slot A:
+
+- An update into slot B always writes `boot_b`.
+- An update into slot A writes `boot_a` only once the device has started
+  slot B with the kernel from `boot_b`. Kaeru builds from before October 2026
+  start `boot_a` whichever slot they report, and a new kernel there would
+  have no other kernel to fall back to.
+
+Until the device has shown that it starts `boot_b`, an update into slot A
+keeps the kernel in `boot_a` and says so in its output: `the kernel in boot_a
+stays`. The first update after an installation goes into slot B and shows it.
+
+If an update keeps saying that, your Kaeru is older. Install new boot images
+from fastboot, on your computer:
 
 ```sh
 scripts/flash-gen2.sh boot
 ```
 
-See [Install Pinna](/docs/flash/#install-the-boot-image).
+This writes the boot image to `boot_a` and `boot_b` and doesn't change which
+slot starts. See [Install Pinna](/docs/flash/#install-the-boot-image).
 
 ## Update manifest
 
@@ -175,6 +191,11 @@ See [Install Pinna](/docs/flash/#install-the-boot-image).
     "url": "pinna-2026.11.15.1432-d032e69.root.img",
     "size": 157286400,
     "sha256": "…"
+  },
+  "boot": {
+    "url": "pinna-boot.img",
+    "size": 16777216,
+    "sha256": "…"
   }
 }
 ```
@@ -185,6 +206,8 @@ See [Install Pinna](/docs/flash/#install-the-boot-image).
 | `root.url` | Where to download the root image. A relative URL is relative to the manifest |
 | `root.size` | The image size in bytes. It must fit into the slot (768 MiB) |
 | `root.sha256` | The SHA-256 checksum of the image |
+| `boot` | Optional: the boot image that goes with the root image. Without it, the update copies the running boot image into the other slot |
+| `boot.url`, `boot.size`, `boot.sha256` | As for `root`. The image must fit into the boot partition (16 MiB) |
 
 `just release` writes the manifest for you. The image versions of your own
 builds have the form `YEAR.MONTH.DAY.HOURMINUTE-COMMIT`. A release's version is

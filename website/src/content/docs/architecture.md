@@ -24,15 +24,18 @@ MediaTek MT8163 processor, which runs Pinna in 32-bit ARM mode, and about
 
 ## Boot
 
-1. The bootloader always loads the boot image from `boot_a`. It contains the
-   Linux kernel (Debian's 6.12, with the MT8163 board support ported to it),
-   the device tree, and a small initramfs.
+1. The bootloader's preloader reads the slot record in the `misc` partition,
+   counts the boot if the slot is on trial, and the bootloader loads that
+   slot's boot image: `boot_a` or `boot_b`. It contains the Linux kernel
+   (Debian's 6.12, with the MT8163 board support ported to it), the device
+   tree, and a small initramfs.
 2. The kernel ignores the command line from the bootloader and uses its own.
-3. `pinna-init`, the program in the initramfs, reads the slot state from the
-   `misc` partition and chooses a root filesystem slot: `system_a` or
-   `system_b`. See [Updates](#updates).
+3. `pinna-init`, the program in the initramfs, reads which slot the
+   bootloader started from the device tree, and takes the root filesystem of
+   the same slot: `system_a` or `system_b`. See [Updates](#updates).
 4. `pinna-init` checks the slot's signature, sets up dm-verity, and mounts the
-   root filesystem read-only.
+   root filesystem read-only. If that fails and the other slot is marked
+   good, it marks this slot unbootable and restarts into the other one.
 5. systemd starts. On the first boot, it formats the `userdata` partition as
    `/var`. Then it starts Pinna's services.
 6. About 10 seconds after the services start, `pinna-boot-ok` checks that `pinnad`
@@ -43,13 +46,12 @@ MediaTek MT8163 processor, which runs Pinna in 32-bit ARM mode, and about
 
 | Partition | Size | Contents |
 | --- | --- | --- |
-| `boot_a` | 16 MiB | Boot image: kernel, device tree, initramfs with `pinna-init` |
-| `boot_b` | 16 MiB | A copy of the boot image, as a manual fallback |
-| `system_a`, `system_b` | 768 MiB each | Two root filesystem slots |
+| `boot_a`, `boot_b` | 16 MiB each | The boot image of slot A and of slot B: kernel, device tree, initramfs with `pinna-init` |
+| `system_a`, `system_b` | 768 MiB each | The root filesystem of slot A and of slot B |
 | `userdata` | The rest | `/var`: settings, the Wi-Fi configuration, keys, logs |
-| `misc` | 512 KiB | The bootloader command (the fastboot request) and Pinna's slot state |
+| `misc` | 512 KiB | The bootloader command (the fastboot request) and the bootloader's slot record |
 
-A root filesystem slot holds three parts:
+A slot's root filesystem partition holds three parts:
 
 1. The root filesystem, as a read-only erofs image.
 2. A 4 KiB footer with the image version, the dm-verity parameters and an
@@ -63,14 +65,19 @@ journal.
 
 ## Updates
 
-An update writes a new image into the slot that isn't running, and marks it
-for a trial boot with three attempts. `pinna-init` takes one attempt each
-time it boots the trial slot. When the health check passes, the slot becomes
-good. When the attempts run out, `pinna-init` returns to the other slot. For
-the steps, see [Update Pinna](/docs/update/).
+An update writes a new boot image and root filesystem into the slot that
+isn't running, and marks it in the slot record for a trial boot with three
+attempts. The bootloader takes one attempt each time it starts the trial
+slot. When the health check passes, Pinna marks the slot good. When the
+attempts run out, the bootloader starts the other slot, kernel and root
+filesystem together. The running slot stays good the whole time, so one slot
+can always start. For the steps, see [Update Pinna](/docs/update/).
 
-The boot image has only one active copy, in `boot_a`, so updates don't change
-it. You install a new boot image from fastboot.
+Each boot image is marked with its slot (`pinna.boot=a` or `=b`), and the
+bootloader passes the mark on. Kaeru builds from before October 2026 load
+`boot_a` whichever slot they start; Pinna notices this on a boot from slot B
+and then leaves `boot_a` to fastboot. See
+[Update the boot image](/docs/update/#update-the-boot-image).
 
 ## The fastboot request
 

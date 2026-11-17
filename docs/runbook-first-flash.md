@@ -8,8 +8,8 @@ them from the step 1 backup.
 
 | Partition | Before | After |
 |---|---|---|
-| `boot_a` (p10) | previous firmware's boot image | Pinna boot image (`build/pinna-boot.img`: kernel, DTB, initramfs with pinna-init) — the one LK always loads |
-| `boot_b` (p11) | previous firmware's copy | Pinna boot image (manual fallback copy) |
+| `boot_a` (p10) | previous firmware's boot image | Pinna boot image (`build/pinna-boot.img`: kernel, DTB, initramfs with pinna-init), marked `pinna.boot=a`: slot A's kernel |
+| `boot_b` (p11) | previous firmware's copy | the same image marked `pinna.boot=b`: slot B's kernel (ADR 0019) |
 | `system_a` (p13) | stock Fire OS system (the previous firmware reads Wi-Fi firmware from it) | Pinna root, sealed slot image (`build/pinna.root.img`: erofs + signed footer + dm-verity hash tree) |
 | `system_b` | stock copy | first MiB zeroed (no image); later written by `pinnactl update` |
 | `userdata` (p16) | previous firmware's `/data` | wiped; Pinna formats it as `/var` on first boot |
@@ -196,7 +196,7 @@ Undo: Recovery.
 
 In the kernel log (`dmesg | grep pinna-init` once you're logged in; the Echo
 Dot has no UART) pinna-init reports first:
-`pinna-init: no slot state (first flash): slot a`, then
+`pinna-init: slot a, as the bootloader started it (good attempts=0 (priority 15, tries 0))`, then
 `pinna-init: slot mmcblk0p13 -> dm-0 (dm-verity, root hash …)` and
 `pinna-init: booting slot a, version …`.
 
@@ -299,18 +299,21 @@ device works too, if the build machine's firewall lets port 8000 in.
 This writes the image into the slot that is not booted (refusing while the
 booted slot is still on trial), checks size and sha256 while writing, reads
 it back (signature, whole dm-verity hash tree) and only then makes it active
-for a trial boot with 3 tries (`--tries N`). After the reboot pinna-init boots
-the new slot; once `pinna-boot-ok.service` passes (pinnad answers, sshd up),
-the slot is marked good. If the health check fails or does not pass within
-5 minutes, the device reboots; each boot uses up a try, and with none left
-pinna-init goes back to the previous slot. `pinna-bootctl slot-status` shows
+for a trial boot with 3 attempts (`--tries N`) in the bootloader's slot record
+(ADR 0019). The update also writes the release's boot image into the target
+slot's boot partition. After the reboot the bootloader starts the new slot,
+kernel and root; once `pinna-boot-ok.service` passes (pinnad answers, sshd
+up), the slot is marked good. If the health check fails or does not pass
+within 5 minutes, the device reboots; the preloader counts each boot, and
+with no attempts left the bootloader starts the previous slot again. `pinna-bootctl slot-status` shows
 the state and the image version in each slot; `pinna-bootctl set-active a`
 switches by hand (as a trial).
 
-`boot_a` (kernel, initramfs) is not A/B and `pinnactl update` does not
-touch it. When `kernel/` or `crates/pinna-init/` changed, also flash the new
-boot image once the updated slot is marked good: `pinna-bootctl
-reboot-bootloader` on the device, then `scripts/flash-gen2.sh boot` (step 5).
+An update into slot A writes `boot_a` only once a boot from slot B has shown
+that the bootloader loads `boot_b` (`/var/lib/pinna/kernel-slots`); a Kaeru
+before `ab93750` always loads `boot_a`. There, flash new boot images by hand:
+`pinna-bootctl reboot-bootloader` on the device, then
+`scripts/flash-gen2.sh boot` (step 5).
 When the signing key changed — you built with a new `secrets/release.key` —
 `pinnactl update` cannot help: flash root and boot together (steps 3–5).
 `keys/release.pub` is the project key and doesn't change; your own key is in
