@@ -4,6 +4,7 @@
 //! system prompt, the sentence splitter and the `standalone.toml` codec; the
 //! Brain in `pinnad` owns the phase, the microphone and the voice lane.
 
+pub mod config;
 pub mod limits;
 pub mod presets;
 pub mod prompt;
