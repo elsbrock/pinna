@@ -43,6 +43,7 @@ import {
   joinDone,
   joinTone,
   mediaFrom,
+  shortUrl,
   mmss,
   securityWord,
   unjoinable,
@@ -566,4 +567,12 @@ test("a track's byline joins the artist and album it has", () => {
   assert.equal(byline({ artist: "Artist", album: "Album" }), "Artist · Album");
   assert.equal(byline({ artist: "", album: "Album" }), "Album");
   assert.equal(byline({ artist: "", album: "" }), "");
+});
+
+test("a URL shows as its server and file, without the folders or the query", () => {
+  assert.equal(shortUrl("https://radio.example/live.mp3?token=secret"), "radio.example/live.mp3");
+  assert.equal(shortUrl("http://nas.local:8080/music/Some%20Album/01%20Song.flac"), "nas.local:8080/…/01 Song.flac");
+  assert.equal(shortUrl("http://radio.example/"), "radio.example");
+  assert.equal(shortUrl("http://radio.example/a/%E0%A4%A.mp3"), "radio.example/…/%E0%A4%A.mp3");
+  assert.equal(shortUrl("not a url"), "not a url");
 });

@@ -81,9 +81,8 @@
   const sentPlays = $derived(
     !!sent && media?.url === sent && (media.state === MediaState.PLAYING || media.state === MediaState.PAUSED),
   );
-  const sentFailed = $derived(
-    !!sent && media?.url === sent && media.state === MediaState.IDLE && media.error ? media.error : null,
-  );
+  // A play that fails leaves what played before playing (ADR 0011).
+  const sentFailed = $derived(!!sent && media?.errorUrl === sent && media.error ? media.error : null);
   async function play() {
     const u = url.trim();
     urlError = await device.playMedia(u);

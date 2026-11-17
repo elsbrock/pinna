@@ -1,15 +1,15 @@
 <!-- The media player, as Home Assistant's media player shows it: what plays,
      pause, resume, stop, a stream's own volume and the music's own mute. What plays is the
-     track its source names, where it names one, and where it comes from (ADR 0011). Shown on
-     every satellite with a speaker; with nothing to show, it says how to play something, as
-     Timers does. -->
+     track its source names, where it names one, and where it comes from (ADR 0011). A play
+     that failed shows beside what still plays. Shown on every satellite with a speaker; with
+     nothing to show, it says how to play something, as Timers does. -->
 <script lang="ts">
   import { MediaCommand, MediaState } from "../gen/pinna/v1/device_pb.ts";
   import { device } from "./device.svelte.ts";
   import Group from "./Group.svelte";
   import Slider from "./Slider.svelte";
   import SwitchRow from "./SwitchRow.svelte";
-  import { byline, mediaFrom } from "./view.ts";
+  import { byline, mediaFrom, shortUrl } from "./view.ts";
 
   const m = $derived(device.status?.media);
   const set = $derived(device.status?.settings);
@@ -17,8 +17,19 @@
   const active = $derived(
     m?.state === MediaState.PLAYING || m?.state === MediaState.PAUSED || m?.state === MediaState.ANNOUNCING,
   );
-  // A failure stays until the next play; dismissing it hides it on this page.
-  const failed = $derived(!!m && !active && !!m.error && m.error !== device.mediaErrorDismissed);
+  // A failure stays until the next play or a stop, beside what still plays.
+  const failure = $derived(m?.error ? `${m.error}\n${m.errorUrl}` : "");
+  const failed = $derived(!!failure && failure !== device.mediaErrorDismissed);
+  // Once the satellite clears it, the same failure may come again and show.
+  $effect(() => {
+    if (!failure) device.mediaErrorDismissed = "";
+  });
+  // With nothing playing, a stop clears it on the satellite, for every page.
+  // While something plays, a stop would end that: it is hidden here only.
+  const dismiss = () => {
+    if (!active && live) control(MediaCommand.STOP);
+    else device.mediaErrorDismissed = failure;
+  };
   const STATE: Partial<Record<MediaState, string>> = {
     [MediaState.PLAYING]: "Playing",
     [MediaState.PAUSED]: "Paused",
@@ -31,6 +42,7 @@
 
 {#if m?.available}
   <Group title="Now playing">
+    {#snippet aside()}{#if !live}<span class="pn-health" data-tone="danger">Not reachable</span>{/if}{/snippet}
     {#if active}
       {@const from = mediaFrom(m)}
       {@const by = byline(m)}
@@ -42,7 +54,8 @@
           {#if by}<span class="pn-row-hint">{by}</span>{/if}
           <span class="pn-row-hint"
             >{#if m.title && m.state !== MediaState.PLAYING}{`${STATE[m.state]} · `}{/if}<span
-              class:is-mono={from.url}>{from.text}</span
+              class:is-mono={from.url}
+              title={from.url ? from.text : undefined}>{from.url ? shortUrl(from.text) : from.text}</span
             ></span
           >
         </div>
@@ -57,31 +70,35 @@
               >{m.state === MediaState.PAUSED ? "Resume" : "Pause"}</button
             >
           {/if}
+          <!-- The Overview has a Stop for requests too: the name says which. -->
           <button
             class="pn-btn"
+            aria-label="Stop music"
             disabled={!live}
             aria-disabled={device.busy || undefined}
             onclick={() => control(MediaCommand.STOP)}>Stop</button
           >
         </div>
       </div>
-    {:else if failed}
+    {/if}
+    {#if failed}
       <div class="pn-row">
         <div class="pn-row-text">
           <span class="pn-row-label">Couldn't play</span>
           <span class="pn-row-hint is-danger">{m.error}</span>
-          {#if m.url}<span class="pn-row-hint is-mono">{m.url}</span>{/if}
+          {#if m.errorUrl}<span class="pn-row-hint is-mono" title={m.errorUrl}>{shortUrl(m.errorUrl)}</span>{/if}
         </div>
-        <button class="pn-btn pn-btn-quiet pn-btn-sm" onclick={() => (device.mediaErrorDismissed = m.error)}>Dismiss</button>
+        <button class="pn-btn pn-btn-quiet pn-btn-sm" onclick={dismiss}>Dismiss</button>
       </div>
-    {:else if m.muted}
+    {/if}
+    {#if !active && !failed && m.muted}
       <div class="pn-row">
         <div class="pn-row-text">
           <span class="pn-row-label">Not playing</span>
           <span class="pn-row-hint">The music stays muted until you turn Mute music off.</span>
         </div>
       </div>
-    {:else}
+    {:else if !active && !failed}
       <div class="pn-empty">
         <span class="pn-empty-title">Not playing</span>
         <p>

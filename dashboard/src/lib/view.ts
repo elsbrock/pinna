@@ -642,3 +642,27 @@ export function mediaFrom(m: { stream: boolean; source: string; station: string;
 export function byline(m: { artist: string; album: string }): string {
   return [m.artist, m.album].filter(Boolean).join(" · ");
 }
+
+/**
+ * An address as Now playing shows it: the server and the file, without the
+ * folders between them or the query, which can hold a stream's token. The
+ * full address is the element's title.
+ */
+export function shortUrl(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return url;
+  }
+  const parts = u.pathname.split("/").filter(Boolean);
+  const last = parts.at(-1);
+  if (!last) return u.host;
+  let file = last;
+  try {
+    file = decodeURIComponent(last);
+  } catch {
+    // Not percent-encoded as it should be: show it as it is.
+  }
+  return parts.length > 1 ? `${u.host}/…/${file}` : `${u.host}/${file}`;
+}

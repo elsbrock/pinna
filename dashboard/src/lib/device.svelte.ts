@@ -41,7 +41,8 @@ class Device {
   /** The ring as the satellite shows it (WatchRing), while live; null before
    *  its first frame. Kept, not followed, while this tab is hidden. */
   ring = $state.raw<Frame | null>(null);
-  /** The media error last dismissed on Now playing, until another one. */
+  /** The media failure (error and URL) hidden on Now playing while something
+   *  still plays, until the next play from here or until it clears. */
   mediaErrorDismissed = $state("");
   /** A restart was asked for: being unreachable is expected, not an error. */
   restarting = $state(false);
@@ -251,6 +252,7 @@ class Device {
   /** Play a URL; a rejection comes back for the form to show. Whether it
    *  plays shows in Status.media, which the page follows. */
   playMedia(url: string) {
+    this.mediaErrorDismissed = "";
     return this.#command(() => client.playMedia({ url }), undefined, true, false);
   }
   clearNotification() {
