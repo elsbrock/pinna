@@ -2095,6 +2095,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinna-assist"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "pinna-audio"
 version = "0.1.0"
 dependencies = [

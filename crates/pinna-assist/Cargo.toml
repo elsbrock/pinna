@@ -1,0 +1,12 @@
+[package]
+name = "pinna-assist"
+description = "One standalone voice request: presets, limits, prompts, sentence handling and settings"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+url = "2"
