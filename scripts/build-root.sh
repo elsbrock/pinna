@@ -5,8 +5,8 @@
 #   scripts/build-root.sh                  # armhf  -> build/pinna.root.img
 #   scripts/build-root.sh --arch x86_64    # x86_64 -> build/pinna-x86.root.img
 #
-#   --version V        image version (default: $PINNA_VERSION, else
-#                      YYYY.MM.DD.HHMM-<git short hash>)
+#   --version V        image version (default: $PINNA_VERSION, else a
+#                      development version, see dev_version below)
 #   --out FILE         sealed slot image
 #   --output-dir DIR   mkosi output directory (default: mkosi/mkosi.output)
 #   --extra-tree DIR   one more tree on top of the configured ones (tests only)
@@ -46,7 +46,29 @@ else
   raw=pinna.root-arm.raw
   out=${out:-$root/build/pinna.root.img}
 fi
-version=${version:-${PINNA_VERSION:-"$(date +%Y.%m.%d.%H%M)-$(git -C "$root" rev-parse --short HEAD)"}}
+# A development build's version (ADR 0022): <next>-dev.<YYYYMMDDHHMM>.g<commit>,
+# which sorts after the release it builds on and before the next one. <next>
+# is the nearest v* tag with its patch raised by one, or after a beta tag that
+# tag's version without the prerelease part (0.4.0-dev.… comes after every
+# 0.4.0-beta.N and before 0.4.0); 0.0.1 without a tag.
+dev_version() {
+  local tag core next major minor patch
+  tag=$(git -C "$root" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+  core=${tag#v}
+  core=${core%%-*}
+  if [[ $core =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+    if [[ $tag == *-* ]]; then
+      next=$major.$minor.$patch
+    else
+      next=$major.$minor.$((patch + 1))
+    fi
+  else
+    next=0.0.1
+  fi
+  echo "$next-dev.$(date -u +%Y%m%d%H%M).g$(git -C "$root" rev-parse --short=7 HEAD)"
+}
+version=${version:-${PINNA_VERSION:-$(dev_version)}}
 
 # A release image carries no machine id: each Dot derives its own at boot (ADR 0015).
 machine_id=()
