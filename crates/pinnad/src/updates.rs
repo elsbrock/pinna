@@ -11,7 +11,8 @@ use anyhow::{Context, Result, bail};
 use buffa::MessageField;
 use connectrpc::ConnectError;
 use pinna_api::{GetUpdatesResponse, InstallResult, InstallStage, Slot as ApiSlot};
-use pinna_bootctl::slot::{self, Slot, SlotState};
+use pinna_bootctl::bcb::{self, Record};
+use pinna_bootctl::slot::{self, Slot};
 use pinna_image::keys::VerifyingKey;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -214,9 +215,9 @@ impl Updater {
                 // No restart, so no reason for whatever restarts next.
                 let _ =
                     std::fs::remove_file(paths.run_dir.join(pinna_bootctl::reboot::REASON_FILE));
-                // No record before: the implicit state boots the same way.
-                let old = old.unwrap_or_else(SlotState::implicit);
-                if let Err(r) = slot::write_state(&paths.misc, &old) {
+                // No record before: the bootloader's default boots the same way.
+                let old = old.unwrap_or(Record::KAERU_DEFAULT);
+                if let Err(r) = bcb::write(&paths.misc, &old) {
                     tracing::error!("putting the slot state back failed: {r:#}");
                 }
                 return Err(ConnectError::internal(format!(
@@ -265,12 +266,9 @@ impl Updater {
     }
 }
 
-/// Write the slot state that boots `target` next; returns the state before
+/// Write the slot record that boots `target` next; returns the record before
 /// and the booted slot.
-fn switch_slot(
-    paths: &UpdaterPaths,
-    target: Slot,
-) -> Result<(Option<SlotState>, Slot), ConnectError> {
+fn switch_slot(paths: &UpdaterPaths, target: Slot) -> Result<(Option<Record>, Slot), ConnectError> {
     let internal = |e: anyhow::Error| ConnectError::internal(format!("{e:#}"));
     let booted = slot::booted_slot(&paths.run_dir)
         .map_err(internal)?
@@ -279,19 +277,18 @@ fn switch_slot(
                 "not started through pinna-init: there are no slots to switch",
             )
         })?;
-    let old = slot::read_state(&paths.misc).map_err(internal)?;
-    let state = old.unwrap_or_else(SlotState::implicit);
-    if !state.get(booted).successful {
+    let old = bcb::read(&paths.misc).map_err(internal)?;
+    let record = old.unwrap_or(Record::KAERU_DEFAULT);
+    if !record.get(booted).good {
         return Err(ConnectError::failed_precondition(format!(
             "the running slot {booted} is still on trial: slot {} is its only fallback",
             booted.other()
         )));
     }
     let new = if target == booted {
-        slot::keep_booted(old, booted)
+        bcb::keep_booted(record, booted).map_err(internal)?
     } else {
-        let info = state.get(target);
-        if !info.successful && info.tries_left == 0 {
+        if record.get(target).state() == "unbootable" {
             return Err(ConnectError::failed_precondition(format!(
                 "slot {target} can't boot: install an update into it instead"
             )));
@@ -303,10 +300,10 @@ fn switch_slot(
             "switching to slot {target} (version {}) as a trial",
             image.version
         );
-        slot::set_active(old, target, slot::DEFAULT_TRIES)
+        bcb::set_active(record, target, bcb::DEFAULT_TRIES).map_err(internal)?
     };
     if old != Some(new) {
-        slot::write_state(&paths.misc, &new).map_err(internal)?;
+        bcb::write(&paths.misc, &new).map_err(internal)?;
     }
     Ok((old, booted))
 }
@@ -358,25 +355,19 @@ fn read_slots(paths: &UpdaterPaths) -> GetUpdatesResponse {
         }
         Err(e) => return unavailable(format!("{e:#}")),
     };
-    let state = match slot::read_state(&paths.misc) {
-        Ok(s) => s.unwrap_or_else(SlotState::implicit),
+    let record = match bcb::read_or_default(&paths.misc) {
+        Ok(r) => r,
         Err(e) => return unavailable(format!("{e:#}")),
     };
+    let next = record.next_boot();
     let slots = [Slot::A, Slot::B].map(|s| {
-        let info = state.get(s);
+        let m = record.get(s);
         ApiSlot {
             name: s.to_string(),
             version: slot_version(paths, s),
-            state: if info.successful {
-                "good"
-            } else if info.tries_left > 0 {
-                "trial"
-            } else {
-                "unbootable"
-            }
-            .into(),
-            tries_left: info.tries_left.into(),
-            active: state.active == s,
+            state: m.state().into(),
+            tries_left: m.tries.into(),
+            active: next == Some(s),
             booted: booted == s,
             ..Default::default()
         }

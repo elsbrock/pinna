@@ -3,6 +3,7 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use pinna_bootctl::bcb::{self, Record};
 use pinna_bootctl::slot::{self, Slot};
 use pinna_bootctl::*;
 
@@ -37,15 +38,16 @@ enum Cmd {
     GuardClear,
     /// Arm and reboot into fastboot now.
     RebootBootloader,
-    /// Show the A/B slot state, the images in the slots and the booted slot.
+    /// Show the slot record, the images in the slots and the booted slot.
     SlotStatus,
     /// Mark the booted slot good (after the health check); a no-op without pinna-init.
     MarkGood,
-    /// Boot a slot next, as a trial with a number of tries.
+    /// Boot a slot next, as a trial with a number of tries (the bootloader
+    /// counts the first try, so 3 tries are 2 boot attempts).
     SetActive {
         slot: String,
-        #[arg(long, default_value_t = slot::DEFAULT_TRIES,
-              value_parser = clap::value_parser!(u8).range(1..))]
+        #[arg(long, default_value_t = bcb::DEFAULT_TRIES,
+              value_parser = clap::value_parser!(u8).range(2..=7))]
         tries: u8,
         /// Do not check the slot's image signature first.
         #[arg(long)]
@@ -89,9 +91,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         }
         Cmd::GuardArm => {
             let booted = slot::booted_slot(&cli.run_dir)?;
-            // An unreadable slot state must not disable the safety net.
-            let state = slot::read_state(&cli.misc).unwrap_or(None);
-            if !slot::guard_should_arm(state, booted) {
+            // An unreadable slot record must not disable the safety net.
+            let record = bcb::read(&cli.misc).unwrap_or(None);
+            if !bcb::guard_should_arm(record, booted) {
                 let b = booted.expect("a trial boot has a booted slot");
                 println!(
                     "not arming: trial boot of slot {b}, a failed boot rolls back to slot {}",
@@ -119,19 +121,23 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             anyhow::ensure!(status.success(), "systemctl reboot failed");
         }
         Cmd::SlotStatus => {
-            let state = slot::read_state(&cli.misc)?;
-            let s = state.unwrap_or_else(slot::SlotState::implicit);
-            match state {
+            let record = bcb::read(&cli.misc)?;
+            let r = record.unwrap_or(Record::KAERU_DEFAULT);
+            match record {
                 Some(_) => println!("state: valid"),
-                None => println!("state: missing (first flash: slot a counts as good)"),
+                None => println!("state: missing (the bootloader writes slot a, good)"),
             }
-            println!("active: {}", s.active);
+            // The slot the next boot starts, after the bootloader's count.
+            match r.next_boot() {
+                Some(s) => println!("active: {s}"),
+                None => println!("active: none (no slot can boot)"),
+            }
             for x in [Slot::A, Slot::B] {
                 let image = match slot_image(&cli.partdir, x) {
                     Ok(f) => format!("version {}", f.version),
                     Err(e) => format!("no valid image ({e:#})"),
                 };
-                println!("{x}: {}, {image}", s.describe(x));
+                println!("{x}: {}, {image}", r.describe(x));
             }
             match slot::booted_slot(&cli.run_dir)? {
                 Some(b) => println!(
@@ -151,18 +157,19 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 );
                 return Ok(());
             };
-            let old = slot::read_state(&cli.misc)?;
-            let new = slot::mark_good(old, booted);
+            let old = bcb::read(&cli.misc)?;
+            let new = bcb::mark_good(old.unwrap_or(Record::KAERU_DEFAULT), booted);
             if old != Some(new) {
-                slot::write_state(&cli.misc, &new)?;
+                bcb::write(&cli.misc, &new)?;
             }
             // The verdict, for pinnad's stage 7 on the ring (ADR 0012) and for
             // the next boot's "how the last boot ended".
             let _ = std::fs::write(cli.run_dir.join("boot-ok"), "1\n");
             println!(
-                "slot {booted} marked good (version {}); active slot {}",
+                "slot {booted} marked good (version {}); next boot: slot {}",
                 slot::booted_version(&cli.run_dir)?.unwrap_or_else(|| "?".into()),
-                new.active
+                new.next_boot()
+                    .map_or_else(|| "none".to_owned(), |s| s.to_string())
             );
         }
         Cmd::SetActive {
@@ -180,12 +187,18 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     })?
                     .version
             };
-            let new = slot::set_active(slot::read_state(&cli.misc)?, s, *tries);
-            slot::write_state(&cli.misc, &new)?;
-            println!(
-                "slot {s} (version {version}) boots next as a trial with {tries} tries; slot {} is the fallback",
-                s.other()
-            );
+            let old = bcb::read_or_default(&cli.misc)?;
+            if slot::booted_slot(&cli.run_dir)? == Some(s) {
+                // The running slot: undo a pending switch.
+                bcb::write(&cli.misc, &bcb::keep_booted(old, s)?)?;
+                println!("slot {s} (version {version}) keeps booting");
+            } else {
+                bcb::write(&cli.misc, &bcb::set_active(old, s, *tries)?)?;
+                println!(
+                    "slot {s} (version {version}) boots next as a trial with {tries} tries; slot {} is the fallback",
+                    s.other()
+                );
+            }
         }
     }
     Ok(())

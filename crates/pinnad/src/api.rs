@@ -2532,13 +2532,13 @@ mod tests {
             std::fs::write(self.paths.run_dir.join("boot-slot"), format!("{booted}\n")).unwrap();
             std::fs::write(self.paths.run_dir.join("boot-version"), "1.0\n").unwrap();
             std::fs::write(&self.paths.misc, vec![0u8; 0x80000]).unwrap();
-            pinna_bootctl::slot::write_state(&self.paths.misc, &state).unwrap();
+            pinna_bootctl::bcb::write(&self.paths.misc, &rec(state)).unwrap();
             let b = self.paths.partdir.join("system_b");
             std::fs::write(b, sealed(b_version, key)).unwrap();
         }
 
-        fn state(&self) -> Option<SlotState> {
-            pinna_bootctl::slot::read_state(&self.paths.misc).unwrap()
+        fn state(&self) -> Option<Record> {
+            pinna_bootctl::bcb::read(&self.paths.misc).unwrap()
         }
 
         fn reboot_reason(&self) -> Option<String> {
@@ -2558,8 +2558,14 @@ mod tests {
         }
     }
 
+    use pinna_bootctl::bcb::Record;
     use pinna_bootctl::slot::{Slot, SlotInfo, SlotState};
     use pinna_image::keys::SigningKey;
+
+    /// A slot state in the old record's terms, as Kaeru's record holds it.
+    fn rec(s: SlotState) -> Record {
+        pinna_bootctl::bcb::from_pinna(&s).expect("a good slot")
+    }
 
     fn slot_key() -> SigningKey {
         SigningKey::from_bytes(&[42; 32])
@@ -2898,7 +2904,7 @@ mod tests {
         assert_eq!(updates(&c).await.slots[1].version, "0.9");
 
         c.set_active_slot(slot_request("b")).await.unwrap();
-        assert_eq!(rig.state(), Some(st(Slot::B, (0, true), (3, false))));
+        assert_eq!(rig.state(), Some(rec(st(Slot::B, (0, true), (3, false)))));
         assert_eq!(rig.reboot_reason().as_deref(), Some("switch-slot"));
     }
 
@@ -2913,7 +2919,7 @@ mod tests {
 
         let err = c.set_active_slot(slot_request("b")).await.unwrap_err();
         assert_eq!(err.code, connectrpc::ErrorCode::Internal);
-        assert_eq!(rig.state(), Some(before));
+        assert_eq!(rig.state(), Some(rec(before)));
         assert_eq!(rig.reboot_reason(), None);
     }
 
@@ -2925,12 +2931,12 @@ mod tests {
         let (c, _) = start_device_with(rig.updater()).await;
 
         c.set_active_slot(slot_request("a")).await.unwrap();
-        assert_eq!(rig.state(), Some(st(Slot::A, (0, true), (3, false))));
+        assert_eq!(rig.state(), Some(rec(st(Slot::A, (0, true), (3, false)))));
         assert_eq!(rig.reboot_reason(), None, "keeping doesn't restart");
 
         // Slot b hasn't been started: it can still be switched to.
         c.set_active_slot(slot_request("b")).await.unwrap();
-        assert_eq!(rig.state(), Some(st(Slot::B, (0, true), (3, false))));
+        assert_eq!(rig.state(), Some(rec(st(Slot::B, (0, true), (3, false)))));
     }
 
     #[tokio::test]

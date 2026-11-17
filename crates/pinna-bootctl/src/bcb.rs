@@ -204,12 +204,16 @@ impl Record {
     }
 }
 
+/// The fewest tries that boot a slot at all: the preloader takes one before
+/// LK looks.
+pub const MIN_TRIES: u8 = 2;
+
 /// Boot `target` next, on trial with `tries`; the booted slot stays good as
 /// its fallback. Refused unless the booted slot (the other one) is good.
 pub fn set_active(r: Record, target: Slot, tries: u8) -> Result<Record> {
     ensure!(
-        (1..=MAX_TRIES).contains(&tries),
-        "tries must be 1 to {MAX_TRIES}, not {tries}"
+        (MIN_TRIES..=MAX_TRIES).contains(&tries),
+        "tries must be {MIN_TRIES} to {MAX_TRIES}, not {tries} (the bootloader counts the first one)"
     );
     let fallback = r.get(target.other());
     ensure!(
@@ -316,6 +320,15 @@ pub fn retire(r: Record, failed: Slot) -> Result<Record> {
     let mut n = r;
     n.set(failed, SlotMeta::EMPTY);
     Ok(n)
+}
+
+/// Fastboot guard policy: arm when the booted slot is already good or there is
+/// no good fallback. A trial boot with a good fallback relies on rollback
+/// instead: an armed guard would turn its failure into fastboot.
+pub fn guard_should_arm(r: Option<Record>, booted: Option<Slot>) -> bool {
+    let Some(b) = booted else { return true };
+    let r = r.unwrap_or(Record::KAERU_DEFAULT);
+    r.get(b).good || !r.get(b.other()).good
 }
 
 /// Pinna's own slot record (`PINNASLT`, ADR 0003) in Kaeru's form: its active
@@ -489,8 +502,19 @@ mod tests {
         assert_eq!(trial.next_boot(), Some(Slot::B));
         // No fallback, no trial.
         assert!(set_active(rec([0x8e, 0x3f]), Slot::A, 3).is_err());
-        assert!(set_active(booted_a, Slot::B, 0).is_err());
+        assert!(
+            set_active(booted_a, Slot::B, 1).is_err(),
+            "1 try never boots"
+        );
         assert!(set_active(booted_a, Slot::B, 8).is_err());
+        // 2 tries: one attempt, then back.
+        let mut r = set_active(booted_a, Slot::B, 2).unwrap();
+        let mut booted = vec![];
+        for _ in 0..3 {
+            r = r.preloader_step();
+            booted.push(r.lk_choice());
+        }
+        assert_eq!(booted, [Some(Slot::B), Some(Slot::A), Some(Slot::A)]);
 
         let good = mark_good(trial, Slot::B);
         assert_eq!(good.encode()[5..], [0x8e, 0x8f]);
@@ -511,6 +535,18 @@ mod tests {
         let retired = retire(trial, Slot::B).unwrap();
         assert_eq!(retired.next_boot(), Some(Slot::A));
         assert!(retire(trial, Slot::A).is_err(), "B isn't good");
+    }
+
+    #[test]
+    fn guard_policy() {
+        // No pinna-init, or a good booted slot: arm.
+        assert!(guard_should_arm(None, None));
+        assert!(guard_should_arm(None, Some(Slot::A)));
+        assert!(guard_should_arm(Some(rec([0x8e, 0x8f])), Some(Slot::B)));
+        // A trial of b with a good a: rely on rollback.
+        assert!(!guard_should_arm(Some(rec([0x8e, 0x2f])), Some(Slot::B)));
+        // A trial without a good fallback: arm.
+        assert!(guard_should_arm(Some(rec([0x00, 0x2f])), Some(Slot::B)));
     }
 
     #[test]
