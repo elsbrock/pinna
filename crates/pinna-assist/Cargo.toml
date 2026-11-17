@@ -8,13 +8,13 @@ rust-version.workspace = true
 
 [features]
 fakes = []
-testing = ["dep:axum", "dep:futures-util"]
+testing = ["dep:axum"]
 
 [dependencies]
 axum = { version = "0.8", optional = true }
 bytes = "1"
 futures-core = "0.3"
-futures-util = { version = "0.3", optional = true }
+futures-util = "0.3"
 pinna-http = { path = "../pinna-http" }
 pinna-mcp = { path = "../pinna-mcp" }
 serde.workspace = true

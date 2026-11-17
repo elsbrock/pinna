@@ -5,6 +5,7 @@
 //! Brain in `pinnad` owns the phase, the microphone and the voice lane.
 
 pub mod audio;
+pub mod chat;
 pub mod config;
 pub mod conversation;
 pub mod error;
