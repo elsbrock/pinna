@@ -223,9 +223,13 @@ What was considered and rejected:
    with systemd's reason, or unavailable without a speaker), and the page
    says which name to pick. AirPlay uses the satellite's name (ADR 0007), so
    a rename restarts the receiver under the new one.
-6. **One policy for sources.** Starting a source replaces whatever the media
-   lane was playing and reports through the existing media state; a source
-   that ends releases the lane. The lane never cuts into a signal: whatever
+6. **One policy for sources.** A source replaces whatever the media lane
+   was playing once it has audio, and reports through the existing media
+   state; a source that ends releases the lane. A URL that is still opening
+   leaves the current source playing, and one that fails to open leaves it
+   playing too: the media state reports the failure and the URL that failed
+   beside what still plays, until the next play or stop. A stream has audio
+   when it connects (its first 20 ms). The lane never cuts into a signal: whatever
    it stops mid-signal (replaced, stopped, a stream paused) fades out over
    20 ms before its stream closes, and whatever it joins mid-signal (a
    stream, a resume) fades in. A URL starts and ends as recorded. Replies,
