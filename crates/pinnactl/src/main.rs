@@ -54,11 +54,23 @@ enum Command {
 
 #[derive(clap::Args)]
 struct UpdateArgs {
-    /// Manifest: http(s) URL, file:// URL or path.
+    /// Manifest: http(s) URL, file:// URL or path. Its signature,
+    /// manifest.json.sig, must be next to it (ADR 0022).
     manifest: String,
     /// Reboot into the new slot when installed.
     #[arg(long)]
     reboot: bool,
+    /// Install as from this channel (stable or beta): only a newer version,
+    /// and no beta on stable. Without it, an older version installs too.
+    #[arg(long, value_parser = |s: &str| s.parse::<pinna_update::Channel>())]
+    channel: Option<pinna_update::Channel>,
+    /// Install only this version: the one a check found.
+    #[arg(long)]
+    expect_version: Option<String>,
+    /// Only fetch the manifest and check its signature; print the result as
+    /// one line of JSON and write nothing.
+    #[arg(long, conflicts_with_all = ["reboot", "channel", "expect_version"])]
+    check: bool,
     /// Boot attempts the new slot gets before rolling back.
     #[arg(long = "tries", default_value_t = pinna_bootctl::bcb::DEFAULT_ATTEMPTS,
           value_parser = clap::value_parser!(u8).range(1..=pinna_bootctl::bcb::MAX_ATTEMPTS as i64))]
@@ -73,14 +85,25 @@ struct UpdateArgs {
 
 /// Blocking (no tokio): the download uses reqwest's blocking client.
 fn update(args: UpdateArgs) -> Result<()> {
+    let model = pinna_hal::ident::board_model();
     let opts = pinna_update::Options {
         attempts: args.attempts,
         misc: args.misc,
         partdir: args.partdir,
         run_dir: args.run_dir,
+        model: (!model.is_empty()).then(|| model.to_owned()),
         ..Default::default()
     };
-    let installed = pinna_update::install(&opts, &args.manifest, &mut |line| println!("{line}"))?;
+    if args.check {
+        return check(&opts, &args.manifest);
+    }
+    let rules = pinna_update::Rules {
+        channel: args.channel,
+        expect_version: args.expect_version,
+    };
+    let installed = pinna_update::install(&opts, &args.manifest, &rules, &mut |line| {
+        println!("{line}")
+    })?;
     if args.reboot {
         println!("rebooting into slot {}", installed.slot);
         // The next boot reports "restarted (update)" (ADR 0012). Best effort.
@@ -90,6 +113,43 @@ fn update(args: UpdateArgs) -> Result<()> {
             .status()?;
         anyhow::ensure!(status.success(), "systemctl reboot failed");
     }
+    Ok(())
+}
+
+/// `pinnactl update --check`: one line of JSON for pinnad (ADR 0022); exits
+/// with 1 when the check failed.
+fn check(opts: &pinna_update::Options, manifest: &str) -> Result<()> {
+    let out = match pinna_update::check(opts, manifest) {
+        Ok(c) => serde_json::json!({
+            "ok": true,
+            "url": c.fetched.url.as_str(),
+            "manifest": c.fetched.manifest,
+            "blocked": c.blocked.map(|b| serde_json::json!({
+                "kind": b.kind(),
+                "message": b.to_string(),
+            })),
+        }),
+        Err(e) => {
+            let (status, detail) = match &e {
+                pinna_update::FetchError::Status { status, .. } => (Some(*status), String::new()),
+                pinna_update::FetchError::NoAnswer { detail, .. }
+                | pinna_update::FetchError::Unreadable { detail, .. } => (None, detail.clone()),
+                _ => (None, String::new()),
+            };
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": false,
+                    "kind": e.kind(),
+                    "message": e.to_string(),
+                    "status": status,
+                    "detail": detail,
+                })
+            );
+            std::process::exit(1);
+        }
+    };
+    println!("{out}");
     Ok(())
 }
 

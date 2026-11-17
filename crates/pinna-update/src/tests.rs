@@ -4,6 +4,8 @@ use std::net::TcpListener;
 use ed25519_dalek::SigningKey;
 use pinna_bootctl::bcb::Record;
 
+use pinna_image::version::Version;
+
 use super::*;
 
 const PART: usize = 2 << 20;
@@ -71,6 +73,8 @@ fn env(booted: &str, record: Option<Record>) -> Env {
         run_dir: p("run"),
         kernel_slots: p("kernel-slots"),
         key: key().verifying_key(),
+        model: Some("echo-dot-2".into()),
+        dev_overlay: p("pinna-dev"),
     };
     Env { dir, opts }
 }
@@ -88,7 +92,7 @@ impl Env {
         std::fs::write(self.path("parts/boot_b"), vec![0xbb; BOOT_PART]).unwrap();
     }
 
-    /// Publish an image + manifest under `rel/`; returns the manifest path.
+    /// Publish an image + signed manifest under `rel/`; returns the manifest path.
     fn publish(&self, image: &[u8], version: &str, sha: Option<&str>) -> PathBuf {
         self.publish_with(image, version, sha, None)
     }
@@ -101,24 +105,57 @@ impl Env {
         sha: Option<&str>,
         boot: Option<(&[u8], Option<&str>)>,
     ) -> PathBuf {
+        let m = self.manifest(image, version, sha, boot);
+        self.publish_json(image, &m, Some(&key()))
+    }
+
+    /// A manifest as `pinna-image manifest` writes it.
+    fn manifest(
+        &self,
+        image: &[u8],
+        version: &str,
+        sha: Option<&str>,
+        boot: Option<(&[u8], Option<&str>)>,
+    ) -> serde_json::Value {
+        let rel = self.path("rel");
+        std::fs::create_dir_all(&rel).unwrap();
+        let hex = |d: &[u8]| keys::hex(&Sha256::digest(d));
+        let sha = sha.map_or_else(|| hex(image), str::to_owned);
+        let channel = Version::parse(version).map_or("stable", |v| v.channel());
+        let mut m = serde_json::json!({
+            "version": version,
+            "channel": channel,
+            "summary": format!("Pinna {version}."),
+            "requires": { "boot_level": 1 },
+            "root": { "url": "img.bin", "size": image.len(), "sha256": sha },
+        });
+        if let Some((b, bsha)) = boot {
+            std::fs::write(rel.join("boot.img"), b).unwrap();
+            let bsha = bsha.map_or_else(|| hex(b), str::to_owned);
+            m["boot"] = serde_json::json!({ "url": "boot.img", "size": b.len(), "sha256": bsha });
+        }
+        m
+    }
+
+    /// Write `image`, the manifest and, signed with `signer`, its signature.
+    fn publish_json(
+        &self,
+        image: &[u8],
+        m: &serde_json::Value,
+        signer: Option<&SigningKey>,
+    ) -> PathBuf {
         let rel = self.path("rel");
         std::fs::create_dir_all(&rel).unwrap();
         std::fs::write(rel.join("img.bin"), image).unwrap();
-        let hex = |d: &[u8]| keys::hex(&Sha256::digest(d));
-        let sha = sha.map_or_else(|| hex(image), str::to_owned);
-        let boot = boot.map_or_else(String::new, |(b, bsha)| {
-            std::fs::write(rel.join("boot.img"), b).unwrap();
-            let bsha = bsha.map_or_else(|| hex(b), str::to_owned);
-            format!(
-                r#","boot":{{"url":"boot.img","size":{},"sha256":"{bsha}"}}"#,
-                b.len()
-            )
-        });
-        let m = format!(
-            r#"{{"version":"{version}","root":{{"url":"img.bin","size":{},"sha256":"{sha}"}}{boot}}}"#,
-            image.len()
-        );
-        std::fs::write(rel.join("manifest.json"), m).unwrap();
+        let bytes = serde_json::to_vec_pretty(m).unwrap();
+        std::fs::write(rel.join("manifest.json"), &bytes).unwrap();
+        let sig = rel.join("manifest.json.sig");
+        match signer {
+            Some(k) => std::fs::write(&sig, pinna_image::manifest::sign(&bytes, k)).unwrap(),
+            None => {
+                let _ = std::fs::remove_file(&sig);
+            }
+        }
         rel.join("manifest.json")
     }
 
@@ -131,8 +168,12 @@ impl Env {
     }
 
     fn install(&self, manifest: &Path) -> Result<Vec<String>> {
+        self.install_with(manifest, &Rules::default())
+    }
+
+    fn install_with(&self, manifest: &Path, rules: &Rules) -> Result<Vec<String>> {
         let mut lines = Vec::new();
-        install(&self.opts, manifest.to_str().unwrap(), &mut |l| {
+        install(&self.opts, manifest.to_str().unwrap(), rules, &mut |l| {
             lines.push(l.to_owned())
         })?;
         Ok(lines)
@@ -146,8 +187,8 @@ fn quiet() -> impl FnMut(&str) {
 #[test]
 fn installs_into_the_other_slot() {
     let e = env("a", None);
-    let img = sealed("2.0", 100, &key());
-    let m = e.publish(&img, "2.0", None);
+    let img = sealed("2.0.0", 100, &key());
+    let m = e.publish(&img, "2.0.0", None);
     let lines = e.install(&m).unwrap();
     let b = e.part("system_b");
     assert_eq!(&b[..img.len()], &img[..]);
@@ -164,10 +205,10 @@ fn installs_into_the_other_slot() {
 fn file_url_and_slot_b_to_a() {
     let mut e = env("b", Some(rec(0x8e, 0x8f)));
     e.opts.attempts = 1;
-    let img = sealed("3.0", 64, &key());
-    let m = e.publish(&img, "3.0", None);
+    let img = sealed("3.0.0", 64, &key());
+    let m = e.publish(&img, "3.0.0", None);
     let url = Url::from_file_path(&m).unwrap();
-    install(&e.opts, url.as_str(), &mut quiet()).unwrap();
+    install(&e.opts, url.as_str(), &Rules::default(), &mut quiet()).unwrap();
     assert_eq!(&e.part("system_a")[..img.len()], &img[..]);
     // A on trial at 15 with 1 attempt (2 tries), B good at 14.
     assert_eq!(e.record(), Some(rec(0x2f, 0x8e)));
@@ -176,8 +217,8 @@ fn file_url_and_slot_b_to_a() {
 #[test]
 fn refuses_during_a_trial_boot() {
     let e = env("b", Some(rec(0x8e, 0x3f)));
-    let m = e.publish(&sealed("2.0", 64, &key()), "2.0", None);
-    let err = install(&e.opts, m.to_str().unwrap(), &mut quiet()).unwrap_err();
+    let m = e.publish(&sealed("2.0.0", 64, &key()), "2.0.0", None);
+    let err = e.install_with(&m, &Rules::default()).unwrap_err();
     assert!(format!("{err:#}").contains("not marked good"), "{err:#}");
     assert!(e.part("system_a").iter().all(|&x| x == 0xaa));
     assert_eq!(e.record(), Some(rec(0x8e, 0x3f)));
@@ -187,16 +228,16 @@ fn refuses_during_a_trial_boot() {
 fn refuses_without_pinna_init() {
     let e = env("a", None);
     std::fs::remove_file(e.path("run/boot-slot")).unwrap();
-    let m = e.publish(&sealed("2.0", 64, &key()), "2.0", None);
-    assert!(install(&e.opts, m.to_str().unwrap(), &mut quiet()).is_err());
+    let m = e.publish(&sealed("2.0.0", 64, &key()), "2.0.0", None);
+    assert!(e.install_with(&m, &Rules::default()).is_err());
 }
 
 #[test]
 fn bad_signature_leaves_the_target_unbootable() {
     let e = env("a", Some(rec(0x8f, 0x8e)));
-    let img = sealed("2.0", 64, &SigningKey::from_bytes(&[1; 32]));
-    let m = e.publish(&img, "2.0", None);
-    let err = install(&e.opts, m.to_str().unwrap(), &mut quiet()).unwrap_err();
+    let img = sealed("2.0.0", 64, &SigningKey::from_bytes(&[1; 32]));
+    let m = e.publish(&img, "2.0.0", None);
+    let err = e.install_with(&m, &Rules::default()).unwrap_err();
     assert!(format!("{err:#}").contains("signature"), "{err:#}");
     assert_eq!(e.record(), Some(rec(0x8f, 0x00)));
 }
@@ -204,21 +245,21 @@ fn bad_signature_leaves_the_target_unbootable() {
 #[test]
 fn checksum_size_version_and_fit() {
     let e = env("a", None);
-    let img = sealed("2.0", 64, &key());
-    let m = e.publish(&img, "2.0", Some(&"0".repeat(64)));
-    let err = install(&e.opts, m.to_str().unwrap(), &mut quiet()).unwrap_err();
+    let img = sealed("2.0.0", 64, &key());
+    let m = e.publish(&img, "2.0.0", Some(&"0".repeat(64)));
+    let err = e.install_with(&m, &Rules::default()).unwrap_err();
     assert!(format!("{err:#}").contains("sha256 mismatch"), "{err:#}");
 
-    let m = e.publish(&img, "2.1", None);
-    let err = install(&e.opts, m.to_str().unwrap(), &mut quiet()).unwrap_err();
+    let m = e.publish(&img, "2.1.0", None);
+    let err = e.install_with(&m, &Rules::default()).unwrap_err();
     assert!(
         format!("{err:#}").contains("does not match the manifest"),
         "{err:#}"
     );
 
-    let big = sealed("2.0", (PART / 4096) as u32, &key());
-    let m = e.publish(&big, "2.0", None);
-    let err = install(&e.opts, m.to_str().unwrap(), &mut quiet()).unwrap_err();
+    let big = sealed("2.0.0", (PART / 4096) as u32, &key());
+    let m = e.publish(&big, "2.0.0", None);
+    let err = e.install_with(&m, &Rules::default()).unwrap_err();
     assert!(format!("{err:#}").contains("does not fit"), "{err:#}");
     // nothing became active
     assert_eq!(e.record().and_then(|r| r.next_boot()), Some(Slot::A));
@@ -230,8 +271,8 @@ fn the_manifests_kernel_goes_into_boot_b() {
     e.with_boot_parts();
     let boot_a = e.part("boot_a");
     let kernel = bootimg(0xcc, 8192);
-    let img = sealed("2.0", 64, &key());
-    let m = e.publish_with(&img, "2.0", None, Some((&kernel, None)));
+    let img = sealed("2.0.0", 64, &key());
+    let m = e.publish_with(&img, "2.0.0", None, Some((&kernel, None)));
     let lines = e.install(&m).unwrap();
     let b = e.part("boot_b");
     assert_eq!(&b[..kernel.len()], &tagged(kernel.clone(), 'b')[..]);
@@ -250,8 +291,8 @@ fn the_manifests_kernel_goes_into_boot_b() {
 fn without_a_boot_image_the_running_kernel_goes_along() {
     let e = env("a", None);
     e.with_boot_parts();
-    let img = sealed("2.0", 64, &key());
-    e.install(&e.publish(&img, "2.0", None)).unwrap();
+    let img = sealed("2.0.0", 64, &key());
+    e.install(&e.publish(&img, "2.0.0", None)).unwrap();
     assert_eq!(e.part("boot_b"), tagged(e.part("boot_a"), 'b'));
 }
 
@@ -261,8 +302,8 @@ fn boot_a_only_after_a_boot_from_b_showed_the_bootloader_loads_it() {
     e.with_boot_parts();
     let boot_a = e.part("boot_a");
     let kernel = bootimg(0xdd, 8192);
-    let img = sealed("2.0", 64, &key());
-    let m = e.publish_with(&img, "2.0", None, Some((&kernel, None)));
+    let img = sealed("2.0.0", 64, &key());
+    let m = e.publish_with(&img, "2.0.0", None, Some((&kernel, None)));
     let lines = e.install(&m).unwrap();
     assert_eq!(e.part("boot_a"), boot_a, "no proof yet: boot_a stays");
     assert!(
@@ -288,8 +329,8 @@ fn a_bootloader_that_ignores_the_slot_gets_no_kernel() {
     slot::KernelSlots::Ignored
         .write(&e.opts.kernel_slots)
         .unwrap();
-    let img = sealed("2.0", 64, &key());
-    let m = e.publish_with(&img, "2.0", None, Some((&bootimg(0xcc, 8192), None)));
+    let img = sealed("2.0.0", 64, &key());
+    let m = e.publish_with(&img, "2.0.0", None, Some((&bootimg(0xcc, 8192), None)));
     let lines = e.install(&m).unwrap();
     assert!(
         e.part("boot_b").iter().all(|&x| x == 0xbb),
@@ -308,20 +349,29 @@ fn a_bootloader_that_ignores_the_slot_gets_no_kernel() {
 fn a_bad_kernel_changes_nothing() {
     let e = env("a", Some(rec(0x8f, 0x8e)));
     e.with_boot_parts();
-    let img = sealed("2.0", 64, &key());
+    let img = sealed("2.0.0", 64, &key());
     let kernel = bootimg(0xcc, 8192);
-    let m = e.publish_with(&img, "2.0", None, Some((&kernel, Some(&"0".repeat(64)))));
-    let err = install(&e.opts, m.to_str().unwrap(), &mut quiet()).unwrap_err();
+    let m = e.publish_with(&img, "2.0.0", None, Some((&kernel, Some(&"0".repeat(64)))));
+    let err = e.install_with(&m, &Rules::default()).unwrap_err();
     assert!(format!("{err:#}").contains("sha256 mismatch"), "{err:#}");
     assert_eq!(e.record(), Some(rec(0x8f, 0x8e)), "slot b still counts");
     assert!(e.part("system_b").iter().all(|&x| x == 0xbb));
     assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
 }
 
-/// A one-connection-per-request HTTP/1.0 server for `n` requests.
-fn serve(root: PathBuf, n: usize) -> (String, std::thread::JoinHandle<Vec<String>>) {
+/// A one-connection-per-request HTTP/1.0 server for `n` requests: files
+/// under `root`, 404 for missing ones, and 302 for the paths in `redirects`.
+fn serve(
+    root: PathBuf,
+    n: usize,
+    redirects: &[(&str, &str)],
+) -> (String, std::thread::JoinHandle<Vec<String>>) {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = format!("http://{}/", l.local_addr().unwrap());
+    let redirects: Vec<(String, String)> = redirects
+        .iter()
+        .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+        .collect();
     let h = std::thread::spawn(move || {
         let mut paths = Vec::new();
         for s in l.incoming().take(n) {
@@ -337,14 +387,29 @@ fn serve(root: PathBuf, n: usize) -> (String, std::thread::JoinHandle<Vec<String
                 }
             }
             let path = line.split_whitespace().nth(1).unwrap().to_owned();
-            let body = std::fs::read(root.join(path.trim_start_matches('/'))).unwrap();
-            write!(
-                s,
-                "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n",
-                body.len()
-            )
-            .unwrap();
-            s.write_all(&body).unwrap();
+            if let Some((_, to)) = redirects.iter().find(|(from, _)| *from == path) {
+                write!(
+                    s,
+                    "HTTP/1.0 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\n\r\n"
+                )
+                .unwrap();
+            } else if let Ok(body) = std::fs::read(root.join(path.trim_start_matches('/'))) {
+                write!(
+                    s,
+                    "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                s.write_all(&body).unwrap();
+            } else {
+                let body = "No release on stable yet.";
+                write!(
+                    s,
+                    "HTTP/1.0 404 Not Found\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
             paths.push(path);
         }
         paths
@@ -355,13 +420,266 @@ fn serve(root: PathBuf, n: usize) -> (String, std::thread::JoinHandle<Vec<String
 #[test]
 fn over_http_with_a_relative_image_url() {
     let e = env("a", None);
-    let img = sealed("2.0", 64, &key());
-    e.publish(&img, "2.0", None);
-    let (base, server) = serve(e.path(""), 2);
-    install(&e.opts, &format!("{base}rel/manifest.json"), &mut quiet()).unwrap();
+    let img = sealed("2.0.0", 64, &key());
+    e.publish(&img, "2.0.0", None);
+    let (base, server) = serve(e.path(""), 3, &[]);
+    install(
+        &e.opts,
+        &format!("{base}rel/manifest.json"),
+        &Rules::default(),
+        &mut quiet(),
+    )
+    .unwrap();
     assert_eq!(
         server.join().unwrap(),
-        ["/rel/manifest.json", "/rel/img.bin"]
+        [
+            "/rel/manifest.json",
+            "/rel/manifest.json.sig",
+            "/rel/img.bin"
+        ]
     );
     assert_eq!(&e.part("system_b")[..img.len()], &img[..]);
+}
+
+#[test]
+fn a_channel_redirect_resolves_files_next_to_the_manifest() {
+    let e = env("a", None);
+    let img = sealed("2.0.0", 64, &key());
+    e.publish(&img, "2.0.0", None);
+    // As the release service: /v1/channels/stable → the release's manifest.
+    let (base, server) = serve(
+        e.path(""),
+        6,
+        &[("/v1/channels/stable", "/rel/manifest.json")],
+    );
+    let checked = check(&e.opts, &format!("{base}v1/channels/stable")).unwrap();
+    assert_eq!(checked.fetched.url.path(), "/rel/manifest.json");
+    assert_eq!(checked.fetched.manifest.version, "2.0.0");
+    assert_eq!(checked.fetched.manifest.summary, "Pinna 2.0.0.");
+    assert_eq!(checked.blocked, None);
+    let rules = Rules {
+        channel: Some(Channel::Stable),
+        expect_version: Some("2.0.0".into()),
+    };
+    install(&e.opts, checked.fetched.url.as_str(), &rules, &mut quiet()).unwrap();
+    assert_eq!(
+        server.join().unwrap(),
+        [
+            "/v1/channels/stable",
+            "/rel/manifest.json",
+            "/rel/manifest.json.sig",
+            "/rel/manifest.json",
+            "/rel/manifest.json.sig",
+            "/rel/img.bin"
+        ]
+    );
+    assert_eq!(&e.part("system_b")[..img.len()], &img[..]);
+}
+
+#[test]
+fn a_failed_check_says_why() {
+    let e = env("a", None);
+    let (base, server) = serve(e.path(""), 1, &[]);
+    let err = check(&e.opts, &format!("{base}v1/channels/stable")).unwrap_err();
+    assert!(
+        matches!(&err, FetchError::Status { status: 404, body, .. } if body == "No release on stable yet."),
+        "{err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "127.0.0.1 answered 404: No release on stable yet."
+    );
+    server.join().unwrap();
+
+    // Nothing listens there.
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    drop(l);
+    let err = check(&e.opts, &format!("http://{addr}/manifest.json")).unwrap_err();
+    assert_eq!(err.kind(), "no_answer", "{err:?}");
+}
+
+#[test]
+fn refuses_a_manifest_without_a_valid_signature() {
+    let e = env("a", Some(rec(0x8f, 0x8e)));
+    let img = sealed("2.0.0", 64, &key());
+    let m = e.manifest(&img, "2.0.0", None, None);
+
+    let path = e.publish_json(&img, &m, None);
+    let err = check(&e.opts, path.to_str().unwrap()).unwrap_err();
+    assert!(matches!(err, FetchError::NoSignature), "{err:?}");
+    assert!(e.install(&path).is_err());
+
+    let path = e.publish_json(&img, &m, Some(&SigningKey::from_bytes(&[1; 32])));
+    let err = check(&e.opts, path.to_str().unwrap()).unwrap_err();
+    assert!(matches!(err, FetchError::BadSignature), "{err:?}");
+
+    // Signed, then changed.
+    let path = e.publish_json(&img, &m, Some(&key()));
+    let text = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("2.0.0", "2.0.1");
+    std::fs::write(&path, text).unwrap();
+    let err = e.install(&path).unwrap_err();
+    assert!(format!("{err:#}").contains("signature"), "{err:#}");
+
+    // Nothing was touched.
+    assert_eq!(e.record(), Some(rec(0x8f, 0x8e)));
+    assert!(e.part("system_b").iter().all(|&x| x == 0xbb));
+}
+
+#[test]
+fn refuses_a_manifest_that_breaks_the_format() {
+    let e = env("a", None);
+    let img = sealed("2.0.0-beta.1", 64, &key());
+    let mut m = e.manifest(&img, "2.0.0-beta.1", None, None);
+    m["channel"] = "stable".into();
+    let path = e.publish_json(&img, &m, Some(&key()));
+    let err = check(&e.opts, path.to_str().unwrap()).unwrap_err();
+    assert!(err.to_string().contains("belongs on beta"), "{err}");
+
+    let img = sealed("2026.11.17.1405-abc1234", 64, &key());
+    let m = e.manifest(&img, "2026.11.17.1405-abc1234", None, None);
+    let path = e.publish_json(&img, &m, Some(&key()));
+    let err = check(&e.opts, path.to_str().unwrap()).unwrap_err();
+    assert!(err.to_string().contains("not a semantic version"), "{err}");
+}
+
+#[test]
+fn a_channel_never_goes_back_and_stable_takes_no_beta() {
+    let e = env("a", None);
+    std::fs::write(e.path("run/boot-version"), "2.0.0\n").unwrap();
+    let stable = Rules {
+        channel: Some(Channel::Stable),
+        expect_version: None,
+    };
+    let older = e.publish(&sealed("1.9.0", 64, &key()), "1.9.0", None);
+    let err = e.install_with(&older, &stable).unwrap_err();
+    assert!(format!("{err:#}").contains("never goes back"), "{err:#}");
+    let same = e.publish(&sealed("2.0.0", 64, &key()), "2.0.0", None);
+    assert!(e.install_with(&same, &stable).is_err());
+    let beta = e.publish(&sealed("2.1.0-beta.1", 64, &key()), "2.1.0-beta.1", None);
+    let err = e.install_with(&beta, &stable).unwrap_err();
+    assert!(format!("{err:#}").contains("is a beta"), "{err:#}");
+    assert_eq!(e.record(), None, "nothing written");
+
+    // The beta channel takes it; given by hand, an older one installs too.
+    let beta_rules = Rules {
+        channel: Some(Channel::Beta),
+        expect_version: None,
+    };
+    e.install_with(&beta, &beta_rules).unwrap();
+    let older = e.publish(&sealed("1.9.0", 64, &key()), "1.9.0", None);
+    let lines = e.install(&older).unwrap();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("older than the running 2.0.0")),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn only_the_version_a_check_showed() {
+    let e = env("a", None);
+    let m = e.publish(&sealed("2.0.1", 64, &key()), "2.0.1", None);
+    let rules = Rules {
+        channel: None,
+        expect_version: Some("2.0.0".into()),
+    };
+    let err = e.install_with(&m, &rules).unwrap_err();
+    assert!(format!("{err:#}").contains("Check again"), "{err:#}");
+    assert_eq!(e.record(), None);
+}
+
+#[test]
+fn a_release_for_another_model_is_refused() {
+    let mut e = env("a", None);
+    let img = sealed("2.0.0", 64, &key());
+    let mut m = e.manifest(&img, "2.0.0", None, None);
+    m["requires"]["models"] = serde_json::json!(["echo-2"]);
+    let path = e.publish_json(&img, &m, Some(&key()));
+    let blocked = check(&e.opts, path.to_str().unwrap()).unwrap().blocked;
+    assert_eq!(blocked.as_ref().map(Blocked::kind), Some("model"));
+    assert_eq!(
+        blocked.unwrap().to_string(),
+        "This release is for echo-2, not for echo-dot-2."
+    );
+    assert!(e.install(&path).is_err());
+    e.opts.model = None;
+    assert!(e.install(&path).is_err());
+    e.opts.model = Some("echo-2".into());
+    e.install(&path).unwrap();
+}
+
+#[test]
+fn a_development_overlay_stops_the_install() {
+    let e = env("a", None);
+    std::fs::create_dir_all(e.path("pinna-dev")).unwrap();
+    let m = e.publish(&sealed("2.0.0", 64, &key()), "2.0.0", None);
+    let err = e.install(&m).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("scripts/push-dev.sh --remove"),
+        "{err:#}"
+    );
+    let blocked = check(&e.opts, m.to_str().unwrap()).unwrap().blocked;
+    assert_eq!(blocked.as_ref().map(Blocked::kind), Some("overlay"));
+    assert_eq!(e.record(), None);
+}
+
+/// A boot image of `level`, as `pinna-bootimg pack` writes it.
+fn leveled(fill: u8, level: u32) -> Vec<u8> {
+    let mut v = bootimg(fill, 8192);
+    let line = format!("bootopt=64S3,32N2,32N2 pinna.level={level}");
+    v[64..64 + line.len()].copy_from_slice(line.as_bytes());
+    v
+}
+
+#[test]
+fn the_boot_level_of_the_kernel_that_starts_the_slot() {
+    let needs_two = |e: &Env, img: &[u8], boot: Option<&[u8]>| {
+        let mut m = e.manifest(img, "2.0.0", None, boot.map(|b| (b, None)));
+        m["requires"]["boot_level"] = 2.into();
+        e.publish_json(img, &m, Some(&key()))
+    };
+    let img = sealed("2.0.0", 64, &key());
+
+    // The kernel stays (this bootloader ignores the slot): boot_a's level counts.
+    let e = env("a", Some(rec(0x8f, 0x8e)));
+    e.with_boot_parts();
+    slot::KernelSlots::Ignored
+        .write(&e.opts.kernel_slots)
+        .unwrap();
+    let m = needs_two(&e, &img, Some(&leveled(0xcc, 2)));
+    let blocked = check(&e.opts, m.to_str().unwrap()).unwrap().blocked;
+    assert_eq!(blocked, Some(Blocked::BootLevel { needs: 2, has: 1 }));
+    let err = e.install(&m).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("install it over USB"),
+        "{err:#}"
+    );
+    assert_eq!(e.record(), Some(rec(0x8f, 0x8e)), "slot b still counts");
+    let mut a2 = tagged(leveled(0xa0, 2), 'a');
+    a2.resize(BOOT_PART, 0);
+    std::fs::write(e.path("parts/boot_a"), a2).unwrap();
+    e.install(&m).unwrap();
+
+    // The release brings a kernel of too low a level: refused after the
+    // download, before anything is overwritten.
+    let e = env("a", Some(rec(0x8f, 0x8e)));
+    e.with_boot_parts();
+    let m = needs_two(&e, &img, Some(&leveled(0xcc, 1)));
+    assert_eq!(check(&e.opts, m.to_str().unwrap()).unwrap().blocked, None);
+    let err = e.install(&m).unwrap_err();
+    assert!(format!("{err:#}").contains("boot level 1"), "{err:#}");
+    assert_eq!(e.record(), Some(rec(0x8f, 0x8e)));
+    assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
+
+    // No boot image in the release: the running kernel goes along, and its
+    // level counts.
+    let e = env("a", None);
+    e.with_boot_parts();
+    let m = needs_two(&e, &img, None);
+    let blocked = check(&e.opts, m.to_str().unwrap()).unwrap().blocked;
+    assert_eq!(blocked, Some(Blocked::BootLevel { needs: 2, has: 1 }));
 }

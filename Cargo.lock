@@ -2245,6 +2245,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "thiserror",
  "url",
 ]
 
@@ -2270,6 +2271,7 @@ dependencies = [
  "futures",
  "pinna-api",
  "pinna-bootctl",
+ "pinna-hal",
  "pinna-update",
  "serde_json",
  "tokio",

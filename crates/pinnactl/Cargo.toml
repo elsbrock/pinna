@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 pinna-api = { path = "../pinna-api" }
 pinna-bootctl = { path = "../pinna-bootctl" }
+pinna-hal = { path = "../pinna-hal" }
 pinna-update = { path = "../pinna-update" }
 anyhow.workspace = true
 clap.workspace = true
