@@ -57,18 +57,19 @@ if [ -n "${REUSE_IMAGES:-}" ] && compgen -G "$work/www/n1/*.root.img" >/dev/null
    compgen -G "$work/www/n2/*.root.img" >/dev/null; then
   log "reusing N+1 and N+2 from a previous run"
 else
-  stamp="$(date +%Y.%m.%d.%H%M)-$(git -C "$root" rev-parse --short HEAD)"
+  # Semantic versions (ADR 0022); the updater only compares them for channels.
+  stamp="0.0.1-test.$(date -u +%Y%m%d%H%M).g$(git -C "$root" rev-parse --short=7 HEAD)"
   log "building N+1 (mkosi, a few minutes)"
-  build_variant n1 "$stamp-n1"
+  build_variant n1 "$stamp.n1"
   log "building the broken N+2 (pinnad never starts)"
-  build_variant n2 "$stamp-n2-broken" "$root/tests/vm/broken-pinnad"
+  build_variant n2 "$stamp.n2-broken" "$root/tests/vm/broken-pinnad"
 fi
 img1=$(ls "$work"/www/n1/*.root.img)
 img2=$(ls "$work"/www/n2/*.root.img)
 v1=$(image_tool info "$img1" | sed -n 's/^version: //p')
 v2=$(image_tool info "$img2" | sed -n 's/^version: //p')
-image_tool manifest "$img1" > "$work/www/n1/manifest.json"
-image_tool manifest "$img2" > "$work/www/n2/manifest.json"
+image_tool manifest --key "$root/secrets/release.key" --out "$work/www/n1" "$img1" >/dev/null
+image_tool manifest --key "$root/secrets/release.key" --out "$work/www/n2" "$img2" >/dev/null
 : > "$work/www/done"
 : > "$work/www/failed"
 log "N = $v0, N+1 = $v1, N+2 (broken) = $v2"
