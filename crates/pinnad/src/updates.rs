@@ -216,8 +216,10 @@ pub struct Found {
     pub channel: String,
     pub summary: String,
     pub notes_url: String,
-    /// Why the updater would refuse it (boot level, model), for people.
+    /// Why the updater would refuse it (the boot level), for people.
     pub blocked: Option<String>,
+    /// It is for another model, as the updater says; not offered.
+    pub other_model: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -829,9 +831,12 @@ fn parse_check(v: &serde_json::Value) -> Result<CheckOutcome, String> {
         notes_url: s(&m["notes_url"]),
         blocked: match &v["blocked"] {
             // The overlay is looked at live (`release_view`).
-            b if b.is_object() && b["kind"] != "overlay" => Some(s(&b["message"])),
+            b if b.is_object() && b["kind"] != "overlay" && b["kind"] != "model" => {
+                Some(s(&b["message"]))
+            }
             _ => None,
         },
+        other_model: (v["blocked"]["kind"] == "model").then(|| s(&v["blocked"]["message"])),
     }))
 }
 
@@ -877,7 +882,11 @@ pub fn release_view(found: &Found, booted: &str, slots: &[ApiSlot], overlay: boo
         }
         (Ordering::Greater, Some(_)) => (RELEASE_ACTION_START, String::new()),
         (Ordering::Less, _) => (RELEASE_ACTION_OLDER, String::new()),
-        (Ordering::Greater, None) => (RELEASE_ACTION_INSTALL, String::new()),
+        (Ordering::Greater, None) => match &found.other_model {
+            // Not offered (ADR 0022): it can never install here.
+            Some(why) => (RELEASE_ACTION_OTHER_MODEL, why.clone()),
+            None => (RELEASE_ACTION_INSTALL, String::new()),
+        },
     };
     if matches!(action, RELEASE_ACTION_INSTALL | RELEASE_ACTION_START) {
         let on_trial = slots.iter().any(|s| s.booted && s.state == "trial");
@@ -1207,6 +1216,7 @@ mod channel_tests {
             summary: "Summary.".into(),
             notes_url: "https://example.org/notes".into(),
             blocked: None,
+            other_model: None,
         }
     }
 
@@ -1299,6 +1309,16 @@ mod channel_tests {
             action(&release_view(&f, "0.4.1", &older, true)),
             RELEASE_ACTION_UP_TO_DATE
         );
+
+        // For another model: not offered, in Home Assistant neither.
+        let mut f = found("0.4.1");
+        f.other_model = Some("This release is for echo-dot-2, not for echo-2.".into());
+        let r = release_view(&f, "0.4.0", &older, false);
+        assert_eq!(action(&r), RELEASE_ACTION_OTHER_MODEL);
+        assert_eq!(r.note, "This release is for echo-dot-2, not for echo-2.");
+        let st = home_assistant_state(&resp(Some(r), false), None);
+        assert!(!st.missing);
+        assert_eq!(st.latest_version, "0.4.0");
     }
 
     fn resp(release: Option<Release>, no_release: bool) -> GetUpdatesResponse {
@@ -1407,6 +1427,16 @@ mod channel_tests {
         assert_eq!(
             f.blocked.as_deref(),
             Some("Needs a new boot image: install it over USB.")
+        );
+        // A model block makes the release another model's, not a blocked one.
+        let mut model = ok.clone();
+        model["blocked"] = serde_json::json!({ "kind": "model", "message": "For echo-2." });
+        let Ok(CheckOutcome::Found(f)) = parse_check(&model) else {
+            panic!("found");
+        };
+        assert_eq!(
+            (f.blocked, f.other_model.as_deref()),
+            (None, Some("For echo-2."))
         );
         // The overlay is looked at when GetUpdates is asked, not at the check.
         let mut overlay = ok.clone();

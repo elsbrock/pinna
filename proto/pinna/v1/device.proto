@@ -826,7 +826,8 @@ message Release {
   string notes_url = 4;
   // What InstallUpdate does with it.
   ReleaseAction action = 5;
-  // For people: why it can't be installed (BLOCKED, FAILED); empty otherwise.
+  // For people: why it can't be installed (BLOCKED, FAILED, OTHER_MODEL);
+  // empty otherwise.
   string note = 6;
 }
 
@@ -847,10 +848,13 @@ enum ReleaseAction {
   RELEASE_ACTION_RESTART = 5;
   // It failed its trial boot and was rolled back; not offered again.
   RELEASE_ACTION_FAILED = 6;
-  // InstallUpdate would refuse it: a newer boot image is needed, it is for
-  // another model, a `just push` overlay is active, or the running version
-  // is still on trial. `note` says which.
+  // InstallUpdate would refuse it: a newer boot image is needed, a
+  // `just push` overlay is active, or the running version is still on trial.
+  // `note` says which.
   RELEASE_ACTION_BLOCKED = 7;
+  // It is for another model: not offered, and not shown in Home Assistant.
+  // `note` names the models it is for.
+  RELEASE_ACTION_OTHER_MODEL = 8;
 }
 
 message CheckForUpdatesRequest {}
