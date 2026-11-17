@@ -486,10 +486,11 @@ async fn main() -> Result<()> {
         dc.name,
         dc.mac_string()
     );
-    if cfg.esphome.mdns
-        && let Err(e) = identity::publish_mdns(&dc)
-    {
-        tracing::warn!("mDNS: {e:#}");
+    if cfg.esphome.mdns {
+        if let Err(e) = identity::publish_mdns(&dc) {
+            tracing::warn!("mDNS: {e:#}");
+        }
+        tokio::spawn(identity::watch_name());
     }
     let dc_mac = dc.mac_string();
     let mdns = cfg.esphome.mdns.then(|| dc.clone());

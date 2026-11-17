@@ -700,6 +700,10 @@ message Interface {
 message GetNetworkResponse {
   string hostname = 1;
   repeated Interface interfaces = 2;
+  // The name systemd-resolved announces over mDNS, `<mdns_hostname>.local`.
+  // Differs from hostname for a few minutes after resolved lost a name
+  // conflict and picked another (ADR 0024). Empty when unknown.
+  string mdns_hostname = 3;
 }
 
 message WatchLogsRequest {}

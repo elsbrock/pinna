@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::mpsc::{Sender, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use pinna_esphome::{DeviceConfig, mdns_txt, parse_encryption_key};
@@ -249,6 +249,91 @@ pub fn publish_mdns(cfg: &DeviceConfig) -> Result<()> {
     Ok(())
 }
 
+/// The host name systemd-resolved announces over mDNS, `<name>.local`. It
+/// differs from the hostname after resolved lost a name conflict and picked
+/// another (ADR 0024). `None` without resolved or busctl. Blocking.
+pub fn published_hostname() -> Option<String> {
+    let out = std::process::Command::new("busctl")
+        .args([
+            "get-property",
+            "org.freedesktop.resolve1",
+            "/org/freedesktop/resolve1",
+            "org.freedesktop.resolve1.Manager",
+            "LLMNRHostname",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    busctl_string(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// A string property as busctl prints it: `s "echo2"`.
+fn busctl_string(out: &str) -> Option<String> {
+    let name = out.trim().strip_prefix("s \"")?.strip_suffix('"')?;
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+/// How often the announced name is compared with the hostname.
+const NAME_CHECK: Duration = Duration::from_secs(60);
+/// How long after putting the name back pinnad waits before doing it again.
+const NAME_REPAIR_EVERY: Duration = Duration::from_secs(600);
+
+/// Compares the announced name with the hostname, once a minute.
+#[derive(Debug, Default)]
+struct NameWatch {
+    /// Checks in a row that found another name.
+    missed: u8,
+    repaired: Option<Instant>,
+}
+
+impl NameWatch {
+    /// Whether to restart resolved now: on the second check in a row that
+    /// finds another name (a rename shows a different name for a moment), and
+    /// at most once every ten minutes, so a network that keeps answering for
+    /// the name doesn't make the satellite announce itself without end.
+    fn check(&mut self, hostname: &str, published: &str, now: Instant) -> bool {
+        if published.eq_ignore_ascii_case(hostname) {
+            self.missed = 0;
+            return false;
+        }
+        self.missed = self.missed.saturating_add(1);
+        if self.missed < 2
+            || self
+                .repaired
+                .is_some_and(|t| now.duration_since(t) < NAME_REPAIR_EVERY)
+        {
+            return false;
+        }
+        self.missed = 0;
+        self.repaired = Some(now);
+        true
+    }
+}
+
+/// Put back a host name that resolved changed after a name conflict (ADR
+/// 0024). A restart reads the hostname and the files again; setting the
+/// hostname again wouldn't reset a renamed service instance. Runs for as long
+/// as pinnad does.
+pub async fn watch_name() {
+    let mut watch = NameWatch::default();
+    loop {
+        tokio::time::sleep(NAME_CHECK).await;
+        let hostname = crate::network::hostname();
+        let Ok(Some(published)) = tokio::task::spawn_blocking(published_hostname).await else {
+            continue;
+        };
+        if !hostname.is_empty() && watch.check(&hostname, &published, Instant::now()) {
+            tracing::warn!(
+                "mDNS: systemd-resolved announces {published}.local instead of {hostname}.local \
+                 after a name conflict; restarting it"
+            );
+            reread_dnssd(true);
+        }
+    }
+}
+
 /// How long requests gather before resolved reads the files once.
 const REREAD_BATCH: Duration = Duration::from_secs(1);
 
@@ -405,6 +490,34 @@ mod tests {
         assert_eq!(*runs.lock().unwrap(), [true], "one run, a restart");
         burst(&[false, false]);
         assert_eq!(*runs.lock().unwrap(), [true, false], "new files: a reload");
+    }
+
+    #[test]
+    fn reads_the_announced_name() {
+        assert_eq!(busctl_string("s \"echo8\"\n").as_deref(), Some("echo8"));
+        assert_eq!(busctl_string("s \"\""), None);
+        assert_eq!(busctl_string("b true"), None);
+    }
+
+    #[test]
+    fn a_renamed_host_is_put_back_on_the_second_check_at_most_every_ten_minutes() {
+        let mut w = NameWatch::default();
+        let t0 = Instant::now();
+        let at = |m: u64| t0 + Duration::from_secs(60 * m);
+        assert!(!w.check("echo2", "echo2", at(0)));
+        assert!(
+            !w.check("echo2", "echo8", at(1)),
+            "a rename may be under way"
+        );
+        assert!(w.check("echo2", "echo8", at(2)));
+        // Still renamed after the restart: not again within ten minutes.
+        for m in 3..12 {
+            assert!(!w.check("echo2", "echo9", at(m)), "minute {m}");
+        }
+        assert!(w.check("echo2", "echo9", at(12)));
+        // Back to normal resets the count.
+        assert!(!w.check("echo2", "ECHO2", at(13)));
+        assert!(!w.check("echo2", "echo3", at(30)));
     }
 
     #[test]

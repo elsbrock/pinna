@@ -16,6 +16,10 @@
   const interfaces = $derived(net ? [...net.interfaces].sort((a, b) => Number(b.wireless) - Number(a.wireless)) : []);
 
   const current = $derived(device.status?.name || net?.hostname || "");
+  // After a name conflict systemd-resolved announces another name until
+  // pinnad restarts it (ADR 0024).
+  const announced = $derived(net?.mdnsHostname ?? "");
+  const renamed = $derived(!!announced && !!current && announced.toLowerCase() !== current.toLowerCase());
 
   // The dashboard address (ADR 0021). The page can't change or remove it while
   // it is open by that address's host: it would stop answering.
@@ -66,6 +70,18 @@
 </script>
 
 {#if net}
+  {#if renamed}
+    <div class="pn-notice" data-tone="caution" role="status">
+      <Icon name="alert" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">This satellite answers as {announced}.local</p>
+        <p>
+          After a name conflict on the network, it answers as {announced}.local instead of {current}.local. It takes its
+          name back within a few minutes.
+        </p>
+      </div>
+    </div>
+  {/if}
   {#if issue}
     <div class="pn-notice" data-tone="caution" role="status">
       <Icon name="alert" class="pn-icon pn-notice-icon" />
