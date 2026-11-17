@@ -61,11 +61,11 @@ On the devices:
 - **The dashboard has no login.** Anyone on your network can use it,
   including restarting and updating the device. See
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
-- **No release is published yet, and `updates.getpinna.dev` doesn't answer
-  yet.** The release workflow builds and signs the images and the manifest for
-  a [release](https://github.com/elsbrock/pinna/releases), but none has been
-  published, and the release service isn't running. Until then, devices
-  report that their update check failed, and you
+- **No release is published yet.** The release workflow builds and signs the
+  images and the manifest for a
+  [release](https://github.com/elsbrock/pinna/releases), and
+  `updates.getpinna.dev` serves them, but none has been published. Until then,
+  devices report that there is no release yet, and you
   [build your own](/docs/build/).
 - **The wake words are fixed in the image.** Pinna listens for up to two of
   Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy (openWakeWord) and Okay Nabu at

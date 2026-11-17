@@ -58,10 +58,8 @@ A newer release then shows on the dashboard's **System** page and in Home
 Assistant. The satellite never goes back to an older version on its own, and a
 satellite on **Stable** never installs a beta.
 
-No release is published yet, and `updates.getpinna.dev` doesn't answer yet.
-Until it does, **System** shows `updates.getpinna.dev did not answer. Check
-that the satellite can reach the internet.`: the second sentence doesn't apply
-then. You install builds of your own as described in
+No release is published yet. Until one is, **System** shows **No release
+yet**, and you install builds of your own as described in
 [Install a build of your own](#install-a-build-of-your-own).
 
 ## Before you begin
