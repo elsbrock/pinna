@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { slotTag, tagSlot } from "./bootimg.ts";
 import { identify } from "./device.ts";
 import { Fastboot, FastbootError, WRITE_CHUNK } from "./fastboot.ts";
 import { install, InstallError, plan } from "./install.ts";
@@ -43,6 +44,31 @@ function apply(target: Uint8Array, data: Uint8Array): void {
 }
 
 const pattern = (n: number) => Uint8Array.from({ length: n }, (_, i) => (i * 7 + 3) & 0xff);
+
+const ascii = (t: string) => Uint8Array.from(t, (c) => c.charCodeAt(0));
+
+/** A boot image as LK sees it: the header's magic and line, then a pattern. */
+const bootImage = (n: number) => {
+  const b = pattern(n);
+  b.fill(0, 0, 2048);
+  b.set(ascii("ANDROID!"), 0);
+  b.set(ascii("bootopt=64S3,32N2,32N2"), 64);
+  return b;
+};
+
+test("a boot image is marked with its slot in the header's line only", () => {
+  const img = bootImage(3 * BLOCK);
+  const b = tagSlot(img, "b");
+  assert.equal(slotTag(b), "b");
+  assert.equal(String.fromCharCode(...b.subarray(64, 64 + 35)), "bootopt=64S3,32N2,32N2 pinna.boot=b");
+  assert.deepEqual(b.subarray(576), img.subarray(576));
+  assert.deepEqual(b.subarray(0, 64), img.subarray(0, 64));
+  // Marking again replaces the mark.
+  assert.equal(slotTag(tagSlot(b, "a")), "a");
+  assert.equal(String.fromCharCode(...tagSlot(b, "a").subarray(64, 100)).replace(/\0+$/, ""), "bootopt=64S3,32N2,32N2 pinna.boot=a");
+  assert.equal(slotTag(img), null);
+  assert.throws(() => tagSlot(pattern(4096), "a"), /not a boot image/);
+});
 
 test("an image that fits goes as one raw download", () => {
   const image = pattern(10_000);
@@ -152,19 +178,20 @@ const KAERU: Script = {
   "flash:userdata": ["OKAY"],
   "flash:boot_a": ["OKAY"],
   "flash:boot_b": ["OKAY"],
+  "set_active:a": ["OKAY"],
   reboot: ["OKAY"],
 };
 
 test("install writes what flash-gen2.sh writes, in its order, then restarts", async () => {
   const report = await identify(new Fastboot(new ScriptedDevice(KAERU), 10));
   const root = pattern(40 * BLOCK + 5);
-  const boot = pattern(3 * BLOCK);
+  const boot = bootImage(3 * BLOCK);
   const device = new ScriptedDevice(KAERU);
   await install(new Fastboot(device, 10), plan(report, { boot, root }));
 
   const flashes = device.sent.filter((c) => !c.startsWith("download:"));
-  assert.deepEqual([...new Set(flashes)], ["flash:system_a", "flash:system_b", "flash:userdata", "flash:boot_a", "flash:boot_b", "reboot"]);
-  assert.ok(device.sent.every((c, i) => c.startsWith("download:") === (i % 2 === 0) || c === "reboot"), "each flash follows its download");
+  assert.deepEqual([...new Set(flashes)], ["flash:system_a", "flash:system_b", "flash:userdata", "flash:boot_a", "flash:boot_b", "set_active:a", "reboot"]);
+  assert.ok(device.sent.every((c, i) => c.startsWith("download:") === (i % 2 === 0) || c === "set_active:a" || c === "reboot"), "each flash follows its download");
 
   // Replay the downloads onto partitions and compare.
   const partitions: Record<string, Uint8Array> = {
@@ -182,26 +209,26 @@ test("install writes what flash-gen2.sh writes, in its order, then restarts", as
   assert.ok(partitions.system_b.subarray(0, 1 << 20).every((b) => b === 0));
   assert.equal(partitions.system_b[1 << 20], 1, "only the first MiB of system_b is cleared");
   assert.ok(partitions.userdata.subarray(0, 4 << 20).every((b) => b === 0));
-  assert.deepEqual(partitions.boot_a, boot);
-  assert.deepEqual(partitions.boot_b, boot);
+  assert.deepEqual(partitions.boot_a, tagSlot(boot, "a"));
+  assert.deepEqual(partitions.boot_b, tagSlot(boot, "b"));
   for (const data of device.downloads) assert.ok(data.length <= 0x10000);
 });
 
 test("an image bigger than its partition stops the install before any write", async () => {
   const report = await identify(new Fastboot(new ScriptedDevice({ ...KAERU, "getvar:partition-size:boot_a": ["OKAY1000"] }), 10));
-  assert.throws(() => plan(report, { boot: pattern(2 * BLOCK), root: pattern(BLOCK) }), InstallError);
+  assert.throws(() => plan(report, { boot: bootImage(2 * BLOCK), root: pattern(BLOCK) }), InstallError);
 });
 
 test("a failed write stops the install there", async () => {
   const report = await identify(new Fastboot(new ScriptedDevice(KAERU), 10));
   const device = new ScriptedDevice({ ...KAERU, "flash:userdata": ["FAILwrite error"] });
-  await assert.rejects(install(new Fastboot(device, 10), plan(report, { boot: pattern(BLOCK), root: pattern(BLOCK) })), /write error/);
+  await assert.rejects(install(new Fastboot(device, 10), plan(report, { boot: bootImage(BLOCK), root: pattern(BLOCK) })), /write error/);
   assert.equal(device.sent.at(-1), "flash:userdata");
 });
 
 test("a restart without a reply still finishes the install", async () => {
   const report = await identify(new Fastboot(new ScriptedDevice(KAERU), 10));
   const device = new ScriptedDevice({ ...KAERU, reboot: "timeout" });
-  await install(new Fastboot(device, 10), plan(report, { boot: pattern(BLOCK), root: pattern(BLOCK) }));
+  await install(new Fastboot(device, 10), plan(report, { boot: bootImage(BLOCK), root: pattern(BLOCK) }));
   assert.equal(device.sent.at(-1), "reboot");
 });

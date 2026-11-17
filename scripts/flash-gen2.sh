@@ -12,7 +12,8 @@
 #
 # Only boot_a, boot_b, system_a, system_b and userdata are ever written. Never
 # touched: preloader/boot areas, lk_a/lk_b, tee1/tee2, expdb (Kaeru), persist,
-# misc (Pinna writes only its bootloader command and A/B slot state, at runtime).
+# misc (the bootloader's slot record, set to slot a by `root` and `restore`;
+# at runtime Pinna writes its bootloader command and that record, ADR 0019).
 set -euo pipefail
 
 fb=${FASTBOOT:-fastboot}
@@ -52,6 +53,21 @@ need_device() {
 }
 
 need_file() { [ -s "$1" ] || die "missing $1 ($2)"; }
+
+# tag_slot IMAGE SLOT OUT: a copy of the boot image marked `pinna.boot=SLOT`
+# in its header's command line (bytes 64-575), which LK passes on, so
+# pinna-init sees which boot partition was loaded (ADR 0019).
+tag_slot() {
+  local line
+  [ "$(head -c 8 "$1")" = "ANDROID!" ] || die "$1 is not a boot image"
+  line=$(dd if="$1" bs=1 skip=64 count=512 status=none | tr -d '\0' |
+    tr ' ' '\n' | { grep -v -e '^pinna\.boot=' -e '^$' || true; } | tr '\n' ' ')
+  line="${line}pinna.boot=$2"
+  [ ${#line} -lt 512 ] || die "the command line in $1 is full"
+  cp "$1" "$3"
+  head -c 512 /dev/zero | dd of="$3" bs=1 seek=64 conv=notrunc status=none
+  printf '%s' "$line" | dd of="$3" bs=1 seek=64 conv=notrunc status=none
+}
 
 # 0 if FILE is listed in the SHA256SUMS next to it and matches, 1 if there
 # is no SHA256SUMS; dies if it isn't listed or doesn't match.
@@ -105,6 +121,9 @@ case "${1:-}" in
     head -c 4194304 /dev/zero > "$tmp"
     $fb flash userdata "$tmp"
     rm -f "$tmp"
+    # Slot a holds the root: the bootloader's record starts it, whatever
+    # Amazon's software or an earlier install left there.
+    $fb set_active a
     say "done; next: $0 boot"
     ;;
   try)
@@ -120,8 +139,12 @@ case "${1:-}" in
     need_file "$boot_img" "just bootimg, or a release folder"
     check_sums "$boot_img" || say "no SHA256SUMS next to $(basename "$boot_img"): not checked"
     confirm "Write the Pinna boot image to boot_a and boot_b?"
-    $fb flash boot_a "$boot_img"
-    $fb flash boot_b "$boot_img"
+    tmp=$(mktemp -d)
+    tag_slot "$boot_img" a "$tmp/boot_a.img"
+    tag_slot "$boot_img" b "$tmp/boot_b.img"
+    $fb flash boot_a "$tmp/boot_a.img"
+    $fb flash boot_b "$tmp/boot_b.img"
+    rm -rf "$tmp"
     $fb reboot
     ;;
   restore)
@@ -139,6 +162,8 @@ case "${1:-}" in
       say "no system_b.img in the backup: system_b keeps Pinna's data"
     fi
     $fb flash userdata "$dir/userdata.img"
+    # The backup's system ran from slot a.
+    $fb set_active a
     $fb reboot
     ;;
   *)

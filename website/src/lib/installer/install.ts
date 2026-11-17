@@ -2,6 +2,7 @@
 // in the same order, as `flash-gen2.sh root` and then `flash-gen2.sh boot`.
 import type { DeviceReport, Partition } from "./device.ts";
 import { Fastboot, FastbootError } from "./fastboot.ts";
+import { tagSlot } from "./bootimg.ts";
 import { payloads, type Payload } from "./sparse.ts";
 
 export type Write = { partition: Partition; label: string; payloads: Payload[] };
@@ -44,15 +45,16 @@ export function plan(report: DeviceReport, images: { boot: Uint8Array; root: Uin
   fits("system_b", new Uint8Array(MiB), "cleared start");
   fits("userdata", new Uint8Array(4 * MiB), "cleared start");
 
-  const boot = payloads(images.boot, max);
+  // Each boot partition gets the image marked with its slot (ADR 0019).
+  const bootFor = (slot: "a" | "b") => payloads(tagSlot(images.boot, slot), max);
   return [
     { partition: "system_a", label: "Writing the root image to system_a", payloads: payloads(images.root, max) },
     // No image in system_b, so slot a boots, whatever misc says.
     { partition: "system_b", label: "Clearing system_b", payloads: payloads(new Uint8Array(MiB), max) },
     // Pinna formats userdata as /var on the first start.
     { partition: "userdata", label: "Erasing userdata", payloads: payloads(new Uint8Array(4 * MiB), max) },
-    { partition: "boot_a", label: "Writing the boot image to boot_a", payloads: boot },
-    { partition: "boot_b", label: "Writing the boot image to boot_b", payloads: boot },
+    { partition: "boot_a", label: "Writing the boot image to boot_a", payloads: bootFor("a") },
+    { partition: "boot_b", label: "Writing the boot image to boot_b", payloads: bootFor("b") },
   ];
 }
 
@@ -88,6 +90,9 @@ export async function install(fb: Fastboot, writes: Write[], onProgress: (p: Pro
     }
   }
 
+  // Slot a holds the root: the bootloader's record starts it, whatever
+  // Amazon's software or an earlier install left there.
+  await fb.command("set_active:a");
   onProgress({ label: "Restarting the device", phase: "restarting", sent: total, total });
   try {
     await fb.command("reboot");
