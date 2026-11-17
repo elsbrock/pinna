@@ -616,7 +616,10 @@ fn run_decoder(
     let result = decode_stream(source, hint, &mut out, sink);
     let end = match result {
         Ok(()) if out.sent => None,
-        Ok(()) => Some("no audio decoded".to_string()),
+        Ok(()) => {
+            tracing::warn!("media: no audio decoded");
+            Some(NOT_AUDIO.to_string())
+        }
         Err(e) => Some(e),
     };
     if let (Some(e), Some(r)) = (&end, out.ready.take()) {
@@ -643,7 +646,17 @@ fn decode_stream(
     out: &mut Out,
     sink: Option<TrackSink>,
 ) -> std::result::Result<(), String> {
-    let err = |e: SymError| e.to_string();
+    // An owner reads these; the decoder's own words go to the log.
+    let err = |e: SymError| {
+        tracing::warn!("media: {e}");
+        match e {
+            SymError::IoError(_) => {
+                "The server stopped sending audio. Try again, or try another address."
+            }
+            _ => DAMAGED,
+        }
+        .to_string()
+    };
     let mss = MediaSourceStream::new(source, Default::default());
     let probed = symphonia::default::get_probe()
         .format(
@@ -652,7 +665,10 @@ fn decode_stream(
             &FormatOptions::default(),
             &MetadataOptions::default(),
         )
-        .map_err(|e| format!("unrecognised audio stream: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!("media: unrecognised audio stream: {e}");
+            NOT_AUDIO.to_string()
+        })?;
     let mut probed = probed;
     // Tags ahead of the container (ID3v2), then the container's own.
     if let Some(sink) = &sink {
@@ -676,9 +692,10 @@ fn decode_stream(
         });
     }
     let mut format = probed.format;
-    let track = format
-        .default_track()
-        .ok_or_else(|| "no audio track".to_string())?;
+    let track = format.default_track().ok_or_else(|| {
+        tracing::warn!("media: no audio track");
+        NOT_AUDIO.to_string()
+    })?;
     let track_id = track.id;
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
@@ -700,7 +717,7 @@ fn decode_stream(
             Err(SymError::DecodeError(e)) => {
                 bad += 1;
                 if bad > MAX_BAD_PACKETS {
-                    return Err(format!("decode error: {e}"));
+                    return Err(err(SymError::DecodeError(e)));
                 }
                 continue;
             }
@@ -714,7 +731,7 @@ fn decode_stream(
             Err(SymError::DecodeError(e)) => {
                 bad += 1;
                 if bad > MAX_BAD_PACKETS {
-                    return Err(format!("decode error: {e}"));
+                    return Err(err(SymError::DecodeError(e)));
                 }
                 tracing::debug!("media decode error (skipped): {e}");
                 continue;
@@ -766,6 +783,25 @@ fn decode_stream(
 
 // ---------------------------------------------------------------------------
 // Sources
+
+/// What an owner reads when an address isn't audio that plays. The decoder's
+/// own words go to the log.
+const NOT_AUDIO: &str = "This isn't MP3, FLAC, Ogg Vorbis or WAV audio. Use the stream's own \
+     address, not its web page or a playlist.";
+
+/// What an owner reads when audio stops because it can't be decoded.
+const DAMAGED: &str = "The audio is damaged, so it stopped. Try another address.";
+
+/// What an owner reads when the server can't be fetched from.
+fn unreachable(e: &reqwest::Error) -> &'static str {
+    if e.is_timeout() {
+        "The server didn't answer in time. Check the address, or try again later."
+    } else if e.is_connect() {
+        "Couldn't connect to the server. Check the address, and that the satellite's network reaches it."
+    } else {
+        "Couldn't fetch the address. Check it, and that the server sends audio."
+    }
+}
 
 /// Blocking `Read` over the pump's channel.
 struct ChanReader {
@@ -883,12 +919,15 @@ async fn open(
         if sink.is_some() {
             req = req.header("Icy-MetaData", "1");
         }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| Error::Other(format!("open {url}: {e}")))?;
+        let resp = req.send().await.map_err(|e| {
+            tracing::warn!("media: open {url}: {e}");
+            Error::Other(unreachable(&e).into())
+        })?;
         if !resp.status().is_success() {
-            return Err(Error::Other(format!("open {url}: HTTP {}", resp.status())));
+            return Err(Error::Other(format!(
+                "The server answered HTTP {}. Check the address.",
+                resp.status()
+            )));
         }
         // A server that interleaves ICY metadata says how often; without
         // removing it, the decoder would hear it as noise.
@@ -942,7 +981,9 @@ async fn open(
     } else {
         let path = url.strip_prefix("file://").unwrap_or(url);
         if path.contains("://") {
-            return Err(Error::Other(format!("unsupported URL scheme: {url}")));
+            return Err(Error::Other(
+                "Only addresses that start with http:// or https:// play.".into(),
+            ));
         }
         let file = tokio::fs::File::open(path)
             .await
@@ -2488,7 +2529,13 @@ mod tests {
         let e = m.play_url("/definitely/not/here.wav").await.unwrap_err();
         assert!(e.to_string().contains("open"), "{e}");
         let e = m.play_url("ftp://example.invalid/x.mp3").await.unwrap_err();
-        assert!(e.to_string().contains("scheme"), "{e}");
+        assert!(e.to_string().contains("http://"), "{e}");
+        let failed = Some("ftp://example.invalid/x.mp3".to_string());
+        assert!(
+            until(Duration::from_secs(1), || m.state().borrow().error_url
+                == failed)
+            .await
+        );
     }
 
     #[tokio::test]
@@ -2622,7 +2669,7 @@ mod tests {
         for (path, want) in [
             ("/missing.mp3", "404"),
             ("/junk.mp3", ""),
-            ("/empty.wav", "no audio"),
+            ("/empty.wav", "isn't MP3"),
         ] {
             let e = match rig.speaker.play_url(&srv.url(path)).await {
                 Ok(_) => panic!("{path} played"),
