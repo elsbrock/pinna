@@ -641,7 +641,8 @@ message ListSatellitesResponse {
 
 // A satellite found by its ESPHome mDNS record (ADR 0021).
 message Satellite {
-  // The node name, which is also its hostname: `<name>.local`.
+  // Its ESPHome instance name: the node name, unless systemd-resolved
+  // renamed the instance after a name conflict (ADR 0024). Links use `host`.
   string name = 1;
   string friendly_name = 2;
   // The model, e.g. "Echo Dot (2nd Gen)".

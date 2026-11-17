@@ -47,7 +47,8 @@ const USB_NET: (Ipv4Addr, u8) = (Ipv4Addr::new(10, 42, 0, 0), 24);
 /// Another satellite, as its mDNS records describe it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
-    /// The instance label: the node name, which is also the hostname.
+    /// The instance label: the node name, unless systemd-resolved renamed the
+    /// instance after a conflict (ADR 0024).
     pub name: String,
     /// The host its SRV record names, without `.local`. Usually `name`, but
     /// systemd-resolved may rename either after a conflict (ADR 0024), and
@@ -436,19 +437,13 @@ pub fn on_network(interfaces: &[Interface]) -> bool {
 }
 
 /// The interfaces to ask over IPv6, by index: those besides the USB link
-/// that are up and have an IPv6 address. ff02::fb is link-local, so each
-/// gets its own query.
+/// that are up and have an address. ff02::fb is link-local, so each gets its
+/// own query, and a link-local IPv6 address (which the interface list leaves
+/// out) is enough; on a link without IPv6 that send just fails.
 fn v6_links(interfaces: &[Interface]) -> Vec<u32> {
     interfaces
         .iter()
-        .filter(|i| i.name != "usb0" && i.name != "lo" && i.up)
-        .filter(|i| {
-            i.addresses.iter().any(|a| {
-                a.split('/')
-                    .next()
-                    .is_some_and(|ip| ip.parse::<Ipv6Addr>().is_ok())
-            })
-        })
+        .filter(|i| i.name != "usb0" && i.name != "lo" && i.up && !i.addresses.is_empty())
         .filter_map(|i| {
             std::fs::read_to_string(format!("/sys/class/net/{}/ifindex", i.name))
                 .ok()?
@@ -479,19 +474,27 @@ async fn discover_at(
     first: Duration,
     second: Duration,
 ) -> Result<Vec<Found>> {
+    // Either family alone is enough: `send` fails when nothing went out.
     let v4 = if targets.iter().any(SocketAddr::is_ipv4) {
-        let s = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
-            .await
-            .context("opening a UDP socket")?;
-        s.set_multicast_ttl_v4(255)
-            .context("setting the multicast TTL")?;
-        Some(s)
+        match UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await {
+            Ok(s) => {
+                s.set_multicast_ttl_v4(255)
+                    .context("setting the multicast TTL")?;
+                Some(s)
+            }
+            Err(e) => {
+                tracing::debug!("satellites: no IPv4 socket: {e}");
+                None
+            }
+        }
     } else {
         None
     };
-    // IPv6 is a second chance, not a requirement.
     let v6 = if targets.iter().any(SocketAddr::is_ipv6) {
-        UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0)).await.ok()
+        UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0))
+            .await
+            .inspect_err(|e| tracing::debug!("satellites: no IPv6 socket: {e}"))
+            .ok()
     } else {
         None
     };

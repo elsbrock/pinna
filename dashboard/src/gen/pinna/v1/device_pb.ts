@@ -1613,7 +1613,8 @@ export const ListSatellitesResponseSchema: GenMessage<ListSatellitesResponse> = 
  */
 export type Satellite = Message<"pinna.v1.Satellite"> & {
   /**
-   * The node name, which is also its hostname: `<name>.local`.
+   * Its ESPHome instance name: the node name, unless systemd-resolved
+   * renamed the instance after a name conflict (ADR 0024). Links use `host`.
    *
    * @generated from field: string name = 1;
    */
