@@ -428,6 +428,13 @@ async fn main() -> Result<()> {
         .clone()
         .unwrap_or_else(|| identity::model_name(model).into());
     dc.manufacturer = cfg.device.manufacturer.clone();
+    // The release that booted, as pinna-init read it from the root image's
+    // signed footer; the crate's version says nothing about the release.
+    if let Ok(Some(v)) =
+        pinna_bootctl::slot::booted_version(std::path::Path::new(pinna_bootctl::slot::RUN_DIR))
+    {
+        dc.project_version = v;
+    }
     dc.suggested_area = cfg.device.suggested_area.clone();
     dc.port = cfg.esphome.port;
     // Home Assistant's "Visit" link on the device page opens the dashboard.
