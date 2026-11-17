@@ -2105,6 +2105,7 @@ dependencies = [
  "hound",
  "pinna-http",
  "pinna-mcp",
+ "pinna-vad",
  "serde",
  "serde_json",
  "tokio",
