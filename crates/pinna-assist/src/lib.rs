@@ -19,5 +19,6 @@ pub mod reply;
 pub mod run;
 pub mod secrets;
 pub mod sentences;
+pub mod stt;
 #[cfg(feature = "testing")]
 pub mod testing;
