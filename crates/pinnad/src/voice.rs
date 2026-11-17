@@ -1504,7 +1504,7 @@ impl Brain {
             HaCommand::ClientDisconnected => {
                 self.clients = self.clients.saturating_sub(1);
                 tracing::info!("Home Assistant disconnected");
-                if self.clients == 0 && self.phase != Phase::Idle {
+                if self.clients == 0 && self.phase != Phase::Idle && self.local.run.is_none() {
                     self.abort_run(false).await;
                 }
             }
@@ -2639,11 +2639,13 @@ impl Brain {
     }
 
     async fn abort_run(&mut self, tell_ha: bool) {
+        let was_local = self.local.run.is_some();
+        self.cancel_local();
         self.stop_streaming();
         if self.phase != Phase::Idle {
             self.event("voice_assistant", "stopped").await;
         }
-        if tell_ha && self.phase != Phase::Idle {
+        if tell_ha && !was_local && self.phase != Phase::Idle {
             self.send(DeviceEvent::VoiceStop).await;
             self.stale_run = !self.run_ended;
         }
@@ -2879,23 +2881,25 @@ impl Brain {
                 tracing::info!("bluetooth: running with the Wi-Fi up");
             }
         }
-        match self.phase {
-            Phase::Starting(t) if now - t > START_TIMEOUT => {
-                tracing::warn!("Home Assistant did not answer the run start");
-                self.send(DeviceEvent::VoiceStop).await;
-                self.fail().await;
+        if self.local.run.is_none() {
+            match self.phase {
+                Phase::Starting(t) if now - t > START_TIMEOUT => {
+                    tracing::warn!("Home Assistant did not answer the run start");
+                    self.send(DeviceEvent::VoiceStop).await;
+                    self.fail().await;
+                }
+                Phase::Listening(t) if now - t > LISTEN_TIMEOUT => {
+                    tracing::warn!("no end of speech from Home Assistant; stopping the microphone");
+                    self.stop_streaming();
+                    self.end_of_speech(now);
+                }
+                Phase::Thinking(t) if now - t > THINK_TIMEOUT => {
+                    tracing::warn!("Assist run timed out");
+                    self.abort_run(true).await;
+                    self.error_feedback();
+                }
+                _ => {}
             }
-            Phase::Listening(t) if now - t > LISTEN_TIMEOUT => {
-                tracing::warn!("no end of speech from Home Assistant; stopping the microphone");
-                self.stop_streaming();
-                self.end_of_speech(now);
-            }
-            Phase::Thinking(t) if now - t > THINK_TIMEOUT => {
-                tracing::warn!("Assist run timed out");
-                self.abort_run(true).await;
-                self.error_feedback();
-            }
-            _ => {}
         }
         self.tick_timers(now, SystemTime::now(), timers::clock_synced())
             .await;

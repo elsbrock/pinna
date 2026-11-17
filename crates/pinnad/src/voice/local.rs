@@ -15,7 +15,7 @@ use pinna_assist::run::{RunEvent, RunKind};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::{AssistStatus, Phase, RunId};
+use super::{AssistStatus, Brain, Phase, RunId};
 use crate::standalone::AssistLive;
 
 /// Standalone wiring kept separate from `Options` so existing test builders
@@ -49,7 +49,6 @@ impl LocalOptions {
 }
 
 pub(super) struct Local {
-    #[allow(dead_code)]
     pub(super) run: Option<LocalRun>,
     #[allow(dead_code)]
     next_run: u64,
@@ -112,6 +111,21 @@ pub(super) struct LocalRun {
     done: Option<Option<Turn>>,
     spoke: bool,
     player_done: bool,
+}
+
+impl Brain {
+    pub(super) fn cancel_local(&mut self) {
+        let Some(mut run) = self.local.run.take() else {
+            return;
+        };
+        if let Some(task) = run.task.take() {
+            task.abort();
+        }
+        self.shared.mic.close();
+        if let Some(speaker) = &self.speaker {
+            speaker.stop();
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -252,12 +266,125 @@ pub(crate) struct DeviceFacts {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     use pinna_assist::error::{Reason, Slot};
     use pinna_assist::presets::PresetId;
+    use pinna_assist::reply::reply_channel;
+    use pinna_audio::{Backend, PlaybackState, Speaker, SpeakerConfig, tone};
+    use pinna_esphome::{DeviceEvent, EsphomeHandle, HaCommand};
+    use tokio::sync::{mpsc, watch};
 
     use super::*;
+    use crate::leds::LedState;
+    use crate::settings::{Mode, Settings};
+    use crate::voice::{Defaults, Options, Shared, Snapshot};
+
+    struct TestDevice {
+        brain: Brain,
+        shared: Arc<Shared>,
+        events: mpsc::Receiver<DeviceEvent>,
+        _dir: tempfile::TempDir,
+    }
+
+    impl TestDevice {
+        fn new(mode: Mode, with_speaker: bool) -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let (esp, events) = EsphomeHandle::detached(64);
+            let shared = Arc::new(Shared::default());
+            let speaker = with_speaker.then(|| {
+                Arc::new(Speaker::new(SpeakerConfig::new(Backend::WavFile(
+                    dir.path().join("output.wav"),
+                ))))
+            });
+            let brain = Brain::new(
+                esp,
+                speaker,
+                shared.clone(),
+                watch::channel(LedState::default()).0,
+                watch::channel(Snapshot::default()).0,
+                mpsc::channel(64).0,
+                Options {
+                    key_file: dir.path().join("key"),
+                    settings_file: dir.path().join("settings.toml"),
+                    wake_words: crate::wakewords::test_catalogue(),
+                    active_wake_words: vec!["alexa_v0.1".into()],
+                    keywords: None,
+                    defaults: Defaults {
+                        node_name: "pinna-test".into(),
+                        friendly_name: "Test".into(),
+                        default_name: true,
+                        wake_sound: false,
+                    },
+                    mdns: None,
+                    encrypted: false,
+                    has_hw_privacy: false,
+                    airplay: false,
+                    bluetooth: false,
+                    settings: Settings {
+                        mode,
+                        ..Settings::default()
+                    },
+                },
+            );
+            Self {
+                brain,
+                shared,
+                events,
+                _dir: dir,
+            }
+        }
+
+        fn events(&mut self) -> Vec<DeviceEvent> {
+            let mut events = Vec::new();
+            while let Ok(event) = self.events.try_recv() {
+                events.push(event);
+            }
+            events
+        }
+    }
+
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn insert_local_run(device: &mut TestDevice) -> Arc<AtomicBool> {
+        let now = Instant::now();
+        let (_sink, source) = reply_channel(2);
+        let dropped = Arc::new(AtomicBool::new(false));
+        let task = tokio::spawn({
+            let dropped = dropped.clone();
+            async move {
+                let _guard = DropFlag(dropped);
+                std::future::pending::<()>().await;
+            }
+        });
+        device.brain.local.run = Some(LocalRun {
+            id: RunId(1),
+            kind: RunKind::Request,
+            task: Some(task),
+            deadline: now + Duration::from_secs(60),
+            limits: RunLimits::MODEL,
+            source: Some(source),
+            done: None,
+            spoke: false,
+            player_done: false,
+        });
+        device.brain.phase = Phase::Thinking(now);
+        dropped
+    }
+
+    fn stopped() -> DeviceEvent {
+        DeviceEvent::Event {
+            object_id: "voice_assistant".into(),
+            event_type: "stopped".into(),
+        }
+    }
 
     fn kinds() -> [RunKind; 3] {
         [
@@ -486,5 +613,83 @@ mod tests {
             later,
         );
         assert_eq!(phase, Phase::Thinking(later));
+    }
+
+    #[tokio::test]
+    async fn aborting_a_local_run_stops_its_task_microphone_and_speaker_without_voice_stop() {
+        let mut device = TestDevice::new(Mode::Standalone, true);
+        let dropped = insert_local_run(&mut device);
+        let (tx, mut mic) = mpsc::channel(1);
+        device.shared.mic.open(tx);
+        let speaker = device.brain.speaker.clone().unwrap();
+        let playing = tokio::spawn({
+            let speaker = speaker.clone();
+            async move { speaker.play_pcm(tone::beep(440.0, 5_000, 0.5)).await }
+        });
+        let mut state = speaker.state();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *state.borrow() != PlaybackState::Playing {
+                state.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+
+        let started = Instant::now();
+        device.brain.abort_run(true).await;
+
+        tokio::time::timeout(Duration::from_secs(1), playing)
+            .await
+            .expect("speaker stop did not cancel the clip")
+            .unwrap()
+            .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1));
+        tokio::task::yield_now().await;
+        assert!(dropped.load(Ordering::SeqCst));
+        assert_eq!(mic.try_recv(), Err(mpsc::error::TryRecvError::Disconnected));
+        assert_eq!(device.events(), [stopped()]);
+        assert!(device.brain.local.run.is_none());
+        assert_eq!(device.brain.phase, Phase::Idle);
+    }
+
+    #[tokio::test]
+    async fn aborting_a_home_assistant_run_still_sends_voice_stop() {
+        let mut device = TestDevice::new(Mode::HomeAssistant, false);
+        device.brain.phase = Phase::Listening(Instant::now());
+
+        device.brain.abort_run(true).await;
+
+        assert_eq!(device.events(), [stopped(), DeviceEvent::VoiceStop]);
+        assert!(device.brain.stale_run);
+        assert_eq!(device.brain.phase, Phase::Idle);
+    }
+
+    #[tokio::test]
+    async fn the_last_home_assistant_disconnect_leaves_a_local_run_alone() {
+        let mut device = TestDevice::new(Mode::Standalone, false);
+        let dropped = insert_local_run(&mut device);
+        device.brain.clients = 1;
+
+        device.brain.ha(HaCommand::ClientDisconnected).await;
+
+        assert_eq!(device.brain.clients, 0);
+        assert!(device.brain.local.run.is_some());
+        assert!(matches!(device.brain.phase, Phase::Thinking(_)));
+        assert!(!dropped.load(Ordering::SeqCst));
+        assert!(device.events().is_empty());
+    }
+
+    #[tokio::test]
+    async fn home_assistant_time_limits_do_not_expire_a_local_run() {
+        let mut device = TestDevice::new(Mode::Standalone, false);
+        insert_local_run(&mut device);
+        device.brain.phase =
+            Phase::Thinking(Instant::now() - crate::voice::THINK_TIMEOUT - Duration::from_secs(1));
+
+        device.brain.tick().await;
+
+        assert!(device.brain.local.run.is_some());
+        assert!(matches!(device.brain.phase, Phase::Thinking(_)));
+        assert!(device.events().is_empty());
     }
 }
