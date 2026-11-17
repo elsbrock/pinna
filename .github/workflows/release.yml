@@ -94,7 +94,7 @@ jobs:
         run: |
           notes=$(mktemp)
           {
-            echo "Pinna $PINNA_VERSION for the Echo Dot (2nd gen)."
+            echo "Pinna $PINNA_VERSION for the Echo Dot (2nd gen) and the Echo (2nd gen)."
             echo
             echo "Install: https://elsbrock.github.io/pinna/docs/flash/"
             echo "Signed with keys/release.pub: $(tr -d '[:space:]' < keys/release.pub)"
