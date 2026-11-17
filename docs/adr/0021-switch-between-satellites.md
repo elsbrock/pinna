@@ -1,7 +1,9 @@
 # ADR 0021: Switch between satellites, and one dashboard address
 
-Status: accepted (2026-11-16). Amends ADR 0005 and ADR 0007 (the host
-allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
+Status: accepted (2026-11-16), amended 2026-11-17: pinnad looks in the
+background, and lists a satellite only when its dashboard answers. Amends ADR
+0005 and ADR 0007 (the host allowlist and the dashboard's `allowed_hosts`).
+Builds on ADR 0010 (hostname).
 
 ## Context
 
@@ -47,15 +49,33 @@ allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
   and, when set, `url=<dashboard address>` to the `_esphomelib._tcp` TXT
   record. Home Assistant ignores keys it doesn't know. With the web listener
   off, `web_port` is left out.
-- **pinnad asks when the list opens.** A unary RPC, `ListSatellites`, sends
-  a one-shot mDNS query for `_esphomelib._tcp.local` from its own UDP port and
-  collects answers for a second. For instances whose SRV, TXT or address
-  records didn't come with the answers, it asks once more and waits another
-  half second. It keeps those with
-  `project_name=pinna.satellite`, leaving out itself (by MAC). pinnad never
-  binds port 5353: resolved stays the only mDNS socket. Only satellites that
-  are on answer, so there is nothing to expire. Satellites on firmware without
-  `web_port` are listed with port 80.
+- **pinnad looks in the background.** Once at start and then every minute,
+  pinnad sends a one-shot mDNS query for `_esphomelib._tcp.local` from its own
+  UDP port and collects answers for a second. For instances whose SRV, TXT or
+  address records didn't come with the answers, it asks again for what is
+  still missing, up to three times, half a second each: a responder may answer
+  only the question asked, so the addresses come only after the SRV record
+  names the host. It keeps those with `project_name=pinna.satellite`, leaving
+  out itself (by MAC). pinnad never binds port 5353: resolved stays the only
+  mDNS socket. A satellite stays listed until it misses two searches in a row,
+  so one lost packet doesn't drop it. A search that fails counts as a miss for
+  every satellite, so the list doesn't freeze while searches fail. Satellites
+  on firmware without `web_port` are listed with port 80.
+  - While the satellite has no address beyond the USB link, pinnad sends
+    nothing and checks for one every ten seconds: pinnad starts before Wi-Fi
+    is up.
+  - A unary RPC, `ListSatellites`, returns what the last search found, at
+    once. Opening the list doesn't send a query: the one-second wait made the
+    list slow to open.
+- **pinnad checks that each dashboard answers.** In the same search, pinnad
+  opens a TCP connection to each satellite's web port at its host name's
+  addresses: the first IPv4 and the first IPv6 address it heard, other than
+  the USB link's and link-local ones, three seconds each. A satellite whose
+  dashboard doesn't accept the connection counts as missed: its web listener
+  is off, or pinnad isn't running there. So does one with no address heard.
+  The dashboard address isn't checked. It may lead through a reverse proxy, a
+  login or a VPN that the satellite can't pass, and the browser opens it, not
+  the satellite.
 - **The sidebar's device box opens the list.** On phones, the name in the app
   bar does. The list shows this satellite first, marked as current, then the
   others: drawing, friendly name, and where the link goes (host). Choosing one
@@ -68,9 +88,9 @@ allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
     may not resolve `.local` (many Android browsers can't). Without an address
     of that family, the `.local` name is still better than no link.
   - Never 10.42.0.1: every satellite has that address on its USB link.
-  - The list states: looking (while the query runs); no other satellites on
-    this network; this satellite isn't on a network yet (USB only); the query
-    failed (the error, this satellite still shown).
+  - The list states: looking (before the first search has finished); no
+    other satellites on this network; this satellite isn't on a network yet
+    (USB only); the search failed (the error, this satellite still shown).
   - A satellite whose dashboard address is set but doesn't open: the list
     shows its `.local` name and IP address under the link as a way around.
 
@@ -89,7 +109,10 @@ allowlist and the dashboard's `allowed_hosts`). Builds on ADR 0010 (hostname).
   the list shows each link's host. Anyone on the LAN can already control the
   satellites (ADR 0005), so this widens nothing that matters while there is no
   authentication.
-- pinnad gets a small mDNS client: one-shot queries only, no responder, no
-  background traffic.
+- pinnad gets a small mDNS client: one-shot queries only, no responder. Each
+  satellite sends one query a minute, and opens a connection a minute to each
+  other satellite's dashboard.
+- A satellite that comes on, leaves or changes its address shows the change
+  within a minute; one that goes off stays listed for up to two.
 - To check when building: switching from an `https` dashboard address to an
   `http` `.local` one in Chrome, which now upgrades to HTTPS by default.
