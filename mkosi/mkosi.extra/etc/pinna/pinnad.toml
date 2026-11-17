@@ -50,5 +50,6 @@ listen = "127.0.0.1:7470"
 listen = "[::]:80"
 root = "/usr/share/pinna/web"
 # Host names to open the dashboard by, besides IP addresses, localhost, *.local
-# and the hostname. Names added on the dashboard's Network page add to these.
+# and the hostname. The host of the dashboard address set on the dashboard's
+# Network page (ADR 0021) is added to these.
 allowed_hosts = []

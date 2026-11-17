@@ -370,7 +370,8 @@ export type Status = Message<"pinna.v1.Status"> & {
   timers: Timer[];
 
   /**
-   * Resolved audio backend ("echodot", "pipewire", "wav", "none").
+   * Resolved audio backend ("echodot", "echodot-pipewire", "pipewire", "wav",
+   * "none").
    *
    * @generated from field: string audio_backend = 14;
    */

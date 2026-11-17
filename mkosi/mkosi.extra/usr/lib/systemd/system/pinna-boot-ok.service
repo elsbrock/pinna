@@ -2,8 +2,9 @@
 # the booted A/B slot good and clears the fastboot guard. A failed check, or no
 # verdict within 5 minutes of boot, reboots: during the trial boot of a new
 # slot that counts down its tries and rolls back to the previous slot (see
-# ADR 0003); on a slot that is already good, the armed fastboot guard (dev
-# images) turns the reboot into fastboot.
+# ADR 0003); on a slot that is already good, the armed fastboot guard (every
+# image; it acts only on a device with the Kaeru payload) turns the reboot
+# into fastboot.
 [Unit]
 Description=Boot health check: mark the slot good, clear the fastboot fallback
 Wants=ssh.service

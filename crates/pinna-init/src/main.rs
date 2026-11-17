@@ -6,7 +6,6 @@
 //! 4. check that slot's signed footer with the compiled-in release key; on
 //!    failure use the other slot
 //! 5. dm-verity device `root` over the slot, erofs read-only on /sysroot
-//! 5. dm-verity device `root` over the slot, erofs read-only on /sysroot
 //! 6. /run/pinna/boot-slot + boot-version + the root's boot protocol marker,
 //!    bind-mount a machine id from the idme serial over /etc/machine-id, move
 //!    /dev /proc /sys /run, switch root, exec /sbin/init with our argv

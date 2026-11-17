@@ -228,7 +228,8 @@ message Status {
   bool voice_subscribed = 11;
   WakeWord wake_word = 12;
   repeated Timer timers = 13;
-  // Resolved audio backend ("echodot", "pipewire", "wav", "none").
+  // Resolved audio backend ("echodot", "echodot-pipewire", "pipewire", "wav",
+  // "none").
   string audio_backend = 14;
   // LED backend ("is31", "mock", "virtual", "none").
   string led_backend = 15;

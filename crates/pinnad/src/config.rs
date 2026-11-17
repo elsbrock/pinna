@@ -111,7 +111,8 @@ pub struct Web {
     /// The built dashboard (static files).
     pub root: PathBuf,
     /// Host names the dashboard may be opened by, besides IP addresses,
-    /// `localhost`, the hostname and the node name (each also with `.local`).
+    /// `localhost`, the hostname and the node name (each also with `.local`),
+    /// and the host of the dashboard address setting (ADR 0021).
     pub allowed_hosts: Vec<String>,
 }
 
