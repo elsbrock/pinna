@@ -7,9 +7,10 @@ use std::time::Instant;
 
 use pinna_assist::audio::MicInput;
 use pinna_assist::conversation::{Conversation, Turn};
-use pinna_assist::error::ProviderError;
+use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::limits::RunLimits;
 use pinna_assist::observe::Guard;
+use pinna_assist::presets::PresetId;
 use pinna_assist::reply::{ReplySink, ReplySource, reply_channel};
 use pinna_assist::run::{RunEvent, RunKind};
 use pinna_audio::tone;
@@ -119,9 +120,21 @@ pub(super) struct LocalRun {
     deadline: Instant,
     limits: RunLimits,
     source: Option<ReplySource>,
-    done: Option<Option<Turn>>,
+    /// `Done` arrived; its turn is already in the conversation.
+    done: bool,
     spoke: bool,
     player_done: bool,
+}
+
+impl LocalRun {
+    fn expired(&self, now: Instant) -> bool {
+        now >= self.deadline
+    }
+
+    /// Re-arm the deadline: it only ever moves later.
+    fn rearm(&mut self, now: Instant, limit: std::time::Duration) {
+        self.deadline = self.deadline.max(now + limit);
+    }
 }
 
 /// How a run kind is named in logs; a typed question's text is never logged.
@@ -223,7 +236,7 @@ impl Brain {
             deadline,
             limits,
             source: Some(source),
-            done: None,
+            done: false,
             spoke: false,
             player_done: false,
         });
@@ -269,9 +282,120 @@ impl Brain {
             speaker.stop();
         }
     }
+
+    /// An event from the run task. Events from a run that is no longer the
+    /// current one are dropped.
+    pub(super) async fn assist_event(&mut self, run: RunId, ev: RunEvent) {
+        let now = Instant::now();
+        let Some(current) = self.local.run.as_mut().filter(|r| r.id == run) else {
+            tracing::debug!("dropped an event from standalone run {}", run.0);
+            return;
+        };
+        let step = step(self.phase, &current.kind, &ev, now);
+        if let RunEvent::Done { turn, spoke } = ev {
+            current.done = true;
+            current.spoke = spoke;
+            if let Some(turn) = turn {
+                self.local.conversation.push(turn, now);
+            }
+        }
+        if let Some(current) = self.local.run.as_mut() {
+            let limits = current.limits;
+            match step.deadline {
+                DeadlineRule::Keep => {}
+                DeadlineRule::Think => current.rearm(now, limits.think_backstop()),
+                DeadlineRule::Round => current.rearm(now, limits.round_backstop()),
+                DeadlineRule::Reply => current.rearm(now, limits.reply_backstop()),
+            }
+        }
+        self.phase = step.phase;
+        for effect in step.effects {
+            match effect {
+                Effect::CloseMic => self.shared.mic.close(),
+                Effect::EndOfSpeech => self.end_of_speech(now),
+                Effect::Event(kind) => self.event("voice_assistant", kind).await,
+                Effect::ErrorCue => self.error_feedback(),
+                // The reply player takes the reply channel here.
+                Effect::StartPlayer => {}
+                Effect::Finish => self.finish_local().await,
+                Effect::Fail(error) => self.fail_local(error).await,
+                Effect::Guard(guard) => local_guard(guard),
+            }
+        }
+        match &self.local.run {
+            // A request that heard nothing ends without "finished".
+            Some(_) if self.phase == Phase::Idle => self.local.run = None,
+            // A spoken reply ends when both the run and its player are done.
+            Some(run) if run.done && run.player_done => self.finish_local().await,
+            _ => {}
+        }
+    }
+
+    /// Fail the run whose deadline passed. The pipeline's own stage limits
+    /// come first; this catches a stage that stalls anyway.
+    pub(super) async fn tick_local(&mut self, now: Instant) {
+        let Some(run) = self.local.run.as_ref().filter(|r| r.expired(now)) else {
+            return;
+        };
+        let slot = match self.phase {
+            Phase::Listening(_) => Slot::Stt,
+            // The player has the reply channel: speech is late.
+            Phase::Thinking(_) if run.source.is_none() => Slot::Tts,
+            Phase::Speaking => Slot::Tts,
+            _ => Slot::Chat,
+        };
+        tracing::warn!(
+            "standalone {} {} passed its deadline",
+            kind_label(&run.kind),
+            run.id.0
+        );
+        let preset = self.slot_preset(slot);
+        self.fail_local(ProviderError::new(slot, preset, Reason::Timeout))
+            .await;
+    }
+
+    /// The preset serving `slot` in the current configuration.
+    fn slot_preset(&self, slot: Slot) -> PresetId {
+        let index = match slot {
+            Slot::Stt => 0,
+            Slot::Chat | Slot::Tool => 1,
+            Slot::Tts => 2,
+        };
+        self.local
+            .live
+            .borrow()
+            .pipeline
+            .as_ref()
+            .map_or(PresetId::Custom, |p| p.presets[index])
+    }
+
+    /// End the run with its failure: stop it and everything it plays, then
+    /// tell the owner.
+    pub(super) async fn fail_local(&mut self, error: ProviderError) {
+        self.cancel_local();
+        self.stop_playback();
+        self.phase = Phase::Idle;
+        self.event("voice_assistant", "stopped").await;
+        tracing::warn!("standalone request failed: {error}");
+        self.local.last_error = Some(error.to_string());
+        self.error_feedback();
+    }
+
+    /// The run is over and nothing of it is left to play.
+    async fn finish_local(&mut self) {
+        if self.local.run.take().is_none() {
+            return;
+        }
+        self.phase = Phase::Idle;
+        self.event("voice_assistant", "finished").await;
+    }
 }
 
-#[allow(dead_code)]
+/// A standalone guard fired: no speech, an invented transcript, and so on.
+fn local_guard(guard: Guard) {
+    tracing::debug!("standalone guard: {guard:?}");
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Effect {
     CloseMic,
@@ -284,7 +408,6 @@ enum Effect {
     Guard(Guard),
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DeadlineRule {
     Keep,
@@ -293,7 +416,6 @@ enum DeadlineRule {
     Reply,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 struct Step {
     phase: Phase,
@@ -301,7 +423,6 @@ struct Step {
     effects: Vec<Effect>,
 }
 
-#[allow(dead_code)]
 fn unchanged(phase: Phase) -> Step {
     Step {
         phase,
@@ -310,7 +431,6 @@ fn unchanged(phase: Phase) -> Step {
     }
 }
 
-#[allow(dead_code)]
 fn step(phase: Phase, kind: &RunKind, ev: &RunEvent, now: Instant) -> Step {
     match (phase, kind, ev) {
         (Phase::Listening(_), RunKind::Request | RunKind::FollowUp, RunEvent::SpeechEnded) => {
@@ -582,6 +702,14 @@ mod tests {
             result.await.unwrap()
         }
 
+        async fn assist(&mut self, run: RunId, ev: RunEvent) {
+            self.brain.handle(Input::Assist { run, ev }).await;
+        }
+
+        fn run_id(&self) -> RunId {
+            self.brain.local.run.as_ref().expect("a run is live").id
+        }
+
         /// Start a request with the Action button and take what the run got.
         async fn request(&mut self) -> FakeRun {
             self.brain
@@ -639,7 +767,7 @@ mod tests {
             deadline: now + Duration::from_secs(60),
             limits: RunLimits::MODEL,
             source: Some(source),
-            done: None,
+            done: false,
             spoke: false,
             player_done: false,
         });
@@ -1131,5 +1259,165 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn turn(user: &str, assistant: &str) -> Turn {
+        Turn {
+            user: user.into(),
+            assistant: assistant.into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn speech_ended_starts_thinking_with_the_microphone_closed() {
+        let mut device = TestDevice::ready();
+        let mut run = device.request().await;
+
+        device.assist(run.start.run, RunEvent::SpeechEnded).await;
+
+        assert!(matches!(device.brain.phase, Phase::Thinking(_)));
+        assert!(device.brain.speech_ended.is_some());
+        assert!(mic_closed(&mut run));
+        assert_eq!(device.events(), [voice_event("thinking")]);
+        assert_eq!(
+            device.brain.snapshot().phase,
+            pinna_api::Phase::PHASE_THINKING
+        );
+    }
+
+    #[tokio::test]
+    async fn done_without_speech_finishes_and_keeps_the_turn() {
+        let mut device = TestDevice::ready();
+        let run = device.request().await;
+        device.assist(run.start.run, RunEvent::SpeechEnded).await;
+        device.events();
+
+        device
+            .assist(
+                run.start.run,
+                RunEvent::Done {
+                    turn: Some(turn("Hello?", "")),
+                    spoke: false,
+                },
+            )
+            .await;
+
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert_eq!(device.events(), [voice_event("finished")]);
+        assert_eq!(device.overlay(), None);
+        let next = device.request().await;
+        assert_eq!(next.start.history, [turn("Hello?", "")]);
+    }
+
+    #[tokio::test]
+    async fn a_request_that_hears_nothing_stops_with_the_error_cue() {
+        let mut device = TestDevice::ready();
+        let mut run = device.request().await;
+
+        device
+            .assist(run.start.run, RunEvent::NoSpeech { invented: false })
+            .await;
+
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert!(mic_closed(&mut run));
+        assert_eq!(device.events(), [stopped()]);
+        assert_eq!(device.overlay(), Some(LedEffect::Error));
+    }
+
+    #[tokio::test]
+    async fn a_failure_stops_the_run_and_shows_its_error() {
+        let mut device = TestDevice::ready();
+        let run = device.request().await;
+        device.assist(run.start.run, RunEvent::SpeechEnded).await;
+        device.events();
+
+        device
+            .assist(run.start.run, RunEvent::Failed(failure()))
+            .await;
+
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert!(dropped(&run.dropped).await);
+        assert_eq!(device.events(), [stopped()]);
+        assert_eq!(device.overlay(), Some(LedEffect::Error));
+        let error = "brain via openai: request timed out";
+        assert_eq!(
+            device.brain.snapshot().assist.last_error.as_deref(),
+            Some(error)
+        );
+    }
+
+    #[tokio::test]
+    async fn events_from_a_stale_run_are_ignored() {
+        let mut device = TestDevice::ready();
+        let first = device.request().await;
+        device.api(ApiCommand::StopConversation).await.unwrap();
+        let second = device.request().await;
+        assert_ne!(first.start.run, second.start.run);
+
+        for ev in [
+            RunEvent::SpeechEnded,
+            RunEvent::Failed(failure()),
+            RunEvent::Done {
+                turn: Some(turn("Old question", "Old answer")),
+                spoke: false,
+            },
+        ] {
+            device.assist(first.start.run, ev).await;
+        }
+
+        assert!(matches!(device.brain.phase, Phase::Listening(_)));
+        assert_eq!(device.run_id(), second.start.run);
+        assert!(device.events().is_empty());
+        assert_eq!(device.brain.snapshot().assist.last_error, None);
+        // The stale run's turn never reached the conversation.
+        assert!(
+            device
+                .brain
+                .local
+                .conversation
+                .history(Instant::now())
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn the_deadline_is_rearmed_by_events_and_fails_a_stalled_run() {
+        let mut device = TestDevice::ready();
+        let run = device.request().await;
+        let started = Instant::now();
+        // Listening is bounded by the recording limit and a margin.
+        device
+            .brain
+            .tick_local(started + Duration::from_secs(10))
+            .await;
+        assert!(device.brain.local.run.is_some());
+
+        device.assist(run.start.run, RunEvent::SpeechEnded).await;
+        // Thinking may take speech-to-text plus the first text.
+        device
+            .brain
+            .tick_local(started + Duration::from_secs(40))
+            .await;
+        assert!(device.brain.local.run.is_some());
+        device.events();
+
+        device
+            .brain
+            .tick_local(started + Duration::from_secs(60))
+            .await;
+
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert!(dropped(&run.dropped).await);
+        assert_eq!(device.events(), [stopped()]);
+        assert_eq!(device.overlay(), Some(LedEffect::Error));
+        let error = "brain via custom: request timed out";
+        assert_eq!(
+            device.brain.snapshot().assist.last_error.as_deref(),
+            Some(error)
+        );
     }
 }

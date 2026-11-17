@@ -897,7 +897,7 @@ impl Brain {
             }
             Input::Ha(cmd) => self.ha(cmd).await,
             Input::Api(cmd) => self.api(cmd).await,
-            Input::Assist { .. } => {}
+            Input::Assist { run, ev } => self.assist_event(run, ev).await,
             Input::RunTool { cmd, .. } => cmd.refuse("The request was cancelled."),
         }
     }
@@ -2925,6 +2925,7 @@ impl Brain {
                 _ => {}
             }
         }
+        self.tick_local(now).await;
         self.tick_timers(now, SystemTime::now(), timers::clock_synced())
             .await;
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
