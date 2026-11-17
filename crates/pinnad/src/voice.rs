@@ -418,7 +418,6 @@ enum Phase {
 #[derive(Debug, Clone, PartialEq)]
 enum PlaybackKind {
     Tts,
-    #[allow(dead_code)]
     Reply,
     #[allow(dead_code)]
     Speak,
@@ -2762,9 +2761,11 @@ impl Brain {
 
     /// The reply's first audio is sounding.
     async fn playback_started(&mut self, token: u64) {
-        if !matches!(&self.playback, Some((t, PlaybackKind::Tts, _)) if *t == token) {
-            return;
-        }
+        let local = match &self.playback {
+            Some((t, PlaybackKind::Tts, _)) if *t == token => false,
+            Some((t, PlaybackKind::Reply, _)) if *t == token => true,
+            _ => return,
+        };
         if let Phase::Thinking(requested) = self.phase {
             let now = Instant::now();
             let sent = (now - requested).as_secs_f32();
@@ -2775,10 +2776,20 @@ impl Brain {
                         .counters
                         .first_audio
                         .observe(after.as_secs_f64());
-                    tracing::info!(
-                        "reply: first audio {:.2} s after the end of speech ({sent:.2} s after Home Assistant started it)",
-                        after.as_secs_f32()
-                    )
+                    if local {
+                        tracing::info!(
+                            "reply: first audio {:.2} s after the end of speech",
+                            after.as_secs_f32()
+                        )
+                    } else {
+                        tracing::info!(
+                            "reply: first audio {:.2} s after the end of speech ({sent:.2} s after Home Assistant started it)",
+                            after.as_secs_f32()
+                        )
+                    }
+                }
+                None if local => {
+                    tracing::info!("reply: first audio {sent:.2} s after the request")
                 }
                 None => {
                     tracing::info!("reply: first audio {sent:.2} s after Home Assistant started it")
@@ -2787,10 +2798,17 @@ impl Brain {
         }
         self.phase = Phase::Speaking;
         self.event("voice_assistant", "replying").await;
+        if local {
+            self.reply_started(Instant::now());
+        }
     }
 
     fn stop_playback(&mut self) {
         if let Some((_, kind, task)) = self.playback.take() {
+            debug_assert!(
+                kind != PlaybackKind::Reply || self.local.run.is_none(),
+                "a live run's reply stops only with the run"
+            );
             self.speaker_quiet_since = Instant::now();
             task.abort();
             if kind == PlaybackKind::MediaAnnounce {
@@ -2882,7 +2900,8 @@ impl Brain {
                 }
             }
             PlaybackKind::MediaAnnounce => self.update_media_state(),
-            PlaybackKind::Reply | PlaybackKind::Speak | PlaybackKind::Cue => {}
+            PlaybackKind::Reply => self.reply_done(ok).await,
+            PlaybackKind::Speak | PlaybackKind::Cue => {}
         }
     }
 

@@ -1,23 +1,27 @@
 //! Standalone run state owned by the Brain (ADR 0017).
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use futures::future::BoxFuture;
 use pinna_assist::audio::MicInput;
 use pinna_assist::conversation::{Conversation, Turn};
 use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::limits::RunLimits;
 use pinna_assist::observe::Guard;
 use pinna_assist::presets::PresetId;
-use pinna_assist::reply::{ReplySink, ReplySource, reply_channel};
+use pinna_assist::reply::{
+    AudioBody, AudioKind, ReplySink, ReplySource, SpeechAudio, reply_channel,
+};
 use pinna_assist::run::{RunEvent, RunKind};
-use pinna_audio::tone;
+use pinna_audio::{Speaker, VoicePlayback, tone};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use super::{AssistStatus, Brain, Phase, PlaybackKind, RunId};
+use super::{AssistStatus, Brain, Input, Phase, PlaybackKind, RunId};
 use crate::mic::MIC_QUEUE;
 use crate::standalone::AssistLive;
 
@@ -112,7 +116,6 @@ impl Local {
     }
 }
 
-#[allow(dead_code)]
 pub(super) struct LocalRun {
     id: RunId,
     kind: RunKind,
@@ -315,8 +318,7 @@ impl Brain {
                 Effect::EndOfSpeech => self.end_of_speech(now),
                 Effect::Event(kind) => self.event("voice_assistant", kind).await,
                 Effect::ErrorCue => self.error_feedback(),
-                // The reply player takes the reply channel here.
-                Effect::StartPlayer => {}
+                Effect::StartPlayer => self.start_reply_player(),
                 Effect::Finish => self.finish_local().await,
                 Effect::Fail(error) => self.fail_local(error).await,
                 Effect::Guard(guard) => local_guard(guard),
@@ -381,6 +383,46 @@ impl Brain {
         self.error_feedback();
     }
 
+    /// Hand the reply channel to the player, which owns the voice lane until
+    /// the reply has sounded. A chime still sounding stops.
+    fn start_reply_player(&mut self) {
+        let Some(source) = self.local.run.as_mut().and_then(|run| run.source.take()) else {
+            return;
+        };
+        let token = self.begin_playback(PlaybackKind::Reply);
+        let task = tokio::spawn(play_reply(
+            self.speaker.clone(),
+            source,
+            token,
+            self.self_tx.clone(),
+        ));
+        self.playback = Some((token, PlaybackKind::Reply, task));
+    }
+
+    /// The reply's first sentence sounds: it may speak for the speaking limit.
+    pub(super) fn reply_started(&mut self, now: Instant) {
+        if let Some(run) = self.local.run.as_mut() {
+            let limit = run.limits.speaking;
+            run.rearm(now, limit);
+        }
+    }
+
+    /// The reply player ended: everything queued has sounded, or an item
+    /// failed. A failure before the run is done fails the run.
+    pub(super) async fn reply_done(&mut self, ok: bool) {
+        let Some(run) = self.local.run.as_mut() else {
+            return;
+        };
+        run.player_done = true;
+        if run.done {
+            self.finish_local().await;
+        } else if !ok {
+            let preset = self.slot_preset(Slot::Tts);
+            self.fail_local(ProviderError::new(Slot::Tts, preset, Reason::Protocol))
+                .await;
+        }
+    }
+
     /// The run is over and nothing of it is left to play.
     async fn finish_local(&mut self) {
         if self.local.run.take().is_none() {
@@ -388,6 +430,139 @@ impl Brain {
         }
         self.phase = Phase::Idle;
         self.event("voice_assistant", "finished").await;
+    }
+}
+
+/// Play a standalone reply: the one task that puts it on the voice lane, kept
+/// in the Brain's playback slot. Reports [`Input::PlaybackStarted`] when the
+/// first sentence sounds and [`Input::PlaybackDone`] once the run closed the
+/// channel and the last item has sounded.
+async fn play_reply(
+    speaker: Option<Arc<Speaker>>,
+    source: ReplySource,
+    token: u64,
+    tx: mpsc::Sender<Input>,
+) {
+    let ok = match speaker {
+        Some(speaker) => {
+            let ok = reply_in_turn(&speaker, source, token, &tx).await;
+            if !ok {
+                // What is still queued must not sound without its player.
+                speaker.stop();
+            }
+            ok
+        }
+        None => {
+            tracing::warn!("no speaker to play the standalone reply");
+            false
+        }
+    };
+    let _ = tx.send(Input::PlaybackDone { token, ok }).await;
+}
+
+/// A reply item queued on the voice lane.
+struct Queued {
+    kind: AudioKind,
+    playback: VoicePlayback,
+    sounding: bool,
+}
+
+enum Next {
+    Received(Option<SpeechAudio>),
+    Opened(pinna_audio::Result<VoicePlayback>),
+    Started { sounded: bool },
+    Ended(pinna_audio::Result<()>),
+}
+
+/// Queue each item behind the one before it, opening one at a time so the
+/// lane keeps the run's order. An item returns its synthesis credit when it
+/// starts to sound. False if an item failed.
+async fn reply_in_turn(
+    speaker: &Speaker,
+    mut source: ReplySource,
+    token: u64,
+    tx: &mpsc::Sender<Input>,
+) -> bool {
+    let mut queued: VecDeque<Queued> = VecDeque::new();
+    let mut opening: Option<(AudioKind, BoxFuture<'_, pinna_audio::Result<VoicePlayback>>)> = None;
+    let mut closed = false;
+    let mut announced = false;
+    loop {
+        if closed && opening.is_none() && queued.is_empty() {
+            return true;
+        }
+        let receive = !closed && opening.is_none();
+        let is_opening = opening.is_some();
+        let front = queued.front_mut();
+        let has_front = front.is_some();
+        let next = tokio::select! {
+            item = source.recv(), if receive => Next::Received(item),
+            opened = async {
+                opening.as_mut().expect("an item is opening").1.as_mut().await
+            }, if is_opening => Next::Opened(opened),
+            next = async {
+                let item = front.expect("an item is queued");
+                if item.sounding {
+                    Next::Ended((&mut item.playback.done).await.unwrap_or_else(|_| {
+                        Err(pinna_audio::Error::Other("speaker task ended".into()))
+                    }))
+                } else {
+                    Next::Started {
+                        sounded: (&mut item.playback.started).await.is_ok(),
+                    }
+                }
+            }, if has_front => next,
+        };
+        match next {
+            Next::Received(Some(audio)) => {
+                opening = Some((audio.kind, open_reply_item(speaker, audio)));
+            }
+            Next::Received(None) => closed = true,
+            Next::Opened(Ok(playback)) => {
+                let (kind, _) = opening.take().expect("an item was opening");
+                queued.push_back(Queued {
+                    kind,
+                    playback,
+                    sounding: false,
+                });
+            }
+            Next::Opened(Err(e)) => {
+                tracing::warn!("standalone reply audio: {e}");
+                return false;
+            }
+            Next::Started { sounded } => {
+                let item = queued.front_mut().expect("an item is queued");
+                item.sounding = true;
+                if sounded && item.kind == AudioKind::Sentence && !announced {
+                    announced = true;
+                    let _ = tx.send(Input::PlaybackStarted { token }).await;
+                }
+                source.started(item.kind);
+            }
+            Next::Ended(Ok(())) => {
+                queued.pop_front();
+            }
+            Next::Ended(Err(e)) => {
+                tracing::warn!("standalone reply audio: {e}");
+                return false;
+            }
+        }
+    }
+}
+
+/// Queue one reply item on the voice lane; resolves at its first decoded audio.
+fn open_reply_item(
+    speaker: &Speaker,
+    audio: SpeechAudio,
+) -> BoxFuture<'_, pinna_audio::Result<VoicePlayback>> {
+    let SpeechAudio { mime, body, .. } = audio;
+    match body {
+        AudioBody::Stream(body) => {
+            Box::pin(async move { speaker.play_stream(mime.as_deref(), body).await })
+        }
+        AudioBody::File(path) => {
+            Box::pin(async move { speaker.play_url(&path.to_string_lossy()).await })
+        }
     }
 }
 
@@ -533,8 +708,8 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use pinna_assist::error::{Reason, Slot};
-    use pinna_assist::presets::PresetId;
-    use pinna_audio::{Backend, PlaybackState, Speaker, SpeakerConfig};
+    use pinna_assist::reply::Credit;
+    use pinna_audio::{Backend, PlaybackState, SpeakerConfig};
     use pinna_esphome::{DeviceEvent, EsphomeHandle, HaCommand};
     use pinna_hal::anim::Effect as LedEffect;
     use pinna_hal::buttons::{Button, ButtonEvent};
@@ -588,11 +763,11 @@ mod tests {
         shared: Arc<Shared>,
         events: mpsc::Receiver<DeviceEvent>,
         /// What the Brain sends itself (playback reports).
-        _inputs: mpsc::Receiver<Input>,
+        inputs: mpsc::Receiver<Input>,
         leds: watch::Receiver<LedState>,
         live: watch::Sender<Arc<AssistLive>>,
         spawner: Arc<FakeSpawner>,
-        _dir: tempfile::TempDir,
+        dir: tempfile::TempDir,
     }
 
     impl TestDevice {
@@ -606,7 +781,7 @@ mod tests {
                 ))))
             });
             let (leds_tx, leds) = watch::channel(LedState::default());
-            let (self_tx, _inputs) = mpsc::channel(64);
+            let (self_tx, inputs) = mpsc::channel(64);
             let (live_tx, live) = watch::channel(Arc::new(AssistLive::empty()));
             let spawner = Arc::new(FakeSpawner::default());
             let brain = Brain::new_with_local(
@@ -648,17 +823,21 @@ mod tests {
                 brain,
                 shared,
                 events,
-                _inputs,
+                inputs,
                 leds,
                 live: live_tx,
                 spawner,
-                _dir: dir,
+                dir,
             }
         }
 
         /// A standalone device whose three slots are checked.
         fn ready() -> Self {
-            let device = Self::new(Mode::Standalone, false);
+            Self::ready_with(false)
+        }
+
+        fn ready_with(speaker: bool) -> Self {
+            let device = Self::new(Mode::Standalone, speaker);
             device.set_live(AssistLive {
                 ready: true,
                 slots: [true; 3],
@@ -704,6 +883,29 @@ mod tests {
 
         async fn assist(&mut self, run: RunId, ev: RunEvent) {
             self.brain.handle(Input::Assist { run, ev }).await;
+        }
+
+        /// The next report the Brain sent itself; it is not handled.
+        async fn next_input(&mut self) -> Input {
+            tokio::time::timeout(Duration::from_secs(5), self.inputs.recv())
+                .await
+                .expect("the playback reported in time")
+                .expect("the Brain's sender is alive")
+        }
+
+        /// Hand the Brain its own reports until the playback is done.
+        /// Returns how many times it said its first audio sounded.
+        async fn play_out(&mut self) -> usize {
+            let mut started = 0;
+            loop {
+                let input = self.next_input().await;
+                let done = matches!(input, Input::PlaybackDone { .. });
+                started += usize::from(matches!(input, Input::PlaybackStarted { .. }));
+                self.brain.handle(input).await;
+                if done {
+                    return started;
+                }
+            }
         }
 
         fn run_id(&self) -> RunId {
@@ -1415,6 +1617,255 @@ mod tests {
         assert_eq!(device.events(), [stopped()]);
         assert_eq!(device.overlay(), Some(LedEffect::Error));
         let error = "brain via custom: request timed out";
+        assert_eq!(
+            device.brain.snapshot().assist.last_error.as_deref(),
+            Some(error)
+        );
+    }
+
+    /// 16-bit mono 16 kHz WAV: the header for `samples` samples.
+    fn wav_header(samples: usize) -> Vec<u8> {
+        let data_len = (samples * 2) as u32;
+        let mut bytes = Vec::with_capacity(44);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&16_000u32.to_le_bytes());
+        bytes.extend_from_slice(&32_000u32.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        bytes
+    }
+
+    fn samples(ms: usize) -> Vec<u8> {
+        (0..ms * 16).flat_map(|_| 1_000i16.to_le_bytes()).collect()
+    }
+
+    fn wav(ms: usize) -> Vec<u8> {
+        let mut bytes = wav_header(ms * 16);
+        bytes.extend(samples(ms));
+        bytes
+    }
+
+    fn sentence(
+        body: futures::stream::BoxStream<'static, std::io::Result<bytes::Bytes>>,
+    ) -> SpeechAudio {
+        SpeechAudio {
+            kind: AudioKind::Sentence,
+            mime: Some("audio/wav".into()),
+            body: AudioBody::Stream(body),
+        }
+    }
+
+    /// A sentence synthesised in one piece.
+    fn short_sentence(ms: usize) -> SpeechAudio {
+        use futures::StreamExt;
+        sentence(futures::stream::iter([Ok(bytes::Bytes::from(wav(ms)))]).boxed())
+    }
+
+    /// A sentence whose first `ms` arrive at once and whose rest waits for
+    /// `gate`: it sounds, then can't finish until the gate opens.
+    fn gated_sentence(ms: usize, gate: oneshot::Receiver<()>) -> SpeechAudio {
+        use futures::StreamExt;
+        let mut first = wav_header(ms * 16 * 2);
+        first.extend(samples(ms));
+        let first = futures::stream::iter([Ok(bytes::Bytes::from(first))]);
+        let rest = futures::stream::once(async move {
+            let _ = gate.await;
+            Ok(bytes::Bytes::from(samples(ms)))
+        });
+        sentence(first.chain(rest).boxed())
+    }
+
+    /// A ready device with a speaker, thinking about its request.
+    async fn thinking_with_speaker() -> (TestDevice, RunId, ReplySink) {
+        let mut device = TestDevice::ready_with(true);
+        let FakeRun { start, .. } = device.request().await;
+        let LocalStart { run, reply, .. } = start;
+        device.assist(run, RunEvent::SpeechEnded).await;
+        device.events();
+        (device, run, reply)
+    }
+
+    async fn pending_credit(sink: &ReplySink) -> tokio::task::JoinHandle<Credit> {
+        let sink = sink.clone();
+        let credit = tokio::spawn(async move { sink.credit().await.unwrap() });
+        tokio::task::yield_now().await;
+        credit
+    }
+
+    #[tokio::test]
+    async fn a_reply_plays_in_order_with_two_sentences_ahead_at_most() {
+        let (mut device, run, sink) = thinking_with_speaker().await;
+        let (open_gate, gate) = oneshot::channel();
+        for audio in [gated_sentence(300, gate), short_sentence(100)] {
+            let credit = sink.credit().await.unwrap();
+            sink.send(audio, Some(credit)).await.unwrap();
+        }
+        let third = pending_credit(&sink).await;
+        assert!(
+            !third.is_finished(),
+            "a third sentence waits for the first to sound"
+        );
+
+        device.assist(run, RunEvent::ReplyReady).await;
+        assert!(matches!(
+            device.brain.playback,
+            Some((_, PlaybackKind::Reply, _))
+        ));
+        let input = device.next_input().await;
+        assert!(matches!(input, Input::PlaybackStarted { .. }), "{input:?}");
+        device.brain.handle(input).await;
+        assert_eq!(device.brain.phase, Phase::Speaking);
+        assert_eq!(device.events(), [voice_event("replying")]);
+
+        // The first sentence sounds, so the third may be synthesised.
+        let third = tokio::time::timeout(Duration::from_secs(5), third)
+            .await
+            .unwrap()
+            .unwrap();
+        sink.send(short_sentence(100), Some(third)).await.unwrap();
+        // The second can't sound before the first, which waits for its gate.
+        let fourth = pending_credit(&sink).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !fourth.is_finished(),
+            "a fourth sentence waits for the second to sound"
+        );
+
+        open_gate.send(()).unwrap();
+        let fourth = tokio::time::timeout(Duration::from_secs(5), fourth)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(fourth);
+        drop(sink);
+        device
+            .assist(
+                run,
+                RunEvent::Done {
+                    turn: Some(turn("Question", "One. Two. Three.")),
+                    spoke: true,
+                },
+            )
+            .await;
+        assert_eq!(
+            device.brain.phase,
+            Phase::Speaking,
+            "the reply is still sounding"
+        );
+
+        let before = Instant::now();
+        assert_eq!(
+            device.play_out().await,
+            0,
+            "the first audio is reported once"
+        );
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert!(device.brain.playback.is_none());
+        assert!(device.brain.speaker_quiet_since >= before);
+        assert_eq!(device.events(), [voice_event("finished")]);
+    }
+
+    #[tokio::test]
+    async fn an_acknowledgment_is_never_the_first_audio() {
+        let (mut device, run, sink) = thinking_with_speaker().await;
+        let ack = device.dir.path().join("ack.wav");
+        std::fs::write(&ack, wav(100)).unwrap();
+        let ack = || SpeechAudio {
+            kind: AudioKind::Ack,
+            mime: None,
+            body: AudioBody::File(ack.clone()),
+        };
+        sink.send(ack(), None).await.unwrap();
+        device.assist(run, RunEvent::ReplyReady).await;
+        drop(sink);
+
+        assert_eq!(device.play_out().await, 0);
+        assert!(matches!(device.brain.phase, Phase::Thinking(_)));
+        assert!(device.events().is_empty());
+
+        // An acknowledgment and then a sentence: the sentence is the first audio.
+        let (mut device, run, sink) = thinking_with_speaker().await;
+        sink.send(ack(), None).await.unwrap();
+        let credit = sink.credit().await.unwrap();
+        sink.send(short_sentence(100), Some(credit)).await.unwrap();
+        device.assist(run, RunEvent::ReplyReady).await;
+        drop(sink);
+        device
+            .assist(
+                run,
+                RunEvent::Done {
+                    turn: Some(turn("Question", "Answer.")),
+                    spoke: true,
+                },
+            )
+            .await;
+
+        assert_eq!(device.play_out().await, 1);
+        assert_eq!(
+            device.events(),
+            [voice_event("replying"), voice_event("finished")]
+        );
+        assert_eq!(device.brain.phase, Phase::Idle);
+    }
+
+    #[tokio::test]
+    async fn aborting_the_run_flushes_its_reply() {
+        let (mut device, run, sink) = thinking_with_speaker().await;
+        let (_gate_open, gate) = oneshot::channel();
+        let credit = sink.credit().await.unwrap();
+        sink.send(gated_sentence(300, gate), Some(credit))
+            .await
+            .unwrap();
+        device.assist(run, RunEvent::ReplyReady).await;
+        let input = device.next_input().await;
+        device.brain.handle(input).await;
+        assert_eq!(device.brain.phase, Phase::Speaking);
+        let speaker = device.brain.speaker.clone().unwrap();
+        assert!(speaker.is_playing());
+
+        device.api(ApiCommand::StopConversation).await.unwrap();
+
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.playback.is_none());
+        assert!(device.brain.local.run.is_none());
+        let mut state = speaker.state();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *state.borrow() != PlaybackState::Idle {
+                state.changed().await.unwrap();
+            }
+        })
+        .await
+        .expect("the voice lane was flushed");
+        // The player is gone: its sink sees the reply channel closed.
+        assert!(sink.credit().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_fails_to_play_before_done_fails_the_run() {
+        use futures::StreamExt;
+        let (mut device, run, sink) = thinking_with_speaker().await;
+        let garbage = futures::stream::iter([Ok(bytes::Bytes::from_static(b"not audio at all"))]);
+        let credit = sink.credit().await.unwrap();
+        sink.send(sentence(garbage.boxed()), Some(credit))
+            .await
+            .unwrap();
+        device.assist(run, RunEvent::ReplyReady).await;
+
+        assert_eq!(device.play_out().await, 0);
+
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert_eq!(device.events(), [stopped()]);
+        assert_eq!(device.overlay(), Some(LedEffect::Error));
+        let error = "tts via custom: invalid provider response";
         assert_eq!(
             device.brain.snapshot().assist.last_error.as_deref(),
             Some(error)
