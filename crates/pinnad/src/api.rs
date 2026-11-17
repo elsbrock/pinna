@@ -292,6 +292,7 @@ fn media(m: &crate::voice::MediaSnapshot) -> Media {
         stream: m.stream,
         muted: m.muted,
         error: m.error.clone().unwrap_or_default(),
+        error_url: m.error_url.clone().unwrap_or_default(),
         available: m.available,
         volume: m.volume.into(),
         title: m.track.title.clone(),
@@ -2331,23 +2332,41 @@ mod tests {
         let s = status(&c).await;
         assert_eq!((s.media.volume, s.volume), (30, 40));
         lane(pinna_audio::MediaState {
-            url: Some("http://radio.example/gone.aac".into()),
             error: Some("unsupported format".into()),
+            error_url: Some("http://radio.example/gone.aac".into()),
             ..Default::default()
         })
         .await
         .unwrap();
         let failed = media(status(&c).await);
         assert_eq!(failed.state.as_known(), Some(MediaState::MEDIA_STATE_IDLE));
-        assert_eq!(failed.error, "unsupported format");
-        // A failure that reports no URL keeps the one that failed.
+        assert_eq!(
+            (
+                failed.error.as_str(),
+                failed.error_url.as_str(),
+                failed.url.as_str()
+            ),
+            ("unsupported format", "http://radio.example/gone.aac", "")
+        );
+        // A play that fails to open leaves what played before playing.
         lane(pinna_audio::MediaState {
+            phase: pinna_audio::MediaPhase::Playing,
+            url: Some("http://radio.example/live.mp3".into()),
             error: Some("HTTP 404 Not Found".into()),
+            error_url: Some("http://radio.example/gone.mp3".into()),
             ..Default::default()
         })
         .await
         .unwrap();
-        assert_eq!(media(status(&c).await).url, "http://radio.example/gone.aac");
+        let both = media(status(&c).await);
+        assert_eq!(both.state.as_known(), Some(MediaState::MEDIA_STATE_PLAYING));
+        assert_eq!(
+            (both.url.as_str(), both.error_url.as_str()),
+            (
+                "http://radio.example/live.mp3",
+                "http://radio.example/gone.mp3"
+            )
+        );
         assert_eq!(failed.volume, 40, "no stream: the speaker volume");
 
         let play = |url: &str| PlayMediaRequest {

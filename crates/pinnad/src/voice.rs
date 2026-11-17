@@ -108,6 +108,8 @@ pub struct MediaSnapshot {
     pub stream: bool,
     pub muted: bool,
     pub error: Option<String>,
+    /// The URL whose play failed, with `error`; `url` is what still plays.
+    pub error_url: Option<String>,
     pub available: bool,
     /// The media player's volume: the stream's while a stream plays.
     pub volume: u8,
@@ -125,6 +127,7 @@ impl Default for MediaSnapshot {
             stream: false,
             muted: false,
             error: None,
+            error_url: None,
             available: false,
             volume: 0,
             track: pinna_audio::Track::default(),
@@ -445,6 +448,8 @@ pub struct Brain {
     /// What the media lane plays or last played, and why it last failed.
     media_url: Option<String>,
     media_error: Option<String>,
+    /// The URL whose play failed, with `media_error`.
+    media_error_url: Option<String>,
     /// What the media lane plays, as its source names it, and a stream's
     /// source.
     media_track: pinna_audio::Track,
@@ -575,6 +580,7 @@ impl Brain {
             media_stream: false,
             media_url: None,
             media_error: None,
+            media_error_url: None,
             media_track: pinna_audio::Track::default(),
             media_source: String::new(),
             stream_volume: 100,
@@ -762,12 +768,9 @@ impl Brain {
                 self.media_track = state.track;
                 self.media_source = state.source;
                 self.media_stream = state.url.as_deref() == Some(STREAM_URL);
-                // A failed play reports no URL: keep the one that failed, to
-                // show with the error.
-                if state.url.is_some() || state.error.is_none() {
-                    self.media_url = state.url;
-                }
+                self.media_url = state.url;
                 self.media_error = state.error;
+                self.media_error_url = state.error_url;
                 self.update_media_state();
             }
             Input::Ha(cmd) => self.ha(cmd).await,
@@ -1018,6 +1021,7 @@ impl Brain {
                 stream: self.media_stream,
                 muted: self.media_muted,
                 error: self.media_error.clone(),
+                error_url: self.media_error_url.clone(),
                 available: self.speaker.is_some(),
                 volume: self.media_volume(),
                 track: self.media_track.clone(),

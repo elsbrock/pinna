@@ -283,13 +283,16 @@ enum MediaState {
 // PlayMedia, and Home Assistant's announcements.
 message Media {
   MediaState state = 1;
-  // What plays or last played; empty for AirPlay and Bluetooth.
+  // What plays, or the play that is opening while nothing plays; empty for
+  // AirPlay and Bluetooth.
   string url = 2;
   // AirPlay or Bluetooth plays. Pausing ends their session, like stopping.
   bool stream = 3;
   // The music is muted (not the microphones), until unmuted.
   bool muted = 4;
-  // Why the last media ended badly; cleared by the next play.
+  // Why the last media ended badly, or why a play failed to open; cleared
+  // by the next play or a stop. A play that fails to open leaves what
+  // played before playing (ADR 0011).
   string error = 5;
   // The satellite has a working speaker: without one, nothing plays.
   bool available = 6;
@@ -307,6 +310,8 @@ message Media {
   // While a stream plays: the source its header names, `airplay` or
   // `bluetooth`.
   string source = 12;
+  // With `error`: the URL that failed. `url` is what still plays, if anything.
+  string error_url = 13;
 }
 
 // The ring as a light. The ring shows it while idle, below a running timer and
