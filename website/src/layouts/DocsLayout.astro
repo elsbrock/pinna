@@ -87,7 +87,7 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
           </div>
 
           <nav
-            class="border-line mt-14 grid gap-3 border-t pt-6 sm:grid-cols-2"
+            class="border-line mt-14 grid grid-cols-2 gap-3 border-t pt-6"
             aria-label="Docs pages"
           >
             {
@@ -111,7 +111,7 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
             {
               next && (
                 <a
-                  class="card hover:border-line-strong flex items-center gap-3 p-3.5 transition-colors sm:justify-self-end sm:text-right"
+                  class="card hover:border-line-strong flex items-center justify-end gap-3 p-3.5 text-right transition-colors"
                   href={docHref(next.slug)}
                 >
                   <span class="min-w-0">
