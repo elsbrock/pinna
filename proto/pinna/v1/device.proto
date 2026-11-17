@@ -37,8 +37,8 @@ service DeviceService {
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
   // The time zones UpdateSettings accepts.
   rpc ListTimeZones(ListTimeZonesRequest) returns (ListTimeZonesResponse);
-  // The other satellites on the network (ADR 0021): a one-shot mDNS query and
-  // at most one follow-up, about a second and a half in all.
+  // The other satellites on the network (ADR 0021), as pinnad's background
+  // search last found them. Returns at once: it sends no query.
   rpc ListSatellites(ListSatellitesRequest) returns (ListSatellitesResponse);
   // Start tuning the wake word sensitivity with the satellite's + and −
   // buttons. Fails while the microphones are muted, the wake word is off, or
@@ -629,11 +629,14 @@ message ListTimeZonesResponse {
 message ListSatellitesRequest {}
 
 message ListSatellitesResponse {
-  // Other satellites that answered, by friendly name. Not this one.
+  // Other satellites whose dashboard answered, by friendly name. Not this one.
   repeated Satellite satellites = 1;
   // This satellite has an address on a network, not only the USB link. When
   // false, nothing was asked and the list is empty.
   bool on_network = 2;
+  // A search has finished since pinnad started. Until then the list is empty
+  // because nothing has been asked yet.
+  bool searched = 3;
 }
 
 // A satellite found by its ESPHome mDNS record (ADR 0021).

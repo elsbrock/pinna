@@ -214,7 +214,7 @@ class Device {
   async listTimeZones(): Promise<string[]> {
     return (await client.listTimeZones({})).zones;
   }
-  /** The other satellites on the network (ADR 0021); takes up to a second and a half. */
+  /** The other satellites on the network (ADR 0021), as pinnad's background search last found them. */
   listSatellites(): Promise<ListSatellitesResponse> {
     return client.listSatellites({});
   }

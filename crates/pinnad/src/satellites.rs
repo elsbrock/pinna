@@ -1,7 +1,9 @@
-//! The other satellites on the network (ADR 0021): a one-shot mDNS query for
-//! `_esphomelib._tcp`, sent from an ordinary UDP port. A responder answers such
-//! a legacy unicast query by unicast to that port (RFC 6762, section 6.7), so
-//! pinnad never binds 5353: systemd-resolved stays the only mDNS socket.
+//! The other satellites on the network (ADR 0021), looked for in the
+//! background once a minute: a one-shot mDNS query for `_esphomelib._tcp`,
+//! sent from an ordinary UDP port. A responder answers such a legacy unicast
+//! query by unicast to that port (RFC 6762, section 6.7), so pinnad never binds
+//! 5353: systemd-resolved stays the only mDNS socket. A satellite is listed
+//! while its dashboard accepts a connection at its host name's addresses.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -11,8 +13,11 @@ use anyhow::{Context, Result};
 use pinna_api::Interface;
 use simple_dns::rdata::RData;
 use simple_dns::{CLASS, Name, Packet, PacketFlag, QCLASS, QTYPE, Question, TYPE};
-use tokio::net::UdpSocket;
+use tokio::net::{TcpStream, UdpSocket};
+use tokio::sync::watch;
 use tokio::time::Instant;
+
+use crate::network;
 
 const SERVICE: &str = "_esphomelib._tcp.local";
 const PROJECT: &str = "pinna.satellite";
@@ -24,6 +29,17 @@ const SECOND_WINDOW: Duration = Duration::from_millis(500);
 /// Follow-ups after the first query. A responder may answer only the question
 /// asked: PTR, then SRV and TXT, then the addresses of the host the SRV names.
 const FOLLOW_UPS: usize = 3;
+/// How often the background search runs.
+const EVERY: Duration = Duration::from_secs(60);
+/// How often it checks for a network while the satellite has none, which
+/// sends nothing: pinnad starts before Wi-Fi is up, and the list shouldn't say
+/// "not on a network" for a minute after boot.
+const OFF_NETWORK_EVERY: Duration = Duration::from_secs(10);
+/// How long a satellite's dashboard has to accept a connection.
+const CONNECT: Duration = Duration::from_secs(3);
+/// Searches a satellite may miss in a row before it leaves the list: one lost
+/// packet shouldn't drop it.
+const MISSES: u8 = 2;
 /// The satellite's own USB link, which every satellite has.
 const USB_NET: (Ipv4Addr, u8) = (Ipv4Addr::new(10, 42, 0, 0), 24);
 
@@ -187,12 +203,144 @@ impl Collected {
                     .collect(),
             });
         }
-        out.sort_by(|a, b| {
-            (a.friendly_name.to_lowercase(), &a.name)
-                .cmp(&(b.friendly_name.to_lowercase(), &b.name))
-        });
+        by_name(&mut out);
         out
     }
+}
+
+fn by_name(list: &mut [Found]) {
+    list.sort_by(|a, b| {
+        (a.friendly_name.to_lowercase(), &a.name).cmp(&(b.friendly_name.to_lowercase(), &b.name))
+    });
+}
+
+/// What the background search knows.
+#[derive(Debug, Clone, Default)]
+pub struct Seen {
+    /// A search has finished since pinnad started.
+    pub searched: bool,
+    /// This satellite has an address beyond the USB link.
+    pub on_network: bool,
+    /// The other satellites whose dashboard answered, by friendly name.
+    pub satellites: Vec<Found>,
+    /// Why the last search failed.
+    pub error: Option<String>,
+}
+
+/// Look for the other satellites now and then every minute, and publish what
+/// was found. Runs for as long as pinnad does.
+pub async fn run(own_mac: String, tx: watch::Sender<Seen>) {
+    let mut kept = Vec::new();
+    loop {
+        let seen = match look(&own_mac).await {
+            Ok(None) => {
+                kept.clear();
+                Seen {
+                    searched: true,
+                    ..Seen::default()
+                }
+            }
+            Ok(Some(found)) => Seen {
+                searched: true,
+                on_network: true,
+                satellites: keep(&mut kept, found),
+                error: None,
+            },
+            Err(e) => {
+                let why = format!("{e:#}");
+                // Once per new failure, not once a minute.
+                if tx.borrow().error.as_ref() != Some(&why) {
+                    tracing::warn!("looking for other satellites: {why}");
+                }
+                // A failed search is a miss for every satellite: the list
+                // doesn't freeze while searches fail, and the error shows
+                // once it is empty.
+                Seen {
+                    searched: true,
+                    on_network: true,
+                    satellites: keep(&mut kept, Vec::new()),
+                    error: Some(why),
+                }
+            }
+        };
+        let wait = if seen.on_network {
+            EVERY
+        } else {
+            OFF_NETWORK_EVERY
+        };
+        tx.send_replace(seen);
+        tokio::time::sleep(wait).await;
+    }
+}
+
+/// One search, or `None` when this satellite isn't on a network, so nothing
+/// was asked. Satellites whose dashboard doesn't answer are left out.
+async fn look(own_mac: &str) -> Result<Option<Vec<Found>>> {
+    let interfaces = network::interfaces()
+        .await
+        .context("reading network interfaces")?;
+    if !on_network(&interfaces) {
+        return Ok(None);
+    }
+    let found = discover(own_mac).await?;
+    let up = futures::future::join_all(found.iter().map(answers)).await;
+    Ok(Some(
+        found
+            .into_iter()
+            .zip(up)
+            .filter_map(|(f, up)| up.then_some(f))
+            .collect(),
+    ))
+}
+
+/// Whether a satellite's dashboard accepts a connection at its host name's
+/// addresses (the first IPv4 and IPv6 address heard): its web listener is on
+/// and pinnad runs there. Its dashboard address isn't tried: it may lead
+/// through a proxy, a login or a VPN that this satellite can't pass.
+async fn answers(f: &Found) -> bool {
+    let ips = (f.ipv4.first().copied().map(IpAddr::V4))
+        .into_iter()
+        .chain(f.ipv6.first().copied().map(IpAddr::V6));
+    for ip in ips {
+        let connect = TcpStream::connect((ip, f.web_port));
+        if let Ok(Ok(_)) = tokio::time::timeout(CONNECT, connect).await {
+            return true;
+        }
+    }
+    false
+}
+
+/// Merge one search into what the earlier ones found: a satellite found now is
+/// listed as it is now; one not found stays until it has missed `MISSES`
+/// searches in a row.
+fn keep(kept: &mut Vec<(Found, u8)>, found: Vec<Found>) -> Vec<Found> {
+    for (_, missed) in kept.iter_mut() {
+        *missed += 1;
+    }
+    for f in found {
+        match kept.iter_mut().find(|(k, _)| same(k, &f)) {
+            Some(entry) => *entry = (f, 0),
+            None => kept.push((f, 0)),
+        }
+    }
+    kept.retain(|(_, missed)| *missed < MISSES);
+    listed(kept)
+}
+
+/// The same satellite: by MAC, or by node name when a record has no MAC.
+fn same(a: &Found, b: &Found) -> bool {
+    let (ma, mb) = (mac_digits(&a.mac), mac_digits(&b.mac));
+    if ma.is_empty() || mb.is_empty() {
+        a.name.eq_ignore_ascii_case(&b.name)
+    } else {
+        ma == mb
+    }
+}
+
+fn listed(kept: &[(Found, u8)]) -> Vec<Found> {
+    let mut out: Vec<Found> = kept.iter().map(|(f, _)| f.clone()).collect();
+    by_name(&mut out);
+    out
 }
 
 /// The addresses heard for an instance's host.
@@ -253,7 +401,7 @@ pub fn on_network(interfaces: &[Interface]) -> bool {
 
 /// Ask the network for satellites: one query, then follow-ups for the records
 /// the answers so far lack.
-pub async fn discover(own_mac: &str) -> Result<Vec<Found>> {
+async fn discover(own_mac: &str) -> Result<Vec<Found>> {
     discover_at(MDNS, own_mac, FIRST_WINDOW, SECOND_WINDOW).await
 }
 
@@ -614,6 +762,61 @@ mod tests {
         assert_eq!(found[0].url, "https://kitchen.example.com/");
         assert_eq!(found[0].ipv4, [Ipv4Addr::new(192, 168, 1, 20)]);
         assert_eq!(found[0].ipv6, ["2001:db8::20".parse::<Ipv6Addr>().unwrap()]);
+    }
+
+    fn found(name: &str, mac: &str) -> Found {
+        Found {
+            name: name.into(),
+            friendly_name: name.into(),
+            board: String::new(),
+            mac: mac.into(),
+            version: String::new(),
+            web_port: 80,
+            url: String::new(),
+            ipv4: vec![],
+            ipv6: vec![],
+        }
+    }
+
+    #[test]
+    fn a_satellite_leaves_after_two_missed_searches() {
+        let mut kept = Vec::new();
+        let (a, b) = (found("a", "02:00:00:00:00:0a"), found("b", ""));
+        let names = |l: Vec<Found>| l.into_iter().map(|f| f.name).collect::<Vec<_>>();
+        assert_eq!(
+            names(keep(&mut kept, vec![b.clone(), a.clone()])),
+            ["a", "b"]
+        );
+        assert_eq!(names(keep(&mut kept, vec![a.clone()])), ["a", "b"]);
+        assert_eq!(names(keep(&mut kept, vec![a.clone()])), ["a"]);
+        assert_eq!(names(keep(&mut kept, vec![b.clone()])), ["a", "b"]);
+        // Found again, it starts over: one more miss keeps it.
+        assert_eq!(names(keep(&mut kept, vec![b])), ["b"]);
+    }
+
+    #[test]
+    fn a_satellite_found_again_is_listed_as_it_is_now() {
+        let mut kept = Vec::new();
+        keep(&mut kept, vec![found("kitchen", "02:00:00:00:00:0a")]);
+        let mut renamed = found("hall", "02-00-00-00-00-0A");
+        renamed.url = "https://hall.example.com/".into();
+        let list = keep(&mut kept, vec![renamed.clone()]);
+        assert_eq!(list, [renamed]);
+    }
+
+    #[tokio::test]
+    async fn a_dashboard_answers_when_its_port_accepts() {
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let mut sat = found("kitchen", "");
+        sat.web_port = listener.local_addr().unwrap().port();
+        sat.ipv4 = vec![Ipv4Addr::LOCALHOST];
+        assert!(answers(&sat).await);
+        drop(listener);
+        assert!(!answers(&sat).await, "nothing listens on the port");
+        sat.ipv4.clear();
+        assert!(!answers(&sat).await, "no address heard");
     }
 
     #[tokio::test]

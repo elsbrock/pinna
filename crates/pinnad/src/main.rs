@@ -691,6 +691,10 @@ async fn main() -> Result<()> {
         }
     });
 
+    // The other satellites, for the dashboard's switcher (ADR 0021).
+    let (satellites_tx, satellites_rx) = watch::channel(satellites::Seen::default());
+    tokio::spawn(satellites::run(dc_mac.clone(), satellites_tx));
+
     // Local control API.
     let (status_tx, status_rx) = watch::channel(Snapshot::default());
     let device_api = api::DeviceApi::new(
@@ -716,7 +720,11 @@ async fn main() -> Result<()> {
         status_rx,
         in_tx.clone(),
     );
-    let device_api = Arc::new(device_api.with_ring(shown_rx));
+    let device_api = Arc::new(
+        device_api
+            .with_ring(shown_rx)
+            .with_satellites(satellites_rx),
+    );
     // A Wi-Fi trial that a stopped pinnad left behind goes back (ADR 0008).
     let wifi_api = device_api.clone();
     tokio::spawn(async move { wifi_api.recover_wifi().await });

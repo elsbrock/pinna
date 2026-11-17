@@ -84,6 +84,8 @@ pub struct DeviceApi {
     inputs: mpsc::Sender<Input>,
     updater: Arc<Updater>,
     wifi: Arc<Wifi>,
+    /// What the background search last found (satellites::run).
+    satellites: watch::Receiver<satellites::Seen>,
 }
 
 /// WatchRing sends at most one frame per this interval.
@@ -108,6 +110,7 @@ impl DeviceApi {
             inputs,
             updater: Arc::new(updater),
             wifi: Arc::new(Wifi::new(WifiPaths::default())),
+            satellites: watch::channel(satellites::Seen::default()).1,
         }
     }
 
@@ -125,6 +128,11 @@ impl DeviceApi {
     /// Stream the frames on `ring` to WatchRing.
     pub fn with_ring(mut self, ring: watch::Receiver<Frame>) -> Self {
         self.ring = ring;
+        self
+    }
+
+    pub fn with_satellites(mut self, satellites: watch::Receiver<satellites::Seen>) -> Self {
+        self.satellites = satellites;
         self
     }
 
@@ -722,18 +730,20 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         _request: ServiceRequest<'_, ListSatellitesRequest>,
     ) -> ServiceResult<ListSatellitesResponse> {
-        let interfaces = network::interfaces()
-            .await
-            .map_err(|e| ConnectError::unavailable(format!("reading network interfaces: {e:#}")))?;
-        if !satellites::on_network(&interfaces) {
-            return Response::ok(ListSatellitesResponse::default());
+        let seen = self.satellites.borrow().clone();
+        // After one failed search the satellites found before are still
+        // listed (satellites::run); the error shows once none are.
+        if let Some(why) = &seen.error
+            && seen.satellites.is_empty()
+        {
+            return Err(ConnectError::unavailable(format!(
+                "Couldn't look for other satellites: {why}. The satellite tries again every minute."
+            )));
         }
-        let found = satellites::discover(&self.info.mac).await.map_err(|e| {
-            ConnectError::unavailable(format!("Couldn't look for other satellites: {e:#}"))
-        })?;
         Response::ok(ListSatellitesResponse {
-            satellites: found.into_iter().map(satellite).collect(),
-            on_network: true,
+            satellites: seen.satellites.into_iter().map(satellite).collect(),
+            on_network: seen.on_network,
+            searched: seen.searched,
             ..Default::default()
         })
     }
@@ -1192,12 +1202,13 @@ mod tests {
     }
 
     async fn start_device_with(updater: Updater) -> (Client, mpsc::Sender<Input>) {
-        start_device_inner(updater, None).await
+        start_device_inner(updater, None, None).await
     }
 
     async fn start_device_inner(
         updater: Updater,
         wifi: Option<crate::wifi::Wifi>,
+        sats: Option<watch::Receiver<satellites::Seen>>,
     ) -> (Client, mpsc::Sender<Input>) {
         let mut dc = DeviceConfig::new("pinna-test", [2, 0, 0, 0xaa, 0xbb, 0xcc]);
         dc.port = 0;
@@ -1257,6 +1268,9 @@ mod tests {
         let mut api = DeviceApi::with_updater(info, status_rx, in_tx.clone(), updater);
         if let Some(w) = wifi {
             api = api.with_wifi(w);
+        }
+        if let Some(rx) = sats {
+            api = api.with_satellites(rx);
         }
         let addr = start(Arc::new(api), "127.0.0.1:0").await.unwrap();
         let config = ClientConfig::new(format!("http://{addr}").parse().unwrap());
@@ -1650,20 +1664,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn satellites_are_listed_only_on_a_network() {
-        let (c, _inputs) = start_device().await;
-        // Where the test runs decides whether there is a network: without one
-        // (or without `ip`) nothing is asked and nothing comes back.
-        match c
-            .list_satellites(pinna_api::ListSatellitesRequest::default())
-            .await
-        {
-            Ok(r) => {
-                let r = r.into_view().to_owned_message();
-                assert!(r.on_network || r.satellites.is_empty());
-            }
-            Err(e) => assert_eq!(e.code, connectrpc::ErrorCode::Unavailable),
-        }
+    async fn satellites_come_from_the_last_search() {
+        let (tx, rx) = watch::channel(satellites::Seen::default());
+        let (c, _inputs) =
+            start_device_inner(Updater::new(UpdaterPaths::default()), None, Some(rx)).await;
+        let list = async || {
+            c.list_satellites(pinna_api::ListSatellitesRequest::default())
+                .await
+                .map(|r| r.into_view().to_owned_message())
+        };
+        let r = list().await.unwrap();
+        assert!(!r.searched && r.satellites.is_empty(), "nothing asked yet");
+        let kitchen = satellites::Found {
+            name: "kitchen".into(),
+            friendly_name: "Kitchen".into(),
+            board: "Echo Dot (2nd Gen)".into(),
+            mac: "02:00:00:00:00:0a".into(),
+            version: "0.9.0".into(),
+            web_port: 80,
+            url: "https://kitchen.example.com/".into(),
+            ipv4: vec![std::net::Ipv4Addr::new(192, 168, 1, 20)],
+            ipv6: vec![],
+        };
+        tx.send_replace(satellites::Seen {
+            searched: true,
+            on_network: true,
+            satellites: vec![kitchen],
+            error: None,
+        });
+        let r = list().await.unwrap();
+        assert!(r.searched && r.on_network);
+        assert_eq!(r.satellites.len(), 1);
+        assert_eq!(r.satellites[0].url, "https://kitchen.example.com/");
+        assert_eq!(r.satellites[0].ipv4, ["192.168.1.20"]);
+        // An error doesn't hide the satellites still listed; with none, it says why.
+        tx.send_modify(|s| s.error = Some("opening a UDP socket".into()));
+        assert_eq!(list().await.unwrap().satellites.len(), 1);
+        tx.send_modify(|s| s.satellites.clear());
+        let e = list().await.unwrap_err();
+        assert_eq!(e.code, connectrpc::ErrorCode::Unavailable);
+        assert!(
+            e.message.as_deref().unwrap_or_default().contains("UDP"),
+            "{e:?}"
+        );
     }
 
     #[tokio::test]
@@ -2565,7 +2608,7 @@ mod tests {
             Duration::from_secs(60),
         );
         let (c, _inputs) =
-            start_device_inner(Updater::new(UpdaterPaths::default()), Some(wifi)).await;
+            start_device_inner(Updater::new(UpdaterPaths::default()), Some(wifi), None).await;
 
         let scan = c.scan_wifi(ScanWifiRequest::default()).await.unwrap();
         let names: Vec<String> = scan

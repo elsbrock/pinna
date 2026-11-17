@@ -1,7 +1,8 @@
 <!-- The satellite switcher (ADR 0021): this satellite, then the others on the
-     network, each a link to its own dashboard. Mounted while it is open, so
-     every opening asks again. It floats over the page, placed from the button
-     it opened from, which gets the focus back on Escape and on a choice. -->
+     network, each a link to its own dashboard. pinnad looks for them in the
+     background; opening the list reads what it last found, without asking the
+     network. It floats over the page, placed from the button it opened from,
+     which gets the focus back on Escape and on a choice. -->
 <script lang="ts">
   import { onMount } from "svelte";
 
@@ -52,11 +53,17 @@
   }
 
   let current = true;
+  let again: ReturnType<typeof setTimeout> | undefined;
   function look() {
     found = { state: "looking" };
     device
       .listSatellites()
-      .then((r) => current && (found = { state: "done", list: r.satellites, onNetwork: r.onNetwork }))
+      .then((r) => {
+        if (!current) return;
+        // pinnad has only just started: ask again until its first search is in.
+        if (!r.searched) again = setTimeout(look, 1000);
+        else found = { state: "done", list: r.satellites, onNetwork: r.onNetwork };
+      })
       .catch((e) => current && (found = { state: "failed", why: errorSentence(e) }));
   }
 
@@ -81,6 +88,7 @@
     addEventListener("hashchange", away);
     return () => {
       current = false;
+      clearTimeout(again);
       removeEventListener("pointerdown", outside, true);
       removeEventListener("keydown", escape);
       removeEventListener("resize", away);
@@ -145,7 +153,6 @@
     {#each [0, 1] as k (k)}<span class="pn-skeleton" style:height="56px" aria-hidden="true"></span>{/each}
   {:else if found.state === "failed"}
     <p class="pn-pop-note" role="alert"><Icon name="alert" />{found.why}</p>
-    <button class="pn-btn pn-btn-sm pn-pop-retry" type="button" onclick={look}>Try again</button>
   {:else if !found.onNetwork}
     <p class="pn-pop-note">This satellite isn't on a network yet.</p>
   {:else if !found.list.length}

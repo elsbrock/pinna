@@ -325,7 +325,6 @@ button.pn-ident > .pn-ident-name, button.pn-ident > .pn-health { grid-column: 2;
 }
 .pn-pop-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .pn-pop-note .pn-icon { flex: none; margin-top: 2px; color: var(--danger); }
-.pn-pop-retry { align-self: flex-start; margin: 0 10px 8px; }
 .pn-pop-sep { margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
 .pn-sat { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 0 12px; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border-radius: var(--radius-sm); color: inherit; text-decoration: none; }
 a.pn-sat { cursor: pointer; transition: background-color .12s; }
