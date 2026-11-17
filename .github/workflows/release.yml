@@ -1,7 +1,8 @@
 name: release
 
 # A v* tag builds a release and uploads it to a draft GitHub release, signed
-# with PINNA_RELEASE_KEY from the protected "release" environment (ADR 0015).
+# with PINNA_RELEASE_KEY from the protected "release" environment (ADR 0015),
+# with the notes in releases/<version>.md (ADR 0022).
 # Started by hand, it builds the same with a throwaway key and keeps the files
 # as workflow artifacts: for testing this workflow, never for devices.
 on:
@@ -52,14 +53,37 @@ jobs:
       - name: Rust toolchain (rust-toolchain.toml)
         run: nix develop -c rustup toolchain install
 
+      # Semantic versions only (ADR 0022): v<major>.<minor>.<patch>, or a beta
+      # v<major>.<minor>.<patch>-beta.<n>, which becomes a prerelease.
       - name: Version
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then
+            [[ $GITHUB_REF_NAME =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]] || {
+              echo "$GITHUB_REF_NAME is not a release tag: v<major>.<minor>.<patch> or v<major>.<minor>.<patch>-beta.<n>" >&2
+              exit 1
+            }
             v=${GITHUB_REF_NAME#v}
           else
-            v=dryrun-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}
+            v=0.0.0-dryrun.${GITHUB_RUN_NUMBER}.g${GITHUB_SHA::7}
           fi
           echo "PINNA_VERSION=$v" >> "$GITHUB_ENV"
+
+      # The notes the release-notes skill drafted and the owner committed: the
+      # first paragraph is the manifest's summary for Home Assistant's update
+      # card, the file is the release's text (ADR 0022).
+      - name: Release notes
+        if: github.event_name == 'push'
+        run: |
+          notes=releases/$PINNA_VERSION.md
+          [ -s "$notes" ] || { echo "no $notes: draft it with the release-notes skill and commit it before tagging" >&2; exit 1; }
+          [ "$(head -n1 "$notes")" = "# Pinna $PINNA_VERSION" ] || { echo "$notes must start with '# Pinna $PINNA_VERSION'" >&2; exit 1; }
+          summary=$(awk 'NR == 1 { next } /^$/ { if (started) exit; next } /^#/ { exit } { started = 1; printf "%s%s", sep, $0; sep = " " }' "$notes")
+          [ -n "$summary" ] || { echo "$notes has no summary paragraph after its title" >&2; exit 1; }
+          [ "${#summary}" -le 255 ] || { echo "the summary in $notes has ${#summary} characters; Home Assistant shows at most 255" >&2; exit 1; }
+          {
+            echo "PINNA_SUMMARY=$summary"
+            echo "PINNA_NOTES_URL=https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+          } >> "$GITHUB_ENV"
 
       - name: Signing key
         if: github.event_name == 'push'
@@ -94,7 +118,9 @@ jobs:
         run: |
           notes=$(mktemp)
           {
-            echo "Pinna $PINNA_VERSION for the Echo Dot (2nd gen) and the Echo (2nd gen)."
+            tail -n +2 "releases/$PINNA_VERSION.md"
+            echo
+            echo "## Files"
             echo
             echo "Install: https://elsbrock.github.io/pinna/docs/flash/"
             echo "Signed with keys/release.pub: $(tr -d '[:space:]' < keys/release.pub)"
@@ -103,7 +129,9 @@ jobs:
             cat build/release/SHA256SUMS
             echo '```'
           } > "$notes"
-          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+          prerelease=()
+          [[ $PINNA_VERSION != *-* ]] || prerelease=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag "${prerelease[@]}" \
             --title "Pinna $PINNA_VERSION" --notes-file "$notes" build/release/*
 
       - name: Keep the dry run's files
