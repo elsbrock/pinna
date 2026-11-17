@@ -1,0 +1,19 @@
+[package]
+name = "pinna-http"
+description = "HTTP clients for the satellite and updater"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[features]
+blocking = ["reqwest/blocking"]
+
+[dependencies]
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "multipart", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+tracing.workspace = true
+
+[dev-dependencies]
+axum = "0.8"
+tokio.workspace = true
