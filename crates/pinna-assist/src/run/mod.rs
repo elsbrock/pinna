@@ -2,14 +2,8 @@
 
 use futures_core::future::BoxFuture;
 
+pub use crate::conversation::Turn;
 use crate::error::ProviderError;
-
-/// One text exchange. The conversation module owns the history policy.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Turn {
-    pub user: String,
-    pub assistant: String,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunKind {

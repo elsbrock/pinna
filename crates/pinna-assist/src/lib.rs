@@ -6,6 +6,7 @@
 
 pub mod audio;
 pub mod config;
+pub mod conversation;
 pub mod error;
 #[cfg(feature = "fakes")]
 pub mod fakes;
