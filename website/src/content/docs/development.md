@@ -129,11 +129,12 @@ Assistant's update entity:
    python3 -m http.server 8000 --directory build/release
    ```
 
-   Its version, such as `0.4.1-dev.202611170910.g1a2b3c4`, is newer than the
-   release it builds on and than older builds of yours.
+   Its version, such as `0.4.1-dev.202611170910.g1a2b3c4` (or `0.0.1-dev.…`
+   while no release is tagged), is newer than the release it builds on and
+   than older builds of yours.
 
-2. On the satellite, add the address to `/var/lib/pinna/pinnad.toml` and
-   restart `pinnad`:
+2. On the satellite, over SSH, add the address to
+   `/var/lib/pinna/pinnad.toml` and restart `pinnad`:
 
    ```toml
    [update]
@@ -144,14 +145,22 @@ Assistant's update entity:
    systemctl restart pinnad
    ```
 
+3. After each `just release`, select **Check now** on **System**, then
+   **Install**.
+
 The address replaces the channel: **System** shows it instead of the
 **Updates** setting, and Home Assistant's **Updates** select has it as its only
-option. The satellite checks it on the same schedule as a channel and offers
-the build when its version is newer than the running one. Remove the line to
-go back to a channel.
+option. The satellite checks it on the same schedule as a channel (once after
+it starts, once a day, and on **Check now**), once its clock is set from the
+internet, and offers the build when its version is newer than the running one.
+To go back to a channel, remove the lines and restart `pinnad` again.
 
-`PINNA_SUMMARY`, `PINNA_NOTES_URL` and `PINNA_MODELS` (for example
-`PINNA_MODELS="echo-dot-2"`) go into the manifest that `just release` signs.
+`just release` puts `PINNA_SUMMARY`, `PINNA_NOTES_URL` and `PINNA_MODELS`
+(models separated by spaces) into the manifest it signs, on your computer:
+
+```sh
+PINNA_SUMMARY="The wake word interrupts a reply." PINNA_MODELS="echo-dot-2" just release
+```
 
 ## The release service
 

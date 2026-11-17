@@ -59,8 +59,9 @@ Assistant. The satellite never goes back to an older version on its own, and a
 satellite on **Stable** never installs a beta.
 
 No release is published yet, and `updates.getpinna.dev` doesn't answer yet.
-Until it does, **System** shows `updates.getpinna.dev did not answer`, and you
-install builds of your own as described in
+Until it does, **System** shows `updates.getpinna.dev did not answer. Check
+that the satellite can reach the internet.`: the second sentence doesn't apply
+then. You install builds of your own as described in
 [Install a build of your own](#install-a-build-of-your-own).
 
 ## Before you begin
@@ -68,6 +69,10 @@ install builds of your own as described in
 - The device runs Pinna, and its current slot is marked `good`. Pinna refuses
   to install an update while the running slot is still on trial. The dashboard
   says so on **System**; on the device, `pinna-bootctl slot-status` shows it.
+- **System** has the **Updates** setting. If it doesn't, the satellite runs
+  a build from before update channels: install a current build first, with
+  its **Release manifest** field or `pinnactl update`, as in
+  [Install a build of your own](#install-a-build-of-your-own).
 - The device runs a Pinna built on or after 17 November 2026. An older one
   keeps its own slot record, which the new version doesn't read: move it over
   once, as in [Move a device from an older Pinna](#move-a-device-from-an-older-pinna).
@@ -108,12 +113,13 @@ installed:
 - **Needs a new boot image: install it over USB.** The release needs a newer
   kernel or `pinna-init` than the one that would start it. See
   [Update the boot image](#update-the-boot-image).
-- **This release is for …, not for ….** The release was published for another
-  model.
 - **The running version is still on trial.** Wait until it is marked **Good**.
 - **A development overlay is active.** Programs from `just push` would hide
   the new release's programs. Remove them with `scripts/push-dev.sh --remove`,
   on your computer.
+
+A release published for another model isn't offered at all: **System** says
+which models it is for, and Home Assistant shows no update.
 
 ## Install an update from Home Assistant
 
@@ -123,9 +129,10 @@ its notes. **Install** installs that release, and Home Assistant shows its
 progress.
 
 - Home Assistant has no restart button for the satellite, so after an install
-  from Home Assistant the satellite restarts on its own. It waits until it is
-  Idle, with no timer set and nothing playing. To keep the new version back,
-  select **Start it later** on the dashboard before then.
+  from Home Assistant the satellite restarts on its own once it is Idle, with
+  no timer set and nothing playing. If it is Idle when the install finishes,
+  it restarts at once. To choose when it restarts, install from the
+  dashboard.
 - **Skip** belongs to Home Assistant; the satellite doesn't store it.
 - Until a check has succeeded since the satellite started, and while
   **Updates** is off, the entity's state is unknown: the satellite doesn't
@@ -142,10 +149,19 @@ settings stay: the older version keeps the settings it doesn't know, and they
 apply again after the next update.
 
 - When the other slot holds the older version, switch to it, as in
-  [Switch to the other version](#switch-to-the-other-version).
+  [Switch to the other version](#switch-to-the-other-version). When that
+  version is also the channel's release, **System** offers **Start …** next
+  to it, which does the same.
 - When the channel's release is older than the running version, for example
   after you changed **Updates** from **Beta** to **Stable**, **System** offers
-  **Install … (older)**. It asks before it installs.
+  **Install … (older)**. It asks before it installs. Then select **Restart
+  now**.
+
+After you go back, the newer version is still in the other slot, and the next
+check offers it again: **System** shows **Start it**, and Home Assistant shows
+it as an update. Home Assistant's **Install** would start it and restart the
+satellite. To stay on the older version, select **Skip** in Home Assistant, or
+set **Updates** to **Off**.
 
 ## Switch to the other version
 
@@ -195,8 +211,11 @@ your computer over Wi-Fi or over the USB cable.
    - In the dashboard, open **System**, open **Install from a manifest URL**,
      check the address, and select **Install**. The address is filled in with
      port 8000 on the computer or phone that you opened the dashboard on, or
-     with the last address you used.
-   - On the device:
+     with the last address you used. When it is installed, select **Restart
+     now**.
+   - On the satellite, over SSH (`ssh root@<the satellite's address>`; a
+     release image needs your SSH key first, see
+     [Install Pinna](/docs/flash/)):
 
      ```sh
      pinnactl update http://192.168.1.20:8000/manifest.json --reboot
@@ -214,7 +233,7 @@ your computer over Wi-Fi or over the USB cable.
    and which slot the device starts next. Without `--reboot`, the update
    waits for the next restart.
 
-4. After the device restarts, check the result:
+4. After the device restarts, check the result, on the satellite:
 
    ```sh
    pinna-bootctl slot-status
@@ -276,8 +295,10 @@ slot starts. See [Install Pinna](/docs/flash/#install-the-boot-image).
 A release that needs something new from the kernel or `pinna-init` says so in
 its manifest (`requires.boot_level`). When the boot image that would start it
 is older, the satellite shows the release with **Needs a new boot image:
-install it over USB** and doesn't install it. Install the release's boot image
-with `scripts/flash-gen2.sh boot`, then install the update.
+install it over USB** and doesn't install it. Download the release's files,
+start the satellite in fastboot, and run `./flash-gen2.sh boot` in that
+folder, on your computer, as in [Install Pinna](/docs/flash/). Then install
+the update.
 
 ## Move a device from an older Pinna
 
@@ -361,9 +382,11 @@ reads anything in the manifest, and refuses a manifest without one.
 
 `just release` writes the manifest and its signature for you. Releases have
 semantic versions: `0.4.0`, or `0.4.0-beta.1` for a beta. Builds of your own
-are versioned like `0.4.1-dev.202611170910.g1a2b3c4`: the next patch after the
-newest release, then the time of the build in UTC and the commit, so they
-sort after the release they build on and before the next one.
+are versioned like `0.4.1-dev.202611170910.g1a2b3c4`: the nearest release tag
+before the commit with its patch raised by one (after a beta tag such as
+`v0.5.0-beta.1`, that tag's `0.5.0`; without any tag, `0.0.1`), then the time
+of the build in UTC and the commit. So they sort after the release they build
+on and before the next one.
 
 ## What's next
 
