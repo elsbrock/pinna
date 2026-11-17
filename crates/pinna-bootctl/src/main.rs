@@ -148,6 +148,21 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 ),
                 None => println!("booted: unknown (not started through pinna-init)"),
             }
+            // Which kernel runs, and whether updates can replace it (ADR 0019).
+            match slot::booted_kernel(&cli.run_dir).ok().flatten() {
+                Some(k) => println!("kernel: from boot_{k}"),
+                None => println!("kernel: unknown (the boot image doesn't say which partition)"),
+            }
+            println!(
+                "bootloader: {}",
+                match slot::KernelSlots::read(&cli.kernel_slots) {
+                    slot::KernelSlots::Honoured => "loads the kernel of the slot it starts",
+                    slot::KernelSlots::Ignored =>
+                        "loads boot_a whichever slot it starts: new kernels need fastboot",
+                    slot::KernelSlots::Unknown =>
+                        "not known yet whether it loads boot_b (a healthy boot from slot b shows it)",
+                }
+            );
         }
         Cmd::MarkGood => {
             // Booted by the kernel's root= (a boot image without pinna-init):

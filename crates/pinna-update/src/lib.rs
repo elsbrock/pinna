@@ -201,7 +201,15 @@ fn plan_kernel(
             part.display()
         )));
     }
-    if target == Slot::A && KernelSlots::read(&opts.kernel_slots) != KernelSlots::Honoured {
+    let kernel_slots = KernelSlots::read(&opts.kernel_slots);
+    if kernel_slots == KernelSlots::Ignored {
+        return Ok(Kernel::Stays(
+            "the kernel stays: this bootloader loads boot_a whichever slot it starts, so a new \
+             kernel needs fastboot (flash-gen2.sh boot)"
+                .into(),
+        ));
+    }
+    if target == Slot::A && kernel_slots != KernelSlots::Honoured {
         return Ok(Kernel::Stays(
             "the kernel in boot_a stays: this bootloader hasn't been seen loading boot_b yet, so a \
              new kernel in boot_a would have no fallback"

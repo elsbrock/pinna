@@ -531,7 +531,47 @@ fn main() {
                 anyhow!("pinna-init panicked (the panic is in its log)"),
             )
         });
+    leave_a_failed_trial(&failure);
     rescue::run(failure, &ring)
+}
+
+/// A slot on trial that fails, for any reason, goes back to the good slot:
+/// it is retired, and the device restarts into the other slot's kernel and
+/// root (ADR 0019). Returns when there is nothing to go back to, or the slot
+/// record can't be read or written (no storage): then rescue mode.
+fn leave_a_failed_trial(failure: &Failure) {
+    let parts = scan_parts();
+    let Some(misc) = parts.get("misc") else {
+        return;
+    };
+    let Ok(Some(record)) = bcb::read(&misc.path()) else {
+        return;
+    };
+    // Without a bootloader slot (the VMs), the slot pinna-init chose.
+    let Some(s) = lk_slot().or_else(|| record.lk_choice()) else {
+        return;
+    };
+    if record.get(s).good {
+        return;
+    }
+    let Ok(retired) = bcb::retire(record, s) else {
+        return;
+    };
+    if let Err(e) = bcb::write(&misc.path(), &retired) {
+        log!("could not retire slot {s}: {e:#}");
+        return;
+    }
+    log!(
+        "slot {s} was on trial and failed ({}): retired; restarting into slot {}",
+        failure.reason.as_str(),
+        s.other()
+    );
+    pmsg(&format!(
+        "pinna: reboot (slot {s} failed its trial: {}, back to slot {})",
+        failure.reason.as_str(),
+        s.other()
+    ));
+    rescue::reboot_now()
 }
 
 #[cfg(test)]

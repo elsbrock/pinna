@@ -282,6 +282,29 @@ fn boot_a_only_after_a_boot_from_b_showed_the_bootloader_loads_it() {
 }
 
 #[test]
+fn a_bootloader_that_ignores_the_slot_gets_no_kernel() {
+    let e = env("a", None);
+    e.with_boot_parts();
+    slot::KernelSlots::Ignored
+        .write(&e.opts.kernel_slots)
+        .unwrap();
+    let img = sealed("2.0", 64, &key());
+    let m = e.publish_with(&img, "2.0", None, Some((&bootimg(0xcc, 8192), None)));
+    let lines = e.install(&m).unwrap();
+    assert!(
+        e.part("boot_b").iter().all(|&x| x == 0xbb),
+        "boot_b untouched"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("loads boot_a whichever slot")),
+        "{lines:?}"
+    );
+    assert_eq!(&e.part("system_b")[..img.len()], &img[..]);
+}
+
+#[test]
 fn a_bad_kernel_changes_nothing() {
     let e = env("a", Some(rec(0x8f, 0x8e)));
     e.with_boot_parts();
