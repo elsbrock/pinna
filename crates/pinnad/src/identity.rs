@@ -243,7 +243,8 @@ pub fn publish_mdns(cfg: &DeviceConfig) -> Result<()> {
     let old = std::fs::read_to_string(&path).ok();
     if old.as_deref() != Some(unit.as_str()) {
         std::fs::write(&path, &unit).with_context(|| format!("writing {}", path.display()))?;
-        tracing::info!("publishing _esphomelib._tcp");
+        // The VM boot test and the troubleshooting page look for this line.
+        tracing::info!("published _esphomelib._tcp as {}", cfg.name);
         reread_dnssd(old.is_some());
     }
     Ok(())
