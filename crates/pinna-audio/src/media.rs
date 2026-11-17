@@ -28,6 +28,7 @@ use crate::speaker::Cmd;
 use crate::track::{self, IcyDemux, Track};
 use crate::{Error, Result};
 use bytes::Bytes;
+use futures_util::{StreamExt, stream::BoxStream};
 use pinna_http::{ClientKind, reqwest};
 use std::collections::{HashMap, VecDeque};
 use std::io::Read;
@@ -892,6 +893,30 @@ async fn pump(
     }
 }
 
+async fn pump_stream(
+    mut body: BoxStream<'static, std::io::Result<Bytes>>,
+    tx: mpsc::Sender<std::io::Result<Bytes>>,
+) {
+    loop {
+        let chunk = tokio::select! {
+            chunk = body.next() => chunk,
+            _ = tx.closed() => return,
+        };
+        match chunk {
+            Some(Ok(bytes)) => {
+                if tx.send(Ok(bytes)).await.is_err() {
+                    return;
+                }
+            }
+            Some(Err(error)) => {
+                let _ = tx.send(Err(error)).await;
+                return;
+            }
+            None => return,
+        }
+    }
+}
+
 fn extension_of(url: &str) -> Option<&str> {
     let path = url.split(['?', '#']).next()?;
     let name = path.rsplit('/').next()?;
@@ -992,6 +1017,50 @@ async fn open(
             .into_std()
             .await;
         Decoder::start(Box::new(file), hint, None, sink)
+    }
+}
+
+/// Open an encoded byte stream for the voice lane, resolving at its first audio.
+pub(crate) async fn open_voice_stream(
+    mime: Option<&str>,
+    body: BoxStream<'static, std::io::Result<Bytes>>,
+) -> Result<VoiceSource> {
+    let mut hint = Hint::new();
+    if let Some(mime) = mime {
+        let mime = mime
+            .split(';')
+            .next()
+            .unwrap_or(mime)
+            .trim()
+            .to_ascii_lowercase();
+        let ext = match mime.as_str() {
+            "audio/mpeg" | "audio/mp3" => Some("mp3"),
+            "audio/flac" | "audio/x-flac" => Some("flac"),
+            "audio/wav" | "audio/x-wav" | "audio/wave" | "audio/vnd.wave" => Some("wav"),
+            "audio/ogg" | "application/ogg" | "audio/vorbis" => Some("ogg"),
+            _ => None,
+        };
+        if let Some(ext) = ext {
+            hint.with_extension(ext);
+        }
+        hint.mime_type(&mime);
+    }
+    let (tx, rx) = mpsc::channel(NET_CHUNKS);
+    let pump = tokio::spawn(pump_stream(body, tx));
+    let reader = ChanReader {
+        rx,
+        cur: Bytes::new(),
+    };
+    let (decoder, ready) = Decoder::start(
+        Box::new(ReadOnlySource::new(reader)),
+        hint,
+        Some(pump),
+        None,
+    )?;
+    match ready.await {
+        Ok(Ok(())) => Ok(VoiceSource::new(decoder)),
+        Ok(Err(msg)) => Err(Error::Other(msg)),
+        Err(_) => Err(Error::Other("decoder stopped".into())),
     }
 }
 

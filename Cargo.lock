@@ -2099,6 +2099,7 @@ name = "pinna-audio"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "futures-util",
  "hound",
  "libc",
  "memmap2",

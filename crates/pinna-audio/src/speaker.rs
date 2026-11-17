@@ -17,6 +17,7 @@
 use crate::decode::{OUT_RATE, Pcm};
 use crate::media::{
     Decoder, MediaHandle, MediaLane, MediaPhase, MediaState, Pull, VoiceSource, open_voice,
+    open_voice_stream,
 };
 use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
@@ -24,6 +25,8 @@ use crate::spectrum::{Analyzer, Spectrum};
 use crate::track::Track;
 use crate::volume::{stream_gain, top_boost_db, volume_gain};
 use crate::{Backend, Error, Result, decode};
+use bytes::Bytes;
+use futures_util::stream::BoxStream;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -271,7 +274,7 @@ struct Mark {
     ev: Event,
 }
 
-/// A URL playing on the voice lane ([`Speaker::play_url`]).
+/// An encoded stream playing on the voice lane ([`Speaker::play_url`] or [`Speaker::play_stream`]).
 pub struct VoicePlayback {
     /// Resolves when its first audio sounds; errs if it never does (stopped
     /// first, or the speaker failed).
@@ -437,6 +440,34 @@ impl Speaker {
     pub async fn play_url(&self, url: &str) -> Result<VoicePlayback> {
         let epoch = self.inner.voice_epoch.load(Ordering::SeqCst);
         let src = open_voice(self.inner.media.client(), url).await?;
+        let (started_tx, started) = oneshot::channel();
+        let (done_tx, done) = oneshot::channel();
+        self.inner
+            .tx
+            .send(Cmd::PlayStream(StreamItem {
+                src,
+                cur: Vec::new(),
+                pos: 0,
+                started: Some(started_tx),
+                done: done_tx,
+                epoch,
+                waiting: 0,
+                stalled: 0,
+            }))
+            .map_err(|_| Error::Other("speaker task ended".into()))?;
+        Ok(VoicePlayback { started, done })
+    }
+
+    /// Stream encoded audio on the voice lane, behind anything queued there.
+    /// `mime` is an optional content-type hint. Resolves once the first audio
+    /// is decoded; an empty or invalid stream errs and queues nothing.
+    pub async fn play_stream(
+        &self,
+        mime: Option<&str>,
+        body: BoxStream<'static, std::io::Result<Bytes>>,
+    ) -> Result<VoicePlayback> {
+        let epoch = self.inner.voice_epoch.load(Ordering::SeqCst);
+        let src = open_voice_stream(mime, body).await?;
         let (started_tx, started) = oneshot::channel();
         let (done_tx, done) = oneshot::channel();
         self.inner
@@ -1311,6 +1342,7 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::{StreamExt, stream};
 
     fn clip(samples: Vec<i16>) -> (VoiceItem, oneshot::Receiver<Result<()>>) {
         let (done, rx) = oneshot::channel();
@@ -1793,6 +1825,91 @@ mod tests {
         cfg.idle_timeout = Some(idle);
         cfg.initial_volume = 100;
         Speaker::new(cfg)
+    }
+
+    fn encoded_wav() -> Vec<u8> {
+        let pcm = crate::tone::beep(440.0, 100, 0.5);
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = hound::WavWriter::new(
+                &mut bytes,
+                hound::WavSpec {
+                    channels: 2,
+                    sample_rate: 48_000,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap();
+            for sample in pcm.samples {
+                writer.write_sample(sample).unwrap();
+            }
+            writer.finalize().unwrap();
+        }
+        bytes.into_inner()
+    }
+
+    #[tokio::test]
+    async fn play_stream_wav_chunks_start_and_finish() {
+        let sp = null_speaker(Duration::from_secs(5));
+        let wav = encoded_wav();
+        let first = wav.len() / 3;
+        let second = first * 2;
+        let chunks = [
+            Bytes::from(wav[..first].to_vec()),
+            Bytes::from(wav[first..second].to_vec()),
+            Bytes::from(wav[second..].to_vec()),
+        ];
+        let body = stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>)).boxed();
+        let playback = sp
+            .play_stream(Some("audio/x-wav; charset=binary"), body)
+            .await
+            .unwrap();
+        let VoicePlayback { started, done } = playback;
+        tokio::time::timeout(Duration::from_secs(3), started)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), done)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn play_stream_stop_while_opening_drops_the_item() {
+        let sp = null_speaker(Duration::from_secs(5));
+        let (tx, rx) = mpsc::unbounded_channel::<std::io::Result<Bytes>>();
+        let body = stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        })
+        .boxed();
+        let opening = {
+            let sp = sp.clone();
+            tokio::spawn(async move { sp.play_stream(None, body).await })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        sp.stop();
+        tx.send(Ok(Bytes::from(encoded_wav()))).unwrap();
+        drop(tx);
+        let playback = tokio::time::timeout(Duration::from_secs(3), opening)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let VoicePlayback { started, done } = playback;
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), started)
+                .await
+                .unwrap()
+                .is_err()
+        );
+        tokio::time::timeout(Duration::from_secs(1), done)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
 
     #[tokio::test]
