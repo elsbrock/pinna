@@ -104,7 +104,10 @@ fn main() -> Result<()> {
                 )]),
             };
             let img = BootImage {
-                header: Header::default(),
+                header: Header {
+                    cmdline: default_cmdline().into_bytes(),
+                    ..Header::default()
+                },
                 kernel: kernel_blob(&z, &d)?,
                 ramdisk,
                 second: Vec::new(),

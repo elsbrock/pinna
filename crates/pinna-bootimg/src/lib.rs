@@ -357,6 +357,36 @@ pub fn initramfs(init: &[u8], busybox: Option<&[u8]>) -> Vec<u8> {
 const CMDLINE: std::ops::Range<usize> = 64..576;
 /// What marks the boot partition an image was written to (ADR 0019).
 const SLOT_TAG: &str = "pinna.boot=";
+/// What a boot image provides to the root it starts (ADR 0022).
+const LEVEL_TAG: &str = "pinna.level=";
+
+/// The boot level of the boot images this tree builds: what pinna-init and
+/// the kernel provide to a root (ADR 0022). Raise it, and the root's need in
+/// `pinna_image::ROOT_BOOT_LEVEL`, only when a root comes to depend on
+/// something new here: satellites whose bootloader keeps the slot's kernel
+/// can then no longer update over the network.
+pub const BOOT_LEVEL: u32 = 1;
+
+/// The header command line of a boot image this tree packs.
+pub fn default_cmdline() -> String {
+    format!("{BOOTOPT} {LEVEL_TAG}{BOOT_LEVEL}")
+}
+
+/// The boot level an image provides: `pinna.level=` in its header's command
+/// line, 1 for an image without one (all from before ADR 0022). `None` when
+/// it isn't a boot image.
+pub fn level(image: &[u8]) -> Option<u32> {
+    if image.len() < CMDLINE.end || &image[..8] != MAGIC {
+        return None;
+    }
+    let line = cstr(&image[CMDLINE]);
+    Some(
+        String::from_utf8_lossy(&line)
+            .split_whitespace()
+            .find_map(|w| w.strip_prefix(LEVEL_TAG)?.parse().ok())
+            .unwrap_or(1),
+    )
+}
 
 /// Mark the image as written to boot partition `slot` (`a` or `b`):
 /// `pinna.boot=<slot>` in the header's command line, replacing an earlier
@@ -397,6 +427,32 @@ pub fn slot_tag(image: &[u8]) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn level_from_the_command_line() {
+        let packed = |cmdline: &str| {
+            let img = BootImage {
+                header: Header {
+                    cmdline: cmdline.as_bytes().to_vec(),
+                    ..Header::default()
+                },
+                kernel: vec![1; 16],
+                ramdisk: vec![2; 16],
+                second: Vec::new(),
+                id: [0; 32],
+            };
+            img.to_bytes(None).unwrap()
+        };
+        assert_eq!(level(&packed(BOOTOPT)), Some(1));
+        let mut img = packed(&default_cmdline());
+        assert_eq!(level(&img), Some(BOOT_LEVEL));
+        assert_eq!(level(&packed(&format!("{BOOTOPT} pinna.level=3"))), Some(3));
+        // Marking the slot keeps the level.
+        tag_slot(&mut img, 'b').unwrap();
+        assert_eq!(level(&img), Some(BOOT_LEVEL));
+        assert_eq!(slot_tag(&img), Some('b'));
+        assert_eq!(level(b"not a boot image"), None);
+    }
 
     #[test]
     fn tags_the_slot_in_the_header_only() {
