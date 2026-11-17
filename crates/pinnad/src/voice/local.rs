@@ -105,6 +105,13 @@ impl Local {
         self.live.borrow().ready
     }
 
+    /// Start the next request without any earlier turns.
+    pub(super) fn forget_conversation(&mut self) {
+        let live = self.live.borrow();
+        self.conversation.reset(live.behaviour().history);
+        self.chat_gen = live.chat_gen;
+    }
+
     pub(super) fn status(&self) -> AssistStatus {
         let live = self.live.borrow();
         AssistStatus {

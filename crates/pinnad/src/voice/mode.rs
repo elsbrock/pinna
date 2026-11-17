@@ -1,11 +1,53 @@
-//! Mode-specific readiness and Home Assistant command gating (ADR 0017).
+//! The mode switch, mode-specific readiness and Home Assistant command
+//! gating (ADR 0017).
 
-use pinna_esphome::HaCommand;
+use std::time::{Instant, SystemTime};
 
-use super::Brain;
+use pinna_esphome::{DeviceEvent, HaCommand, VOICE_FEATURE_FLAGS};
+
+use super::{Brain, Phase, timers};
 use crate::settings::Mode;
 
+/// Why standalone mode can't be switched on yet.
+pub(super) const NOT_READY: &str =
+    "Set up speech-to-text, the brain and text-to-speech under Assistant and check them first.";
+
 impl Brain {
+    /// Switch between Home Assistant and standalone mode. Whatever runs in
+    /// the old mode stops, timers and the conversation are forgotten, and
+    /// Home Assistant reconnects to read the new voice features once the
+    /// satellite is idle. Media keeps playing. The caller saves the settings.
+    pub(super) async fn set_mode(&mut self, new: Mode) -> Result<(), String> {
+        if new == self.mode() {
+            return Ok(());
+        }
+        if new == Mode::Standalone && !self.local.ready() {
+            return Err(NOT_READY.into());
+        }
+        tracing::info!("voice mode: {new:?}");
+        if self.phase != Phase::Idle {
+            self.interrupt().await;
+        }
+        if self.ringing.take().is_some() {
+            self.stop_playback();
+        }
+        self.timers.clear();
+        self.timer_store
+            .clear(Instant::now(), SystemTime::now(), timers::clock_synced());
+        self.local.forget_conversation();
+        self.continue_conversation = false;
+        self.stale_run = false;
+        self.settings.mode = new;
+        let flags = match new {
+            Mode::HomeAssistant => VOICE_FEATURE_FLAGS,
+            Mode::Standalone => 0,
+        };
+        self.send(DeviceEvent::VoiceFeatureFlags(flags)).await;
+        self.reconnect_for_mode = self.clients > 0;
+        self.refresh();
+        Ok(())
+    }
+
     pub(super) fn mode(&self) -> Mode {
         self.settings.mode
     }
@@ -37,7 +79,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
 
-    use pinna_esphome::{DeviceEvent, EsphomeHandle, TimerEventType, VoiceEventType};
+    use pinna_audio::{MediaPhase, MediaState};
+    use pinna_esphome::{EsphomeHandle, TimerEventType, VoiceEventType};
     use tokio::sync::{mpsc, oneshot, watch};
 
     use super::*;
@@ -45,7 +88,7 @@ mod tests {
     use crate::settings::Settings;
     use crate::standalone::AssistLive;
     use crate::voice::{
-        ApiCommand, Defaults, LocalOptions, NoopSpawner, Options, Phase, SettingsPatch, Shared,
+        ApiCommand, Defaults, Input, LocalOptions, NoopSpawner, Options, SettingsPatch, Shared,
         Snapshot,
     };
 
@@ -53,7 +96,7 @@ mod tests {
         brain: Brain,
         events: mpsc::Receiver<DeviceEvent>,
         live: watch::Sender<Arc<AssistLive>>,
-        _dir: tempfile::TempDir,
+        dir: tempfile::TempDir,
     }
 
     impl Device {
@@ -100,7 +143,7 @@ mod tests {
                 brain,
                 events,
                 live: live_tx,
-                _dir: dir,
+                dir,
             }
         }
 
@@ -121,6 +164,37 @@ mod tests {
                 events.push(event);
             }
             events
+        }
+
+        async fn set_mode(&mut self, mode: Mode) -> Result<Snapshot, String> {
+            let (reply, result) = oneshot::channel();
+            self.brain
+                .handle(Input::Api(ApiCommand::UpdateSettings(
+                    SettingsPatch {
+                        mode: Some(mode),
+                        ..SettingsPatch::default()
+                    },
+                    reply,
+                )))
+                .await;
+            result.await.unwrap()
+        }
+
+        fn saved(&self, file: &str) -> String {
+            std::fs::read_to_string(self.dir.path().join(file)).unwrap_or_default()
+        }
+
+        async fn ha_timer(&mut self, event: TimerEventType, id: &str) {
+            self.brain
+                .ha(HaCommand::Timer {
+                    event,
+                    id: id.into(),
+                    name: "Tea".into(),
+                    total_seconds: 60,
+                    seconds_left: 60,
+                    is_active: true,
+                })
+                .await;
         }
 
         async fn start_conversation(&mut self) -> Result<Snapshot, String> {
@@ -177,7 +251,7 @@ mod tests {
         let mut standalone = Device::new(Mode::Standalone);
         assert_eq!(
             standalone.start_conversation().await.unwrap_err(),
-            "Set up speech-to-text, the brain and text-to-speech under Assistant and check them first."
+            NOT_READY
         );
     }
 
@@ -300,5 +374,162 @@ mod tests {
         result.await.unwrap().unwrap();
         assert_eq!(device.brain.active_wake, ids);
         assert_eq!(device.events(), [DeviceEvent::ActiveWakeWords(ids)]);
+    }
+
+    #[tokio::test]
+    async fn standalone_mode_is_refused_until_the_assistant_is_ready() {
+        let mut device = Device::new(Mode::HomeAssistant);
+
+        assert_eq!(
+            device.set_mode(Mode::Standalone).await.unwrap_err(),
+            NOT_READY
+        );
+
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert!(device.events().is_empty());
+        assert!(!device.saved("settings.toml").contains("mode"));
+    }
+
+    #[tokio::test]
+    async fn a_switch_stops_a_home_assistant_run_before_the_voice_features_change() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.brain.ha(HaCommand::VoiceSubscribed(true)).await;
+        device
+            .brain
+            .handle(Input::Wake {
+                id: "alexa_v0.1".into(),
+                score: 0.9,
+            })
+            .await;
+        device
+            .brain
+            .ha(HaCommand::VoiceStarted {
+                port: 0,
+                error: false,
+            })
+            .await;
+        assert!(matches!(device.brain.phase, Phase::Listening(_)));
+        device.events();
+        device.set_ready(true);
+
+        let snapshot = device.set_mode(Mode::Standalone).await.unwrap();
+
+        assert_eq!(
+            device.events(),
+            [
+                DeviceEvent::Event {
+                    object_id: "voice_assistant".into(),
+                    event_type: "stopped".into(),
+                },
+                DeviceEvent::VoiceStop,
+                DeviceEvent::VoiceFeatureFlags(0),
+            ]
+        );
+        assert_eq!(snapshot.mode, Mode::Standalone);
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(!device.brain.stale_run);
+        assert!(!device.brain.shared.streaming.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn a_switch_cancels_a_local_run_without_telling_home_assistant() {
+        let mut device = Device::new(Mode::Standalone);
+        device.set_ready(true);
+        device.start_conversation().await.unwrap();
+        assert!(device.brain.local.run.is_some());
+        device.events();
+
+        device.set_mode(Mode::HomeAssistant).await.unwrap();
+
+        assert!(device.brain.local.run.is_none());
+        assert_eq!(device.brain.phase, Phase::Idle);
+        let events = device.events();
+        assert!(!events.contains(&DeviceEvent::VoiceStop));
+        assert_eq!(
+            events.last(),
+            Some(&DeviceEvent::VoiceFeatureFlags(VOICE_FEATURE_FLAGS))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_switch_clears_every_timer_and_stops_a_ringing_alarm() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.ha_timer(TimerEventType::Started, "tea").await;
+        device.ha_timer(TimerEventType::Started, "eggs").await;
+        device.ha_timer(TimerEventType::Finished, "eggs").await;
+        assert!(device.brain.ringing.is_some());
+        assert_eq!(device.brain.timers.len(), 1);
+        device.set_ready(true);
+
+        device.set_mode(Mode::Standalone).await.unwrap();
+
+        assert!(device.brain.timers.is_empty());
+        assert!(device.brain.ringing.is_none());
+        assert!(device.brain.playback.is_none());
+        assert!(!device.brain.snapshot().alarm_ringing);
+
+        // A device timer goes with the next switch, from memory and from disk.
+        let (reply, id) = oneshot::channel();
+        device
+            .brain
+            .handle(Input::Api(ApiCommand::SetTimer {
+                name: Some("Tea".into()),
+                seconds: 60,
+                reply,
+            }))
+            .await;
+        id.await.unwrap().unwrap();
+        assert!(device.saved("timers.toml").contains("[[timer]]"));
+
+        device.set_mode(Mode::HomeAssistant).await.unwrap();
+
+        assert!(device.brain.timers.is_empty());
+        assert!(!device.saved("timers.toml").contains("[[timer]]"));
+    }
+
+    #[tokio::test]
+    async fn home_assistant_reconnects_once_idle_even_while_media_plays() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.brain.clients = 1;
+        device
+            .brain
+            .handle(Input::Media(MediaState {
+                phase: MediaPhase::Playing,
+                url: Some("http://radio.test/stream".into()),
+                ..MediaState::default()
+            }))
+            .await;
+        assert!(!device.brain.quiet());
+        device.set_ready(true);
+
+        device.set_mode(Mode::Standalone).await.unwrap();
+        assert_eq!(device.events(), [DeviceEvent::VoiceFeatureFlags(0)]);
+
+        device.brain.tick().await;
+        assert!(device.events().contains(&DeviceEvent::Disconnect));
+        device.brain.tick().await;
+        assert!(!device.events().contains(&DeviceEvent::Disconnect));
+    }
+
+    #[tokio::test]
+    async fn switching_back_restores_the_voice_features_and_the_settings_file() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.set_ready(true);
+
+        device.set_mode(Mode::Standalone).await.unwrap();
+        assert_eq!(device.events(), [DeviceEvent::VoiceFeatureFlags(0)]);
+        assert!(
+            device
+                .saved("settings.toml")
+                .contains("mode = \"standalone\"")
+        );
+
+        device.set_mode(Mode::HomeAssistant).await.unwrap();
+        assert_eq!(
+            device.events(),
+            [DeviceEvent::VoiceFeatureFlags(VOICE_FEATURE_FLAGS)]
+        );
+        assert!(!device.saved("settings.toml").contains("mode"));
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
     }
 }

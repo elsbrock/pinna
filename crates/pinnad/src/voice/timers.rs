@@ -106,6 +106,13 @@ impl TimerStore {
         self.last_save = now;
     }
 
+    /// Forget every device timer, a restore still waiting for the clock
+    /// included, and leave an empty file.
+    pub(super) fn clear(&mut self, now: Instant, wall: SystemTime, synced: bool) {
+        self.pending = None;
+        self.save(&HashMap::new(), now, wall, synced);
+    }
+
     pub(super) fn save_needed(&self, now: Instant) -> bool {
         now.saturating_duration_since(self.last_save) >= SAVE_INTERVAL
     }

@@ -583,6 +583,10 @@ pub struct Brain {
     /// Renamed while Home Assistant was connected: make it reconnect, and read
     /// the new name, once the satellite is idle.
     reconnect_pending: bool,
+    /// The mode changed while Home Assistant was connected: make it reconnect,
+    /// and read the new voice features, once no run, alarm or voice playback
+    /// is left. Media may keep playing.
+    reconnect_for_mode: bool,
     encrypted: bool,
     /// When the restart after an update from Home Assistant was last tried.
     update_restart_tried: Option<Instant>,
@@ -720,6 +724,7 @@ impl Brain {
             calibration: None,
             reconnect_pending: false,
             update_restart_tried: None,
+            reconnect_for_mode: false,
             encrypted: opts.encrypted,
             opts,
         }
@@ -936,9 +941,7 @@ impl Brain {
                         Mode::HomeAssistant => {
                             "Home Assistant has not subscribed to voice assistant runs"
                         }
-                        Mode::Standalone => {
-                            "Set up speech-to-text, the brain and text-to-speech under Assistant and check them first."
-                        }
+                        Mode::Standalone => mode::NOT_READY,
                     };
                     Err(why.to_string())
                 } else {
@@ -964,8 +967,15 @@ impl Brain {
                 self.clear_notification().await;
                 (Ok(()), reply)
             }
-            ApiCommand::UpdateSettings(patch, reply) if patch.mode == Some(Mode::Standalone) => {
-                (Err("Standalone mode isn't available yet.".into()), reply)
+            ApiCommand::UpdateSettings(mut patch, reply) if patch.mode.is_some() => {
+                // The mode first: the other settings then apply under it.
+                let mode = patch.mode.take().expect("checked by the guard");
+                match self.set_mode(mode).await {
+                    Ok(()) => {
+                        return Box::pin(self.api(ApiCommand::UpdateSettings(patch, reply))).await;
+                    }
+                    Err(why) => (Err(why), reply),
+                }
             }
             ApiCommand::UpdateSettings(patch, reply)
                 if patch.wake_words.is_some()
@@ -993,9 +1003,6 @@ impl Brain {
             }
             ApiCommand::UpdateSettings(patch, reply) => {
                 // The same paths as Home Assistant's entities, so it sees the change.
-                if let Some(mode) = patch.mode {
-                    self.settings.mode = mode;
-                }
                 if let Some(name) = patch.friendly_name {
                     self.set_friendly_name(name).await;
                 }
@@ -2949,6 +2956,19 @@ impl Brain {
             .await;
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
             self.end_calibration().await;
+        }
+        if self.reconnect_for_mode
+            && self.phase == Phase::Idle
+            && self.ringing.is_none()
+            && self.playback.is_none()
+        {
+            self.reconnect_for_mode = false;
+            if self.clients > 0 {
+                tracing::info!("asking Home Assistant to reconnect for the new mode");
+                // The reconnect reads a new name too.
+                self.reconnect_pending = false;
+                self.send(DeviceEvent::Disconnect).await;
+            }
         }
         if self.reconnect_pending && self.quiet() {
             self.reconnect_pending = false;

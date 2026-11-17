@@ -1623,7 +1623,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn standalone_mode_is_reported_but_not_available_yet() {
+    async fn standalone_mode_is_refused_until_the_assistant_is_ready() {
         let (c, _inputs) = start_device().await;
         let before = status(&c).await;
         assert_eq!(
@@ -1645,7 +1645,9 @@ mod tests {
         assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
         assert_eq!(
             err.message.as_deref(),
-            Some("Standalone mode isn't available yet.")
+            Some(
+                "Set up speech-to-text, the brain and text-to-speech under Assistant and check them first."
+            )
         );
         assert_eq!(
             status(&c).await.mode.as_known(),
