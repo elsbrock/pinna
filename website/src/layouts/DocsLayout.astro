@@ -1,6 +1,8 @@
 ---
+import type { MarkdownHeading } from "astro";
 import BaseLayout from "./BaseLayout.astro";
 import DocsSidebar from "../components/DocsSidebar.astro";
+import DocsToc from "../components/DocsToc.astro";
 import Icon from "../components/Icon.astro";
 import Logo from "../components/Logo.astro";
 import { DOCS_FLAT, docEditHref, docHref, href, SITE } from "../lib/site";
@@ -12,9 +14,11 @@ type Props = {
   slug: string;
   /** Content file name, for the "edit this page" link; none for pages that aren't Markdown. */
   file?: string;
+  /** Page headings from `render()`, for "On this page". */
+  headings?: MarkdownHeading[];
 };
 
-const { title, description, slug, file } = Astro.props;
+const { title, description, slug, file, headings } = Astro.props;
 
 const index = DOCS_FLAT.findIndex((item) => item.slug === slug);
 const previous = index > 0 ? DOCS_FLAT[index - 1] : undefined;
@@ -141,6 +145,8 @@ const next = index >= 0 ? DOCS_FLAT[index + 1] : undefined;
           }
         </article>
       </main>
+
+      <DocsToc headings={headings ?? []} />
     </div>
   </div>
 

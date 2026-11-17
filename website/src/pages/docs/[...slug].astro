@@ -11,7 +11,7 @@ export async function getStaticPaths() {
 }
 
 const { entry } = Astro.props;
-const { Content } = await render(entry);
+const { Content, headings } = await render(entry);
 
 const slug = entry.id === "index" ? "" : entry.id;
 const file = `${entry.id}.md`;
@@ -22,6 +22,7 @@ const file = `${entry.id}.md`;
   description={entry.data.description}
   slug={slug}
   file={file}
+  headings={headings}
 >
   <Content />
 </DocsLayout>

@@ -1,0 +1,134 @@
+---
+import type { MarkdownHeading } from "astro";
+
+type Props = {
+  /** Page headings from `render()`, in document order. */
+  headings: MarkdownHeading[];
+};
+
+const { headings } = Astro.props;
+
+const items = headings.filter(
+  (heading) => heading.depth === 2 || heading.depth === 3,
+);
+---
+
+{
+  // Short pages don't need one; the sidebar already lists the pages.
+  items.length >= 3 && (
+    <aside class="hidden xl:block xl:w-56 xl:shrink-0">
+      <nav class="py-6 xl:sticky xl:top-14" aria-label="On this page" data-toc>
+        <p class="eyebrow px-2">On this page</p>
+        <ul class="mt-2 space-y-0.5">
+          {items.map((heading) => (
+            <li>
+              <a
+                class:list={[
+                  "docs-toc-link",
+                  heading.depth === 3 && "docs-toc-link-nested",
+                ]}
+                href={`#${heading.slug}`}
+                data-toc-link
+              >
+                {heading.text}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </aside>
+  )
+}
+
+<script>
+  const toc = document.querySelector("[data-toc]");
+
+  if (toc) {
+    const links = Array.from(
+      toc.querySelectorAll<HTMLAnchorElement>("[data-toc-link]"),
+    );
+    const linksById = new Map(
+      links.map((link) => [decodeURIComponent(link.hash.slice(1)), link]),
+    );
+    const headings = Array.from(linksById.keys())
+      .map((id) => document.getElementById(id))
+      .filter((heading): heading is HTMLElement => heading !== null);
+
+    let current: HTMLAnchorElement | null = null;
+    let ticking = false;
+
+    const mark = (heading: HTMLElement | null) => {
+      const link = heading ? (linksById.get(heading.id) ?? null) : null;
+      if (link === current) return;
+      current?.removeAttribute("aria-current");
+      link?.setAttribute("aria-current", "true");
+      current = link;
+    };
+
+    const update = () => {
+      ticking = false;
+
+      // The last heading above the sticky header is the one being read.
+      let reading = headings[0] ?? null;
+      for (const heading of headings) {
+        if (heading.getBoundingClientRect().top <= 96) reading = heading;
+      }
+
+      // A last section shorter than the viewport never reaches that line.
+      const atBottom =
+        window.scrollY + window.innerHeight >=
+        document.documentElement.scrollHeight - 2;
+      if (atBottom && headings.length > 0) reading = headings[headings.length - 1];
+
+      mark(reading);
+    };
+
+    const schedule = () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    };
+
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    update();
+  }
+</script>
+
+<style>
+  .docs-toc-link {
+    display: block;
+    border-radius: var(--radius-xs);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: var(--ink-muted);
+    transition:
+      color 120ms ease,
+      background-color 120ms ease;
+  }
+
+  .docs-toc-link:hover {
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+
+  .docs-toc-link[aria-current="true"],
+  .docs-toc-link[aria-current="true"]:hover {
+    background: var(--signal-soft);
+    color: var(--signal);
+    font-weight: 500;
+  }
+
+  .docs-toc-link-nested {
+    padding-left: 1.25rem;
+  }
+
+  @media (min-width: 1280px) {
+    [data-toc] {
+      max-height: calc(100dvh - 4.5rem);
+      overflow-y: auto;
+    }
+  }
+</style>
