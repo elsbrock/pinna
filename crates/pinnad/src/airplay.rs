@@ -278,12 +278,13 @@ fn unit_state_of(active: &str, result: &str) -> State {
     }
 }
 
-/// AirPlay off: the record goes first, so senders stop listing the device
-/// within a second however long shairport-sync takes to stop, then the
-/// bridge. Blocks.
+/// AirPlay off: the record goes first, so senders stop listing the device at
+/// once however long shairport-sync takes to stop, then the bridge. Blocks.
 pub fn off() {
+    // Restarted here and now, not batched: the record has to go before the
+    // bridge stops (ADR 0011), and a reload would leave it published (ADR 0024).
     if std::fs::remove_file(DNSSD).is_ok() && Path::new("/run/systemd/resolve").exists() {
-        crate::identity::reread_dnssd(true);
+        systemctl(&["restart", "systemd-resolved.service"]);
     }
     systemctl(&["stop", UNIT]);
     tracing::info!("airplay: off");
