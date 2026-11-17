@@ -20,8 +20,10 @@ use crate::{
     presets::PresetId,
 };
 
+mod anthropic;
 mod openai;
 
+pub use anthropic::AnthropicChat;
 pub use openai::OpenAiChat;
 
 const SSE_LINE_MAX: usize = 256 * 1024;
