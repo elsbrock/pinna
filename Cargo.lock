@@ -2324,6 +2324,7 @@ dependencies = [
  "pinna-bootctl",
  "pinna-esphome",
  "pinna-hal",
+ "pinna-http",
  "pinna-image",
  "pinna-mcp",
  "pinna-vad",

@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 pinna-assist = { path = "../pinna-assist" }
+pinna-http = { path = "../pinna-http" }
 pinna-vad = { path = "../pinna-vad" }
 pinna-mcp = { path = "../pinna-mcp" }
 pinna-esphome = { path = "../pinna-esphome" }
@@ -42,6 +43,7 @@ procfs = { version = "0.18", default-features = false }
 simple-dns = "0.13"
 
 [dev-dependencies]
+pinna-assist = { path = "../pinna-assist", features = ["testing"] }
 pinna-esphome = { path = "../pinna-esphome", features = ["test-util"] }
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3"

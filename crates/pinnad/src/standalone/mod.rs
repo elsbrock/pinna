@@ -9,6 +9,8 @@ use pinna_assist::pipeline::Pipeline;
 use pinna_assist::presets::{Behaviour, PresetId, preset};
 use pinna_mcp::client::McpToolSet;
 
+pub mod service;
+
 /// The standalone snapshot the Brain reads. The service owns and replaces it.
 #[allow(dead_code)]
 pub struct AssistLive {

@@ -19,6 +19,15 @@ use crate::{
 const OPENAI_TTS_MODEL: &str = "tts-1";
 const ELEVENLABS_TTS_MODEL: &str = "eleven_multilingual_v2";
 
+/// The synthesis model the pipeline uses for a protocol. The text-to-speech
+/// slot stores a voice, so its save-time check needs the model from here.
+pub fn tts_model(protocol: SpeechProtocol) -> &'static str {
+    match protocol {
+        SpeechProtocol::OpenAi => OPENAI_TTS_MODEL,
+        SpeechProtocol::ElevenLabs => ELEVENLABS_TTS_MODEL,
+    }
+}
+
 pub struct Pipeline {
     pub stt: Arc<dyn Stt>,
     pub chat: Arc<dyn Chat>,
