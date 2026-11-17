@@ -135,8 +135,8 @@
           value={set.replyVolume}
           disabled={!live}
           hint={set.replyVolume > s.volume
-            ? `Replies and announcements play at ${s.volume} now: never louder than Volume.`
-            : "Replies and announcements. They are never louder than Volume."}
+            ? `Replies, announcements and timer alarms play at ${s.volume} now: never louder than Volume.`
+            : "Replies, announcements and timer alarms. They are never louder than Volume."}
           commit={(v) => device.updateSettings({ replyVolume: v })}
         />
       </div>
