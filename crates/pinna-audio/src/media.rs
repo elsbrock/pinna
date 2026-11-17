@@ -24,6 +24,7 @@
 
 use crate::decode::{OUT_RATE, StreamResampler, VarResampler};
 use crate::mix::{FADE, Ramp};
+use crate::playlist;
 use crate::speaker::Cmd;
 use crate::track::{self, IcyDemux, Track};
 use crate::{Error, Result};
@@ -88,6 +89,8 @@ const RATE_SMOOTH: f64 = 0.02;
 const RATE_MAX_PPM: f64 = 1000.0;
 /// A stream session ends after this long without data.
 pub const STREAM_IDLE: Duration = Duration::from_secs(2);
+/// A playlist's body read at most: `.m3u` and `.pls` files are small.
+const PLAYLIST_MAX: usize = 64 * 1024;
 /// [`MediaState::url`] while a stream plays.
 pub const STREAM_URL: &str = "stream:";
 
@@ -924,6 +927,15 @@ fn extension_of(url: &str) -> Option<&str> {
     (!ext.is_empty() && ext.len() <= 5).then_some(ext)
 }
 
+/// Whether `url` names a playlist, by its extension. `.m3u8` is included so
+/// an HLS segment playlist reaches the parser and gets its sentence.
+fn is_playlist_url(url: &str) -> bool {
+    matches!(
+        extension_of(url).map(str::to_ascii_lowercase).as_deref(),
+        Some("m3u") | Some("m3u8") | Some("pls")
+    )
+}
+
 fn is_http(url: &str) -> bool {
     let u = url.get(..8).unwrap_or(url).to_ascii_lowercase();
     u.starts_with("http://") || u.starts_with("https://")
@@ -1017,6 +1029,70 @@ async fn open(
             .into_std()
             .await;
         Decoder::start(Box::new(file), hint, None, sink)
+    }
+}
+
+/// Fetch a playlist's body, at most [`PLAYLIST_MAX`], to resolve its first
+/// entry. An http(s) URL is fetched; a local path is read.
+async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<String> {
+    if is_http(url) {
+        let resp = client.get(url).send().await.map_err(|e| {
+            tracing::warn!("media: open {url}: {e}");
+            Error::Other(unreachable(&e).into())
+        })?;
+        if !resp.status().is_success() {
+            return Err(Error::Other(format!(
+                "The server answered HTTP {}. Check the address.",
+                resp.status()
+            )));
+        }
+        read_playlist_body(resp).await
+    } else {
+        let path = url.strip_prefix("file://").unwrap_or(url);
+        if path.contains("://") {
+            return Err(Error::Other(
+                "Only addresses that start with http:// or https:// play.".into(),
+            ));
+        }
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|e| Error::Other(format!("open {path}: {e}")))?;
+        Ok(String::from_utf8_lossy(&bytes[..bytes.len().min(PLAYLIST_MAX)]).into_owned())
+    }
+}
+
+/// A response body, capped at [`PLAYLIST_MAX`].
+async fn read_playlist_body(mut resp: reqwest::Response) -> Result<String> {
+    let mut body = Vec::new();
+    while body.len() < PLAYLIST_MAX {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                let take = (PLAYLIST_MAX - body.len()).min(chunk.len());
+                body.extend_from_slice(&chunk[..take]);
+                if take < chunk.len() {
+                    break;
+                }
+            }
+            Ok(None) => break,
+            Err(e) => return Err(Error::Other(unreachable(&e).into())),
+        }
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// Resolve a playlist URL to the address it names. One level only: an entry
+/// that is itself a playlist is returned as an address and opened as audio.
+/// A playlist that names no http(s) entry is opened as it is, which then
+/// fails as "not audio".
+async fn resolve_playlist(client: &reqwest::Client, url: &str) -> Result<String> {
+    let body = fetch_playlist(client, url).await?;
+    match playlist::parse(url, &body) {
+        Ok(Some(entry)) => Ok(entry),
+        Ok(None) => Ok(url.to_string()),
+        Err(e) => {
+            tracing::warn!("media: playlist {url}: {e}");
+            Err(Error::Other(e.sentence().to_string()))
+        }
     }
 }
 
@@ -1124,6 +1200,7 @@ impl MediaHandle {
             gen_,
             url: url.to_string(),
         });
+        let client = self.shared.client();
         let fail = |msg: String| {
             let _ = self.shared.tx.send(Cmd::MediaFail {
                 gen_,
@@ -1131,12 +1208,22 @@ impl MediaHandle {
             });
             Error::Other(msg)
         };
+        // A playlist URL resolves to its first entry before opening (ADR
+        // 0017). The voice lane never goes through this path.
+        let target = if is_playlist_url(url) {
+            match resolve_playlist(client, url).await {
+                Ok(target) => target,
+                Err(e) => return Err(fail(e.to_string())),
+            }
+        } else {
+            url.to_string()
+        };
         let sink = TrackSink {
             gen_,
             tx: self.shared.tx.clone(),
             cur: Arc::default(),
         };
-        let (decoder, ready) = match open(self.shared.client(), url, Some(sink)).await {
+        let (decoder, ready) = match open(client, &target, Some(sink)).await {
             Ok(v) => v,
             Err(e) => return Err(fail(e.to_string())),
         };
@@ -2398,6 +2485,67 @@ mod tests {
         wait_phase(&m, MediaPhase::Idle, Duration::from_secs(4)).await;
         assert_eq!(m.state().borrow().error, None);
         assert!(sounding_frames(&rig.sink) > 10_000);
+    }
+
+    #[tokio::test]
+    async fn a_pls_playlist_plays_its_first_entry() {
+        let body = wav(48000, 2, &sine(48000, 2, 500, 9000.0));
+        let pls = b"[playlist]\nFile1=clip.wav\nNumberOfEntries=1\n".to_vec();
+        let srv = serve(vec![
+            ("/clip.wav", "audio/wav", body),
+            ("/radio.pls", "audio/x-scpls", pls),
+        ])
+        .await;
+        let rig = rig(Duration::from_secs(5));
+        let m = rig.speaker.media();
+        m.play_url(&srv.url("/radio.pls")).await.unwrap();
+        wait_phase(&m, MediaPhase::Playing, Duration::from_secs(2)).await;
+        // The playlist URL stays what the owner entered and sees.
+        assert_eq!(
+            m.state().borrow().url.as_deref(),
+            Some(srv.url("/radio.pls").as_str())
+        );
+        wait_phase(&m, MediaPhase::Idle, Duration::from_secs(4)).await;
+        assert_eq!(m.state().borrow().error, None);
+        assert!(sounding_frames(&rig.sink) > 20_000);
+        // One request for the playlist, one for the entry it named.
+        assert_eq!(srv.stats.requests.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn an_m3u_playlist_resolves_a_relative_entry() {
+        let body = wav(48000, 2, &sine(48000, 2, 400, 9000.0));
+        let m3u = b"#EXTM3U\n#EXTINF:-1,Station\nclip.wav\n".to_vec();
+        let srv = serve(vec![
+            ("/clip.wav", "audio/wav", body),
+            ("/radio.m3u", "audio/x-mpegurl", m3u),
+        ])
+        .await;
+        let rig = rig(Duration::from_secs(5));
+        let m = rig.speaker.media();
+        m.play_url(&srv.url("/radio.m3u")).await.unwrap();
+        wait_phase(&m, MediaPhase::Idle, Duration::from_secs(4)).await;
+        assert_eq!(m.state().borrow().error, None);
+        assert!(sounding_frames(&rig.sink) > 15_000);
+    }
+
+    #[tokio::test]
+    async fn an_hls_playlist_is_refused_with_its_sentence() {
+        let body =
+            b"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=128000\nlow.m3u8\n".to_vec();
+        let srv = serve(vec![("/radio.m3u8", "application/vnd.apple.mpegurl", body)]).await;
+        let rig = rig(Duration::from_secs(5));
+        let m = rig.speaker.media();
+        let e = m.play_url(&srv.url("/radio.m3u8")).await.unwrap_err();
+        assert_eq!(e.to_string(), crate::playlist::HLS_SENTENCE);
+        let want = Some(crate::playlist::HLS_SENTENCE.to_string());
+        assert!(
+            until(Duration::from_secs(1), || m.state().borrow().error == want).await,
+            "state never showed the sentence"
+        );
+        let st = m.state().borrow().clone();
+        assert_eq!(st.phase, MediaPhase::Idle);
+        assert_eq!(sounding_frames(&rig.sink), 0);
     }
 
     #[tokio::test]
