@@ -10,7 +10,6 @@ rust-version.workspace = true
 pinna-image = { path = "../pinna-image" }
 anyhow.workspace = true
 clap.workspace = true
-crc32fast.workspace = true
 libc.workspace = true
 
 [dev-dependencies]

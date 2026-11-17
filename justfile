@@ -130,7 +130,7 @@ release: image bootimg
     cp --reflink=auto {{build}}/pinna.root.img {{build}}/release/pinna-$v.root.img
     cp {{build}}/pinna-boot.img {{build}}/release/pinna-boot.img
     cargo run -q --release -p pinna-image -- verify {{build}}/release/pinna-$v.root.img
-    cargo run -q --release -p pinna-image -- manifest {{build}}/release/pinna-$v.root.img > {{build}}/release/manifest.json
+    cargo run -q --release -p pinna-image -- manifest --boot {{build}}/release/pinna-boot.img {{build}}/release/pinna-$v.root.img > {{build}}/release/manifest.json
     install -m0755 scripts/flash-gen2.sh {{build}}/release/flash-gen2.sh
     (cd {{build}}/release && sha256sum -- pinna-*.root.img pinna-boot.img manifest.json flash-gen2.sh > SHA256SUMS)
     ls -l {{build}}/release

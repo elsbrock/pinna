@@ -60,9 +60,9 @@ struct UpdateArgs {
     #[arg(long)]
     reboot: bool,
     /// Boot attempts the new slot gets before rolling back.
-    #[arg(long, default_value_t = pinna_bootctl::slot::DEFAULT_TRIES,
-          value_parser = clap::value_parser!(u8).range(1..))]
-    tries: u8,
+    #[arg(long = "tries", default_value_t = pinna_bootctl::bcb::DEFAULT_ATTEMPTS,
+          value_parser = clap::value_parser!(u8).range(1..=pinna_bootctl::bcb::MAX_ATTEMPTS as i64))]
+    attempts: u8,
     #[arg(long, default_value = "/dev/disk/by-partlabel/misc", hide = true)]
     misc: std::path::PathBuf,
     #[arg(long, default_value = "/dev/disk/by-partlabel", hide = true)]
@@ -74,7 +74,7 @@ struct UpdateArgs {
 /// Blocking (no tokio): the download uses reqwest's blocking client.
 fn update(args: UpdateArgs) -> Result<()> {
     let opts = pinna_update::Options {
-        tries: args.tries,
+        attempts: args.attempts,
         misc: args.misc,
         partdir: args.partdir,
         run_dir: args.run_dir,

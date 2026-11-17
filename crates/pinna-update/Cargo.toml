@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 pinna-image = { path = "../pinna-image" }
 pinna-bootctl = { path = "../pinna-bootctl" }
+pinna-bootimg = { path = "../pinna-bootimg" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

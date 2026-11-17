@@ -353,9 +353,81 @@ pub fn initramfs(init: &[u8], busybox: Option<&[u8]>) -> Vec<u8> {
     newc_cpio_entries(&entries)
 }
 
+/// The header's command line field: LK passes its text on in the device tree.
+const CMDLINE: std::ops::Range<usize> = 64..576;
+/// What marks the boot partition an image was written to (ADR 0019).
+const SLOT_TAG: &str = "pinna.boot=";
+
+/// Mark the image as written to boot partition `slot` (`a` or `b`):
+/// `pinna.boot=<slot>` in the header's command line, replacing an earlier
+/// mark. Kernel, ramdisk and the header's id stay as they are; the kernel
+/// ignores the line, but LK passes it on, so pinna-init sees which boot
+/// partition LK really loaded.
+pub fn tag_slot(image: &mut [u8], slot: char) -> Result<()> {
+    ensure!(slot == 'a' || slot == 'b', "not a slot: {slot:?}");
+    ensure!(
+        image.len() >= CMDLINE.end && &image[..8] == MAGIC,
+        "not a boot image (no ANDROID! magic)"
+    );
+    let old = String::from_utf8_lossy(&cstr(&image[CMDLINE])).into_owned();
+    let mut words: Vec<&str> = old
+        .split_whitespace()
+        .filter(|w| !w.starts_with(SLOT_TAG))
+        .collect();
+    let tag = format!("{SLOT_TAG}{slot}");
+    words.push(&tag);
+    let line = words.join(" ");
+    ensure!(
+        line.len() < CMDLINE.len(),
+        "the header's command line is full"
+    );
+    image[CMDLINE].fill(0);
+    image[CMDLINE.start..CMDLINE.start + line.len()].copy_from_slice(line.as_bytes());
+    Ok(())
+}
+
+/// The boot partition an image is marked for, if any.
+pub fn slot_tag(image: &[u8]) -> Option<char> {
+    let line = cstr(image.get(CMDLINE)?);
+    String::from_utf8_lossy(&line)
+        .split_whitespace()
+        .find_map(|w| w.strip_prefix(SLOT_TAG)?.chars().next())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tags_the_slot_in_the_header_only() {
+        let img = BootImage {
+            header: Header::default(),
+            kernel: kernel_blob(&fake_zimage(5000), &fake_dtb(300)).unwrap(),
+            ramdisk: vec![7u8; 1000],
+            second: Vec::new(),
+            id: [0; 32],
+        };
+        let original = img.to_bytes(None).unwrap();
+        assert_eq!(slot_tag(&original), None);
+        let mut tagged = original.clone();
+        tag_slot(&mut tagged, 'b').unwrap();
+        assert_eq!(slot_tag(&tagged), Some('b'));
+        let parsed = BootImage::parse(&tagged).unwrap();
+        assert_eq!(
+            parsed.header.cmdline,
+            format!("{BOOTOPT} pinna.boot=b").into_bytes()
+        );
+        // Re-tagging replaces the mark; nothing past the field changes.
+        tag_slot(&mut tagged, 'a').unwrap();
+        assert_eq!(
+            BootImage::parse(&tagged).unwrap().header.cmdline,
+            format!("{BOOTOPT} pinna.boot=a").into_bytes()
+        );
+        assert_eq!(tagged[CMDLINE.end..], original[CMDLINE.end..]);
+        assert_eq!(tagged[..CMDLINE.start], original[..CMDLINE.start]);
+        assert!(tag_slot(&mut tagged, 'c').is_err());
+        assert!(tag_slot(&mut [0u8; 600], 'a').is_err());
+    }
 
     fn fake_zimage(len: usize) -> Vec<u8> {
         let mut z = vec![0xAAu8; len];

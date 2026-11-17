@@ -53,6 +53,10 @@ enum Cmd {
         /// URL of the image, absolute or relative to the manifest.
         #[arg(long)]
         url: Option<String>,
+        /// The boot image that goes with the root (ADR 0019), listed by
+        /// its file name next to the manifest.
+        #[arg(long)]
+        boot: Option<PathBuf>,
         image: PathBuf,
     },
 }
@@ -147,7 +151,7 @@ fn main() -> Result<()> {
             println!("root_hash: {}", keys::hex(&f.root_hash));
             println!("levels: {:?}", verity::level_blocks(f.data_blocks()));
         }
-        Cmd::Manifest { url, image } => {
+        Cmd::Manifest { url, boot, image } => {
             let dev = File::open(&image).with_context(|| format!("opening {}", image.display()))?;
             let f = pinna_image::read_footer(&dev, &keys::release_key())?;
             let size = fs::metadata(&image)?.len();
@@ -161,10 +165,23 @@ fn main() -> Result<()> {
                 Some(u) => u,
                 None => file_name(&image)?,
             };
-            let manifest = serde_json::json!({
+            let mut manifest = serde_json::json!({
                 "version": f.version,
                 "root": { "url": url, "size": size, "sha256": sha256_file(&image)? },
             });
+            if let Some(b) = boot {
+                let head = fs::read(&b).with_context(|| format!("reading {}", b.display()))?;
+                ensure!(
+                    head.starts_with(b"ANDROID!"),
+                    "{} is not a boot image",
+                    b.display()
+                );
+                manifest["boot"] = serde_json::json!({
+                    "url": file_name(&b)?,
+                    "size": head.len(),
+                    "sha256": sha256_file(&b)?,
+                });
+            }
             println!("{}", serde_json::to_string_pretty(&manifest)?);
         }
     }
