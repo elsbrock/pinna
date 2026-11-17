@@ -1,7 +1,8 @@
 # ADR 0003: Updates — signed A/B root slots, dm-verity, pinna-init
 
 Status: accepted (2026-11-15). Amends ADR 0001 (the boot image now carries an
-initramfs).
+initramfs). The slot record, its try counting and the rollback are superseded
+by ADR 0019: kernel and root share a slot in the bootloader's slot record.
 
 ## Context
 

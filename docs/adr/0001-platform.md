@@ -14,7 +14,9 @@ daemons. We want a modern, standard userland and an easy build.
 
 Device facts that constrain the design:
 
-- Amazon LK, unlocked with Kaeru/amonet, **always loads `boot_a`**; its A/B
+- *(Superseded by ADR 0019: that was a bug in Kaeru before `ab93750`; a fixed
+  Kaeru loads the boot partition of the slot its record names.)*
+  Amazon LK, unlocked with Kaeru/amonet, **always loads `boot_a`**; its A/B
   slot record does not change which image boots on the Dot.
 - LK appends `root=/dev/dm-0 dm=… skip_initramfs` to the command line. No
   kernel code consumes LK's other arguments (`androidboot.*`, `bootopt`).

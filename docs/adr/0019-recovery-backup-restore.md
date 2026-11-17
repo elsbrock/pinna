@@ -76,21 +76,54 @@ Measured on the owner's Echo Dot (2nd gen), Kaeru `v2.0.0-gab93750`, on
 
 - **One slot holds a kernel and a root together, as on Android.**
   - An update writes the boot image and the root into the other slot.
-  - It sets that slot in Kaeru's record to priority 15, 3 tries, not good.
+  - It sets that slot in Kaeru's record to priority 15 with N + 1 tries (the
+    preloader takes one before LK looks), not good. Interfaces count
+    attempts: 3 by default, as before.
   - The running slot drops to priority 14 and stays good.
   - After the health check (ADR 0003), Pinna marks the new slot good.
-  - A kernel that doesn't start gets 2 attempts; then the preloader goes back
-    to the old slot by itself.
+  - A kernel that doesn't start runs out of attempts, and the preloader goes
+    back to the old slot by itself.
+  - A manifest without a boot image takes the running kernel along.
 - **pinna-init boots the root of the slot LK started,** read from
   `androidboot.slot_suffix` in the device tree. When that root fails, it marks
   the slot unbootable in Kaeru's record (priority 0) and restarts, so the
-  preloader takes the other slot. Pinna's own root record at `0x40000` and its
-  try counting are no longer needed.
+  preloader takes the other slot. It writes the reason to pmsg first, so the
+  next boot's report says why. Pinna's own root record at `0x40000` and its
+  try counting are gone.
+- **Proof that LK loads the slot's kernel.** A Kaeru before `ab93750` reports
+  slot b but always loads `boot_a`. On such a device, a new kernel in `boot_a`
+  would be the only kernel it ever loads.
+  - Every boot image written into a slot carries `pinna.boot=<slot>` in its
+    header's command line: the updater, `flash-gen2.sh` and the browser
+    installer write it. LK passes the line on.
+  - pinna-init records the kernel it got. After a healthy boot of slot b,
+    `mark-good` stores whether LK loaded `boot_b` (`/var/lib/pinna/kernel-slots`).
+  - The updater always writes `boot_b`: where LK ignores it, nothing changes.
+    It writes `boot_a` only once that proof says LK loads `boot_b`; until then
+    the update replaces the root only, and says so.
 - **One slot is always good.** Pinna never writes a record without a good
-  slot, and it writes the record only in this order: new slot first (not
-  good), then lower the old slot's priority. The preloader refuses to start
-  without a good slot, and nothing short of the BootROM tool (amonet) gets the
-  device back from that.
+  slot (the writer refuses one). An update marks the target unbootable first,
+  while the running slot stays good, and only then makes it the trial. The
+  preloader refuses to start without a good slot, and nothing short of the
+  BootROM tool (amonet) gets the device back from that.
+- **Machines without a bootloader slot** (the VMs, which QEMU starts directly)
+  say `pinna.bootloader=none` on their kernel command line. Only then does
+  pinna-init count tries itself, the way the preloader does, so a device never
+  has a boot counted twice.
+- **First installs and restores start slot a:** `flash-gen2.sh root`, the
+  browser installer and `flash-gen2.sh restore` end with `set_active a`.
+  Writing only the boot images leaves the slot alone.
+- **Devices that ran the earlier, root-only A/B** move over once, by hand:
+  1. update the root;
+  2. write the new boot image, marked, to both boot partitions;
+  3. set the record to the slot that holds the new root;
+  4. restart.
+
+  pinna-init doesn't migrate Pinna's old record: an older root would write it
+  again on every boot, and the migration would run again each time.
+- **The Echo (2nd gen) gets this only after its slot B passes the test** the
+  Echo Dot passed (above): both of its slots are marked good, and its `tee2`
+  differs from `tee1`.
 
 ### The recovery image
 
