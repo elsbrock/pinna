@@ -118,6 +118,11 @@ enum Phase {
   PHASE_SPEAKING = 4;
 }
 
+enum Mode {
+  MODE_HOME_ASSISTANT = 0;
+  MODE_STANDALONE = 1;
+}
+
 message Timer {
   string id = 1;
   string name = 2;
@@ -273,6 +278,8 @@ message Status {
   RingLight ring_light = 27;
   // The media player (Home Assistant's "Media player").
   Media media = 28;
+  // Which service runs voice requests (ADR 0017).
+  Mode mode = 29;
 }
 
 enum MediaState {
@@ -452,6 +459,8 @@ message Settings {
   // Where the satellite looks for releases (ADR 0022). Ignored while
   // pinnad.toml sets `[update] manifest` (GetUpdates.manifest_override).
   UpdateChannel update_channel = 16;
+  // Which service runs voice requests (ADR 0017).
+  Mode mode = 17;
 }
 
 // Where the satellite looks for releases (ADR 0022).
@@ -587,6 +596,8 @@ message UpdateSettingsRequest {
   // Not UNSPECIFIED. Refused while pinnad.toml sets `[update] manifest`. A
   // change checks the new channel at once.
   optional UpdateChannel update_channel = 17;
+  // Standalone mode is refused until its services are configured (ADR 0017).
+  optional Mode mode = 18;
 }
 
 // Only the fields that are set change.

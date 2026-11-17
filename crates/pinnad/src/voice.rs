@@ -23,7 +23,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::calibration::{Calibration, Event as CalibrationEvent};
 use crate::leds::{self, LedState, LightEffect};
-use crate::settings::{FILE_MODE, Settings};
+use crate::settings::{FILE_MODE, Mode, Settings};
 use crate::store::Store;
 use crate::wakewords::{Catalogue, KeywordSet};
 
@@ -174,6 +174,7 @@ pub struct RingLightPatch {
 /// Settings to change from the API; `None` leaves a setting as it is.
 #[derive(Debug, Default)]
 pub struct SettingsPatch {
+    pub mode: Option<Mode>,
     pub wake_word: Option<bool>,
     pub wake_sensitivity: Option<u8>,
     pub led_brightness: Option<u8>,
@@ -241,6 +242,7 @@ pub struct TimerSnapshot {
 /// second (uptime, countdowns): readers derive those from `at`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Snapshot {
+    pub mode: Mode,
     pub phase: pinna_api::Phase,
     pub hw_muted: bool,
     pub sw_muted: bool,
@@ -291,6 +293,7 @@ pub struct CalibrationSnapshot {
 impl Default for Snapshot {
     fn default() -> Self {
         Self {
+            mode: Mode::HomeAssistant,
             phase: pinna_api::Phase::PHASE_IDLE,
             hw_muted: false,
             sw_muted: false,
@@ -860,6 +863,9 @@ impl Brain {
                 self.clear_notification().await;
                 (Ok(()), reply)
             }
+            ApiCommand::UpdateSettings(patch, reply) if patch.mode == Some(Mode::Standalone) => {
+                (Err("Standalone mode isn't available yet.".into()), reply)
+            }
             ApiCommand::UpdateSettings(patch, reply)
                 if patch.wake_words.is_some() && self.clients > 0 =>
             {
@@ -884,6 +890,9 @@ impl Brain {
             }
             ApiCommand::UpdateSettings(patch, reply) => {
                 // The same paths as Home Assistant's entities, so it sees the change.
+                if let Some(mode) = patch.mode {
+                    self.settings.mode = mode;
+                }
                 if let Some(name) = patch.friendly_name {
                     self.set_friendly_name(name).await;
                 }
@@ -1014,6 +1023,7 @@ impl Brain {
             .collect();
         timers.sort_by(|a, b| a.id.cmp(&b.id));
         Snapshot {
+            mode: self.settings.mode,
             phase: match self.phase {
                 Phase::Idle => pinna_api::Phase::PHASE_IDLE,
                 Phase::Starting(_) | Phase::Listening(_) => pinna_api::Phase::PHASE_LISTENING,

@@ -175,6 +175,13 @@ impl DeviceApi {
     }
 }
 
+fn api_mode(mode: crate::settings::Mode) -> pinna_api::Mode {
+    match mode {
+        crate::settings::Mode::HomeAssistant => pinna_api::Mode::MODE_HOME_ASSISTANT,
+        crate::settings::Mode::Standalone => pinna_api::Mode::MODE_STANDALONE,
+    }
+}
+
 fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
     let now = Instant::now();
     Status {
@@ -184,6 +191,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         model: info.model.clone(),
         uptime_seconds: started.elapsed().as_secs(),
         phase: s.phase.into(),
+        mode: api_mode(s.mode).into(),
         muted: s.hw_muted || s.sw_muted,
         hardware_muted: s.hw_muted,
         software_muted: s.sw_muted,
@@ -279,6 +287,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             reply_volume: s.settings.reply_volume.map(u32::from),
             listening_direction: s.settings.listening_direction,
             update_channel: proto_channel(s.update_channel).into(),
+            mode: api_mode(s.settings.mode).into(),
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
@@ -706,8 +715,21 @@ impl DeviceService for DeviceApi {
                  to choose a channel.",
             ));
         }
+        let mode = match request.mode.as_ref() {
+            Some(value) => Some(match value.as_known() {
+                Some(pinna_api::Mode::MODE_HOME_ASSISTANT) => crate::settings::Mode::HomeAssistant,
+                Some(pinna_api::Mode::MODE_STANDALONE) => crate::settings::Mode::Standalone,
+                _ => {
+                    return Err(ConnectError::invalid_argument(
+                        "mode must be home assistant or standalone",
+                    ));
+                }
+            }),
+            None => None,
+        };
         let patch = SettingsPatch {
             update_channel,
+            mode,
             wake_word: request.wake_word,
             wake_sensitivity: percent("wake_sensitivity", request.wake_sensitivity)?,
             led_brightness: percent("led_brightness", request.led_brightness)?,
@@ -1598,6 +1620,37 @@ mod tests {
         // An empty update goes through the same queue, after Home Assistant's choice.
         let s = update(Default::default()).await.unwrap();
         assert_eq!(active(&s), ["alexa_v0.1", "hey_jarvis_v0.1"]);
+    }
+
+    #[tokio::test]
+    async fn standalone_mode_is_reported_but_not_available_yet() {
+        let (c, _inputs) = start_device().await;
+        let before = status(&c).await;
+        assert_eq!(
+            before.mode.as_known(),
+            Some(pinna_api::Mode::MODE_HOME_ASSISTANT)
+        );
+        assert_eq!(
+            before.settings.as_option().unwrap().mode.as_known(),
+            Some(pinna_api::Mode::MODE_HOME_ASSISTANT)
+        );
+
+        let err = c
+            .update_settings(UpdateSettingsRequest {
+                mode: Some(buffa::EnumValue::Known(pinna_api::Mode::MODE_STANDALONE)),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        assert_eq!(
+            err.message.as_deref(),
+            Some("Standalone mode isn't available yet.")
+        );
+        assert_eq!(
+            status(&c).await.mode.as_known(),
+            Some(pinna_api::Mode::MODE_HOME_ASSISTANT)
+        );
     }
 
     #[tokio::test]

@@ -4,12 +4,49 @@ pub const FILE_MODE: u32 = 0o644;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    HomeAssistant,
+    Standalone,
+}
+
+impl Mode {
+    pub fn is_home_assistant(&self) -> bool {
+        *self == Self::HomeAssistant
+    }
+}
+
+fn lenient_mode<'de, D>(deserializer: D) -> Result<Mode, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = toml::Value::deserialize(deserializer)?;
+    let mode = match value.as_str() {
+        Some("standalone") => Mode::Standalone,
+        Some("home_assistant") => Mode::HomeAssistant,
+        _ => {
+            tracing::warn!("unknown mode {value}; using Home Assistant");
+            Mode::HomeAssistant
+        }
+    };
+    Ok(mode)
+}
+
 /// Unknown keys are kept, not refused: after a rollback to an older image, a
 /// key only the newer pinnad wrote must not reset the rest (mute included),
 /// and must still be there after the next update (ADR 0007).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Which service runs voice requests (ADR 0017).
+    #[serde(
+        default,
+        deserialize_with = "lenient_mode",
+        skip_serializing_if = "Mode::is_home_assistant"
+    )]
+    pub mode: Mode,
     /// Speaker volume 0..=100 ("Volume" number, media player volume).
     pub volume: u8,
     /// Volume for replies and announcements; `None` follows `volume`.
@@ -67,6 +104,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            mode: Mode::HomeAssistant,
             volume: 50,
             reply_volume: None,
             wake_sensitivity: sensitivity_for_threshold(0.55),
@@ -312,6 +350,44 @@ mod tests {
         ] {
             assert!(check_url(bad).is_err(), "{bad:?} accepted");
         }
+    }
+
+    #[test]
+    fn home_assistant_mode_keeps_the_settings_file_unchanged() {
+        assert_eq!(
+            toml::to_string(&Settings::default()).unwrap(),
+            "volume = 50\n\
+             wake_sensitivity = 68\n\
+             led_brightness = 100\n\
+             wake_word = true\n\
+             muted = false\n\
+             listening_direction = true\n\
+             notification = false\n\
+             airplay = false\n\
+             bluetooth = false\n"
+        );
+    }
+
+    #[test]
+    fn an_unknown_mode_falls_back_without_losing_mute() {
+        let (settings, dropped) =
+            crate::store::salvage("mode = 'martian'\nmuted = true\n", &Settings::default());
+        assert!(dropped.is_empty());
+        assert_eq!(settings.mode, Mode::HomeAssistant);
+        assert!(settings.muted);
+    }
+
+    #[test]
+    fn standalone_mode_round_trips() {
+        let settings = Settings {
+            mode: Mode::Standalone,
+            ..Default::default()
+        };
+        let text = toml::to_string(&settings).unwrap();
+        assert!(text.contains("mode = \"standalone\""), "{text}");
+        let (loaded, dropped) = crate::store::salvage(&text, &Settings::default());
+        assert!(dropped.is_empty());
+        assert_eq!(loaded, settings);
     }
 
     #[test]

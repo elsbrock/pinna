@@ -31,6 +31,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   listeningDirection: true,
   // UPDATE_CHANNEL_STABLE
   updateChannel: 1,
+  mode: 0,
   ...over,
 });
 import {
