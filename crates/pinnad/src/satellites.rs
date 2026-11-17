@@ -19,8 +19,11 @@ const PROJECT: &str = "pinna.satellite";
 const MDNS: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251)), 5353);
 /// How long answers to the first query are collected.
 const FIRST_WINDOW: Duration = Duration::from_millis(1000);
-/// How long answers to the follow-up for missing records are collected.
+/// How long answers to each follow-up for missing records are collected.
 const SECOND_WINDOW: Duration = Duration::from_millis(500);
+/// Follow-ups after the first query. A responder may answer only the question
+/// asked: PTR, then SRV and TXT, then the addresses of the host the SRV names.
+const FOLLOW_UPS: usize = 3;
 /// The satellite's own USB link, which every satellite has.
 const USB_NET: (Ipv4Addr, u8) = (Ipv4Addr::new(10, 42, 0, 0), 24);
 
@@ -248,8 +251,8 @@ pub fn on_network(interfaces: &[Interface]) -> bool {
     })
 }
 
-/// Ask the network for satellites: one query, then one follow-up for the
-/// records the first answers lacked.
+/// Ask the network for satellites: one query, then follow-ups for the records
+/// the answers so far lack.
 pub async fn discover(own_mac: &str) -> Result<Vec<Found>> {
     discover_at(MDNS, own_mac, FIRST_WINDOW, SECOND_WINDOW).await
 }
@@ -273,8 +276,11 @@ async fn discover_at(
         .await
         .context("sending the mDNS query")?;
     listen(&socket, &mut collected, first).await;
-    let missing = collected.missing();
-    if !missing.is_empty() {
+    for _ in 0..FOLLOW_UPS {
+        let missing = collected.missing();
+        if missing.is_empty() {
+            break;
+        }
         socket
             .send_to(&query(fastrand::u16(1..), &missing)?, target)
             .await
@@ -554,6 +560,60 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].friendly_name, "Kitchen");
         assert_eq!(found[0].ipv4, [Ipv4Addr::new(192, 168, 1, 20)]);
+    }
+
+    /// A responder that answers only the questions asked, with no additional
+    /// records: the addresses come only after the SRV record names the host.
+    #[tokio::test]
+    async fn asks_until_the_addresses_come() {
+        let server = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let target = server.local_addr().unwrap();
+        let responder = tokio::spawn(async move {
+            let mut buf = vec![0u8; 2000];
+            let mut asked = Vec::new();
+            // Answer until no more questions come.
+            let wait = Duration::from_millis(500);
+            while let Ok(Ok((n, from))) =
+                tokio::time::timeout(wait, server.recv_from(&mut buf)).await
+            {
+                let q = Packet::parse(&buf[..n]).unwrap();
+                let mut p = Packet::new_reply(q.id());
+                for question in &q.questions {
+                    let ty = match question.qtype {
+                        QTYPE::TYPE(ty) => ty,
+                        _ => continue,
+                    };
+                    asked.push(ty);
+                    p.answers.push(match ty {
+                        TYPE::PTR => rr(SERVICE, ptr(INSTANCE)),
+                        TYPE::SRV => rr(INSTANCE, srv(HOST, 6053)),
+                        TYPE::TXT => rr(INSTANCE, txt(&pinna_txt())),
+                        TYPE::A => rr(HOST, a([192, 168, 1, 20])),
+                        TYPE::AAAA => rr(HOST, aaaa("2001:db8::20")),
+                        _ => continue,
+                    });
+                }
+                server
+                    .send_to(&p.build_bytes_vec_compressed().unwrap(), from)
+                    .await
+                    .unwrap();
+            }
+            asked
+        });
+        let found = discover_at(
+            target,
+            "",
+            Duration::from_millis(150),
+            Duration::from_millis(150),
+        )
+        .await
+        .unwrap();
+        let asked = responder.await.unwrap();
+        assert_eq!(asked.len(), 5, "{asked:?}");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].url, "https://kitchen.example.com/");
+        assert_eq!(found[0].ipv4, [Ipv4Addr::new(192, 168, 1, 20)]);
+        assert_eq!(found[0].ipv6, ["2001:db8::20".parse::<Ipv6Addr>().unwrap()]);
     }
 
     #[tokio::test]
