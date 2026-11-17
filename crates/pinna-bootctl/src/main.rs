@@ -20,6 +20,9 @@ struct Cli {
     /// Where pinna-init records the booted slot and version.
     #[arg(long, default_value = slot::RUN_DIR)]
     run_dir: PathBuf,
+    /// Where mark-good keeps what the bootloader does with the slot for the kernel.
+    #[arg(long, default_value = slot::KERNEL_SLOTS)]
+    kernel_slots: PathBuf,
     /// Arm even without a Kaeru payload in expdb (tests only).
     #[arg(long)]
     allow_no_kaeru: bool,
@@ -42,13 +45,12 @@ enum Cmd {
     SlotStatus,
     /// Mark the booted slot good (after the health check); a no-op without pinna-init.
     MarkGood,
-    /// Boot a slot next, as a trial with a number of tries (the bootloader
-    /// counts the first try, so 3 tries are 2 boot attempts).
+    /// Boot a slot next, as a trial with a number of boot attempts.
     SetActive {
         slot: String,
-        #[arg(long, default_value_t = bcb::DEFAULT_TRIES,
-              value_parser = clap::value_parser!(u8).range(2..=7))]
-        tries: u8,
+        #[arg(long = "tries", default_value_t = bcb::DEFAULT_ATTEMPTS,
+              value_parser = clap::value_parser!(u8).range(1..=bcb::MAX_ATTEMPTS as i64))]
+        attempts: u8,
         /// Do not check the slot's image signature first.
         #[arg(long)]
         force: bool,
@@ -165,6 +167,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             // The verdict, for pinnad's stage 7 on the ring (ADR 0012) and for
             // the next boot's "how the last boot ended".
             let _ = std::fs::write(cli.run_dir.join("boot-ok"), "1\n");
+            // A healthy boot of slot b shows whether the bootloader loads
+            // boot_b: the updater writes boot_a only once it has (ADR 0019).
+            if let Some(seen) =
+                slot::KernelSlots::seen(booted, slot::booted_kernel(&cli.run_dir).ok().flatten())
+                && let Err(e) = seen.write(&cli.kernel_slots)
+            {
+                eprintln!("pinna-bootctl: {e:#}");
+            }
             println!(
                 "slot {booted} marked good (version {}); next boot: slot {}",
                 slot::booted_version(&cli.run_dir)?.unwrap_or_else(|| "?".into()),
@@ -174,7 +184,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         }
         Cmd::SetActive {
             slot: s,
-            tries,
+            attempts,
             force,
         } => {
             let s = Slot::parse(s)?;
@@ -193,9 +203,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 bcb::write(&cli.misc, &bcb::keep_booted(old, s)?)?;
                 println!("slot {s} (version {version}) keeps booting");
             } else {
-                bcb::write(&cli.misc, &bcb::set_active(old, s, *tries)?)?;
+                bcb::write(&cli.misc, &bcb::set_active(old, s, *attempts)?)?;
                 println!(
-                    "slot {s} (version {version}) boots next as a trial with {tries} tries; slot {} is the fallback",
+                    "slot {s} (version {version}) boots next as a trial with {attempts} attempts; slot {} is the fallback",
                     s.other()
                 );
             }

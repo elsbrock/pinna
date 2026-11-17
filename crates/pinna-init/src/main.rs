@@ -240,11 +240,22 @@ fn wait_for_parts(names: &[&str]) -> HashMap<String, Part> {
     }
 }
 
-/// The slot LK started, from its command line in the device tree; `None`
-/// without a bootloader (the VMs).
+/// LK's command line, as it put it into the device tree; empty without one.
+fn bootargs() -> String {
+    fs::read("/proc/device-tree/chosen/bootargs")
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .unwrap_or_default()
+}
+
+/// The slot LK started; `None` without a bootloader (the VMs).
 fn lk_slot() -> Option<Slot> {
-    let args = fs::read("/proc/device-tree/chosen/bootargs").ok()?;
-    boot_slot::lk_slot_from(&String::from_utf8_lossy(&args))
+    boot_slot::lk_slot_from(&bootargs())
+}
+
+/// A machine without a bootloader slot says so on the kernel command line.
+fn no_bootloader() -> bool {
+    fs::read_to_string("/proc/cmdline")
+        .is_ok_and(|c| c.split_whitespace().any(|a| a == boot_slot::NO_BOOTLOADER))
 }
 
 /// The slot record in misc, for the rescue diagnostics.
@@ -359,26 +370,12 @@ fn bring_up_root(ring: &Ring) -> Result<(Slot, Footer), Failure> {
         }
         None => None,
     };
-    let pinna = match misc.map(|m| slot::read_state(&m.path())) {
-        Some(Ok(s)) => s,
-        Some(Err(e)) => {
-            log!("cannot read Pinna's own slot record ({e:#})");
-            None
-        }
-        None => None,
-    };
-    let plan = boot_slot::plan(lk_slot(), record, pinna);
+    let plan = boot_slot::plan(lk_slot(), no_bootloader(), record);
     log!("{}", plan.reason);
-    if let Some(w) = &plan.write {
-        match write_record(misc, w) {
-            Ok(()) if plan.clear_pinna => {
-                if let Err(e) = slot::clear_state(&misc.expect("written above").path()) {
-                    log!("WARNING: could not blank Pinna's own slot record: {e:#}");
-                }
-            }
-            Ok(()) => {}
-            Err(e) => log!("WARNING: could not write the slot record: {e:#}"),
-        }
+    if let Some(w) = &plan.write
+        && let Err(e) = write_record(misc, w)
+    {
+        log!("WARNING: could not write the slot record: {e:#}");
     }
 
     let s = plan.slot;
@@ -400,6 +397,12 @@ fn bring_up_root(ring: &Ring) -> Result<(Slot, Footer), Failure> {
             match retired {
                 Ok(()) => {
                     log!("slot {s} retired; restarting into slot {}", s.other());
+                    // Why, for the next boot's report (ADR 0012); the
+                    // shutdown hook that usually writes it doesn't run here.
+                    pmsg(&format!(
+                        "pinna: reboot (slot {s} didn't start, back to slot {})",
+                        s.other()
+                    ));
                     rescue::reboot_now()
                 }
                 Err(why) => Err(Failure::new(
@@ -460,9 +463,25 @@ fn boot(argv: &[OsString], ring: &Ring) -> Failure {
         Err(f) => return f,
     };
     let protocol = root_protocol(Path::new(SYSROOT));
+    // Which boot partition LK really loaded (ADR 0019): the updater writes
+    // boot_a only once a boot from b has shown LK loads boot_b too.
+    let kernel = boot_slot::kernel_slot_from(&bootargs());
+    match kernel {
+        Some(k) if k != s => log!(
+            "the bootloader started slot {s} but loaded boot_{k}: it ignores the slot for the kernel"
+        ),
+        Some(_) => {}
+        None => log!("the boot image doesn't say which boot partition it is in"),
+    }
     let recorded = (|| -> Result<()> {
         fs::create_dir_all(Path::new(slot::RUN_DIR))?;
         fs::write(Path::new(slot::RUN_DIR).join("boot-slot"), format!("{s}\n"))?;
+        if let Some(k) = kernel {
+            fs::write(
+                Path::new(slot::RUN_DIR).join(slot::BOOT_KERNEL),
+                format!("{k}\n"),
+            )?;
+        }
         fs::write(
             Path::new(slot::RUN_DIR).join("boot-version"),
             format!("{}\n", footer.version),

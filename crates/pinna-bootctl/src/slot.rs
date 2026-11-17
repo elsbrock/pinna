@@ -36,6 +36,61 @@ const SECTOR: usize = 512;
 pub const DEFAULT_TRIES: u8 = 3;
 /// Where pinna-init records what it booted.
 pub const RUN_DIR: &str = "/run/pinna";
+/// In [`RUN_DIR`]: the boot partition LK loaded, as its image says
+/// (`pinna.boot=`), when it says.
+pub const BOOT_KERNEL: &str = "boot-kernel";
+/// What `mark-good` learned about this device's bootloader: whether it loads
+/// the started slot's kernel (ADR 0019).
+pub const KERNEL_SLOTS: &str = "/var/lib/pinna/kernel-slots";
+
+/// Whether the bootloader loads `boot_b` when it starts slot b. A Kaeru before
+/// `ab93750` doesn't, and writing boot_a there replaces the only kernel it
+/// ever loads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KernelSlots {
+    Unknown,
+    Honoured,
+    Ignored,
+}
+
+impl KernelSlots {
+    /// What one boot shows: only a boot of slot b tells the two apart.
+    pub fn seen(booted: Slot, kernel: Option<Slot>) -> Option<KernelSlots> {
+        match (booted, kernel?) {
+            (Slot::B, Slot::B) => Some(KernelSlots::Honoured),
+            (b, k) if b != k => Some(KernelSlots::Ignored),
+            _ => None,
+        }
+    }
+
+    pub fn read(path: &Path) -> KernelSlots {
+        match std::fs::read_to_string(path).as_deref().map(str::trim) {
+            Ok("honoured") => KernelSlots::Honoured,
+            Ok("ignored") => KernelSlots::Ignored,
+            _ => KernelSlots::Unknown,
+        }
+    }
+
+    pub fn write(self, path: &Path) -> Result<()> {
+        let word = match self {
+            KernelSlots::Unknown => return Ok(()),
+            KernelSlots::Honoured => "honoured",
+            KernelSlots::Ignored => "ignored",
+        };
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(path, format!("{word}\n"))
+            .with_context(|| format!("writing {}", path.display()))
+    }
+}
+
+/// The boot partition LK loaded, as pinna-init recorded it.
+pub fn booted_kernel(run_dir: &Path) -> Result<Option<Slot>> {
+    read_run_file(run_dir, BOOT_KERNEL)?
+        .map(|s| Slot::parse(&s))
+        .transpose()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
@@ -182,15 +237,7 @@ pub fn read_state(misc: &Path) -> Result<Option<SlotState>> {
 /// cache and read it back: the sector must hold exactly what was written and
 /// the sectors around it must be unchanged.
 pub fn write_state(misc: &Path, state: &SlotState) -> Result<()> {
-    write_record(misc, &state.encode())
-}
-
-/// Blank the record once Kaeru's slot record has taken over (ADR 0019).
-pub fn clear_state(misc: &Path) -> Result<()> {
-    write_record(misc, &[0u8; RECORD_LEN])
-}
-
-fn write_record(misc: &Path, record: &[u8; RECORD_LEN]) -> Result<()> {
+    let record = state.encode();
     let f = OpenOptions::new()
         .read(true)
         .write(true)
@@ -202,7 +249,7 @@ fn write_record(misc: &Path, record: &[u8; RECORD_LEN]) -> Result<()> {
     f.read_exact_at(&mut before, start)
         .with_context(|| format!("{} is too small for the slot state", misc.display()))?;
     let mut sector = before[SECTOR..2 * SECTOR].to_vec();
-    sector[..RECORD_LEN].copy_from_slice(record);
+    sector[..RECORD_LEN].copy_from_slice(&record);
     f.write_all_at(&sector, STATE_OFFSET)?;
     f.sync_all()?;
     // Read back from the device, not the page cache.
@@ -537,14 +584,19 @@ mod tests {
     }
 
     #[test]
-    fn clearing_leaves_no_record() {
-        let f = misc();
-        write_state(f.path(), &st(Slot::B, (0, true), (0, true))).unwrap();
-        clear_state(f.path()).unwrap();
-        assert_eq!(read_state(f.path()).unwrap(), None);
-        let data = std::fs::read(f.path()).unwrap();
-        assert_eq!(data[STATE_OFFSET as usize - 1], 0x77);
-        assert_eq!(&data[0x360..0x365], &[0, b'A', b'B', 1, 2]);
+    fn only_a_boot_of_b_shows_what_the_bootloader_does() {
+        use KernelSlots::*;
+        assert_eq!(KernelSlots::seen(Slot::B, Some(Slot::B)), Some(Honoured));
+        assert_eq!(KernelSlots::seen(Slot::B, Some(Slot::A)), Some(Ignored));
+        assert_eq!(KernelSlots::seen(Slot::A, Some(Slot::A)), None);
+        assert_eq!(KernelSlots::seen(Slot::B, None), None);
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("pinna/kernel-slots");
+        assert_eq!(KernelSlots::read(&p), Unknown);
+        Honoured.write(&p).unwrap();
+        assert_eq!(KernelSlots::read(&p), Honoured);
+        std::fs::write(d.path().join("boot-kernel"), "b\n").unwrap();
+        assert_eq!(booted_kernel(d.path()).unwrap(), Some(Slot::B));
     }
 
     #[test]

@@ -2562,9 +2562,34 @@ mod tests {
     use pinna_bootctl::slot::{Slot, SlotInfo, SlotState};
     use pinna_image::keys::SigningKey;
 
-    /// A slot state in the old record's terms, as Kaeru's record holds it.
+    /// A slot state in the old record's terms (attempts left), as Kaeru's
+    /// record holds it: the active slot at priority 15, the other at 14.
     fn rec(s: SlotState) -> Record {
-        pinna_bootctl::bcb::from_pinna(&s).expect("a good slot")
+        use pinna_bootctl::bcb::SlotMeta;
+        let meta = |slot: Slot, priority| {
+            let i = s.get(slot);
+            if i.successful {
+                SlotMeta {
+                    priority,
+                    tries: 0,
+                    good: true,
+                }
+            } else if i.tries_left > 0 {
+                SlotMeta {
+                    priority,
+                    tries: i.tries_left + 1,
+                    good: false,
+                }
+            } else {
+                SlotMeta::EMPTY
+            }
+        };
+        let mut r = Record {
+            slots: [SlotMeta::EMPTY; 2],
+        };
+        r.set(s.active, meta(s.active, 15));
+        r.set(s.active.other(), meta(s.active.other(), 14));
+        r
     }
 
     fn slot_key() -> SigningKey {

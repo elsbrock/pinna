@@ -300,7 +300,7 @@ fn switch_slot(paths: &UpdaterPaths, target: Slot) -> Result<(Option<Record>, Sl
             "switching to slot {target} (version {}) as a trial",
             image.version
         );
-        bcb::set_active(record, target, bcb::DEFAULT_TRIES).map_err(internal)?
+        bcb::set_active(record, target, bcb::DEFAULT_ATTEMPTS).map_err(internal)?
     };
     if old != Some(new) {
         bcb::write(&paths.misc, &new).map_err(internal)?;
@@ -366,7 +366,7 @@ fn read_slots(paths: &UpdaterPaths) -> GetUpdatesResponse {
             name: s.to_string(),
             version: slot_version(paths, s),
             state: m.state().into(),
-            tries_left: m.tries.into(),
+            tries_left: m.attempts_left().into(),
             active: next == Some(s),
             booted: booted == s,
             ..Default::default()

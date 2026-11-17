@@ -43,8 +43,10 @@ pub const MAX_TRIES: u8 = 7;
 /// The slot that boots next, and the one it falls back to.
 pub const PRIORITY_ACTIVE: u8 = 15;
 pub const PRIORITY_FALLBACK: u8 = 14;
-/// Tries a slot on trial gets: 3 tries are 2 boot attempts (see above).
-pub const DEFAULT_TRIES: u8 = 3;
+/// Boot attempts a slot on trial gets; the record stores one try more,
+/// because the preloader takes one before LK looks (see above).
+pub const DEFAULT_ATTEMPTS: u8 = 3;
+pub const MAX_ATTEMPTS: u8 = MAX_TRIES - 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SlotMeta {
@@ -69,6 +71,16 @@ impl SlotMeta {
             priority: b & 0x0f,
             tries: (b >> 4) & 0x07,
             good: b & 0x80 != 0,
+        }
+    }
+
+    /// Boots that would still start this slot while it is on trial: the
+    /// preloader takes a try and LK needs one left, so one less than its tries.
+    pub fn attempts_left(self) -> u8 {
+        if self.good || self.priority == 0 {
+            0
+        } else {
+            self.tries.saturating_sub(1)
         }
     }
 
@@ -196,25 +208,29 @@ impl Record {
         self.preloader_step().lk_choice()
     }
 
-    /// One line per slot, for humans and the VM tests: `good tries=0
-    /// priority=15`.
+    /// One line per slot, for humans and the VM tests: `trial attempts=2
+    /// (priority 15, tries 3)`.
     pub fn describe(&self, s: Slot) -> String {
         let m = self.get(s);
-        format!("{} tries={} priority={}", m.state(), m.tries, m.priority)
+        format!(
+            "{} attempts={} (priority {}, tries {})",
+            m.state(),
+            m.attempts_left(),
+            m.priority,
+            m.tries
+        )
     }
 }
 
-/// The fewest tries that boot a slot at all: the preloader takes one before
-/// LK looks.
-pub const MIN_TRIES: u8 = 2;
-
-/// Boot `target` next, on trial with `tries`; the booted slot stays good as
-/// its fallback. Refused unless the booted slot (the other one) is good.
-pub fn set_active(r: Record, target: Slot, tries: u8) -> Result<Record> {
+/// Boot `target` next, on trial with `attempts` boot attempts; the booted
+/// slot stays good as its fallback. Refused unless the booted slot (the other
+/// one) is good.
+pub fn set_active(r: Record, target: Slot, attempts: u8) -> Result<Record> {
     ensure!(
-        (MIN_TRIES..=MAX_TRIES).contains(&tries),
-        "tries must be {MIN_TRIES} to {MAX_TRIES}, not {tries} (the bootloader counts the first one)"
+        (1..=MAX_ATTEMPTS).contains(&attempts),
+        "attempts must be 1 to {MAX_ATTEMPTS}, not {attempts}"
     );
+    let tries = attempts + 1;
     let fallback = r.get(target.other());
     ensure!(
         fallback.good,
@@ -331,36 +347,6 @@ pub fn guard_should_arm(r: Option<Record>, booted: Option<Slot>) -> bool {
     r.get(b).good || !r.get(b.other()).good
 }
 
-/// Pinna's own slot record (`PINNASLT`, ADR 0003) in Kaeru's form: its active
-/// slot first, the other as the fallback. `None` when the result would have
-/// no good slot.
-pub fn from_pinna(s: &crate::slot::SlotState) -> Option<Record> {
-    let meta = |slot: Slot, priority: u8| {
-        let i = s.get(slot);
-        if i.successful {
-            SlotMeta {
-                priority,
-                tries: 0,
-                good: true,
-            }
-        } else if i.tries_left > 0 {
-            SlotMeta {
-                priority,
-                tries: i.tries_left.min(MAX_TRIES),
-                good: false,
-            }
-        } else {
-            SlotMeta::EMPTY
-        }
-    };
-    let mut r = Record {
-        slots: [SlotMeta::EMPTY; 2],
-    };
-    r.set(s.active, meta(s.active, PRIORITY_ACTIVE));
-    r.set(s.active.other(), meta(s.active.other(), PRIORITY_FALLBACK));
-    r.has_good().then_some(r)
-}
-
 /// Read the record; `Ok(None)` when it is missing or not a version 1 record.
 pub fn read(misc: &Path) -> Result<Option<Record>> {
     let f = std::fs::File::open(misc).with_context(|| format!("opening {}", misc.display()))?;
@@ -429,7 +415,6 @@ pub fn write(misc: &Path, r: &Record) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::slot::{SlotInfo, SlotState};
     use std::io::Write;
 
     fn rec(b: [u8; 2]) -> Record {
@@ -497,24 +482,23 @@ mod tests {
     #[test]
     fn transitions_keep_a_good_slot() {
         let booted_a = Record::KAERU_DEFAULT;
-        let trial = set_active(booted_a, Slot::B, 3).unwrap();
+        // 2 attempts store 3 tries: the measured record.
+        let trial = set_active(booted_a, Slot::B, 2).unwrap();
         assert_eq!(trial.encode()[5..], [0x8e, 0x3f]);
         assert_eq!(trial.next_boot(), Some(Slot::B));
+        assert_eq!(trial.get(Slot::B).attempts_left(), 2);
         // No fallback, no trial.
-        assert!(set_active(rec([0x8e, 0x3f]), Slot::A, 3).is_err());
-        assert!(
-            set_active(booted_a, Slot::B, 1).is_err(),
-            "1 try never boots"
-        );
-        assert!(set_active(booted_a, Slot::B, 8).is_err());
-        // 2 tries: one attempt, then back.
-        let mut r = set_active(booted_a, Slot::B, 2).unwrap();
-        let mut booted = vec![];
-        for _ in 0..3 {
-            r = r.preloader_step();
-            booted.push(r.lk_choice());
-        }
-        assert_eq!(booted, [Some(Slot::B), Some(Slot::A), Some(Slot::A)]);
+        assert!(set_active(rec([0x8e, 0x3f]), Slot::A, 2).is_err());
+        assert!(set_active(booted_a, Slot::B, 0).is_err());
+        assert!(set_active(booted_a, Slot::B, MAX_ATTEMPTS + 1).is_err());
+
+        let kept = keep_booted(trial, Slot::A).unwrap();
+        assert_eq!(kept.next_boot(), Some(Slot::A));
+        assert_eq!(kept.get(Slot::B).tries, 3, "the trial keeps its tries");
+
+        let retired = retire(trial, Slot::B).unwrap();
+        assert_eq!(retired.next_boot(), Some(Slot::A));
+        assert!(retire(trial, Slot::A).is_err(), "B isn't good");
 
         let good = mark_good(trial, Slot::B);
         assert_eq!(good.encode()[5..], [0x8e, 0x8f]);
@@ -527,14 +511,27 @@ mod tests {
             "B is still on trial"
         );
         assert!(invalidate(good, Slot::B, Slot::B).is_err());
+    }
 
-        let kept = keep_booted(trial, Slot::A).unwrap();
-        assert_eq!(kept.next_boot(), Some(Slot::A));
-        assert_eq!(kept.get(Slot::B).tries, 3, "the trial keeps its tries");
+    /// Boot the record `n` times as preloader and LK would.
+    fn boots(mut r: Record, n: usize) -> Vec<Option<Slot>> {
+        (0..n)
+            .map(|_| {
+                r = r.preloader_step();
+                r.lk_choice()
+            })
+            .collect()
+    }
 
-        let retired = retire(trial, Slot::B).unwrap();
-        assert_eq!(retired.next_boot(), Some(Slot::A));
-        assert!(retire(trial, Slot::A).is_err(), "B isn't good");
+    #[test]
+    fn attempts_are_boots_of_the_new_slot() {
+        let a = Record::KAERU_DEFAULT;
+        let (b, back) = (Some(Slot::B), Some(Slot::A));
+        assert_eq!(boots(set_active(a, Slot::B, 1).unwrap(), 2), [b, back]);
+        assert_eq!(boots(set_active(a, Slot::B, 2).unwrap(), 3), [b, b, back]);
+        let default = set_active(a, Slot::B, DEFAULT_ATTEMPTS).unwrap();
+        assert_eq!(default.encode()[6], 0x4f);
+        assert_eq!(boots(default, 4), [b, b, b, back]);
     }
 
     #[test]
@@ -554,38 +551,6 @@ mod tests {
         let r = mark_good(rec([0x8f, 0x00]), Slot::B);
         assert_eq!(r.get(Slot::B).priority, PRIORITY_ACTIVE);
         assert!(r.get(Slot::B).good);
-    }
-
-    fn pinna(active: Slot, a: (u8, bool), b: (u8, bool)) -> SlotState {
-        SlotState {
-            active,
-            slots: [
-                SlotInfo {
-                    tries_left: a.0,
-                    successful: a.1,
-                },
-                SlotInfo {
-                    tries_left: b.0,
-                    successful: b.1,
-                },
-            ],
-        }
-    }
-
-    #[test]
-    fn migrates_pinnas_own_record() {
-        // Both owner devices on 2026-11-17: root b good, a good.
-        let r = from_pinna(&pinna(Slot::B, (2, true), (2, true))).unwrap();
-        assert_eq!(r.encode()[5..], [0x8e, 0x8f]);
-        assert_eq!(r.next_boot(), Some(Slot::B));
-        // A trial carries over with its tries.
-        let r = from_pinna(&pinna(Slot::B, (0, true), (2, false))).unwrap();
-        assert_eq!(r.encode()[5..], [0x8e, 0x2f]);
-        // An unbootable fallback is retired.
-        let r = from_pinna(&pinna(Slot::A, (0, true), (0, false))).unwrap();
-        assert_eq!(r.encode()[5..], [0x8f, 0x00]);
-        // Nothing good: no migration.
-        assert_eq!(from_pinna(&pinna(Slot::A, (1, false), (0, false))), None);
     }
 
     fn misc() -> tempfile::NamedTempFile {
