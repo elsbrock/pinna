@@ -5,10 +5,6 @@
 //! compare-and-set on the connection revision. Commits are serialised, written
 //! off the runtime, and each one publishes a new [`AssistLive`] for the Brain.
 
-// main.rs loads the service and reads `live`; the AssistantService handlers
-// (T57) call the rest.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::io;
@@ -648,6 +644,8 @@ impl Service {
 
     /// Remember an MCP client for the dashboard. The name is the client's own
     /// `clientInfo.name`, cut short and stripped of control characters.
+    // The `/mcp` handler (T67) records its callers here.
+    #[allow(dead_code)]
     pub fn agent_seen(&self, name: &str, peer: IpAddr) {
         let name: String = name
             .chars()

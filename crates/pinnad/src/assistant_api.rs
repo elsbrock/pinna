@@ -1,0 +1,903 @@
+//! Standalone mode's setup API: ConnectRPC `pinna.v1.AssistantService`
+//! (ADR 0017), served with the dashboard beside `DeviceService`.
+//!
+//! The handlers only translate: [`Service`] validates, checks, stores and
+//! publishes every edit. Keys and MCP server addresses come in and never go
+//! out; the view the service renders has neither.
+
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use buffa::{EnumValue, Inline, MessageField};
+use connectrpc::{ConnectError, RequestContext, Response, Router, ServiceRequest, ServiceResult};
+use pinna_api::{
+    Acknowledgment, AskTextRequest, AskTextResponse, Assistant, AssistantService, AssistantSlot,
+    BrainOverride, DeleteConnectionRequest, DeleteConnectionResponse, DeleteMcpServerRequest,
+    DeleteMcpServerResponse, GetAssistantRequest, GetAssistantResponse, McpAgent,
+    PlaySampleRequest, PlaySampleResponse, ProviderConnection, SetConnectionRequest,
+    SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse, SetSlotRequest,
+    SetSlotResponse, SlotChoice, UpdateAssistantRequest, UpdateAssistantResponse,
+};
+use pinna_assist::config::Ack;
+use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId};
+use pinna_http::Secret;
+
+use crate::standalone::service::{
+    AssistantPatch, AssistantView, ConnectionEdit, KeyEdit, Refusal, Service, SlotEdit, SlotKind,
+    SlotView,
+};
+
+pub struct AssistantApi {
+    service: Arc<Service>,
+}
+
+impl AssistantApi {
+    pub fn new(service: Arc<Service>) -> Self {
+        Self { service }
+    }
+}
+
+/// The routes, for the dashboard listener.
+pub fn router(api: Arc<AssistantApi>) -> Router {
+    Router::new().add_service(api)
+}
+
+fn refused(r: Refusal) -> ConnectError {
+    match r {
+        Refusal::Invalid(s) => ConnectError::invalid_argument(s),
+        Refusal::Precondition(s) => ConnectError::failed_precondition(s),
+        Refusal::Conflict(s) => ConnectError::aborted(s),
+    }
+}
+
+fn render(v: AssistantView) -> Assistant {
+    Assistant {
+        ready: v.ready,
+        connections: v
+            .connections
+            .into_iter()
+            .map(|c| ProviderConnection {
+                id: c.id,
+                preset: c.preset.label().into(),
+                base_url: c.base_url,
+                revision: c.revision,
+                key_set: c.key_set,
+                key_last4: c.key_last4.unwrap_or_default(),
+                ..Default::default()
+            })
+            .collect(),
+        stt: slot_choice(v.stt),
+        brain: slot_choice(v.chat),
+        tts: slot_choice(v.tts),
+        brain_override: MessageField::some(brain_override(&v.chat_override)),
+        language: v.language.unwrap_or_default(),
+        place: v.place.map_or_else(MessageField::none, |p| {
+            MessageField::some(pinna_api::Place {
+                name: p.name,
+                latitude: p.lat,
+                longitude: p.lon,
+                ..Default::default()
+            })
+        }),
+        prompt: v.prompt,
+        follow_ups: v.follow_ups,
+        ack: MessageField::some(Acknowledgment {
+            enabled: v.ack.enabled,
+            phrase: v.ack.phrase,
+            ..Default::default()
+        }),
+        tools: v.tools.into_iter().collect(),
+        stations: v
+            .stations
+            .into_iter()
+            .map(|s| pinna_api::Station {
+                name: s.name,
+                url: s.url,
+                ..Default::default()
+            })
+            .collect(),
+        mcp_servers: v
+            .mcp_servers
+            .into_iter()
+            .map(|s| pinna_api::McpServer {
+                id: s.id,
+                name: s.name,
+                host: s.host,
+                enabled: s.enabled,
+                revision: s.revision,
+                ..Default::default()
+            })
+            .collect(),
+        agents: v
+            .agents
+            .into_iter()
+            .map(|a| McpAgent {
+                name: a.name,
+                address: a.peer.to_string(),
+                last_seen_unix_ms: unix_ms(a.last_seen),
+                ..Default::default()
+            })
+            .collect(),
+        presets: presets::presets()
+            .iter()
+            .map(|p| pinna_api::Preset {
+                id: p.id.label().into(),
+                base_url: p.base_url.into(),
+                stt: p.slots.stt,
+                brain: p.slots.chat,
+                tts: p.slots.tts,
+                model: p.model.unwrap_or_default().into(),
+                hand_off: p.behaviour.delegation == Delegation::HandOff,
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn assistant(v: AssistantView) -> MessageField<Assistant, Inline<Assistant>> {
+    MessageField::some(render(v))
+}
+
+fn slot_choice(slot: Option<SlotView>) -> MessageField<SlotChoice, Inline<SlotChoice>> {
+    slot.map_or_else(MessageField::none, |s| {
+        MessageField::some(SlotChoice {
+            connection: s.connection,
+            model: s.model,
+            ready: s.ready,
+            ..Default::default()
+        })
+    })
+}
+
+fn brain_override(o: &ChatOverride) -> BrainOverride {
+    use pinna_api::{Delegation as D, History as H};
+    let (history, history_limit) = match o.history {
+        None => (H::HISTORY_UNSPECIFIED, 0),
+        Some(HistoryPolicy::Turns(n)) => (H::HISTORY_TURNS, n),
+        Some(HistoryPolicy::Bytes(n)) => (H::HISTORY_BYTES, n),
+        Some(HistoryPolicy::NewTurnOnly) => (H::HISTORY_NEW_TURN_ONLY, 0),
+    };
+    BrainOverride {
+        delegation: EnumValue::Known(match o.delegation {
+            None => D::DELEGATION_UNSPECIFIED,
+            Some(Delegation::ToolLoop) => D::DELEGATION_TOOL_LOOP,
+            Some(Delegation::HandOff) => D::DELEGATION_HAND_OFF,
+        }),
+        history: EnumValue::Known(history),
+        history_limit: u32::try_from(history_limit).unwrap_or(u32::MAX),
+        first_text_seconds: o.first_text_s.map(|s| u32::try_from(s).unwrap_or(u32::MAX)),
+        ..Default::default()
+    }
+}
+
+fn chat_override(o: &BrainOverride) -> Result<ChatOverride, ConnectError> {
+    use pinna_api::{Delegation as D, History as H};
+    let delegation = match o.delegation.as_known() {
+        Some(D::DELEGATION_UNSPECIFIED) => None,
+        Some(D::DELEGATION_TOOL_LOOP) => Some(Delegation::ToolLoop),
+        Some(D::DELEGATION_HAND_OFF) => Some(Delegation::HandOff),
+        None => return Err(ConnectError::invalid_argument("Choose who runs the tools.")),
+    };
+    let limit = o.history_limit as usize;
+    let history = match o.history.as_known() {
+        Some(H::HISTORY_UNSPECIFIED) => None,
+        Some(H::HISTORY_TURNS) => Some(HistoryPolicy::Turns(limit)),
+        Some(H::HISTORY_BYTES) => Some(HistoryPolicy::Bytes(limit)),
+        Some(H::HISTORY_NEW_TURN_ONLY) => Some(HistoryPolicy::NewTurnOnly),
+        None => {
+            return Err(ConnectError::invalid_argument(
+                "Choose how much of the conversation the brain gets.",
+            ));
+        }
+    };
+    Ok(ChatOverride {
+        delegation,
+        history,
+        first_text_s: o.first_text_seconds.map(u64::from),
+    })
+}
+
+fn preset_id(id: &str) -> Result<PresetId, ConnectError> {
+    if id.is_empty() {
+        return Err(ConnectError::invalid_argument("Choose a preset."));
+    }
+    presets::presets()
+        .iter()
+        .map(|p| p.id)
+        .find(|p| p.label() == id)
+        .ok_or_else(|| ConnectError::invalid_argument(format!("There is no preset {id:?}.")))
+}
+
+fn slot_kind(slot: &EnumValue<AssistantSlot>) -> Result<SlotKind, ConnectError> {
+    match slot.as_known() {
+        Some(AssistantSlot::ASSISTANT_SLOT_STT) => Ok(SlotKind::Stt),
+        Some(AssistantSlot::ASSISTANT_SLOT_BRAIN) => Ok(SlotKind::Chat),
+        Some(AssistantSlot::ASSISTANT_SLOT_TTS) => Ok(SlotKind::Tts),
+        _ => Err(ConnectError::invalid_argument(
+            "Choose speech-to-text, the brain or text-to-speech.",
+        )),
+    }
+}
+
+fn unix_ms(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// An empty id asks for a new entry.
+fn existing(id: &str) -> Option<String> {
+    (!id.is_empty()).then(|| id.to_owned())
+}
+
+#[allow(refining_impl_trait)]
+impl AssistantService for AssistantApi {
+    async fn get_assistant(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, GetAssistantRequest>,
+    ) -> ServiceResult<GetAssistantResponse> {
+        Response::ok(GetAssistantResponse {
+            assistant: assistant(self.service.view()),
+            ..Default::default()
+        })
+    }
+
+    async fn set_connection(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, SetConnectionRequest>,
+    ) -> ServiceResult<SetConnectionResponse> {
+        let key = match (request.key, request.clear_key) {
+            (Some(_), true) => {
+                return Err(ConnectError::invalid_argument(
+                    "Enter a key or remove it, not both.",
+                ));
+            }
+            (Some(key), false) => KeyEdit::Set(Secret::new(key)),
+            (None, true) => KeyEdit::Clear,
+            (None, false) => KeyEdit::Keep,
+        };
+        let edit = ConnectionEdit {
+            id: existing(request.id),
+            revision: request.revision,
+            preset: preset_id(request.preset)?,
+            base_url: request.base_url.to_owned(),
+            key,
+        };
+        let view = self.service.set_connection(edit).await.map_err(refused)?;
+        Response::ok(SetConnectionResponse {
+            assistant: assistant(view),
+            ..Default::default()
+        })
+    }
+
+    async fn delete_connection(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, DeleteConnectionRequest>,
+    ) -> ServiceResult<DeleteConnectionResponse> {
+        let view = self
+            .service
+            .delete_connection(request.id, request.revision)
+            .await
+            .map_err(refused)?;
+        Response::ok(DeleteConnectionResponse {
+            assistant: assistant(view),
+            ..Default::default()
+        })
+    }
+
+    async fn set_slot(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, SetSlotRequest>,
+    ) -> ServiceResult<SetSlotResponse> {
+        let kind = slot_kind(&request.slot)?;
+        let edit = SlotEdit {
+            connection: request.connection.to_owned(),
+            model: request.model.to_owned(),
+        };
+        let view = self.service.set_slot(kind, edit).await.map_err(refused)?;
+        Response::ok(SetSlotResponse {
+            assistant: assistant(view),
+            ..Default::default()
+        })
+    }
+
+    async fn update_assistant(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, UpdateAssistantRequest>,
+    ) -> ServiceResult<UpdateAssistantResponse> {
+        let r = request.to_owned_message();
+        let prompt = match (r.prompt, r.default_prompt) {
+            (Some(_), true) => {
+                return Err(ConnectError::invalid_argument(
+                    "Enter a prompt or go back to the voice rules, not both.",
+                ));
+            }
+            (Some(prompt), false) => Some(Some(prompt)),
+            (None, true) => Some(None),
+            (None, false) => None,
+        };
+        let patch = AssistantPatch {
+            // The service reads an empty language or place as "clear it".
+            language: r.language.map(Some),
+            prompt,
+            follow_ups: r.follow_ups,
+            ack: r.ack.into_option().map(|a| Ack {
+                enabled: a.enabled,
+                phrase: a.phrase,
+            }),
+            tools: r.tools.into_option().map(|t| t.on.into_iter().collect()),
+            chat_override: r
+                .brain_override
+                .as_option()
+                .map(chat_override)
+                .transpose()?,
+            place: r.place.map(Some),
+        };
+        let view = self.service.update(patch).await.map_err(refused)?;
+        Response::ok(UpdateAssistantResponse {
+            assistant: assistant(view),
+            ..Default::default()
+        })
+    }
+
+    async fn set_mcp_server(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, SetMcpServerRequest>,
+    ) -> ServiceResult<SetMcpServerResponse> {
+        // The owner's MCP servers (T69) answer here.
+        Err(ConnectError::unimplemented(
+            "MCP servers can't be added yet.",
+        ))
+    }
+
+    async fn delete_mcp_server(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, DeleteMcpServerRequest>,
+    ) -> ServiceResult<DeleteMcpServerResponse> {
+        // The owner's MCP servers (T69) answer here.
+        Err(ConnectError::unimplemented(
+            "MCP servers can't be removed yet.",
+        ))
+    }
+
+    async fn play_sample(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, PlaySampleRequest>,
+    ) -> ServiceResult<PlaySampleResponse> {
+        // ApiCommand::Speak (T56) plays the sample.
+        Err(ConnectError::unimplemented(
+            "Playing a sample isn't available yet.",
+        ))
+    }
+
+    async fn ask_text(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, AskTextRequest>,
+    ) -> ServiceResult<AskTextResponse> {
+        // ApiCommand::AskText (T33) starts the typed request.
+        Err(ConnectError::unimplemented(
+            "Typed questions aren't available yet.",
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use buffa::Message as _;
+    use connectrpc::client::{ClientConfig, HttpClient};
+    use connectrpc::{ErrorCode, Server};
+    use pinna_api::{
+        AssistantServiceClient, DeviceServiceClient, GetStatusRequest, Status,
+        UpdateSettingsRequest,
+    };
+    use pinna_assist::testing::{FakeResponse, FakeServer};
+    use pinna_esphome::{DeviceEvent, EsphomeHandle};
+    use pinna_http::ClientKind;
+    use pinna_http::reqwest::{Method, StatusCode};
+    use tokio::sync::{mpsc, watch};
+
+    use super::*;
+    use crate::api::{DeviceApi, Info};
+    use crate::leds::LedState;
+    use crate::settings::Settings;
+    use crate::standalone::service::Paths;
+    use crate::voice::{Brain, Defaults, LocalOptions, NoopSpawner, Options, Shared, Snapshot};
+
+    const KEY: &str = "sk-test-abcdef123456";
+    const MODELS: &str = r#"{"data":[{"id":"whisper-1"},{"id":"gpt-test"}]}"#;
+
+    /// The response's `Assistant`, or the refusal.
+    macro_rules! assistant {
+        ($call:expr) => {
+            $call.await.map(|r| {
+                r.into_view()
+                    .to_owned_message()
+                    .assistant
+                    .into_option()
+                    .expect("an edit answers with the assistant")
+            })
+        };
+    }
+
+    /// A real Brain reading the service's snapshot, with both APIs on one
+    /// ephemeral port, as the dashboard listener serves them.
+    struct Device {
+        device: DeviceServiceClient<HttpClient>,
+        assistant: AssistantServiceClient<HttpClient>,
+        url: String,
+        _events: mpsc::Receiver<DeviceEvent>,
+        _dir: tempfile::TempDir,
+    }
+
+    impl Device {
+        async fn start() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let settings_file = dir.path().join("settings.toml");
+            let (esp, events) = EsphomeHandle::detached(256);
+            let (status_tx, status_rx) = watch::channel(Snapshot::default());
+            let (inputs, rx) = mpsc::channel(64);
+            let service = Service::load(Paths::beside(&settings_file), status_rx.clone());
+            let brain = Brain::new_with_local(
+                esp,
+                None,
+                Arc::new(Shared::default()),
+                watch::channel(LedState::default()).0,
+                status_tx,
+                inputs.clone(),
+                Options {
+                    key_file: dir.path().join("key"),
+                    settings_file,
+                    wake_words: crate::wakewords::test_catalogue(),
+                    active_wake_words: vec!["alexa_v0.1".into()],
+                    keywords: None,
+                    defaults: Defaults {
+                        node_name: "pinna-test".into(),
+                        friendly_name: "Test".into(),
+                        default_name: true,
+                        wake_sound: false,
+                    },
+                    mdns: None,
+                    encrypted: false,
+                    has_hw_privacy: false,
+                    airplay: false,
+                    bluetooth: false,
+                    settings: Settings::default(),
+                },
+                LocalOptions {
+                    live: service.live(),
+                    spawner: Arc::new(NoopSpawner),
+                    timers_file: dir.path().join("timers.toml"),
+                },
+            );
+            tokio::spawn(brain.run(rx));
+            let info = Info {
+                version: "0.1.0".into(),
+                mac: "02:00:00:AA:BB:CC".into(),
+                time_zones: Arc::new(vec!["UTC".into()]),
+                wake_words: crate::wakewords::test_catalogue(),
+                audio_backend: "none".into(),
+                led_backend: "none".into(),
+                model: "echo-dot-2".into(),
+                virtual_device: false,
+                last_boot: crate::boot::LastBoot::cold(),
+                key_from_image: false,
+            };
+            let device = Arc::new(DeviceApi::new(info, status_rx, inputs));
+            let router =
+                crate::api::router(device).add_service(Arc::new(AssistantApi::new(service)));
+            let server = Server::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", server.local_addr().unwrap());
+            tokio::spawn(async move { server.serve(router).await });
+            let config = || ClientConfig::new(url.parse().unwrap());
+            Self {
+                device: DeviceServiceClient::new(HttpClient::plaintext(), config()),
+                assistant: AssistantServiceClient::new(HttpClient::plaintext(), config()),
+                url,
+                _events: events,
+                _dir: dir,
+            }
+        }
+
+        async fn status(&self) -> Status {
+            self.device
+                .get_status(GetStatusRequest::default())
+                .await
+                .unwrap()
+                .into_view()
+                .to_owned_message()
+                .status
+                .into_option()
+                .unwrap()
+        }
+
+        /// One OpenAI-compatible connection to `server`, with `KEY`.
+        async fn connect(&self, server: &FakeServer) -> ProviderConnection {
+            let a = assistant!(self.assistant.set_connection(SetConnectionRequest {
+                preset: "openai".into(),
+                base_url: server.url(""),
+                key: Some(KEY.into()),
+                ..Default::default()
+            }))
+            .unwrap();
+            a.connections.last().unwrap().clone()
+        }
+
+        /// All three slots on one connection to `server`, each checked.
+        async fn ready(&self, server: &FakeServer) -> Assistant {
+            let connection = self.connect(server).await;
+            let mut last = None;
+            for (slot, model) in [
+                (AssistantSlot::ASSISTANT_SLOT_STT, "whisper-1"),
+                (AssistantSlot::ASSISTANT_SLOT_BRAIN, "gpt-test"),
+                (AssistantSlot::ASSISTANT_SLOT_TTS, "nova"),
+            ] {
+                passing(server, slot);
+                last = Some(
+                    assistant!(
+                        self.assistant
+                            .set_slot(slot_request(slot, &connection.id, model))
+                    )
+                    .unwrap(),
+                );
+            }
+            last.unwrap()
+        }
+
+        /// A Connect unary call with a JSON body, as the dashboard makes it:
+        /// the status and the body exactly as they went over the wire.
+        async fn json(&self, procedure: &str, body: &str) -> (u16, String) {
+            let response = pinna_http::client(ClientKind::Mcp)
+                .post(format!("{}/pinna.v1.{procedure}", self.url))
+                .header("content-type", "application/json")
+                .body(body.to_owned())
+                .send()
+                .await
+                .unwrap();
+            (response.status().as_u16(), response.text().await.unwrap())
+        }
+    }
+
+    fn slot_request(slot: AssistantSlot, connection: &str, model: &str) -> SetSlotRequest {
+        SetSlotRequest {
+            slot: EnumValue::Known(slot),
+            connection: connection.into(),
+            model: model.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Script one passing check for `slot` on an OpenAI-compatible server.
+    fn passing(server: &FakeServer, slot: AssistantSlot) {
+        if slot == AssistantSlot::ASSISTANT_SLOT_TTS {
+            server.script(
+                Method::POST,
+                "/audio/speech",
+                FakeResponse::new(StatusCode::OK, "audio"),
+            );
+        } else {
+            server.script(
+                Method::GET,
+                "/models",
+                FakeResponse::new(StatusCode::OK, MODELS),
+            );
+        }
+    }
+
+    fn standalone() -> UpdateSettingsRequest {
+        UpdateSettingsRequest {
+            mode: Some(EnumValue::Known(pinna_api::Mode::MODE_STANDALONE)),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_full_setup_lets_standalone_mode_switch_on() {
+        let d = Device::start().await;
+        let server = FakeServer::start().await;
+        let before = d.status().await;
+        let status = before.assistant.as_option().unwrap();
+        assert!(!status.ready && !status.stt_ready && !status.brain_ready && !status.tts_ready);
+        assert_eq!(status.label, "");
+
+        let connection = d.connect(&server).await;
+        assert_eq!(connection.id, "openai-1");
+        assert_eq!(connection.preset, "openai");
+        assert!(connection.key_set);
+        assert_eq!(connection.key_last4, "3456");
+        let refused = d.device.update_settings(standalone()).await.unwrap_err();
+        assert_eq!(refused.code, ErrorCode::FailedPrecondition);
+
+        let a = d.ready(&server).await;
+
+        assert!(a.ready);
+        for slot in [&a.stt, &a.brain, &a.tts] {
+            assert!(slot.as_option().unwrap().ready);
+        }
+        assert_eq!(a.brain.as_option().unwrap().model, "gpt-test");
+        assert_eq!(a.tts.as_option().unwrap().model, "nova");
+        let status = d
+            .device
+            .update_settings(standalone())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message()
+            .status
+            .into_option()
+            .unwrap();
+        assert_eq!(
+            status.mode.as_known(),
+            Some(pinna_api::Mode::MODE_STANDALONE)
+        );
+        let assistant = status.assistant.as_option().unwrap();
+        assert!(assistant.ready);
+        assert!(assistant.stt_ready && assistant.brain_ready && assistant.tts_ready);
+        assert_eq!(assistant.label, "openai: gpt-test");
+        assert_eq!(assistant.last_error, "");
+    }
+
+    #[tokio::test]
+    async fn no_response_carries_the_key() {
+        let d = Device::start().await;
+        let server = FakeServer::start().await;
+        let mut bodies = Vec::new();
+
+        let (status, body) = d
+            .json(
+                "AssistantService/SetConnection",
+                &format!(
+                    r#"{{"preset": "openai", "baseUrl": "{}", "key": "{KEY}"}}"#,
+                    server.url("")
+                ),
+            )
+            .await;
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains(r#""keySet":true"#), "{body}");
+        assert!(body.contains(r#""keyLast4":"3456""#), "{body}");
+        bodies.push(body);
+        let a = d.ready(&server).await;
+        let id = &a.connections[0].id;
+        // Refusals don't echo it either.
+        for request in [
+            format!(r#"{{"id": "{id}", "revision": 1, "preset": "openai", "key": "{KEY} x"}}"#),
+            format!(r#"{{"id": "{id}", "revision": 9, "preset": "openai", "key": "{KEY}"}}"#),
+            format!(r#"{{"preset": "openai", "key": "{KEY}", "clearKey": true}}"#),
+        ] {
+            let (status, body) = d.json("AssistantService/SetConnection", &request).await;
+            assert_ne!(status, 200, "{body}");
+            bodies.push(body);
+        }
+        for procedure in [
+            "AssistantService/GetAssistant",
+            "DeviceService/GetStatus",
+            "AssistantService/UpdateAssistant",
+        ] {
+            let (status, body) = d.json(procedure, "{}").await;
+            assert_eq!(status, 200, "{body}");
+            bodies.push(body);
+        }
+        for body in &bodies {
+            assert!(!body.contains(KEY), "{body}");
+        }
+
+        // The binary encoding, as the typed clients receive it.
+        let got = d
+            .assistant
+            .get_assistant(GetAssistantRequest::default())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        let bytes = got.encode_to_vec();
+        assert!(!bytes.windows(KEY.len()).any(|w| w == KEY.as_bytes()));
+        assert!(!format!("{got:?}").contains(KEY));
+        assert!(got.assistant.as_option().unwrap().connections[0].key_set);
+    }
+
+    #[tokio::test]
+    async fn refusals_carry_their_connect_code() {
+        let d = Device::start().await;
+        let server = FakeServer::start().await;
+        let connection = d.connect(&server).await;
+        let refused = |call: Result<Assistant, ConnectError>| {
+            let e = call.unwrap_err();
+            (e.code, e.message.unwrap_or_default())
+        };
+
+        // Wrong in itself, as the service or the handler finds it.
+        let cases = [
+            (
+                SetConnectionRequest {
+                    preset: "custom".into(),
+                    base_url: "https://user:pw@example.com/v1".into(),
+                    ..Default::default()
+                },
+                "Leave out the user name and password.",
+            ),
+            (
+                SetConnectionRequest {
+                    preset: "martian".into(),
+                    ..Default::default()
+                },
+                "There is no preset \"martian\".",
+            ),
+            (
+                SetConnectionRequest {
+                    preset: "openai".into(),
+                    key: Some("sk-new-0000".into()),
+                    clear_key: true,
+                    ..Default::default()
+                },
+                "Enter a key or remove it, not both.",
+            ),
+        ];
+        for (request, sentence) in cases {
+            assert_eq!(
+                refused(assistant!(d.assistant.set_connection(request))),
+                (ErrorCode::InvalidArgument, sentence.to_owned())
+            );
+        }
+        assert_eq!(
+            refused(assistant!(d.assistant.set_slot(slot_request(
+                AssistantSlot::ASSISTANT_SLOT_UNSPECIFIED,
+                &connection.id,
+                "gpt-test",
+            )))),
+            (
+                ErrorCode::InvalidArgument,
+                "Choose speech-to-text, the brain or text-to-speech.".to_owned()
+            )
+        );
+        assert_eq!(
+            refused(assistant!(d.assistant.update_assistant(
+                UpdateAssistantRequest {
+                    brain_override: MessageField::some(BrainOverride {
+                        history: EnumValue::Known(pinna_api::History::HISTORY_TURNS),
+                        history_limit: 11,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            ))),
+            (ErrorCode::InvalidArgument, "Keep 1 to 10 turns.".to_owned())
+        );
+
+        // The provider refuses it now.
+        server.script_status(Method::GET, "/models", StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            refused(assistant!(d.assistant.set_slot(slot_request(
+                AssistantSlot::ASSISTANT_SLOT_BRAIN,
+                &connection.id,
+                "gpt-test",
+            )))),
+            (
+                ErrorCode::FailedPrecondition,
+                "The key is wrong. Enter it again.".to_owned()
+            )
+        );
+
+        // Made on a revision that changed meanwhile.
+        let stale = SetConnectionRequest {
+            id: connection.id.clone(),
+            revision: connection.revision,
+            preset: "openai".into(),
+            base_url: server.url("/v2"),
+            ..Default::default()
+        };
+        assistant!(d.assistant.set_connection(stale.clone())).unwrap();
+        assert_eq!(
+            refused(assistant!(d.assistant.set_connection(stale))),
+            (
+                ErrorCode::Aborted,
+                "This connection was changed meanwhile. Reload and try again.".to_owned()
+            )
+        );
+        let gone = d
+            .assistant
+            .delete_connection(DeleteConnectionRequest {
+                id: connection.id.clone(),
+                revision: connection.revision,
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(gone.code, ErrorCode::Aborted);
+
+        // Not wired yet.
+        let e = d
+            .assistant
+            .play_sample(PlaySampleRequest::default())
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::Unimplemented);
+        let e = d
+            .assistant
+            .ask_text(AskTextRequest::default())
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::Unimplemented);
+    }
+
+    #[tokio::test]
+    async fn settings_without_checks_round_trip() {
+        let d = Device::start().await;
+        let a = assistant!(d.assistant.get_assistant(GetAssistantRequest::default())).unwrap();
+        assert!(!a.ready);
+        assert_eq!(a.prompt, None);
+        assert!(a.follow_ups);
+        let openclaw = a.presets.iter().find(|p| p.id == "openclaw").unwrap();
+        assert!(openclaw.hand_off && openclaw.brain && !openclaw.stt);
+        assert_eq!(openclaw.model, "openclaw/default");
+        assert_eq!(openclaw.base_url, "http://<host>:<port>/v1");
+        assert_eq!(a.presets.len(), presets::presets().len());
+
+        let override_ = BrainOverride {
+            delegation: EnumValue::Known(pinna_api::Delegation::DELEGATION_HAND_OFF),
+            history: EnumValue::Known(pinna_api::History::HISTORY_BYTES),
+            history_limit: 4096,
+            first_text_seconds: Some(90),
+            ..Default::default()
+        };
+        let a = assistant!(d.assistant.update_assistant(UpdateAssistantRequest {
+            language: Some("de".into()),
+            prompt: Some("Be brief.".into()),
+            follow_ups: Some(false),
+            ack: MessageField::some(Acknowledgment {
+                enabled: true,
+                phrase: "Moment.".into(),
+                ..Default::default()
+            }),
+            tools: MessageField::some(pinna_api::ToolSwitches {
+                on: [("weather".to_owned(), false)].into_iter().collect(),
+                ..Default::default()
+            }),
+            brain_override: MessageField::some(override_.clone()),
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(a.language, "de");
+        assert_eq!(a.prompt.as_deref(), Some("Be brief."));
+        assert!(!a.follow_ups);
+        assert_eq!(a.ack.as_option().unwrap().phrase, "Moment.");
+        assert_eq!(a.tools.get("weather"), Some(&false));
+        assert_eq!(a.brain_override.as_option(), Some(&override_));
+
+        let a = assistant!(d.assistant.update_assistant(UpdateAssistantRequest {
+            language: Some(String::new()),
+            default_prompt: true,
+            place: Some(String::new()),
+            brain_override: MessageField::some(BrainOverride::default()),
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(a.language, "");
+        assert_eq!(a.prompt, None);
+        assert!(a.place.as_option().is_none());
+        assert_eq!(
+            a.brain_override.as_option(),
+            Some(&brain_override(&ChatOverride::default()))
+        );
+        // Untouched fields keep their values.
+        assert!(!a.follow_ups);
+
+        let both = d
+            .assistant
+            .update_assistant(UpdateAssistantRequest {
+                prompt: Some("x".into()),
+                default_prompt: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(both.code, ErrorCode::InvalidArgument);
+    }
+}

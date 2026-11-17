@@ -295,6 +295,21 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         led_test: s.led_test,
         ring_light: MessageField::some(ring_light(&s.ring_light)),
         media: MessageField::some(media(&s.media)),
+        assistant: MessageField::some(assistant(&s.assist)),
+        ..Default::default()
+    }
+}
+
+/// Standalone mode's readiness, in the order of `AssistStatus::slots`.
+fn assistant(a: &crate::voice::AssistStatus) -> pinna_api::AssistantStatus {
+    let [stt_ready, brain_ready, tts_ready] = a.slots;
+    pinna_api::AssistantStatus {
+        ready: a.ready,
+        stt_ready,
+        brain_ready,
+        tts_ready,
+        label: a.label.clone(),
+        last_error: a.last_error.clone().unwrap_or_default(),
         ..Default::default()
     }
 }

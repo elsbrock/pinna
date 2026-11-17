@@ -1,0 +1,311 @@
+syntax = "proto3";
+
+package pinna.v1;
+
+// Standalone mode's setup (ADR 0017): the provider connections, the
+// speech-to-text, brain and text-to-speech slots, the conversation, the tools
+// and the owner's MCP servers. Served with the dashboard, without
+// authentication, like DeviceService.
+//
+// Keys and MCP server addresses are write-only: no response carries them. A
+// key shows as set, with its last four characters; an MCP server by its host.
+//
+// An edit is refused with INVALID_ARGUMENT when it is wrong in itself,
+// FAILED_PRECONDITION when a provider's check or the satellite refuses it
+// now, and ABORTED when it names a revision that changed meanwhile. Every
+// refusal is one sentence for the owner, and a refused edit changes nothing.
+service AssistantService {
+  // Everything the Assistant pages show.
+  rpc GetAssistant(GetAssistantRequest) returns (GetAssistantResponse);
+  // Add or change a connection. The slots that use it are checked again
+  // with the new address and key; in standalone mode each one must pass.
+  rpc SetConnection(SetConnectionRequest) returns (SetConnectionResponse);
+  // Remove a connection and its key. In standalone mode one that a slot uses
+  // can't be removed; in Home Assistant mode those slots are cleared with it.
+  rpc DeleteConnection(DeleteConnectionRequest) returns (DeleteConnectionResponse);
+  // Point a slot at a connection. It is saved only when its check passes,
+  // and is then ready. A check never sends a prompt.
+  rpc SetSlot(SetSlotRequest) returns (SetSlotResponse);
+  // Change the settings that need no provider check.
+  rpc UpdateAssistant(UpdateAssistantRequest) returns (UpdateAssistantResponse);
+  // Add or change one of the owner's MCP servers, whose tools the brain may
+  // call. At most 8.
+  rpc SetMcpServer(SetMcpServerRequest) returns (SetMcpServerResponse);
+  // Remove an MCP server and its address.
+  rpc DeleteMcpServer(DeleteMcpServerRequest) returns (DeleteMcpServerResponse);
+  // Speak a text with the text-to-speech slot, in either mode. Refused unless
+  // the satellite is idle with nothing playing; answers at the first audio or
+  // with why it failed.
+  rpc PlaySample(PlaySampleRequest) returns (PlaySampleResponse);
+  // Ask the brain a typed question, as if it was spoken. Standalone mode
+  // only; the reply is spoken.
+  rpc AskText(AskTextRequest) returns (AskTextResponse);
+}
+
+// The slots of a standalone request.
+enum AssistantSlot {
+  ASSISTANT_SLOT_UNSPECIFIED = 0;
+  ASSISTANT_SLOT_STT = 1;
+  ASSISTANT_SLOT_BRAIN = 2;
+  ASSISTANT_SLOT_TTS = 3;
+}
+
+// Who runs the tools.
+enum Delegation {
+  // The preset's choice.
+  DELEGATION_UNSPECIFIED = 0;
+  // The satellite offers its tools and runs the ones the brain calls.
+  DELEGATION_TOOL_LOOP = 1;
+  // The brain is an agent with its own tools and memory: it gets the
+  // request and answers it.
+  DELEGATION_HAND_OFF = 2;
+}
+
+// How much of the conversation the brain gets.
+enum History {
+  // The preset's choice.
+  HISTORY_UNSPECIFIED = 0;
+  // The last `history_limit` turns, 1 to 10.
+  HISTORY_TURNS = 1;
+  // Up to `history_limit` bytes of text, at most 65536, oldest dropped first.
+  HISTORY_BYTES = 2;
+  // Only the new turn.
+  HISTORY_NEW_TURN_ONLY = 3;
+}
+
+message Assistant {
+  // All three slots are ready: standalone mode can be switched on.
+  bool ready = 1;
+  repeated ProviderConnection connections = 2;
+  // Each unset until chosen.
+  SlotChoice stt = 3;
+  SlotChoice brain = 4;
+  SlotChoice tts = 5;
+  BrainOverride brain_override = 6;
+  // A BCP 47 tag such as de or en-US; empty when unset.
+  string language = 7;
+  // For the weather and the brain's context; unset when none is set.
+  Place place = 8;
+  // The owner's prompt. Unset means the satellite's voice rules; empty
+  // means the context only.
+  optional string prompt = 9;
+  // Listen for a follow-up after every reply.
+  bool follow_ups = 10;
+  Acknowledgment ack = 11;
+  // Per-tool switches, for the brain and MCP clients alike; a tool without
+  // an entry is on.
+  map<string, bool> tools = 12;
+  repeated Station stations = 13;
+  repeated McpServer mcp_servers = 14;
+  // MCP clients that called this satellite's /mcp since pinnad started, the
+  // most recent first; at most 8.
+  repeated McpAgent agents = 15;
+  // The presets a connection can use, in the order to offer them.
+  repeated Preset presets = 16;
+}
+
+// A provider's address and key, shared by the slots that use it.
+message ProviderConnection {
+  string id = 1;
+  // One of Assistant.presets, by id.
+  string preset = 2;
+  string base_url = 3;
+  // Goes up when the address or the key changes; edits name the revision
+  // they were made on.
+  uint64 revision = 4;
+  // A key is stored for this address. The key itself is never returned.
+  bool key_set = 5;
+  // The key's last four characters, to tell keys apart; empty without one.
+  string key_last4 = 6;
+}
+
+// A slot's connection and its model, or for text-to-speech its voice.
+message SlotChoice {
+  string connection = 1;
+  string model = 2;
+  // It passed its check at the connection's current revision.
+  bool ready = 3;
+}
+
+// The brain's Advanced settings. Each one unset keeps the preset's.
+message BrainOverride {
+  Delegation delegation = 1;
+  History history = 2;
+  // The turns or bytes of HISTORY_TURNS and HISTORY_BYTES.
+  uint32 history_limit = 3;
+  // How long the brain may take to its first text, 1 to 300 seconds.
+  optional uint32 first_text_seconds = 4;
+}
+
+message Place {
+  string name = 1;
+  double latitude = 2;
+  double longitude = 3;
+}
+
+// What a slow agent says while it thinks.
+message Acknowledgment {
+  bool enabled = 1;
+  // At most 100 characters.
+  string phrase = 2;
+}
+
+// A radio station the owner added.
+message Station {
+  string name = 1;
+  string url = 2;
+}
+
+// An MCP server the brain may call tools on, as <name>_<tool>.
+message McpServer {
+  string id = 1;
+  // 1 to 24 lowercase letters, digits and hyphens.
+  string name = 2;
+  // The host, and the port when it has one. The address may carry a token,
+  // so it is never returned.
+  string host = 3;
+  bool enabled = 4;
+  // Goes up with every change; edits name the revision they were made on.
+  uint64 revision = 5;
+}
+
+// An MCP client that called this satellite's /mcp.
+message McpAgent {
+  // The name the client gave, at most 40 characters.
+  string name = 1;
+  // The address it called from.
+  string address = 2;
+  // When it last called, in milliseconds since the Unix epoch.
+  uint64 last_seen_unix_ms = 3;
+}
+
+// A provider preset: the address and defaults a connection starts from.
+message Preset {
+  // Such as "openai" or "ollama".
+  string id = 1;
+  // The address it fills in. The owner enters what `<host>` and `<port>`
+  // stand for, or for an empty one the whole address.
+  string base_url = 2;
+  // The slots it can serve.
+  bool stt = 3;
+  bool brain = 4;
+  bool tts = 5;
+  // The brain model it always uses; empty when the owner chooses one.
+  string model = 6;
+  // Its brain is an agent (DELEGATION_HAND_OFF).
+  bool hand_off = 7;
+}
+
+message GetAssistantRequest {}
+
+message GetAssistantResponse {
+  Assistant assistant = 1;
+}
+
+message SetConnectionRequest {
+  // Empty adds a connection.
+  string id = 1;
+  // The revision the edit was made on; ignored when adding.
+  uint64 revision = 2;
+  // One of Assistant.presets, by id.
+  string preset = 3;
+  // Empty for the preset's address. For a server on the network, its host
+  // is enough: the preset adds the port and path.
+  string base_url = 4;
+  // A key typed for this address. Unset keeps the stored key, unless the
+  // address changes: a key belongs to the address it was typed for.
+  optional string key = 5;
+  // Remove the key; refused together with `key`.
+  bool clear_key = 6;
+}
+
+message SetConnectionResponse {
+  Assistant assistant = 1;
+}
+
+message DeleteConnectionRequest {
+  string id = 1;
+  uint64 revision = 2;
+}
+
+message DeleteConnectionResponse {
+  Assistant assistant = 1;
+}
+
+message SetSlotRequest {
+  AssistantSlot slot = 1;
+  // A connection whose preset serves the slot.
+  string connection = 2;
+  // The model, or for text-to-speech the voice. Empty for a preset with a
+  // fixed brain model.
+  string model = 3;
+}
+
+message SetSlotResponse {
+  Assistant assistant = 1;
+}
+
+// Each field unset leaves its setting as it is.
+message UpdateAssistantRequest {
+  // A BCP 47 tag; empty clears it.
+  optional string language = 1;
+  // At most 4,000 characters; empty keeps only the context.
+  optional string prompt = 2;
+  // Go back to the voice rules; refused together with `prompt`.
+  bool default_prompt = 3;
+  optional bool follow_ups = 4;
+  Acknowledgment ack = 5;
+  // Replaces every switch.
+  ToolSwitches tools = 6;
+  // Replaces every Advanced setting.
+  BrainOverride brain_override = 7;
+  // A place name to look up, such as a town; empty clears it.
+  optional string place = 8;
+}
+
+message ToolSwitches {
+  // Tool name to on or off.
+  map<string, bool> on = 1;
+}
+
+message UpdateAssistantResponse {
+  Assistant assistant = 1;
+}
+
+message SetMcpServerRequest {
+  // Empty adds a server.
+  string id = 1;
+  // The revision the edit was made on; ignored when adding.
+  uint64 revision = 2;
+  string name = 3;
+  // The whole address, with any token it carries. Unset keeps the stored
+  // one; needed when adding.
+  optional string url = 4;
+  bool enabled = 5;
+}
+
+message SetMcpServerResponse {
+  Assistant assistant = 1;
+}
+
+message DeleteMcpServerRequest {
+  string id = 1;
+  uint64 revision = 2;
+}
+
+message DeleteMcpServerResponse {
+  Assistant assistant = 1;
+}
+
+message PlaySampleRequest {
+  // At most 500 characters.
+  string text = 1;
+}
+
+message PlaySampleResponse {}
+
+message AskTextRequest {
+  string text = 1;
+}
+
+message AskTextResponse {}

@@ -1,5 +1,6 @@
 //! Dashboard listener (ADR 0005): the built Svelte dashboard and the same
-//! ConnectRPC `DeviceService`, on one origin, for the LAN.
+//! ConnectRPC `DeviceService`, with standalone mode's `AssistantService`
+//! (ADR 0017), on one origin, for the LAN.
 //!
 //! No authentication. A Host allowlist keeps other web sites from reaching the
 //! API through DNS rebinding; cross-site requests are already stopped by the
@@ -20,6 +21,7 @@ use tokio::sync::watch;
 use tower_http::services::ServeDir;
 
 use crate::api::{self, DeviceApi};
+use crate::assistant_api::{self, AssistantApi};
 use crate::config::Web;
 use crate::metrics::{self, Counters};
 use crate::virtual_device::{self, VirtualDevice};
@@ -107,11 +109,13 @@ fn normalise(name: &str) -> String {
     name.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 
-/// The routes: Connect procedures under `/pinna.v1.DeviceService/`,
-/// `/metrics` (ADR 0020), the virtual Echo Dot's socket in the development VM
-/// (ADR 0014), the dashboard's files for everything else.
+/// The routes: Connect procedures under `/pinna.v1.DeviceService/` and
+/// `/pinna.v1.AssistantService/`, `/metrics` (ADR 0020), the virtual Echo
+/// Dot's socket in the development VM (ADR 0014), the dashboard's files for
+/// everything else.
 pub fn app(
     api: Arc<DeviceApi>,
+    assistant: Arc<AssistantApi>,
     root: &Path,
     hosts: Hosts,
     virt: Option<Arc<VirtualDevice>>,
@@ -124,6 +128,10 @@ pub fn app(
         .route_service(
             "/pinna.v1.DeviceService/{method}",
             api::router(api.clone()).into_axum_service(),
+        )
+        .route_service(
+            "/pinna.v1.AssistantService/{method}",
+            assistant_api::router(assistant).into_axum_service(),
         )
         .route("/metrics", axum::routing::get(scrape).with_state(registry));
     if let Some(v) = virt {
@@ -283,6 +291,7 @@ async fn cache_control(req: Request, next: Next) -> Response {
 /// Bind `[web] listen` and serve in the background. `None` when it is off.
 pub async fn start(
     api: Arc<DeviceApi>,
+    assistant: Arc<AssistantApi>,
     cfg: &Web,
     virt: Option<Arc<VirtualDevice>>,
     counters: &Counters,
@@ -308,7 +317,7 @@ pub async fn start(
         counters,
         metrics::Sources::default(),
     );
-    let app = app(api, &cfg.root, hosts, virt, Arc::new(registry));
+    let app = app(api, assistant, &cfg.root, hosts, virt, Arc::new(registry));
     tokio::spawn(async move {
         if let Err(e) =
             axum::serve(listener, app.into_make_service_with_connect_info::<Conn>()).await
@@ -328,6 +337,7 @@ mod tests {
     use super::*;
     use crate::api::Info;
     use crate::boot;
+    use crate::standalone::service::{Paths, Service};
 
     fn hosts() -> Hosts {
         Hosts::new(Some("pinna\n"), &["Kitchen.home.arpa.".into()])
@@ -436,12 +446,25 @@ mod tests {
             last_boot: boot::LastBoot::cold(),
             key_from_image: false,
         };
-        let api = Arc::new(DeviceApi::new(info, status_rx, in_tx));
+        let api = Arc::new(DeviceApi::new(info, status_rx.clone(), in_tx));
         Fixture {
-            app: app(api, &dir, hosts(), None, Arc::new(registry())),
+            app: app(
+                api,
+                assistant(&dir, status_rx),
+                &dir,
+                hosts(),
+                None,
+                Arc::new(registry()),
+            ),
             _inputs: in_rx,
             dir,
         }
+    }
+
+    /// The setup API over files in `dir`.
+    fn assistant(dir: &Path, status: watch::Receiver<Snapshot>) -> Arc<AssistantApi> {
+        let paths = Paths::beside(&dir.join("settings.toml"));
+        Arc::new(AssistantApi::new(Service::load(paths, status)))
     }
 
     fn registry() -> Registry {
@@ -479,7 +502,17 @@ mod tests {
         content_type: &str,
         body: Vec<u8>,
     ) -> axum::http::Request<Body> {
-        axum::http::Request::post(format!("/pinna.v1.DeviceService/{method}"))
+        call(host, &format!("DeviceService/{method}"), content_type, body)
+    }
+
+    /// A Connect call to `procedure` ("Service/Method") under `pinna.v1`.
+    fn call(
+        host: &str,
+        procedure: &str,
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> axum::http::Request<Body> {
+        axum::http::Request::post(format!("/pinna.v1.{procedure}"))
             .header(header::HOST, host)
             .header(header::CONTENT_TYPE, content_type)
             .body(Body::from(body))
@@ -550,6 +583,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_assistant_answers_on_the_same_origin_for_known_hosts_only() {
+        let f = fixture("assistant", false);
+        let get = |host| {
+            call(
+                host,
+                "AssistantService/GetAssistant",
+                "application/json",
+                b"{}".to_vec(),
+            )
+        };
+        let (status, _, body) = send(&f, get("pinna.local")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("\"presets\""), "{body}");
+        assert_eq!(
+            send(&f, get("evil.example")).await.0,
+            StatusCode::MISDIRECTED_REQUEST
+        );
+    }
+
+    #[tokio::test]
     async fn watch_status_streams_over_the_web_listener() {
         let f = fixture("watch", true);
         // One Connect envelope: flags 0, length 2, `{}`.
@@ -617,7 +670,8 @@ mod tests {
             last_boot: boot::LastBoot::cold(),
             key_from_image: false,
         };
-        let api = Arc::new(DeviceApi::new(info, rx, tx));
+        let api = Arc::new(DeviceApi::new(info, rx.clone(), tx));
+        let assistant = assistant(&f.dir, rx);
         let cfg = Web {
             listen: String::new(),
             root: f.dir.clone(),
@@ -625,7 +679,9 @@ mod tests {
         };
         let counters = Counters::default();
         assert_eq!(
-            start(api.clone(), &cfg, None, &counters).await.unwrap(),
+            start(api.clone(), assistant.clone(), &cfg, None, &counters)
+                .await
+                .unwrap(),
             None
         );
         // A typo in the config is an error for main to log, never a panic.
@@ -633,6 +689,6 @@ mod tests {
             listen: "0.0.0.0:eighty".into(),
             ..cfg
         };
-        assert!(start(api, &cfg, None, &counters).await.is_err());
+        assert!(start(api, assistant, &cfg, None, &counters).await.is_err());
     }
 }

@@ -6,6 +6,7 @@
 
 mod airplay;
 mod api;
+mod assistant_api;
 mod bluetooth;
 mod boot;
 mod calibration;
@@ -796,7 +797,8 @@ async fn main() -> Result<()> {
     ));
 
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
-    match web::start(device_api, &cfg.web, virt, &shared.counters).await {
+    let assistant_api = Arc::new(assistant_api::AssistantApi::new(assistant.clone()));
+    match web::start(device_api, assistant_api, &cfg.web, virt, &shared.counters).await {
         Ok(Some(addr)) => tracing::info!("dashboard listening on http://{addr}"),
         Ok(None) => {}
         Err(e) => tracing::error!("dashboard: {e:#}"),

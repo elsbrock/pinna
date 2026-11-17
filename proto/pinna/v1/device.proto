@@ -280,6 +280,26 @@ message Status {
   Media media = 28;
   // Which service runs voice requests (ADR 0017).
   Mode mode = 29;
+  // Standalone mode's services, whichever mode runs (ADR 0017).
+  AssistantStatus assistant = 30;
+}
+
+// Whether standalone mode can run, and how its last request ended. Set up
+// under AssistantService.
+message AssistantStatus {
+  // Speech-to-text, the brain and text-to-speech are each set up and passed
+  // their check: standalone mode can be switched on.
+  bool ready = 1;
+  bool stt_ready = 2;
+  bool brain_ready = 3;
+  bool tts_ready = 4;
+  // The brain as the owner reads it, such as "openai: gpt-4o-mini"; empty
+  // until one is set up.
+  string label = 5;
+  // Why the last standalone request failed, such as "brain via openrouter:
+  // HTTP 402"; empty when none has since pinnad started. It never carries a
+  // key, an address or what was said.
+  string last_error = 6;
 }
 
 enum MediaState {
