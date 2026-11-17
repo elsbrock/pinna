@@ -15,6 +15,7 @@ mod identity;
 mod leds;
 mod logs;
 mod metrics;
+mod mic;
 mod network;
 mod satellites;
 mod secrets;
@@ -28,7 +29,6 @@ mod wakewords;
 mod web;
 mod wifi;
 
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -44,6 +44,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::config::Config;
 use crate::leds::LedState;
+use crate::mic::MicRouter;
 use crate::voice::{Brain, Input, Options, Shared, Snapshot};
 use crate::wakewords::{Catalogue, KeywordSet};
 
@@ -214,8 +215,7 @@ async fn capture_loop(
         }
     };
     tracing::info!("microphone running");
-    let mut preroll: VecDeque<Bytes> = VecDeque::with_capacity(10);
-    let mut was_streaming = false;
+    let mut router = MicRouter::default();
     // Peak detector score of the current utterance, for near-miss logging.
     let mut peak = 0.0f32;
     // The peak reached the threshold (and something else rejected it).
@@ -243,7 +243,7 @@ async fn capture_loop(
             }
         }
         if shared.muted.load(Ordering::Relaxed) {
-            preroll.clear();
+            router.clear_preroll();
             if let Some(d) = detector.as_mut() {
                 d.reset();
             }
@@ -251,25 +251,20 @@ async fn capture_loop(
         }
         gain.apply(&mut frame);
         let streaming = shared.streaming.load(Ordering::SeqCst);
-        if streaming {
-            if !was_streaming {
-                for f in preroll.drain(..) {
-                    let _ = esp.try_send(DeviceEvent::VoiceAudio(f));
-                }
-            }
-            let _ = esp.try_send(DeviceEvent::VoiceAudio(frame_bytes(&frame)));
-        } else {
-            if was_streaming {
-                let _ = esp.send(DeviceEvent::VoiceAudioEnd).await;
-                // The detector skipped the streamed audio; drop its stale history.
-                if let Some(d) = detector.as_mut() {
-                    d.reset();
-                }
-            }
-            if preroll.len() == 10 {
-                preroll.pop_front();
-            }
-            preroll.push_back(frame_bytes(&frame));
+        let routed = router.route(frame_bytes(&frame), streaming, &shared.mic);
+        if routed.end_home_assistant {
+            let _ = esp.send(DeviceEvent::VoiceAudioEnd).await;
+        }
+        for frame in routed.home_assistant {
+            let _ = esp.try_send(DeviceEvent::VoiceAudio(frame));
+        }
+        if routed.reset_detector
+            && let Some(d) = detector.as_mut()
+        {
+            // The detector skipped routed audio; drop its stale history.
+            d.reset();
+        }
+        if routed.detect_wake {
             // Always feed the detector so it keeps its audio context (it needs
             // ~2 s of history); only act on detections while wake is enabled.
             if let Some(d) = detector.as_mut() {
@@ -285,6 +280,9 @@ async fn capture_loop(
                         }
                     })
                 });
+                shared
+                    .noise_energy
+                    .store(d.noise_energy().unwrap_or(0), Ordering::Relaxed);
                 if let Some(k) = new_peak.and_then(|i| d.keyword(i)) {
                     peak_word = k.name().to_owned();
                 }
@@ -323,8 +321,8 @@ async fn capture_loop(
                 }
             }
         }
-        was_streaming = streaming;
     }
+    shared.mic.close();
     tracing::warn!("microphone stream ended");
 }
 

@@ -8,7 +8,7 @@ mod timers;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use pinna_audio::beamview::{self, BeamViewReader};
@@ -40,6 +40,10 @@ pub struct Shared {
     pub muted: AtomicBool,
     /// Wake word accept threshold (f32 bits).
     pub threshold: AtomicU32,
+    /// The standalone run receiving microphone frames.
+    pub mic: crate::mic::MicTap,
+    /// The wake detector's latest noise energy; zero means unknown.
+    pub noise_energy: AtomicU64,
     /// What `/metrics` counts (ADR 0020).
     pub counters: crate::metrics::Counters,
 }
