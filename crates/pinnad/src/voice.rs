@@ -108,6 +108,15 @@ pub enum ApiCommand {
     ControlMedia(Option<MediaPlayerCommand>, Option<u8>, ApiReply),
     /// Already checked: http(s), not too long.
     PlayMedia(String, ApiReply),
+    #[allow(dead_code)]
+    SetTimer {
+        name: Option<String>,
+        seconds: u32,
+        reply: oneshot::Sender<Result<String, String>>,
+    },
+    /// A timer id, or its name when the id is unknown.
+    #[allow(dead_code)]
+    CancelTimer(String, ApiReply),
 }
 
 /// The media player, as the API shows it.
@@ -464,6 +473,7 @@ pub struct Brain {
     ducked: bool,
 
     timers: HashMap<String, Timer>,
+    timer_store: timers::TimerStore,
     ringing: Option<(String, Instant)>,
 
     playback: Option<(u64, PlaybackKind, tokio::task::JoinHandle<()>)>,
@@ -517,6 +527,8 @@ const START_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTEN_TIMEOUT: Duration = Duration::from_secs(15);
 const THINK_TIMEOUT: Duration = Duration::from_secs(30);
 const RING_TIMEOUT: Duration = Duration::from_secs(300);
+const MAX_TIMERS: usize = 10;
+const MAX_TIMER_SECONDS: u32 = 24 * 60 * 60;
 const BOOT_ANIMATION: Duration = Duration::from_millis(1200);
 /// LED test: one effect per step.
 const LED_TEST_STEP: Duration = Duration::from_millis(1000);
@@ -541,6 +553,8 @@ impl Brain {
         opts: Options,
     ) -> Self {
         let store = Store::new(&opts.settings_file, FILE_MODE);
+        let timer_store =
+            timers::TimerStore::load(&opts.settings_file, opts.settings.mode == Mode::Standalone);
         let active_wake = opts.active_wake_words.clone();
         let settings = opts.settings.clone();
         shared
@@ -595,6 +609,7 @@ impl Brain {
             stream_volume: 100,
             ducked: false,
             timers: HashMap::new(),
+            timer_store,
             ringing: None,
             playback: None,
             next_token: 1,
@@ -654,6 +669,8 @@ impl Brain {
                 let _ = tx.send(self.settings.bluetooth);
             }
         }
+        self.restore_timers(Instant::now(), SystemTime::now(), timers::clock_synced())
+            .await;
         self.refresh();
         let mut sent_media = (self.media_state, self.media_volume(), self.media_muted);
         // Home Assistant's "Bluetooth pairing" switch follows the window,
@@ -989,6 +1006,19 @@ impl Brain {
             ApiCommand::PlayMedia(url, reply) => {
                 self.media(None, None, Some(url), false).await;
                 (Ok(()), reply)
+            }
+            ApiCommand::CancelTimer(id_or_name, reply) => {
+                (self.cancel_timer(&id_or_name).await, reply)
+            }
+            ApiCommand::SetTimer {
+                name,
+                seconds,
+                reply,
+            } => {
+                let result = self.set_timer(name, seconds).await;
+                self.refresh();
+                let _ = reply.send(result);
+                return;
             }
         };
         self.refresh();
@@ -1667,13 +1697,107 @@ impl Brain {
         }
     }
 
-    async fn timer_finished(&mut self, id: String) {
+    async fn set_timer(&mut self, name: Option<String>, seconds: u32) -> Result<String, String> {
+        if self.settings.mode != Mode::Standalone {
+            return Err("Device timers are available in standalone mode only.".into());
+        }
+        if !(1..=MAX_TIMER_SECONDS).contains(&seconds) {
+            return Err("A timer must be between 1 second and 24 hours.".into());
+        }
+        if self.timers.len() >= MAX_TIMERS {
+            return Err("At most 10 timers can run at once.".into());
+        }
+        let id = loop {
+            let id = format!("local-{:016x}", fastrand::u64(..));
+            if !self.timers.contains_key(&id) {
+                break id;
+            }
+        };
+        let now = Instant::now();
+        tracing::info!("device timer {id} {name:?} {seconds}s");
+        self.event("timer", "started").await;
+        self.timers.insert(
+            id.clone(),
+            Timer {
+                name: name.unwrap_or_default(),
+                total: seconds,
+                left: seconds,
+                active: true,
+                at: now,
+                origin: Origin::Local,
+            },
+        );
+        self.save_timers();
+        Ok(id)
+    }
+
+    async fn cancel_timer(&mut self, id_or_name: &str) -> Result<(), String> {
+        if self.settings.mode != Mode::Standalone {
+            return Err("Device timers are available in standalone mode only.".into());
+        }
+        let id = if self.timers.contains_key(id_or_name) {
+            Some(id_or_name.to_owned())
+        } else {
+            let mut matches: Vec<_> = self
+                .timers
+                .iter()
+                .filter(|(_, timer)| timer.name == id_or_name)
+                .map(|(id, _)| id.clone())
+                .collect();
+            matches.sort();
+            matches.into_iter().next()
+        };
+        let Some(id) = id else {
+            return Err("No device timer has that id or name.".into());
+        };
+        self.event("timer", "cancelled").await;
         self.timers.remove(&id);
+        self.save_timers();
+        Ok(())
+    }
+
+    async fn timer_finished(&mut self, id: String) {
+        let local = self
+            .timers
+            .get(&id)
+            .is_some_and(|timer| timer.origin == Origin::Local);
+        self.timers.remove(&id);
+        if local {
+            self.save_timers();
+        }
         if self.phase != Phase::Idle {
             self.abort_run(true).await;
         }
         self.ringing = Some((id, Instant::now()));
         self.play_pcm(tone::timer_alarm(), PlaybackKind::Alarm);
+    }
+
+    fn save_timers(&mut self) {
+        self.save_timers_at(Instant::now(), SystemTime::now(), timers::clock_synced());
+    }
+
+    fn save_timers_at(&mut self, now: Instant, wall: SystemTime, synced: bool) {
+        self.timer_store.save(&self.timers, now, wall, synced);
+    }
+
+    async fn restore_timers(&mut self, now: Instant, wall: SystemTime, synced: bool) {
+        let Some(timers::Restore::Ready {
+            timers: restored,
+            ring,
+            dropped,
+        }) = self.timer_store.restore(now, wall, synced)
+        else {
+            return;
+        };
+        self.timers.extend(restored);
+        let finished = !ring.is_empty();
+        for id in ring {
+            self.event("timer", "finished").await;
+            self.timer_finished(id).await;
+        }
+        if finished || !dropped.is_empty() {
+            self.save_timers_at(now, wall, synced);
+        }
     }
 
     /// The ring light, from Home Assistant or the dashboard; Home Assistant
@@ -2639,6 +2763,8 @@ impl Brain {
             }
             _ => {}
         }
+        self.tick_timers(now, SystemTime::now(), timers::clock_synced())
+            .await;
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
             self.end_calibration().await;
         }
@@ -2659,6 +2785,21 @@ impl Brain {
             self.led_test = None;
         }
         self.track_talker();
+    }
+
+    async fn tick_timers(&mut self, now: Instant, wall: SystemTime, synced: bool) {
+        self.restore_timers(now, wall, synced).await;
+        for id in timers::due(&self.timers, now) {
+            self.event("timer", "finished").await;
+            self.timer_finished(id).await;
+        }
+        let running = self
+            .timers
+            .values()
+            .any(|timer| timer.origin == Origin::Local && timer.active);
+        if running && self.timer_store.save_needed(now) {
+            self.save_timers_at(now, wall, synced);
+        }
     }
 
     /// While listening, point the ring at the talker's beam (the previous firmware's

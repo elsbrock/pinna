@@ -1,14 +1,18 @@
 //! Timer state and persistence for Home Assistant mirrors and device timers (ADR 0017).
 
-// Device-timer wiring is separate from this persistence codec.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
+use crate::settings::FILE_MODE;
+use crate::store::Store;
+
 const CLOCK_WAIT: Duration = Duration::from_secs(60);
+const CLOCK_RECHECK: Duration = Duration::from_secs(5);
+const SAVE_INTERVAL: Duration = Duration::from_secs(60);
+const CLOCK_SYNCED: &str = "/run/systemd/timesync/synchronized";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Origin {
@@ -60,6 +64,81 @@ pub(super) struct SavedTimer {
     total_s: u32,
     left_ms: u64,
     deadline_unix_ms: u64,
+}
+
+struct Pending {
+    saved: SavedTimers,
+    started: Instant,
+    next_check: Instant,
+}
+
+/// The device-timer file and a restore waiting for the wall clock.
+pub(super) struct TimerStore {
+    store: Store<SavedTimers>,
+    pending: Option<Pending>,
+    last_save: Instant,
+}
+
+impl TimerStore {
+    pub(super) fn load(settings_file: &Path, restore_saved: bool) -> Self {
+        let now = Instant::now();
+        let path = settings_file.with_file_name("timers.toml");
+        let (store, saved, _) = Store::load(&path, FILE_MODE, SavedTimers::default());
+        let pending = (restore_saved && !saved.timer.is_empty()).then_some(Pending {
+            saved,
+            started: now,
+            next_check: now,
+        });
+        Self {
+            store,
+            pending,
+            last_save: now,
+        }
+    }
+
+    pub(super) fn save(
+        &mut self,
+        timers: &HashMap<String, Timer>,
+        now: Instant,
+        wall: SystemTime,
+        synced: bool,
+    ) {
+        self.store.save(&save(timers, now, wall, synced));
+        self.last_save = now;
+    }
+
+    pub(super) fn save_needed(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.last_save) >= SAVE_INTERVAL
+    }
+
+    pub(super) fn restore(
+        &mut self,
+        now: Instant,
+        wall: SystemTime,
+        synced: bool,
+    ) -> Option<Restore> {
+        let pending = self.pending.as_mut()?;
+        if now < pending.next_check {
+            return None;
+        }
+        let restored = restore(
+            &pending.saved,
+            now,
+            wall,
+            synced,
+            now.saturating_duration_since(pending.started),
+        );
+        if matches!(restored, Restore::Wait) {
+            pending.next_check = now + CLOCK_RECHECK;
+            return Some(Restore::Wait);
+        }
+        self.pending = None;
+        Some(restored)
+    }
+}
+
+pub(super) fn clock_synced() -> bool {
+    Path::new(CLOCK_SYNCED).exists()
 }
 
 pub(super) fn due(timers: &HashMap<String, Timer>, now: Instant) -> Vec<String> {
@@ -326,5 +405,171 @@ mod tests {
             ("tea".into(), timer(Origin::Local, 1, now)),
         ]);
         assert_eq!(due(&timers, now + Duration::from_secs(1)), ["tea"]);
+    }
+}
+
+#[cfg(test)]
+mod brain_tests {
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant, SystemTime};
+
+    use pinna_esphome::{DeviceEvent, EsphomeHandle};
+    use tokio::sync::{mpsc, oneshot, watch};
+
+    use super::super::{ApiCommand, Brain, Defaults, Input, Options, Shared, Snapshot};
+    use super::{Origin, Restore};
+    use crate::leds::LedState;
+    use crate::settings::{Mode, Settings};
+    use crate::wakewords;
+
+    fn brain_at(dir: &Path, mode: Mode) -> (Brain, mpsc::Receiver<DeviceEvent>) {
+        let (esp, events) = EsphomeHandle::detached(64);
+        let brain = Brain::new(
+            esp,
+            None,
+            Arc::<Shared>::default(),
+            watch::channel(LedState::default()).0,
+            watch::channel(Snapshot::default()).0,
+            mpsc::channel(64).0,
+            Options {
+                key_file: dir.join("key"),
+                settings_file: dir.join("settings.toml"),
+                wake_words: wakewords::test_catalogue(),
+                active_wake_words: vec!["alexa_v0.1".into()],
+                keywords: None,
+                defaults: Defaults {
+                    node_name: "pinna-test".into(),
+                    friendly_name: "Test".into(),
+                    default_name: true,
+                    wake_sound: false,
+                },
+                mdns: None,
+                encrypted: false,
+                has_hw_privacy: false,
+                airplay: false,
+                bluetooth: false,
+                settings: Settings {
+                    mode,
+                    ..Settings::default()
+                },
+            },
+        );
+        (brain, events)
+    }
+
+    async fn set_timer(
+        brain: &mut Brain,
+        name: Option<&str>,
+        seconds: u32,
+    ) -> Result<String, String> {
+        let (reply, result) = oneshot::channel();
+        brain
+            .handle(Input::Api(ApiCommand::SetTimer {
+                name: name.map(str::to_owned),
+                seconds,
+                reply,
+            }))
+            .await;
+        result.await.unwrap()
+    }
+
+    async fn cancel_timer(brain: &mut Brain, id_or_name: &str) -> Result<Snapshot, String> {
+        let (reply, result) = oneshot::channel();
+        brain
+            .handle(Input::Api(ApiCommand::CancelTimer(
+                id_or_name.into(),
+                reply,
+            )))
+            .await;
+        result.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_one_second_device_timer_rings_in_real_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut brain, mut events) = brain_at(dir.path(), Mode::Standalone);
+        let started = Instant::now();
+        let id = set_timer(&mut brain, Some("Tea"), 1).await.unwrap();
+        assert_eq!(brain.snapshot().timers.len(), 1);
+        assert_eq!(
+            events.try_recv().unwrap(),
+            DeviceEvent::Event {
+                object_id: "timer".into(),
+                event_type: "started".into(),
+            }
+        );
+
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        brain
+            .tick_timers(Instant::now(), SystemTime::now(), false)
+            .await;
+
+        assert!(started.elapsed() < Duration::from_millis(1_500));
+        assert_eq!(brain.ringing.as_ref().map(|(id, _)| id), Some(&id));
+        assert!(brain.timers.is_empty());
+        assert_eq!(
+            events.try_recv().unwrap(),
+            DeviceEvent::Event {
+                object_id: "timer".into(),
+                event_type: "finished".into(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_device_timer_can_be_cancelled_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut brain, _events) = brain_at(dir.path(), Mode::Standalone);
+        set_timer(&mut brain, Some("Tea"), 60).await.unwrap();
+
+        let snapshot = cancel_timer(&mut brain, "Tea").await.unwrap();
+
+        assert!(snapshot.timers.is_empty());
+        assert!(brain.timers.is_empty());
+        let saved = std::fs::read_to_string(dir.path().join("timers.toml")).unwrap();
+        assert!(!saved.contains("[[timer]]"));
+    }
+
+    #[tokio::test]
+    async fn home_assistant_mode_refuses_device_timer_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut brain, _events) = brain_at(dir.path(), Mode::HomeAssistant);
+
+        assert!(set_timer(&mut brain, None, 1).await.is_err());
+        assert!(cancel_timer(&mut brain, "Tea").await.is_err());
+        assert!(brain.timers.is_empty());
+        assert!(!dir.path().join("timers.toml").exists());
+    }
+
+    #[tokio::test]
+    async fn a_new_brain_restores_the_saved_device_timer() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut first, _events) = brain_at(dir.path(), Mode::Standalone);
+        let id = set_timer(&mut first, Some("Tea"), 120).await.unwrap();
+        let saved_at = Instant::now();
+        let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        first.timer_store.save(&first.timers, saved_at, wall, true);
+        drop(first);
+
+        let (mut restored, _events) = brain_at(dir.path(), Mode::Standalone);
+        let attempted = Instant::now();
+        assert!(matches!(
+            restored.timer_store.restore(attempted, wall, false),
+            Some(Restore::Wait)
+        ));
+        restored
+            .restore_timers(
+                attempted + Duration::from_secs(5),
+                wall + Duration::from_secs(5),
+                true,
+            )
+            .await;
+
+        assert_eq!(restored.timers.len(), 1);
+        let timer = &restored.timers[&id];
+        assert_eq!(timer.name, "Tea");
+        assert_eq!(timer.origin, Origin::Local);
+        assert_eq!(timer.left, 115);
     }
 }
