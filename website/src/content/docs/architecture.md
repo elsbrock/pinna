@@ -78,7 +78,7 @@ Each boot image is marked with its slot (`pinna.boot=a` or `=b`), and the
 bootloader passes the mark on, so Pinna sees which boot partition the kernel
 came from. Pinna writes `boot_a` in an update only after a healthy boot from
 slot B has shown that the bootloader loads `boot_b`. Kaeru builds from before
-October 2026 always load `boot_a`; there, updates leave the kernel alone and
+22 October 2026 always load `boot_a`; there, updates leave the kernel alone and
 a new kernel needs fastboot. See
 [Update the boot image](/docs/update/#update-the-boot-image).
 

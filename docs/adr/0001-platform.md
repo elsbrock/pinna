@@ -2,7 +2,8 @@
 
 Status: accepted (2026-11-15). Boot path amended by ADR 0003: the boot image
 now carries an initramfs (pinna-init) that picks the A/B slot and mounts the
-root through dm-verity; the forced command line stays. Kernel superseded by
+root through dm-verity; the forced command line stays. Slot choice superseded
+by ADR 0019: the bootloader picks the slot, pinna-init boots its root. Kernel superseded by
 ADR 0006: Debian's 6.12 with the MT8163 board support ported in
 `kernel/patches`, config from allnoconfig + fragments.
 

@@ -61,7 +61,7 @@ On the devices:
   once, chosen in Home Assistant or on the dashboard. The openWakeWord models'
   licence doesn't allow commercial use, and the dashboard can't accept extra
   models yet.
-- **On a Kaeru from before October 2026, updates don't change the kernel.**
+- **On a Kaeru from before 22 October 2026, updates don't change the kernel.**
   That Kaeru loads `boot_a` for both slots, and updates leave `boot_a`
   alone. Install new kernels from fastboot.
 - **No automated test runs.** The tests run when contributors run them; there

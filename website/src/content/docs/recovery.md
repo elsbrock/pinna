@@ -105,8 +105,9 @@ Over SSH:
 
 When the root filesystem in the slot that started can't be verified or
 mounted, Pinna marks that slot unbootable and restarts into the other slot,
-if the other slot is marked good. Otherwise, and when Pinna can't find the
-storage's partitions or can't start the system, it doesn't restart. It stays
+if the other slot is marked good, and so does a new version on trial that
+fails in any other way. Otherwise, and when Pinna can't find the storage's
+partitions or can't start the system, it doesn't restart. It stays
 in rescue mode, so you can find out why. In rescue mode:
 
 - The light ring is green. It gets slowly brighter and dimmer until a

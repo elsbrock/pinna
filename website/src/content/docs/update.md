@@ -179,7 +179,7 @@ switch to one of them, install an update to leave it.
 An update writes the boot image, and with it the kernel, into the slot it
 installs, so you don't need fastboot for it. The exception is an older Kaeru,
 the bootloader addition that the unlock installs (see
-[What you need](/docs/requirements/)): Kaeru builds from before October 2026
+[What you need](/docs/requirements/)): Kaeru builds from before 22 October 2026
 load the kernel from `boot_a` even when they start slot B.
 
 Pinna finds out which kind it has. The first update after an installation

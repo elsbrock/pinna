@@ -5,7 +5,10 @@ initramfs). Superseded by ADR 0019, where kernel and root share a slot in the
 bootloader's slot record: the slot record at `0x40000` and its try counting,
 the rollback, "boot_a is not A/B" and "LK always loads boot_a" (so kernel
 updates are no longer a manual fastboot flash, and the manifest gains
-`boot`), the reason given against systemd-sysupdate, and clearing `system_b`
+`boot`), pinna-init choosing the slot and falling back to the other root in
+the same boot (it now boots the bootloader's slot, and retires a failed one
+before restarting), LK's record at 0x360 (Kaeru's, 7 bytes), the reason given
+against systemd-sysupdate, and clearing `system_b`
 to make slot a boot (`set_active a` does that now). The boot guard's target
 changes once the recovery image exists (ADR 0019).
 

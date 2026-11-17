@@ -92,7 +92,8 @@ confirmed by the owner yet.
 
 ### Install
 
-- What `flash-gen2.sh root` and `boot` do, in the same order: `system_a` gets the
+- What `flash-gen2.sh root` and `boot` do, in the same order (ADR 0019 adds
+  the slot mark on each boot image and `set_active:a` before the restart): `system_a` gets the
   root image (sparse chunks), the first MiB of `system_b` and the first 4 MiB
   of `userdata` are zeroed, `boot_a` and `boot_b` get the boot image. Then
   `reboot`. (Only a device unlocked a moment ago needs `reboot-bootloader`
