@@ -33,12 +33,21 @@ microphones' native 16 kHz:
 2. **Echo cancellation.** PipeWire's WebRTC echo canceller removes the
    device's own playback from that channel. As a reference, it uses a copy of
    everything `pinnad` plays.
-3. **`pinnad`** reads the result in 20 ms frames, for the wake word detection
-   and for the requests to Home Assistant.
+3. **`pinnad`** reads the result in 20 ms frames and sets its gain
+   automatically, for the wake word detection and for the requests to Home
+   Assistant.
 
 On the device, the echo cancellation lowers the device's own music by 23 to
 31 dB in the speech range, after it has adapted to the room. In the first
 seconds of new audio, some echo remains.
+
+The automatic gain lifts quiet speech, such as someone talking across the
+room, and lowers the gain for loud speech so that it doesn't clip. It aims for
+speech at −24 dBFS, between 0 and +36 dB of gain, but lifts the room's
+background noise no higher than −65 dBFS. That is below the level at which the
+wake word detection starts to listen, so it doesn't take the lifted noise for
+speech. In a quiet room the gain can rise further than in a noisy one. After
+loud speech, music or a reply, the gain comes back up by 1 to 3 dB per second.
 
 If PipeWire isn't running, `pinnad` reads the microphones directly and
 averages four of them, without beamforming or echo cancellation. `pinnad`
