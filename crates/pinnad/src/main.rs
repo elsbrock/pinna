@@ -9,6 +9,7 @@ mod api;
 mod bluetooth;
 mod boot;
 mod calibration;
+mod checks;
 mod config;
 mod identity;
 mod leds;

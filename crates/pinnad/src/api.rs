@@ -470,15 +470,9 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         request: ServiceRequest<'_, SetVolumeRequest>,
     ) -> ServiceResult<SetVolumeResponse> {
-        let percent = request.percent;
-        if percent > 100 {
-            return Err(ConnectError::invalid_argument(
-                "percent must be between 0 and 100",
-            ));
-        }
-        let snap = self
-            .command(|r| ApiCommand::SetVolume(percent as u8, r))
-            .await?;
+        let percent = crate::checks::percent("percent", request.percent)
+            .map_err(ConnectError::invalid_argument)?;
+        let snap = self.command(|r| ApiCommand::SetVolume(percent, r)).await?;
         Response::ok(SetVolumeResponse {
             status: MessageField::some(self.render(&snap)),
             ..Default::default()
@@ -495,14 +489,10 @@ impl DeviceService for DeviceApi {
                 "only the device's own bridges set the stream volume",
             ));
         }
-        let percent = request.percent;
-        if percent > 100 {
-            return Err(ConnectError::invalid_argument(
-                "percent must be between 0 and 100",
-            ));
-        }
+        let percent = crate::checks::percent("percent", request.percent)
+            .map_err(ConnectError::invalid_argument)?;
         let snap = self
-            .command(|r| ApiCommand::SetStreamVolume(percent as u8, r))
+            .command(|r| ApiCommand::SetStreamVolume(percent, r))
             .await?;
         Response::ok(SetStreamVolumeResponse {
             status: MessageField::some(self.render(&snap)),
@@ -654,11 +644,10 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         request: ServiceRequest<'_, UpdateSettingsRequest>,
     ) -> ServiceResult<UpdateSettingsResponse> {
-        let percent = |name: &str, v: Option<u32>| match v {
-            Some(v) if v > 100 => Err(ConnectError::invalid_argument(format!(
-                "{name} must be between 0 and 100"
-            ))),
-            v => Ok(v.map(|v| v as u8)),
+        let percent = |name: &str, v: Option<u32>| {
+            v.map(|v| crate::checks::percent(name, v))
+                .transpose()
+                .map_err(ConnectError::invalid_argument)
         };
         let wake_words = match request.wake_words.as_option() {
             Some(w) => {
@@ -872,11 +861,11 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         request: ServiceRequest<'_, SetRingLightRequest>,
     ) -> ServiceResult<SetRingLightResponse> {
-        if request.brightness.is_some_and(|b| b > 100) {
-            return Err(ConnectError::invalid_argument(
-                "brightness must be between 0 and 100",
-            ));
-        }
+        let brightness = request
+            .brightness
+            .map(|b| crate::checks::percent("brightness", b))
+            .transpose()
+            .map_err(ConnectError::invalid_argument)?;
         if request.rgb.is_some_and(|c| c > 0xff_ffff) {
             return Err(ConnectError::invalid_argument(
                 "rgb must be a colour from 0x000000 to 0xffffff",
@@ -894,7 +883,7 @@ impl DeviceService for DeviceApi {
         let channel = |c: u32, shift: u32| ((c >> shift) & 0xff) as f32 / 255.0;
         let patch = RingLightPatch {
             on: request.on,
-            brightness: request.brightness.map(|b| b as f32 / 100.0),
+            brightness: brightness.map(|b| b as f32 / 100.0),
             rgb: request
                 .rgb
                 .map(|c| (channel(c, 16), channel(c, 8), channel(c, 0))),
@@ -948,15 +937,7 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         request: ServiceRequest<'_, PlayMediaRequest>,
     ) -> ServiceResult<PlayMediaResponse> {
-        let url = request.url.trim();
-        let valid = url.len() <= 2048
-            && url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
-        if !valid {
-            return Err(ConnectError::invalid_argument(
-                "the URL must start with http:// or https:// and be at most 2048 characters",
-            ));
-        }
-        let url = url.to_owned();
+        let url = crate::checks::media_url(request.url).map_err(ConnectError::invalid_argument)?;
         let snap = self.command(|r| ApiCommand::PlayMedia(url, r)).await?;
         Response::ok(PlayMediaResponse {
             status: MessageField::some(self.render(&snap)),
