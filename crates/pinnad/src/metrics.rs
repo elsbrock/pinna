@@ -661,7 +661,12 @@ fn parse_wireless(text: &str) -> Vec<(String, f64)> {
             let (dev, rest) = line.split_once(':')?;
             // status, link quality, signal level (dBm), noise, ...
             let level = rest.split_whitespace().nth(2)?;
-            let dbm = level.trim_end_matches('.').parse::<f64>().ok()?;
+            let level = level.trim_end_matches('.').parse::<f64>().ok()?;
+            // The MT8163 Wi-Fi driver reports dBm as an unsigned byte without
+            // IW_QUAL_DBM, so the kernel prints it unsigned: 208 and 210 on the
+            // Echo Dot (2nd gen) and the Echo (2nd gen) while `iw` showed -48
+            // and -46 dBm. Like wireless-tools, read 64 and above as negative.
+            let dbm = if level >= 64.0 { level - 256.0 } else { level };
             // A level of 0 or above is no measurement (no link), not a signal.
             (dbm < 0.0).then(|| (dev.trim().to_owned(), dbm))
         })
@@ -1048,6 +1053,17 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         let t = scrape(Snapshot::default(), &Counters::default(), dir.path());
         has(&t, "pinna_wifi_signal_dbm{device=\"wlan0\"} -56.0");
         assert!(!t.contains("p2p0"), "{t}");
+    }
+
+    #[test]
+    fn wifi_signal_from_an_unsigned_level() {
+        // The Echo Dot (2nd gen), while `iw dev wlan0 link` showed -48 dBm.
+        let dot = "\
+Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
+ face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22
+ wlan0: 0000    0.  208.    0.       0      0      0      0      0        0
+";
+        assert_eq!(parse_wireless(dot), vec![("wlan0".into(), -48.0)]);
     }
 
     #[test]
