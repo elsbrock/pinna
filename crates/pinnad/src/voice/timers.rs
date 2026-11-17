@@ -80,10 +80,9 @@ pub(super) struct TimerStore {
 }
 
 impl TimerStore {
-    pub(super) fn load(settings_file: &Path, restore_saved: bool) -> Self {
+    pub(super) fn load(timers_file: &Path, restore_saved: bool) -> Self {
         let now = Instant::now();
-        let path = settings_file.with_file_name("timers.toml");
-        let (store, saved, _) = Store::load(&path, FILE_MODE, SavedTimers::default());
+        let (store, saved, _) = Store::load(timers_file, FILE_MODE, SavedTimers::default());
         let pending = (restore_saved && !saved.timer.is_empty()).then_some(Pending {
             saved,
             started: now,

@@ -2,6 +2,7 @@
 //! over the ESPHome API → TTS playback, plus timers, announcements, mute, the
 //! light entity and volume. Single task, all inputs arrive on one channel.
 
+mod local;
 #[cfg(test)]
 mod tests;
 mod timers;
@@ -27,7 +28,20 @@ use crate::leds::{self, LedState, LightEffect};
 use crate::settings::{FILE_MODE, Mode, Settings};
 use crate::store::Store;
 use crate::wakewords::{Catalogue, KeywordSet};
+pub(crate) use local::{LocalOptions, NoopSpawner};
 use timers::{Origin, Timer};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunId(pub u64);
+
+/// The standalone readiness and latest failure shown to the owner.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AssistStatus {
+    pub ready: bool,
+    pub slots: [bool; 3],
+    pub label: String,
+    pub last_error: Option<String>,
+}
 
 /// Flags shared with the capture task.
 #[derive(Default)]
@@ -76,6 +90,16 @@ pub enum Input {
     /// The media lane changed state (playing, paused, ended, failed).
     Media(MediaState),
     Api(ApiCommand),
+    #[allow(dead_code)]
+    Assist {
+        run: RunId,
+        ev: pinna_assist::run::RunEvent,
+    },
+    #[allow(dead_code)]
+    RunTool {
+        run: RunId,
+        cmd: ApiCommand,
+    },
 }
 
 /// Answer to an API command: the state right after it was applied, or why it was refused.
@@ -120,6 +144,40 @@ pub enum ApiCommand {
     /// A timer id, or its name when the id is unknown.
     #[allow(dead_code)]
     CancelTimer(String, ApiReply),
+}
+
+impl ApiCommand {
+    fn refuse(self, why: &str) {
+        match self {
+            Self::SetVolume(_, reply)
+            | Self::SetStreamVolume(_, reply)
+            | Self::SetStreamMetadata(_, _, reply)
+            | Self::SetMute(_, reply)
+            | Self::StartConversation(reply)
+            | Self::StopConversation(reply)
+            | Self::LedTest(reply)
+            | Self::UpdateSettings(_, reply)
+            | Self::ClearNotification(reply)
+            | Self::StartCalibration(reply)
+            | Self::StopCalibration(reply)
+            | Self::StartBluetoothPairing(reply)
+            | Self::StopBluetoothPairing(reply)
+            | Self::ForgetBluetoothDevice(_, reply)
+            | Self::ReportBluetooth(_, reply)
+            | Self::SetRingLight(_, reply)
+            | Self::ControlMedia(_, _, reply)
+            | Self::PlayMedia(_, reply)
+            | Self::CancelTimer(_, reply) => {
+                let _ = reply.send(Err(why.into()));
+            }
+            Self::PlayMediaChecked(_, reply) => {
+                let _ = reply.send(Err(why.into()));
+            }
+            Self::SetTimer { reply, .. } => {
+                let _ = reply.send(Err(why.into()));
+            }
+        }
+    }
 }
 
 /// The media player, as the API shows it.
@@ -261,6 +319,7 @@ pub struct TimerSnapshot {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Snapshot {
     pub mode: Mode,
+    pub assist: AssistStatus,
     pub phase: pinna_api::Phase,
     pub hw_muted: bool,
     pub sw_muted: bool,
@@ -312,6 +371,7 @@ impl Default for Snapshot {
     fn default() -> Self {
         Self {
             mode: Mode::HomeAssistant,
+            assist: AssistStatus::default(),
             phase: pinna_api::Phase::PHASE_IDLE,
             hw_muted: false,
             sw_muted: false,
@@ -357,6 +417,10 @@ enum Phase {
 #[derive(Debug, Clone, PartialEq)]
 enum PlaybackKind {
     Tts,
+    #[allow(dead_code)]
+    Reply,
+    #[allow(dead_code)]
+    Speak,
     Announce {
         start_conversation: bool,
     },
@@ -423,6 +487,7 @@ pub struct Brain {
     status: watch::Sender<Snapshot>,
     self_tx: mpsc::Sender<Input>,
     opts: Options,
+    local: local::Local,
 
     phase: Phase,
     conversation_id: String,
@@ -546,6 +611,7 @@ const LED_TEST_EFFECTS: [Effect; 4] = [
 const SELF_SOUND_HOLD: Duration = Duration::from_millis(300);
 
 impl Brain {
+    #[cfg(test)]
     pub fn new(
         esp: EsphomeHandle,
         speaker: Option<Arc<Speaker>>,
@@ -555,9 +621,26 @@ impl Brain {
         self_tx: mpsc::Sender<Input>,
         opts: Options,
     ) -> Self {
+        let local = local::Local::beside_settings(&opts.settings_file);
+        Self::new_with_local(esp, speaker, shared, leds, status, self_tx, opts, local)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_local(
+        esp: EsphomeHandle,
+        speaker: Option<Arc<Speaker>>,
+        shared: Arc<Shared>,
+        leds: watch::Sender<LedState>,
+        status: watch::Sender<Snapshot>,
+        self_tx: mpsc::Sender<Input>,
+        opts: Options,
+        local: LocalOptions,
+    ) -> Self {
         let store = Store::new(&opts.settings_file, FILE_MODE);
+        let (live, spawner, timers_file) = local.into_parts();
         let timer_store =
-            timers::TimerStore::load(&opts.settings_file, opts.settings.mode == Mode::Standalone);
+            timers::TimerStore::load(&timers_file, opts.settings.mode == Mode::Standalone);
+        let local = local::Local::new(live, spawner);
         let active_wake = opts.active_wake_words.clone();
         let settings = opts.settings.clone();
         shared
@@ -579,6 +662,7 @@ impl Brain {
             leds,
             status,
             self_tx,
+            local,
             phase: Phase::Idle,
             conversation_id: String::new(),
             continue_conversation: false,
@@ -812,6 +896,8 @@ impl Brain {
             }
             Input::Ha(cmd) => self.ha(cmd).await,
             Input::Api(cmd) => self.api(cmd).await,
+            Input::Assist { .. } => {}
+            Input::RunTool { cmd, .. } => cmd.refuse("The request was cancelled."),
         }
     }
 
@@ -1049,6 +1135,7 @@ impl Brain {
         timers.sort_by(|a, b| a.id.cmp(&b.id));
         Snapshot {
             mode: self.settings.mode,
+            assist: self.local.status(),
             phase: match self.phase {
                 Phase::Idle => pinna_api::Phase::PHASE_IDLE,
                 Phase::Starting(_) | Phase::Listening(_) => pinna_api::Phase::PHASE_LISTENING,
@@ -2769,7 +2856,7 @@ impl Brain {
                 }
             }
             PlaybackKind::MediaAnnounce => self.update_media_state(),
-            PlaybackKind::Cue => {}
+            PlaybackKind::Reply | PlaybackKind::Speak | PlaybackKind::Cue => {}
         }
     }
 

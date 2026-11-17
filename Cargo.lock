@@ -2325,6 +2325,7 @@ dependencies = [
  "pinna-esphome",
  "pinna-hal",
  "pinna-image",
+ "pinna-mcp",
  "pinna-vad",
  "pinna-wakeword",
  "procfs",

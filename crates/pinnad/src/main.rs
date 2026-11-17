@@ -21,6 +21,7 @@ mod network;
 mod satellites;
 mod secrets;
 mod settings;
+mod standalone;
 mod store;
 mod timezone;
 mod updates;
@@ -46,7 +47,7 @@ use tokio::sync::{mpsc, watch};
 use crate::config::Config;
 use crate::leds::LedState;
 use crate::mic::MicRouter;
-use crate::voice::{Brain, Input, Options, Shared, Snapshot};
+use crate::voice::{Brain, Input, LocalOptions, NoopSpawner, Options, Shared, Snapshot};
 use crate::wakewords::{Catalogue, KeywordSet};
 
 #[derive(Parser)]
@@ -594,6 +595,7 @@ async fn main() -> Result<()> {
     // the stage helper keeps drawing the boot stages (ADR 0012).
 
     let shared = Arc::new(Shared::default());
+    let (_live_tx, live) = watch::channel(Arc::new(standalone::AssistLive::empty()));
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);
 
     // Microphone + wake word. Words chosen later reach the detector here.
@@ -797,7 +799,7 @@ async fn main() -> Result<()> {
     let airplay = speaker.is_some() && !cfg.audio.stream_socket.as_os_str().is_empty();
     // Bluetooth needs the same, and a controller.
     let bluetooth = airplay && bluetooth::present();
-    let brain = Brain::new(
+    let brain = Brain::new_with_local(
         esp,
         speaker,
         shared,
@@ -818,6 +820,11 @@ async fn main() -> Result<()> {
             bluetooth,
             settings: initial,
             updates: Some(updater),
+        },
+        LocalOptions {
+            live,
+            spawner: Arc::new(NoopSpawner),
+            timers_file: cli.settings.with_file_name("timers.toml"),
         },
     );
     tokio::select! {
