@@ -1,0 +1,13 @@
+name = "pinna-updates"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = false
+routes = [{ pattern = "updates.getpinna.dev", custom_domain = true }]
+
+# No logs: the Worker sees where checks come from and keeps nothing (ADR 0023).
+[observability]
+enabled = false
+
+[vars]
+GITHUB_REPO = "elsbrock/pinna"
+# GITHUB_TOKEN is a secret: npx wrangler secret put GITHUB_TOKEN

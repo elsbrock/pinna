@@ -54,6 +54,10 @@ esphome-conformance:
     cargo build -p pinna-esphome --example demo
     uv run --with aioesphomeapi==46.2.0 --with pytest --with pytest-asyncio pytest crates/pinna-esphome/tests/aio -q
 
+# the release service's tests (ADR 0022): recorded GitHub answers, no accounts
+updates-test:
+    node --test 'services/updates/test/*.test.ts'
+
 # kernel: build + package as build/debs/linux-image-*.deb
 kernel:
     kernel/build.sh
