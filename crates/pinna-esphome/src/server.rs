@@ -1177,9 +1177,6 @@ impl Actor {
             proto::SubscribeVoiceAssistantRequest::ID => {
                 let r = parse!(proto::SubscribeVoiceAssistantRequest);
                 if !r.subscribe {
-                    if self.cfg.voice_feature_flags == 0 {
-                        return Ok(());
-                    }
                     if self.voice_owner == Some(id) {
                         self.voice_owner = None;
                         self.run_active = false;
