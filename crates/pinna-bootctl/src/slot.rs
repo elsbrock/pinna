@@ -182,6 +182,15 @@ pub fn read_state(misc: &Path) -> Result<Option<SlotState>> {
 /// cache and read it back: the sector must hold exactly what was written and
 /// the sectors around it must be unchanged.
 pub fn write_state(misc: &Path, state: &SlotState) -> Result<()> {
+    write_record(misc, &state.encode())
+}
+
+/// Blank the record once Kaeru's slot record has taken over (ADR 0019).
+pub fn clear_state(misc: &Path) -> Result<()> {
+    write_record(misc, &[0u8; RECORD_LEN])
+}
+
+fn write_record(misc: &Path, record: &[u8; RECORD_LEN]) -> Result<()> {
     let f = OpenOptions::new()
         .read(true)
         .write(true)
@@ -193,7 +202,7 @@ pub fn write_state(misc: &Path, state: &SlotState) -> Result<()> {
     f.read_exact_at(&mut before, start)
         .with_context(|| format!("{} is too small for the slot state", misc.display()))?;
     let mut sector = before[SECTOR..2 * SECTOR].to_vec();
-    sector[..RECORD_LEN].copy_from_slice(&state.encode());
+    sector[..RECORD_LEN].copy_from_slice(record);
     f.write_all_at(&sector, STATE_OFFSET)?;
     f.sync_all()?;
     // Read back from the device, not the page cache.
@@ -525,6 +534,17 @@ mod tests {
                 .iter()
                 .all(|&b| b == 0)
         );
+    }
+
+    #[test]
+    fn clearing_leaves_no_record() {
+        let f = misc();
+        write_state(f.path(), &st(Slot::B, (0, true), (0, true))).unwrap();
+        clear_state(f.path()).unwrap();
+        assert_eq!(read_state(f.path()).unwrap(), None);
+        let data = std::fs::read(f.path()).unwrap();
+        assert_eq!(data[STATE_OFFSET as usize - 1], 0x77);
+        assert_eq!(&data[0x360..0x365], &[0, b'A', b'B', 1, 2]);
     }
 
     #[test]

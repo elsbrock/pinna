@@ -2,9 +2,10 @@
 //!
 //! 1. mount devtmpfs, proc, sysfs, and a tmpfs on /run
 //! 2. find `misc`, `system_a`, `system_b` by GPT name (PARTNAME in sysfs)
-//! 3. pick a slot from the A/B state in misc (trial tries, rollback)
-//! 4. check that slot's signed footer with the compiled-in release key; on
-//!    failure use the other slot
+//! 3. take the slot the bootloader started (Kaeru's slot record, ADR 0019);
+//!    without a bootloader slot, choose as the preloader would
+//! 4. check that slot's signed footer with the compiled-in release key; when
+//!    its root can't start, retire the slot and restart into the other one
 //! 5. dm-verity device `root` over the slot, erofs read-only on /sysroot
 //! 6. /run/pinna/boot-slot + boot-version + the root's boot protocol marker,
 //!    bind-mount a machine id from the idme serial over /etc/machine-id, move
@@ -26,7 +27,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
-use pinna_bootctl::slot::{self, Slot, SlotState};
+use pinna_bootctl::bcb;
+use pinna_bootctl::slot::{self, Slot};
 use pinna_bootctl::stages;
 use pinna_image::{Footer, keys};
 
@@ -42,6 +44,7 @@ macro_rules! log {
     ($($arg:tt)*) => { $crate::kmsg(&format!($($arg)*)) };
 }
 
+mod boot_slot;
 mod dm;
 mod http;
 mod machine_id;
@@ -237,31 +240,39 @@ fn wait_for_parts(names: &[&str]) -> HashMap<String, Part> {
     }
 }
 
-/// The A/B slot state in misc, for the rescue diagnostics.
+/// The slot LK started, from its command line in the device tree; `None`
+/// without a bootloader (the VMs).
+fn lk_slot() -> Option<Slot> {
+    let args = fs::read("/proc/device-tree/chosen/bootargs").ok()?;
+    boot_slot::lk_slot_from(&String::from_utf8_lossy(&args))
+}
+
+/// The slot record in misc, for the rescue diagnostics.
 pub fn slot_summary() -> String {
     let parts = scan_parts();
     let Some(misc) = parts.get("misc") else {
         return "no misc partition\n".into();
     };
-    match slot::read_state(&misc.path()) {
-        Ok(Some(st)) => format!(
-            "active: {}\na: {}\nb: {}\n",
-            st.active,
-            st.describe(Slot::A),
-            st.describe(Slot::B)
+    let started = match lk_slot() {
+        Some(s) => format!("the bootloader started slot {s}\n"),
+        None => "no bootloader slot\n".into(),
+    };
+    let record = match bcb::read(&misc.path()) {
+        Ok(Some(r)) => format!(
+            "next boot: {}\na: {}\nb: {}\n",
+            r.next_boot()
+                .map_or_else(|| "none".to_owned(), |s| s.to_string()),
+            r.describe(Slot::A),
+            r.describe(Slot::B)
         ),
-        Ok(None) => "no slot state (first flash: slot a counts as good)\n".into(),
+        Ok(None) => "no slot record (the bootloader writes one: slot a, good)\n".into(),
         Err(e) => format!("unreadable: {e:#}\n"),
-    }
+    };
+    format!("{started}{record}")
 }
 
-fn persist(misc: Option<&Part>, state: &SlotState) {
-    let res = misc
-        .context("no misc partition")
-        .and_then(|m| slot::write_state(&m.path(), state));
-    if let Err(e) = res {
-        log!("WARNING: could not record the slot state: {e:#}");
-    }
+fn write_record(misc: Option<&Part>, r: &bcb::Record) -> Result<()> {
+    bcb::write(&misc.context("no misc partition")?.path(), r)
 }
 
 /// Check the slot's image and bring it up on /sysroot.
@@ -322,7 +333,9 @@ fn try_slot(part: &Part) -> Result<Footer> {
     }
 }
 
-/// Choose, check and mount a slot. Returns what booted.
+/// Choose, check and mount a slot. Returns what booted. A slot whose root
+/// can't start is retired, and the device restarts into the other slot's
+/// kernel and root; when there is no good slot to go to, it's a failure.
 fn bring_up_root(ring: &Ring) -> Result<(Slot, Footer), Failure> {
     let parts = wait_for_parts(&["misc", Slot::A.partname(), Slot::B.partname()]);
     if !parts.contains_key(Slot::A.partname()) && !parts.contains_key(Slot::B.partname()) {
@@ -338,49 +351,64 @@ fn bring_up_root(ring: &Ring) -> Result<(Slot, Footer), Failure> {
     }
     ring.done(stages::STORAGE);
     let misc = parts.get("misc");
-    let state = match misc.map(|m| slot::read_state(&m.path())) {
-        Some(Ok(s)) => s,
+    let record = match misc.map(|m| bcb::read(&m.path())) {
+        Some(Ok(r)) => r,
         Some(Err(e)) => {
-            log!("cannot read the slot state ({e:#}); using slot a");
+            log!("cannot read the slot record ({e:#})");
             None
         }
         None => None,
     };
-    let d = slot::decide(state);
-    log!("{}", d.reason);
-    if let Some(p) = &d.persist {
-        persist(misc, p);
-    }
-    let state = d.persist.or(state);
-    let mut why = Vec::new();
-    for s in [d.slot, d.slot.other()] {
-        let Some(part) = parts.get(s.partname()) else {
-            log!("slot {s}: no {} partition", s.partname());
-            why.push(format!("slot {s}: no {} partition", s.partname()));
-            continue;
-        };
-        match try_slot(part) {
-            Ok(footer) => {
-                if s != d.slot {
-                    log!(
-                        "falling back to slot {s}; slot {} marked unbootable",
-                        d.slot
-                    );
-                    persist(misc, &slot::after_bad_image(state, d.slot));
+    let pinna = match misc.map(|m| slot::read_state(&m.path())) {
+        Some(Ok(s)) => s,
+        Some(Err(e)) => {
+            log!("cannot read Pinna's own slot record ({e:#})");
+            None
+        }
+        None => None,
+    };
+    let plan = boot_slot::plan(lk_slot(), record, pinna);
+    log!("{}", plan.reason);
+    if let Some(w) = &plan.write {
+        match write_record(misc, w) {
+            Ok(()) if plan.clear_pinna => {
+                if let Err(e) = slot::clear_state(&misc.expect("written above").path()) {
+                    log!("WARNING: could not blank Pinna's own slot record: {e:#}");
                 }
-                ring.done(stages::ROOT);
-                return Ok((s, footer));
             }
-            Err(e) => {
-                log!("slot {s} ({}): not bootable: {e:#}", part.devname);
-                why.push(format!("slot {s}: {e:#}"));
+            Ok(()) => {}
+            Err(e) => log!("WARNING: could not write the slot record: {e:#}"),
+        }
+    }
+
+    let s = plan.slot;
+    let res = match parts.get(s.partname()) {
+        Some(part) => try_slot(part).inspect_err(|e| {
+            log!("slot {s} ({}): not bootable: {e:#}", part.devname);
+        }),
+        None => Err(anyhow!("no {} partition", s.partname())),
+    };
+    match res {
+        Ok(footer) => {
+            ring.done(stages::ROOT);
+            Ok((s, footer))
+        }
+        Err(e) => {
+            // The other slot's kernel and root start together: retire this
+            // slot and let the preloader take the other one.
+            let retired = bcb::retire(plan.record, s).and_then(|r| write_record(misc, &r));
+            match retired {
+                Ok(()) => {
+                    log!("slot {s} retired; restarting into slot {}", s.other());
+                    rescue::reboot_now()
+                }
+                Err(why) => Err(Failure::new(
+                    Reason::NoRoot,
+                    anyhow!("slot {s}: {e:#}; no other slot to go to: {why:#}"),
+                )),
             }
         }
     }
-    Err(Failure::new(
-        Reason::NoRoot,
-        anyhow!("no bootable slot ({})", why.join("; ")),
-    ))
 }
 
 fn switch_root(argv: &[OsString]) -> Result<()> {
