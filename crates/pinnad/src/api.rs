@@ -19,14 +19,14 @@ use pinna_api::{
     GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
     InstallUpdateRequest, InstallUpdateResponse, LastBoot as LastBootMsg, LastBootOutcome,
     LedTestRequest, LedTestResponse, RebootRequest, RebootResponse, SetActiveSlotRequest,
-    SetActiveSlotResponse, SetMuteRequest, SetMuteResponse, SetStreamVolumeRequest,
-    SetStreamVolumeResponse, SetVolumeRequest, SetVolumeResponse, StartCalibrationRequest,
-    StartCalibrationResponse, StartConversationRequest, StartConversationResponse, Status,
-    StopCalibrationRequest, StopCalibrationResponse, StopConversationRequest,
-    StopConversationResponse, Timer, UpdateSettingsRequest, UpdateSettingsResponse, WakeEvent,
-    WakeWord, WakeWordOption, WatchInstallRequest, WatchInstallResponse, WatchLogsRequest,
-    WatchLogsResponse, WatchRingRequest, WatchRingResponse, WatchStatusRequest,
-    WatchStatusResponse,
+    SetActiveSlotResponse, SetMuteRequest, SetMuteResponse, SetStreamMetadataRequest,
+    SetStreamMetadataResponse, SetStreamVolumeRequest, SetStreamVolumeResponse, SetVolumeRequest,
+    SetVolumeResponse, StartCalibrationRequest, StartCalibrationResponse, StartConversationRequest,
+    StartConversationResponse, Status, StopCalibrationRequest, StopCalibrationResponse,
+    StopConversationRequest, StopConversationResponse, Timer, UpdateSettingsRequest,
+    UpdateSettingsResponse, WakeEvent, WakeWord, WakeWordOption, WatchInstallRequest,
+    WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchRingRequest, WatchRingResponse,
+    WatchStatusRequest, WatchStatusResponse,
 };
 use pinna_api::{
     ControlMediaRequest, ControlMediaResponse, Media, MediaCommand, MediaState, PlayMediaRequest,
@@ -294,6 +294,11 @@ fn media(m: &crate::voice::MediaSnapshot) -> Media {
         error: m.error.clone().unwrap_or_default(),
         available: m.available,
         volume: m.volume.into(),
+        title: m.track.title.clone(),
+        artist: m.track.artist.clone(),
+        album: m.track.album.clone(),
+        station: m.track.station.clone(),
+        source: m.source.clone(),
         ..Default::default()
     }
 }
@@ -477,6 +482,38 @@ impl DeviceService for DeviceApi {
             .command(|r| ApiCommand::SetStreamVolume(percent as u8, r))
             .await?;
         Response::ok(SetStreamVolumeResponse {
+            status: MessageField::some(self.render(&snap)),
+            ..Default::default()
+        })
+    }
+
+    async fn set_stream_metadata(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SetStreamMetadataRequest>,
+    ) -> ServiceResult<SetStreamMetadataResponse> {
+        if !from_device(ctx.peer_addr()) {
+            return Err(ConnectError::permission_denied(
+                "only the device's own bridges set the stream metadata",
+            ));
+        }
+        let source = request.source.to_owned();
+        if !pinna_audio::media::is_source_name(&source) {
+            return Err(ConnectError::invalid_argument(format!(
+                "source must be 1 to {} of a-z, 0-9 and -",
+                pinna_audio::media::SOURCE_MAX
+            )));
+        }
+        let track = pinna_audio::Track {
+            title: request.title.to_owned(),
+            artist: request.artist.to_owned(),
+            album: request.album.to_owned(),
+            station: String::new(),
+        };
+        let snap = self
+            .command(|r| ApiCommand::SetStreamMetadata(source, track, r))
+            .await?;
+        Response::ok(SetStreamMetadataResponse {
             status: MessageField::some(self.render(&snap)),
             ..Default::default()
         })
@@ -2209,6 +2246,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stream_metadata_takes_a_source_name() {
+        let (c, _inputs) = start_device().await;
+        let request = |source: &str| SetStreamMetadataRequest {
+            source: source.into(),
+            title: "Song".into(),
+            ..Default::default()
+        };
+        for bad in ["", "AirPlay", "air play", "a-name-longer-than16"] {
+            let err = c.set_stream_metadata(request(bad)).await.unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument, "{bad:?}");
+        }
+        c.set_stream_metadata(request("bluetooth")).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn media_reports_the_lane_and_refuses_without_a_speaker() {
         let (c, inputs) = start_device().await;
         let media = |s: Status| s.media.into_option().unwrap();
@@ -2243,6 +2295,32 @@ mod tests {
         .unwrap();
         let stream = media(status(&c).await);
         assert!(stream.stream && stream.url.is_empty());
+        // What plays, as the lane names it, and the stream's source.
+        lane(pinna_audio::MediaState {
+            phase: pinna_audio::MediaPhase::Playing,
+            url: Some(pinna_audio::STREAM_URL.into()),
+            track: pinna_audio::Track {
+                title: "Song".into(),
+                artist: "Artist".into(),
+                album: "Album".into(),
+                station: "Station".into(),
+            },
+            source: "airplay".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let named = media(status(&c).await);
+        assert_eq!(
+            [
+                named.title,
+                named.artist,
+                named.album,
+                named.station,
+                named.source
+            ],
+            ["Song", "Artist", "Album", "Station", "airplay"]
+        );
         // While a stream plays, the media player's volume is the stream's own.
         c.set_stream_volume(pinna_api::SetStreamVolumeRequest {
             percent: 30,

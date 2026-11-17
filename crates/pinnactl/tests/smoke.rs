@@ -65,6 +65,13 @@ impl DeviceService for Fake {
     ) -> ServiceResult<SetStreamVolumeResponse> {
         status_reply!(SetStreamVolumeResponse, self)
     }
+    async fn set_stream_metadata(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, SetStreamMetadataRequest>,
+    ) -> ServiceResult<SetStreamMetadataResponse> {
+        status_reply!(SetStreamMetadataResponse, self)
+    }
     async fn start_bluetooth_pairing(
         &self,
         _: RequestContext,

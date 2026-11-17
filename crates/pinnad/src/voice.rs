@@ -76,6 +76,8 @@ pub enum ApiCommand {
     SetVolume(u8, ApiReply),
     /// A bridge's sender volume for live streams (ADR 0011).
     SetStreamVolume(u8, ApiReply),
+    /// The track a bridge's stream plays, under its source name (ADR 0011).
+    SetStreamMetadata(String, pinna_audio::Track, ApiReply),
     SetMute(bool, ApiReply),
     StartConversation(ApiReply),
     StopConversation(ApiReply),
@@ -109,6 +111,10 @@ pub struct MediaSnapshot {
     pub available: bool,
     /// The media player's volume: the stream's while a stream plays.
     pub volume: u8,
+    /// What plays, as its source names it.
+    pub track: pinna_audio::Track,
+    /// The source a stream's header names, while a stream plays.
+    pub source: String,
 }
 
 impl Default for MediaSnapshot {
@@ -121,6 +127,8 @@ impl Default for MediaSnapshot {
             error: None,
             available: false,
             volume: 0,
+            track: pinna_audio::Track::default(),
+            source: String::new(),
         }
     }
 }
@@ -437,6 +445,10 @@ pub struct Brain {
     /// What the media lane plays or last played, and why it last failed.
     media_url: Option<String>,
     media_error: Option<String>,
+    /// What the media lane plays, as its source names it, and a stream's
+    /// source.
+    media_track: pinna_audio::Track,
+    media_source: String,
     /// The bridges' sender volume for live streams, 0..=100 (not saved:
     /// each bridge sets its own before it connects).
     stream_volume: u8,
@@ -563,6 +575,8 @@ impl Brain {
             media_stream: false,
             media_url: None,
             media_error: None,
+            media_track: pinna_audio::Track::default(),
+            media_source: String::new(),
             stream_volume: 100,
             ducked: false,
             timers: HashMap::new(),
@@ -745,6 +759,8 @@ impl Brain {
                 }
                 self.media_phase = state.phase;
                 self.media_muted = state.muted;
+                self.media_track = state.track;
+                self.media_source = state.source;
                 self.media_stream = state.url.as_deref() == Some(STREAM_URL);
                 // A failed play reports no URL: keep the one that failed, to
                 // show with the error.
@@ -771,6 +787,12 @@ impl Brain {
             }
             ApiCommand::SetStreamVolume(percent, reply) => {
                 self.set_stream_volume(percent);
+                (Ok(()), reply)
+            }
+            ApiCommand::SetStreamMetadata(source, track, reply) => {
+                if let Some(s) = &self.speaker {
+                    s.set_stream_track(&source, track);
+                }
                 (Ok(()), reply)
             }
             ApiCommand::SetMute(on, reply) => {
@@ -998,6 +1020,8 @@ impl Brain {
                 error: self.media_error.clone(),
                 available: self.speaker.is_some(),
                 volume: self.media_volume(),
+                track: self.media_track.clone(),
+                source: self.media_source.clone(),
             },
             ring_light: RingLight {
                 on: self.light_on,

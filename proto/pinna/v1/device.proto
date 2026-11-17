@@ -13,6 +13,9 @@ service DeviceService {
   // Set the volume of live streams: the sender volume of the AirPlay and
   // Bluetooth bridges (ADR 0011). Accepted only from the device itself.
   rpc SetStreamVolume(SetStreamVolumeRequest) returns (SetStreamVolumeResponse);
+  // Set the track a bridge's live stream plays, under the source name its
+  // stream header gives (ADR 0011). Accepted only from the device itself.
+  rpc SetStreamMetadata(SetStreamMetadataRequest) returns (SetStreamMetadataResponse);
   // Set the software microphone mute (the hardware latch is read-only).
   rpc SetMute(SetMuteRequest) returns (SetMuteResponse);
   // Start a voice conversation, like pressing the action button.
@@ -293,6 +296,17 @@ message Media {
   // 0..=100: the stream's own volume while AirPlay or Bluetooth plays,
   // Volume otherwise.
   uint32 volume = 7;
+  // What plays, as its source names it (ADR 0011): the bridge's track, or a
+  // URL's tags or radio title. Empty when the source doesn't say, and while
+  // nothing plays.
+  string title = 8;
+  string artist = 9;
+  string album = 10;
+  // An internet radio station's name, from its ICY metadata.
+  string station = 11;
+  // While a stream plays: the source its header names, `airplay` or
+  // `bluetooth`.
+  string source = 12;
 }
 
 // The ring as a light. The ring shows it while idle, below a running timer and
@@ -447,6 +461,20 @@ message SetStreamVolumeRequest {
 }
 
 message SetStreamVolumeResponse {
+  Status status = 1;
+}
+
+message SetStreamMetadataRequest {
+  // The bridge's name, as its stream header gives it: `airplay` or
+  // `bluetooth`, up to 16 of a-z, 0-9 and -.
+  string source = 1;
+  // Empty when the sender doesn't say. Each is cut to 256 bytes.
+  string title = 2;
+  string artist = 3;
+  string album = 4;
+}
+
+message SetStreamMetadataResponse {
   Status status = 1;
 }
 
