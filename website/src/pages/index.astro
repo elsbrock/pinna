@@ -9,7 +9,7 @@ const steps = [
   {
     number: "1",
     title: "The device hears the wake word",
-    body: "Pinna listens for “Alexa” on the device itself. Until it hears the wake word, no audio leaves the device.",
+    body: "Pinna listens for “Alexa”, or the wake words you choose, on the device itself. Until it hears the wake word, no audio leaves the device.",
   },
   {
     number: "2",
@@ -40,6 +40,11 @@ const features = [
     body: "The ring shows what the device is doing and also works as a light. Button presses arrive in Home Assistant as events.",
   },
   {
+    icon: "speaker",
+    title: "Music over AirPlay and Bluetooth",
+    body: "Phones and computers can play music to the device. Each source is off until you turn it on, and the wake word keeps working while music plays.",
+  },
+  {
     icon: "layer",
     title: "Updates that roll back",
     body: "Pinna keeps two copies of the system. An update goes to the unused copy, and the device returns to the old one if the new one doesn't start.",
@@ -66,6 +71,10 @@ const entities: { entity: string; type: string; notes: string }[] = [
   { entity: "Microphone mute", type: "switch", notes: "Turns the microphones off in software" },
   { entity: "Wake word", type: "switch", notes: "Turns wake word detection on or off" },
   { entity: "Listening direction", type: "switch", notes: "Points the ring at the person speaking while the device listens" },
+  { entity: "Wake sound", type: "switch", notes: "Plays a chime when the device starts listening" },
+  { entity: "Wake word calibration", type: "switch", notes: "Tunes the sensitivity with the device's + and − buttons" },
+  { entity: "AirPlay, Bluetooth audio", type: "switch", notes: "Turns each music source on or off" },
+  { entity: "Bluetooth pairing", type: "switch", notes: "Opens the pairing window for two minutes" },
   { entity: "Notification", type: "switch", notes: "Shows a waiting notification on the ring until someone clears it" },
   { entity: "Volume, Reply volume", type: "number", notes: "0 to 100" },
   { entity: "Wake word sensitivity", type: "number", notes: "0 to 100; higher triggers more easily" },
@@ -97,6 +106,7 @@ const hardware: { device: string; soc: string; status: string; tone: string }[] 
 const goals = [
   { title: "Keep speech local", body: "The wake word runs on the device, and audio goes only to your Home Assistant." },
   { title: "Be a good Home Assistant satellite", body: "Everything the device can do is available in Home Assistant." },
+  { title: "Play music without getting in the way", body: "AirPlay and Bluetooth share the audio path, and replies, announcements and timers come first." },
   { title: "Be safe to install and update", body: "Every installation step can be undone, and updates roll back on their own." },
   { title: "Use standard parts", body: "Debian, systemd and a small set of Rust programs." },
   { title: "Make development pleasant", body: "One shell for every tool, and tests that run without hardware." },
@@ -110,10 +120,14 @@ const works = [
   "A complete voice request works against a simulated Home Assistant",
   "On the Echo Dot, echo cancellation lowers the device's own music by 23 to 31 dB",
   "The dashboard shows and controls the device from a browser on your network",
+  "Bluetooth plays music from an iPhone on the Echo (2nd gen)",
 ];
 
 const gaps = [
-  "No prebuilt images: you build and sign your own",
+  "No release is published yet: you build and sign your own images",
+  "The dashboard has no login: anyone on your network can use it",
+  "Updates replace the root filesystem only: a new kernel needs fastboot",
+  "AirPlay hasn't played from a sender yet, in the virtual machine or on a device",
 ];
 ---
 

@@ -40,11 +40,11 @@ this table wins:
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |
 | Off | The device is idle |
 
-Two short signals appear on top of these states:
+Short signals appear on top of these states:
 
 | What you see | Meaning |
 | --- | --- |
-| Red, flashing three times | Something went wrong: Home Assistant refused or didn't answer the request, the microphones are off when you press the Action button, or a calibration +/− press changed nothing |
+| Red, flashing three times | Something went wrong: Home Assistant isn't connected, refused the request or didn't answer it, the microphones are off when you press the Action button, or a calibration +/− press changed nothing |
 | Green, one flash | The wake word was heard while calibration runs. No request starts |
 | A light blue arc, for 1.5 seconds | The volume changed. The arc shows the new level |
 
@@ -251,7 +251,7 @@ Seen from above, with the front of the device towards you, the buttons are:
 
 | Button | Press | Hold |
 | --- | --- | --- |
-| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it | Sends a `long_press` event to Home Assistant after 2 seconds |
+| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While it speaks an announcement, stops it. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it | Sends a `long_press` event to Home Assistant after 2 seconds |
 | Volume up | Raises the volume by 5. While calibration runs, raises the wake word sensitivity to catch the strongest near miss heard in the last 15 seconds instead | Keeps raising the volume |
 | Volume down | Lowers the volume by 5. While calibration runs, lowers the wake word sensitivity to ignore the last wake instead | Keeps lowering the volume |
 | Microphone off | Turns the microphones off or on | Nothing |
@@ -269,8 +269,9 @@ that is running stops.
 
 The device has a hardware switch behind the **Microphone off** button. When
 the hardware switch is present, it turns the microphones off, and Pinna
-follows it. You can also turn the microphones off from Home Assistant (the
-**Microphone mute** switch) or with `pinnactl mute on`. The microphones are off
+follows it. You can also turn the microphones off with the **Microphones**
+switch on the [dashboard](/docs/dashboard/), under **Voice & sound**, from
+Home Assistant (the **Microphone mute** switch) or with `pinnactl mute on`. The microphones are off
 when either the button or the software setting says so.
 
 ## What's next

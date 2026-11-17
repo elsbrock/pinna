@@ -84,6 +84,7 @@ How the device introduces itself to Home Assistant.
 | `wake_sound` | `false` | Plays a short sound when the device starts listening, until someone sets **Wake sound** on the dashboard or in Home Assistant, which wins |
 | `capture_gain_db` | Not set | The gain applied to the microphone audio before wake word detection and before it goes to Home Assistant, in dB. Not set means +12 dB on the Echo Dot with PipeWire, and 0 dB otherwise |
 | `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane: a first line `s16le 44100 2` or `s16le 48000 2`, then stereo samples. Empty turns it off |
+| `capture_target` | Not set | The PipeWire node to record from, with the `pipewire` backend. Not set means the default source. The virtual Echo Dot's image sets it to `"dev_mic"` |
 
 ### `[wake]`
 
@@ -136,9 +137,15 @@ The connection to Home Assistant. See
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `listen` | `"[::]:80"` | The address of the [dashboard](/docs/dashboard/), of the same control API and of the [metrics](/docs/metrics/), for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
+| `listen` | `""` in the code, `"[::]:80"` in the image | The address of the [dashboard](/docs/dashboard/), of the same control API and of the [metrics](/docs/metrics/), for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
 | `root` | `"/usr/share/pinna/web"` | The dashboard's files |
 | `allowed_hosts` | `[]` | More names to open the dashboard by, besides IP addresses, `localhost`, `.local` names, the hostname and the host of the dashboard address. A setting for developers: to open the dashboard by a name, [set a dashboard address](/docs/dashboard/#set-a-dashboard-address) on the **Network** page |
+
+### `[dev]`
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `virtual_device` | `false` | Turns the device into the virtual Echo Dot of the development VM, with its buttons, microphone switch, microphone and speaker on the dashboard. Only the x86_64 image sets it; Pinna refuses it on real hardware |
 
 ## Settings that the dashboard and Home Assistant control
 

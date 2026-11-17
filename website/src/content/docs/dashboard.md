@@ -44,10 +44,10 @@ phone they are in a bar at the bottom.
 | Section | What you can do |
 | --- | --- |
 | **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant, Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. While music plays, **Now playing** shows it, with pause, resume and stop, and **Mute music**. **Identify** runs the ring's test pattern, to find the device among others |
-| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), set the ring brightness, turn the **Wake sound** and **Listening direction** on or off, and [use the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light). **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them, and [plays music from a URL](#play-music-from-a-url). **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
+| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), set the ring brightness, turn the **Wake sound** and **Listening direction** on or off, [use the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light), and run the ring's test pattern with **Identify**. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them, and [plays music from a URL](#play-music-from-a-url). **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
 | **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted. See the device's name, and copy the host and port to add the device by hand |
 | **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. [Set a dashboard address](#set-a-dashboard-address), where else the dashboard opens |
-| **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
+| **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, see how its last start ended, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
 
 The dashboard only offers the wake words whose models the image ships.
 
@@ -119,7 +119,8 @@ can't reach, such as a guest network that keeps its devices apart:
    opens the dashboard at its new address: connect a phone or computer to that
    network and open the device's `.local` address, which the page shows before
    you join, or the device's address from your
-   router. Over USB, the page shows **Keep** instead.
+   router. You can also select **Keep it** on the page, for example over
+   USB.
 3. Until then, every page shows the network on trial and the time left. After
    5 minutes, on **Go back**, or when the device restarts, it goes back to its
    saved networks.
@@ -278,7 +279,10 @@ device answer to that name:
 
 The address starts with `http://` or `https://`, has a host name or an IP
 address and optionally a port, and has nothing after that: no user name,
-password, path, query or fragment. The device stores it with a `/` at the end.
+password, path, query or fragment. The host must be one that other devices on
+your network can reach, so `localhost`, loopback addresses, the USB link's
+`10.42.0.x` addresses and link-local IPv6 addresses are refused. The device
+stores it with a `/` at the end.
 It works at once. **Remove** clears it. While the dashboard is open by the
 address's own host name, it won't remove the address or change it to another
 host, because the page would stop answering: open it by the IP address or the

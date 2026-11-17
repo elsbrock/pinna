@@ -75,6 +75,7 @@ before you send a change that affects the image or the device.
 | `just bootimg-roundtrip` | The boot image unpacks and repacks byte for byte | `build/pinna-boot.img` from `just bootimg` |
 | `just vm-test` | The real ARM root image boots in QEMU, and SSH and the Home Assistant API come up | `just kernel-qemu image` first. Takes a few minutes, because QEMU emulates the CPU |
 | `just vm-test-x86` | The same checks with the x86_64 image, and the virtual Echo Dot: its buttons, microphone button, speaker, and the wake word through its microphone | `just kernel-x86 image-x86` first. Faster with KVM. The wake word check needs the models (`just models`); skips without them |
+| `just vm-rescue-test` | The initramfs stays in rescue mode, without restarting, on a disk without a root filesystem image and on one without slot partitions | `just kernel-qemu` first. `just vm-rescue-test-x86` runs the same on x86_64 and needs `just kernel-x86`. `just test` doesn't run either |
 | `just vm-update-test` | An update installs into the other slot, the trial boot succeeds, and a broken update rolls back | `just kernel-qemu image` and the signing key. Builds two more images, so it takes longer |
 | `just test-device` | Speaker, microphones, LED ring and the Home Assistant API on a real device | A running device reachable over SSH |
 
@@ -91,9 +92,9 @@ reinstalling it, use `just push`:
 just push
 ```
 
-`just push` cross-compiles `pinnad`, `pinnactl` and `pinna-bootctl`, copies
-them to the device over SSH as a system extension in
-`/var/lib/extensions/pinna-dev`, and restarts `pinnad`. The root filesystem
+`just push` cross-compiles `pinnad`, `pinnactl`, `pinna-bootctl` and
+`pinna-bootstages`, copies them to the device over SSH as a system extension
+in `/var/lib/extensions/pinna-dev`, and restarts `pinnad`. The root filesystem
 stays read-only and unchanged.
 
 By default it connects to `root@10.42.0.1`, over USB. To use another address, set

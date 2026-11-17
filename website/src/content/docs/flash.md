@@ -12,13 +12,15 @@ to undo it.
 
 - Get the images: from a [release](https://github.com/elsbrock/pinna/releases)
   (download all its files into one folder) or by building them, as described
-  in [Build Pinna](/docs/build/).
+  in [Build Pinna](/docs/build/). No release is published yet, so for now you
+  build them.
 - Back up the device, as described in
   [What you need](/docs/requirements/#backup-of-the-device). Installing Pinna
   erases the data partition.
-- Run the commands from the folder that holds the images — in `nix develop`,
-  if you built them with it. The examples say `scripts/flash-gen2.sh`; in a
-  release folder the script is `./flash-gen2.sh` next to the images.
+- Run the commands on your computer, from the repository's root folder — in
+  `nix develop`, if you built the images with it. The examples say
+  `scripts/flash-gen2.sh`; in a release folder, run `./flash-gen2.sh` next to
+  the images instead.
 
 ## What gets written
 
@@ -146,7 +148,7 @@ firmware doesn't boot properly.
 
    The ring shows the listening, thinking, speaking and muted animations.
 
-5. Check the speaker: press **Volume up** on the device. You hear a short
+5. Check the speaker: press **Volume Up** on the device. You hear a short
    beep, and the ring shows the new volume.
 
 ## Connect to Wi-Fi

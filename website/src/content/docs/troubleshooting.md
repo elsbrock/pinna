@@ -128,7 +128,7 @@ If all lines look right:
   [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device)
   describes. The ring flashes green on every wake while it runs.
 
-  The log shows the scores too, in the lines `wake word detected (score …)`
+  The log shows the scores too, in the lines `wake word "Alexa" detected (score …)`
   and `wake word near miss (Alexa): peak score …`, which names the word that
   scored. With two wake words active they share one sensitivity, so raising it
   affects both.
@@ -184,9 +184,11 @@ The request didn't work. The log says why:
 
 | Log line | Cause |
 | --- | --- |
+| `no Home Assistant voice subscription; cannot start a run` | Home Assistant isn't connected, or has no Assist pipeline for the device |
 | `Home Assistant refused the run` | Home Assistant has no Assist pipeline for the device, or the pipeline failed to start |
+| `Home Assistant did not answer the run start` | Home Assistant didn't start the request within 5 seconds |
 | `Assist error: …` | The pipeline reported an error, for example from speech-to-text |
-| `Assist run timed out` | Home Assistant didn't answer in time: 5 seconds to start, 15 seconds of listening, 30 seconds of thinking, including the wait for the reply to start |
+| `Assist run timed out` | Home Assistant didn't answer within 30 seconds of thinking, including the wait for the reply to start. After 15 seconds of listening, the device stops the microphone and waits for the answer |
 
 The ring also flashes red when you press the Action button while the
 microphones are off.

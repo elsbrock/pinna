@@ -42,6 +42,7 @@ writes the update directly. It takes these options:
 device:     pinna-2a914e (00:fc:8b:2a:91:4e)
 version:    2026.11.15.2312-aeafbda
 uptime:     3h 12m 05s
+last start: restarted (update)
 phase:      idle
 muted:      no
 volume:     40%
@@ -55,6 +56,8 @@ timers:
 
 - `version` is the version of `pinnad`, and `uptime` is the time since
   `pinnad` started.
+- `last start` says how the start before this one ended, for example
+  `restarted (update)`. It is left out when the device can't tell.
 - `phase` is `idle`, `listening`, `thinking` or `speaking`.
 - `muted` is `no`, `yes (hardware)`, `yes (software)` or
   `yes (hardware, software)`.
@@ -106,11 +109,11 @@ device. `pinnad` serves it in two places:
 | `SetVolume` | `percent` (0–100) | Sets the volume. Values above 100 return `invalid_argument` |
 | `SetStreamVolume` | `percent` (0–100) | Sets the volume of live audio on the stream socket, on the same curve as the volume and under it. Only the device's own programs can call it, on `127.0.0.1`; from the network it returns `permission_denied`. [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) use it for the sender's volume |
 | `SetMute` | `muted` (bool) | Turns the software mute on or off. The hardware switch isn't affected |
-| `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings or a request is already running |
+| `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings, or a request, a reply or an announcement is already running |
 | `StopConversation` | Empty | Stops a request, a reply, an announcement or a timer alarm |
 | `LedTest` | Empty | Runs the LED test |
 | `ClearNotification` | Empty | Clears a waiting notification, even if the ring shows something else: the **Notification** switch turns off and the `cleared` event fires. Does nothing if no notification is waiting |
-| `UpdateSettings` | Any of `wake_word` (bool), `wake_sensitivity` and `led_brightness` (0–100), `wake_words` (up to two ids from `Status.wake_word.available`), `airplay` and `bluetooth` (bool), `hostname` (one DNS label, stored lowercase), `time_zone` (one of `ListTimeZones`), `url` (the dashboard address: `http://` or `https://`, a host and an optional port, nothing after it; stored with a `/` at the end; an empty string clears it), `reply_volume` (0–100), and `reply_follows_volume` and `listening_direction` (bool) | Changes those settings through the same paths as Home Assistant's entities; `hostname`, `time_zone` and `url` have no entity. `reply_follows_volume` set to true makes replies follow the volume again; false keeps the current level. `reply_follows_volume` true together with `reply_volume` returns `invalid_argument`. `airplay` returns `failed_precondition` on a device without a working speaker, `bluetooth` also on one without Bluetooth. Values above 100, an invalid hostname or dashboard address, a time zone the device doesn't have, unknown or repeated wake word ids and more than two return `invalid_argument`. `wake_words` returns `failed_precondition` while Home Assistant is connected: its dropdowns own the choice then |
+| `UpdateSettings` | Any of `friendly_name` (the name Home Assistant shows: 1 to 64 characters, no control characters), `wake_word` and `wake_sound` (bool), `wake_sensitivity` and `led_brightness` (0–100), `wake_words` (up to two ids from `Status.wake_word.available`), `airplay` and `bluetooth` (bool), `hostname` (one DNS label, stored lowercase), `time_zone` (one of `ListTimeZones`), `url` (the dashboard address: `http://` or `https://`, a host that other devices can reach and an optional port, nothing after it; stored with a `/` at the end; an empty string clears it), `reply_volume` (0–100), and `reply_follows_volume` and `listening_direction` (bool) | Changes those settings through the same paths as Home Assistant's entities; `friendly_name`, `hostname`, `time_zone` and `url` have no entity. Home Assistant reads a new `friendly_name` or `hostname` when it next connects: the device makes it reconnect once no request, reply, announcement, music or timer alarm plays. `reply_follows_volume` set to true makes replies follow the volume again; false keeps the current level. `reply_follows_volume` true together with `reply_volume` returns `invalid_argument`. `airplay` returns `failed_precondition` on a device without a working speaker, `bluetooth` also on one without Bluetooth. Values above 100, an empty or too long name, an invalid hostname or dashboard address, a time zone the device doesn't have, unknown or repeated wake word ids and more than two return `invalid_argument`. `wake_words` returns `failed_precondition` while Home Assistant is connected: its dropdowns own the choice then |
 | `ListTimeZones` | Empty | Returns the IANA time zones the device has, from tzdata's `zone1970.tab`, plus `UTC`, that `UpdateSettings` accepts as `time_zone` |
 | `ListSatellites` | Empty | Asks the network for the other Pinna devices with a one-shot mDNS query and at most one follow-up, which takes about a second and a half. Returns `satellites`, each with its node name, friendly name, model, MAC, version, dashboard port, dashboard address and addresses (without the USB link's `10.42.0.0/24` and without link-local IPv6 addresses), and `on_network`, which is false, with no query and an empty list, while the device has no address beyond USB. Returns `unavailable` when the query can't be sent |
 | `SetRingLight` | Any of `on` (bool), `brightness` (0–100), `rgb` (`0xRRGGBB`) and `effect` (one of `Status.ring_light.effects`) | Changes the ring light, as Home Assistant's **LED ring** light does. Out-of-range values and unknown effects return `invalid_argument` |
@@ -123,11 +126,18 @@ device. `pinnad` serves it in two places:
 | `ForgetBluetoothDevice` | `address` (from `Status.bluetooth.devices`) | Removes a paired phone, which has to pair again to play. Returns `failed_precondition` while Bluetooth is off |
 | `ReportBluetooth` | `ready`, `address`, `devices`, `error` | Used by `pinna-bt` to report the adapter and the paired phones. Only the device's own programs can call it, on `127.0.0.1` |
 | `GetNetwork` | Empty | Returns the hostname and each interface: name, MAC, addresses, and for Wi-Fi the network, signal, band and bitrate |
-| `WatchLogs` | Empty | Streams the last 1000 lines of `pinnad`'s journal, then new lines. Debug and trace lines are left out |
+| `WatchLogs` | Empty | Streams the last 1000 lines of the journal of `pinnad` and of the AirPlay and Bluetooth services, then new lines. Debug and trace lines are left out |
 | `GetUpdates` | Empty | Returns the A/B slots (version, state, tries left, which one runs and which one starts next), whether an install runs, the last install's result, and a suggested manifest URL |
 | `InstallUpdate` | `manifest` (an `http://` or `https://` URL) | Starts `pinnactl update` on the device. Returns `failed_precondition` while another install runs |
-| `WatchInstall` | Empty | Streams the output of the running or last install, and ends with a message that has `done` set |
+| `WatchInstall` | Empty | Streams the output of the running or last install, each line with its `stage`, and ends with a message that has `done` set |
+| `SetActiveSlot` | `slot` (`a` or `b`) | Chooses the slot that starts next. The other slot: its image is checked, it starts next as a trial, and the device restarts; if the restart fails, the slots are put back. Only a slot that is good or hasn't been started yet. The running slot: it starts next again, which cancels a pending update, without a restart. Refused while an install runs or while the running slot is on trial |
 | `Reboot` | Empty | Restarts the device |
+| `FactoryReset` | `name` (the device's name or node name, as typed to confirm; case and surrounding spaces don't matter) | Forgets the settings, the saved Wi-Fi networks, the encryption key that Home Assistant set, SSH keys added on the device and its SSH host key, and restarts the device. The log stays. Another name returns `invalid_argument`. See [Reset the device](/docs/dashboard/#reset-the-device) |
+| `ScanWifi` | Empty | Scans for Wi-Fi networks, which takes a few seconds. Returns `networks`, strongest first, one per name, each with `ssid`, `signal_dbm`, `frequency_mhz`, `security`, `saved` and `current`. Networks that hide their name are left out. Returns `failed_precondition` while a join runs |
+| `ListWifi` | Empty | Returns the `saved` networks in the order the device tries them (each with `ssid`, `security`, `hidden` and `current`; never the password), whether a join runs (`joining`), the last join's final step (`last_join`), and the network on `trial` |
+| `JoinWifi` | `ssid`, `security` (`WIFI_SECURITY_OPEN` or `_WPA_PSK`), `passphrase` (8 to 63 characters or 64 hex digits; empty for an open network) and `hidden` | Tries a network and streams the steps: `JOIN_STAGE_CONNECTING`, `_ADDRESS`, then `_TRIAL` or `_FAILED` (with `failure`). Without an address within 45 seconds, the device goes back to the network it was on. On trial, it keeps the network once the dashboard is opened at the new `address` or `KeepWifi` keeps it, and goes back after `keep_seconds` (5 minutes) otherwise. The join goes on when the caller goes away. Returns `failed_precondition` while another join runs or a network is on trial. See [Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network) |
+| `KeepWifi` | `keep` (bool) | Keeps and saves the network on trial, or with `false` goes back now. Returns the join's final step |
+| `ForgetWifi` | `ssid` | Forgets a saved network and returns the saved ones. Forgetting the network in use disconnects the device. Returns `not_found` for a network that isn't saved, and `failed_precondition` while a join runs or a network is on trial |
 
 `SetVolume`, `SetStreamVolume`, `SetMute`, `StartConversation`, `StopConversation`,
 `ClearNotification`, `UpdateSettings`, `StartCalibration`, `StopCalibration`,
@@ -164,12 +174,17 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `led_backend` | string | `is31`, `mock`, `virtual` (the virtual Echo Dot) or `none` |
 | `alarm_ringing` | bool | A finished timer's alarm rings. `StopConversation` stops it |
 | `notification` | bool | A notification is waiting. `ClearNotification` clears it |
-| `settings` | `Settings` | `wake_word`, `wake_sensitivity`, `led_brightness`, `wake_words` (the active ids, at most two), `airplay` and `bluetooth` (the switches), `reply_volume` (unset while replies follow the volume) and `listening_direction` |
+| `settings` | `Settings` | `wake_word`, `wake_sensitivity`, `led_brightness`, `wake_words` (the active ids, at most two), `friendly_name`, `default_name` (nobody chose a name yet), `wake_sound`, `url` (the dashboard address; empty when none is set), `airplay` and `bluetooth` (the switches), `time_zone` (`UTC` until one is set), `reply_volume` (unset while replies follow the volume) and `listening_direction` |
 | `ring_light` | `RingLight` | The ring as a light: `on`, `brightness` (0–100), `rgb` (`0xRRGGBB`), `effect` and `effects` (every effect it takes) |
 | `media` | `Media` | The media player: `state` (`MEDIA_STATE_IDLE`, `_PLAYING`, `_PAUSED` or `_ANNOUNCING`), `url` (what plays or last played; empty for AirPlay and Bluetooth), `stream` (AirPlay or Bluetooth plays), `muted` (the music, not the microphones), `error` (why the last play failed, until the next one), `available` (the device has a working speaker) and `volume` (0–100: the stream's own while AirPlay or Bluetooth plays, the volume otherwise) |
 | `airplay` | `AirPlay` | The AirPlay receiver as it runs: `state` (`AIRPLAY_STATE_OFF`, `_STARTING`, `_READY`, `_FAILED`, or `_UNAVAILABLE` on a device without a working speaker), `name` (what senders list it as, while it is on) and `reason` (systemd's result when it failed, for example `exit-code`) |
 | `bluetooth` | `Bluetooth` | Bluetooth as it runs: `state` (`BLUETOOTH_STATE_OFF`, `_STARTING`, `_READY`, `_FAILED`, or `_UNAVAILABLE` on a device without Bluetooth or a working speaker), `name` (what phones list it as, while it is on), `address`, `pairing_until_ms` (when the pairing window closes, in Unix milliseconds; 0 while it is closed), `pairing_seconds_left` (the same as seconds left when the `Status` was sent, to count down from whatever the clocks say), `devices` (the paired phones while it is ready: `address`, `name`, `connected`) and `reason` (why it failed) |
 | `model` | string | `"echo-dot-2"` on an Echo Dot (2nd gen), `"echo-2"` on an Echo (2nd gen), empty when the hardware is unknown |
+| `virtual_device` | bool | The device is the virtual Echo Dot of the development VM |
+| `last_boot` | `LastBoot` | How the start before this one ended: `outcome` (`LAST_BOOT_OUTCOME_COLD_START`, `_RESTARTED`, `_RESCUE`, `_CRASHED` or `_RESET`), `reason` (for example `update`) and `summary`, one line such as `restarted (update)` |
+| `api_encrypted` | bool | The connection to Home Assistant is encrypted |
+| `api_key_from_image` | bool | The encryption key came with the image, so a factory reset keeps it |
+| `led_test` | bool | The ring runs its test pattern (`LedTest`, or **Identify** on the dashboard) |
 
 ## What's next
 

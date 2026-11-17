@@ -87,8 +87,8 @@ Save screenshots and logs in a temporary directory, not in the repository.
 
 Only when the owner asks, and say which device you used.
 
-- `just push` cross-compiles `pinnad`, `pinnactl` and `pinna-bootctl` and
-  installs them as a system extension, then restarts `pinnad`. Without
+- `just push` cross-compiles `pinnad`, `pinnactl`, `pinna-bootctl` and
+  `pinna-bootstages` and installs them as a system extension, then restarts `pinnad`. Without
   `PINNA_HOST` it connects over USB to `root@10.42.0.1`; otherwise set
   `PINNA_HOST=root@<address>`.
 - `scripts/push-dev.sh --remove` goes back to the installed programs.

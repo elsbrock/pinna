@@ -27,6 +27,8 @@ repository too (`kernel/firmware/`) and built into the kernel.
 
 Two ways in: from a release (no build), or from a build of the repository.
 
+No release has been published yet; until one is, build the images (step 2b).
+
 **From a release**, you need `fastboot`, `adb` and `sha256sum` from your
 distribution (on Debian/Ubuntu, `android-tools` has the first two), and all
 five files of one [release](https://github.com/elsbrock/pinna/releases)
@@ -114,8 +116,8 @@ sha256sum -c SHA256SUMS
 | `secrets/device/pinnad.toml` | no | default for `/var/lib/pinna/pinnad.toml` — device identity: a `[device]` table with e.g. `name = "echodot2"` on its own line | step 1, or by hand |
 | `secrets/device/esphome-key` | no | default for `/var/lib/pinna/esphome-key` — the Home Assistant API key (base64, 32 bytes) | `head -c32 /dev/urandom \| base64`, or the previous firmware's (step 1) |
 
-Without an API key the ESPHome API is plaintext and Home Assistant adds the
-device without asking for one. Without Wi-Fi credentials the device is
+Without an API key, Home Assistant adds the device without asking for one and
+then gives it a key of its own (ADR 0018). Without Wi-Fi credentials the device is
 reachable over USB only. A minimal Wi-Fi file:
 
 ```
@@ -192,7 +194,8 @@ Undo: Recovery.
 
 ## 6. First boot checks
 
-On the UART console (if attached) pinna-init reports first:
+In the kernel log (`dmesg | grep pinna-init` once you're logged in; the Echo
+Dot has no UART) pinna-init reports first:
 `pinna-init: no slot state (first flash): slot a`, then
 `pinna-init: slot mmcblk0p13 -> dm-0 (dm-verity, root hash …)` and
 `pinna-init: booting slot a, version …`.
@@ -247,12 +250,12 @@ Pinna advertises `_esphomelib._tcp` via mDNS.
 
 Say "Alexa…".
 
-The API is plaintext until a key is set: put a base64 32-byte key in
-`/var/lib/pinna/esphome-key` (or `[esphome] encryption_key` in
-`/var/lib/pinna/pinnad.toml`), restart pinnad, and give Home Assistant the
-same key. Home
-Assistant can then rotate it over the encrypted connection; the new key is
-stored in `/var/lib/pinna/esphome-key`.
+Without a key in the image, the API is plaintext until Home Assistant sets
+one when you add the device (ADR 0018). To set one by hand instead, put a
+base64 32-byte key in `/var/lib/pinna/esphome-key` (or `[esphome]
+encryption_key` in `/var/lib/pinna/pinnad.toml`), restart pinnad, and give
+Home Assistant the same key. Home Assistant can rotate the key over the
+encrypted connection; the new key is stored in `/var/lib/pinna/esphome-key`.
 
 Things expected to need tuning on real hardware (not testable off-device):
 mic gain and wake threshold (`/var/lib/pinna/pinnad.toml` on the device; it
@@ -262,7 +265,8 @@ LED direction.
 
 ## 8. Updates and rollback
 
-To the newest release, from the device (it needs Wi-Fi with internet access):
+To the newest release, once one is published, from the device (it needs Wi-Fi
+with internet access):
 
 ```sh
 pinnactl update https://github.com/elsbrock/pinna/releases/latest/download/manifest.json --reboot

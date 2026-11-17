@@ -105,6 +105,8 @@ Pinna's own services:
 | `pinna-wifi` | Powers up the Wi-Fi chip and loads its firmware |
 | `pinna-gadget` | Sets up the USB serial console and network |
 | `pinna-bootstages` | Shows the start-up steps on the ring after the system starts (USB, Wi-Fi, `pinnad`), then hands the ring to `pinnad` |
+| `pinna-hostname` | Gives the satellite its name on the network before the network starts |
+| `pinna-factory-reset` | After you ask for a factory reset in the dashboard, clears Pinna's settings in `/var` on the next start |
 | `pinna-fastboot-guard` | Writes the fastboot request early in each boot |
 | `pinna-boot-ok` | The health check that marks a boot as good |
 | `pinna-airplay` | The AirPlay receiver: runs Debian's `shairport-sync` and passes its audio to `pinnad`. `pinnad` starts and stops it with the **AirPlay** switch. See [Play music with AirPlay](/docs/airplay/) |

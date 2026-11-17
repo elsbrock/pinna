@@ -77,18 +77,22 @@ The volume runs from 0 to 100 and is applied digitally. 0 is silent, 1 is about
 above 70 also the extra gain of its stock firmware, up to +14.5 dB at 100. A
 limiter holds the peaks just under full scale, so loud replies and music
 don't clip.
-**Reply volume** sets how loud replies and announcements are, on the same
-scale as the volume, and they are never louder than the volume: with the
-volume at 30, a reply volume of 50 plays at 30. Until someone sets it, replies
+
+**Reply volume** sets how loud the voice lane is: replies and announcements,
+and also the timer alarm and short sounds. It uses the same scale as the
+volume, and the voice lane is never louder than the volume: with the volume
+at 30, a reply volume of 50 plays at 30. Until someone sets it, replies
 follow the volume. On the [dashboard](/docs/dashboard/), turn
 **Replies follow Volume** off under **Voice & sound**: **Reply volume**
 appears, set to the current volume. Turning the switch back on makes replies
 follow the volume again, which Home Assistant's **Reply volume** number can't
 do.
+
 **Stream volume** lowers live audio on the stream socket the same way. It is
 the sending phone's or computer's volume, set by the program that feeds the
-socket. While a stream plays, the Home Assistant media player shows and sets
-the stream volume; the volume itself stays where it is.
+socket. While a stream plays, the Home Assistant media player and
+**Music volume**, under **Now playing** on the dashboard's **Overview**, show
+and set the stream volume; the volume itself stays where it is.
 
 ## Audio backends
 
@@ -99,7 +103,7 @@ chooses how `pinnad` reaches the audio hardware. Keep it at `"auto"`:
 | --- | --- |
 | `echodot-pipewire` | On the Echo (2nd gen) and Echo Dot (2nd gen), when PipeWire runs. The normal case |
 | `echodot` | The same, without PipeWire. Microphones and speaker through ALSA |
-| `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. Virtual machine images run without an audio backend |
+| `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. The virtual Echo Dot sets it in its own configuration |
 | `wav:<path>` | Reads the microphone signal from a WAV file. The speaker plays to nothing. For tests |
 | `none` | No audio. The wake word and voice requests are off |
 

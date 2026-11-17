@@ -5,8 +5,7 @@ description: What works in Pinna today, what is known to be missing or rough, an
 
 Pinna is in early development. You can build it, install it on an Echo
 (2nd gen) or an Echo Dot (2nd gen) and use it with Home Assistant and its own
-dashboard, but there is no prebuilt image, and parts of it are still being
-tuned on real hardware.
+dashboard. Parts of it are still being tuned on real hardware.
 
 ## What works
 
@@ -16,7 +15,10 @@ These parts are covered by tests that run without hardware:
   the repository. The kernel is Debian's 6.12 with the MT8163 board support
   ported to it.
 - The image boots in a virtual machine, in both the ARM and the x86_64
-  version, and its services, SSH and the Home Assistant API come up.
+  version, and its services, SSH, the Home Assistant API, the dashboard and
+  the [Prometheus metrics](/docs/metrics/) come up.
+- A device with no system it can start stays in
+  [rescue mode](/docs/recovery/#rescue-mode) instead of restarting.
 - An update installs into the second slot and boots on trial, and a broken
   update rolls back to the previous slot automatically.
 - The Home Assistant connection passes tests with Home Assistant's own client
@@ -24,7 +26,9 @@ These parts are covered by tests that run without hardware:
 - The wake word detection gives the same results as the reference
   implementation, within 0.001.
 - A complete voice request, from the wake word to the played reply, works
-  against a simulated Home Assistant.
+  against a simulated Home Assistant. The reply plays while it downloads, the
+  wake word interrupts a reply and stops a ringing timer alarm, and changes on
+  the dashboard reach Home Assistant.
 - [AirPlay](/docs/airplay/) turns on and off in the x86_64 virtual machine:
   the receiver starts, publishes its AirPlay record, reports that it is ready,
   and stops again.
@@ -47,17 +51,19 @@ On the devices:
 - **The dashboard has no login.** Anyone on your network can use it,
   including restarting and updating the device. See
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
-- **No prebuilt images.** You build your own images and sign them with your
-  own key.
+- **No release is published yet.** The release workflow builds and signs the
+  images for a [release](https://github.com/elsbrock/pinna/releases), but none
+  has been published. Until then, you [build your own](/docs/build/).
 - **The wake words are fixed in the image.** Pinna listens for up to two of
   Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy (openWakeWord) and Okay Nabu at
-  once, chosen in Home Assistant or on the dashboard. None of the models'
-  licences allows commercial use, and the dashboard can't accept extra models
-  yet.
+  once, chosen in Home Assistant or on the dashboard. The openWakeWord models'
+  licence doesn't allow commercial use, and the dashboard can't accept extra
+  models yet.
 - **The boot image isn't updated automatically.** Updates replace the root
   filesystem only. A new kernel needs fastboot.
 - **No automated test runs.** The tests run when contributors run them; there
-  is no CI for them yet.
+  is no CI for them yet. The release workflow builds the images but doesn't
+  run the tests.
 - **AirPlay is untested on a device.** No AirPlay sender has played to Pinna
   yet, in the virtual machine or on a device. Whether iPhones accept the record
   that Pinna publishes, and how often music wakes the device or stops it

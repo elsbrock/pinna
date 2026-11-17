@@ -10,8 +10,8 @@ device sends your request to your Home Assistant, and it plays the reply. The
 wake word detection runs on the device, and Pinna doesn't use Amazon's
 services.
 
-> **Early development.** Pinna works, but you build and install it yourself,
-> and you control it from the command line, from the
+> **Early development.** Pinna works, but you install it yourself over
+> fastboot, and you control it from the command line, from the
 > [dashboard](/docs/dashboard/) and from Home Assistant. See
 > [Status and roadmap](/docs/status/).
 
@@ -25,7 +25,9 @@ services.
 3. The device plays the reply. The light ring shows each step.
 
 Home Assistant also gets the light ring, the buttons, mute, volume, timers and
-a media player as entities, so you can use them in automations.
+a media player as entities, so you can use them in automations. Phones and
+computers can play music to the device over [AirPlay](/docs/airplay/) and
+[Bluetooth](/docs/bluetooth/).
 
 Underneath, Pinna is Debian with systemd, on a read-only root filesystem.
 Updates go to a second copy of the system and roll back on their own if the
@@ -36,7 +38,8 @@ new version doesn't start.
 To install Pinna, follow these pages in order:
 
 1. [What you need](/docs/requirements/): the device, the files and the tools.
-2. [Build Pinna](/docs/build/): build the images.
+2. [Build Pinna](/docs/build/): build the images. Once a release is
+   published, you can download them from it instead.
 3. [Install Pinna](/docs/flash/): install them over fastboot.
 4. [Connect to Home Assistant](/docs/home-assistant/): add the device and
    choose an Assist pipeline.

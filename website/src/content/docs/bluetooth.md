@@ -56,7 +56,7 @@ The device uses its name, the one you set in
    phone pairs without a code.
 
 The pairing window closes when a phone pairs, after two minutes, or when you
-select **Stop**. The paired phone shows on **Media sources**, and connects
+select **Stop pairing**. The paired phone shows on **Media sources**, and connects
 again later without pairing.
 
 While the window is open, anyone nearby can pair a phone. Outside it, the

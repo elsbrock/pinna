@@ -4,8 +4,9 @@ An open, local-first voice satellite OS for the **Echo (2nd gen)** and
 **Echo Dot (2nd gen)** (MediaTek MT8163).
 
 Pinna turns the device into a Home Assistant voice satellite with on-device wake
-word, LED ring feedback and button control. It is a modern image-based Linux
-system: Debian userland built with mkosi, systemd, a read-only erofs root in
+word, LED ring feedback and button control. It also plays music over AirPlay
+and Bluetooth, and a dashboard on the device manages it from your browser. It
+is a modern image-based Linux system: Debian userland built with mkosi, systemd, a read-only erofs root in
 signed A/B slots verified by dm-verity, and small Rust daemons.
 
 > Status: early bring-up. Console and a local dashboard. Expect sharp edges.
@@ -13,7 +14,8 @@ signed A/B slots verified by dm-verity, and small Rust daemons.
 Pinna needs an Echo that has already been unlocked with Kaeru/amonet (as
 for the previous firmware). To install it, follow `docs/runbook-first-flash.md`:
 it covers downloading a prebuilt image from a
-[release](https://github.com/elsbrock/pinna/releases) or building your own,
+[release](https://github.com/elsbrock/pinna/releases) (none is published yet)
+or building your own,
 backs the device up first, and every step says how to undo it.
 
 ## Layout

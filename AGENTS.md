@@ -69,6 +69,7 @@ changed:
 | `dashboard/`, `design/` or `proto/` | `just web-check` |
 | The kernel configuration | `just kernel-config` |
 | `pinna-init`, `pinna-bootimg`, boot, slots or updates | `just vm-test`, `just vm-update-test`, `just bootimg-roundtrip` |
+| Rescue mode or boot stages | `just vm-rescue-test`, `just vm-rescue-test-x86` |
 | The image in `mkosi/`, or anything else the virtual machine runs | `just vm-test-x86` |
 
 - No CI runs these tests. Run them yourself and say which ones you ran.

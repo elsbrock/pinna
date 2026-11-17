@@ -30,6 +30,9 @@ same `secrets/release.key` that you used for the first installation.
 
 ## Update to a new release
 
+No release is published yet. Until one is, build your updates as described
+in [Install an update](#install-an-update).
+
 A release's `manifest.json` installs the newest published release. On the
 device, with Wi-Fi and internet access:
 
@@ -183,8 +186,9 @@ See [Install Pinna](/docs/flash/#install-the-boot-image).
 | `root.size` | The image size in bytes. It must fit into the slot (768 MiB) |
 | `root.sha256` | The SHA-256 checksum of the image |
 
-`just release` writes the manifest for you. Image versions have the form
-`YEAR.MONTH.DAY.HOURMINUTE-COMMIT`.
+`just release` writes the manifest for you. The image versions of your own
+builds have the form `YEAR.MONTH.DAY.HOURMINUTE-COMMIT`. A release's version is
+its tag without the `v`.
 
 ## What's next
 

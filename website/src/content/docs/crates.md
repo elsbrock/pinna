@@ -40,7 +40,8 @@ This page helps you find your way around the
 | `pinna-hal` | Access to the LED ring, the buttons, the microphone privacy switch and the device identity, with mock versions for tests |
 | `pinna-api` | The control API service, generated from `proto/` |
 | `pinnactl` | The command-line client for the control API, and the update installer |
-| `pinna-bootctl` | The fastboot request and the A/B slot state in the `misc` partition |
+| `pinna-bootctl` | The fastboot request and the A/B slot state in the `misc` partition, and the boot stages on the ring that `pinna-init` and `pinna-bootstages` share |
+| `pinna-bootstages` | Shows the last boot stages on the ring (USB, Wi-Fi, `pinnad`) after the system starts, then hands the ring to `pinnad` (ADR 0012) |
 | `pinna-init` | The program in the initramfs: chooses a slot, checks its signature, sets up dm-verity and starts the system |
 | `pinna-update` | Writes a signed image into the inactive slot |
 | `pinna-airplay` | Runs `shairport-sync` and passes its audio and the sender's volume to `pinnad`'s stream socket (ADR 0011) |

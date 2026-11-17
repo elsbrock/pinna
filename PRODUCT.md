@@ -13,7 +13,8 @@ Assistant entities.
 **Goals, later and out of scope.** These live in
 [`website/src/content/docs/goals.md`](website/src/content/docs/goals.md),
 published as the Goals page on the website. In short: keep speech local, be a
-good Home Assistant satellite, be safe to install and update, use standard
-parts, make development pleasant, stay open. Later: more Echo devices and a
+good Home Assistant satellite, play music without getting in the way, be safe
+to install and update, use standard parts, make development pleasant, stay
+open. Later: more Echo devices and a
 standalone mode. Out of scope: replacing Alexa, cloud accounts and remote
 access, a general-purpose distribution.
