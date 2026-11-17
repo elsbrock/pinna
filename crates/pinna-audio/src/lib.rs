@@ -14,6 +14,7 @@ pub mod dsp;
 pub mod media;
 pub(crate) mod mix;
 pub mod mixer;
+pub mod playlist;
 pub mod refsink;
 pub mod speaker;
 pub mod spectrum;
