@@ -89,6 +89,10 @@ impl Local {
         LocalOptions::beside_settings(settings_file)
     }
 
+    pub(super) fn ready(&self) -> bool {
+        self.live.borrow().ready
+    }
+
     pub(super) fn status(&self) -> AssistStatus {
         let live = self.live.borrow();
         AssistStatus {

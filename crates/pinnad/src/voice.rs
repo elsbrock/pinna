@@ -3,6 +3,7 @@
 //! light entity and volume. Single task, all inputs arrive on one channel.
 
 mod local;
+mod mode;
 #[cfg(test)]
 mod tests;
 mod timers;
@@ -931,8 +932,16 @@ impl Brain {
                     Err("a conversation or timer alarm is already active".to_string())
                 } else if self.muted() {
                     Err("the microphone is muted".to_string())
-                } else if !self.voice_subscribed {
-                    Err("Home Assistant has not subscribed to voice assistant runs".to_string())
+                } else if !self.assist_ready() {
+                    let why = match self.mode() {
+                        Mode::HomeAssistant => {
+                            "Home Assistant has not subscribed to voice assistant runs"
+                        }
+                        Mode::Standalone => {
+                            "Set up speech-to-text, the brain and text-to-speech under Assistant and check them first."
+                        }
+                    };
+                    Err(why.to_string())
                 } else {
                     self.start_run(None).await;
                     Ok(())
@@ -960,7 +969,9 @@ impl Brain {
                 (Err("Standalone mode isn't available yet.".into()), reply)
             }
             ApiCommand::UpdateSettings(patch, reply)
-                if patch.wake_words.is_some() && self.clients > 0 =>
+                if patch.wake_words.is_some()
+                    && self.clients > 0
+                    && self.mode() == Mode::HomeAssistant =>
             {
                 // Its dropdowns can't show a word chosen here (ADR 0013).
                 let why = "Home Assistant chooses the wake words while it is connected. \
@@ -1456,6 +1467,14 @@ impl Brain {
     // --- Home Assistant -----------------------------------------------------
 
     async fn ha(&mut self, cmd: HaCommand) {
+        if !self.ha_allowed(&cmd) {
+            tracing::debug!("Home Assistant command ignored in standalone mode: {cmd:?}");
+            if matches!(&cmd, HaCommand::Announce { .. }) {
+                self.send(DeviceEvent::AnnounceFinished { success: false })
+                    .await;
+            }
+            return;
+        }
         match cmd {
             HaCommand::ClientConnected { peer } => {
                 self.clients += 1;
@@ -3053,7 +3072,7 @@ impl Brain {
         let wake = self.wake_armed()
             && !muted
             && self.settings.wake_word
-            && (self.voice_subscribed || self.calibration.is_some() || self.ringing.is_some())
+            && (self.assist_ready() || self.calibration.is_some() || self.ringing.is_some())
             && self.boot_done;
         self.shared.wake_enabled.store(wake, Ordering::SeqCst);
         let snapshot = self.snapshot();
