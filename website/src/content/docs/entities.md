@@ -75,7 +75,8 @@ The media player plays two kinds of audio:
   to listen for an answer after the announcement.
 
 It supports play, pause, stop, mute and volume. The volume up and down
-commands change the volume by 5.
+commands change the volume by 5. A new URL replaces what plays once its audio
+starts. If it doesn't play, what played before keeps playing.
 
 While [AirPlay](/docs/airplay/#play-music) or
 [Bluetooth](/docs/bluetooth/#play-music) plays, the media player's volume is

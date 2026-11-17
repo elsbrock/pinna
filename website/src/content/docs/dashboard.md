@@ -231,14 +231,16 @@ Assistant connects, because a calibration wake starts no request.
    **Play**.
 3. Open **Overview**. **Now playing** shows what plays, with **Pause**,
    **Resume** and **Stop**:
-   - For a file, the title, artist and album from its tags, and the address.
+   - For a file, the title, artist and album from its tags, and the
+     address's server and file name.
    - For internet radio, the title that the station sends with the music,
      and **From** with the station's name. Many stations send neither; then
      it shows the address.
    - Without a title, it shows **Playing** or **Paused** in its place.
 
 The device fetches the address itself, from your network, and plays it as it
-plays music from Home Assistant: it replaces what was playing, gets quieter
+plays music from Home Assistant: it replaces what was playing once its audio
+starts, gets quieter
 while the device listens or speaks, and follows **Volume**. AAC, HLS and
 playlist files such as `.m3u` and `.pls` don't play. For a radio station, use
 its direct MP3 or Ogg stream address, not the playlist link.
@@ -254,9 +256,15 @@ It has no **Pause**, because pausing ends the phone's session: use **Stop**,
 or pause on the phone. **Music volume** sets how loud that music plays on the
 device. The phone's own slider doesn't move.
 
-If an address doesn't play, **Now playing** says why, for example that the
-server answered `HTTP 404 Not Found`. **Mute music** silences the music only;
-replies, the wake sound and timer alarms still sound.
+If an address doesn't play, what was playing keeps playing. **Now playing**
+shows **Couldn't play** under it, with the address and why, for example that
+the server answered `HTTP 404 Not Found`. **Dismiss** removes the message:
+with nothing playing, for everyone; while something plays, on this page
+only, because clearing it there would stop the music.
+
+**Mute music** silences the music only; replies, the wake sound and timer
+alarms still sound. When the device isn't reachable, **Now playing** says
+**Not reachable**, and what it shows may be out of date.
 
 ## Who can use the dashboard
 

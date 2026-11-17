@@ -71,7 +71,7 @@ While Bluetooth plays:
 
 - The music replaces whatever the device played before: media from Home
   Assistant, AirPlay, or another phone. Media that Home Assistant starts
-  replaces the music the same way.
+  replaces the music the same way, once its audio starts.
 - When two paired phones are connected, the device plays only the one that
   connected last, even while it plays nothing. If the music stops when
   another phone connects, disconnect that phone.

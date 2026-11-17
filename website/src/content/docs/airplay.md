@@ -53,7 +53,7 @@ While AirPlay plays:
 
 - The music replaces whatever the device played before: media from Home
   Assistant, or another AirPlay sender. Media that Home Assistant starts
-  replaces the music the same way.
+  replaces the music the same way, once its audio starts.
 - The sender's volume sets how loud the music is. **Volume**, on the dashboard,
   the device's buttons or the **Volume** entity in Home Assistant, sets how loud
   the device is overall.
