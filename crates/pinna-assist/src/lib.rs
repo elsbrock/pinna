@@ -10,6 +10,7 @@ pub mod conversation;
 pub mod error;
 #[cfg(feature = "fakes")]
 pub mod fakes;
+pub mod http;
 pub mod limits;
 pub mod observe;
 pub mod presets;
@@ -18,3 +19,5 @@ pub mod reply;
 pub mod run;
 pub mod secrets;
 pub mod sentences;
+#[cfg(feature = "testing")]
+pub mod testing;
