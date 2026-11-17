@@ -6,7 +6,7 @@
 //! while its dashboard accepts a connection at its host name's addresses.
 
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -22,6 +22,7 @@ use crate::network;
 const SERVICE: &str = "_esphomelib._tcp.local";
 const PROJECT: &str = "pinna.satellite";
 const MDNS: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251)), 5353);
+const MDNS6: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb);
 /// How long answers to the first query are collected.
 const FIRST_WINDOW: Duration = Duration::from_millis(1000);
 /// How long answers to each follow-up for missing records are collected.
@@ -48,6 +49,10 @@ const USB_NET: (Ipv4Addr, u8) = (Ipv4Addr::new(10, 42, 0, 0), 24);
 pub struct Found {
     /// The instance label: the node name, which is also the hostname.
     pub name: String,
+    /// The host its SRV record names, without `.local`. Usually `name`, but
+    /// systemd-resolved may rename either after a conflict (ADR 0024), and
+    /// only this one resolves.
+    pub host: String,
     pub friendly_name: String,
     pub board: String,
     pub mac: String,
@@ -180,6 +185,10 @@ impl Collected {
                 continue;
             }
             let host = self.srv.get(instance);
+            let host_label = host
+                .and_then(|(h, _)| h.strip_suffix(".local"))
+                .unwrap_or_default()
+                .to_owned();
             let web_port = txt
                 .get("web_port")
                 .and_then(|p| p.parse::<u16>().ok())
@@ -187,6 +196,7 @@ impl Collected {
                 .unwrap_or(80);
             out.push(Found {
                 name: label.clone(),
+                host: host_label,
                 friendly_name: get("friendly_name"),
                 board: get("board"),
                 mac,
@@ -203,9 +213,35 @@ impl Collected {
                     .collect(),
             });
         }
+        let mut out = one_per_mac(out);
         by_name(&mut out);
         out
     }
+}
+
+/// One entry per satellite: a reload of systemd-resolved 257 can leave an old
+/// instance of the same satellite published (ADR 0024). Of those, the one
+/// whose host has addresses, then the one named like its host.
+fn one_per_mac(found: Vec<Found>) -> Vec<Found> {
+    let rank = |f: &Found| {
+        (
+            f.ipv4.is_empty() && f.ipv6.is_empty(),
+            !f.name.eq_ignore_ascii_case(&f.host),
+        )
+    };
+    let mut out: Vec<Found> = Vec::new();
+    for f in found {
+        let mac = mac_digits(&f.mac);
+        match out
+            .iter_mut()
+            .find(|o| !mac.is_empty() && mac_digits(&o.mac) == mac)
+        {
+            Some(o) if rank(&f) < rank(o) => *o = f,
+            Some(_) => {}
+            None => out.push(f),
+        }
+    }
+    out
 }
 
 fn by_name(list: &mut [Found]) {
@@ -282,7 +318,7 @@ async fn look(own_mac: &str) -> Result<Option<Vec<Found>>> {
     if !on_network(&interfaces) {
         return Ok(None);
     }
-    let found = discover(own_mac).await?;
+    let found = discover(own_mac, &v6_links(&interfaces)).await?;
     let up = futures::future::join_all(found.iter().map(answers)).await;
     Ok(Some(
         found
@@ -399,50 +435,130 @@ pub fn on_network(interfaces: &[Interface]) -> bool {
     })
 }
 
-/// Ask the network for satellites: one query, then follow-ups for the records
-/// the answers so far lack.
-async fn discover(own_mac: &str) -> Result<Vec<Found>> {
-    discover_at(MDNS, own_mac, FIRST_WINDOW, SECOND_WINDOW).await
+/// The interfaces to ask over IPv6, by index: those besides the USB link
+/// that are up and have an IPv6 address. ff02::fb is link-local, so each
+/// gets its own query.
+fn v6_links(interfaces: &[Interface]) -> Vec<u32> {
+    interfaces
+        .iter()
+        .filter(|i| i.name != "usb0" && i.name != "lo" && i.up)
+        .filter(|i| {
+            i.addresses.iter().any(|a| {
+                a.split('/')
+                    .next()
+                    .is_some_and(|ip| ip.parse::<Ipv6Addr>().is_ok())
+            })
+        })
+        .filter_map(|i| {
+            std::fs::read_to_string(format!("/sys/class/net/{}/ifindex", i.name))
+                .ok()?
+                .trim()
+                .parse()
+                .ok()
+        })
+        .collect()
+}
+
+/// Ask the network for satellites over IPv4 and, on each of `v6_links`, over
+/// IPv6: one query, then follow-ups for the records the answers so far lack.
+/// What either family brings is merged: a responder may answer over one only
+/// (ADR 0021).
+async fn discover(own_mac: &str, v6_links: &[u32]) -> Result<Vec<Found>> {
+    let mut targets = vec![MDNS];
+    targets.extend(
+        v6_links
+            .iter()
+            .map(|&i| SocketAddr::V6(SocketAddrV6::new(MDNS6, 5353, 0, i))),
+    );
+    discover_at(&targets, own_mac, FIRST_WINDOW, SECOND_WINDOW).await
 }
 
 async fn discover_at(
-    target: SocketAddr,
+    targets: &[SocketAddr],
     own_mac: &str,
     first: Duration,
     second: Duration,
 ) -> Result<Vec<Found>> {
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
-        .await
-        .context("opening a UDP socket")?;
-    socket
-        .set_multicast_ttl_v4(255)
-        .context("setting the multicast TTL")?;
+    let v4 = if targets.iter().any(SocketAddr::is_ipv4) {
+        let s = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+            .await
+            .context("opening a UDP socket")?;
+        s.set_multicast_ttl_v4(255)
+            .context("setting the multicast TTL")?;
+        Some(s)
+    } else {
+        None
+    };
+    // IPv6 is a second chance, not a requirement.
+    let v6 = if targets.iter().any(SocketAddr::is_ipv6) {
+        UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0)).await.ok()
+    } else {
+        None
+    };
+    let sockets = (v4.as_ref(), v6.as_ref());
     let mut collected = Collected::default();
     let ask = vec![(SERVICE.to_owned(), TYPE::PTR)];
-    socket
-        .send_to(&query(fastrand::u16(1..), &ask)?, target)
-        .await
-        .context("sending the mDNS query")?;
-    listen(&socket, &mut collected, first).await;
+    send(sockets, targets, &query(fastrand::u16(1..), &ask)?).await?;
+    listen(sockets, &mut collected, first).await;
     for _ in 0..FOLLOW_UPS {
         let missing = collected.missing();
         if missing.is_empty() {
             break;
         }
-        socket
-            .send_to(&query(fastrand::u16(1..), &missing)?, target)
-            .await
-            .context("sending the mDNS query")?;
-        listen(&socket, &mut collected, second).await;
+        send(sockets, targets, &query(fastrand::u16(1..), &missing)?).await?;
+        listen(sockets, &mut collected, second).await;
     }
     Ok(collected.finish(own_mac))
 }
 
-async fn listen(socket: &UdpSocket, collected: &mut Collected, window: Duration) {
+type Sockets<'a> = (Option<&'a UdpSocket>, Option<&'a UdpSocket>);
+
+/// Send to every target from the socket of its family. Fails only when no
+/// send went out: a link without IPv6 shouldn't stop the IPv4 query.
+async fn send((v4, v6): Sockets<'_>, targets: &[SocketAddr], packet: &[u8]) -> Result<()> {
+    let mut last = None;
+    let mut sent = false;
+    for &t in targets {
+        let Some(s) = (if t.is_ipv4() { v4 } else { v6 }) else {
+            continue;
+        };
+        match s.send_to(packet, t).await {
+            Ok(_) => sent = true,
+            Err(e) => last = Some(e),
+        }
+    }
+    match (sent, last) {
+        (false, Some(e)) => Err(e).context("sending the mDNS query"),
+        (false, None) => anyhow::bail!("sending the mDNS query: no socket"),
+        _ => Ok(()),
+    }
+}
+
+/// Collect answers on both sockets until `window` ends.
+async fn listen((v4, v6): Sockets<'_>, collected: &mut Collected, window: Duration) {
+    async fn recv(s: Option<&UdpSocket>, buf: &mut [u8]) -> std::io::Result<usize> {
+        match s {
+            Some(s) => s.recv_from(buf).await.map(|(n, _)| n),
+            None => std::future::pending().await,
+        }
+    }
     let end = Instant::now() + window;
-    let mut buf = vec![0u8; 9000];
-    while let Ok(Ok((n, _))) = tokio::time::timeout_at(end, socket.recv_from(&mut buf)).await {
-        collected.ingest(&buf[..n]);
+    let (mut b4, mut b6) = (vec![0u8; 9000], vec![0u8; 9000]);
+    loop {
+        let got = tokio::time::timeout_at(end, async {
+            tokio::select! {
+                r = recv(v4, &mut b4) => r.map(|n| (n, true)),
+                r = recv(v6, &mut b6) => r.map(|n| (n, false)),
+            }
+        })
+        .await;
+        match got {
+            Ok(Ok((n, true))) => collected.ingest(&b4[..n]),
+            Ok(Ok((n, false))) => collected.ingest(&b6[..n]),
+            // An ICMP error from an earlier send; the window still bounds it.
+            Ok(Err(_)) => {}
+            Err(_) => break,
+        }
     }
 }
 
@@ -546,6 +662,7 @@ mod tests {
             found,
             [Found {
                 name: "kitchen".into(),
+                host: "kitchen".into(),
                 friendly_name: "Kitchen".into(),
                 board: "Echo Dot (2nd Gen)".into(),
                 mac: "02:00:00:aa:bb:cc".into(),
@@ -697,7 +814,7 @@ mod tests {
                 .unwrap();
         });
         let found = discover_at(
-            target,
+            &[target],
             "02:00:00:00:00:01",
             Duration::from_millis(150),
             Duration::from_millis(150),
@@ -749,7 +866,7 @@ mod tests {
             asked
         });
         let found = discover_at(
-            target,
+            &[target],
             "",
             Duration::from_millis(150),
             Duration::from_millis(150),
@@ -767,6 +884,7 @@ mod tests {
     fn found(name: &str, mac: &str) -> Found {
         Found {
             name: name.into(),
+            host: name.into(),
             friendly_name: name.into(),
             board: String::new(),
             mac: mac.into(),
@@ -819,11 +937,142 @@ mod tests {
         assert!(!answers(&sat).await, "no address heard");
     }
 
+    /// After a conflict, systemd-resolved 257 may publish the instance and
+    /// the host under different names; only the host's `.local` name resolves.
+    #[test]
+    fn the_local_name_comes_from_the_srv_record() {
+        let inst = "echo10._esphomelib._tcp.local";
+        let mut c = Collected::default();
+        c.ingest(&response(
+            vec![rr(SERVICE, ptr(inst)), rr(inst, srv("echo8.local", 6053))],
+            vec![
+                rr(inst, txt(&pinna_txt())),
+                rr("echo8.local", a([192, 168, 1, 20])),
+            ],
+            true,
+        ));
+        let found = c.finish("");
+        assert_eq!(
+            (found[0].name.as_str(), found[0].host.as_str()),
+            ("echo10", "echo8")
+        );
+    }
+
+    /// A reload of systemd-resolved 257 leaves the old instance published
+    /// next to the new one, under the same MAC.
+    #[test]
+    fn a_stale_instance_of_the_same_satellite_is_left_out() {
+        let mut c = Collected::default();
+        let (stale, now) = (
+            "libreecho._esphomelib._tcp.local",
+            "echo2._esphomelib._tcp.local",
+        );
+        c.ingest(&response(
+            vec![
+                rr(SERVICE, ptr(stale)),
+                rr(SERVICE, ptr(now)),
+                rr(stale, srv("echo2.local", 6053)),
+                rr(now, srv("echo2.local", 6053)),
+            ],
+            vec![
+                rr(stale, txt(&pinna_txt())),
+                rr(now, txt(&pinna_txt())),
+                rr("echo2.local", a([192, 168, 1, 20])),
+            ],
+            true,
+        ));
+        let names: Vec<_> = c.finish("").into_iter().map(|f| f.name).collect();
+        assert_eq!(
+            names,
+            ["echo2"],
+            "both have addresses: the one named like its host"
+        );
+
+        let mut c = Collected::default();
+        c.ingest(&response(
+            vec![
+                rr(SERVICE, ptr(now)),
+                rr(SERVICE, ptr(stale)),
+                rr(now, srv("echo8.local", 6053)),
+                rr(stale, srv("gone.local", 6053)),
+            ],
+            vec![
+                rr(now, txt(&pinna_txt())),
+                rr(stale, txt(&pinna_txt())),
+                rr("echo8.local", a([192, 168, 1, 20])),
+            ],
+            true,
+        ));
+        let names: Vec<_> = c.finish("").into_iter().map(|f| f.name).collect();
+        assert_eq!(names, ["echo2"], "the one whose host has addresses");
+    }
+
+    /// A responder that answers every question asked, alone.
+    fn answer_what_is_asked(server: UdpSocket) -> tokio::task::JoinHandle<usize> {
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 2000];
+            let mut queries = 0;
+            let wait = Duration::from_millis(500);
+            while let Ok(Ok((n, from))) =
+                tokio::time::timeout(wait, server.recv_from(&mut buf)).await
+            {
+                queries += 1;
+                let q = Packet::parse(&buf[..n]).unwrap();
+                let mut p = Packet::new_reply(q.id());
+                for question in &q.questions {
+                    let QTYPE::TYPE(ty) = question.qtype else {
+                        continue;
+                    };
+                    p.answers.push(match ty {
+                        TYPE::PTR => rr(SERVICE, ptr(INSTANCE)),
+                        TYPE::SRV => rr(INSTANCE, srv(HOST, 6053)),
+                        TYPE::TXT => rr(INSTANCE, txt(&pinna_txt())),
+                        TYPE::A => rr(HOST, a([192, 168, 1, 20])),
+                        TYPE::AAAA => rr(HOST, aaaa("2001:db8::20")),
+                        _ => continue,
+                    });
+                }
+                server
+                    .send_to(&p.build_bytes_vec_compressed().unwrap(), from)
+                    .await
+                    .unwrap();
+            }
+            queries
+        })
+    }
+
+    /// The case seen on an Echo (2nd gen): its resolved answered over IPv6
+    /// but not over IPv4.
+    #[tokio::test]
+    async fn hears_a_satellite_that_answers_only_over_ipv6() {
+        let Ok(v6) = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await else {
+            eprintln!("no IPv6 loopback here; skipped");
+            return;
+        };
+        let silent = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let targets = [silent.local_addr().unwrap(), v6.local_addr().unwrap()];
+        let responder = answer_what_is_asked(v6);
+        let found = discover_at(
+            &targets,
+            "",
+            Duration::from_millis(150),
+            Duration::from_millis(150),
+        )
+        .await
+        .unwrap();
+        assert!(
+            responder.await.unwrap() >= 3,
+            "PTR, then SRV and TXT, then addresses"
+        );
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].ipv4, [Ipv4Addr::new(192, 168, 1, 20)]);
+    }
+
     #[tokio::test]
     async fn nobody_answering_is_an_empty_list() {
         let server = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let found = discover_at(
-            server.local_addr().unwrap(),
+            &[server.local_addr().unwrap()],
             "",
             Duration::from_millis(50),
             Duration::from_millis(50),

@@ -656,6 +656,10 @@ message Satellite {
   repeated string ipv4 = 8;
   // Addresses without link-local ones.
   repeated string ipv6 = 9;
+  // The host its SRV record names, without `.local`: the name that
+  // resolves. Usually `name`, but systemd-resolved may rename either after
+  // a name conflict (ADR 0024).
+  string host = 10;
 }
 
 message UpdateSettingsResponse {

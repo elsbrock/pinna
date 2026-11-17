@@ -349,6 +349,7 @@ fn calibration_kind(kind: crate::calibration::EventKind) -> CalibrationEventKind
 fn satellite(f: satellites::Found) -> pinna_api::Satellite {
     pinna_api::Satellite {
         name: f.name,
+        host: f.host,
         friendly_name: f.friendly_name,
         board: f.board,
         mac: f.mac,
@@ -1683,6 +1684,7 @@ mod tests {
         assert!(!r.searched && r.satellites.is_empty(), "nothing asked yet");
         let kitchen = satellites::Found {
             name: "kitchen".into(),
+            host: "kitchen".into(),
             friendly_name: "Kitchen".into(),
             board: "Echo Dot (2nd Gen)".into(),
             mac: "02:00:00:00:00:0a".into(),

@@ -492,6 +492,7 @@ test("Wi-Fi words: security, what can't be joined, a join's end", () => {
 const satellite = (over: Partial<Satellite> = {}): Satellite => ({
   $typeName: "pinna.v1.Satellite",
   name: "kitchen",
+  host: "kitchen",
   friendlyName: "Kitchen",
   board: "Echo Dot (2nd Gen)",
   mac: "02:00:00:aa:bb:cc",
@@ -519,6 +520,14 @@ test("an announced address that isn't plain http(s) is not a link", () => {
 test("opened by a .local name: the other's .local name", () => {
   assert.deepEqual(satelliteLink(satellite(), at("Pinna.local.")), { href: "http://kitchen.local/", host: "kitchen.local" });
   assert.equal(satelliteLink(satellite({ webPort: 8080 }), at("pinna.local")).href, "http://kitchen.local:8080/");
+});
+
+test("the .local name is the host the SRV record names, which a name conflict may have changed", () => {
+  const renamed = satellite({ name: "echo10", host: "echo8" });
+  assert.equal(satelliteLink(renamed, at("pinna.local")).href, "http://echo8.local/");
+  assert.equal(satelliteFallbacks(renamed)[0].host, "echo8.local");
+  // Older firmware sends no host: the instance name, as before.
+  assert.equal(satelliteLink(satellite({ host: "" }), at("pinna.local")).href, "http://kitchen.local/");
 });
 
 test("opened by an IPv4 address or another name: the other's IPv4 address", () => {

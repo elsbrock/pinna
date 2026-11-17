@@ -567,11 +567,12 @@ export function wifiConnected(w: { wifi?: unknown; addresses: string[] } | undef
 
 /** Where a satellite's dashboard opens: the link and the host to show with it. */
 export type SatLink = { href: string; host: string };
-export type SatelliteLike = Pick<Satellite, "name" | "board" | "webPort" | "url" | "ipv4" | "ipv6">;
+export type SatelliteLike = Pick<Satellite, "name" | "host" | "board" | "webPort" | "url" | "ipv4" | "ipv6">;
 
 const port = (sat: SatelliteLike) => (sat.webPort && sat.webPort !== 80 ? `:${sat.webPort}` : "");
 const link = (host: string): SatLink => ({ href: `http://${host}/`, host });
-const localLink = (sat: SatelliteLike) => link(`${encodeURIComponent(sat.name)}.local${port(sat)}`);
+// The host its SRV record names: after a name conflict the instance name may not resolve (ADR 0024).
+const localLink = (sat: SatelliteLike) => link(`${encodeURIComponent(sat.host || sat.name)}.local${port(sat)}`);
 
 /** The address another satellite announces for its dashboard, when it is a plain
  *  http(s) one: the record comes from the network, so nothing else becomes a link. */
