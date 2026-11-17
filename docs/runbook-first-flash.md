@@ -266,17 +266,20 @@ LED direction.
 
 ## 8. Updates and rollback
 
-To the newest release, once one is published, from the device (it needs Wi-Fi
-with internet access):
+Release images look for new releases on their update channel
+(`updates.getpinna.dev`, ADR 0022) and show them on the dashboard's **System**
+page and in Home Assistant, where you install them. No release is published
+yet. From the device, the same channel by hand (it needs Wi-Fi with internet
+access):
 
 ```sh
-pinnactl update https://github.com/elsbrock/pinna/releases/latest/download/manifest.json --reboot
+pinnactl update https://updates.getpinna.dev/v1/channels/stable --channel stable --reboot
 ```
 
 For your own builds, on the build machine:
 
 ```sh
-just release                   # build/release/{pinna-<version>.root.img, pinna-boot.img, manifest.json}
+just release                   # build/release/{pinna-<version>.root.img, pinna-boot.img, manifest.json, manifest.json.sig}
 cd build/release && python3 -m http.server 8000
 ```
 

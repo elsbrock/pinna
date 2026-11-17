@@ -47,7 +47,7 @@ phone they are in a bar at the bottom.
 | **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), set the ring brightness, turn the **Wake sound** and **Listening direction** on or off, [use the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light), and run the ring's test pattern with **Identify**. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them, and [plays music from a URL](#play-music-from-a-url). **Sensitivity** opens the **Wake word** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other. The page also shows what each ring state means |
 | **Home Assistant** | See whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted. See the device's name, and copy the host and port to add the device by hand |
 | **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. [Set a dashboard address](#set-a-dashboard-address), where else the dashboard opens |
-| **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, see how its last start ended, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
+| **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), choose where it looks for updates (**Updates**: Stable, Beta or Off), check for one and see what the last check found, see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, see how its last start ended, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
 
 The dashboard only offers the wake words whose models the image ships.
 
@@ -279,12 +279,13 @@ includes renaming the device, setting its dashboard address, moving it to
 another Wi-Fi network or forgetting the one it uses, making the device play an
 address from your network, lighting the ring in any colour, the solid red of
 the muted microphones included, restarting the device,
-installing an update and switching to the version in the other slot. It also
+choosing the update channel, installing an update and switching to the version in the other slot. It also
 includes seeing what plays: the title of the music a phone sends over AirPlay
 or Bluetooth shows on **Now playing**. Only an update that
-is signed with your release key installs, and the device goes back to the
-previous version if the new one doesn't start. An older release that you
-signed installs too, so someone with a copy of it can downgrade the device.
+is signed with the device's release key installs, and the device goes back to
+the previous version if the new one doesn't start. An install from a manifest
+URL takes an older signed release too, so someone with a copy of one can
+downgrade the device.
 
 The dashboard itself has no switch to turn it off: on a page without a login,
 anyone could turn it back on. Developers can turn it off with `listen = ""`

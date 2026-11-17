@@ -36,6 +36,8 @@ it on.
 Every installation step can be undone, and the documentation says how.
 Fastboot stays reachable on every boot. Updates are signed, go to a second
 system slot, and roll back automatically if the new system doesn't start.
+The device looks for new releases once a day and shows them on the dashboard
+and in Home Assistant; none installs without you.
 
 ### Use standard parts
 
@@ -72,8 +74,14 @@ apart from Pinna's own code and isn't under Pinna's license.
 
 - **Replacing Alexa.** Pinna doesn't use Amazon's services, so Alexa features
   such as skills, shopping and calling aren't available.
-- **Cloud accounts and remote access.** Pinna has no account and no cloud
-  service. If you want to reach your devices from outside your home, set that
+- **Cloud accounts and remote access.** Pinna has no account. The one service
+  of the project that a device contacts is `updates.getpinna.dev`, to look for
+  new releases: once a day and after each start. It learns what any web server
+  learns, the address a request comes from and when, and the channel the
+  device asks for (`stable` or `beta`), nothing else, and it keeps no logs.
+  Cloudflare, which runs it, sees each request's address too. Set **Updates**
+  to **Off** on the dashboard and the device contacts no service of the
+  project. If you want to reach your devices from outside your home, set that
   up in Home Assistant.
 - **A general-purpose Linux distribution.** Pinna is built to be a voice
   satellite, not a base for other uses of the device.

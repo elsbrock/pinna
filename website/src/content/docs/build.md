@@ -55,7 +55,9 @@ The command writes two files:
   your images.
 - `secrets/release.pub`: the public key. The build compiles it in instead of
   the project key `keys/release.pub` when it exists, so a device accepts only
-  images signed with your private key.
+  images signed with your private key. Such a build starts with **Updates**
+  off, because the project's releases don't install on it. See
+  [Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates).
 
 If `secrets/release.key` already exists, `just keygen` keeps it and only
 writes the public key again.

@@ -14,11 +14,13 @@ This page helps you find your way around the
 | `proto/` | The definition of the control API (`pinna/v1/device.proto`) |
 | `kernel/` | The kernel source reference (`source.env`), Pinna's patches and configuration, and the build script that packages the kernel as a Debian package. `kernel/firmware/` holds the microphone FPGA bitstream |
 | `dashboard/` | The dashboard, written in Svelte. `pinnad` serves it |
+| `services/updates/` | The release service behind `updates.getpinna.dev`, a Cloudflare Worker in TypeScript: update channels and release downloads (ADR 0022) |
+| `releases/` | The notes of each release, which the `release-notes` skill drafts |
 | `firmware/` | The MT8163 Wi-Fi and Bluetooth firmware: Amazon's files, unmodified |
 | `mkosi/` | The image definition: Debian packages, configuration files and systemd units that go into the root filesystem |
 | `scripts/` | Build helpers, `flash-gen2.sh` for installing over fastboot, `backup-gen2.sh` and `verify-backup.sh` for the device backup, `fetch-models.sh` and `push-dev.sh` |
 | `tools/wmt/` | Small C programs that power up the Wi-Fi and Bluetooth chip |
-| `keys/` | The public key that root filesystem images must be signed with |
+| `keys/` | The public key that root filesystem images and update manifests must be signed with |
 | `tests/` | Virtual machine tests (`vm/`), the end-to-end voice test (`e2e/`) and the hardware test (`device/`) |
 | `design/` | The design system for the website and the dashboard |
 | `vendor/` | Third-party code kept in the repository: the `.tflite` support of the `tract` inference library, with the fixes it needs (ADR 0013) |
@@ -32,18 +34,18 @@ This page helps you find your way around the
 
 | Crate | Purpose |
 | --- | --- |
-| `pinnad` | The voice satellite: wake word, buttons, light ring, requests to Home Assistant, timers, announcements, media playback, mute and volume. Also serves the control API and the dashboard |
+| `pinnad` | The voice satellite: wake word, buttons, light ring, requests to Home Assistant, timers, announcements, media playback, mute and volume. Also serves the control API and the dashboard, and checks the update channel |
 | `pinna-esphome` | The server side of the ESPHome native API, with or without encryption |
 | `pinna-wakeword` | Wake word detection for `.onnx` and `.tflite` models (the openWakeWord words and compatible classifiers), run on the `tract` inference library |
 | `pinna-audio` | Microphone capture and speaker playback, through ALSA or PipeWire, with mixing, ducking and audio decoding |
 | `pinna-ladspa` | The microphone beamformer, as a LADSPA plugin for PipeWire |
 | `pinna-hal` | Access to the LED ring, the buttons, the microphone privacy switch and the device identity, with mock versions for tests |
 | `pinna-api` | The control API service, generated from `proto/` |
-| `pinnactl` | The command-line client for the control API, and the update installer |
+| `pinnactl` | The command-line client for the control API, the update installer, and the update check that `pinnad` runs (`pinnactl update --check`) |
 | `pinna-bootctl` | The fastboot request and the A/B slot state in the `misc` partition, and the boot stages on the ring that `pinna-init` and `pinna-bootstages` share |
 | `pinna-bootstages` | Shows the last boot stages on the ring (USB, Wi-Fi, `pinnad`) after the system starts, then hands the ring to `pinnad` (ADR 0012) |
 | `pinna-init` | The program in the initramfs: chooses a slot, checks its signature, sets up dm-verity and starts the system |
-| `pinna-update` | Writes a signed image into the inactive slot |
+| `pinna-update` | Checks a release's signed manifest and the channel's rules, and writes its images into the inactive slot |
 | `pinna-airplay` | Runs `shairport-sync` and passes its audio, the sender's volume and the sender's track to `pinnad` (ADR 0011) |
 | `pinna-bt` | Opens the Bluetooth pairing window in BlueZ, accepts pairings only then, reports the paired phones, and passes a phone's audio (BlueALSA), volume and track to `pinnad` (ADR 0011) |
 | `pinna-bridge` | What `pinna-airplay` and `pinna-bt` share: sessions on the stream socket and the control API on `127.0.0.1` |
@@ -52,8 +54,8 @@ This page helps you find your way around the
 
 | Crate | Purpose |
 | --- | --- |
-| `pinna-image` | Seals and signs root filesystem images, creates signing keys and update manifests, and verifies images |
-| `pinna-bootimg` | Builds and inspects Android boot images, and builds the initramfs |
+| `pinna-image` | Seals and signs root filesystem images, creates signing keys, writes and signs update manifests, verifies images, and compares image versions |
+| `pinna-bootimg` | Builds and inspects Android boot images and the boot level they provide, and builds the initramfs |
 
 `pinnad` runs the voice satellite in one process. The beamformer runs inside
 PipeWire, and `pinna-init` runs as the first process in the initramfs. The

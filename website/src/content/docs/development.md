@@ -77,6 +77,7 @@ before you send a change that affects the image or the device.
 | `just vm-test-x86` | The same checks with the x86_64 image, and the virtual Echo Dot: its buttons, microphone button, speaker, and the wake word through its microphone | `just kernel-x86 image-x86` first. Faster with KVM. The wake word check needs the models (`just models`); skips without them |
 | `just vm-rescue-test` | The initramfs stays in rescue mode, without restarting, on a disk without a root filesystem image and on one without slot partitions | `just kernel-qemu` first. `just vm-rescue-test-x86` runs the same on x86_64 and needs `just kernel-x86`. `just test` doesn't run either |
 | `just vm-update-test` | An update installs into the other slot, the trial boot succeeds, and a broken update rolls back | `just kernel-qemu image` and the signing key. Builds two more images, so it takes longer |
+| `just updates-test` | The release service (`services/updates/`): its channels, file downloads, cache and withdrawn releases, against recorded GitHub answers | Node 24 or later; no Cloudflare or GitHub account |
 | `just test-device` | Speaker, microphones, LED ring and the Home Assistant API on a real device | A running device reachable over SSH |
 
 `just wakeword-parity` and `just e2e` pass without running anything if the
@@ -109,6 +110,84 @@ To remove the extension and go back to the installed programs, run:
 ```sh
 scripts/push-dev.sh --remove
 ```
+
+While the extension is there, the satellite doesn't install updates: after the
+restart, the extension's programs would hide the new release's. Remove it
+first.
+
+## Offer your own builds as updates
+
+A build with your own key (`just keygen`) installs only images signed with
+that key, and starts with **Updates** off. To give a satellite your builds the
+way a channel gives it releases, with the dashboard's **Install** and Home
+Assistant's update entity:
+
+1. On your computer, build a release and serve it:
+
+   ```sh
+   just release
+   python3 -m http.server 8000 --directory build/release
+   ```
+
+   Its version, such as `0.4.1-dev.202611170910.g1a2b3c4`, is newer than the
+   release it builds on and than older builds of yours.
+
+2. On the satellite, add the address to `/var/lib/pinna/pinnad.toml` and
+   restart `pinnad`:
+
+   ```toml
+   [update]
+   manifest = "http://192.168.1.20:8000/manifest.json"
+   ```
+
+   ```sh
+   systemctl restart pinnad
+   ```
+
+The address replaces the channel: **System** shows it instead of the
+**Updates** setting, and Home Assistant's **Updates** select has it as its only
+option. The satellite checks it on the same schedule as a channel and offers
+the build when its version is newer than the running one. Remove the line to
+go back to a channel.
+
+`PINNA_SUMMARY`, `PINNA_NOTES_URL` and `PINNA_MODELS` (for example
+`PINNA_MODELS="echo-dot-2"`) go into the manifest that `just release` signs.
+
+## The release service
+
+`services/updates/` is the Cloudflare Worker behind `updates.getpinna.dev`.
+It reads the releases from GitHub, sends satellites to the newest one on their
+channel, and serves its files to the browser installer. To run it on your
+computer:
+
+```sh
+cd services/updates
+npx wrangler dev
+```
+
+For the private repository, put a read-only GitHub token into
+`services/updates/.dev.vars` as `GITHUB_TOKEN=…`. Its README says how to
+deploy it and how to withdraw a release.
+
+## Publish a release
+
+1. Draft the release notes with the `release-notes` skill, for example
+   "draft the notes for 0.4.0". It writes `releases/0.4.0.md` from the commits
+   since the previous release. Read and edit it; its first paragraph is the
+   summary that Home Assistant shows.
+2. Commit the notes, tag the release and push the tag, on your computer:
+
+   ```sh
+   git tag v0.4.0
+   git push origin HEAD v0.4.0
+   ```
+
+   Tags are `v<major>.<minor>.<patch>`, or `v<major>.<minor>.<patch>-beta.<n>`
+   for a beta; the release workflow refuses any other tag, and a tag without
+   its notes.
+3. The workflow builds and signs the release and leaves it as a draft on
+   GitHub, a beta as a prerelease. Publish it there; satellites on its channel
+   find it at their next check.
 
 ## Try a change without a device
 

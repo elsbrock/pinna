@@ -171,7 +171,7 @@ it a new key.
    To write another image than `build/pinna.root.img`, set `ROOT_IMG`:
 
    ```sh
-   ROOT_IMG=~/pinna-releases/pinna-2026.11.15.1432-d032e69.root.img \
+   ROOT_IMG=~/pinna-releases/pinna-0.4.0.root.img \
      scripts/flash-gen2.sh root
    ```
 

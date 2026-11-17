@@ -23,6 +23,13 @@ These parts are covered by tests that run without hardware:
   boots on trial, and a broken update rolls back to the previous slot, kernel
   included, automatically. The bootloader's part of this is tested on the
   Echo Dot (2nd gen) only.
+- The device checks an update channel for a newer signed release, shows it on
+  the dashboard and in Home Assistant, and installs the release it showed
+  (tested against a simulated release service and in the x86_64 virtual
+  machine).
+- The release service's channels and downloads pass their tests against
+  recorded GitHub answers. The browser installer checks a release's signature
+  and files in its tests.
 - The Home Assistant connection passes tests with Home Assistant's own client
   library, including encryption and key rotation.
 - The wake word detection gives the same results as the reference
@@ -54,9 +61,12 @@ On the devices:
 - **The dashboard has no login.** Anyone on your network can use it,
   including restarting and updating the device. See
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
-- **No release is published yet.** The release workflow builds and signs the
-  images for a [release](https://github.com/elsbrock/pinna/releases), but none
-  has been published. Until then, you [build your own](/docs/build/).
+- **No release is published yet, and `updates.getpinna.dev` doesn't answer
+  yet.** The release workflow builds and signs the images and the manifest for
+  a [release](https://github.com/elsbrock/pinna/releases), but none has been
+  published, and the release service isn't running. Until then, devices
+  report that their update check failed, and you
+  [build your own](/docs/build/).
 - **The wake words are fixed in the image.** Pinna listens for up to two of
   Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy (openWakeWord) and Okay Nabu at
   once, chosen in Home Assistant or on the dashboard. The openWakeWord models'
@@ -71,6 +81,8 @@ On the devices:
 
 ## Planned
 
+- **Automatic installs** inside a time window that you choose, for releases
+  that need nothing done by hand.
 - **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
   model and naming its phrase (ADR 0013).
 - **Standalone mode**: using the device as a voice assistant without Home

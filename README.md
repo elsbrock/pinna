@@ -6,6 +6,8 @@ An open, local-first voice satellite OS for the **Echo (2nd gen)** and
 Pinna turns the device into a Home Assistant voice satellite with on-device wake
 word, LED ring feedback and button control. It also plays music over AirPlay
 and Bluetooth, and a dashboard on the device manages it from your browser. It
+finds new releases on its update channel and shows them on the dashboard and in
+Home Assistant, which install them with one button. It
 is a modern image-based Linux system: Debian userland built with mkosi, systemd, a read-only erofs root in
 signed A/B slots verified by dm-verity, and small Rust daemons.
 
@@ -27,6 +29,8 @@ backs the device up first, and every step says how to undo it.
 | `kernel/` | Debian 6.12 source pin, MT8163 board-support patches, config fragments and build (packaged as a Debian `.deb`) |
 | `mkosi/` | Debian trixie image definition |
 | `docs/` | Decision records and runbooks |
+| `services/updates/` | The release service behind `updates.getpinna.dev` (Cloudflare Worker): update channels and release downloads, ADR 0022 |
+| `releases/` | Release notes, one file per release, drafted by the `release-notes` skill |
 | `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
 | `dashboard/` | The dashboard (Svelte, connect-es) that `pinnad` serves on port 80; built into the image by `just web` |
 | `design/` | Design system: tokens, component CSS, fonts and the LED ring for the website and dashboard |
@@ -41,7 +45,7 @@ just             # list tasks
                  # first: the owner inputs in secrets/ (docs/runbook-first-flash.md, step 2)
 just keygen      # optional: your own signing key (secrets/release.{key,pub})
 just all         # kernel, wake word models, root filesystem (sealed slot image), boot image
-just release     # build/release/: root image, boot image, update manifest
+just release     # build/release/: root image, boot image, signed update manifest
 just push        # fresh binaries onto a running device (sysext overlay)
 just test-device # hardware gate against a running device
 just test        # everything: unit/lint, ESPHome conformance, wake word parity,
