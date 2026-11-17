@@ -1608,10 +1608,21 @@ impl Brain {
             VoiceEventType::SttVadEnd | VoiceEventType::SttEnd => {
                 self.stop_streaming();
                 if matches!(self.phase, Phase::Listening(_) | Phase::Starting(_)) {
-                    tracing::info!(
-                        "Home Assistant end of speech: shadow endpointer {:?}",
-                        self.shared.mic.shadow_end()
-                    );
+                    // Both times count audio sent so far; Home Assistant's
+                    // includes the network round trip of its decision.
+                    let shadow = self.shared.mic.shadow_report();
+                    match shadow.end {
+                        Some((end, at)) => tracing::info!(
+                            "end of speech: Home Assistant after {} ms of audio, \
+                             shadow endpointer {end:?} after {at} ms",
+                            shadow.streamed_ms
+                        ),
+                        None => tracing::info!(
+                            "end of speech: Home Assistant after {} ms of audio, \
+                             shadow endpointer still listening",
+                            shadow.streamed_ms
+                        ),
+                    }
                     self.end_of_speech(Instant::now());
                     self.event("voice_assistant", "thinking").await;
                 }

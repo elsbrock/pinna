@@ -18,9 +18,19 @@ const PREROLL_FRAMES: usize = 10;
 pub struct MicTap {
     gen_: AtomicU64,
     slot: Mutex<Option<mpsc::Sender<Bytes>>>,
-    /// The shadow endpointer's decision on the current Home Assistant stream,
-    /// shared so the Brain can log it beside Home Assistant's own end of speech.
-    shadow: Mutex<Option<Endpoint>>,
+    /// The shadow endpointer on the current Home Assistant stream, shared so the
+    /// Brain can log it beside Home Assistant's own end of speech.
+    shadow: Mutex<ShadowReport>,
+}
+
+/// How far the shadow endpointer got on the current Home Assistant stream.
+/// Times count audio, not wall clock: milliseconds of microphone audio sent to
+/// Home Assistant since the stream began, the pre-roll included.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ShadowReport {
+    pub streamed_ms: u64,
+    /// The shadow's decision, and how much audio it had seen when it made it.
+    pub end: Option<(Endpoint, u64)>,
 }
 
 impl MicTap {
@@ -37,15 +47,14 @@ impl MicTap {
         self.gen_.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// Record the shadow endpointer's decision, or clear it at the start of a
-    /// Home Assistant stream. It is only ever read for a log line.
-    pub fn set_shadow_end(&self, end: Option<Endpoint>) {
-        *self.shadow.lock().unwrap() = end;
+    /// Publish the shadow endpointer's progress. It is only ever read for a
+    /// log line.
+    fn report_shadow(&self, report: ShadowReport) {
+        *self.shadow.lock().unwrap() = report;
     }
 
-    /// The shadow endpointer's decision on the current Home Assistant stream,
-    /// if it has reached one.
-    pub fn shadow_end(&self) -> Option<Endpoint> {
+    /// The shadow endpointer's progress on the current Home Assistant stream.
+    pub fn shadow_report(&self) -> ShadowReport {
         *self.shadow.lock().unwrap()
     }
 
@@ -87,7 +96,7 @@ pub struct MicRouter {
     /// A private endpointer run beside Home Assistant's own VAD (ADR 0017).
     /// Its decision is logged, never sent to Home Assistant.
     shadow: Option<Endpointer>,
-    shadow_ended: bool,
+    shadow_report: ShadowReport,
 }
 
 impl MicRouter {
@@ -112,9 +121,9 @@ impl MicRouter {
         // Home Assistant keeps priority if a stale local route overlaps its stream.
         if streaming {
             if !self.was_streaming {
-                tap.set_shadow_end(None);
                 self.shadow = Some(Endpointer::new(EndpointConfig::REQUEST, noise_seed));
-                self.shadow_ended = false;
+                self.shadow_report = ShadowReport::default();
+                tap.report_shadow(self.shadow_report);
                 let preroll: Vec<_> = self.preroll.drain(..).collect();
                 for frame in preroll {
                     self.feed_shadow(&frame, tap);
@@ -148,18 +157,20 @@ impl MicRouter {
     /// Its decision is stored on the tap; nothing here changes what Home
     /// Assistant receives.
     fn feed_shadow(&mut self, frame: &Bytes, tap: &MicTap) {
-        if self.shadow.is_none() {
+        let Some(shadow) = self.shadow.as_mut() else {
             return;
-        }
+        };
         let pcm: Vec<i16> = frame
             .chunks_exact(2)
             .map(|b| i16::from_le_bytes([b[0], b[1]]))
             .collect();
-        let state = self.shadow.as_mut().unwrap().push(&pcm);
-        if state.is_terminal() && !self.shadow_ended {
-            self.shadow_ended = true;
-            tap.set_shadow_end(Some(state));
+        let state = shadow.push(&pcm);
+        // 16 kHz mono: 16 samples per millisecond.
+        self.shadow_report.streamed_ms += pcm.len() as u64 / 16;
+        if state.is_terminal() && self.shadow_report.end.is_none() {
+            self.shadow_report.end = Some((state, self.shadow_report.streamed_ms));
         }
+        tap.report_shadow(self.shadow_report);
     }
 
     #[allow(dead_code)]
@@ -293,7 +304,7 @@ mod tests {
         for _ in 0..600 {
             router.route(pcm(10), false, &tap, Some(256));
         }
-        assert_eq!(tap.shadow_end(), None);
+        assert_eq!(tap.shadow_report(), ShadowReport::default());
 
         // A standalone route is not Home Assistant either.
         let (tx, _rx) = mpsc::channel(MIC_QUEUE);
@@ -301,7 +312,7 @@ mod tests {
         for _ in 0..100 {
             router.route(pcm(3000), false, &tap, Some(256));
         }
-        assert_eq!(tap.shadow_end(), None);
+        assert_eq!(tap.shadow_report(), ShadowReport::default());
         tap.close();
     }
 
@@ -315,7 +326,12 @@ mod tests {
         for _ in 0..120 {
             router.route(pcm(10), true, &tap, Some(256));
         }
-        assert_eq!(tap.shadow_end(), Some(Endpoint::Ended));
+        let report = tap.shadow_report();
+        // 220 frames of 10 ms were streamed; speech stopped after 1000 ms.
+        assert_eq!(report.streamed_ms, 2200);
+        let (end, at) = report.end.unwrap();
+        assert_eq!(end, Endpoint::Ended);
+        assert!((1000..=2200).contains(&at), "ended after {at} ms");
     }
 
     #[test]
@@ -325,6 +341,9 @@ mod tests {
         for _ in 0..520 {
             router.route(pcm(10), true, &tap, Some(256));
         }
-        assert_eq!(tap.shadow_end(), Some(Endpoint::NoSpeech));
+        let (end, at) = tap.shadow_report().end.unwrap();
+        assert_eq!(end, Endpoint::NoSpeech);
+        // NoSpeech comes 5 s after the start, and the decision keeps its time.
+        assert_eq!(at, 5000);
     }
 }
