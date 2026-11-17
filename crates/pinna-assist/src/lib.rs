@@ -16,4 +16,5 @@ pub mod presets;
 pub mod prompt;
 pub mod reply;
 pub mod run;
+pub mod secrets;
 pub mod sentences;

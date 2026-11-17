@@ -12,6 +12,7 @@ fakes = []
 [dependencies]
 bytes = "1"
 futures-core = "0.3"
+pinna-http = { path = "../pinna-http" }
 pinna-mcp = { path = "../pinna-mcp" }
 serde.workspace = true
 serde_json.workspace = true

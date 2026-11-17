@@ -2101,6 +2101,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "hound",
+ "pinna-http",
  "pinna-mcp",
  "serde",
  "serde_json",
