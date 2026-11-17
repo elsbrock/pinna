@@ -2,6 +2,8 @@
 //! moved from pinna-wakeword, and an endpointer that turns a stream of PCM into
 //! end-of-speech decisions. No dependencies.
 
+pub mod endpoint;
 pub mod vad;
 
+pub use endpoint::{Endpoint, EndpointConfig, Endpointer};
 pub use vad::Vad;
