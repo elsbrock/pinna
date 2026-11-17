@@ -3,6 +3,8 @@
 use futures_core::future::BoxFuture;
 
 pub mod listen;
+#[allow(dead_code)]
+pub(crate) mod reply;
 
 pub use crate::conversation::Turn;
 use crate::error::ProviderError;

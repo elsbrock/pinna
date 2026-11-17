@@ -138,7 +138,7 @@ impl Harness {
 
     /// `run::reply` drains a fragment flushed by `on_stream_end`. Normally the
     /// adapter's `End` delta has already returned it from `on_delta`.
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn drain(&mut self) -> Vec<Out> {
         std::mem::take(&mut self.pending)
     }
