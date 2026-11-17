@@ -2602,6 +2602,11 @@ impl Brain {
     // --- runs -----------------------------------------------------------------
 
     async fn start_run(&mut self, wake_phrase: Option<String>) {
+        if self.mode() == Mode::Standalone {
+            return self
+                .start_local_run(pinna_assist::run::RunKind::Request, wake_phrase)
+                .await;
+        }
         if !self.voice_subscribed {
             tracing::warn!("no Home Assistant voice subscription; cannot start a run");
             self.error_feedback();

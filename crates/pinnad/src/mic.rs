@@ -8,7 +8,6 @@ use bytes::Bytes;
 use pinna_vad::{Endpoint, EndpointConfig, Endpointer};
 use tokio::sync::mpsc;
 
-#[allow(dead_code)]
 pub const MIC_QUEUE: usize = 64;
 const PREROLL_FRAMES: usize = 10;
 
@@ -34,7 +33,6 @@ pub struct ShadowReport {
 }
 
 impl MicTap {
-    #[allow(dead_code)]
     pub fn open(&self, tx: mpsc::Sender<Bytes>) {
         let mut slot = self.slot.lock().unwrap();
         *slot = Some(tx);

@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use pinna_assist::config::{Place, Station};
+use pinna_assist::pipeline::Pipeline;
+use pinna_assist::presets::{Behaviour, PresetId, preset};
 use pinna_mcp::client::McpToolSet;
 
 /// The standalone snapshot the Brain reads. The service owns and replaces it.
@@ -15,6 +17,7 @@ pub struct AssistLive {
     pub ready: bool,
     pub slots: [bool; 3],
     pub label: String,
+    pub pipeline: Option<Arc<Pipeline>>,
     pub prompt: Option<String>,
     pub language: Option<String>,
     pub place: Option<Place>,
@@ -34,6 +37,7 @@ impl AssistLive {
             ready: false,
             slots: [false; 3],
             label: String::new(),
+            pipeline: None,
             prompt: None,
             language: None,
             place: None,
@@ -43,5 +47,12 @@ impl AssistLive {
             stations: Arc::new(Vec::new()),
             mcp: Vec::new(),
         }
+    }
+
+    /// The configured brain's limits and history; a model's without a pipeline.
+    pub fn behaviour(&self) -> Behaviour {
+        self.pipeline
+            .as_ref()
+            .map_or(preset(PresetId::Custom).behaviour, |p| p.behaviour)
     }
 }

@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use pinna_assist::audio::MicInput;
@@ -9,14 +10,18 @@ use pinna_assist::conversation::{Conversation, Turn};
 use pinna_assist::error::ProviderError;
 use pinna_assist::limits::RunLimits;
 use pinna_assist::observe::Guard;
-use pinna_assist::presets::HistoryPolicy;
-use pinna_assist::reply::{ReplySink, ReplySource};
+use pinna_assist::reply::{ReplySink, ReplySource, reply_channel};
 use pinna_assist::run::{RunEvent, RunKind};
-use tokio::sync::watch;
+use pinna_audio::tone;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use super::{AssistStatus, Brain, Phase, RunId};
+use super::{AssistStatus, Brain, Phase, PlaybackKind, RunId};
+use crate::mic::MIC_QUEUE;
 use crate::standalone::AssistLive;
+
+/// Sentences a run may synthesise before the first of them sounds.
+const REPLY_AHEAD: usize = 2;
 
 /// Standalone wiring kept separate from `Options` so existing test builders
 /// remain exhaustive struct literals.
@@ -50,16 +55,14 @@ impl LocalOptions {
 
 pub(super) struct Local {
     pub(super) run: Option<LocalRun>,
-    #[allow(dead_code)]
     next_run: u64,
-    #[allow(dead_code)]
     conversation: Conversation,
-    #[allow(dead_code)]
+    /// The brain slot's generation the conversation belongs to.
     chat_gen: u64,
-    #[allow(dead_code)]
+    /// The noise floor before the wake word; follow-ups reuse it so the
+    /// reply's tail can't raise it.
     noise_seed: Option<u64>,
     live: watch::Receiver<Arc<AssistLive>>,
-    #[allow(dead_code)]
     spawner: Arc<dyn RunSpawner>,
     last_error: Option<String>,
     #[allow(dead_code)]
@@ -71,11 +74,15 @@ impl Local {
         live: watch::Receiver<Arc<AssistLive>>,
         spawner: Arc<dyn RunSpawner>,
     ) -> Self {
+        let (history, chat_gen) = {
+            let live = live.borrow();
+            (live.behaviour().history, live.chat_gen)
+        };
         Self {
             run: None,
             next_run: 1,
-            conversation: Conversation::new(HistoryPolicy::Turns(10)),
-            chat_gen: 0,
+            conversation: Conversation::new(history),
+            chat_gen,
             noise_seed: None,
             live,
             spawner,
@@ -117,7 +124,139 @@ pub(super) struct LocalRun {
     player_done: bool,
 }
 
+/// How a run kind is named in logs; a typed question's text is never logged.
+fn kind_label(kind: &RunKind) -> &'static str {
+    match kind {
+        RunKind::Request => "request",
+        RunKind::FollowUp => "follow-up",
+        RunKind::Typed(_) => "typed question",
+    }
+}
+
 impl Brain {
+    /// Start a standalone run (ADR 0017): a request after the wake word or
+    /// Action, a follow-up after a reply, or a typed question. The run task
+    /// gets the microphone route and the reply channel; the Brain keeps the
+    /// phase, the deadline and the voice lane.
+    pub(super) async fn start_local_run(&mut self, kind: RunKind, phrase: Option<String>) {
+        let refused = if !self.assist_ready() {
+            Some("the assistant isn't set up")
+        } else if self.muted() {
+            Some("the microphone is muted")
+        } else if self.ringing.is_some() {
+            Some("a timer alarm is ringing")
+        } else {
+            None
+        };
+        if let Some(why) = refused {
+            tracing::warn!("no standalone {}: {why}", kind_label(&kind));
+            self.error_feedback();
+            return;
+        }
+        debug_assert!(self.local.run.is_none(), "a standalone run is still live");
+        // Speak or a media announcement must not talk over the request.
+        self.stop_playback();
+
+        let now = Instant::now();
+        let live = self.local.live.borrow().clone();
+        let limits = live.behaviour().limits;
+        let typed = matches!(kind, RunKind::Typed(_));
+        if kind != RunKind::FollowUp {
+            // A follow-up counts once it hears speech.
+            self.shared.counters.runs.inc();
+            if self.local.chat_gen != live.chat_gen {
+                self.local.conversation.reset(live.behaviour().history);
+                self.local.chat_gen = live.chat_gen;
+            }
+        }
+        if kind == RunKind::Request {
+            self.local.noise_seed = match self.shared.noise_energy.load(Ordering::Relaxed) {
+                0 => None,
+                energy => Some(energy),
+            };
+        }
+        let mic = (!typed).then(|| {
+            let (tx, frames) = mpsc::channel(MIC_QUEUE);
+            self.shared.mic.open(tx);
+            MicInput {
+                frames,
+                noise_seed: self.local.noise_seed,
+                follow_up: kind == RunKind::FollowUp,
+            }
+        });
+        let (reply, source) = reply_channel(REPLY_AHEAD);
+        let history = self.local.conversation.history(now);
+        let id = RunId(self.local.next_run);
+        self.local.next_run += 1;
+
+        self.speech_ended = None;
+        self.phase = if typed {
+            Phase::Thinking(now)
+        } else {
+            Phase::Listening(now)
+        };
+        // Open the speaker while the user talks: it takes ~1.4 s on the Dot,
+        // and each power-up cracks.
+        self.warm_speaker();
+        self.talker.clear();
+        self.track_talker();
+        let device = self.device_facts();
+        let task = self.local.spawner.spawn(LocalStart {
+            run: id,
+            kind: kind.clone(),
+            live,
+            history,
+            mic,
+            reply,
+            device,
+        });
+        let deadline = now
+            + if typed {
+                limits.think_backstop()
+            } else {
+                limits.listen_backstop()
+            };
+        self.local.run = Some(LocalRun {
+            id,
+            kind: kind.clone(),
+            task: Some(task),
+            deadline,
+            limits,
+            source: Some(source),
+            done: None,
+            spoke: false,
+            player_done: false,
+        });
+        match &phrase {
+            Some(phrase) => tracing::info!(
+                "starting standalone {} {} after {phrase:?}",
+                kind_label(&kind),
+                id.0
+            ),
+            None => tracing::info!("starting standalone {} {}", kind_label(&kind), id.0),
+        }
+        self.event(
+            "voice_assistant",
+            if typed { "thinking" } else { "listening" },
+        )
+        .await;
+        if kind == RunKind::Request && self.wake_sound() {
+            self.play_pcm(tone::wake_chime(), PlaybackKind::Cue);
+        }
+    }
+
+    fn device_facts(&self) -> DeviceFacts {
+        DeviceFacts {
+            name: self.friendly_name(),
+            time_zone: self.settings.time_zone.clone(),
+            device_id: self
+                .opts
+                .mdns
+                .as_ref()
+                .map_or_else(|| self.node_name(), |dc| dc.mac_string()),
+        }
+    }
+
     pub(super) fn cancel_local(&mut self) {
         let Some(mut run) = self.local.run.take() else {
             return;
@@ -237,7 +376,6 @@ fn step(phase: Phase, kind: &RunKind, ev: &RunEvent, now: Instant) -> Step {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) trait RunSpawner: Send + Sync {
     fn spawn(&self, start: LocalStart) -> JoinHandle<()>;
 }
@@ -270,25 +408,70 @@ pub(crate) struct DeviceFacts {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::time::Duration;
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
+    use std::time::{Duration, SystemTime};
 
     use pinna_assist::error::{Reason, Slot};
     use pinna_assist::presets::PresetId;
-    use pinna_assist::reply::reply_channel;
-    use pinna_audio::{Backend, PlaybackState, Speaker, SpeakerConfig, tone};
+    use pinna_audio::{Backend, PlaybackState, Speaker, SpeakerConfig};
     use pinna_esphome::{DeviceEvent, EsphomeHandle, HaCommand};
-    use tokio::sync::{mpsc, watch};
+    use pinna_hal::anim::Effect as LedEffect;
+    use pinna_hal::buttons::{Button, ButtonEvent};
+    use tokio::sync::oneshot;
 
     use super::*;
     use crate::leds::LedState;
     use crate::settings::{Mode, Settings};
-    use crate::voice::{Defaults, Options, Shared, Snapshot};
+    use crate::voice::{ApiCommand, ApiReply, Defaults, Input, Options, Shared, Snapshot};
+
+    /// A run the fake spawner started: what the Brain handed it, and whether
+    /// its task has been dropped.
+    struct FakeRun {
+        start: LocalStart,
+        dropped: Arc<AtomicBool>,
+    }
+
+    /// Records each `LocalStart` and runs a task that never ends on its own.
+    #[derive(Default)]
+    struct FakeSpawner {
+        runs: Mutex<Vec<FakeRun>>,
+    }
+
+    impl FakeSpawner {
+        fn count(&self) -> usize {
+            self.runs.lock().unwrap().len()
+        }
+
+        fn take(&self) -> FakeRun {
+            self.runs.lock().unwrap().pop().expect("a run was started")
+        }
+    }
+
+    impl RunSpawner for FakeSpawner {
+        fn spawn(&self, start: LocalStart) -> JoinHandle<()> {
+            let dropped = Arc::new(AtomicBool::new(false));
+            // Captured, not created inside: a task aborted before its first
+            // poll still drops it.
+            let guard = DropFlag(dropped.clone());
+            let task = tokio::spawn(async move {
+                let _guard = guard;
+                std::future::pending::<()>().await;
+            });
+            self.runs.lock().unwrap().push(FakeRun { start, dropped });
+            task
+        }
+    }
 
     struct TestDevice {
         brain: Brain,
         shared: Arc<Shared>,
         events: mpsc::Receiver<DeviceEvent>,
+        /// What the Brain sends itself (playback reports).
+        _inputs: mpsc::Receiver<Input>,
+        leds: watch::Receiver<LedState>,
+        live: watch::Sender<Arc<AssistLive>>,
+        spawner: Arc<FakeSpawner>,
         _dir: tempfile::TempDir,
     }
 
@@ -302,13 +485,17 @@ mod tests {
                     dir.path().join("output.wav"),
                 ))))
             });
-            let brain = Brain::new(
+            let (leds_tx, leds) = watch::channel(LedState::default());
+            let (self_tx, _inputs) = mpsc::channel(64);
+            let (live_tx, live) = watch::channel(Arc::new(AssistLive::empty()));
+            let spawner = Arc::new(FakeSpawner::default());
+            let brain = Brain::new_with_local(
                 esp,
                 speaker,
                 shared.clone(),
-                watch::channel(LedState::default()).0,
+                leds_tx,
                 watch::channel(Snapshot::default()).0,
-                mpsc::channel(64).0,
+                self_tx,
                 Options {
                     key_file: dir.path().join("key"),
                     settings_file: dir.path().join("settings.toml"),
@@ -331,13 +518,38 @@ mod tests {
                         ..Settings::default()
                     },
                 },
+                LocalOptions {
+                    live,
+                    spawner: spawner.clone(),
+                    timers_file: dir.path().join("timers.toml"),
+                },
             );
             Self {
                 brain,
                 shared,
                 events,
+                _inputs,
+                leds,
+                live: live_tx,
+                spawner,
                 _dir: dir,
             }
+        }
+
+        /// A standalone device whose three slots are checked.
+        fn ready() -> Self {
+            let device = Self::new(Mode::Standalone, false);
+            device.set_live(AssistLive {
+                ready: true,
+                slots: [true; 3],
+                label: "test brain".into(),
+                ..AssistLive::empty()
+            });
+            device
+        }
+
+        fn set_live(&self, live: AssistLive) {
+            self.live.send(Arc::new(live)).unwrap();
         }
 
         fn events(&mut self) -> Vec<DeviceEvent> {
@@ -347,6 +559,38 @@ mod tests {
             }
             events
         }
+
+        fn overlay(&self) -> Option<LedEffect> {
+            self.leds.borrow().overlay.map(|(effect, _)| effect)
+        }
+
+        async fn wake(&mut self) {
+            self.brain
+                .handle(Input::Wake {
+                    id: "alexa_v0.1".into(),
+                    score: 0.9,
+                })
+                .await;
+        }
+
+        async fn api(
+            &mut self,
+            cmd: impl FnOnce(ApiReply) -> ApiCommand,
+        ) -> Result<Snapshot, String> {
+            let (reply, result) = oneshot::channel();
+            self.brain.handle(Input::Api(cmd(reply))).await;
+            result.await.unwrap()
+        }
+
+        /// Start a request with the Action button and take what the run got.
+        async fn request(&mut self) -> FakeRun {
+            self.brain
+                .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+                .await;
+            assert!(matches!(self.brain.phase, Phase::Listening(_)));
+            self.events();
+            self.spawner.take()
+        }
     }
 
     struct DropFlag(Arc<AtomicBool>);
@@ -355,6 +599,26 @@ mod tests {
         fn drop(&mut self) {
             self.0.store(true, Ordering::SeqCst);
         }
+    }
+
+    /// Wait for an aborted task to be dropped.
+    async fn dropped(flag: &AtomicBool) -> bool {
+        for _ in 0..100 {
+            if flag.load(Ordering::SeqCst) {
+                return true;
+            }
+            tokio::task::yield_now().await;
+        }
+        flag.load(Ordering::SeqCst)
+    }
+
+    fn mic_closed(run: &mut FakeRun) -> bool {
+        let mic = run
+            .start
+            .mic
+            .as_mut()
+            .expect("a voice run has a microphone");
+        mic.frames.try_recv() == Err(mpsc::error::TryRecvError::Disconnected)
     }
 
     fn insert_local_run(device: &mut TestDevice) -> Arc<AtomicBool> {
@@ -383,11 +647,15 @@ mod tests {
         dropped
     }
 
-    fn stopped() -> DeviceEvent {
+    fn voice_event(kind: &str) -> DeviceEvent {
         DeviceEvent::Event {
             object_id: "voice_assistant".into(),
-            event_type: "stopped".into(),
+            event_type: kind.into(),
         }
+    }
+
+    fn stopped() -> DeviceEvent {
+        voice_event("stopped")
     }
 
     fn kinds() -> [RunKind; 3] {
@@ -695,5 +963,173 @@ mod tests {
         assert!(device.brain.local.run.is_some());
         assert!(matches!(device.brain.phase, Phase::Thinking(_)));
         assert!(device.events().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_standalone_wake_listens_locally_without_home_assistant() {
+        let mut device = TestDevice::ready();
+        device.shared.noise_energy.store(4_096, Ordering::Relaxed);
+
+        device.wake().await;
+
+        assert!(matches!(device.brain.phase, Phase::Listening(_)));
+        let events = device.events();
+        assert!(
+            !events
+                .iter()
+                .any(|ev| matches!(ev, DeviceEvent::VoiceStart { .. }))
+        );
+        assert_eq!(events.last(), Some(&voice_event("listening")));
+        let (mut seen, mut route) = (0, None);
+        assert!(device.shared.mic.current(&mut seen, &mut route));
+        assert!(route.is_some(), "the microphone goes to the run");
+
+        let run = device.spawner.take();
+        assert_eq!(run.start.kind, RunKind::Request);
+        assert_eq!(run.start.run, device.brain.local.run.as_ref().unwrap().id);
+        assert!(run.start.history.is_empty());
+        assert_eq!(run.start.device.name, "Test");
+        let mic = run.start.mic.as_ref().unwrap();
+        assert!(!mic.follow_up);
+        assert_eq!(mic.noise_seed, Some(4_096));
+        assert_eq!(
+            device.brain.snapshot().phase,
+            pinna_api::Phase::PHASE_LISTENING
+        );
+    }
+
+    #[tokio::test]
+    async fn a_standalone_run_is_refused_when_not_ready_muted_or_ringing() {
+        let mut device = TestDevice::new(Mode::Standalone, false);
+        device.wake().await;
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert_eq!(device.spawner.count(), 0);
+        assert_eq!(device.overlay(), Some(LedEffect::Error));
+        assert!(device.api(ApiCommand::StartConversation).await.is_err());
+
+        let mut device = TestDevice::ready();
+        device.brain.sw_muted = true;
+        device.brain.start_local_run(RunKind::Request, None).await;
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert_eq!(device.overlay(), Some(LedEffect::Error));
+
+        let mut device = TestDevice::ready();
+        device.brain.ringing = Some(("tea".into(), Instant::now()));
+        device.brain.start_local_run(RunKind::Request, None).await;
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert_eq!(device.spawner.count(), 0);
+        let (mut seen, mut route) = (0, None);
+        device.shared.mic.current(&mut seen, &mut route);
+        assert!(route.is_none(), "a refused run never opens the microphone");
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum StopPath {
+        Wake,
+        Action,
+        Mute,
+        StopConversation,
+        CancelRequest,
+        TimerFinish,
+        MediaAnnounce,
+    }
+
+    async fn stop(device: &mut TestDevice, path: StopPath) {
+        match path {
+            StopPath::Wake => {
+                // The detector runs once the run stops listening.
+                device.brain.phase = Phase::Thinking(Instant::now());
+                device.wake().await;
+            }
+            StopPath::Action => {
+                device
+                    .brain
+                    .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+                    .await;
+            }
+            StopPath::Mute => device.brain.handle(Input::Privacy(true)).await,
+            StopPath::StopConversation => {
+                device.api(ApiCommand::StopConversation).await.unwrap();
+            }
+            StopPath::CancelRequest => {
+                device
+                    .brain
+                    .handle(Input::Ha(HaCommand::Button {
+                        object_id: "cancel_request".into(),
+                    }))
+                    .await;
+            }
+            StopPath::TimerFinish => {
+                let (reply, id) = oneshot::channel();
+                device
+                    .brain
+                    .handle(Input::Api(ApiCommand::SetTimer {
+                        name: Some("Tea".into()),
+                        seconds: 1,
+                        reply,
+                    }))
+                    .await;
+                id.await.unwrap().unwrap();
+                device
+                    .brain
+                    .tick_timers(
+                        Instant::now() + Duration::from_secs(2),
+                        SystemTime::now(),
+                        false,
+                    )
+                    .await;
+                assert!(device.brain.ringing.is_some());
+            }
+            StopPath::MediaAnnounce => {
+                device
+                    .brain
+                    .handle(Input::Ha(HaCommand::MediaPlayer {
+                        command: None,
+                        volume: None,
+                        media_url: Some("http://ha.test/announce.mp3".into()),
+                        announcement: true,
+                    }))
+                    .await;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn every_stop_path_drops_the_run_task_and_closes_the_microphone() {
+        for path in [
+            StopPath::Action,
+            StopPath::Mute,
+            StopPath::StopConversation,
+            StopPath::CancelRequest,
+            StopPath::TimerFinish,
+            StopPath::MediaAnnounce,
+            StopPath::Wake,
+        ] {
+            let mut device = TestDevice::ready();
+            let mut run = device.request().await;
+
+            stop(&mut device, path).await;
+
+            assert!(
+                dropped(&run.dropped).await,
+                "{path:?} left the run task alive"
+            );
+            assert!(mic_closed(&mut run), "{path:?} left the microphone open");
+            let events = device.events();
+            assert!(events.contains(&stopped()), "{path:?}: {events:?}");
+            assert!(!events.contains(&DeviceEvent::VoiceStop), "{path:?}");
+            if let StopPath::Wake = path {
+                // The wake word starts the next request at once.
+                assert_eq!(device.spawner.count(), 1);
+                assert!(matches!(device.brain.phase, Phase::Listening(_)));
+            } else {
+                assert_eq!(device.spawner.count(), 0, "{path:?}");
+                assert!(device.brain.local.run.is_none(), "{path:?}");
+                assert!(
+                    !matches!(device.brain.phase, Phase::Listening(_) | Phase::Thinking(_)),
+                    "{path:?}"
+                );
+            }
+        }
     }
 }
