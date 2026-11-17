@@ -21,7 +21,7 @@ use pinna_audio::{Speaker, VoicePlayback, tone};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use super::{AssistStatus, Brain, Input, Phase, PlaybackKind, RunId};
+use super::{ApiCommand, AssistStatus, Brain, Input, Phase, PlaybackKind, RunId};
 use crate::mic::MIC_QUEUE;
 use crate::settings::Mode;
 use crate::standalone::AssistLive;
@@ -71,7 +71,7 @@ pub(super) struct Local {
     live: watch::Receiver<Arc<AssistLive>>,
     spawner: Arc<dyn RunSpawner>,
     last_error: Option<String>,
-    #[allow(dead_code)]
+    /// The run asked to mute the microphone; applied when the run ends.
     pending_mute: bool,
 }
 
@@ -342,7 +342,10 @@ impl Brain {
         }
         match &self.local.run {
             // A request that heard nothing ends without "finished".
-            Some(_) if self.phase == Phase::Idle => self.local.run = None,
+            Some(_) if self.phase == Phase::Idle => {
+                self.local.run = None;
+                self.apply_deferred_mute().await;
+            }
             // A spoken reply ends when both the run and its player are done.
             Some(run) if run.done && run.player_done => self.finish_local().await,
             _ => {}
@@ -397,6 +400,35 @@ impl Brain {
         tracing::warn!("standalone request failed: {error}");
         self.local.last_error = Some(error.to_string());
         self.error_feedback();
+        self.apply_deferred_mute().await;
+    }
+
+    /// A device command from a run's tool. Only the current run may act; a
+    /// mute it asks for waits for the run to end, so the reply confirming it
+    /// still plays.
+    pub(super) async fn run_tool(&mut self, run: RunId, cmd: ApiCommand) {
+        if !self.local.run.as_ref().is_some_and(|r| r.id == run) {
+            tracing::debug!("refused a device command from standalone run {}", run.0);
+            cmd.refuse("The request was cancelled.");
+            return;
+        }
+        match cmd {
+            ApiCommand::SetMute(true, reply) => {
+                tracing::info!("the microphone mutes when this request ends");
+                self.local.pending_mute = true;
+                let _ = reply.send(Ok(self.snapshot()));
+            }
+            cmd => self.api(cmd).await,
+        }
+    }
+
+    /// The run is gone: mute the microphone if it asked to.
+    pub(super) async fn apply_deferred_mute(&mut self) {
+        if std::mem::take(&mut self.local.pending_mute) {
+            tracing::info!("muting the microphone as the request asked");
+            self.sw_muted = true;
+            Box::pin(self.apply_mute()).await;
+        }
     }
 
     /// Hand the reply channel to the player, which owns the voice lane until
@@ -447,6 +479,7 @@ impl Brain {
         };
         self.phase = Phase::Idle;
         self.event("voice_assistant", "finished").await;
+        self.apply_deferred_mute().await;
         if self.follows_up(&run) {
             self.start_local_run(RunKind::FollowUp, None).await;
         }
@@ -940,6 +973,22 @@ mod tests {
                     return started;
                 }
             }
+        }
+
+        /// A device command from a run's tool call.
+        async fn run_tool(
+            &mut self,
+            run: RunId,
+            cmd: impl FnOnce(ApiReply) -> ApiCommand,
+        ) -> Result<Snapshot, String> {
+            let (reply, result) = oneshot::channel();
+            self.brain
+                .handle(Input::RunTool {
+                    run,
+                    cmd: cmd(reply),
+                })
+                .await;
+            result.await.unwrap()
         }
 
         fn run_id(&self) -> RunId {
@@ -2032,5 +2081,93 @@ mod tests {
             assert!(device.brain.local.run.is_none(), "{case}");
             assert_eq!(device.brain.phase, Phase::Idle, "{case}");
         }
+    }
+
+    fn volume_event(value: f32) -> DeviceEvent {
+        DeviceEvent::NumberState {
+            object_id: "volume".into(),
+            value,
+        }
+    }
+
+    #[tokio::test]
+    async fn only_the_current_run_changes_the_device() {
+        let mut device = TestDevice::ready();
+        let stale = device.request().await.start.run;
+        device.api(ApiCommand::StopConversation).await.unwrap();
+        let current = device.request().await.start.run;
+        let volume = device.brain.settings.volume;
+
+        let refused = device
+            .run_tool(stale, |reply| ApiCommand::SetVolume(80, reply))
+            .await;
+
+        assert_eq!(refused.unwrap_err(), "The request was cancelled.");
+        assert_eq!(device.brain.settings.volume, volume);
+        assert!(device.events().is_empty());
+
+        let applied = device
+            .run_tool(current, |reply| ApiCommand::SetVolume(80, reply))
+            .await
+            .unwrap();
+
+        assert_eq!(applied.volume, 80);
+        assert_eq!(device.events().first(), Some(&volume_event(80.0)));
+    }
+
+    #[tokio::test]
+    async fn a_mute_the_run_asks_for_waits_until_it_is_done() {
+        let mut device = TestDevice::ready();
+        let run = replying(&mut device).await;
+        device.events();
+
+        let snapshot = device
+            .run_tool(run, |reply| ApiCommand::SetMute(true, reply))
+            .await
+            .unwrap();
+
+        assert!(!snapshot.sw_muted, "the confirming reply still plays");
+        assert!(device.brain.local.run.is_some());
+        assert!(device.events().is_empty());
+
+        speak_reply(&mut device, run, true).await;
+
+        assert!(device.brain.muted());
+        assert!(device.brain.settings.muted);
+        assert!(device.shared.muted.load(Ordering::SeqCst));
+        assert_eq!(
+            device.events(),
+            [
+                voice_event("replying"),
+                voice_event("finished"),
+                DeviceEvent::MuteState(true),
+            ]
+        );
+        assert_eq!(
+            device.spawner.count(),
+            0,
+            "a muted microphone hears no follow-up"
+        );
+        assert!(!device.brain.local.pending_mute);
+    }
+
+    #[tokio::test]
+    async fn a_mute_the_run_asked_for_applies_when_it_is_cancelled() {
+        let mut device = TestDevice::ready();
+        let run = replying(&mut device).await;
+        device
+            .run_tool(run, |reply| ApiCommand::SetMute(true, reply))
+            .await
+            .unwrap();
+        device.events();
+
+        device.api(ApiCommand::StopConversation).await.unwrap();
+
+        assert!(device.brain.muted());
+        assert_eq!(device.events(), [stopped(), DeviceEvent::MuteState(true)]);
+        assert!(!device.brain.local.pending_mute);
+        // The next request is refused: the microphone is muted.
+        device.brain.start_local_run(RunKind::Request, None).await;
+        assert_eq!(device.spawner.count(), 0);
     }
 }

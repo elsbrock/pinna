@@ -902,7 +902,7 @@ impl Brain {
             Input::Ha(cmd) => self.ha(cmd).await,
             Input::Api(cmd) => self.api(cmd).await,
             Input::Assist { run, ev } => self.assist_event(run, ev).await,
-            Input::RunTool { cmd, .. } => cmd.refuse("The request was cancelled."),
+            Input::RunTool { run, cmd } => self.run_tool(run, cmd).await,
         }
     }
 
@@ -2682,6 +2682,9 @@ impl Brain {
         self.stop_playback();
         self.phase = Phase::Idle;
         self.continue_conversation = false;
+        if was_local {
+            self.apply_deferred_mute().await;
+        }
     }
 
     /// The wake word is acted on in every phase but listening, where the
