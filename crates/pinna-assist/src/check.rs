@@ -78,14 +78,12 @@ async fn models(setup: &CheckSetup, slot: Slot) -> Result<Option<Bytes>, Provide
         setup.base_url.trim_end_matches('/'),
         models_path(setup.preset)
     );
-    let response = http::send(
-        setup.http.get(url),
-        &setup.auth,
-        slot,
-        setup.preset,
-        setup.clock_synced,
-    )
-    .await?;
+    let mut request = setup.http.get(url);
+    if preset(setup.preset).chat_protocol == ChatProtocol::Anthropic {
+        // Anthropic refuses every request that doesn't name its API version.
+        request = request.header("anthropic-version", crate::chat::ANTHROPIC_VERSION);
+    }
+    let response = http::send(request, &setup.auth, slot, setup.preset, setup.clock_synced).await?;
     match http::read_capped(response, MODELS_CAP, slot, setup.preset, setup.clock_synced).await {
         Ok(body) => Ok(Some(body)),
         Err(error) if error.reason == Reason::TooLarge => Ok(None),
@@ -457,6 +455,29 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error, "The model gpt-4o isn't offered by this service.");
+    }
+
+    #[tokio::test]
+    async fn an_anthropic_model_list_names_the_api_version() {
+        let server = FakeServer::start().await;
+        server.script(
+            Method::GET,
+            "/v1/models",
+            FakeResponse::new(StatusCode::OK, "{\"data\":[{\"id\":\"claude-sonnet\"}]}"),
+        );
+        check(&setup(
+            &server,
+            Slot::Chat,
+            PresetId::Anthropic,
+            "claude-sonnet",
+        ))
+        .await
+        .unwrap();
+        let requests = server.requests();
+        assert_eq!(
+            requests[0].header("anthropic-version"),
+            Some(crate::chat::ANTHROPIC_VERSION)
+        );
     }
 
     #[tokio::test]

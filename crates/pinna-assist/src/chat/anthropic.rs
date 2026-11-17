@@ -14,7 +14,8 @@ use crate::{
     presets::PresetId,
 };
 
-const API_VERSION: &str = "2023-06-01";
+/// The Messages API version every Anthropic request names.
+pub(crate) const API_VERSION: &str = "2023-06-01";
 
 #[derive(Clone)]
 pub struct AnthropicChat {

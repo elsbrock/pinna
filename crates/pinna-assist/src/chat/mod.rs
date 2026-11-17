@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod anthropic;
+pub(crate) use anthropic::API_VERSION as ANTHROPIC_VERSION;
 mod gemini;
 mod openai;
 
