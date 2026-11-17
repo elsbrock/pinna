@@ -1,6 +1,6 @@
 //! Shared parts of the media bridges (ADR 0011): a source's PCM becomes
-//! sessions on pinnad's stream socket, and its volume is set through the
-//! loopback control API.
+//! sessions on pinnad's stream socket, and its volume and track are set
+//! through the loopback control API.
 
 use std::io;
 use std::path::PathBuf;
@@ -10,42 +10,60 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::net::UnixStream;
 
 use connectrpc::client::{ClientConfig, HttpClient};
-use pinna_api::{DeviceServiceClient, SetStreamVolumeRequest};
+use pinna_api::{DeviceServiceClient, SetStreamMetadataRequest, SetStreamVolumeRequest};
 /// Matches pinnad's `STREAM_IDLE`: without data for this long, pinnad ends the session.
 pub const QUIET: Duration = Duration::from_secs(2);
 const CONNECT_WARN_EVERY: Duration = Duration::from_secs(10);
 
-/// Sets the stream volume in pinnad.
-pub trait VolumeApi {
+/// What the sender plays, as it names it; empty fields when it doesn't say.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Track {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+}
+
+/// Sets the stream volume and track in pinnad.
+pub trait StreamApi {
     fn set_stream_volume(&self, percent: u8) -> impl Future<Output = anyhow::Result<()>>;
+    fn set_stream_metadata(
+        &self,
+        source: &str,
+        track: &Track,
+    ) -> impl Future<Output = anyhow::Result<()>>;
 }
 
 /// The header line of a pinnad stream session: 16-bit little-endian stereo
-/// at `rate` (44100 or 48000).
-pub fn header(rate: u32) -> Vec<u8> {
-    format!("s16le {rate} 2\n").into_bytes()
+/// at `rate` (44100 or 48000), from the bridge named `source`.
+fn header(rate: u32, source: &str) -> Vec<u8> {
+    format!("s16le {rate} 2 {source}\n").into_bytes()
 }
 
 pub struct Connector<V> {
     socket: PathBuf,
+    /// The bridge's name in its header and its track (ADR 0011).
+    source: &'static str,
     header: Vec<u8>,
     api: V,
     conn: Option<UnixStream>,
     /// pinnad closed the session; no reconnect until the sender goes quiet.
     blocked: bool,
     volume: Option<u8>,
+    track: Track,
     last_connect_warn: Option<Instant>,
 }
 
-impl<V: VolumeApi> Connector<V> {
-    pub fn new(socket: PathBuf, header: Vec<u8>, api: V) -> Self {
+impl<V: StreamApi> Connector<V> {
+    pub fn new(socket: PathBuf, source: &'static str, rate: u32, api: V) -> Self {
         Self {
             socket,
-            header,
+            source,
+            header: header(rate, source),
             api,
             conn: None,
             blocked: false,
             volume: None,
+            track: Track::default(),
             last_connect_warn: None,
         }
     }
@@ -54,8 +72,9 @@ impl<V: VolumeApi> Connector<V> {
         self.blocked
     }
 
-    /// The source's format changed: the next session starts with this header.
-    pub fn set_header(&mut self, header: Vec<u8>) {
+    /// The source's rate changed: the next session starts with it.
+    pub fn set_rate(&mut self, rate: u32) {
+        let header = header(rate, self.source);
         if header != self.header {
             self.header = header;
             self.conn = None;
@@ -68,10 +87,12 @@ impl<V: VolumeApi> Connector<V> {
             return;
         }
         if self.conn.is_none() {
-            // The volume goes first: a bridge sets it before it connects.
+            // The volume and track go first: a bridge sets them before it
+            // connects, for a pinnad that restarted since.
             if let Some(percent) = self.volume {
                 self.set_volume(percent).await;
             }
+            self.send_track().await;
             match self.connect().await {
                 Ok(conn) => self.conn = Some(conn),
                 Err(e) => {
@@ -121,9 +142,25 @@ impl<V: VolumeApi> Connector<V> {
         self.blocked = false;
     }
 
+    /// What the sender plays. Set now when it changed, and again before
+    /// each new session. pinnad keeps it under this bridge's name, so it
+    /// never shows on another source's session.
+    pub async fn track(&mut self, track: Track) {
+        if track != self.track {
+            self.track = track;
+            self.send_track().await;
+        }
+    }
+
     async fn set_volume(&self, percent: u8) {
         if let Err(e) = self.api.set_stream_volume(percent).await {
             tracing::warn!("cannot set the stream volume: {e:#}");
+        }
+    }
+
+    async fn send_track(&self) {
+        if let Err(e) = self.api.set_stream_metadata(self.source, &self.track).await {
+            tracing::warn!("cannot set the stream's track: {e:#}");
         }
     }
 }
@@ -145,10 +182,24 @@ impl Api {
     }
 }
 
-impl VolumeApi for Api {
+impl StreamApi for Api {
     async fn set_stream_volume(&self, percent: u8) -> anyhow::Result<()> {
         let call = self.0.set_stream_volume(SetStreamVolumeRequest {
             percent: percent.into(),
+            ..Default::default()
+        });
+        tokio::time::timeout(API_TIMEOUT, call)
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer"))??;
+        Ok(())
+    }
+
+    async fn set_stream_metadata(&self, source: &str, track: &Track) -> anyhow::Result<()> {
+        let call = self.0.set_stream_metadata(SetStreamMetadataRequest {
+            source: source.into(),
+            title: track.title.clone(),
+            artist: track.artist.clone(),
+            album: track.album.clone(),
             ..Default::default()
         });
         tokio::time::timeout(API_TIMEOUT, call)
@@ -184,11 +235,16 @@ mod tests {
 
     /// Records volume calls, and a marker for each accepted connection's order.
     #[derive(Clone, Default)]
-    struct Recorder(Arc<Mutex<Vec<u8>>>);
+    struct Recorder(Arc<Mutex<Vec<u8>>>, Arc<Mutex<Vec<(String, Track)>>>);
 
-    impl VolumeApi for Recorder {
+    impl StreamApi for Recorder {
         async fn set_stream_volume(&self, percent: u8) -> anyhow::Result<()> {
             self.0.lock().unwrap().push(percent);
+            Ok(())
+        }
+
+        async fn set_stream_metadata(&self, source: &str, track: &Track) -> anyhow::Result<()> {
+            self.1.lock().unwrap().push((source.into(), track.clone()));
             Ok(())
         }
     }
@@ -206,7 +262,7 @@ mod tests {
         (
             dir,
             listener,
-            Connector::new(path, header(44100), rec.clone()),
+            Connector::new(path, "test", 44100, rec.clone()),
             rec,
         )
     }
@@ -224,7 +280,32 @@ mod tests {
         drop(c);
         let mut got = Vec::new();
         srv.read_to_end(&mut got).await.unwrap();
-        assert_eq!(got, b"s16le 44100 2\n\x01\x02\x03\x04\x05\x06");
+        assert_eq!(got, b"s16le 44100 2 test\n\x01\x02\x03\x04\x05\x06");
+    }
+
+    #[tokio::test]
+    async fn the_track_goes_now_and_again_before_each_session() {
+        let (_dir, listener, mut c, rec) = setup();
+        let song = Track {
+            title: "Song".into(),
+            ..Default::default()
+        };
+        let sent = || rec.1.lock().unwrap().clone();
+        c.track(song.clone()).await;
+        c.track(song.clone()).await;
+        assert_eq!(
+            sent(),
+            [("test".to_string(), song.clone())],
+            "once per change"
+        );
+        c.data(&[1, 1]).await;
+        let (_first, _) = listener.accept().await.unwrap();
+        assert_eq!(sent().len(), 2, "again before the session");
+        c.quiet();
+        c.data(&[2, 2]).await;
+        let (_second, _) = listener.accept().await.unwrap();
+        assert_eq!(sent().len(), 3, "and before the next one");
+        assert!(sent().iter().all(|(s, t)| s == "test" && *t == song));
     }
 
     #[tokio::test]
@@ -254,13 +335,13 @@ mod tests {
         c.quiet();
         let mut got = Vec::new();
         first.read_to_end(&mut got).await.unwrap();
-        assert_eq!(got, b"s16le 44100 2\n\x01\x01");
+        assert_eq!(got, b"s16le 44100 2 test\n\x01\x01");
         c.data(&[2, 2]).await;
         let (mut second, _) = listener.accept().await.unwrap();
         drop(c);
         got.clear();
         second.read_to_end(&mut got).await.unwrap();
-        assert_eq!(got, b"s16le 44100 2\n\x02\x02");
+        assert_eq!(got, b"s16le 44100 2 test\n\x02\x02");
     }
 
     #[tokio::test]
@@ -277,19 +358,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_new_header_starts_a_new_session() {
+    async fn a_new_rate_starts_a_new_session() {
         let (_dir, listener, mut c, _rec) = setup();
         c.data(&[1, 1]).await;
         let (mut first, _) = listener.accept().await.unwrap();
-        c.set_header(header(48000));
+        c.set_rate(48000);
         c.data(&[2, 2]).await;
         let (mut second, _) = listener.accept().await.unwrap();
         drop(c);
         let mut got = Vec::new();
         first.read_to_end(&mut got).await.unwrap();
-        assert_eq!(got, b"s16le 44100 2\n\x01\x01");
+        assert_eq!(got, b"s16le 44100 2 test\n\x01\x01");
         got.clear();
         second.read_to_end(&mut got).await.unwrap();
-        assert_eq!(got, b"s16le 48000 2\n\x02\x02");
+        assert_eq!(got, b"s16le 48000 2 test\n\x02\x02");
     }
 }

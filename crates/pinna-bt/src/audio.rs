@@ -4,7 +4,7 @@
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 
-use pinna_bridge::{Api, Connector, QUIET, header};
+use pinna_bridge::{Api, Connector, QUIET, Track};
 use tokio::io::AsyncReadExt as _;
 use tokio::net::unix::pipe;
 use tokio::sync::mpsc;
@@ -21,6 +21,8 @@ pub enum Command {
     },
     /// The phone's volume, 0..=100.
     Volume(u8),
+    /// What the phone plays.
+    Track(Track),
     /// The PCM is gone (the phone disconnected).
     Closed,
 }
@@ -34,7 +36,7 @@ struct Open {
 pub fn spawn(socket: PathBuf, api: Api) -> mpsc::UnboundedSender<Command> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        let mut connector = Connector::new(socket, header(44100), api);
+        let mut connector = Connector::new(socket, "bluetooth", 44100, api);
         let mut open: Option<Open> = None;
         let mut buf = vec![0u8; 16 * 1024];
         let mut last_pcm = Instant::now();
@@ -46,13 +48,14 @@ pub fn spawn(socket: PathBuf, api: Api) -> mpsc::UnboundedSender<Command> {
                         match pipe::Receiver::from_owned_fd(pcm) {
                             Ok(pcm) => {
                                 tracing::info!("reading {path} ({rate} Hz)");
-                                connector.set_header(header(rate));
+                                connector.set_rate(rate);
                                 open = Some(Open { path, pcm, _ctrl: ctrl });
                             }
                             Err(e) => tracing::warn!("{path}: {e}"),
                         }
                     }
                     Some(Command::Volume(percent)) => connector.volume(percent).await,
+                    Some(Command::Track(track)) => connector.track(track).await,
                     Some(Command::Closed) => {
                         if let Some(o) = open.take() {
                             tracing::info!("{} closed", o.path);

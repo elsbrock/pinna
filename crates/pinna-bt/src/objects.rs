@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use pinna_bridge::Track;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 pub type Props = HashMap<String, OwnedValue>;
@@ -126,6 +127,49 @@ pub fn pcms(objects: &Objects) -> Vec<Pcm> {
         .collect();
     out.sort_by_key(|p| p.sequence);
     out
+}
+
+/// What the phone whose PCM is `pcm` plays, as its AVRCP player names it
+/// (BlueZ's `MediaPlayer1` `Track`): the player the phone addresses
+/// (`MediaControl1` `Player`), otherwise its first. Empty when the phone
+/// shares none.
+pub fn track(objects: &Objects, pcm: &str) -> Track {
+    // `/org/bluealsa/hci0/dev_XX/a2dpsnk/source` -> `/org/bluez/hci0/dev_XX`.
+    let Some(dev) = pcm.split('/').find(|s| s.starts_with("dev_")) else {
+        return Track::default();
+    };
+    let device = format!("{ADAPTER}/{dev}");
+    let addressed = objects
+        .iter()
+        .find(|(path, _)| path.as_str() == device)
+        .and_then(|(_, ifaces)| ifaces.get("org.bluez.MediaControl1"))
+        .and_then(|p| match value(p, "Player")? {
+            Value::ObjectPath(op) => Some(op.as_str().to_owned()),
+            _ => None,
+        });
+    let prefix = format!("{device}/");
+    let mut players: Vec<(&str, &Props)> = objects
+        .iter()
+        .filter(|(path, _)| path.as_str().starts_with(&prefix))
+        .filter_map(|(path, ifaces)| Some((path.as_str(), ifaces.get("org.bluez.MediaPlayer1")?)))
+        .collect();
+    players.sort_by_key(|(path, _)| *path);
+    let player = players
+        .iter()
+        .find(|(path, _)| Some(*path) == addressed.as_deref())
+        .or(players.first());
+    let Some(fields) = player
+        .and_then(|(_, p)| value(p, "Track"))
+        .and_then(|v| v.try_clone().ok())
+        .and_then(|v| HashMap::<String, OwnedValue>::try_from(v).ok())
+    else {
+        return Track::default();
+    };
+    Track {
+        title: string(&fields, "Title"),
+        artist: string(&fields, "Artist"),
+        album: string(&fields, "Album"),
+    }
 }
 
 /// The rate to announce to pinnad, if pinnad takes this PCM's format.
@@ -259,6 +303,70 @@ mod tests {
             ..p[0].clone()
         };
         assert_eq!(stream_rate(&s24), None);
+    }
+
+    fn player(objects: &mut Objects, path: &str, title: &str) {
+        let track: HashMap<String, Value<'static>> = HashMap::from([
+            ("Title".to_owned(), Value::from(title.to_owned())),
+            ("Artist".to_owned(), Value::from("Artist")),
+            ("Duration".to_owned(), Value::from(1000u32)),
+        ]);
+        object(
+            objects,
+            path,
+            "org.bluez.MediaPlayer1",
+            props(vec![("Track", Value::from(track))]),
+        );
+    }
+
+    #[test]
+    fn the_track_is_the_playing_phones_addressed_player() {
+        const PCM: &str = "/org/bluealsa/hci0/dev_44_63_B6_7A_85_8B/a2dpsnk/source";
+        let mut o = sample();
+        assert_eq!(track(&o, PCM), Track::default(), "no player: no track");
+
+        player(
+            &mut o,
+            "/org/bluez/hci0/dev_44_63_B6_7A_85_8B/player0",
+            "First",
+        );
+        player(
+            &mut o,
+            "/org/bluez/hci0/dev_44_63_B6_7A_85_8B/player1",
+            "Second",
+        );
+        player(
+            &mut o,
+            "/org/bluez/hci0/dev_11_22_33_44_55_66/player0",
+            "Other phone",
+        );
+        assert_eq!(
+            track(&o, PCM),
+            Track {
+                title: "First".into(),
+                artist: "Artist".into(),
+                album: String::new(),
+            },
+            "without an addressed player, the first"
+        );
+
+        let device = OwnedObjectPath::try_from("/org/bluez/hci0/dev_44_63_B6_7A_85_8B").unwrap();
+        let addressed =
+            zbus::zvariant::ObjectPath::try_from("/org/bluez/hci0/dev_44_63_B6_7A_85_8B/player1")
+                .unwrap();
+        o.get_mut(&device).unwrap().insert(
+            "org.bluez.MediaControl1".into(),
+            props(vec![("Player", Value::from(addressed))]),
+        );
+        assert_eq!(track(&o, PCM).title, "Second");
+        assert_eq!(
+            track(
+                &o,
+                "/org/bluealsa/hci0/dev_11_22_33_44_55_66/a2dpsnk/source"
+            )
+            .title,
+            "Other phone"
+        );
     }
 
     #[test]

@@ -169,9 +169,10 @@ struct Bridge {
     /// When pinnad last said the window closes: it closes then even if
     /// pinnad stops answering.
     pairing_until_ms: u64,
-    /// The PCM being read, and the volume last sent.
+    /// The PCM being read, and the volume and track last sent.
     pcm: Option<String>,
     volume: Option<u8>,
+    track: pinna_bridge::Track,
     last_report: Option<(ReportBluetoothRequest, Instant)>,
     /// Logged once until it changes.
     logged: HashMap<&'static str, String>,
@@ -260,6 +261,15 @@ impl Bridge {
             error = "BlueALSA isn't running".into();
         }
         self.follow_pcm(&alsa.unwrap_or_default()).await;
+        let track = self
+            .pcm
+            .as_deref()
+            .map(|p| objects::track(&bluez, p))
+            .unwrap_or_default();
+        if track != self.track {
+            self.track = track.clone();
+            let _ = self.audio.send(audio::Command::Track(track));
+        }
 
         let ready = error.is_empty()
             && adapter.as_ref().is_some_and(|a| a.powered)
@@ -410,6 +420,7 @@ async fn main() -> Result<()> {
         pairing_until_ms: 0,
         pcm: None,
         volume: None,
+        track: pinna_bridge::Track::default(),
         last_report: None,
         logged: HashMap::new(),
     };
