@@ -368,11 +368,12 @@ impl Brain {
         let Some(run) = self.local.run.as_ref().filter(|r| r.expired(now)) else {
             return;
         };
+        // Blame what is still outstanding: while the brain hasn't finished,
+        // a stall is the brain's even when an earlier sentence is playing;
+        // once it has, only the speech can be late.
         let slot = match self.phase {
             Phase::Listening(_) => Slot::Stt,
-            // The player has the reply channel: speech is late.
-            Phase::Thinking(_) if run.source.is_none() => Slot::Tts,
-            Phase::Speaking => Slot::Tts,
+            _ if run.done => Slot::Tts,
             _ => Slot::Chat,
         };
         tracing::warn!(

@@ -199,6 +199,10 @@ pub(crate) async fn reply(
             }
         };
 
+        // The brain may pause between pieces of its answer for as long as it
+        // may take to start one; a stream that stalls after its first text
+        // fails here, as the brain's fault, before the Brain's backstop.
+        let mut idle = Box::pin(tokio::time::sleep(limits.first_text));
         loop {
             let Some(delta) = next_delta.take() else {
                 return Err(ProviderError::new(
@@ -226,15 +230,26 @@ pub(crate) async fn reply(
                 Delta(Option<Result<ChatDelta, ProviderError>>),
                 Audio(Option<Result<Synthesized, ProviderError>>),
                 Ack,
+                Stalled,
             }
+            idle.as_mut()
+                .reset(tokio::time::Instant::now() + limits.first_text);
             let next = loop {
                 let next = tokio::select! {
                     next = stream.next() => Next::Delta(next),
                     audio = synthesis.next(), if !synthesis.is_empty() => Next::Audio(audio),
                     _ = &mut ack_timer, if !ack_sent && !first_text_seen && ack_enabled => Next::Ack,
+                    _ = &mut idle => Next::Stalled,
                 };
                 match next {
                     Next::Delta(next) => break next,
+                    Next::Stalled => {
+                        return Err(ProviderError::new(
+                            Slot::Chat,
+                            request.chat_preset,
+                            Reason::Timeout,
+                        ));
+                    }
                     Next::Audio(Some(audio)) => {
                         let item = audio?;
                         driver.send(item.audio, Some(item.credit)).await?;
@@ -735,6 +750,29 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.slot, Slot::Chat);
         assert_eq!(error.reason, Reason::Timeout);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_that_stalls_after_its_first_text_fails_the_brain_slot() {
+        // An agent speaks one sentence and then hangs: the run gives up after
+        // the first-text limit, as the brain's fault, not the speech's.
+        let chat = ScriptedChat::pending_after(vec![ChatDelta::Text("One moment. ".into())]);
+        let tts = ScriptedTts::default();
+        let behaviour = behaviour(RunLimits::AGENT, Delegation::HandOff);
+        let (sink, _source) = reply_channel(2);
+        let events = TestEvents::default();
+        let observer = TestObserver::default();
+        let started = tokio::time::Instant::now();
+        let error = reply(
+            request(
+                "Question", &chat, &tts, &NoTools, &behaviour, &sink, &observer,
+            ),
+            &events,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!((error.slot, error.reason), (Slot::Chat, Reason::Timeout));
+        assert_eq!(started.elapsed(), behaviour.limits.first_text);
     }
 
     #[tokio::test(start_paused = true)]
