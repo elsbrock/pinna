@@ -142,7 +142,7 @@ async fn serve(State(endpoint): State<Endpoint>, req: Request) -> Response {
         calls: &server.calls,
     };
     let handled = server::handle(&tools, &server.info, &body).await;
-    if let (Some(name), Some(peer)) = (&handled.client_name, peer) {
+    if let (Some(name), Some(peer)) = (handled.client_name, peer) {
         server.service.agent_seen(name, peer);
     }
     match handled.reply {

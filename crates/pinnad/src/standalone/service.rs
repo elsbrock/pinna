@@ -44,8 +44,6 @@ use crate::voice::Snapshot;
 pub const MAX_CONNECTIONS: usize = 16;
 /// The dashboard lists this many MCP agents, most recent first.
 pub const MAX_AGENTS: usize = 8;
-/// An agent name is cut to this many characters.
-pub const AGENT_NAME_MAX: usize = 40;
 /// A model or voice id is at most this many characters.
 const MODEL_MAX: usize = 200;
 /// A key is at most this many bytes.
@@ -809,12 +807,9 @@ impl Service {
     /// Remember an MCP client for the dashboard. The name is the client's own
     /// `clientInfo.name`, cut short and stripped of control characters.
     /// The `/mcp` handler records its callers here.
-    pub fn agent_seen(&self, name: &str, peer: IpAddr) {
-        let name: String = name
-            .chars()
-            .filter(|c| !c.is_control())
-            .take(AGENT_NAME_MAX)
-            .collect();
+    /// Record an MCP client. pinna-mcp has already cleaned and capped the
+    /// name it reported.
+    pub fn agent_seen(&self, name: String, peer: IpAddr) {
         let mut agents = self.agents.lock().unwrap();
         agents.retain(|agent| agent.name != name || agent.peer != peer);
         agents.push_front(AgentSeen {
@@ -2715,27 +2710,26 @@ mod tests {
     }
 
     #[test]
-    fn agents_seen_keep_the_latest_eight_without_control_characters() {
+    fn agents_seen_keep_the_latest_eight_once_each() {
         let (_status, rx) = watch::channel(Snapshot::default());
         let dir = tempfile::tempdir().unwrap();
         let service = Service::load(Paths::beside(&dir.path().join("settings.toml")), rx);
         let peer: IpAddr = "192.168.1.20".parse().unwrap();
         for n in 0..10 {
-            service.agent_seen(&format!("agent-{n}"), peer);
+            service.agent_seen(format!("agent-{n}"), peer);
         }
-        service.agent_seen("agent-3", peer);
-        service.agent_seen(&format!("evil\u{1b}[31m{}", "x".repeat(60)), peer);
+        service.agent_seen("agent-3".into(), peer);
+        service.agent_seen("agent-9".into(), peer);
 
         let agents = service.view().agents;
         assert_eq!(agents.len(), MAX_AGENTS);
-        assert_eq!(agents[0].name, format!("evil[31m{}", "x".repeat(32)));
-        assert_eq!(agents[0].name.chars().count(), AGENT_NAME_MAX);
+        assert_eq!(agents[0].name, "agent-9");
         assert_eq!(agents[1].name, "agent-3");
         let names: Vec<&str> = agents[2..].iter().map(|a| a.name.as_str()).collect();
         assert_eq!(
             names,
             [
-                "agent-9", "agent-8", "agent-7", "agent-6", "agent-5", "agent-4"
+                "agent-8", "agent-7", "agent-6", "agent-5", "agent-4", "agent-2"
             ]
         );
     }
