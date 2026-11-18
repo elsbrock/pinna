@@ -72,8 +72,9 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 - **Standalone mode is switched on only when it is ready.** The dashboard switches only once all three
   slots are set and have passed their check, so a first run never leaves the device without a voice.
 - **Changing the mode:**
-  - ends a running request first, and clears all timers. Home Assistant can't finish its timers in
-    standalone mode, and it never learns about the device's;
+  - ends a running request first, stops a ringing alarm, clears all timers and forgets the
+    conversation. Home Assistant can't finish its timers in standalone mode, and it never learns about
+    the device's;
   - updates the device info and closes the API connection once the device is idle, as a rename does
     (ADR 0007). Home Assistant reconnects and reads the new features.
 - **In standalone mode the dashboard always chooses the wake words** (amends ADR 0013). Without the Assist
@@ -84,8 +85,10 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - keys never leave the device;
   - an entity would let Home Assistant turn its own satellite off.
 - **The configuration has its own files:** `standalone.toml` beside `settings.toml`, `secrets.toml` for
-  keys (below) and `timers.toml` for device timers. Each is loaded entry by entry, so a value an older
-  or newer image can't read is kept and written back, and never resets the rest.
+  keys (below) and `timers.toml` for device timers. Each is loaded entry by entry: a top-level key this
+  image doesn't know is kept and written back, an array element or table entry it can't read is kept
+  and written back, and a known value it can't read falls back to its default without resetting the
+  rest. Unknown fields inside an entry it can read are not kept.
 
 ### The pipeline
 
@@ -93,7 +96,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - Each slot names a connection and a model or voice.
   - A connection is a base URL and an optional key.
   - One connection can fill several slots.
-  - Presets fill in the URL and the models for known providers.
+  - Presets fill in the URL for known providers, and OpenClaw's fixed model. The owner types the other
+    models and voices as the service lists them.
 - **pinnad supports protocols, not providers:**
   - speech-to-text: OpenAI-compatible `/v1/audio/transcriptions` and ElevenLabs;
   - brain: OpenAI-compatible `/v1/chat/completions`, Anthropic's Messages API and Gemini's API, streamed,
@@ -110,11 +114,12 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - the time limit and the acknowledgment.
 
   Handing off is one way. An agent that wants the device's tools reaches them over `/mcp` (below). The
-  brain's Advanced settings override the preset for a server of the owner's own: who runs the tools,
-  how much of the conversation it gets, and the first-text limit (1 to 300 s).
-- **A local server's address is the computer it runs on.** For Ollama, LM Studio, Hermes and OpenClaw
-  the owner enters a name or address, with or without a scheme, port or path; the preset fills in
-  what is missing (`192.168.1.5` becomes `http://192.168.1.5:11434/v1` for Ollama). Any other server is
+  brain's Advanced settings override the preset for any brain, meant for a server of the owner's own:
+  who runs the tools, how much of the conversation it gets, and the first-text limit (1 to 300 s).
+- **A local server's address is the computer it runs on.** For Ollama, LM Studio and Hermes the owner
+  enters a name or address, with or without a scheme, port or path; the preset fills in what is missing
+  (`192.168.1.5` becomes `http://192.168.1.5:11434/v1` for Ollama). OpenClaw's gateway has no fixed
+  port, so the owner enters the computer and the port, and the preset adds `/v1`. Any other server is
   entered in full.
 - **pinnad runs the tool loop itself**, not through an agent framework:
   - it sends the prompt, the conversation and the new turn, and streams the answer;
@@ -122,6 +127,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - it runs the tool calls, sends the results back and asks again: at most 5 rounds, at most 8 calls a
     round, 10 s per tool. The last round still offers the tools, but forbids calling them, so the model
     answers in words;
+  - it offers at most 64 tools: the device's first, then the owner's MCP servers' (at most 32 each).
+    A tool's output is cut at 8 KiB;
   - a tool that fails goes back to the model as an error result.
 - **The prompt is the owner's.**
   - The dashboard edits it in full, at most 4,000 characters. It starts as pinnad's voice rules: the
@@ -133,16 +140,17 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
     context.
 - **The conversation lives in RAM only.**
   - After every spoken reply the device listens 4 s more without a wake word, so the owner can answer.
-    Silence ends the conversation; there is no count. The owner can switch follow-ups off.
+    Silence closes that window; there is no count. The owner can switch follow-ups off.
   - Nothing is written to disk. The conversation is forgotten after 5 idle minutes, when the brain
-    changes, or when pinnad restarts. pinnad keeps no memory of its own; anything longer-lived is the
+    changes, when the mode changes, or when pinnad restarts. pinnad keeps no memory of its own; anything longer-lived is the
     agent's, on its side.
   - A model gets the earlier turns: at most 10.
   - An agent's conversation has no turn limit. Hermes gets the earlier turns, up to 64 KB of text,
     dropping the oldest first. OpenClaw gets only the new turn, with one stable `user` per device, so
     the gateway keeps the session.
 - **The owner can type a question** on the dashboard (at most 1,000 characters). It runs as a spoken
-  request would, without the microphone and without a follow-up, and the reply plays on the device.
+  request would, without a follow-up, and the reply plays on the device. Like a spoken one, it is
+  refused while the microphones are off: muted is the owner saying "not now".
 - **pinnad's own tools are the paths behind its Home Assistant entities** (ADR 0007), so Home Assistant,
   the dashboard and the brain change the device the same way:
   - the controls, not the configuration switches: the ring light, volume (set or change) and reply
@@ -164,13 +172,13 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 - **Local time comes from the time zone setting** (ADR 0007), for the time tool and the brain. Unset is
   UTC. The place search returns the place's time zone, and the dashboard offers it when the device's
   differs.
-- **A language setting** (a BCP 47 tag such as `de` or `en-US`) goes to speech-to-text as a hint and to
-  the brain as the language to answer in.
+- **A language setting** (a BCP 47 tag such as `de` or `en-US`) goes to the brain as the language to
+  answer in, and its primary subtag (`de`) to speech-to-text as a hint and to ElevenLabs' text-to-speech.
 - **Each stage has a time limit:**
   - speech-to-text: 15 s;
   - text-to-speech: 10 s to the first audio;
   - the brain's first text: 30 s, or 120 s for an agent, which may run tools first. The same limit
-    applies between later pieces of a model's answer, so a stream that stalls fails.
+    applies between later pieces of the answer, so a stream that stalls fails.
 
   The state machine arms a later backstop for each stage, so a run that stops reporting still ends.
 - **A slow agent gets an acknowledgment.**
@@ -184,7 +192,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   2025-06-18, or 2025-03-26 for an older server). stdio servers don't run on the device.
   - They have no authentication yet: a server that takes a token in its address works; one that needs a
     header token or OAuth can't be added until a later ADR adds them.
-  - A server's tools are named `<server>_<tool>`. Its tool list is cached for 5 minutes, a failure for
+  - A server's tools are named `<server>_<tool>`, with the server's hyphens as underscores; a name
+    that doesn't fit providers' 64-byte `[A-Za-z0-9_-]` rule is left out. Its tool list is cached for 5 minutes, a failure for
     30 s. A server that doesn't list within 2 s is left out of that request.
   - Saving a server asks it for its tools at once, and the dashboard shows how it answered.
   - At most 8 servers.
@@ -207,8 +216,9 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 - **Timers run on the device in standalone mode**, with the same ring arc and alarm as Home Assistant's.
   - At most 10 at once, each at most 24 hours, with a name of at most 40 characters.
   - They survive a restart. Each is saved with its deadline; at boot it resumes from its saved remaining
-    time at once, and once the clock has synced, the deadline corrects it: a timer that came due rings,
-    one overdue by more than 5 minutes is dropped.
+    time at once, and if the clock syncs within 60 s, the deadline corrects it: a timer that came due
+    rings, one overdue by more than 5 minutes is dropped. A timer saved before the clock had synced
+    keeps its remaining time, as the time it was off can't be known.
 - **Speak** says a text with the text-to-speech slot alone (at most 500 characters): the dashboard's
   Play sample and the `speak` tool. It works in either mode, once a voice is set up, and is refused
   while a request runs, an alarm rings or the device already says something. Music ducks under it.
@@ -233,8 +243,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 
   It speaks MCP 2025-06-18 and 2025-03-26 over JSON, refuses batches and bodies over 64 KiB, runs at
   most two tool calls at once (another is told the device is busy), and keeps room in the state
-  machine's queue for the wake word. The dashboard lists the last 8 clients that called, by the name
-  each gave and its address.
+  machine's queue for the wake word. The dashboard lists the last 8 clients that introduced themselves
+  (`initialize` with a name), by that name and their address.
 - **Access works like the dashboard: anyone on the LAN, no token.**
   - The Host allowlist applies. An agent reaches `/mcp` by the `.local` name, an IP address or the
     dashboard address (ADR 0021), and the Assistant page shows that address to copy.
@@ -250,6 +260,7 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - A key is stored with the URL it was entered for.
   - Changing the URL clears the key, so nobody on the LAN can point a connection at their own server and
     receive the key.
+  - Provider and MCP clients follow no redirects, so a key never goes to another host.
 - **Secrets live in `/var/lib/pinna/secrets.toml`**, mode 0600, written durably like the ESPHome key
   (ADR 0018).
   - A factory reset deletes them with the rest of `/var/lib/pinna` (ADR 0010).
@@ -262,16 +273,17 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 
 ### Errors
 
-- **A connection is checked when it is saved.**
-  - pinnad makes a cheap call: the model list, half a second of silence for a speech server without
-    one, or a one-word phrase.
+- **A slot is checked when it is saved, and again when its connection changes.**
+  - pinnad makes a cheap call, given 10 s: the model list, half a second of silence for a speech server
+    without one, or a one-word phrase. Only the brain's model is compared with the list; an agent's and
+    a speech model aren't.
   - A slot is saved only when its check passes, in either mode.
   - A connection change re-checks the slots on it. In standalone mode a change that fails is refused
     with a sentence naming each slot that failed. In Home Assistant mode it is saved, and those slots
     aren't ready until they pass again.
   - No brain is sent a prompt for the check.
-- **A request that fails gives one error cue and one log line.**
-  - The line names the slot, the provider and the HTTP status. The dashboard's log shows it.
+- **A request that fails gives one error cue.**
+  - Its log line names the slot, the provider and the HTTP status. The dashboard's log shows it.
   - The dashboard shows the last failure as a sentence with its slot, service and time, until a request
     is answered again.
   - pinnad doesn't retry.
@@ -280,20 +292,23 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - the phrases Whisper invents on silence are dropped;
   - replies are capped with `max_tokens` (500, or 1,000 for an agent) and 1,500 spoken characters. An
     agent's answer is no longer read once the cap is reached;
-  - a follow-up that hears nothing ends the conversation;
+  - a follow-up window that hears nothing closes, and uploads nothing;
   - the Action button or the wake word stops a request.
 
 ### Metrics (amends ADR 0020)
 
 - **Standalone runs count where Home Assistant's do:** `pinna_assist_runs` and
   `pinna_reply_first_audio_seconds`. Their failures count in `pinna_standalone_errors`, by slot and a
-  reason: the HTTP status, or timeout, unreachable, TLS, clock not set or protocol.
+  bounded reason: `http_401`, `http_402`, `http_403`, `http_404`, `http_429`, `http_3xx`, `http_4xx`,
+  `http_5xx`, `http_other`, `timeout`, `unreachable`, `tls`, `clock`, `protocol`, `too_large` or
+  `internal`.
   `pinna_assist_errors` stays Home Assistant's, by its error code.
-- **Each stage has a histogram,** by slot: speech-to-text, the brain's first text, text-to-speech's
-  first audio.
+- **Each stage has a histogram,** by slot: speech-to-text, the brain's first text, and each sentence's
+  text-to-speech to its first audio.
 - **What costs money is counted,** by preset, one family for each slot: seconds of audio uploaded,
   the tokens the provider reports (input and output), characters synthesised.
-- **The guards are counted:** wakes that uploaded nothing, transcripts dropped as invented, follow-ups,
+- **The guards are counted:** requests and follow-up windows that uploaded nothing, transcripts dropped
+  as invented, follow-ups,
   acknowledgments played, requests stopped by the wake word or the Action button.
 - **Tool calls are counted,** by tool, outcome and whether the brain or an MCP client called. pinnad's
   own tools are named; a tool from the owner's MCP servers counts under the server that answered it.
@@ -342,5 +357,6 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - ChatGPT sign-in, which needs a client ID;
   - speech-to-speech models;
   - MCP servers that need a header token or OAuth;
-  - a model field for a custom text-to-speech server, which always gets `tts-1`;
+  - a text-to-speech model field: OpenAI-compatible servers always get `tts-1`, ElevenLabs
+    `eleven_multilingual_v2`;
   - Spotify Connect, and several satellites sharing one conversation.
