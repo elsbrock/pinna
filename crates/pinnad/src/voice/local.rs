@@ -2520,11 +2520,17 @@ mod tests {
         device.brain.settings.mode = Mode::HomeAssistant;
         device.brain.pending_mode = Some(Mode::Standalone);
         device.set_live(AssistLive::empty());
+        device.events();
 
         device.brain.tick().await;
 
         assert_eq!(device.brain.mode(), Mode::HomeAssistant);
         assert_eq!(device.brain.pending_mode, None);
+        // The select reports the mode it stayed in.
+        assert!(device.events().contains(&DeviceEvent::SelectState {
+            object_id: "assistant".into(),
+            state: "Home Assistant".into(),
+        }));
     }
 
     #[tokio::test]

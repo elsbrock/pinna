@@ -3037,7 +3037,9 @@ impl Brain {
                 ..SettingsPatch::default()
             };
             if let Err(why) = self.update_settings(patch).await {
-                tracing::info!("switch_assistant asked for {}: {why}", mode.label());
+                tracing::info!("a waiting switch to {} was refused: {why}", mode.label());
+                // The select asked for it may still show the request.
+                self.send_mode().await;
             }
         }
         if self.reconnect_for_mode
