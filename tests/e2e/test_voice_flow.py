@@ -57,9 +57,12 @@ def pinnad():
     yield from start_pinnad()
 
 
-def start_pinnad(settings: str | None = None, extra: str = "", fixture: Path = FIXTURE):
+def start_pinnad(
+    settings: str | None = None, extra: str = "", fixture: Path = FIXTURE, before_start=None
+):
     """Run pinnad on `fixture`; `settings` seeds its settings.toml, `extra`
-    adds to its pinnad.toml."""
+    adds to its pinnad.toml, and `before_start` gets the settings file's path
+    to put more files beside it."""
     if not MODELS.exists():
         pytest.skip("wake word models missing (just models)")
     port = free_port()
@@ -67,6 +70,8 @@ def start_pinnad(settings: str | None = None, extra: str = "", fixture: Path = F
         settings_file = Path(d) / "settings.toml"
         if settings is not None:
             settings_file.write_text(settings)
+        if before_start is not None:
+            before_start(settings_file)
         cfg = Path(d) / "pinnad.toml"
         cfg.write_text(
             f"""
