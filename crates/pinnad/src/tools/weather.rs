@@ -172,10 +172,9 @@ impl Units {
 /// The language subtag Open-Meteo knows, such as `de` for `de-AT`.
 fn primary_language(language: Option<&str>) -> String {
     language
-        .and_then(|tag| tag.split(['-', '_']).next())
+        .map(pinna_assist::config::primary_language)
         .filter(|tag| !tag.is_empty())
-        .unwrap_or("en")
-        .to_ascii_lowercase()
+        .unwrap_or_else(|| "en".into())
 }
 
 fn encode(s: &str) -> String {

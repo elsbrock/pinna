@@ -71,9 +71,7 @@ const PHRASES: &[(&str, &str)] = &[
 
 /// The language's phrase, or English's.
 fn table(language: Option<&str>) -> &'static str {
-    let primary = language
-        .and_then(|tag| tag.split(['-', '_']).next())
-        .map(str::to_ascii_lowercase);
+    let primary = language.map(pinna_assist::config::primary_language);
     PHRASES
         .iter()
         .find(|(tag, _)| primary.as_deref() == Some(*tag))

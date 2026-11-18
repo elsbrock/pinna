@@ -142,6 +142,16 @@ pub fn language(s: &str) -> Result<String, String> {
     Ok(s.to_string())
 }
 
+/// The primary subtag of a language tag, lowercase: `en` for `en-US`, `de`
+/// for `de_DE`. Speech services take this, not the whole tag. Three-letter
+/// primaries (`haw`, `yue`) stay as they are.
+pub fn primary_language(tag: &str) -> String {
+    tag.split(['-', '_'])
+        .next()
+        .unwrap_or(tag)
+        .to_ascii_lowercase()
+}
+
 fn valid_language(s: &str) -> bool {
     let parts: Vec<&str> = s.split(['-', '_']).collect();
     let Some(first) = parts.first() else {
@@ -236,6 +246,15 @@ pub fn check(c: &AssistConfig) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn speech_services_get_the_primary_language_subtag() {
+        assert_eq!(primary_language("en-US"), "en");
+        assert_eq!(primary_language("de_DE"), "de");
+        assert_eq!(primary_language("PT-br"), "pt");
+        assert_eq!(primary_language("haw"), "haw");
+    }
+
     use super::*;
     use crate::presets::{Delegation, HistoryPolicy};
 

@@ -6,7 +6,7 @@ use pinna_http::{ClientKind, Secret, client};
 
 use crate::{
     chat::{AnthropicChat, Chat, GeminiChat, OpenAiChat},
-    config::{AssistConfig, Connection, SlotConfig},
+    config::{self, AssistConfig, Connection, SlotConfig},
     error::Slot,
     http::Auth,
     limits::RunLimits,
@@ -195,7 +195,7 @@ fn build_tts(cfg: &AssistConfig, secrets: &Secrets) -> Result<Arc<dyn Tts>, Stri
             &connection.base_url,
             ELEVENLABS_TTS_MODEL,
             voice,
-            cfg.language.clone(),
+            cfg.language.as_deref().map(config::primary_language),
             connection.preset,
             auth,
             clock_synced,

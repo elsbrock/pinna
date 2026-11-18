@@ -12,6 +12,7 @@ use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use pinna_assist::config::primary_language;
 use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::observe::Observer;
 use pinna_assist::presets::PresetId;
@@ -77,7 +78,9 @@ impl ProdSpawner {
             pipeline,
             system: system_prompt(&live, &device, SystemTime::now()),
             history,
-            language: live.language.clone(),
+            // Speech services take the primary subtag only (`en`, not
+            // `en-US`); the prompt keeps the whole tag.
+            language: live.language.as_deref().map(primary_language),
             // One per satellite; only a brain that asks for it (OpenClaw)
             // gets it.
             user: Some(stable_user(&device)),
