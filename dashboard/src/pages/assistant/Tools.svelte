@@ -6,6 +6,7 @@
 
   import { assistant } from "../../lib/assistant.svelte.ts";
   import { delegation, isStandalone, mcpAddress, mcpStatus, toolLabel, toolReach } from "../../lib/assistant.ts";
+  import Confirm from "../../lib/Confirm.svelte";
   import { copyText } from "../../lib/copy.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
@@ -46,6 +47,9 @@
       stationUrl = "";
     }
   }
+  // The station Remove asked about; it goes once the dialog confirms.
+  let removing = $state("");
+  let removeOpen = $state(false);
   function removeStation(name: string) {
     const list = (view?.stations ?? []).filter((x) => x.name !== name).map(({ name, url }) => ({ name, url }));
     return saveStations(list, `${name} removed`);
@@ -183,7 +187,9 @@
           aria-disabled={assistant.busy || undefined}
           aria-label="Remove {st.name}"
           onclick={() => {
-            if (!assistant.busy) void removeStation(st.name);
+            if (assistant.busy) return;
+            removing = st.name;
+            removeOpen = true;
           }}>Remove</button
         >
       </div>
@@ -239,6 +245,15 @@
       </div>
     </form>
   </Group>
+  <Confirm
+    bind:open={removeOpen}
+    title="Remove {removing}?"
+    action="Remove"
+    danger
+    confirm={() => removeStation(removing)}
+  >
+    <p>The brain can no longer play it by name. To get it back, add it again with its address.</p>
+  </Confirm>
 
   <Group title="Pinna as an MCP server">
     {#snippet foot()}
