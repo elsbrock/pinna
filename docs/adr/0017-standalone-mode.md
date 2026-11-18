@@ -281,7 +281,10 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 - **MCP server URLs count as secrets.** Some services put the token in the path. The dashboard shows a
   server's name and host only. Changing a URL means entering it again in full.
 - **Nothing secret is logged at info or above:** no key, no URL with credentials, no response body and no
-  transcript.
+  transcript. The one exception is what a service said when it refused: the message field of its error
+  body, on one line, at most 200 characters, with the connection's key and anything that looks like a
+  key masked. It names what the status alone can't, such as a model that takes tools only with
+  `reasoning_effort` `none`.
 
 ### Errors
 
@@ -294,8 +297,15 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
     with a sentence naming each slot that failed. In Home Assistant mode it is saved, and those slots
     aren't ready until they pass again.
   - No brain is sent a prompt for the check.
+- **Each request leaves its trace in the log**, without what was said:
+  - one line per tool call: the request or MCP client, the tool, ok or error, and how long it took. The
+    arguments and the output stay out; they can hold what was said;
+  - one line when the request is over: the speech-to-text time and seconds of audio, the time to the
+    brain's first words, the time to the first audio, tokens and characters, and how it ended (answered,
+    nothing heard, an invented transcript, failed, or stopped before it ended).
 - **A request that fails gives one error cue.**
-  - Its log line names the slot, the provider and the HTTP status. The dashboard's log shows it.
+  - Its log line names the slot, the provider and the HTTP status, and what the service said. The
+    dashboard's log shows it. A failed check is logged the same way.
   - The dashboard shows the last failure as a sentence with its slot, service and time, until a request
     is answered again.
   - pinnad doesn't retry.
