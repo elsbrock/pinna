@@ -2690,4 +2690,44 @@ mod tests {
         let next = device.request().await;
         assert_eq!(next.start.history, [turn("Question", "Answer?")]);
     }
+
+    #[tokio::test]
+    async fn an_agent_may_think_for_two_minutes() {
+        let mut device = TestDevice::new(Mode::Standalone, false);
+        device.set_live(AssistLive {
+            chat_gen: 1,
+            ready: true,
+            slots: [true; 3],
+            pipeline: Some(Arc::new(Pipeline {
+                stt: Arc::new(Unasked),
+                chat: Arc::new(Unasked),
+                tts: Arc::new(Voice::Silent),
+                presets: [PresetId::OpenAi, PresetId::Hermes, PresetId::OpenAi],
+                model: "agent".into(),
+                behaviour: pinna_assist::presets::preset(PresetId::Hermes).behaviour,
+                label: "hermes: agent".into(),
+            })),
+            ..AssistLive::empty()
+        });
+        let run = device.request().await.start.run;
+        let started = Instant::now();
+        device.assist(run, RunEvent::SpeechEnded).await;
+
+        // A model's request has failed by now.
+        device
+            .brain
+            .tick_local(started + Duration::from_secs(60))
+            .await;
+        assert!(device.brain.local.run.is_some());
+
+        device
+            .brain
+            .tick_local(started + Duration::from_secs(150))
+            .await;
+        assert!(device.brain.local.run.is_none());
+        assert_eq!(
+            device.brain.snapshot().assist.last_error.as_deref(),
+            Some("brain via hermes: request timed out")
+        );
+    }
 }

@@ -78,7 +78,9 @@ impl ProdSpawner {
             system: system_prompt(&live, &device, SystemTime::now()),
             history,
             language: live.language.clone(),
-            user: None,
+            // One per satellite; only a brain that asks for it (OpenClaw)
+            // gets it.
+            user: Some(stable_user(&device)),
             mic,
             reply,
             tools: Arc::new(tools),
@@ -133,6 +135,12 @@ fn system_prompt(live: &AssistLive, device: &DeviceFacts, now: SystemTime) -> St
             satellite: device.name.clone(),
         },
     )
+}
+
+/// The `user` a hand-off agent keys its session on: the same for every
+/// request from this satellite.
+fn stable_user(device: &DeviceFacts) -> String {
+    format!("pinna-{}", device.device_id)
 }
 
 /// A run's events, on their way to the Brain.
@@ -410,6 +418,15 @@ mod tests {
             }
         }
 
+        /// Type a question and wait for its reply to end.
+        async fn ask(&mut self, question: &str) -> Vec<String> {
+            let question = question.to_owned();
+            self.api(|reply| ApiCommand::AskText(question, reply))
+                .await
+                .unwrap();
+            self.voice_events_until("finished").await
+        }
+
         /// The voice assistant events up to and including `last`.
         async fn voice_events_until(&mut self, last: &str) -> Vec<String> {
             let mut seen = Vec::new();
@@ -533,5 +550,69 @@ mod tests {
             sat.idle().await.assist.last_error.as_deref(),
             Some("stt via openai: HTTP 401")
         );
+    }
+
+    #[tokio::test]
+    async fn a_hermes_agent_gets_the_conversation_by_size_and_no_tools() {
+        let chat = FakeChat::answering("Done.");
+        let mut sat = Satellite::start(pipeline(
+            Heard::Text("unused"),
+            chat.clone(),
+            PresetId::Hermes,
+        ))
+        .await;
+
+        // More turns than a model keeps: an agent's history is bounded by size.
+        for n in 1..=12 {
+            assert_eq!(
+                sat.ask(&format!("Question {n}?")).await,
+                ["thinking", "replying", "finished"]
+            );
+        }
+
+        let asked = chat.asked();
+        let last = &asked[11].messages;
+        assert_eq!(last.len(), 23);
+        assert_eq!(last[0], Message::User("Question 1?".into()));
+        assert_eq!(
+            last[1],
+            Message::Assistant {
+                text: "Done.".into(),
+                calls: Vec::new(),
+            }
+        );
+        assert_eq!(last[22], Message::User("Question 12?".into()));
+        for request in &asked {
+            assert!(request.tools.is_empty(), "an agent runs its own tools");
+            assert_eq!(request.max_tokens, RunLimits::AGENT.max_tokens);
+            assert_eq!(request.user, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_openclaw_agent_gets_only_the_new_turn_under_a_stable_user() {
+        let chat = FakeChat::answering("Done.");
+        let mut sat = Satellite::start(pipeline(
+            Heard::Text("unused"),
+            chat.clone(),
+            PresetId::OpenClaw,
+        ))
+        .await;
+
+        for question in ["First?", "Second?"] {
+            assert_eq!(
+                sat.ask(question).await,
+                ["thinking", "replying", "finished"]
+            );
+        }
+
+        let asked = chat.asked();
+        assert_eq!(asked[1].messages, [Message::User("Second?".into())]);
+        for request in &asked {
+            // Without mDNS the node name stands in for the MAC address.
+            assert_eq!(request.user.as_deref(), Some("pinna-pinna-test"));
+            assert!(request.tools.is_empty(), "an agent runs its own tools");
+            assert_eq!(request.max_tokens, RunLimits::AGENT.max_tokens);
+        }
     }
 }
