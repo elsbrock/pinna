@@ -53,19 +53,27 @@
   let promptTouched = $state(false);
   let promptError = $state<string | null>(null);
   const stored = $derived(view ? (view.prompt ?? view.voiceRules) : "");
+  // The version the edit started from: a save from another window since is
+  // refused instead of silently replaced.
+  let promptBase = $state("");
   $effect(() => {
-    if (!promptTouched) prompt = stored;
+    if (promptTouched) return;
+    prompt = stored;
+    promptBase = view?.promptRevision ?? "";
   });
   const tooLong = $derived(chars(prompt) > PROMPT_MAX);
   async function savePrompt() {
     // The voice rules typed back in mean the voice rules, which then follow updates.
     const patch = prompt === view?.voiceRules ? { defaultPrompt: true } : { prompt };
-    promptError = await assistant.update(patch);
+    promptError = await assistant.update({ ...patch, promptRevision: promptBase });
     if (!promptError) promptTouched = false;
   }
   let resetting = $state(false);
   async function resetPrompt() {
-    promptError = await assistant.update({ defaultPrompt: true }, "Back to the voice rules");
+    promptError = await assistant.update(
+      { defaultPrompt: true, promptRevision: promptBase },
+      "Back to the voice rules",
+    );
     if (!promptError) promptTouched = false;
   }
 

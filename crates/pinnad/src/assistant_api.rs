@@ -107,6 +107,7 @@ fn render(v: AssistantView) -> Assistant {
             })
         }),
         prompt: v.prompt,
+        prompt_revision: v.prompt_revision,
         follow_ups: v.follow_ups,
         ack: MessageField::some(Acknowledgment {
             enabled: v.ack.enabled,
@@ -390,6 +391,7 @@ impl AssistantService for AssistantApi {
             // An empty language or place clears it.
             language: r.language,
             prompt,
+            prompt_revision: (!r.prompt_revision.is_empty()).then_some(r.prompt_revision),
             follow_ups: r.follow_ups,
             ack: r.ack.into_option().map(|a| Ack {
                 enabled: a.enabled,

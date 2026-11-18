@@ -124,6 +124,9 @@ message Assistant {
   // The satellite's own tools, which `tools` switches, in the order to show
   // them.
   repeated DeviceTool device_tools = 19;
+  // Names the prompt as it is now (the owner's text or the voice rules). An
+  // edit sends the one it started from (UpdateAssistantRequest).
+  string prompt_revision = 20;
 }
 
 // A provider's address and key, shared by the slots that use it.
@@ -310,6 +313,10 @@ message UpdateAssistantRequest {
   optional string place = 8;
   // Replaces every station.
   StationList stations = 9;
+  // With `prompt` or `default_prompt`: the Assistant.prompt_revision the
+  // edit started from. If the prompt changed since (another window), the
+  // edit is refused with `aborted`. Empty doesn't check.
+  string prompt_revision = 10;
 }
 
 message StationList {

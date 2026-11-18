@@ -224,6 +224,9 @@ pub struct AssistantPatch {
     /// `Some(None)` restores the voice rules; an empty prompt keeps only the
     /// context.
     pub prompt: Option<Option<String>>,
+    /// The [`prompt_revision`] a prompt edit started from; `None` doesn't
+    /// check.
+    pub prompt_revision: Option<String>,
     pub follow_ups: Option<bool>,
     pub ack: Option<Ack>,
     /// The whole switch table; an absent name means on.
@@ -250,6 +253,8 @@ pub struct AssistantView {
     pub language: Option<String>,
     pub place: Option<Place>,
     pub prompt: Option<String>,
+    /// [`prompt_revision`] of `prompt`.
+    pub prompt_revision: String,
     pub follow_ups: bool,
     pub ack: Ack,
     /// The phrase the acknowledgment says in the current language.
@@ -704,6 +709,13 @@ impl Service {
                 c.language = language;
             }
             if let Some(prompt) = prompt {
+                // Two windows editing the prompt: the second save would
+                // silently replace the first.
+                if p.prompt_revision.as_ref().is_some_and(|started| {
+                    *started != prompt_revision(c.prompt.as_deref())
+                }) {
+                    return Err(Refusal::Conflict(PROMPT_CHANGED.into()));
+                }
                 c.prompt = prompt;
             }
             if let Some(follow_ups) = p.follow_ups {
@@ -1144,6 +1156,7 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
         language: c.language.clone(),
         place: c.place.clone(),
         prompt: c.prompt.clone(),
+        prompt_revision: prompt_revision(c.prompt.as_deref()),
         follow_ups: c.follow_ups,
         ack: c.ack.clone(),
         ack_spoken: ack::phrase(&c.ack, c.language.as_deref()),
@@ -1234,6 +1247,21 @@ fn next_mcp_id(c: &AssistConfig) -> String {
         .map(|n| format!("mcp-{n}"))
         .find(|id| c.mcp_servers.iter().all(|server| server.id != *id))
         .expect("an unbounded range has a free id")
+}
+
+/// Why a prompt edit was refused: another window saved first.
+const PROMPT_CHANGED: &str = "The prompt was changed in another window. Copy your text, reload \
+the page, and make your change again.";
+
+/// Names a prompt as it is stored: the owner's text, or `None` for the voice
+/// rules. Not a secret, only a short fingerprint to tell versions apart.
+pub fn prompt_revision(prompt: Option<&str>) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = match prompt {
+        Some(text) => Sha256::digest(format!("owner\n{text}")),
+        None => Sha256::digest("voice rules"),
+    };
+    digest[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The first free `<preset>-<n>`.
@@ -2030,6 +2058,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_prompt_edit_from_an_older_version_is_refused() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        let first = f.service.view().prompt_revision;
+        assert_eq!(first, prompt_revision(None));
+        let edit = |text: &str, started: &str| AssistantPatch {
+            prompt: Some(Some(text.into())),
+            prompt_revision: Some(started.into()),
+            ..AssistantPatch::default()
+        };
+
+        // Two windows start from the voice rules; the first one saves.
+        let saved = f.service.update(edit("Be brief.", &first)).await.unwrap();
+        assert_eq!(saved.prompt_revision, prompt_revision(Some("Be brief.")));
+        assert_ne!(saved.prompt_revision, first);
+        // The second is refused, and the first one's text stays.
+        assert_eq!(
+            f.service.update(edit("Be chatty.", &first)).await.unwrap_err(),
+            Refusal::Conflict(PROMPT_CHANGED.into())
+        );
+        assert_eq!(f.service.view().prompt.as_deref(), Some("Be brief."));
+        // From the current version, and without one, an edit goes through.
+        f.service
+            .update(edit("Be chatty.", &saved.prompt_revision))
+            .await
+            .unwrap();
+        let reset = AssistantPatch {
+            prompt: Some(None),
+            ..AssistantPatch::default()
+        };
+        assert_eq!(f.service.update(reset).await.unwrap().prompt, None);
+    }
+
+    #[tokio::test]
     async fn an_owner_tool_keeps_its_own_name_for_its_switch() {
         let f = Fixture::new(Mode::HomeAssistant);
         let switch = |name: &str| AssistantPatch {
@@ -2188,6 +2249,7 @@ mod tests {
             .update(AssistantPatch {
                 language: Some("de".into()),
                 prompt: Some(Some(String::new())),
+                prompt_revision: Some(prompt_revision(None)),
                 follow_ups: Some(false),
                 ack: Some(Ack {
                     enabled: true,
