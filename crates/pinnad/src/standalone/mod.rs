@@ -12,6 +12,7 @@ use pinna_http::Secret;
 use pinna_mcp::client::{McpClient, McpToolSet};
 
 pub mod ack;
+mod runlog;
 pub mod service;
 pub mod spawn;
 

@@ -667,6 +667,7 @@ impl ToolSet for DeviceTools {
 
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput> {
         Box::pin(async move {
+            let started = Instant::now();
             let (output, server) = self.dispatch(name, args).await;
             let via = match self.surface {
                 Surface::Run => Via::Run,
@@ -675,9 +676,39 @@ impl ToolSet for DeviceTools {
             self.kit
                 .counters
                 .tool_call(name, server, via, !output.is_error);
+            log_call(self.caller, name, server, &output, started.elapsed());
             output
         })
     }
+}
+
+/// One line per tool call (ADR 0017): who called, which tool, whether it
+/// worked and how long it took. Never the arguments or the output, which can
+/// hold what was said. A name the model made up is not repeated either.
+fn log_call(
+    caller: Caller,
+    name: &str,
+    server: Option<&str>,
+    output: &ToolOutput,
+    took: std::time::Duration,
+) {
+    let who = match caller {
+        Caller::Run(run) => format!("request {}", run.0),
+        Caller::Mcp => "an MCP client".to_owned(),
+    };
+    let name = if pinna_mcp::tool_name(name) {
+        name
+    } else {
+        "with an invalid name"
+    };
+    let from = server
+        .map(|s| format!(" (MCP server {s})"))
+        .unwrap_or_default();
+    let outcome = if output.is_error { "error" } else { "ok" };
+    tracing::info!(
+        "{who}: tool {name}{from}: {outcome}, {} ms",
+        took.as_millis()
+    );
 }
 
 impl DeviceTools {

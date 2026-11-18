@@ -2165,6 +2165,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml",
+ "tracing",
  "url",
 ]
 

@@ -50,7 +50,7 @@ pub struct CheckSetup {
 pub async fn check(setup: &CheckSetup) -> Result<(), String> {
     match tokio::time::timeout(CHECK_TIMEOUT, run_check(setup)).await {
         Ok(result) => result,
-        Err(_) => Err(refusal(&setup.endpoint.error(setup.slot, Reason::Timeout))),
+        Err(_) => Err(refused(&setup.endpoint.error(setup.slot, Reason::Timeout))),
     }
 }
 
@@ -93,15 +93,15 @@ async fn stt_check(setup: &CheckSetup) -> Result<(), String> {
         .transcribe(silence_wav(), None)
         .await
         .map(|_| ())
-        .map_err(|error| refusal(&error)),
-        Err(error) => Err(refusal(&error)),
+        .map_err(|error| refused(&error)),
+        Err(error) => Err(refused(&error)),
     }
 }
 
 async fn chat_check(setup: &CheckSetup) -> Result<(), String> {
     let body = models(setup, Slot::Chat)
         .await
-        .map_err(|error| refusal(&error))?;
+        .map_err(|error| refused(&error))?;
     // A hand-off brain owns its own model names; a successful list is enough.
     if setup.hand_off {
         return Ok(());
@@ -128,7 +128,7 @@ async fn tts_check(setup: &CheckSetup) -> Result<(), String> {
     )
     .speak("OK.")
     .await
-    .map_err(|error| refusal(&error))?;
+    .map_err(|error| refused(&error))?;
     let AudioBody::Stream(mut stream) = audio.body else {
         return Ok(());
     };
@@ -138,7 +138,7 @@ async fn tts_check(setup: &CheckSetup) -> Result<(), String> {
             Ok(_) => continue,
             Err(error) => {
                 let reason = http::body_reason(&error, (setup.endpoint.clock_synced)());
-                return Err(refusal(&setup.endpoint.error(Slot::Tts, reason)));
+                return Err(refused(&setup.endpoint.error(Slot::Tts, reason)));
             }
         }
     }
@@ -227,6 +227,17 @@ pub fn request_failure(error: &ProviderError) -> String {
         }
         _ => refusal(error),
     }
+}
+
+/// The owner's sentence for a failed check, with the failure and what the
+/// service said in the log.
+fn refused(error: &ProviderError) -> String {
+    tracing::info!(
+        "the {} check failed: {error}{}",
+        error.slot.label(),
+        error.said_suffix()
+    );
+    refusal(error)
 }
 
 /// One owner sentence for a failed check. It names the cause and the fix, and

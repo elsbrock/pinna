@@ -846,8 +846,6 @@ impl Service {
         self.status.borrow().mode == Mode::Standalone
     }
 
-    /// Make the acknowledgment the configuration now asks for, off the
-    /// caller's path, and publish it once it is on disk.
     /// The save-time check for one slot, or the sentence why it failed.
     async fn check(
         &self,

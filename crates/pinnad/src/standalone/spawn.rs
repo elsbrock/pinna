@@ -23,6 +23,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::AssistLive;
+use super::runlog::RunLog;
 use crate::tools::{Caller, DeviceTools, Surface, ToolKit};
 use crate::voice::{DeviceFacts, Input, LocalStart, RunId, RunSpawner, Snapshot};
 
@@ -50,7 +51,11 @@ impl ProdSpawner {
         }
     }
 
-    fn request(&self, start: LocalStart) -> Result<RunRequest, ProviderError> {
+    fn request(
+        &self,
+        start: LocalStart,
+        observer: Arc<dyn Observer>,
+    ) -> Result<RunRequest, ProviderError> {
         let LocalStart {
             run,
             kind,
@@ -93,7 +98,7 @@ impl ProdSpawner {
             reply,
             tools: Arc::new(tools),
             ack: live.ack.clone(),
-            observer: self.observer.clone(),
+            observer,
         })
     }
 }
@@ -104,8 +109,9 @@ impl RunSpawner for ProdSpawner {
             run: start.run,
             inputs: self.inputs.clone(),
         };
-        let observer = self.observer.clone();
-        let request = self.request(start);
+        // The run's own observer: the metrics, and its line in the log.
+        let log = RunLog::new(start.run, self.observer.clone());
+        let request = self.request(start, log.clone());
         tokio::spawn(async move {
             let failure = match request {
                 Ok(request) => {
@@ -114,6 +120,7 @@ impl RunSpawner for ProdSpawner {
                         .catch_unwind()
                         .await;
                     if outcome.is_ok() {
+                        log.finished();
                         return;
                     }
                     tracing::error!("standalone run {} panicked", events.run.0);
@@ -123,7 +130,8 @@ impl RunSpawner for ProdSpawner {
                 Err(failure) => failure,
             };
             // The run never got to report it.
-            observer.failed(&failure);
+            log.failed(&failure);
+            log.finished();
             events.emit(RunEvent::Failed(failure)).await;
         })
     }

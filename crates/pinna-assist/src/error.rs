@@ -99,12 +99,20 @@ impl fmt::Display for Reason {
 }
 
 /// A failure at one provider slot. Its display never contains request data.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ProviderError {
     pub slot: Slot,
     pub preset: PresetId,
     pub reason: Reason,
+    /// What the service said when it refused: the message of its error body,
+    /// at most [`SAID_MAX`] characters, with anything like a key masked
+    /// (ADR 0017). For the log only; the display and the owner's sentences
+    /// leave it out.
+    pub said: Option<String>,
 }
+
+/// The longest message kept from an error body.
+pub const SAID_MAX: usize = 200;
 
 impl ProviderError {
     pub fn new(slot: Slot, preset: PresetId, reason: Reason) -> Self {
@@ -112,7 +120,23 @@ impl ProviderError {
             slot,
             preset,
             reason,
+            said: None,
         }
+    }
+
+    /// For a log line: `; the service said: "…"`, or nothing.
+    pub fn said_suffix(&self) -> String {
+        self.said
+            .as_deref()
+            .map(|said| format!("; the service said: \"{said}\""))
+            .unwrap_or_default()
+    }
+}
+
+/// Two failures are the same failure whatever the service's words.
+impl PartialEq for ProviderError {
+    fn eq(&self, other: &Self) -> bool {
+        self.slot == other.slot && self.preset == other.preset && self.reason == other.reason
     }
 }
 

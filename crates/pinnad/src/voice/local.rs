@@ -408,7 +408,7 @@ impl Brain {
         self.stop_playback();
         self.phase = Phase::Idle;
         self.event("voice_assistant", "stopped").await;
-        tracing::warn!("standalone request failed: {error}");
+        tracing::warn!("standalone request failed: {error}{}", error.said_suffix());
         self.local.last_error = Some(LastFailure {
             error,
             at: SystemTime::now(),
