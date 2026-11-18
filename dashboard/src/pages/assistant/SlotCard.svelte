@@ -17,6 +17,7 @@
   } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
+  import Dropdown from "../../lib/Dropdown.svelte";
   import Icon from "../../lib/Icon.svelte";
   import BrainAdvanced from "./BrainAdvanced.svelte";
 
@@ -141,25 +142,20 @@
       <div class="fields">
         <div class="pn-field">
           <label class="pn-field-label" for="{id}-connection">Connection</label>
-          <span class="pn-select-wrap">
-            <select
-              id="{id}-connection"
-              class="pn-select"
-              bind:value={connection}
-              disabled={!live}
-              onchange={() => {
-                touched = true;
-                error = null;
-              }}
-            >
-              {#each options as c (c.id)}
-                <option value={c.id}
-                  >{presetName(c.preset)} · {connectionAddress(c, view?.presets ?? [])} · {keyShown(c)}</option
-                >
-              {/each}
-            </select>
-            <Icon name="chevron-down" class="pn-select-chev" />
-          </span>
+          <Dropdown
+            id="{id}-connection"
+            value={connection}
+            options={options.map((c) => ({
+              id: c.id,
+              label: `${presetName(c.preset)} · ${connectionAddress(c, view?.presets ?? [])} · ${keyShown(c)}`,
+            }))}
+            disabled={!live}
+            choose={(v) => {
+              connection = v;
+              touched = true;
+              error = null;
+            }}
+          />
         </div>
         {#if fixedModel}
           <div class="pn-field">
@@ -272,11 +268,11 @@
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
   }
-  .fields .pn-select-wrap {
+  .fields :global(.pn-select-wrap) {
     align-self: stretch;
     max-width: none;
   }
-  .fields .pn-select {
+  .fields :global(.pn-select) {
     width: 100%;
   }
   form {

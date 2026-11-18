@@ -21,6 +21,7 @@
   } from "../../lib/assistant.ts";
   import Confirm from "../../lib/Confirm.svelte";
   import { device } from "../../lib/device.svelte.ts";
+  import Dropdown from "../../lib/Dropdown.svelte";
   import Icon from "../../lib/Icon.svelte";
   import SecretField from "../../lib/SecretField.svelte";
 
@@ -103,21 +104,17 @@
     {:else}
       <div class="pn-field">
         <label class="pn-field-label" for="{id}-preset">Service</label>
-        <span class="pn-select-wrap">
-          <select
-            id="{id}-preset"
-            class="pn-select"
-            bind:value={presetId}
-            aria-describedby="{id}-preset-hint"
-            onchange={() => (error = null)}
-          >
-            <option value="" disabled>Choose a service</option>
-            {#each view?.presets ?? [] as p (p.id)}
-              <option value={p.id}>{presetName(p.id)}</option>
-            {/each}
-          </select>
-          <Icon name="chevron-down" class="pn-select-chev" />
-        </span>
+        <Dropdown
+          id="{id}-preset"
+          value={presetId}
+          placeholder="Choose a service"
+          options={(view?.presets ?? []).map((p) => ({ id: p.id, label: presetName(p.id) }))}
+          describedby="{id}-preset-hint"
+          choose={(v) => {
+            presetId = v;
+            error = null;
+          }}
+        />
         <span id="{id}-preset-hint" class="pn-field-hint">
           {#if preset}
             For {forSlots}.{kind === "fixed" ? ` It connects to ${hostOf(preset.baseUrl)}.` : ""}

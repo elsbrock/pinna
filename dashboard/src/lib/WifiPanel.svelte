@@ -10,6 +10,7 @@
   import Confirm from "./Confirm.svelte";
   import { device } from "./device.svelte.ts";
   import Group from "./Group.svelte";
+  import Dropdown from "./Dropdown.svelte";
   import Icon from "./Icon.svelte";
   import { network } from "./network.svelte.ts";
   import SignalBars from "./SignalBars.svelte";
@@ -253,13 +254,16 @@
           </div>
           <div class="pn-field">
             <label class="pn-field-label" for="wifi-security">Security</label>
-            <span class="pn-select-wrap">
-              <select id="wifi-security" class="pn-select" bind:value={target.security} disabled={wifi.joining}>
-                <option value={WPA2}>WPA2 (or WPA2/WPA3)</option>
-                <option value={OPEN}>Open, no password</option>
-              </select>
-              <Icon name="chevron-down" class="pn-select-chev" />
-            </span>
+            <Dropdown
+              id="wifi-security"
+              value={String(target.security)}
+              options={[
+                { id: String(WPA2), label: "WPA2 (or WPA2/WPA3)" },
+                { id: String(OPEN), label: "Open, no password" },
+              ]}
+              disabled={wifi.joining}
+              choose={(v) => target && (target.security = Number(v))}
+            />
           </div>
         {:else if nameError}
           <span class="pn-field-error" role="alert"><Icon name="alert" />{nameError}</span>
@@ -356,7 +360,7 @@
     gap: var(--space-3);
     text-align: left;
   }
-  .join .pn-select-wrap {
+  .join :global(.pn-select-wrap) {
     align-self: flex-start;
   }
   .inline {

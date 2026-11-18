@@ -3,7 +3,7 @@
      owns the options and reacts to a change; `value` is the device's state,
      so the row follows the satellite even when the choice is made elsewhere. -->
 <script lang="ts">
-  import Icon from "./Icon.svelte";
+  import Dropdown from "./Dropdown.svelte";
 
   let {
     id,
@@ -29,20 +29,13 @@
     <label id="{id}-label" class="pn-row-label" for={id}>{label}</label>
     {#if hint}<span id="{id}-hint" class="pn-row-hint">{hint}</span>{/if}
   </div>
-  <span class="pn-select-wrap">
-    <select
-      {id}
-      class="pn-select"
-      {disabled}
-      value={value}
-      aria-labelledby="{id}-label"
-      aria-describedby={hint ? `${id}-hint` : undefined}
-      onchange={(e) => choose(e.currentTarget.value)}
-    >
-      {#each options as o (o.id)}
-        <option value={o.id}>{o.label}</option>
-      {/each}
-    </select>
-    <Icon name="chevron-down" class="pn-select-chev" />
-  </span>
+  <Dropdown
+    {id}
+    {value}
+    {options}
+    {choose}
+    {disabled}
+    labelledby="{id}-label"
+    describedby={hint ? `${id}-hint` : undefined}
+  />
 </div>
