@@ -171,7 +171,18 @@ fn valid_language(s: &str) -> bool {
 /// A connection base URL as it is stored, or why it can't be one.
 pub fn base_url(s: &str) -> Result<String, String> {
     let s = s.trim();
-    let start = "Enter the full address, starting with http:// or https://.";
+    http_url(
+        s,
+        false,
+        "Enter the full address, starting with http:// or https://.",
+    )?;
+    Ok(s.to_string())
+}
+
+/// An http(s) address with a host and no user name or password, or the
+/// sentence why not. `start` asks for the whole address; a query is allowed
+/// only where `query` says so. No sentence repeats the address.
+pub fn http_url(s: &str, query: bool, start: &str) -> Result<url::Url, String> {
     if s.is_empty() {
         return Err(start.into());
     }
@@ -188,10 +199,14 @@ pub fn base_url(s: &str) -> Result<String, String> {
     if !url.username().is_empty() || url.password().is_some() {
         return Err("Leave out the user name and password.".into());
     }
-    if url.query().is_some() || url.fragment().is_some() {
+    if query {
+        if url.fragment().is_some() {
+            return Err("Leave out the # and everything after it.".into());
+        }
+    } else if url.query().is_some() || url.fragment().is_some() {
         return Err("Leave out everything after the path.".into());
     }
-    Ok(s.to_string())
+    Ok(url)
 }
 
 /// An MCP server name as it is stored, or why it can't be one.

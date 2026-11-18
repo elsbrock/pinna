@@ -56,8 +56,6 @@ const MAX_SWITCHES: usize = 128;
 const STATION_NAME_MAX: usize = 60;
 /// The Advanced first-text limit, in seconds.
 const FIRST_TEXT_S: std::ops::RangeInclusive<u64> = 1..=300;
-/// An MCP server address is at most this many bytes.
-const MCP_URL_MAX: usize = 2048;
 
 const NOT_SAVED: &str = "The assistant settings couldn't be saved. Try again.";
 const CHANGED: &str = "This connection was changed meanwhile. Reload and try again.";
@@ -1245,6 +1243,9 @@ fn connection_url(preset: PresetId, input: &str) -> Result<String, Refusal> {
     } else {
         input.to_owned()
     };
+    if url.len() > checks::URL_MAX {
+        return Err(Refusal::Invalid("That address is too long.".into()));
+    }
     assist::base_url(&url).map_err(Refusal::Invalid)
 }
 
@@ -1253,25 +1254,10 @@ fn connection_url(preset: PresetId, input: &str) -> Result<String, Refusal> {
 /// never repeats the address.
 fn mcp_url(url: &Secret) -> Result<Secret, Refusal> {
     let url = url.expose().trim();
-    let refuse = |sentence: &str| Err(Refusal::Invalid(sentence.into()));
-    if url.len() > MCP_URL_MAX {
-        return refuse("That address is too long.");
+    if url.len() > checks::URL_MAX {
+        return Err(Refusal::Invalid("That address is too long.".into()));
     }
-    if url.chars().any(char::is_whitespace) {
-        return refuse("An address has no spaces.");
-    }
-    let Ok(parsed) = url::Url::parse(url) else {
-        return refuse(MCP_URL);
-    };
-    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-        return refuse(MCP_URL);
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return refuse("Leave out the user name and password.");
-    }
-    if parsed.fragment().is_some() {
-        return refuse("Leave out the # and everything after it.");
-    }
+    assist::http_url(url, true, MCP_URL).map_err(Refusal::Invalid)?;
     Ok(Secret::new(url))
 }
 

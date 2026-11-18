@@ -8,14 +8,19 @@ pub fn percent(name: &str, v: u32) -> Result<u8, String> {
     }
 }
 
+/// The longest address Pinna stores or plays.
+pub const URL_MAX: usize = 2048;
+
 pub fn media_url(s: &str) -> Result<String, String> {
     let url = s.trim();
-    if url.len() <= 2048
+    if url.len() <= URL_MAX
         && url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
     {
         Ok(url.to_owned())
     } else {
-        Err("the URL must start with http:// or https:// and be at most 2048 characters".into())
+        Err(format!(
+            "the URL must start with http:// or https:// and be at most {URL_MAX} characters"
+        ))
     }
 }
 
