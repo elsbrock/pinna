@@ -480,18 +480,20 @@ impl Brain {
     }
 
     /// The reply player ended: everything queued has sounded, or an item
-    /// failed. A failure before the run is done fails the run.
+    /// failed. A failure fails the run whether or not the run was done: the
+    /// run reports Done as soon as its last sentence is queued, often while
+    /// that sentence is still opening.
     pub(super) async fn reply_done(&mut self, ok: bool) {
         let Some(run) = self.local.run.as_mut() else {
             return;
         };
         run.player_done = true;
-        if run.done {
-            self.finish_local().await;
-        } else if !ok {
+        if !ok {
             let preset = self.slot_preset(Slot::Tts);
             self.fail_from_brain(ProviderError::new(Slot::Tts, preset, Reason::Protocol))
                 .await;
+        } else if run.done {
+            self.finish_local().await;
         }
     }
 
@@ -2126,6 +2128,40 @@ mod tests {
         assert_eq!(
             device.brain.snapshot().assist.last_error.as_deref(),
             Some(error)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_fails_to_play_after_done_still_fails_the_run() {
+        use futures::StreamExt;
+        let (mut device, run, sink) = thinking_with_speaker().await;
+        let garbage = futures::stream::iter([Ok(bytes::Bytes::from_static(b"not audio at all"))]);
+        let credit = sink.credit().await.unwrap();
+        sink.send(sentence(garbage.boxed()), Some(credit))
+            .await
+            .unwrap();
+        device.assist(run, RunEvent::ReplyReady).await;
+        // The run is done once its last sentence is queued, before it sounds.
+        device
+            .assist(
+                run,
+                RunEvent::Done {
+                    turn: Some(turn("Question", "Answer.")),
+                    spoke: true,
+                },
+            )
+            .await;
+
+        assert_eq!(device.play_out().await, 0);
+
+        // A failure, not a finish: no follow-up opens.
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert_eq!(device.events(), [stopped()]);
+        assert_eq!(device.overlay(), Some(LedEffect::Error));
+        assert_eq!(
+            device.brain.snapshot().assist.last_error.as_deref(),
+            Some("tts via custom: invalid provider response")
         );
     }
 
