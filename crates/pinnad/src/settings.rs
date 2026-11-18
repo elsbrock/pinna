@@ -17,7 +17,7 @@ impl Mode {
         *self == Self::HomeAssistant
     }
 
-    /// The Home Assistant "Assistant" select's option for this mode.
+    /// The Home Assistant "Voice mode" select's option for this mode.
     pub fn label(self) -> &'static str {
         match self {
             Self::HomeAssistant => pinna_esphome::MODE_HOME_ASSISTANT,

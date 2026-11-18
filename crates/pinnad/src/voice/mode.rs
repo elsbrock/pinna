@@ -81,7 +81,7 @@ impl Brain {
         self.update_settings(patch).await
     }
 
-    /// The "Assistant" select. A refusal leaves the mode as it was, and the
+    /// The "Voice mode" select. A refusal leaves the mode as it was, and the
     /// select goes back to it. Like the tool, it waits until the satellite is
     /// idle: an Assist script that sets it runs inside Home Assistant's own
     /// request, whose spoken reply would otherwise be cut off.
@@ -96,7 +96,7 @@ impl Brain {
         }
     }
 
-    /// The "Assistant" select's state.
+    /// The "Voice mode" select's state.
     pub(super) async fn send_mode(&self) {
         self.send(DeviceEvent::SelectState {
             object_id: "assistant".into(),

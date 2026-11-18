@@ -52,7 +52,7 @@ fn format(
 
 /// Fill `cfg` with the entities the previous firmware exposed (names are part of the HA unique id),
 /// plus Pinna's own controls.
-/// The "Assistant" select's options: the dashboard's names for the modes.
+/// The "Voice mode" select's options: the dashboard's names for the modes.
 pub const MODE_HOME_ASSISTANT: &str = "Home Assistant";
 pub const MODE_STANDALONE: &str = "Standalone";
 
@@ -221,10 +221,12 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             entity_category: EntityCategory::Config,
         },
         // Who answers requests (ADR 0017): Standalone is refused until the
-        // satellite's own services are ready, as on the dashboard.
+        // satellite's own services are ready, as on the dashboard. Not
+        // "Assistant": Home Assistant's pipeline select on the same device
+        // page has that name. The object ID is older than the name.
         SelectConfig {
             object_id: "assistant".into(),
-            name: "Assistant".into(),
+            name: "Voice mode".into(),
             icon: "mdi:account-voice".into(),
             options: strings(&[MODE_HOME_ASSISTANT, MODE_STANDALONE]),
             entity_category: EntityCategory::Config,

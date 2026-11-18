@@ -443,8 +443,8 @@ async def test_update_channel_select(client, demo):
 
 
 @pytest.mark.asyncio
-async def test_assistant_select(client, demo):
-    sel = (await infos(client, SelectInfo))["Assistant"]
+async def test_voice_mode_select(client, demo):
+    sel = (await infos(client, SelectInfo))["Voice mode"]
     assert sel.object_id == "assistant" and sel.icon == "mdi:account-voice"
     assert list(sel.options) == ["Home Assistant", "Standalone"]
     assert int(sel.entity_category) == 1  # config
