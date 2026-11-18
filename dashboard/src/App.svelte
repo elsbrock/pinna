@@ -16,6 +16,7 @@
   import Assistant from "./pages/assistant/Assistant.svelte";
   import Conversation from "./pages/assistant/Conversation.svelte";
   import Services from "./pages/assistant/Services.svelte";
+  import Tools from "./pages/assistant/Tools.svelte";
   import Logs from "./pages/Logs.svelte";
   import Network from "./pages/Network.svelte";
   import Overview from "./pages/Overview.svelte";
@@ -196,6 +197,7 @@
         {:else if page.path === "/assistant"}<Assistant />
         {:else if page.path === "/assistant/services"}<Services />
         {:else if page.path === "/assistant/conversation"}<Conversation />
+        {:else if page.path === "/assistant/tools"}<Tools />
         {:else if page.path === "/network"}<Network />
         {:else if page.path === "/system"}<System />
         {:else if page.path === "/system/logs"}<Logs />{/if}

@@ -19,6 +19,9 @@
   const ready = $derived(!!s?.assistant?.ready);
   const lines = $derived(slotLines(s?.assistant, assistant.view));
   const brain = $derived(lines.find((l) => l.key === "brain"));
+  const offTools = $derived(
+    (assistant.view?.deviceTools ?? []).filter((t) => assistant.view?.tools[t.name] === false).length,
+  );
 
   onMount(() => void assistant.load());
 
@@ -165,6 +168,14 @@
         <span class="pn-row-hint">Language, place, the prompt, follow-ups, and a box to type a question</span>
       </span>
       {#if assistant.view?.language}<span class="pn-row-value is-mono">{assistant.view.language}</span>{/if}
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+    <a class="pn-row" href="#/assistant/tools">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Tools</span>
+        <span class="pn-row-hint">What the brain may do, radio stations, and MCP</span>
+      </span>
+      {#if offTools}<span class="pn-row-value">{offTools} off</span>{/if}
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
   </Group>

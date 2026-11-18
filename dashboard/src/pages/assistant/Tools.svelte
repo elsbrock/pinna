@@ -1,0 +1,239 @@
+<!-- Assistant › Tools: what the brain and MCP clients may do on the
+     satellite, the owner's radio stations, and Pinna's own MCP server. The
+     switches apply to the brain and to /mcp alike. -->
+<script lang="ts">
+  import { onMount } from "svelte";
+
+  import { assistant } from "../../lib/assistant.svelte.ts";
+  import { isStandalone, mcpAddress, toolLabel, toolReach } from "../../lib/assistant.ts";
+  import { copyText } from "../../lib/copy.ts";
+  import { device } from "../../lib/device.svelte.ts";
+  import Group from "../../lib/Group.svelte";
+  import Icon from "../../lib/Icon.svelte";
+  import { network } from "../../lib/network.svelte.ts";
+  import SwitchRow from "../../lib/SwitchRow.svelte";
+  import { toasts } from "../../lib/toast.svelte.ts";
+  import { shortUrl, when } from "../../lib/view.ts";
+
+  const s = $derived(device.status);
+  const live = $derived(device.link === "live");
+  const view = $derived(assistant.view);
+  const standalone = $derived(isStandalone(s));
+
+  onMount(() => void assistant.load());
+  $effect(() => network.watch());
+
+  // A tool without a switch is on.
+  const isOn = (name: string) => view?.tools[name] ?? true;
+  function setTool(name: string, on: boolean) {
+    return assistant.update({ tools: { on: { ...view?.tools, [name]: on } } }, on ? "Tool on" : "Tool off");
+  }
+
+  // The stations are saved as a whole list.
+  let stationName = $state("");
+  let stationUrl = $state("");
+  let stationError = $state<string | null>(null);
+  async function saveStations(stations: { name: string; url: string }[], done: string) {
+    stationError = await assistant.update({ stations: { stations } }, done);
+    return !stationError;
+  }
+  async function addStation() {
+    const list = (view?.stations ?? []).map(({ name, url }) => ({ name, url }));
+    const added = { name: stationName.trim(), url: stationUrl.trim() };
+    if (await saveStations([...list, added], `${added.name} added`)) {
+      stationName = "";
+      stationUrl = "";
+    }
+  }
+  function removeStation(name: string) {
+    const list = (view?.stations ?? []).filter((x) => x.name !== name).map(({ name, url }) => ({ name, url }));
+    return saveStations(list, `${name} removed`);
+  }
+
+  const address = $derived(s ? mcpAddress(location, network.ipv4 ?? undefined, s.name) : "");
+  async function copyAddress() {
+    await copyText(address);
+    toasts.show("Copied the address");
+  }
+</script>
+
+{#if view && s}
+  <Group title="Pinna's tools">
+    {#snippet foot()}
+      Each switch applies to the brain and to MCP clients alike. A tool that is off isn't offered, and is refused if
+      asked for anyway.
+    {/snippet}
+    {#each view.deviceTools as t (t.name)}
+      <SwitchRow
+        id="tool-{t.name}"
+        label={toolLabel(t.name)}
+        checked={isOn(t.name)}
+        disabled={!live}
+        busy={assistant.busy}
+        hint={[t.description, toolReach(t)].filter(Boolean).join(" ")}
+        toggle={(on) => setTool(t.name, on)}
+      />
+    {/each}
+  </Group>
+
+  <Group title="Radio stations">
+    {#snippet foot()}
+      The brain plays these by name (“play the jazz station”) and can search for others on radio-browser.info. At
+      most 50.
+    {/snippet}
+    {#each view.stations as st (st.name)}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label">{st.name}</span>
+          <span class="pn-row-hint url" title={st.url}>{shortUrl(st.url)}</span>
+        </div>
+        <button
+          class="pn-btn pn-btn-quiet pn-btn-sm"
+          type="button"
+          disabled={!live}
+          aria-disabled={assistant.busy || undefined}
+          aria-label="Remove {st.name}"
+          onclick={() => {
+            if (!assistant.busy) void removeStation(st.name);
+          }}>Remove</button
+        >
+      </div>
+    {/each}
+    <form
+      class="pn-row is-stack"
+      aria-label="Add a station"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void addStation();
+      }}
+    >
+      <div class="station">
+        <div class="pn-field">
+          <label class="pn-field-label" for="station-name">Name</label>
+          <input
+            id="station-name"
+            class="pn-input"
+            autocomplete="off"
+            maxlength="60"
+            placeholder="Radio Eins"
+            bind:value={stationName}
+            disabled={!live}
+            oninput={() => (stationError = null)}
+          />
+        </div>
+        <div class="pn-field">
+          <label class="pn-field-label" for="station-url">Stream address</label>
+          <input
+            id="station-url"
+            class="pn-input is-mono"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="https://example.org/stream.mp3"
+            bind:value={stationUrl}
+            disabled={!live}
+            oninput={() => (stationError = null)}
+          />
+        </div>
+      </div>
+      {#if stationError}<span class="pn-field-error" role="alert"><Icon name="alert" />{stationError}</span>{/if}
+      <div>
+        <button
+          class="pn-btn pn-btn-primary"
+          type="submit"
+          disabled={!live || assistant.busy || !stationName.trim() || !stationUrl.trim()}
+        >
+          Add station
+        </button>
+      </div>
+    </form>
+  </Group>
+
+  <Group title="Pinna as an MCP server">
+    {#snippet foot()}
+      Agents and apps that speak MCP can use Pinna's tools over your network, without a password, as this dashboard
+      is. Pinna answers them in standalone mode only.
+    {/snippet}
+    <div class="pn-row is-stack">
+      <div class="pn-row-text">
+        <span class="pn-row-label">Address</span>
+        <div class="address">
+          <span class="is-mono">{address}</span>
+          <button
+            class="pn-btn pn-btn-quiet pn-btn-sm"
+            type="button"
+            onclick={copyAddress}
+            aria-label="Copy the MCP address"
+          >
+            <Icon name="copy" />Copy
+          </button>
+        </div>
+        <span class="pn-row-hint">
+          {standalone ? "Enter it in the MCP client's settings." : "It answers once standalone mode is on."}
+        </span>
+      </div>
+    </div>
+    {#each view.agents as a (`${a.name} ${a.address}`)}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label">{a.name || "A client without a name"}</span>
+          <span class="pn-row-hint">From {a.address}</span>
+        </div>
+        <span class="pn-row-value">{when(Number(a.lastSeenUnixMs), new Date(device.now))}</span>
+      </div>
+    {:else}
+      <div class="pn-row">
+        <span class="pn-row-hint">No MCP client has called since the satellite started.</span>
+      </div>
+    {/each}
+  </Group>
+{:else if assistant.error}
+  <div class="pn-notice" data-tone="danger" role="alert">
+    <Icon name="alert" class="pn-icon pn-notice-icon" />
+    <div class="pn-notice-body">
+      <p class="pn-notice-title">The tools couldn't be read</p>
+      <p>{assistant.error}</p>
+      <div><button class="pn-btn" type="button" onclick={() => assistant.load()}>Try again</button></div>
+    </div>
+  </div>
+{:else}
+  <span class="pn-skeleton" style:height="320px"></span>
+{/if}
+
+<style>
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .station {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3) var(--space-4);
+  }
+  @media (min-width: 640px) {
+    .station {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    }
+  }
+  .url {
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+  }
+  .address {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
+  }
+  .is-mono {
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+</style>

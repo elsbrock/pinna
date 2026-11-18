@@ -1,7 +1,7 @@
 // Standalone mode in words (ADR 0017): the mode, the three slots and what
 // stops standalone from running. From Status and AssistantService's view; no
 // Svelte and no runtime imports, so `node --test` runs it.
-import type { Assistant, Preset, ProviderConnection } from "../gen/pinna/v1/assistant_pb.ts";
+import type { Assistant, DeviceTool, Preset, ProviderConnection } from "../gen/pinna/v1/assistant_pb.ts";
 import type { AssistantStatus, Status } from "../gen/pinna/v1/device_pb.ts";
 import type { Tone } from "./view.ts";
 
@@ -195,4 +195,35 @@ export function chars(text: string): number {
 export function promptCount(text: string): string {
   const n = (x: number) => x.toLocaleString("en");
   return `${n(chars(text))} of ${n(PROMPT_MAX)}`;
+}
+
+/** A tool's name as a label: `play_url` reads "Play URL". */
+export function toolLabel(name: string): string {
+  const words = name.split("_").map((w) => (w === "url" ? "URL" : w));
+  const text = words.join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Where a tool is offered, when not to both the brain and MCP clients. */
+export function toolReach(t: Pick<DeviceTool, "brain" | "mcp">): string {
+  if (t.brain && t.mcp) return "";
+  return t.brain ? "For the brain only." : "For MCP clients only.";
+}
+
+/** The satellite's USB address (ADR 0009): not one other computers reach. */
+const USB_HOST = "10.42.0.1";
+
+/**
+ * Where MCP clients on the network reach Pinna's MCP server: this page's own
+ * address, unless the page was opened over USB; then the satellite's IPv4
+ * address, or its .local name.
+ */
+export function mcpAddress(
+  here: { protocol: string; host: string; hostname: string; port: string },
+  ipv4: string | undefined,
+  name: string,
+): string {
+  if (here.hostname !== USB_HOST) return `${here.protocol}//${here.host}/mcp`;
+  const port = here.port ? `:${here.port}` : "";
+  return `${here.protocol}//${ipv4 ?? `${name}.local`}${port}/mcp`;
 }

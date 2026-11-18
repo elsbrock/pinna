@@ -13,6 +13,7 @@ import {
   isStandalone,
   keyFields,
   keyShown,
+  mcpAddress,
   MODE,
   presetName,
   PROMPT_MAX,
@@ -21,6 +22,8 @@ import {
   slotLines,
   slotName,
   slotWords,
+  toolLabel,
+  toolReach,
   usedBy,
 } from "./assistant.ts";
 
@@ -201,4 +204,26 @@ test("the prompt counts characters as the satellite does", () => {
   assert.equal(promptCount(""), "0 of 4,000");
   assert.equal(promptCount("a".repeat(1234)), "1,234 of 4,000");
   assert.equal(PROMPT_MAX, 4000);
+});
+
+test("tools by name and reach", () => {
+  assert.equal(toolLabel("set_reply_volume"), "Set reply volume");
+  assert.equal(toolLabel("play_url"), "Play URL");
+  assert.equal(toolLabel("time"), "Time");
+  assert.equal(toolReach({ brain: true, mcp: true }), "");
+  assert.equal(toolReach({ brain: true, mcp: false }), "For the brain only.");
+  assert.equal(toolReach({ brain: false, mcp: true }), "For MCP clients only.");
+});
+
+test("the MCP address is this page's, except over USB", () => {
+  const page = (host: string, port = "") => ({
+    protocol: "http:",
+    host: port ? `${host}:${port}` : host,
+    hostname: host,
+    port,
+  });
+  assert.equal(mcpAddress(page("pinna-a1b2c3.local"), "192.168.1.30", "pinna-a1b2c3"), "http://pinna-a1b2c3.local/mcp");
+  assert.equal(mcpAddress(page("192.168.1.30", "8080"), undefined, "x"), "http://192.168.1.30:8080/mcp");
+  assert.equal(mcpAddress(page("10.42.0.1"), "192.168.1.30", "pinna-a1b2c3"), "http://192.168.1.30/mcp");
+  assert.equal(mcpAddress(page("10.42.0.1"), undefined, "pinna-a1b2c3"), "http://pinna-a1b2c3.local/mcp");
 });

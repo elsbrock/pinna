@@ -75,6 +75,11 @@ const SUBPAGES: Omit<Page, "section">[] = [
     description: "The language, the place, what the brain is told, and how a conversation goes on.",
   },
   {
+    path: "/assistant/tools",
+    title: "Tools",
+    description: "What the brain and MCP clients may do on the satellite, the radio stations it knows, and MCP.",
+  },
+  {
     path: "/system/logs",
     title: "Logs",
     description:
