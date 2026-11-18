@@ -197,9 +197,11 @@ fn offered_models(body: &Bytes) -> Option<Vec<String>> {
 /// Whether a listed id is the model the owner entered. Anthropic lists
 /// dated ids (`claude-haiku-4-5-20251001`) for the alias owners type
 /// (`claude-haiku-4-5`); a bare prefix would also match `claude-opus-4-8`
-/// for `claude-opus-4`, so only an 8-digit date suffix counts.
+/// for `claude-opus-4`, so only an 8-digit date suffix counts. Ollama lists
+/// `llama3.2:latest` for the `llama3.2` it answers to.
 fn names_model(id: &str, model: &str) -> bool {
     id == model
+        || id.strip_suffix(":latest") == Some(model)
         || id
             .strip_prefix(model)
             .and_then(|rest| rest.strip_prefix('-'))
@@ -602,6 +604,8 @@ mod tests {
     fn an_alias_matches_its_dated_id_only() {
         assert!(names_model("claude-haiku-4-5-20251001", "claude-haiku-4-5"));
         assert!(names_model("gpt-4o", "gpt-4o"));
+        assert!(names_model("llama3.2:latest", "llama3.2"));
+        assert!(!names_model("llama3.2:1b", "llama3.2"));
         assert!(!names_model("claude-opus-4-8", "claude-opus-4"));
         assert!(!names_model("claude-opus-4-latest", "claude-opus-4"));
     }
