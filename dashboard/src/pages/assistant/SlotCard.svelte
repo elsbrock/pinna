@@ -130,7 +130,7 @@
       <span class="pn-row-label">Last check</span>
       <span class="pn-row-hint">
         {#if line.ready}
-          Passed with this connection and {slot.holds}.
+          Passed with {saved}.
         {:else if line.tone === "danger"}
           <!-- The form below says why, while it shows the same refusal. -->
           {error ? "" : assistant.failed[slot.key]}
@@ -215,7 +215,7 @@
                 bind:value={speechModel}
                 source="{connection}|model"
                 load={() => assistant.choices("tts", connection, "model")}
-                placeholder={preset?.ttsModel}
+                placeholder={preset?.ttsModel ? `${preset.ttsModel} (default)` : undefined}
                 disabled={!live || !connection}
                 describedby="{id}-speech-model-hint"
                 oninput={edited}
@@ -228,7 +228,11 @@
         {/if}
       </div>
       {#if error}<span class="pn-field-error" role="alert"
-          ><Icon name="alert" />{saved && !unchanged ? `Not saved: it still uses ${saved}. ` : ""}{error}</span
+          ><Icon name="alert" />{saved
+            ? unchanged
+              ? ""
+              : `Not saved: it still uses ${saved}. `
+            : "Not saved: it is saved once its check passes. "}{error}</span
         >{/if}
       <div class="actions">
         <button

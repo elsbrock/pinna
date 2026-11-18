@@ -16,7 +16,8 @@
   const presetRuns = $derived(assistant.view ? runsTools({ ...assistant.view, brainOverride: undefined }) : null);
   const service = $derived(assistant.view ? presetName(brainPreset(assistant.view)?.id ?? "") : "");
   // Only the OpenAI-compatible protocol takes reasoning_effort.
-  const thinks = $derived(assistant.view ? (brainPreset(assistant.view)?.thinking ?? false) : false);
+  // Before a brain is saved, offer it: most services speak OpenAI's API.
+  const thinks = $derived(assistant.view ? (brainPreset(assistant.view)?.thinking ?? true) : false);
 
   // The form follows the satellite until someone changes it.
   let touched = $state(false);
@@ -126,7 +127,7 @@
     inputmode="numeric"
     min="1"
     max="300"
-    placeholder="Preset"
+    placeholder="Default"
     value={firstText}
     disabled={!live}
     aria-describedby="brain-first-text-hint"
@@ -137,7 +138,7 @@
   <Select
     id="brain-reasoning"
     label="Thinking"
-    hint="How long a reasoning model thinks before it answers. None answers fastest, and some models use tools only with it, such as gpt-6-luna. Service default sends nothing, for a model that doesn't reason."
+    hint="How long a reasoning model thinks before it answers. None answers fastest, and some reasoning models call tools only with None, such as gpt-6-luna. Service default sends nothing, for a model that doesn't reason."
     value={reasoning}
     options={[
       { id: String(Reasoning.UNSPECIFIED), label: "Service default" },

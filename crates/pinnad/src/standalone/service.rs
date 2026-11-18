@@ -959,6 +959,13 @@ impl Service {
                 kind.name()
             ));
         }
+        // A hosted service at its own address answers nothing without its
+        // key; asking it would read as a wrong key. Another address (a proxy)
+        // may need none.
+        let template = presets::preset(preset).base_url;
+        if key.is_none() && !template.contains('<') && base_url.trim_end_matches('/') == template {
+            return Err(NO_KEY.into());
+        }
         let hand_off = kind == SlotKind::Chat && {
             let state = self.committed.state.lock().unwrap();
             presets::preset(preset)
@@ -1326,9 +1333,12 @@ fn next_mcp_id(c: &AssistConfig) -> String {
         .expect("an unbounded range has a free id")
 }
 
+/// Why a hosted service's slot can't be checked or listed.
+const NO_KEY: &str = "This connection has no key. Enter it under Connections: select Change.";
+
 /// Why a prompt edit was refused: another window saved first.
-const PROMPT_CHANGED: &str = "The prompt was changed in another window. Copy your text, reload \
-the page, and make your change again.";
+const PROMPT_CHANGED: &str = "The prompt was changed in another window since you started. Look \
+at the saved one, or save yours over it.";
 
 /// Names a prompt as it is stored: the owner's text, or `None` for the voice
 /// rules. Not a secret, only a short fingerprint to tell versions apart.
@@ -2176,6 +2186,46 @@ mod tests {
         };
         f.service.set_slot(SlotKind::Stt, stt).await.unwrap();
         assert_eq!(f.saved().stt.unwrap().speech_model, None);
+    }
+
+    #[tokio::test]
+    async fn a_hosted_service_without_a_key_says_so_instead_of_asking() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        let setup = f.service.check_setup(
+            SlotKind::Chat,
+            PresetId::OpenRouter,
+            presets::preset(PresetId::OpenRouter).base_url,
+            "deepseek/deepseek-v4.1-flash",
+            None,
+            None,
+        );
+        assert_eq!(setup.err().as_deref(), Some(NO_KEY));
+        // At another address, or with a key, it is asked.
+        let key = Secret::new("sk-or-test");
+        assert!(
+            f.service
+                .check_setup(
+                    SlotKind::Chat,
+                    PresetId::OpenRouter,
+                    presets::preset(PresetId::OpenRouter).base_url,
+                    "m",
+                    None,
+                    Some(&key)
+                )
+                .is_ok()
+        );
+        assert!(
+            f.service
+                .check_setup(
+                    SlotKind::Chat,
+                    PresetId::OpenRouter,
+                    "http://proxy.lan/v1",
+                    "m",
+                    None,
+                    None
+                )
+                .is_ok()
+        );
     }
 
     #[tokio::test]

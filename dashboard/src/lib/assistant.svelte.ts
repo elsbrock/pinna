@@ -35,6 +35,9 @@ class AssistantSetup {
   /** Why the setup couldn't be read, while it can't. */
   error = $state<string | null>(null);
   busy = $state(false);
+  /** A prompt edit not saved yet, with the version it started from: it
+   *  stays while the owner visits another page and comes back. */
+  promptDraft: { text: string; base: string } | null = null;
   /** The sentence of a slot's check that failed on this page, until it passes. */
   failed = $state.raw<Partial<Record<SlotKey, string>>>({});
   /** The connection each failed check was made with. */
@@ -125,6 +128,12 @@ class AssistantSetup {
       this.#failedOn[key] = connection;
     }
     return refused?.sentence ?? null;
+  }
+
+  /** [`update`], with the refusal's code: a prompt edit tells a conflict
+   *  (another window saved first) from a wrong prompt. */
+  async updateWithCode(patch: MessageInitShape<typeof UpdateAssistantRequestSchema>, done = "Saved") {
+    return this.#edit(() => client.updateAssistant(patch), done);
   }
 
   async update(patch: MessageInitShape<typeof UpdateAssistantRequestSchema>, done = "Saved") {

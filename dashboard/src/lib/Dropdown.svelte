@@ -49,7 +49,9 @@
     if (!button) return;
     const r = button.getBoundingClientRect();
     const width = Math.min(Math.max(r.width, 200), innerWidth - 16);
-    const left = Math.max(8, Math.min(r.left, innerWidth - width - 8));
+    // A list wider than its button on the right opens leftward, inside the card.
+    const start = r.left + width > r.right && r.left > innerWidth / 2 ? r.right - width : r.left;
+    const left = Math.max(8, Math.min(start, innerWidth - width - 8));
     const below = innerHeight - r.bottom - 16;
     const above = r.top - 16;
     place =

@@ -2,7 +2,8 @@
      follow-ups and the acknowledgment, and a box to type a question in. Each
      setting saves on its own; none needs a provider check. -->
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { Code } from "@connectrpc/connect";
+  import { onMount, untrack } from "svelte";
 
   import { assistant } from "../../lib/assistant.svelte.ts";
   import {
@@ -56,25 +57,50 @@
   // The version the edit started from: a save from another window since is
   // refused instead of silently replaced.
   let promptBase = $state("");
+  // An edit not saved yet comes back after a visit to another page.
+  untrack(() => {
+    const draft = assistant.promptDraft;
+    if (!draft) return;
+    prompt = draft.text;
+    promptBase = draft.base;
+    promptTouched = true;
+  });
   $effect(() => {
     if (promptTouched) return;
     prompt = stored;
     promptBase = view?.promptRevision ?? "";
   });
   const tooLong = $derived(chars(prompt) > PROMPT_MAX);
+  // Another window saved first: show its prompt, or save this one over it.
+  let conflict = $state(false);
+  function settled(refused: { sentence: string; code: Code } | null) {
+    promptError = refused?.sentence ?? null;
+    conflict = refused?.code === Code.Aborted;
+    if (!refused) {
+      promptTouched = false;
+      assistant.promptDraft = null;
+    }
+  }
   async function savePrompt() {
     // The voice rules typed back in mean the voice rules, which then follow updates.
     const patch = prompt === view?.voiceRules ? { defaultPrompt: true } : { prompt };
-    promptError = await assistant.update({ ...patch, promptRevision: promptBase });
-    if (!promptError) promptTouched = false;
+    settled(await assistant.updateWithCode({ ...patch, promptRevision: promptBase }));
+  }
+  function showSaved() {
+    conflict = false;
+    promptError = null;
+    promptTouched = false;
+    assistant.promptDraft = null;
+  }
+  function saveMineOverIt() {
+    promptBase = view?.promptRevision ?? "";
+    return savePrompt();
   }
   let resetting = $state(false);
   async function resetPrompt() {
-    promptError = await assistant.update(
-      { defaultPrompt: true, promptRevision: promptBase },
-      "Back to the voice rules",
+    settled(
+      await assistant.updateWithCode({ defaultPrompt: true, promptRevision: promptBase }, "Back to the voice rules"),
     );
-    if (!promptError) promptTouched = false;
   }
 
   // The acknowledgment: what an agent brain says while it thinks.
@@ -269,9 +295,21 @@
           oninput={() => {
             promptTouched = true;
             promptError = null;
+            conflict = false;
+            assistant.promptDraft = { text: prompt, base: promptBase };
           }}
         ></textarea>
         {#if promptError}<span class="pn-field-error" role="alert"><Icon name="alert" />{promptError}</span>{/if}
+        {#if conflict}
+          <div class="conflict">
+            <button class="pn-btn pn-btn-sm" type="button" disabled={assistant.busy} onclick={showSaved}>
+              Show the saved prompt
+            </button>
+            <button class="pn-btn pn-btn-sm" type="button" disabled={assistant.busy || tooLong} onclick={saveMineOverIt}>
+              Save mine over it
+            </button>
+          </div>
+        {/if}
         <span id="prompt-hint" class="pn-field-hint">
           {#if tooLong}
             Too long to save: at most {PROMPT_MAX.toLocaleString("en")} characters.
@@ -480,6 +518,11 @@
   .count.is-over {
     color: var(--danger);
     font-weight: 650;
+  }
+  .conflict {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
   }
   .prompt {
     height: auto;

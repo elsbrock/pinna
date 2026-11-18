@@ -59,7 +59,9 @@
       ? `From your ${presetName(presetId)} account. The satellite keeps it and never shows it again.`
       : "Only if the server asks for one. The satellite keeps it and never shows it again.",
   );
-  const ready = $derived(!!preset && (kind === "fixed" || !!address.trim()));
+  // A hosted service answers nothing without its key.
+  const hasKey = $derived(key.kind === "set" || (!!connection?.keySet && key.kind === "keep"));
+  const ready = $derived(!!preset && (kind === "fixed" ? hasKey : !!address.trim()));
   // A key is bound to the address it was entered for: a new address drops it.
   const addressChanged = $derived(!!connection && kind !== "fixed" && address.trim() !== connection.baseUrl);
   const keyDropped = $derived(addressChanged && !!connection?.keySet);
@@ -154,6 +156,7 @@
         stored={!!connection?.keySet && !addressChanged}
         shown="set ••••{connection?.keyLast4 ?? ''}"
         bind:edit={key}
+        removable={kind !== "fixed"}
         hint={keyDropped
           ? "A new address removes the stored key. Enter it again if the server needs one."
           : keyHint}

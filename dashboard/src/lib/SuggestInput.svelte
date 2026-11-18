@@ -60,7 +60,9 @@
     if (!input) return;
     const r = input.getBoundingClientRect();
     const width = Math.min(Math.max(r.width, 240), innerWidth - 16);
-    const left = Math.max(8, Math.min(r.left, innerWidth - width - 8));
+    // A wider list under a field on the right opens leftward, inside the card.
+    const start = r.left + width > r.right && r.left > innerWidth / 2 ? r.right - width : r.left;
+    const left = Math.max(8, Math.min(start, innerWidth - width - 8));
     const below = innerHeight - r.bottom - 16;
     const above = r.top - 16;
     place =
@@ -79,6 +81,7 @@
     addEventListener("resize", hide);
     addEventListener("scroll", away, true);
     addEventListener("hashchange", hide);
+    if (!narrow) void move(Math.max(-1, shown.findIndex((o) => o.id === value)));
     if (all === null && !loading) {
       loading = true;
       const asked = source;
@@ -98,6 +101,7 @@
       loading = false;
       await tick();
       position();
+      if (!narrow) void move(Math.max(-1, shown.findIndex((o) => o.id === value)));
     }
   }
 
@@ -146,10 +150,13 @@
     if (e.key === "Escape") {
       e.preventDefault();
       hide();
-    } else if (e.key === "Enter" && active >= 0) {
-      // Takes the suggestion instead of submitting the form.
-      e.preventDefault();
-      pick(active);
+    } else if (e.key === "Enter") {
+      // Takes the suggestion instead of submitting the form; without one,
+      // the form goes ahead and the list closes.
+      if (active >= 0) {
+        e.preventDefault();
+        pick(active);
+      } else hide();
     } else if (e.key === "Tab") {
       hide();
     } else if (["ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp"].includes(e.key)) {
@@ -207,37 +214,42 @@
   >
     <Icon name="chevron-down" class="pn-icon" />
   </button>
-  {#if open}
+  {#if open && (loading || problem || !shown.length)}
+    <!-- Not a list of options: a message, read out as it changes. -->
+    <div id="{id}-suggestions" class="pn-pop" style={place} role="status">
+      <p class="pn-pop-note">
+        {#if loading}
+          Asking the service for its list…
+        {:else if problem}
+          The service didn't give its list. {problem} You can still type it in.
+        {:else if all?.length}
+          Nothing in its list matches. You can still use a name it knows.
+        {:else}
+          The service lists none for this field. Type it in.
+        {/if}
+      </p>
+    </div>
+  {:else if open}
     <ul bind:this={list} id="{id}-suggestions" class="pn-pop pn-listbox" role="listbox" style={place} tabindex="-1">
-      {#if loading}
-        <li class="pn-pop-note" role="presentation">Asking the service…</li>
-      {:else if problem}
-        <li class="pn-pop-note" role="presentation">It couldn't list them: {problem} Type the name.</li>
-      {:else if !shown.length}
-        <li class="pn-pop-note" role="presentation">
-          {all?.length ? "Nothing it offers matches. Any name it knows works." : "The service lists none here. Type the name."}
+      {#each shown as o, i (o.id)}
+        <!-- The field handles the keys (aria-activedescendant); a pointer picks here. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <li
+          id={optionId(i)}
+          class="pn-option"
+          class:is-active={i === active}
+          role="option"
+          aria-selected={o.id === value}
+          onpointermove={() => (active = i)}
+          onpointerdown={(e) => e.preventDefault()}
+          onclick={() => pick(i)}
+        >
+          <span class="pn-option-text">
+            <span class="pn-option-label">{o.label}</span>
+            {#if o.label !== o.id}<span class="pn-option-id">{o.id}</span>{/if}
+          </span>
         </li>
-      {:else}
-        {#each shown as o, i (o.id)}
-          <!-- The field handles the keys (aria-activedescendant); a pointer picks here. -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <li
-            id={optionId(i)}
-            class="pn-option"
-            class:is-active={i === active}
-            role="option"
-            aria-selected={o.id === value}
-            onpointermove={() => (active = i)}
-            onpointerdown={(e) => e.preventDefault()}
-            onclick={() => pick(i)}
-          >
-            <span class="pn-option-text">
-              <span class="pn-option-label">{o.label}</span>
-              {#if o.label !== o.id}<span class="pn-option-id">{o.id}</span>{/if}
-            </span>
-          </li>
-        {/each}
-      {/if}
+      {/each}
     </ul>
   {/if}
 </span>
