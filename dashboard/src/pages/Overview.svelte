@@ -1,6 +1,7 @@
 <script lang="ts">
   import { drawingFor } from "../../../design/devices/index.ts";
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
+  import { brainLabel, isStandalone } from "../lib/assistant.ts";
   import Controls from "../lib/Controls.svelte";
   import Device from "../lib/Device.svelte";
   import { client, device } from "../lib/device.svelte.ts";
@@ -30,6 +31,7 @@
   const ring = $derived(ringEffect(s, device.link, device.testStep));
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
   const modelName = $derived(drawingFor(s?.model ?? "")?.name);
+  const standalone = $derived(isStandalone(s));
   // Uptime only arrives with a change; count on between messages.
   const up = $derived(s ? Number(s.uptimeSeconds) + Math.floor((device.now - device.receivedAt) / 1000) : 0);
 
@@ -98,7 +100,7 @@
     </div>
   </section>
 
-  {#if live && !s.haConnected}
+  {#if live && !s.haConnected && !standalone}
     <div class="pn-notice" data-tone="caution" role="status">
       <Icon name="info" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
@@ -123,7 +125,7 @@
       <div class="pn-notice-body">
         <p class="pn-notice-title">{cleared ? "Notification cleared" : "A notification is waiting"}</p>
         <p>
-          Home Assistant has a notification for you. The ring pulses yellow when nothing else is
+          {standalone ? "" : "Home Assistant has a notification for you. "}The ring pulses yellow when nothing else is
           showing. Clear it here, or press the Action button while the ring is yellow.
         </p>
         <div>
@@ -140,22 +142,42 @@
   {/if}
 
   <div class="stats">
-    <StatTile
-      href="#/assistant"
-      icon="house"
-      label="Home Assistant"
-      value={!live ? "—" : s.haConnected ? "Connected" : "Not connected"}
-    >
-      {#if !live}
-        Not reachable
-      {:else if !s.haConnected}
-        How to add it
-      {:else if s.voiceSubscribed}
-        <span class="pn-health" data-tone="ok">Voice pipeline ready</span>
-      {:else}
-        <span class="pn-health" data-tone="caution">No voice pipeline</span>
-      {/if}
-    </StatTile>
+    {#if standalone}
+      <!-- Standalone mode: the brain that answers, and how its last failure went. -->
+      <StatTile
+        href="#/assistant"
+        icon="assistant"
+        label="Standalone"
+        value={!live ? "—" : brainLabel(s.assistant?.label ?? "") || "No brain yet"}
+      >
+        {#if !live}
+          Not reachable
+        {:else if !s.assistant?.ready}
+          <span class="pn-health" data-tone="caution">Services not ready</span>
+        {:else if s.assistant.lastError}
+          <span class="pn-health" data-tone="danger" title="The last request that failed">{s.assistant.lastError}</span>
+        {:else}
+          <span class="pn-health" data-tone="ok">Ready</span>
+        {/if}
+      </StatTile>
+    {:else}
+      <StatTile
+        href="#/assistant"
+        icon="house"
+        label="Home Assistant"
+        value={!live ? "—" : s.haConnected ? "Connected" : "Not connected"}
+      >
+        {#if !live}
+          Not reachable
+        {:else if !s.haConnected}
+          How to add it
+        {:else if s.voiceSubscribed}
+          <span class="pn-health" data-tone="ok">Voice pipeline ready</span>
+        {:else}
+          <span class="pn-health" data-tone="caution">No voice pipeline</span>
+        {/if}
+      </StatTile>
+    {/if}
     <StatTile
       href="#/network"
       icon="wifi"

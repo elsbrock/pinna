@@ -93,8 +93,8 @@
   {#if errorSlot(lastError) === slot.key}
     <div class="pn-row">
       <div class="pn-row-text">
-        <span class="pn-row-label">Last request</span>
-        <span class="pn-row-hint is-danger">Failed: {lastError}</span>
+        <span class="pn-row-label">Last failed request</span>
+        <span class="pn-row-hint is-danger">{lastError}</span>
       </div>
     </div>
   {/if}

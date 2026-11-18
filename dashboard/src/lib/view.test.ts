@@ -164,6 +164,36 @@ test("health line wording", () => {
   assert.deepEqual(health(status(), "offline", since, true), { tone: "caution", text: "Restarting" });
 });
 
+// pinna.v1.Mode values: 1 is standalone.
+const assist = (ready: boolean) =>
+  ({ ready, sttReady: ready, brainReady: ready, ttsReady: ready, label: "", lastError: "" }) as Status["assistant"];
+const standalone = (ready: boolean, over: Partial<Status> = {}) =>
+  status({ mode: 1, haConnected: false, voiceSubscribed: false, assistant: assist(ready), ...over });
+
+test("in standalone mode the health line is the services', not Home Assistant's", () => {
+  const ready = health(standalone(true), "live", null);
+  assert.deepEqual(ready, { tone: "ok", text: "Answers in standalone mode", word: "Standalone" });
+  assert.equal(healthWord(ready), "Standalone");
+  const waiting = health(standalone(false), "live", null);
+  assert.equal(waiting.tone, "caution");
+  assert.equal(healthWord(waiting), "Not ready");
+  assert.equal(health(standalone(true), "offline", null).text, "Not reachable");
+});
+
+test("in standalone mode start, the wake word and its pickers follow the services", () => {
+  assert.equal(startBlocked(standalone(true), "live"), null);
+  assert.match(startBlocked(standalone(false), "live") ?? "", /standalone services/);
+  assert.match(startBlocked(standalone(true, { muted: true }), "live") ?? "", /microphones on/);
+
+  const idle = wakeWord({ phrase: "Alexa" });
+  assert.match(wakeHint(standalone(false, { wakeWord: idle })), /until the standalone services pass their check/);
+  assert.equal(wakeHint(standalone(true, { wakeWord: idle })), 'Not listening for "Alexa" yet');
+
+  // Home Assistant may stay connected for media; the dashboard still chooses the words.
+  const withWords = wakeWord({ phrase: "Alexa", enabled: true, available: [word("alexa_v0.1", "Alexa")] });
+  assert.equal(wakeWordsHint(standalone(true, { wakeWord: withWords, haConnected: true })), undefined);
+});
+
 test("start says why it is disabled", () => {
   assert.equal(startBlocked(status(), "live"), null);
   assert.match(startBlocked(status({ haConnected: false }), "live") ?? "", /Connect Home Assistant/);

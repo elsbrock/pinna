@@ -2,6 +2,7 @@
 // ticking numbers. No Svelte and no runtime imports, so `node --test` runs it.
 import type { Effect } from "../../../design/ring.ts";
 import type { CalibrationEvent, Satellite, Status, Timer, WakeEvent } from "../gen/pinna/v1/device_pb.ts";
+import { isStandalone } from "./assistant.ts";
 
 /** The connection to the satellite's WatchStatus stream. */
 export type Link = "connecting" | "live" | "offline";
@@ -61,14 +62,19 @@ export function badge(s: Status): Badge {
 }
 
 export type Tone = "ok" | "caution" | "danger";
-export type Health = { tone: Tone; text: string };
+/** `word`: the line in a word or two, where healthWord's wouldn't fit. */
+export type Health = { tone: Tone; text: string; word?: string };
 
-/** The Home Assistant health line. */
+/** The health line: of Home Assistant, or in standalone mode of its services. */
 export function health(s: Status | null, link: Link, offlineSince: Date | null, restarting = false): Health {
   if (restarting && link !== "live") return { tone: "caution", text: "Restarting" };
   if (link === "offline" || !s) {
     const since = offlineSince ? ` since ${hhmm(offlineSince)}` : "";
     return { tone: "danger", text: `Not reachable${since}` };
+  }
+  if (isStandalone(s)) {
+    if (!s.assistant?.ready) return { tone: "caution", text: "Standalone, services not ready", word: "Not ready" };
+    return { tone: "ok", text: "Answers in standalone mode", word: "Standalone" };
   }
   if (!s.haConnected) return { tone: "caution", text: "Not connected to Home Assistant" };
   if (!s.voiceSubscribed) return { tone: "caution", text: "Connected, no voice pipeline" };
@@ -88,8 +94,10 @@ export function calibrationBlocked(s: Status | null, link: Link): string | null 
 /** Why Start conversation is disabled, or null when it can be pressed. */
 export function startBlocked(s: Status | null, link: Link): string | null {
   if (!s || link !== "live") return "The satellite is not reachable.";
-  if (!s.haConnected) return "Connect Home Assistant to start a conversation.";
-  if (!s.voiceSubscribed) return "Home Assistant has no voice pipeline for this satellite yet.";
+  if (isStandalone(s)) {
+    if (!s.assistant?.ready) return "Set up the standalone services under Assistant to start a conversation.";
+  } else if (!s.haConnected) return "Connect Home Assistant to start a conversation.";
+  else if (!s.voiceSubscribed) return "Home Assistant has no voice pipeline for this satellite yet.";
   if (s.muted) return "Turn the microphones on to start a conversation.";
   if (s.alarmRinging) return "Stop the timer alarm first.";
   if (s.phase !== 1) return "A conversation is already running.";
@@ -136,8 +144,8 @@ export function hhmm(d: Date): string {
 /**
  * The Wake word switch's hint: what the detector does and, when it is paused,
  * why. The reasons mirror pinnad's own gate (unmuted; not listening to a
- * request, with a voice pipeline, or an alarm ringing), so they are facts,
- * not guesses.
+ * request; with a voice pipeline, or in standalone mode with its services
+ * ready; or an alarm ringing), so they are facts, not guesses.
  */
 export function wakeHint(s: Status): string {
   if (!s.settings?.wakeWord) return "Off. Press the action button to talk.";
@@ -146,7 +154,9 @@ export function wakeHint(s: Status): string {
   const word = `"${phrase}"`;
   if (s.wakeWord?.enabled) return `Listening for ${word}`;
   if (s.muted) return `Not listening for ${word} while the microphones are off`;
-  if (!s.haConnected || !s.voiceSubscribed)
+  if (isStandalone(s)) {
+    if (!s.assistant?.ready) return `Not listening for ${word} until the standalone services pass their check`;
+  } else if (!s.haConnected || !s.voiceSubscribed)
     return `Not listening for ${word} until Home Assistant has a voice pipeline for this satellite`;
   if (s.phase !== 1 && s.phase !== 0) return `Not listening for ${word} during the conversation`;
   return `Not listening for ${word} yet`;
@@ -168,12 +178,13 @@ export function spokenWakeWords(s: Status): string {
 
 /**
  * The wake word pickers' hint: who chooses, or why there is nothing to choose.
- * `undefined` when the dashboard may choose and the words are installed.
+ * `undefined` when the dashboard may choose and the words are installed: in
+ * standalone mode it always may (ADR 0013, ADR 0017).
  */
 export function wakeWordsHint(s: Status): string | undefined {
   if ((s.wakeWord?.available.length ?? 0) === 0)
     return "No wake word models are installed on this satellite.";
-  if (s.haConnected) return "Home Assistant chooses the wake words while it is connected.";
+  if (s.haConnected && !isStandalone(s)) return "Home Assistant chooses the wake words while it is connected.";
   return undefined;
 }
 
@@ -590,6 +601,7 @@ export function micHint(s: Status): string | undefined {
 
 /** The health line in a word or two, for the phone's app bar. */
 export function healthWord(h: Health): string {
+  if (h.word) return h.word;
   if (h.tone === "ok") return "Connected";
   if (h.tone === "danger") return "Not reachable";
   return h.text === "Restarting" ? "Restarting" : "Check Home Assistant";

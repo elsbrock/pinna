@@ -2,6 +2,7 @@
      app bar and a tab bar on phones. -->
 <script lang="ts">
   import Device from "./lib/Device.svelte";
+  import { isStandalone } from "./lib/assistant.ts";
   import { device } from "./lib/device.svelte.ts";
   import External from "./lib/External.svelte";
   import Icon from "./lib/Icon.svelte";
@@ -78,7 +79,9 @@
       >
         <Device model={s.model} effect={ring} frame={device.ring} width={48} label="Ring: {ring.replace('-', ' ')}" />
         <span class="pn-ident-name">{displayName(s)}</span>
-        <span class="pn-health" data-tone={line.tone} title={line.text}>Home Assistant</span>
+        <span class="pn-health" data-tone={line.tone} title={line.text}
+          >{isStandalone(s) ? "Standalone" : "Home Assistant"}</span
+        >
         <Icon name="chevron-down" class="pn-icon pn-ident-chev" />
       </button>
     {:else}

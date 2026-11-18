@@ -47,6 +47,16 @@ export function slotName(model: string, preset: string): string {
   return model ? `${model} via ${presetName(preset)}` : presetName(preset);
 }
 
+/**
+ * Status's brain label ("openai: gpt-4o-mini", as pinnad builds it) as the
+ * page says it: "gpt-4o-mini via OpenAI". Another shape is shown as it is.
+ */
+export function brainLabel(label: string): string {
+  const at = label.indexOf(": ");
+  if (at < 0) return label;
+  return slotName(label.slice(at + 2), label.slice(0, at));
+}
+
 export type SlotLine = {
   key: SlotKey;
   name: string;

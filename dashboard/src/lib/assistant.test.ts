@@ -5,6 +5,7 @@ import type { Assistant, BrainOverride, Preset, ProviderConnection, SlotChoice }
 import type { AssistantStatus } from "../gen/pinna/v1/device_pb.ts";
 import {
   addressKind,
+  brainLabel,
   brainPreset,
   chars,
   delegation,
@@ -97,6 +98,10 @@ test("services by the names people know them", () => {
   assert.equal(slotName("gpt-4o-mini", "openai"), "gpt-4o-mini via OpenAI");
   // OpenClaw chooses its own model.
   assert.equal(slotName("", "openclaw"), "OpenClaw");
+  assert.equal(brainLabel("anthropic: claude-sonnet-4-5"), "claude-sonnet-4-5 via Anthropic");
+  assert.equal(brainLabel("openclaw: "), "OpenClaw");
+  assert.equal(brainLabel("something else"), "something else");
+  assert.equal(brainLabel(""), "");
 });
 
 test("the checklist: ready, not checked, failed on this page, not set up", () => {

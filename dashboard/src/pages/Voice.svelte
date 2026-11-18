@@ -4,6 +4,7 @@
   import type { Effect } from "../../../design/ring.ts";
   import { WakeWordIdsSchema } from "../gen/pinna/v1/device_pb.ts";
   import { device } from "../lib/device.svelte.ts";
+  import { isStandalone } from "../lib/assistant.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
   import ColorRow from "../lib/ColorRow.svelte";
@@ -19,13 +20,15 @@
   const hex = (rgb: number) => `#${rgb.toString(16).padStart(6, "0")}`;
   const live = $derived(device.link === "live");
 
-  // Two words at most, chosen in Home Assistant while it is connected, here
-  // otherwise (ADR 0013). `first`/`second` are positions in the active list.
+  // Two words at most, chosen in Home Assistant while it is connected in
+  // Home Assistant mode, here otherwise (ADR 0013, ADR 0017). `first`/`second`
+  // are positions in the active list.
   const words = $derived(s?.wakeWord?.available ?? []);
   const chosen = $derived(set?.wakeWords ?? []);
   const first = $derived(chosen[0] ?? "");
   const second = $derived(chosen[1] ?? "");
-  const locked = $derived(!live || !!s?.haConnected || words.length === 0);
+  const standalone = $derived(isStandalone(s));
+  const locked = $derived(!live || (!!s?.haConnected && !standalone) || words.length === 0);
   const lockHint = $derived(s ? wakeWordsHint(s) : undefined);
   const asOptions = (except: string) =>
     words.filter((w) => w.id !== except).map((w) => ({ id: w.id, label: w.phrase }));
@@ -42,20 +45,26 @@
   }
 
   // What the ring says, in the device's own colours and timings.
-  const LEGEND: { effect: Effect; word: string; what: string }[] = [
+  const legend: { effect: Effect; word: string; what: string }[] = $derived([
     { effect: "listening", word: "Listening", what: "Heard the wake word; speak now." },
-    { effect: "thinking", word: "Thinking", what: "Home Assistant is working on it." },
+    {
+      effect: "thinking",
+      word: "Thinking",
+      what: standalone ? "The brain is working on it." : "Home Assistant is working on it.",
+    },
     { effect: "speaking", word: "Speaking", what: "Playing the reply." },
     { effect: "muted", word: "Muted", what: "The microphones are off." },
     { effect: "timer", word: "Timer", what: "How much of a timer is left." },
     {
       effect: "notification",
       word: "Notification",
-      what: "Home Assistant has a notification. Press the Action button to clear it.",
+      what: standalone
+        ? "A notification is waiting. Press the Action button to clear it."
+        : "Home Assistant has a notification. Press the Action button to clear it.",
     },
     { effect: "pairing", word: "Pairing", what: "Bluetooth pairing is open: a phone nearby can pair now." },
     { effect: "error", word: "Error", what: "A request failed: three flashes. Logs, under System, says why." },
-  ];
+  ]);
 </script>
 
 {#if s && set}
@@ -226,7 +235,7 @@
       <button class="pn-btn" disabled={!live} onclick={() => device.identify()}>Identify</button>
     </div>
     <ul class="legend" aria-label="What the ring shows">
-      {#each LEGEND as l (l.effect)}
+      {#each legend as l (l.effect)}
         <li>
           <Ring
             effect={l.effect}

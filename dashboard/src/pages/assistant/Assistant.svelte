@@ -120,9 +120,9 @@
       {/if}
       <div class="pn-row">
         <div class="pn-row-text">
-          <span class="pn-row-label">Last request</span>
+          <span class="pn-row-label">Last failure</span>
           {#if s.assistant?.lastError}
-            <span class="pn-row-hint is-danger">Failed: {s.assistant.lastError}</span>
+            <span class="pn-row-hint is-danger">{s.assistant.lastError}</span>
           {:else}
             <span class="pn-row-hint">No request has failed since the satellite started.</span>
           {/if}
