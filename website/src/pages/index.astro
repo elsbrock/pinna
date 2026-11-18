@@ -277,7 +277,7 @@ const gaps = [
           <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
             <Icon name="bolt" size={18} />
           </div>
-          <h3 class="text-ink text-heading mt-4">The device answers itself</h3>
+          <h3 class="text-ink text-heading mt-4">The satellite answers itself</h3>
           <p class="text-ink-muted text-body mt-2">
             In standalone mode the device needs no Home Assistant. You set up
             three services on the dashboard: speech-to-text, a brain, and
@@ -290,7 +290,7 @@ const gaps = [
                 "The brain is a language model, or an AI agent such as Hermes or OpenClaw",
                 "The brain can set timers, tell the weather, play radio and light the ring",
                 "It can use the tools of your MCP servers, and your agents can use the device over MCP",
-                "Audio goes only to the services you chose, and only after the wake word",
+                "Audio goes only to the services you chose, and only after the wake word or a press of the Action button",
               ].map((item) => (
                 <li class="text-ink-muted text-body flex items-start gap-2.5">
                   <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
@@ -542,8 +542,9 @@ scripts/flash-gen2.sh boot</pre>
           <p class="text-ink-muted text-body mt-2">
             Problems show up on real devices first. If an installation fails,
             the ring stays dark or the wake word doesn't trigger, open an issue
-            with the version from the dashboard's System page and the log from
-            System &gt; Logs.
+            with the version and the log, as
+            <a class="link" href={docHref("troubleshooting") + "#report-a-problem"}>Report a problem</a>
+            describes.
           </p>
           <p class="mt-4 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={`${SITE.repo}/issues`}>

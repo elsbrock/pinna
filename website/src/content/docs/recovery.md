@@ -157,8 +157,8 @@ it keeps the installed version and needs no fastboot.
 If the device doesn't boot Pinna at all, install it again from fastboot.
 This erases the data partition: the Wi-Fi networks, every setting made on the
 dashboard or in Home Assistant, standalone mode's services and keys, and the
-Home Assistant encryption key. After that, connect the device to Wi-Fi and set
-it up on the dashboard again. If you use Home Assistant, remove the device
+Home Assistant encryption key, unless the image sets them up. After that,
+connect the device to Wi-Fi and set it up on the dashboard again. If you use Home Assistant, remove the device
 from Home Assistant and add it again, so that Home Assistant gives it a new
 key.
 

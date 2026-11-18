@@ -101,21 +101,21 @@ says whether the satellite listens, and why not:
 | Hint | What to do |
 | --- | --- |
 | `Off. Press the action button to talk.` | Turn on **Wake word** |
-| `No wake word is chosen.` | Choose a wake word. In Home Assistant mode, while Home Assistant is connected, choose it there: see [Choose the wake words](/docs/home-assistant/#choose-the-wake-words). Otherwise choose it on the dashboard, under **Voice & sound** |
+| `No wake word is chosen.` | Choose a wake word. In Home Assistant mode, while Home Assistant is connected, choose it there: see [Choose the wake words](/docs/home-assistant/#choose-the-wake-words). Otherwise choose it on the dashboard, under **Voice & sound**. If **Voice & sound** says **No wake word models are installed on this satellite**, the image was built without them: run `just models`, build the image again, and install it as an [update](/docs/update/) |
 | `Not listening for "Alexa" while the microphones are off` | Press the **Microphone off** button, or turn on **Microphones** |
 | `Not listening for "Alexa" until Home Assistant has a voice pipeline for this satellite` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/). The **Home Assistant** tile on **Overview** then shows **Connected** and **Voice pipeline ready** |
 | `Not listening for "Alexa" until the standalone services pass their check` | Open **Assistant > Services**: it shows which service isn't ready, and why. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
 | `Not listening for "Alexa" during the conversation` | Wait until the request ends |
+| `Not listening for "Alexa" yet` | Wait a moment: the satellite is getting ready to listen |
 
 If the hint says `Listening for "Alexa"` and the device still doesn't react:
 
-- Check that the image has wake word models. If **Voice & sound** says **No
-  wake word models are installed on this satellite**, the image was built
-  without them: run `just models`, build the image again, and install it as an
-  [update](/docs/update/).
+- Check that the wake word model loaded. A line `wake word disabled: …` in
+  **System > Logs** means the model files are there but didn't load.
 - Check the microphones. If **System** shows **Audio backend** `none` under
-  **Details**, Pinna found no audio device, and **System > Logs** has a line
-  with `microphone unavailable`.
+  **Details**, Pinna found no audio device, and the log has the line
+  `no audio backend: wake word and speech disabled`. With another backend, a
+  `microphone unavailable` line means the microphones failed to open.
 - Test the wake word on the **Wake word sensitivity** page:
 
   1. Open **Voice & sound > Sensitivity** in the
@@ -293,8 +293,8 @@ services didn't answer in time. See
 
 2. If the dashboard opens, look at **System > Logs** for errors, and at how
    the last start ended under **System > Troubleshooting**.
-3. If the device opens fastboot again, `pinnad` doesn't start. Install the
-   root filesystem again from fastboot, as described in
+3. If the device opens fastboot again, Pinna's services don't start. Install
+   the root filesystem again from fastboot, as described in
    [Recover a device](/docs/recovery/). This erases your settings, which also
    removes a setting that stops Pinna.
 

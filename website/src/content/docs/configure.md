@@ -77,9 +77,9 @@ settings.
 
    If the file contains a setting that Pinna doesn't know, or a value of the
    wrong type, Pinna doesn't start. The log names the problem:
-   `journalctl -u pinnad`. Fix the file and restart `pinnad` again before the
-   health check restarts the device into fastboot; if it does, see
-   [When pinnad doesn't start](/docs/development/#when-pinnad-doesnt-start).
+   `journalctl -u pinnad`. Fix the file before the device next restarts:
+   then the health check fails, and the device opens fastboot. If it does,
+   see [When pinnad doesn't start](/docs/development/#when-pinnad-doesnt-start).
 
 ## Settings
 

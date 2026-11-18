@@ -45,8 +45,9 @@ each device a different one.
 2. [Name the device](#name-the-device) on **System**, for example `Kitchen`.
    Do this before you add it to Home Assistant, which keeps the first name in
    its entity IDs.
-3. [Set the time zone](#set-the-time-zone) on **System**, so that the clock
-   and the log show your time.
+3. [Set the time zone](#set-the-time-zone) on **System**, so that the
+   satellite tells your time in standalone mode, and its own clock and log
+   use your zone.
 4. Choose who answers requests, on **Assistant**:
    [connect the device to Home Assistant](/docs/home-assistant/), or
    [set up standalone mode](/docs/standalone/). Until Home Assistant connects

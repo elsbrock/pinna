@@ -57,7 +57,10 @@ asks for it when you add the device. See
    Home Assistant keeps the first name in the entity IDs.
 3. Home Assistant sets the encryption key itself; see
    [Encryption](#encryption). It asks you for a key only when the image came
-   with one: enter that key.
+   with one, or when the device still has a key that an earlier Home
+   Assistant set. For an image's key, enter it. Otherwise
+   [reset the device](/docs/dashboard/#reset-the-device), which removes the
+   old key, and add it again.
 
 If the device doesn't appear, add it by hand: open the **Assistant** page
 of the [dashboard](/docs/dashboard/), copy the host and the port under **Add it
