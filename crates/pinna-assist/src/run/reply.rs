@@ -293,25 +293,34 @@ pub(crate) async fn reply(
             }
             Step::CallTools(calls) => {
                 let mut results = Vec::with_capacity(calls.len());
-                for call in calls {
-                    let output = match tokio::time::timeout(
-                        limits.tool,
-                        request.tools.call(&call.name, call.args.clone()),
-                    )
-                    .await
-                    {
-                        Ok(output) => output,
-                        Err(_) => ToolOutput::error("The tool timed out."),
+                for (i, call) in calls.into_iter().enumerate() {
+                    let output = if i < MAX_CALLS_PER_ROUND {
+                        match tokio::time::timeout(
+                            limits.tool,
+                            request.tools.call(&call.name, call.args.clone()),
+                        )
+                        .await
+                        {
+                            Ok(output) => output,
+                            Err(_) => ToolOutput::error("The tool timed out."),
+                        }
+                    } else {
+                        ToolOutput::error("Too many tool calls at once; this one didn't run.")
                     };
                     results.push((call, output));
+                    // Each call is bounded; telling the Brain after each one
+                    // keeps its deadline ahead of a round of several calls.
+                    events.emit(RunEvent::Progress).await;
                 }
                 harness.on_results(results);
-                events.emit(RunEvent::Progress).await;
                 round = round.saturating_add(1);
             }
         }
     }
 }
+
+/// The most tool calls run in one round; the rest get an error result.
+const MAX_CALLS_PER_ROUND: usize = 8;
 
 fn history_messages(history: &[Turn]) -> Vec<Message> {
     let mut messages = Vec::with_capacity(history.len().saturating_mul(2));
@@ -732,6 +741,57 @@ mod tests {
         assert_eq!(requests[0].tools, 1);
         assert_eq!(requests[1].tools, 1);
         assert!(requests[0].calls_allowed && requests[1].calls_allowed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_round_runs_at_most_eight_calls() {
+        use pinna_mcp::ToolSpec;
+        use serde_json::Value;
+        use std::sync::atomic::Ordering;
+        struct Counting(std::sync::atomic::AtomicUsize);
+        impl ToolSet for Counting {
+            fn specs(&self) -> BoxFuture<'_, Vec<ToolSpec>> {
+                Box::pin(async { Vec::new() })
+            }
+            fn call<'a>(&'a self, _: &'a str, _: Value) -> BoxFuture<'a, ToolOutput> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async { ToolOutput::ok("done") })
+            }
+        }
+        let calls: Vec<ChatDelta> = (0..10)
+            .map(|i| {
+                ChatDelta::Call(ToolCall {
+                    id: format!("call-{i}"),
+                    name: "set_timer".into(),
+                    args: json!({}),
+                })
+            })
+            .chain([ChatDelta::End])
+            .collect();
+        let chat =
+            ScriptedChat::new([calls, vec![ChatDelta::Text("Done.".into()), ChatDelta::End]]);
+        let tts = ScriptedTts::default();
+        let tools = Counting(Default::default());
+        let behaviour = behaviour(RunLimits::MODEL, Delegation::ToolLoop);
+        let (sink, mut source) = reply_channel(2);
+        let events = TestEvents::default();
+        let observer = TestObserver::default();
+        let run = reply(
+            request(
+                "Question", &chat, &tts, &tools, &behaviour, &sink, &observer,
+            ),
+            &events,
+        );
+        let (outcome, _) = tokio::join!(run, receive(&mut source, 1));
+        outcome.unwrap();
+        assert_eq!(tools.0.load(Ordering::SeqCst), 8);
+        // Every call still gets a result, so the conversation stays valid.
+        let results = chat.requests()[1]
+            .messages
+            .iter()
+            .filter(|m| matches!(m, Message::ToolResult { .. }))
+            .count();
+        assert_eq!(results, 10);
     }
 
     #[tokio::test(start_paused = true)]
