@@ -82,7 +82,7 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
                 )
                 .await;
             };
-            let frames = match listen::listen(&mut mic, &pipeline.behaviour.limits).await {
+            let frames = match listen::listen(&mut mic).await {
                 Ok(frames) => frames,
                 Err(listen::Heard::NoSpeech) => {
                     observer.guard(Guard::NoSpeech);

@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use pinna_vad::{Endpoint, EndpointConfig, Endpointer};
 
-use crate::{audio::MicInput, limits::RunLimits};
+use crate::audio::MicInput;
 
 /// Why a listen produced no audio to upload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,18 +13,12 @@ pub enum Heard {
 
 /// Collect microphone frames until the endpointer finishes. A closed or
 /// stalled route is an end of speech only after speech has actually started.
-pub async fn listen(mic: &mut MicInput, limits: &RunLimits) -> Result<Vec<Bytes>, Heard> {
-    let mut config = if mic.follow_up {
+pub async fn listen(mic: &mut MicInput) -> Result<Vec<Bytes>, Heard> {
+    let config = if mic.follow_up {
         EndpointConfig::FOLLOW_UP
     } else {
         EndpointConfig::REQUEST
     };
-    config.no_speech = if mic.follow_up {
-        limits.follow_up_window
-    } else {
-        limits.no_speech
-    };
-    config.max = limits.record;
 
     let mut endpointer = Endpointer::new(config, mic.noise_seed);
     let mut frames = Vec::new();
@@ -50,7 +44,7 @@ pub async fn listen(mic: &mut MicInput, limits: &RunLimits) -> Result<Vec<Bytes>
         }
     };
 
-    match tokio::time::timeout(limits.listen_backstop(), collect).await {
+    match tokio::time::timeout(config.backstop(), collect).await {
         Ok(result) => result,
         Err(_) if speech_started => Ok(frames),
         Err(_) => Err(Heard::NoSpeech),
@@ -59,8 +53,6 @@ pub async fn listen(mic: &mut MicInput, limits: &RunLimits) -> Result<Vec<Bytes>
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use tokio::sync::mpsc;
 
     use super::*;
@@ -106,68 +98,52 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn speech_then_silence_ends() {
         let (mut mic, _tx) = input(false, loud(110).chain(quiet(100)), true);
-        let frames = listen(&mut mic, &RunLimits::MODEL).await.unwrap();
+        let frames = listen(&mut mic).await.unwrap();
         assert_eq!(frames.len(), 190);
     }
 
     #[tokio::test(start_paused = true)]
     async fn quiet_audio_is_never_uploaded() {
         let (mut mic, _tx) = input(false, quiet(600), true);
-        assert_eq!(
-            listen(&mut mic, &RunLimits::MODEL).await,
-            Err(Heard::NoSpeech)
-        );
+        assert_eq!(listen(&mut mic).await, Err(Heard::NoSpeech));
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_follow_up_uses_the_shorter_window() {
         let (mut mic, _tx) = input(true, quiet(500), true);
-        assert_eq!(
-            listen(&mut mic, &RunLimits::MODEL).await,
-            Err(Heard::NoSpeech)
-        );
+        assert_eq!(listen(&mut mic).await, Err(Heard::NoSpeech));
         assert_eq!(mic.frames.len(), 100, "only the 4 s window was consumed");
     }
 
     #[tokio::test(start_paused = true)]
     async fn speech_is_capped_at_the_recording_limit() {
         let (mut mic, _tx) = input(false, loud(1_600), true);
-        let frames = listen(&mut mic, &RunLimits::MODEL).await.unwrap();
+        let frames = listen(&mut mic).await.unwrap();
         assert_eq!(frames.len(), 1_500);
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_closed_channel_before_speech_is_no_speech() {
         let (mut mic, _tx) = input(false, [], true);
-        assert_eq!(
-            listen(&mut mic, &RunLimits::MODEL).await,
-            Err(Heard::NoSpeech)
-        );
+        assert_eq!(listen(&mut mic).await, Err(Heard::NoSpeech));
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_closed_channel_after_speech_ends_the_utterance() {
         let (mut mic, _tx) = input(false, loud(100), true);
-        assert_eq!(
-            listen(&mut mic, &RunLimits::MODEL).await.unwrap().len(),
-            100
-        );
+        assert_eq!(listen(&mut mic).await.unwrap().len(), 100);
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_stalled_channel_uses_the_wall_clock_bound() {
-        let limits = RunLimits {
-            record: Duration::from_secs(2),
-            ..RunLimits::MODEL
-        };
         let (mut mic, tx) = input(false, [], false);
         let started = tokio::time::Instant::now();
-        assert_eq!(listen(&mut mic, &limits).await, Err(Heard::NoSpeech));
-        assert_eq!(started.elapsed(), Duration::from_secs(4));
+        assert_eq!(listen(&mut mic).await, Err(Heard::NoSpeech));
+        assert_eq!(started.elapsed(), EndpointConfig::REQUEST.backstop());
         drop(tx);
 
         let (mut mic, _tx) = input(false, loud(100), false);
-        let frames = listen(&mut mic, &limits).await.unwrap();
+        let frames = listen(&mut mic).await.unwrap();
         assert_eq!(frames.len(), 100);
     }
 }

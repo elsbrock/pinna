@@ -247,7 +247,7 @@ impl Brain {
             + if typed {
                 limits.think_backstop()
             } else {
-                limits.listen_backstop()
+                pinna_vad::EndpointConfig::REQUEST.backstop()
             };
         self.local.run = Some(LocalRun {
             id,

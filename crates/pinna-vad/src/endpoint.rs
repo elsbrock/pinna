@@ -36,13 +36,17 @@ impl EndpointConfig {
         no_speech: Duration::from_secs(5),
         max: Duration::from_secs(15),
     };
+    /// A follow-up window closes a little sooner when nobody answers.
     pub const FOLLOW_UP: Self = Self {
-        ignore: Duration::from_millis(300),
-        onset: Duration::from_millis(300),
-        silence: Duration::from_millis(800),
         no_speech: Duration::from_secs(4),
-        max: Duration::from_secs(15),
+        ..Self::REQUEST
     };
+
+    /// The wall-clock bound on a listen: the longest recording plus a margin,
+    /// for a microphone route that stalls instead of closing.
+    pub const fn backstop(&self) -> Duration {
+        self.max.saturating_add(Duration::from_secs(2))
+    }
 }
 
 /// The endpointer's state after a frame. `Waiting` and `Speech` are live;
