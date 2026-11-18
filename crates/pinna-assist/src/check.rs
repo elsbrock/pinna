@@ -117,7 +117,7 @@ async fn chat_check(setup: &CheckSetup) -> Result<(), String> {
         return Ok(());
     };
     if let Some(ids) = offered_models(&body)
-        && !ids.iter().any(|id| id == &setup.model)
+        && !ids.iter().any(|id| names_model(id, &setup.model))
     {
         return Err(format!(
             "The model {} isn't offered by this service.",
@@ -200,8 +200,9 @@ fn silence_wav() -> Bytes {
 /// version for an OpenAI-compatible connection.
 fn models_path(id: PresetId) -> &'static str {
     match preset(id).chat_protocol {
-        ChatProtocol::Anthropic => "/v1/models",
-        ChatProtocol::Gemini => "/v1beta/models",
+        // Both page their lists; ask for the largest page they serve.
+        ChatProtocol::Anthropic => "/v1/models?limit=1000",
+        ChatProtocol::Gemini => "/v1beta/models?pageSize=1000",
         ChatProtocol::OpenAi => "/models",
     }
 }
@@ -212,6 +213,12 @@ struct ModelList {
     data: Vec<ModelEntry>,
     #[serde(default)]
     models: Vec<ModelEntry>,
+    /// Anthropic: more pages follow.
+    #[serde(default)]
+    has_more: bool,
+    /// Gemini: more pages follow.
+    #[serde(default, rename = "nextPageToken")]
+    next_page_token: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -223,9 +230,12 @@ struct ModelEntry {
 }
 
 /// The ids in a model list, or `None` when the body isn't an authoritative
-/// list: it didn't parse, or it named no models.
+/// list: it didn't parse, named no models, or is one page of several.
 fn offered_models(body: &Bytes) -> Option<Vec<String>> {
     let list: ModelList = serde_json::from_slice(body).ok()?;
+    if list.has_more || list.next_page_token.is_some_and(|t| !t.is_empty()) {
+        return None;
+    }
     let mut ids: Vec<String> = list
         .data
         .into_iter()
@@ -240,6 +250,18 @@ fn offered_models(body: &Bytes) -> Option<Vec<String>> {
             .map(|name| name.strip_prefix("models/").unwrap_or(&name).to_owned()),
     );
     (!ids.is_empty()).then_some(ids)
+}
+
+/// Whether a listed id is the model the owner entered. Anthropic lists
+/// dated ids (`claude-haiku-4-5-20251001`) for the alias owners type
+/// (`claude-haiku-4-5`); a bare prefix would also match `claude-opus-4-8`
+/// for `claude-opus-4`, so only an 8-digit date suffix counts.
+fn names_model(id: &str, model: &str) -> bool {
+    id == model
+        || id
+            .strip_prefix(model)
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|date| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn network_reason(error: &reqwest::Error, clock_synced: bool) -> Reason {
@@ -462,7 +484,7 @@ mod tests {
         let server = FakeServer::start().await;
         server.script(
             Method::GET,
-            "/v1/models",
+            "/v1/models?limit=1000",
             FakeResponse::new(StatusCode::OK, "{\"data\":[{\"id\":\"claude-sonnet\"}]}"),
         );
         check(&setup(
@@ -485,7 +507,7 @@ mod tests {
         let server = FakeServer::start().await;
         server.script(
             Method::GET,
-            "/v1beta/models",
+            "/v1beta/models?pageSize=1000",
             FakeResponse::new(
                 StatusCode::OK,
                 "{\"models\":[{\"name\":\"models/gemini-2.0-flash\"}]}",
@@ -603,5 +625,46 @@ mod tests {
             assert!(!sentence.contains("sk-"), "{sentence}");
             assert!(!sentence.contains("://"), "{sentence}");
         }
+    }
+
+    #[tokio::test]
+    async fn one_page_of_several_doesnt_refuse_a_model() {
+        let server = FakeServer::start().await;
+        server.script(
+            Method::GET,
+            "/v1/models?limit=1000",
+            FakeResponse::new(
+                StatusCode::OK,
+                "{\"data\":[{\"id\":\"claude-other\"}],\"has_more\":true}",
+            ),
+        );
+        check(&setup(
+            &server,
+            Slot::Chat,
+            PresetId::Anthropic,
+            "claude-sonnet",
+        ))
+        .await
+        .unwrap();
+        let server = FakeServer::start().await;
+        server.script(
+            Method::GET,
+            "/v1beta/models?pageSize=1000",
+            FakeResponse::new(
+                StatusCode::OK,
+                "{\"models\":[{\"name\":\"models/other\"}],\"nextPageToken\":\"x\"}",
+            ),
+        );
+        check(&setup(&server, Slot::Chat, PresetId::Gemini, "gemini-pro"))
+            .await
+            .unwrap();
+    }
+
+    #[test]
+    fn an_alias_matches_its_dated_id_only() {
+        assert!(names_model("claude-haiku-4-5-20251001", "claude-haiku-4-5"));
+        assert!(names_model("gpt-4o", "gpt-4o"));
+        assert!(!names_model("claude-opus-4-8", "claude-opus-4"));
+        assert!(!names_model("claude-opus-4-latest", "claude-opus-4"));
     }
 }
