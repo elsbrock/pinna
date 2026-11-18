@@ -38,6 +38,23 @@ pub struct Pipeline {
     pub label: String,
 }
 
+/// The text-to-speech slot on its own: a Speak needs only this.
+#[derive(Clone)]
+pub struct Speech {
+    pub tts: Arc<dyn Tts>,
+    pub preset: PresetId,
+}
+
+impl Speech {
+    pub fn build(cfg: &AssistConfig, secrets: &Secrets) -> Result<Speech, String> {
+        let tts = build_tts(cfg, secrets)?;
+        Ok(Speech {
+            tts,
+            preset: cfg.tts.as_ref().expect("built above").preset(cfg),
+        })
+    }
+}
+
 struct BuiltChat {
     adapter: Arc<dyn Chat>,
     model: String,

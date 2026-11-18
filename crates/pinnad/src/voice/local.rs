@@ -12,7 +12,7 @@ use pinna_assist::conversation::{Conversation, Turn};
 use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::limits::RunLimits;
 use pinna_assist::observe::{Guard, Observer, Spend};
-use pinna_assist::pipeline::Pipeline;
+use pinna_assist::pipeline::Speech;
 use pinna_assist::presets::PresetId;
 use pinna_assist::reply::{
     AudioBody, AudioKind, ReplySink, ReplySource, SpeechAudio, reply_channel,
@@ -582,7 +582,7 @@ impl Brain {
             ));
             return;
         };
-        let Some(pipeline) = self.local.live.borrow().pipeline.clone() else {
+        let Some(speech) = self.local.live.borrow().speech.clone() else {
             reply.send(Err("Set up text-to-speech under Assistant first.".into()));
             return;
         };
@@ -590,7 +590,7 @@ impl Brain {
         let token = self.begin_playback(PlaybackKind::Speak);
         let task = tokio::spawn(play_speak(
             speaker,
-            pipeline,
+            speech,
             text,
             reply,
             token,
@@ -623,14 +623,14 @@ impl Drop for SpeakReply {
 /// kept in the Brain's playback slot. Reports [`Input::PlaybackDone`].
 async fn play_speak(
     speaker: Arc<Speaker>,
-    pipeline: Arc<Pipeline>,
+    speech: Speech,
     text: String,
     mut reply: SpeakReply,
     token: u64,
     tx: mpsc::Sender<Input>,
     counters: StandaloneCounters,
 ) {
-    let ok = match say(&speaker, &pipeline, &text, &mut reply, &counters).await {
+    let ok = match say(&speaker, &speech, &text, &mut reply, &counters).await {
         Ok(()) => true,
         Err(why) => {
             tracing::warn!("speak: {why}");
@@ -644,14 +644,14 @@ async fn play_speak(
 /// Answers `reply` once the text sounds; then waits until it has.
 async fn say(
     speaker: &Speaker,
-    pipeline: &Pipeline,
+    speech: &Speech,
     text: &str,
     reply: &mut SpeakReply,
     counters: &StandaloneCounters,
 ) -> Result<(), String> {
-    let preset = pipeline.presets[2];
+    let preset = speech.preset;
     let limit = RunLimits::MODEL.tts_first_audio;
-    let audio = match tokio::time::timeout(limit, pipeline.tts.speak(text)).await {
+    let audio = match tokio::time::timeout(limit, speech.tts.speak(text)).await {
         Ok(Ok(audio)) => audio,
         Ok(Err(e)) => return Err(e.to_string()),
         Err(_) => return Err(ProviderError::new(Slot::Tts, preset, Reason::Timeout).to_string()),
@@ -945,6 +945,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use pinna_assist::error::{Reason, Slot};
+    use pinna_assist::pipeline::Pipeline;
     use pinna_assist::reply::Credit;
     use pinna_audio::{Backend, PlaybackState, SpeakerConfig};
     use pinna_esphome::{DeviceEvent, EsphomeHandle, HaCommand};
@@ -2490,6 +2491,10 @@ mod tests {
                     behaviour: pinna_assist::presets::preset(PresetId::OpenAi).behaviour,
                     label: "openai: test-model".into(),
                 })),
+                speech: Some(Speech {
+                    tts: Arc::new(voice),
+                    preset: PresetId::OpenAi,
+                }),
                 ..AssistLive::empty()
             });
             device
@@ -2541,6 +2546,24 @@ mod tests {
             assert_eq!(device.brain.phase, Phase::Idle, "{mode:?}");
             assert!(device.events().is_empty(), "a Speak is no request");
         }
+    }
+
+    #[tokio::test]
+    async fn speak_needs_only_the_text_to_speech_slot() {
+        let mut device = TestDevice::new(Mode::HomeAssistant, true);
+        device.set_live(AssistLive {
+            slots: [false, false, true],
+            speech: Some(Speech {
+                tts: Arc::new(Voice::Wav(100)),
+                preset: PresetId::OpenAi,
+            }),
+            ..AssistLive::empty()
+        });
+
+        let answer = device.speak("Hello there.").await;
+
+        assert_eq!(answered(answer).await, Ok(()));
+        assert_eq!(device.play_out().await, 0);
     }
 
     #[tokio::test]

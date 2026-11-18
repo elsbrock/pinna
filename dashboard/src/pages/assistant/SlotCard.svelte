@@ -58,8 +58,7 @@
 
   // Play sample: the reply voice saying one sentence on the satellite.
   const SAMPLE = "This is how replies sound.";
-  const everySlotSet = $derived(!!view && SLOTS.every((x) => !!view[x.key]));
-  const canSample = $derived(live && line.ready && everySlotSet);
+  const canSample = $derived(live && line.ready);
   let sampling = $state(false);
   let sampleError = $state<string | null>(null);
   async function sample() {
@@ -188,8 +187,6 @@
         <span id="sample-hint" class="pn-row-hint">
           {#if !line.ready}
             Plays once this voice passes its check.
-          {:else if !everySlotSet}
-            Plays once speech-to-text and the brain are chosen too.
           {:else}
             The satellite says “{SAMPLE}” with this voice.
           {/if}

@@ -24,7 +24,7 @@ use pinna_assist::config::{
 };
 use pinna_assist::error::Slot;
 use pinna_assist::http::Auth;
-use pinna_assist::pipeline::{self, Pipeline};
+use pinna_assist::pipeline::{self, Pipeline, Speech};
 use pinna_assist::presets::{
     self, ChatOverride, ChatProtocol, Delegation, HistoryPolicy, PresetId, SpeechProtocol,
 };
@@ -1007,6 +1007,13 @@ impl State {
         let c = &self.config;
         let slots = SlotKind::ALL.map(|kind| slot_ready(c, kind));
         let pipeline = Pipeline::build(c, &self.secrets).ok().map(Arc::new);
+        let speech = match &pipeline {
+            Some(pipeline) => Some(Speech {
+                tts: pipeline.tts.clone(),
+                preset: pipeline.presets[2],
+            }),
+            None => Speech::build(c, &self.secrets).ok(),
+        };
         let ack = ack::Source::wanted(c, pipeline.as_deref(), slot_ready(c, SlotKind::Tts))
             .and_then(|source| cache.path(&source));
         AssistLive {
@@ -1019,6 +1026,7 @@ impl State {
                 .map(|pipeline| pipeline.label.clone())
                 .unwrap_or_default(),
             pipeline,
+            speech,
             prompt: c.prompt.clone(),
             language: c.language.clone(),
             place: c.place.clone(),

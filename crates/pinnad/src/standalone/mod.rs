@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pinna_assist::config::{Place, Station};
-use pinna_assist::pipeline::Pipeline;
+use pinna_assist::pipeline::{Pipeline, Speech};
 use pinna_assist::presets::{Behaviour, PresetId, preset};
 use pinna_http::Secret;
 use pinna_mcp::client::{McpClient, McpToolSet};
@@ -25,6 +25,8 @@ pub struct AssistLive {
     pub slots: [bool; 3],
     pub label: String,
     pub pipeline: Option<Arc<Pipeline>>,
+    /// The text-to-speech slot, whenever it is set up: Speak needs no more.
+    pub speech: Option<Speech>,
     pub prompt: Option<String>,
     pub language: Option<String>,
     pub place: Option<Place>,
@@ -49,6 +51,7 @@ impl AssistLive {
             slots: [false; 3],
             label: String::new(),
             pipeline: None,
+            speech: None,
             prompt: None,
             language: None,
             place: None,

@@ -869,7 +869,7 @@ mod tests {
         assert_eq!(gone.code, ErrorCode::Aborted);
 
         // Empty text is the caller's mistake; the Brain refuses the rest with
-        // a sentence (no pipeline behind these fakes, Home Assistant mode).
+        // a sentence (no text-to-speech slot behind these fakes).
         let e = d
             .assistant
             .play_sample(PlaySampleRequest::default())
