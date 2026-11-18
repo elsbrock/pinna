@@ -31,6 +31,7 @@ pub(super) enum Op {
     ListTimers,
     CancelTimer,
     CancelRequest,
+    Speak,
     Status,
     Time,
     Weather,
@@ -133,6 +134,12 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
         Op::CancelRequest => {
             tools.ask(ApiCommand::StopConversation).await?;
             Ok("Stopped.".into())
+        }
+        Op::Speak => {
+            let text = checks::speak_text(args.need_text("text")?)?;
+            // The Brain answers once the text sounds.
+            tools.ask(|r| ApiCommand::Speak(text, r)).await?;
+            Ok("Speaking.".into())
         }
         Op::Status => Ok(status(&tools.status.borrow(), Instant::now()).to_string()),
     }

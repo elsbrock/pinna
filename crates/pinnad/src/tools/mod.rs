@@ -341,6 +341,18 @@ static TOOLS: &[Tool] = &[
         op: Op::Weather,
     },
     Tool {
+        name: "speak",
+        reach: Reach::McpOnly,
+        about: "Say a short text aloud with the satellite's voice. Refused while it handles a request, an alarm rings or it plays something else.",
+        params: &[Param {
+            name: "text",
+            kind: Kind::Text,
+            required: true,
+            about: "What to say, at most 500 characters.",
+        }],
+        op: Op::Speak,
+    },
+    Tool {
         name: "cancel_request",
         reach: Reach::McpOnly,
         about: "Stop the request the satellite is handling, or silence a ringing alarm.",
@@ -748,7 +760,13 @@ mod tests {
             assert!(!brain_names.iter().any(|n| n == name), "{name}");
         }
         assert!(!mcp_names.iter().any(|n| n == "weather"));
-        for name in ["cancel_request", "status", "set_timer", "mute_microphone"] {
+        for name in [
+            "cancel_request",
+            "status",
+            "set_timer",
+            "mute_microphone",
+            "speak",
+        ] {
             assert!(mcp_names.iter().any(|n| n == name), "{name}");
         }
         let out = brain.call("cancel_request", json!({})).await;
@@ -798,6 +816,44 @@ mod tests {
             ToolOutput::ok(
                 "The microphone mutes when this reply ends. Only a person can unmute it."
             )
+        );
+    }
+
+    #[tokio::test]
+    async fn speak_checks_its_text_before_the_brain() {
+        let (tools, mut rx) = bare(Surface::Mcp, Caller::Mcp);
+
+        let long = tools.call("speak", json!({"text": "a".repeat(501)})).await;
+
+        assert_eq!(
+            long,
+            ToolOutput::error("The text to say is at most 500 characters.")
+        );
+        assert!(rx.try_recv().is_err());
+
+        let call =
+            tokio::spawn(async move { tools.call("speak", json!({"text": " Hello. "})).await });
+        match rx.recv().await.unwrap() {
+            Input::Api(ApiCommand::Speak(text, reply)) => {
+                assert_eq!(text, "Hello.");
+                reply.send(Ok(())).unwrap();
+            }
+            other => panic!("unexpected input {other:?}"),
+        }
+        assert_eq!(call.await.unwrap(), ToolOutput::ok("Speaking."));
+    }
+
+    #[tokio::test]
+    async fn speak_needs_a_speaker() {
+        let d = Device::start(Mode::Standalone).await;
+        let tools = d.tools(Surface::Mcp, &[]);
+
+        let out = tools.call("speak", json!({"text": "Hello."})).await;
+
+        assert!(out.is_error);
+        assert!(
+            out.text
+                .starts_with("This satellite has no working speaker")
         );
     }
 

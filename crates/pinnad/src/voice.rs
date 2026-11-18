@@ -143,6 +143,9 @@ pub enum ApiCommand {
     },
     /// A timer id, or its name when the id is unknown.
     CancelTimer(String, ApiReply),
+    /// Say a text with the assistant's voice (Play sample, `/mcp speak`).
+    /// Replies once it sounds, or with why it can't.
+    Speak(String, oneshot::Sender<Result<(), String>>),
 }
 
 impl ApiCommand {
@@ -169,7 +172,7 @@ impl ApiCommand {
             | Self::CancelTimer(_, reply) => {
                 let _ = reply.send(Err(why.into()));
             }
-            Self::PlayMediaChecked(_, reply) => {
+            Self::PlayMediaChecked(_, reply) | Self::Speak(_, reply) => {
                 let _ = reply.send(Err(why.into()));
             }
             Self::SetTimer { reply, .. } => {
@@ -417,7 +420,6 @@ enum Phase {
 enum PlaybackKind {
     Tts,
     Reply,
-    #[allow(dead_code)]
     Speak,
     Announce {
         start_conversation: bool,
@@ -1130,6 +1132,11 @@ impl Brain {
                 let result = self.set_timer(name, seconds).await;
                 self.refresh();
                 let _ = reply.send(result);
+                return;
+            }
+            ApiCommand::Speak(text, reply) => {
+                self.speak(text, reply);
+                self.refresh();
                 return;
             }
         };
@@ -2025,7 +2032,10 @@ impl Brain {
                         self.count_guard(pinna_assist::observe::Guard::StoppedByButton);
                     }
                     self.abort_run(true).await;
-                } else if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) {
+                } else if matches!(
+                    self.playback,
+                    Some((_, PlaybackKind::MediaAnnounce | PlaybackKind::Speak, _))
+                ) {
                     // The ring shows it speaking: stop it, as for a reply.
                     tracing::info!("announcement stopped by button");
                     self.stop_playback();
@@ -2136,13 +2146,16 @@ impl Brain {
     }
 
     /// The ring shows the pending notification (see `leds.rs`): idle, and no
-    /// timer arc or media player announcement above it. Muted and a ringing
-    /// alarm are checked by the caller.
+    /// timer arc, media player announcement or Speak above it. Muted and a
+    /// ringing alarm are checked by the caller.
     fn notification_shown(&self) -> bool {
         self.settings.notification
             && self.phase == Phase::Idle
             && !self.timers.values().any(|t| t.active)
-            && !matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _)))
+            && !matches!(
+                self.playback,
+                Some((_, PlaybackKind::MediaAnnounce | PlaybackKind::Speak, _))
+            )
     }
 
     /// The "Notification" switch, from Home Assistant: no `cleared` event.
@@ -3061,9 +3074,12 @@ impl Brain {
             Effect::Pairing
         } else {
             match self.phase {
-                // A media player announcement speaks without a run.
+                // A media player announcement or a Speak speaks without a run.
                 Phase::Idle
-                    if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) =>
+                    if matches!(
+                        self.playback,
+                        Some((_, PlaybackKind::MediaAnnounce | PlaybackKind::Speak, _))
+                    ) =>
                 {
                     Effect::Speaking
                 }

@@ -11,23 +11,28 @@ use pinna_assist::audio::MicInput;
 use pinna_assist::conversation::{Conversation, Turn};
 use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::limits::RunLimits;
-use pinna_assist::observe::{Guard, Observer};
+use pinna_assist::observe::{Guard, Observer, Spend};
+use pinna_assist::pipeline::Pipeline;
 use pinna_assist::presets::PresetId;
 use pinna_assist::reply::{
     AudioBody, AudioKind, ReplySink, ReplySource, SpeechAudio, reply_channel,
 };
 use pinna_assist::run::{RunEvent, RunKind};
 use pinna_audio::{Speaker, VoicePlayback, tone};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use super::{ApiCommand, AssistStatus, Brain, Input, Phase, PlaybackKind, RunId};
+use crate::metrics::StandaloneCounters;
 use crate::mic::MIC_QUEUE;
 use crate::settings::Mode;
 use crate::standalone::AssistLive;
 
 /// Sentences a run may synthesise before the first of them sounds.
 const REPLY_AHEAD: usize = 2;
+
+/// A Speak's answer when it was stopped before it sounded.
+const SPEAK_STOPPED: &str = "It was stopped before it was said.";
 
 /// Standalone wiring kept separate from `Options` so existing test builders
 /// remain exhaustive struct literals.
@@ -512,6 +517,131 @@ impl Brain {
             && self.ringing.is_none()
             && self.mode() == Mode::Standalone
             && self.assist_ready()
+    }
+
+    /// Say `text` with the assistant's voice (Play sample, `/mcp speak`). It
+    /// is a playback, not a run, so it works in both modes; it never talks
+    /// over a request, an alarm or another playback. The reply comes once
+    /// the text sounds, or says why it can't.
+    pub(super) fn speak(&mut self, text: String, reply: oneshot::Sender<Result<(), String>>) {
+        let mut reply = SpeakReply(Some(reply));
+        let text = match crate::checks::speak_text(&text) {
+            Ok(text) => text,
+            Err(why) => {
+                reply.send(Err(why));
+                return;
+            }
+        };
+        let refused = if self.phase != Phase::Idle {
+            Some("The satellite is handling a request. Try again when it is done.")
+        } else if self.ringing.is_some() {
+            Some("A timer alarm is ringing. Try again once it is dismissed.")
+        } else if self.playback.is_some() {
+            Some("The satellite is already playing something. Try again when it is done.")
+        } else {
+            None
+        };
+        if let Some(why) = refused {
+            reply.send(Err(why.into()));
+            return;
+        }
+        let Some(speaker) = self.speaker.clone() else {
+            reply.send(Err(
+                "This satellite has no working speaker, so it can't speak. \
+                 Logs, under System, says why."
+                    .into(),
+            ));
+            return;
+        };
+        let Some(pipeline) = self.local.live.borrow().pipeline.clone() else {
+            reply.send(Err("Set up text-to-speech under Assistant first.".into()));
+            return;
+        };
+        tracing::info!("speaking {} characters", text.chars().count());
+        let token = self.begin_playback(PlaybackKind::Speak);
+        let task = tokio::spawn(play_speak(
+            speaker,
+            pipeline,
+            text,
+            reply,
+            token,
+            self.self_tx.clone(),
+            self.shared.counters.standalone.clone(),
+        ));
+        self.playback = Some((token, PlaybackKind::Speak, task));
+    }
+}
+
+/// Answers a Speak once. Dropped unanswered, the Speak was stopped before it
+/// sounded.
+struct SpeakReply(Option<oneshot::Sender<Result<(), String>>>);
+
+impl SpeakReply {
+    fn send(&mut self, result: Result<(), String>) {
+        if let Some(reply) = self.0.take() {
+            let _ = reply.send(result);
+        }
+    }
+}
+
+impl Drop for SpeakReply {
+    fn drop(&mut self) {
+        self.send(Err(SPEAK_STOPPED.into()));
+    }
+}
+
+/// Synthesise and play a Speak: the one task that puts it on the voice lane,
+/// kept in the Brain's playback slot. Reports [`Input::PlaybackDone`].
+async fn play_speak(
+    speaker: Arc<Speaker>,
+    pipeline: Arc<Pipeline>,
+    text: String,
+    mut reply: SpeakReply,
+    token: u64,
+    tx: mpsc::Sender<Input>,
+    counters: StandaloneCounters,
+) {
+    let ok = match say(&speaker, &pipeline, &text, &mut reply, &counters).await {
+        Ok(()) => true,
+        Err(why) => {
+            tracing::warn!("speak: {why}");
+            reply.send(Err(why));
+            false
+        }
+    };
+    let _ = tx.send(Input::PlaybackDone { token, ok }).await;
+}
+
+/// Answers `reply` once the text sounds; then waits until it has.
+async fn say(
+    speaker: &Speaker,
+    pipeline: &Pipeline,
+    text: &str,
+    reply: &mut SpeakReply,
+    counters: &StandaloneCounters,
+) -> Result<(), String> {
+    let preset = pipeline.presets[2];
+    let limit = RunLimits::MODEL.tts_first_audio;
+    let audio = match tokio::time::timeout(limit, pipeline.tts.speak(text)).await {
+        Ok(Ok(audio)) => audio,
+        Ok(Err(e)) => return Err(e.to_string()),
+        Err(_) => return Err(ProviderError::new(Slot::Tts, preset, Reason::Timeout).to_string()),
+    };
+    counters.spent(preset, Spend::Characters(text.chars().count() as u64));
+    let playback = open_reply_item(speaker, audio)
+        .await
+        .map_err(|e| e.to_string())?;
+    if playback.started.await.is_err() {
+        return Err(match playback.done.await {
+            Ok(Err(e)) => e.to_string(),
+            _ => SPEAK_STOPPED.into(),
+        });
+    }
+    reply.send(Ok(()));
+    match playback.done.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err("speaker task ended".into()),
     }
 }
 
@@ -2224,5 +2354,220 @@ mod tests {
         assert_eq!(counted.guard_total(Guard::StoppedByButton), 1);
         assert_eq!(counted.guard_total(Guard::StoppedByWake), 1);
         assert_eq!(counted.failure_total(Slot::Stt, Reason::Timeout), 1);
+    }
+
+    /// What the text-to-speech fake does with a text.
+    #[derive(Clone, Copy)]
+    enum Voice {
+        /// Says it as this many milliseconds of WAV.
+        Wav(usize),
+        /// Never answers.
+        Silent,
+    }
+
+    impl pinna_assist::tts::Tts for Voice {
+        fn speak<'a>(
+            &'a self,
+            _text: &'a str,
+        ) -> BoxFuture<'a, Result<SpeechAudio, ProviderError>> {
+            let voice = *self;
+            Box::pin(async move {
+                match voice {
+                    Voice::Wav(ms) => Ok(short_sentence(ms)),
+                    Voice::Silent => std::future::pending().await,
+                }
+            })
+        }
+    }
+
+    /// Speech-to-text and a brain that a Speak never asks.
+    struct Unasked;
+
+    impl pinna_assist::stt::Stt for Unasked {
+        fn transcribe<'a>(
+            &'a self,
+            _wav: bytes::Bytes,
+            _language: Option<&'a str>,
+        ) -> BoxFuture<'a, Result<String, ProviderError>> {
+            unreachable!("a Speak transcribes nothing")
+        }
+    }
+
+    impl pinna_assist::chat::Chat for Unasked {
+        fn stream<'a>(
+            &'a self,
+            _req: pinna_assist::chat::ChatRequest<'a>,
+        ) -> BoxFuture<
+            'a,
+            Result<
+                futures::stream::BoxStream<
+                    'a,
+                    Result<pinna_assist::chat::ChatDelta, ProviderError>,
+                >,
+                ProviderError,
+            >,
+        > {
+            unreachable!("a Speak asks no brain")
+        }
+    }
+
+    impl TestDevice {
+        /// A device with a speaker and an assistant voice, in `mode`.
+        fn with_voice(mode: Mode, voice: Voice) -> Self {
+            let device = Self::new(mode, true);
+            device.set_live(AssistLive {
+                ready: true,
+                slots: [true; 3],
+                pipeline: Some(Arc::new(Pipeline {
+                    stt: Arc::new(Unasked),
+                    chat: Arc::new(Unasked),
+                    tts: Arc::new(voice),
+                    presets: [PresetId::OpenAi; 3],
+                    model: "test-model".into(),
+                    behaviour: pinna_assist::presets::preset(PresetId::OpenAi).behaviour,
+                    label: "openai: test-model".into(),
+                })),
+                ..AssistLive::empty()
+            });
+            device
+        }
+
+        /// Ask the Brain to say `text`. The answer comes once it sounds.
+        async fn speak(&mut self, text: &str) -> oneshot::Receiver<Result<(), String>> {
+            let (reply, answer) = oneshot::channel();
+            self.brain
+                .handle(Input::Api(ApiCommand::Speak(text.into(), reply)))
+                .await;
+            answer
+        }
+
+        fn speaking(&self) -> bool {
+            matches!(self.brain.playback, Some((_, PlaybackKind::Speak, _)))
+        }
+    }
+
+    async fn answered(answer: oneshot::Receiver<Result<(), String>>) -> Result<(), String> {
+        tokio::time::timeout(Duration::from_secs(5), answer)
+            .await
+            .expect("the Speak answered in time")
+            .expect("the Speak answered")
+    }
+
+    async fn speaker_idle(speaker: &Speaker) {
+        let mut state = speaker.state();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *state.borrow() != PlaybackState::Idle {
+                state.changed().await.unwrap();
+            }
+        })
+        .await
+        .expect("the voice lane was stopped");
+    }
+
+    #[tokio::test]
+    async fn speak_plays_when_idle_in_either_mode() {
+        for mode in [Mode::HomeAssistant, Mode::Standalone] {
+            let mut device = TestDevice::with_voice(mode, Voice::Wav(100));
+
+            let answer = device.speak(" Hello there. ").await;
+
+            assert!(device.speaking(), "{mode:?}");
+            assert_eq!(answered(answer).await, Ok(()), "{mode:?}");
+            assert_eq!(device.play_out().await, 0, "{mode:?}");
+            assert!(device.brain.playback.is_none(), "{mode:?}");
+            assert_eq!(device.brain.phase, Phase::Idle, "{mode:?}");
+            assert!(device.events().is_empty(), "a Speak is no request");
+        }
+    }
+
+    #[tokio::test]
+    async fn speak_is_refused_while_listening_ringing_or_playing() {
+        let mut device = TestDevice::with_voice(Mode::Standalone, Voice::Wav(2_000));
+        device.request().await;
+        assert_eq!(
+            device.speak("Hello.").await.await.unwrap(),
+            Err("The satellite is handling a request. Try again when it is done.".into())
+        );
+        device.api(ApiCommand::StopConversation).await.unwrap();
+
+        device.brain.ringing = Some(("tea".into(), Instant::now()));
+        assert_eq!(
+            device.speak("Hello.").await.await.unwrap(),
+            Err("A timer alarm is ringing. Try again once it is dismissed.".into())
+        );
+        device.brain.ringing = None;
+
+        let first = device.speak("A long story.").await;
+        assert_eq!(answered(first).await, Ok(()));
+        assert_eq!(
+            device.speak("Hello.").await.await.unwrap(),
+            Err("The satellite is already playing something. Try again when it is done.".into())
+        );
+        assert!(device.speaking(), "the first Speak goes on");
+
+        let refused = device
+            .speak(&"a".repeat(crate::checks::SPEAK_MAX + 1))
+            .await;
+        assert_eq!(
+            refused.await.unwrap(),
+            Err("The text to say is at most 500 characters.".into())
+        );
+        let mut unset = TestDevice::new(Mode::HomeAssistant, true);
+        assert_eq!(
+            unset.speak("Hello.").await.await.unwrap(),
+            Err("Set up text-to-speech under Assistant first.".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn action_stops_a_speak_without_starting_a_request() {
+        let mut device = TestDevice::with_voice(Mode::Standalone, Voice::Wav(2_000));
+        let answer = device.speak("A long story.").await;
+        assert_eq!(answered(answer).await, Ok(()));
+        let speaker = device.brain.speaker.clone().unwrap();
+        assert!(speaker.is_playing());
+
+        device
+            .brain
+            .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+            .await;
+
+        assert!(device.brain.playback.is_none());
+        assert_eq!(device.overlay(), None, "no error cue");
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert_eq!(device.spawner.count(), 0);
+        speaker_idle(&speaker).await;
+    }
+
+    #[tokio::test]
+    async fn a_speak_stopped_before_it_sounds_says_so() {
+        let mut device = TestDevice::with_voice(Mode::HomeAssistant, Voice::Silent);
+        let answer = device.speak("Hello.").await;
+        assert!(device.speaking());
+
+        device
+            .brain
+            .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+            .await;
+
+        assert_eq!(answered(answer).await, Err(SPEAK_STOPPED.into()));
+        assert!(device.brain.playback.is_none());
+    }
+
+    #[tokio::test]
+    async fn the_wake_chime_replaces_a_speak() {
+        let mut device = TestDevice::with_voice(Mode::Standalone, Voice::Wav(2_000));
+        device.brain.settings.wake_sound = Some(true);
+        let answer = device.speak("A long story.").await;
+        assert_eq!(answered(answer).await, Ok(()));
+
+        device.wake().await;
+
+        assert!(matches!(device.brain.phase, Phase::Listening(_)));
+        assert!(matches!(
+            device.brain.playback,
+            Some((_, PlaybackKind::Cue, _))
+        ));
+        assert_eq!(device.spawner.count(), 1);
     }
 }

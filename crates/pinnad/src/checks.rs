@@ -19,6 +19,23 @@ pub fn media_url(s: &str) -> Result<String, String> {
     }
 }
 
+/// The longest text `speak` says (architecture §7, size caps).
+pub const SPEAK_MAX: usize = 500;
+
+/// A text for the assistant's voice to say, trimmed.
+pub fn speak_text(s: &str) -> Result<String, String> {
+    let text = s.trim();
+    if text.is_empty() {
+        return Err("Enter the text to say.".into());
+    }
+    if text.chars().count() > SPEAK_MAX {
+        return Err(format!(
+            "The text to say is at most {SPEAK_MAX} characters."
+        ));
+    }
+    Ok(text.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,5 +60,16 @@ mod tests {
         assert!(media_url(&full).is_ok());
         assert!(media_url(&(full + "a")).is_err());
         assert!(media_url("file:///etc/hosts").is_err());
+    }
+
+    #[test]
+    fn spoken_texts() {
+        assert_eq!(speak_text("  Hello.  ").unwrap(), "Hello.");
+        assert_eq!(speak_text(" \n ").unwrap_err(), "Enter the text to say.");
+        assert!(speak_text(&"ä".repeat(SPEAK_MAX)).is_ok());
+        assert_eq!(
+            speak_text(&"ä".repeat(SPEAK_MAX + 1)).unwrap_err(),
+            "The text to say is at most 500 characters."
+        );
     }
 }
