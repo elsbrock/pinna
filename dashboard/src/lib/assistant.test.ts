@@ -8,6 +8,7 @@ import {
   brainLabel,
   brainPreset,
   chars,
+  connectionAddress,
   delegation,
   errorSlot,
   failureText,
@@ -181,7 +182,7 @@ test("a server shows by host and port, a key by its last four characters", () =>
   assert.equal(hostOf("https://api.openai.com/v1"), "api.openai.com");
   assert.equal(hostOf("http://192.168.1.20:11434/v1"), "192.168.1.20:11434");
   assert.equal(hostOf("not a url"), "not a url");
-  assert.equal(keyShown({ keySet: true, keyLast4: "abcd" }), "set ••••abcd");
+  assert.equal(keyShown({ keySet: true, keyLast4: "abcd" }), "key ••••abcd");
   assert.equal(keyShown({ keySet: false, keyLast4: "" }), "no key");
 });
 
@@ -256,4 +257,16 @@ test("the MCP address is this page's, except over USB", () => {
   assert.equal(mcpAddress(page("192.168.1.30", "8080"), undefined, "x"), "http://192.168.1.30:8080/mcp");
   assert.equal(mcpAddress(page("10.42.0.1"), "192.168.1.30", "pinna-a1b2c3"), "http://192.168.1.30/mcp");
   assert.equal(mcpAddress(page("10.42.0.1"), undefined, "pinna-a1b2c3"), "http://pinna-a1b2c3.local/mcp");
+});
+
+test("a hosted service shows its host, a server the owner named its whole address", () => {
+  const presets = [
+    { id: "openai", baseUrl: "https://api.openai.com/v1" },
+    { id: "custom", baseUrl: "" },
+  ] as Parameters<typeof connectionAddress>[1];
+  assert.equal(connectionAddress({ preset: "openai", baseUrl: "https://api.openai.com/v1" }, presets), "api.openai.com");
+  assert.equal(
+    connectionAddress({ preset: "custom", baseUrl: "http://192.168.1.5:8000" }, presets),
+    "http://192.168.1.5:8000",
+  );
 });

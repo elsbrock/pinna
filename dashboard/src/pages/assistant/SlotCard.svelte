@@ -4,7 +4,15 @@
      text-to-speech plays a sample. -->
 <script lang="ts">
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { errorSlot, failureText, hostOf, presetName, SLOTS, servesSlot, slotLines } from "../../lib/assistant.ts";
+  import {
+    connectionAddress,
+    errorSlot,
+    failureText,
+    presetName,
+    SLOTS,
+    servesSlot,
+    slotLines,
+  } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
   import Icon from "../../lib/Icon.svelte";
@@ -129,7 +137,7 @@
               }}
             >
               {#each options as c (c.id)}
-                <option value={c.id}>{presetName(c.preset)} · {hostOf(c.baseUrl)}</option>
+                <option value={c.id}>{presetName(c.preset)} · {connectionAddress(c, view?.presets ?? [])}</option>
               {/each}
             </select>
             <Icon name="chevron-down" class="pn-select-chev" />
@@ -141,7 +149,9 @@
             <span class="pn-field-hint">{presetName(presetOf(connection)?.id ?? "")} uses its own: {fixedModel}.</span>
           </div>
         {:else}
-          <div class="pn-field" data-invalid={error ? "" : undefined}>
+          <!-- A refusal shows under the form: it may be about the
+               connection as much as the model. -->
+          <div class="pn-field">
             <label class="pn-field-label" for="{id}-model">{slot.holds === "voice" ? "Voice" : "Model"}</label>
             <input
               id="{id}-model"
@@ -153,7 +163,6 @@
               bind:value={model}
               disabled={!live}
               aria-describedby="{id}-model-hint"
-              aria-invalid={error ? "true" : undefined}
               oninput={() => {
                 touched = true;
                 error = null;

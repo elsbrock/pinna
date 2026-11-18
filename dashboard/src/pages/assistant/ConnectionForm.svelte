@@ -8,6 +8,7 @@
   import { assistant } from "../../lib/assistant.svelte.ts";
   import {
     addressKind,
+    connectionAddress,
     hostOf,
     keyFields,
     presetName,
@@ -56,6 +57,9 @@
       : "Only if the server asks for one. The satellite keeps it and never shows it again.",
   );
   const ready = $derived(!!preset && (kind === "fixed" || !!address.trim()));
+  // A key is bound to the address it was entered for: a new address drops it.
+  const addressChanged = $derived(!!connection && kind !== "fixed" && address.trim() !== connection.baseUrl);
+  const keyDropped = $derived(addressChanged && !!connection?.keySet);
 
   async function save() {
     pending = true;
@@ -92,7 +96,7 @@
     {#if connection}
       <div class="head">
         <span class="pn-row-label">{presetName(connection.preset)}</span>
-        <span class="pn-row-hint">{hostOf(connection.baseUrl)}</span>
+        <span class="pn-row-hint">{connectionAddress(connection, view?.presets ?? [])}</span>
       </div>
     {:else}
       <div class="pn-field">
@@ -148,10 +152,12 @@
       <SecretField
         id="{id}-key"
         label="API key"
-        stored={!!connection?.keySet}
+        stored={!!connection?.keySet && !addressChanged}
         shown="set ••••{connection?.keyLast4 ?? ''}"
         bind:edit={key}
-        hint={keyHint}
+        hint={keyDropped
+          ? "A new address removes the stored key. Enter it again if the server needs one."
+          : keyHint}
         disabled={!live}
       />
     {/if}

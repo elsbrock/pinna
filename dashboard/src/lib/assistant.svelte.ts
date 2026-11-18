@@ -65,7 +65,16 @@ class AssistantSetup {
   }
 
   async setConnection(edit: MessageInitShape<typeof SetConnectionRequestSchema>, done: string) {
-    return (await this.#edit(() => client.setConnection(edit), done))?.sentence ?? null;
+    const refused = await this.#edit(() => client.setConnection(edit), done);
+    // The slots on it were checked again with the change: an old failure
+    // no longer says anything.
+    if (!refused && edit.id) {
+      const view = this.view;
+      this.failed = Object.fromEntries(
+        Object.entries(this.failed).filter(([key]) => view?.[key as SlotKey]?.connection !== edit.id),
+      );
+    }
+    return refused?.sentence ?? null;
   }
 
   async deleteConnection(id: string, revision: bigint) {

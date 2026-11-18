@@ -141,7 +141,17 @@ export function hostOf(url: string): string {
 
 /** A stored key: set, with its last four characters, which tell keys apart. */
 export function keyShown(c: Pick<ProviderConnection, "keySet" | "keyLast4">): string {
-  return c.keySet ? `set ••••${c.keyLast4}` : "no key";
+  return c.keySet ? `key ••••${c.keyLast4}` : "no key";
+}
+
+/**
+ * A connection's address as the page shows it: a hosted service's host, or
+ * the whole address of a server the owner named, path included, so a
+ * missing /v1 can be seen.
+ */
+export function connectionAddress(c: Pick<ProviderConnection, "preset" | "baseUrl">, presets: Preset[]): string {
+  const preset = presets.find((p) => p.id === c.preset);
+  return addressKind(preset?.baseUrl ?? "") === "fixed" ? hostOf(c.baseUrl) : c.baseUrl;
 }
 
 /**

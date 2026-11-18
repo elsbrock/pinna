@@ -5,7 +5,7 @@
   import { onMount } from "svelte";
 
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { hostOf, keyShown, presetName, SLOTS, slotWords, usedBy } from "../../lib/assistant.ts";
+  import { connectionAddress, keyShown, presetName, SLOTS, slotWords, usedBy } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
   import Icon from "../../lib/Icon.svelte";
@@ -35,7 +35,7 @@
           <div class="pn-row-text">
             <span class="pn-row-label">{presetName(c.preset)}</span>
             <span class="pn-row-hint">
-              <span class="host">{hostOf(c.baseUrl)}</span> · key {keyShown(c)}{used.length
+              <span class="host">{connectionAddress(c, view.presets)}</span> · {keyShown(c)}{used.length
                 ? ` · for ${slotWords(used)}`
                 : ""}
             </span>
