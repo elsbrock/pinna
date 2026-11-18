@@ -85,13 +85,10 @@ On the devices:
 - **No automated test runs.** The tests run when contributors run them; there
   is no CI for them yet. The release workflow builds the images but doesn't
   run the tests.
-- **Standalone mode is new.** Its tests run against simulated services, not
-  yet against each hosted service, and not yet on a device.
+- **Standalone mode is new.** Its tests run against simulated services. It
+  has been tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs, not
+  yet with each hosted service.
   - MCP servers that need a sign-in or a token in a header can't be added.
-  - The dashboard doesn't suggest model names; you type them as the service
-    lists them.
-  - Text-to-speech has no model field: OpenAI and **Other server** always get
-    the model `tts-1`, ElevenLabs `eleven_multilingual_v2`.
 
 ## Planned
 

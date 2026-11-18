@@ -10,9 +10,9 @@ OpenClaw) and text-to-speech. It keeps timers itself, tells the weather and
 plays radio. AI agents can also use it over MCP, the protocol they use to call
 tools.
 
-> **Standalone mode is new.** Its tests run against simulated services. It
-> hasn't been tried on a device or with every service yet; see
-> [Status and roadmap](/docs/status/).
+> **Standalone mode is new.** Its tests run against simulated services, and it
+> has been tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs, not
+> yet with every service; see [Status and roadmap](/docs/status/).
 
 ## Before you begin
 
@@ -66,21 +66,23 @@ Anyone who can use the dashboard can change your services and use them; see
    - For **Other server**, enter its whole address, up to and including `/v1`.
 3. Select **Add**.
 4. Under **Speech-to-text**, **Brain** and **Text-to-speech**, choose a
-   connection, enter the model as the service lists it, and select **Save and
-   check**. Text-to-speech asks only for a voice: Pinna chooses the model.
-   For OpenAI, for example:
+   connection, enter the model, and select **Save and check**. Text-to-speech
+   asks for a voice, and optionally the model that speaks it; empty uses the
+   service's usual one. Each field offers what the service lists when you open
+   it with the arrow at its end or the arrow keys, and typing narrows the list.
+   You can also type a name it doesn't list. For example:
 
-   | Part | What you enter |
-   | --- | --- |
-   | Speech-to-text | A transcription model, such as `whisper-1` or `gpt-4o-mini-transcribe` |
-   | Brain | A chat model, such as `gpt-4o-mini` |
-   | Text-to-speech | A voice, such as `alloy` or `nova` |
+   | Part | OpenAI | ElevenLabs |
+   | --- | --- | --- |
+   | Speech-to-text | A transcription model, such as `whisper-1` or `gpt-4o-mini-transcribe` | A Scribe model, such as `scribe_v2` |
+   | Brain | A chat model, such as `gpt-4.1-mini` | (no brain) |
+   | Text-to-speech | A voice, such as `alloy` or `nova` | A voice from your library: the list shows the names and enters the ID |
 
    The check makes the cheapest call that proves the service works: it lists
-   the models, or synthesises one word. It never sends a prompt. If it fails,
-   the page says why, for example that the key is wrong. The brain's model must
-   be in the service's list. The speech-to-text model isn't compared with it:
-   a typo there shows on the first request.
+   the models, transcribes half a second of silence, or synthesises one word.
+   It never sends a prompt. If it fails, the page says why, for example that
+   the key is wrong, or what the service said about a model it doesn't have.
+   The brain's model must be in the service's list.
 5. Under **Text-to-speech**, select **Play sample** to hear the voice on the
    satellite.
 
