@@ -25,7 +25,9 @@ pub const BLOCK_SAMPLES: usize = 1280;
 pub const OVERLAP_SAMPLES: usize = 480;
 const MEL_FRAMES: usize = 76;
 const MEL_BINS: usize = 32;
-const FEATURE_FRAMES: usize = 16;
+/// Blocks the keyword classifier scores at once: one embedding per block,
+/// the last 1.28 s.
+pub const FEATURE_FRAMES: usize = 16;
 const FEATURE_BINS: usize = 96;
 /// Scores that must be at least this high to corroborate a peak.
 const SUPPORT_THRESHOLD: f32 = 0.20;
