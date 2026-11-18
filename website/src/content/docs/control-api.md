@@ -269,8 +269,8 @@ authentication, like the dashboard, and answers only to the same names.
   standalone mode only.
 - Its tools are the device's own, as `device_tools` lists them with `mcp` set:
   volume, the ring light, media and radio, the notification, muting the
-  microphones, timers and the time, and `speak`, `cancel_request` and
-  `status`. A tool switched off with `UpdateAssistant` isn't offered. No tool
+  microphones, switching the mode (`switch_assistant`), timers and the time,
+  and `speak`, `cancel_request` and `status`. A tool switched off with `UpdateAssistant` isn't offered. No tool
   turns the microphones on or makes the device listen.
 - It runs two tool calls at once. Another call is told the device is busy.
 

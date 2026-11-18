@@ -275,6 +275,12 @@ switch on the [dashboard](/docs/dashboard/), under **Voice & sound** or on
 **Overview**, or with the **Microphone mute** switch in Home Assistant. The
 microphones are off when either the button or the software setting says so.
 
+When you ask the brain to mute the microphones, in standalone mode, it closes
+the hardware switch, so one press of the button turns the microphones back on.
+A press that turns the microphones on also clears a mute you set on the
+dashboard or in Home Assistant. If the button's switch was open at that time,
+the first press closes it, and the second turns the microphones on.
+
 ## What's next
 
 - Change the ring brightness, the volume and the wake words on the

@@ -131,7 +131,9 @@ cancels the timers that run and forgets the conversation. In standalone mode
 the dashboard chooses the wake words, under **Voice & sound**.
 
 To go back, select **Home Assistant** under **Mode**, then **Switch**. If Home
-Assistant isn't connected, nothing answers requests until it connects.
+Assistant isn't connected, nothing answers requests until it connects. You can
+also ask the satellite to switch: say "switch to Home Assistant". It switches
+once the reply has played, and listens for no follow-up after it.
 
 If Home Assistant is connected, you can also switch there: the satellite's
 **Assistant** select has the same two choices. It stays in both modes, and
@@ -180,9 +182,10 @@ Select **Assistant**, then **Tools**.
 
 - **Pinna's tools** lists what a brain can do on the satellite: timers, the
   time, the weather, the volume and the reply volume, the ring light, playing,
-  pausing and stopping music and radio, clearing a notification, and muting the
-  microphones. Only a person can turn the microphones back on. Turn off a tool
-  you don't want used.
+  pausing and stopping music and radio, clearing a notification, muting the
+  microphones, and switching between standalone mode and Home Assistant mode.
+  Only a person can turn the microphones back on. Turn off a tool you don't
+  want used.
 - **Radio stations**: add a station with its name and stream address. Then ask
   for it by name, such as "play Radio Eins". The brain can also search the
   radio directory for stations.
