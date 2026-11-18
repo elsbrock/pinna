@@ -221,7 +221,10 @@ pub(crate) async fn reply(
             for out in harness.on_delta(delta) {
                 queue_out(&driver, &mut synthesis, out);
             }
-            if end {
+            // A hand-off agent's answer past the spoken cap won't sound, and
+            // it calls no tools of ours: stop reading (and paying) there. A
+            // tool loop reads on, since a call may still follow.
+            if end || (!tool_loop && harness.capped()) {
                 break;
             }
 
@@ -741,6 +744,31 @@ mod tests {
         assert_eq!(requests[0].tools, 1);
         assert_eq!(requests[1].tools, 1);
         assert!(requests[0].calls_allowed && requests[1].calls_allowed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hand_off_answer_stops_at_the_spoken_cap() {
+        // The agent keeps streaming (here: never ends), but nothing past the
+        // cap will sound, so the run finishes instead of waiting or timing out.
+        let chat = ScriptedChat::pending_after(vec![ChatDelta::Text(
+            "This answer is far longer than the cap. It goes on and on.".into(),
+        )]);
+        let tts = ScriptedTts::default();
+        let mut limits = RunLimits::AGENT;
+        limits.spoken_chars = 12;
+        let behaviour = behaviour(limits, Delegation::HandOff);
+        let (sink, mut source) = reply_channel(2);
+        let events = TestEvents::default();
+        let observer = TestObserver::default();
+        let run = reply(
+            request(
+                "Question", &chat, &tts, &NoTools, &behaviour, &sink, &observer,
+            ),
+            &events,
+        );
+        let (outcome, _) = tokio::join!(run, receive(&mut source, 1));
+        let outcome = outcome.unwrap();
+        assert!(outcome.spoke);
     }
 
     #[tokio::test(start_paused = true)]

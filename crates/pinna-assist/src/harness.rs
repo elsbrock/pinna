@@ -64,7 +64,10 @@ impl Harness {
         match delta {
             ChatDelta::Text(text) => {
                 self.round_text.push_str(&text);
-                out.extend(self.sentences.push(&text).into_iter().map(Out::Sentence));
+                // Past the spoken cap nothing more is said: don't split it.
+                if !self.sentences.capped() {
+                    out.extend(self.sentences.push(&text).into_iter().map(Out::Sentence));
+                }
             }
             ChatDelta::Call(call) => {
                 if self.tools_offered {
@@ -134,6 +137,11 @@ impl Harness {
             });
         }
         self.round = self.round.saturating_add(1);
+    }
+
+    /// The reply reached the spoken-character cap: nothing more will sound.
+    pub fn capped(&self) -> bool {
+        self.sentences.capped()
     }
 
     pub fn messages(&self) -> &[Message] {
