@@ -3,18 +3,20 @@
 An open, local-first voice satellite OS for the **Echo (2nd gen)** and
 **Echo Dot (2nd gen)** (MediaTek MT8163).
 
-Pinna turns the device into a Home Assistant voice satellite with on-device wake
-word, LED ring feedback and button control. Without Home Assistant, its
-standalone mode answers requests itself, with the speech services and the
-language model or AI agent you choose, and keeps timers, the weather and radio
-on the device. It also plays music over AirPlay
-and Bluetooth, and a dashboard on the device manages it from your browser. It
-finds new releases on its update channel and shows them on the dashboard and in
-Home Assistant, which install them with one button. It
-is a modern image-based Linux system: Debian userland built with mkosi, systemd, a read-only erofs root in
-signed A/B slots verified by dm-verity, and small Rust daemons.
+Pinna turns the device into a voice satellite with an on-device wake word,
+light ring feedback and button control. You choose who answers requests: your
+Home Assistant, which adds the satellite over the ESPHome API, or the satellite
+itself in standalone mode, with the speech services and the language model or
+AI agent you choose, and timers, the weather and radio on the device. It also
+plays music over AirPlay and Bluetooth. A dashboard on the device sets it up
+and manages it from your browser, with or without Home Assistant. It finds new
+releases on its update channel and shows them on the dashboard and in Home
+Assistant, which install them with one button. It is a modern image-based
+Linux system: Debian userland built with mkosi, systemd, a read-only erofs
+root in signed A/B slots verified by dm-verity, and small Rust daemons.
 
-> Status: early bring-up. Console and a local dashboard. Expect sharp edges.
+> Status: early development. Owners set up the satellite on its dashboard;
+> developers have SSH, `pinnactl` and `pinnad.toml`. Expect sharp edges.
 
 Pinna needs an Echo that has already been unlocked with Kaeru/amonet (as
 for the previous firmware). To install it, follow `docs/runbook-first-flash.md`:

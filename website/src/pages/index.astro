@@ -13,13 +13,13 @@ const steps = [
   },
   {
     number: "2",
-    title: "Home Assistant handles the request",
-    body: "The device streams your request to Home Assistant over the ESPHome API. Your Assist pipeline turns it into text, acts on it, and creates the spoken reply.",
+    title: "Your assistant handles the request",
+    body: "With Home Assistant, the device streams your request to your Assist pipeline over the ESPHome API. In standalone mode, it sends the request to the speech-to-text, the language model or AI agent, and the text-to-speech that you set up.",
   },
   {
     number: "3",
     title: "The device answers",
-    body: "The reply plays on the speaker, and the light ring shows each step. Timers, announcements and music play on the device too.",
+    body: "The reply plays on the speaker, and the light ring shows each step. Timers and music play on the device too.",
   },
 ];
 
@@ -32,17 +32,27 @@ const features = [
   {
     icon: "broadcast",
     title: "Adds itself to Home Assistant",
-    body: "Home Assistant finds the device on your network and adds it like an ESPHome device. You can encrypt the connection.",
+    body: "Home Assistant finds the device on your network, adds it like an ESPHome device, and encrypts the connection.",
   },
   {
     icon: "bolt",
     title: "Works without Home Assistant",
-    body: "In standalone mode the device answers requests itself, with the speech services and the language model or AI agent you choose, and keeps timers, the weather and radio.",
+    body: "In standalone mode the device answers requests itself, with the speech services and the language model or AI agent you choose. It keeps timers, tells the weather and plays radio.",
+  },
+  {
+    icon: "window",
+    title: "A dashboard in your browser",
+    body: "The device serves a web page with every setting: Wi-Fi, the wake words, who answers, your services, music sources and updates. Open it from a browser on your network.",
+  },
+  {
+    icon: "sliders",
+    title: "A wake word you can tune",
+    body: "The dashboard lists the recent wakes and near misses, and the sensitivity that catches or ignores each one. You can also tune it at the device, with its + and − buttons.",
   },
   {
     icon: "ring",
     title: "Light ring and buttons",
-    body: "The ring shows what the device is doing and also works as a light. Button presses arrive in Home Assistant as events.",
+    body: "The ring shows what the device is doing and also works as a light. With Home Assistant, the buttons are events for your automations.",
   },
   {
     icon: "speaker",
@@ -52,45 +62,27 @@ const features = [
   {
     icon: "layer",
     title: "Updates that roll back",
-    body: "Pinna keeps two copies of the system. An update goes to the unused copy, and the device returns to the old one if the new one doesn't start.",
+    body: "You install updates from the dashboard or from Home Assistant. An update goes to a second copy of the system, and the device returns to the old one if the new one doesn't start.",
   },
   {
     icon: "shield",
     title: "A way back to your backup",
     body: "Fastboot stays reachable on every start, and one command restores the backup you made before installing.",
   },
-  {
-    icon: "terminal",
-    title: "Command-line control",
-    body: "pinnactl shows the device's state and sets the volume and mute. A small API on the device offers the same to other programs.",
-  },
-  {
-    icon: "sliders",
-    title: "A dashboard in your browser",
-    body: "A web page on the device shows its state and controls it. Open it from a browser on your network, without a login.",
-  },
 ];
 
-const entities: { entity: string; type: string; notes: string }[] = [
-  { entity: "LED ring", type: "light", notes: "Colour and brightness; effects Solid, Pulse and Flash" },
-  { entity: "Microphone mute", type: "switch", notes: "Turns the microphones off in software" },
-  { entity: "Wake word", type: "switch", notes: "Turns wake word detection on or off" },
-  { entity: "Listening direction", type: "switch", notes: "Points the ring at the person speaking while the device listens" },
-  { entity: "Wake sound", type: "switch", notes: "Plays a chime when the device starts listening" },
-  { entity: "Wake word calibration", type: "switch", notes: "Tunes the sensitivity with the device's + and − buttons" },
-  { entity: "AirPlay, Bluetooth audio", type: "switch", notes: "Turns each music source on or off" },
-  { entity: "Bluetooth pairing", type: "switch", notes: "Opens the pairing window for two minutes" },
-  { entity: "Notification", type: "switch", notes: "Shows a waiting notification on the ring until someone clears it" },
-  { entity: "Volume, Reply volume", type: "number", notes: "0 to 100" },
-  { entity: "Wake word sensitivity", type: "number", notes: "0 to 100; higher triggers more easily" },
-  { entity: "LED brightness", type: "number", notes: "0 to 100" },
-  { entity: "Cancel request", type: "button", notes: "Stops a request, a reply or a timer alarm" },
-  { entity: "Voice assistant", type: "event", notes: "wake_word, listening, thinking, replying, finished, stopped" },
-  { entity: "Action button, Volume up button, Volume down button, Microphone mute button", type: "event", notes: "press, double_press; Action also long_press" },
-  { entity: "Timer, Playback", type: "event", notes: "Timer and media player changes" },
-  { entity: "Notification", type: "event", notes: "cleared" },
-  { entity: "Last wake word", type: "text sensor", notes: "For example “Alexa”" },
-  { entity: "Media player", type: "media player", notes: "Music from a URL, announcements, volume" },
+const services = [
+  "OpenAI",
+  "OpenRouter",
+  "Anthropic",
+  "Google Gemini",
+  "Groq",
+  "Mistral",
+  "ElevenLabs",
+  "Ollama",
+  "LM Studio",
+  "Hermes",
+  "OpenClaw",
 ];
 
 const hardware: { device: string; soc: string; status: string; tone: string }[] = [
@@ -124,14 +116,16 @@ const works = [
   "Updates install a kernel and a root filesystem into the second slot and roll back when they fail (tested on the Echo Dot)",
   "The Home Assistant connection passes tests with Home Assistant's own client library",
   "A complete voice request works against a simulated Home Assistant",
+  "Standalone mode answers requests; tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs",
   "On the Echo Dot, echo cancellation lowers the device's own music by 23 to 31 dB",
-  "The dashboard shows and controls the device from a browser on your network",
+  "The dashboard sets up and controls the device from a browser on your network",
   "AirPlay and Bluetooth play music from phones and computers",
 ];
 
 const gaps = [
   "No release is published yet: you build and sign your own images",
   "The dashboard has no login: anyone on your network can use it",
+  "Standalone mode is new and hasn't been tried with every service yet",
   "With a Kaeru from before 22 October 2026, a new kernel needs fastboot",
 ];
 ---
@@ -159,8 +153,9 @@ const gaps = [
       <p class="text-ink-muted text-body-l mt-5 max-w-xl">
         Pinna is an open-source operating system for the Echo (2nd gen) and
         the Echo Dot (2nd gen). It detects the wake word on the device and
-        sends your requests to your own Home Assistant. It doesn't use
-        Amazon's services.
+        sends your request to your own Home Assistant, or, in standalone mode,
+        to the speech services and the language model or AI agent you choose.
+        It doesn't use Amazon's services.
       </p>
 
       <div class="mt-8 flex flex-wrap items-center gap-3">
@@ -228,51 +223,100 @@ const gaps = [
     </div>
   </section>
 
-  <!-- Home Assistant -->
-  <section id="assistant" class="scroll-mt-20">
+  <!-- Modes -->
+  <section id="modes" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-      <p class="eyebrow">Home Assistant</p>
-      <h2 class="section-title">Works with Home Assistant</h2>
+      <p class="eyebrow">Two modes</p>
+      <h2 class="section-title">With Home Assistant, or on its own</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        Pinna uses the ESPHome native API, the protocol of ESPHome devices.
-        Home Assistant finds your device on your network and adds it like any
-        ESPHome device, without YAML or an add-on. Choose an Assist pipeline
-        for it, and say the wake word. These are the entities it adds:
+        You choose who answers your requests on the device's dashboard, and you
+        can switch at any time. Everything else, from the ring to music and
+        updates, works in both modes.
       </p>
 
-      <div class="card mt-8 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="bg-surface-sunken text-ink-muted text-xs tracking-wide uppercase">
-                <th class="px-4 py-3 text-left font-semibold">Entity</th>
-                <th class="px-4 py-3 text-left font-semibold">Type</th>
-                <th class="px-4 py-3 text-left font-semibold">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {
-                entities.map((row) => (
-                  <tr class="border-line border-t">
-                    <td class="text-ink px-4 py-2.5">{row.entity}</td>
-                    <td class="text-ink-muted px-4 py-2.5 font-mono text-xs whitespace-nowrap">
-                      {row.type}
-                    </td>
-                    <td class="text-ink-muted px-4 py-2.5">{row.notes}</td>
-                  </tr>
-                ))
-              }
-            </tbody>
-          </table>
+      <div class="mt-10 grid gap-5 lg:grid-cols-2">
+        <div class="card flex flex-col p-6">
+          <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+            <Icon name="home" size={18} />
+          </div>
+          <h3 class="text-ink text-heading mt-4">Home Assistant answers</h3>
+          <p class="text-ink-muted text-body mt-2">
+            Pinna uses the ESPHome native API. Home Assistant finds the device
+            on your network and adds it like any ESPHome device, without YAML
+            or an add-on. Choose an Assist pipeline for it, and say the wake
+            word.
+          </p>
+          <ul class="mt-4 space-y-2.5">
+            {
+              [
+                "Your Assist pipeline turns speech into text, acts on it and speaks the reply",
+                "The ring, the buttons, mute, volume, timers and a media player are entities for your automations",
+                "Home Assistant encrypts the connection itself",
+                "New releases show in Home Assistant, and install from there",
+              ].map((item) => (
+                <li class="text-ink-muted text-body flex items-start gap-2.5">
+                  <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
+                  {item}
+                </li>
+              ))
+            }
+          </ul>
+          <p class="mt-auto flex flex-wrap gap-x-5 gap-y-2 pt-5 text-sm">
+            <a class="link inline-flex items-center gap-1.5" href={docHref("home-assistant")}>
+              Connect to Home Assistant
+              <Icon name="arrow" size={14} />
+            </a>
+            <a class="link inline-flex items-center gap-1.5" href={docHref("entities")}>
+              Home Assistant entities
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+
+        <div class="card flex flex-col p-6">
+          <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+            <Icon name="bolt" size={18} />
+          </div>
+          <h3 class="text-ink text-heading mt-4">The device answers itself</h3>
+          <p class="text-ink-muted text-body mt-2">
+            In standalone mode the device needs no Home Assistant. You set up
+            three services on the dashboard: speech-to-text, a brain, and
+            text-to-speech. Use hosted services with your own keys, or servers
+            on your own network.
+          </p>
+          <ul class="mt-4 space-y-2.5">
+            {
+              [
+                "The brain is a language model, or an AI agent such as Hermes or OpenClaw",
+                "The brain can set timers, tell the weather, play radio and light the ring",
+                "It can use the tools of your MCP servers, and your agents can use the device over MCP",
+                "Audio goes only to the services you chose, and only after the wake word",
+              ].map((item) => (
+                <li class="text-ink-muted text-body flex items-start gap-2.5">
+                  <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
+                  {item}
+                </li>
+              ))
+            }
+          </ul>
+          <div class="mt-5 flex flex-wrap gap-2">
+            {services.map((service) => <span class="chip">{service}</span>)}
+          </div>
+          <p class="mt-auto pt-5 text-sm">
+            <a class="link inline-flex items-center gap-1.5" href={docHref("standalone")}>
+              Use Pinna without Home Assistant
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
         </div>
       </div>
 
       <p class="text-ink-muted text-body mt-5 flex max-w-3xl items-start gap-2.5">
-        <Icon name="shield" size={16} class="text-signal mt-1 shrink-0" />
+        <Icon name="broadcast" size={16} class="text-signal mt-1 shrink-0" />
         <span>
-          Home Assistant encrypts the connection itself when it adds the
-          satellite, with the same encryption as ESPHome devices. See
-          <a class="link" href={docHref("home-assistant")}>Connect to Home Assistant</a>.
+          Home Assistant can stay connected in standalone mode. It keeps the
+          media player, announcements, the ring and the buttons, but it no
+          longer hears requests.
         </span>
       </p>
     </div>
@@ -344,57 +388,11 @@ const gaps = [
     </div>
   </section>
 
-  <!-- Use cases -->
-  <section id="use-cases" class="scroll-mt-20">
-    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-      <p class="eyebrow">Use cases</p>
-      <h2 class="section-title">What you can use it for</h2>
-
-      <div class="mt-10 grid gap-5 lg:grid-cols-2">
-        <div class="card p-6">
-          <div class="flex items-center justify-between gap-3">
-            <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
-              <Icon name="home" size={18} />
-            </div>
-            <span class="chip">
-              <span class="bg-ok h-1.5 w-1.5 rounded-full"></span>
-              Available now
-            </span>
-          </div>
-          <h3 class="text-ink text-heading mt-4">Voice control for Home Assistant</h3>
-          <p class="text-ink-muted text-body mt-2">
-            Say the wake word, ask Home Assistant to do something, and hear the
-            answer from the device. Timers, announcements and music work too,
-            and you can use the ring and the buttons in automations.
-          </p>
-        </div>
-
-        <div class="card p-6">
-          <div class="flex items-center justify-between gap-3">
-            <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
-              <Icon name="speaker" size={18} />
-            </div>
-            <span class="chip">
-              <span class="bg-line-strong h-1.5 w-1.5 rounded-full"></span>
-              Planned
-            </span>
-          </div>
-          <h3 class="text-ink text-heading mt-4">A voice assistant on its own</h3>
-          <p class="text-ink-muted text-body mt-2">
-            Use the device as a voice assistant without a Home Assistant
-            instance, with services you choose, or as the voice of your own AI
-            agent.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- Get started -->
   <section id="start" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
       <p class="eyebrow">Get started</p>
-      <h2 class="section-title">Build, install, connect</h2>
+      <h2 class="section-title">Build, install, set up</h2>
 
       <div class="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <ol class="space-y-5">
@@ -417,9 +415,9 @@ const gaps = [
           <li class="flex gap-4">
             <span class="text-signal font-mono text-sm">3</span>
             <p class="text-ink-muted text-body">
-              <span class="text-ink block font-medium">Connect to Home Assistant</span>
-              Home Assistant finds the device on your network. Choose an Assist
-              pipeline for it and say “Alexa”.
+              <span class="text-ink block font-medium">Set it up on the dashboard</span>
+              Open the device's dashboard in your browser. Add the device to
+              Home Assistant, or set up standalone mode, and say “Alexa”.
             </p>
           </li>
         </ol>
@@ -544,8 +542,8 @@ scripts/flash-gen2.sh boot</pre>
           <p class="text-ink-muted text-body mt-2">
             Problems show up on real devices first. If an installation fails,
             the ring stays dark or the wake word doesn't trigger, open an issue
-            with the image version and the log
-            (<code class="font-mono text-sm">journalctl -b -u pinnad</code>).
+            with the version from the dashboard's System page and the log from
+            System &gt; Logs.
           </p>
           <p class="mt-4 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={`${SITE.repo}/issues`}>
