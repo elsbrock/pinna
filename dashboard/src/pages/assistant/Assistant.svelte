@@ -89,18 +89,20 @@
       {#if !standalone}
         <div class="pn-row">
           <span id="standalone-why" class="pn-row-hint">
-            To switch to standalone, set up speech-to-text, the brain and text-to-speech and check them first.
+            To switch to standalone, set up speech-to-text, the brain and text-to-speech under Services and check them
+            first.
           </span>
         </div>
       {/if}
       {#each lines as l (l.key)}
-        <div class="pn-row">
-          <div class="pn-row-text">
+        <a class="pn-row" href="#/assistant/services">
+          <span class="pn-row-text">
             <span class="pn-row-label">{l.name}</span>
             <span class="pn-row-hint">{l.detail}</span>
-          </div>
+          </span>
           <span class="pn-row-value"><span class="pn-health" data-tone={l.tone}>{l.word}</span></span>
-        </div>
+          <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+        </a>
       {/each}
     {/if}
   </Group>
@@ -144,6 +146,20 @@
   {:else}
     <HomeAssistant />
   {/if}
+
+  {#snippet setupFoot()}
+    Everything here can be set up while Home Assistant answers. Switch above once all three services pass their check.
+  {/snippet}
+  <Group title={standalone ? "Setup" : "Set up standalone"} foot={standalone ? undefined : setupFoot}>
+    <a class="pn-row" href="#/assistant/services">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Services</span>
+        <span class="pn-row-hint">Speech-to-text, the brain and text-to-speech, with their keys</span>
+      </span>
+      <span class="pn-row-value">{lines.filter((l) => l.ready).length} of 3 ready</span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+  </Group>
 
   <Confirm
     bind:open={confirming}

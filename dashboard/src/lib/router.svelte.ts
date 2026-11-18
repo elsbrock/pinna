@@ -64,6 +64,12 @@ const SUBPAGES: Omit<Page, "section">[] = [
     description: "What may play music to the satellite from phones and computers.",
   },
   {
+    path: "/assistant/services",
+    title: "Services",
+    description:
+      "What turns speech into text, answers, and speaks the reply in standalone mode: the services, their keys and their checks.",
+  },
+  {
     path: "/system/logs",
     title: "Logs",
     description:

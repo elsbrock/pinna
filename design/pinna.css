@@ -187,6 +187,7 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-input:disabled { background: var(--surface-sunken); color: var(--ink-muted); }
 .pn-field[data-invalid] .pn-input { border-color: var(--danger); }
 .pn-select-wrap { position: relative; display: inline-flex; align-items: center; flex: none; max-width: min(100%, 22em); }
+.pn-field > .pn-select-wrap { align-self: flex-start; }
 .pn-select {
   appearance: none; -webkit-appearance: none; max-width: 100%; height: var(--control-md);
   padding: 0 calc(var(--space-3) + 22px) 0 var(--space-3); box-sizing: border-box;
@@ -213,6 +214,11 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-field-hint { color: var(--ink-muted); }
 .pn-field-error { color: var(--danger); display: flex; align-items: flex-start; gap: 6px; }
 .pn-field-error .pn-icon { width: 14px; height: 14px; margin-top: 2px; stroke-width: 2; }
+/* A key or a secret address (SecretField): typed, then shown only as set. */
+.pn-secret { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+.pn-secret .pn-input { flex: 1 1 220px; width: auto; }
+.pn-secret-shown { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.pn-secret-shown.is-removed { font-family: inherit; font-size: inherit; font-weight: 650; color: var(--danger); }
 
 /* ---------- Notice ---------- */
 .pn-notice {

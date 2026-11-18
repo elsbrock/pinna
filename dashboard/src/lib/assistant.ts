@@ -1,7 +1,7 @@
 // Standalone mode in words (ADR 0017): the mode, the three slots and what
 // stops standalone from running. From Status and AssistantService's view; no
 // Svelte and no runtime imports, so `node --test` runs it.
-import type { Assistant } from "../gen/pinna/v1/assistant_pb.ts";
+import type { Assistant, Preset, ProviderConnection } from "../gen/pinna/v1/assistant_pb.ts";
 import type { AssistantStatus, Status } from "../gen/pinna/v1/device_pb.ts";
 import type { Tone } from "./view.ts";
 
@@ -34,7 +34,7 @@ const PRESET_NAMES: Record<string, string> = {
   lmstudio: "LM Studio",
   hermes: "Hermes",
   openclaw: "OpenClaw",
-  custom: "Another server",
+  custom: "Other server",
 };
 
 /** A preset as people know the service; an id this page doesn't know as it is. */
@@ -88,4 +88,93 @@ export function slotLines(
       };
     return { key, name, ready, word: "Not set up", tone: "caution", detail: `Choose a connection and a ${holds}.` };
   });
+}
+
+/** The slot a standalone failure names, as in "brain via openrouter: HTTP 402". */
+export function errorSlot(error: string): SlotKey | "tool" | null {
+  const m = /^(stt|brain|tts|tool) via /.exec(error);
+  return m ? (m[1] as SlotKey | "tool") : null;
+}
+
+/** A server as the page shows it: its host and port, never a path or query. */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
+/** A stored key: set, with its last four characters, which tell keys apart. */
+export function keyShown(c: Pick<ProviderConnection, "keySet" | "keyLast4">): string {
+  return c.keySet ? `set ••••${c.keyLast4}` : "no key";
+}
+
+/**
+ * What a preset's address asks the owner for: nothing (a hosted service),
+ * the computer a local server runs on, that and its port, or the whole
+ * address. Follows the placeholders in the preset's address.
+ */
+export type AddressKind = "fixed" | "host" | "host-port" | "url";
+
+export function addressKind(presetUrl: string): AddressKind {
+  if (!presetUrl) return "url";
+  if (presetUrl.includes("<host>:<port>")) return "host-port";
+  if (presetUrl.includes("<host>")) return "host";
+  return "fixed";
+}
+
+type Serves = Pick<Preset, "stt" | "brain" | "tts">;
+
+export function servesSlot(p: Serves, key: SlotKey): boolean {
+  return key === "stt" ? p.stt : key === "brain" ? p.brain : p.tts;
+}
+
+/** "a, b and c" */
+function list(words: string[]): string {
+  return words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : (words[0] ?? "");
+}
+
+/** The slots a preset can serve, as a sentence's start: "Speech-to-text and text-to-speech". */
+export function servesWords(p: Serves): string {
+  const names = SLOTS.filter((s) => servesSlot(p, s.key)).map((s, i) => (i ? s.name.toLowerCase() : s.name));
+  return list(names);
+}
+
+/** The slots a connection is chosen for. */
+export function usedBy(view: Assistant, id: string): SlotKey[] {
+  return SLOTS.filter((s) => view[s.key]?.connection === id).map((s) => s.key);
+}
+
+/** "the brain", "speech-to-text and the brain": slots inside a sentence. */
+export function slotWords(keys: SlotKey[]): string {
+  return list(keys.map((k) => (k === "brain" ? "the brain" : SLOTS.find((s) => s.key === k)!.name.toLowerCase())));
+}
+
+// pinna.v1.Delegation values (a generated TS enum, which `node --test` cannot load).
+const DELEGATION = { toolLoop: 1, handOff: 2 } as const;
+
+/**
+ * Who runs the tools for the brain: the satellite (a tool loop, which can
+ * offer the owner's MCP servers too) or the brain itself, an agent. The
+ * Advanced setting wins over the preset; null while no brain is chosen.
+ */
+export function delegation(view: Assistant): "tool-loop" | "hand-off" | null {
+  const choice = view.brain;
+  const connection = view.connections.find((c) => c.id === choice?.connection);
+  const preset = view.presets.find((p) => p.id === connection?.preset);
+  if (!choice || !preset) return null;
+  const set = view.brainOverride?.delegation;
+  if (set === DELEGATION.toolLoop) return "tool-loop";
+  if (set === DELEGATION.handOff) return "hand-off";
+  return preset.handOff ? "hand-off" : "tool-loop";
+}
+
+/** A key typed, a key to remove, or the stored one kept. */
+export type SecretEdit = { kind: "keep" } | { kind: "set"; value: string } | { kind: "clear" };
+
+/** A SetConnection request's key fields for an edit. */
+export function keyFields(e: SecretEdit): { key?: string; clearKey: boolean } {
+  if (e.kind === "set") return { key: e.value, clearKey: false };
+  return { clearKey: e.kind === "clear" };
 }

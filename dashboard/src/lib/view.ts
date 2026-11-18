@@ -483,6 +483,7 @@ export const PATHS = [
   "/voice/wake-word",
   "/voice/media-sources",
   "/assistant",
+  "/assistant/services",
   "/network",
   "/system",
   "/system/logs",

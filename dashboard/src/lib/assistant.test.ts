@@ -1,9 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { Assistant, ProviderConnection, SlotChoice } from "../gen/pinna/v1/assistant_pb.ts";
+import type { Assistant, BrainOverride, Preset, ProviderConnection, SlotChoice } from "../gen/pinna/v1/assistant_pb.ts";
 import type { AssistantStatus } from "../gen/pinna/v1/device_pb.ts";
-import { isStandalone, MODE, presetName, slotLines, slotName } from "./assistant.ts";
+import {
+  addressKind,
+  delegation,
+  errorSlot,
+  hostOf,
+  isStandalone,
+  keyFields,
+  keyShown,
+  MODE,
+  presetName,
+  servesWords,
+  slotLines,
+  slotName,
+  slotWords,
+  usedBy,
+} from "./assistant.ts";
 
 // node's type stripping can't run the generated module (it holds a TS enum),
 // so the tests build message shapes by hand.
@@ -32,6 +47,17 @@ const slot = (conn: string, model: string, ready = true): SlotChoice => ({
   model,
   ready,
 });
+const preset = (id: string, over: Partial<Preset> = {}): Preset => ({
+  $typeName: "pinna.v1.Preset",
+  id,
+  baseUrl: "https://api.example.com/v1",
+  stt: false,
+  brain: true,
+  tts: false,
+  model: "",
+  handOff: false,
+  ...over,
+});
 const view = (over: Partial<Assistant> = {}): Assistant =>
   ({
     $typeName: "pinna.v1.Assistant",
@@ -59,7 +85,7 @@ test("the mode comes from Status", () => {
 test("services by the names people know them", () => {
   assert.equal(presetName("openai"), "OpenAI");
   assert.equal(presetName("lmstudio"), "LM Studio");
-  assert.equal(presetName("custom"), "Another server");
+  assert.equal(presetName("custom"), "Other server");
   assert.equal(presetName("martian"), "martian");
   assert.equal(slotName("gpt-4o-mini", "openai"), "gpt-4o-mini via OpenAI");
   // OpenClaw chooses its own model.
@@ -104,4 +130,62 @@ test("Status decides readiness; without the view the slots are only ready or not
     slotLines(undefined, stale).map((l) => l.ready),
     [false, false, true],
   );
+});
+
+test("a failure names its slot", () => {
+  assert.equal(errorSlot("brain via openrouter: HTTP 402"), "brain");
+  assert.equal(errorSlot("stt via groq: timeout"), "stt");
+  assert.equal(errorSlot("tool via openai: protocol"), "tool");
+  assert.equal(errorSlot("something else"), null);
+  assert.equal(errorSlot(""), null);
+});
+
+test("a server shows by host and port, a key by its last four characters", () => {
+  assert.equal(hostOf("https://api.openai.com/v1"), "api.openai.com");
+  assert.equal(hostOf("http://192.168.1.20:11434/v1"), "192.168.1.20:11434");
+  assert.equal(hostOf("not a url"), "not a url");
+  assert.equal(keyShown({ keySet: true, keyLast4: "abcd" }), "set ••••abcd");
+  assert.equal(keyShown({ keySet: false, keyLast4: "" }), "no key");
+});
+
+test("the address a preset asks for follows its placeholders", () => {
+  assert.equal(addressKind("https://api.openai.com/v1"), "fixed");
+  assert.equal(addressKind("http://<host>:11434/v1"), "host");
+  assert.equal(addressKind("http://<host>:<port>/v1"), "host-port");
+  assert.equal(addressKind(""), "url");
+});
+
+test("slots in words", () => {
+  assert.equal(servesWords({ stt: true, brain: true, tts: true }), "Speech-to-text, brain and text-to-speech");
+  assert.equal(servesWords({ stt: true, brain: false, tts: true }), "Speech-to-text and text-to-speech");
+  assert.equal(slotWords(["brain"]), "the brain");
+  assert.equal(slotWords(["stt", "brain", "tts"]), "speech-to-text, the brain and text-to-speech");
+  const v = view({ stt: slot("openai-1", "whisper-1"), tts: slot("openai-1", "nova"), brain: slot("x-1", "m") });
+  assert.deepEqual(usedBy(v, "openai-1"), ["stt", "tts"]);
+  assert.deepEqual(usedBy(v, "gone"), []);
+});
+
+test("who runs the tools: the Advanced setting, else the brain's preset", () => {
+  const over = (delegation: number): BrainOverride => ({
+    $typeName: "pinna.v1.BrainOverride",
+    delegation,
+    history: 0,
+    historyLimit: 0,
+  });
+  const base = view({
+    connections: [connection("openai-1", "openai"), connection("hermes-1", "hermes")],
+    presets: [preset("openai"), preset("hermes", { handOff: true })],
+  });
+  assert.equal(delegation(base), null);
+  assert.equal(delegation({ ...base, brain: slot("openai-1", "gpt") }), "tool-loop");
+  assert.equal(delegation({ ...base, brain: slot("hermes-1", "hermes") }), "hand-off");
+  assert.equal(delegation({ ...base, brain: slot("hermes-1", "hermes"), brainOverride: over(1) }), "tool-loop");
+  assert.equal(delegation({ ...base, brain: slot("openai-1", "gpt"), brainOverride: over(2) }), "hand-off");
+  assert.equal(delegation({ ...base, brain: slot("openai-1", "gpt"), brainOverride: over(0) }), "tool-loop");
+});
+
+test("a key edit becomes the request's key fields", () => {
+  assert.deepEqual(keyFields({ kind: "set", value: "sk-1" }), { key: "sk-1", clearKey: false });
+  assert.deepEqual(keyFields({ kind: "clear" }), { clearKey: true });
+  assert.deepEqual(keyFields({ kind: "keep" }), { clearKey: false });
 });
