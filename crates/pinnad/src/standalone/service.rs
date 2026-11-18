@@ -1233,13 +1233,8 @@ fn connection_url(preset: PresetId, input: &str) -> Result<String, Refusal> {
             return Err(Refusal::Invalid("Enter the server's address.".into()));
         }
         template.to_owned()
-    } else if !input.contains("://") && template.contains("<host>") {
-        // A local server: the owner enters the host, the preset adds the rest.
-        if template.contains("<port>") {
-            template.replace("<host>:<port>", input)
-        } else {
-            template.replace("<host>", input)
-        }
+    } else if template.contains("<host>") {
+        local_url(template, input)
     } else {
         input.to_owned()
     };
@@ -1247,6 +1242,34 @@ fn connection_url(preset: PresetId, input: &str) -> Result<String, Refusal> {
         return Err(Refusal::Invalid("That address is too long.".into()));
     }
     assist::base_url(&url).map_err(Refusal::Invalid)
+}
+
+/// A local server's address from what the owner typed: a computer's name or
+/// address, with or without the scheme, the port and the path. The preset's
+/// template fills in whatever is missing, so `192.168.1.5` and
+/// `http://192.168.1.5:11434` both become `http://192.168.1.5:11434/v1`.
+fn local_url(template: &str, input: &str) -> String {
+    let (template_scheme, template_rest) = template.split_once("://").unwrap_or(("http", template));
+    let after_host = template_rest.strip_prefix("<host>").unwrap_or("");
+    let (template_port, template_path) =
+        after_host.split_at(after_host.find('/').unwrap_or(after_host.len()));
+    let (scheme, rest) = input.split_once("://").unwrap_or((template_scheme, input));
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let path = if path.is_empty() || path == "/" {
+        template_path
+    } else {
+        path
+    };
+    // `[::1]` has colons but no port; `[::1]:8080` and `host:8080` have one.
+    let has_port = authority
+        .rsplit_once(':')
+        .is_some_and(|(_, port)| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()));
+    let port = if has_port || template_port.contains('<') {
+        ""
+    } else {
+        template_port
+    };
+    format!("{scheme}://{authority}{port}{path}")
 }
 
 /// An MCP server address as it is stored. Unlike a provider's, it may carry a
@@ -2034,6 +2057,15 @@ mod tests {
             .set_connection(preset(PresetId::Ollama, " 192.168.1.5 "))
             .await
             .unwrap();
+        // The scheme and port may come with it; the path is the preset's.
+        f.service
+            .set_connection(preset(PresetId::Ollama, "http://192.168.1.6:11434"))
+            .await
+            .unwrap();
+        f.service
+            .set_connection(preset(PresetId::LmStudio, "[fd00::7]:8080/"))
+            .await
+            .unwrap();
         let view = f
             .service
             .set_connection(preset(PresetId::OpenAi, "https://proxy.example/v1"))
@@ -2049,6 +2081,8 @@ mod tests {
             [
                 ("openai-1", "https://api.openai.com/v1", 1),
                 ("ollama-1", "http://192.168.1.5:11434/v1", 1),
+                ("ollama-2", "http://192.168.1.6:11434/v1", 1),
+                ("lmstudio-1", "http://[fd00::7]:8080/v1", 1),
                 ("openai-2", "https://proxy.example/v1", 1),
             ]
         );
@@ -2611,16 +2645,22 @@ mod tests {
             .connections
             .pop()
             .unwrap();
-        for (kind, connection, model) in [
-            (SlotKind::Stt, &speech.id, "whisper-1"),
-            (SlotKind::Chat, &agent.id, "hermes-3"),
-        ] {
-            passing(&server, kind);
-            f.service
-                .set_slot(kind, slot_edit(connection, model))
-                .await
-                .unwrap();
-        }
+        passing(&server, SlotKind::Stt);
+        f.service
+            .set_slot(SlotKind::Stt, slot_edit(&speech.id, "whisper-1"))
+            .await
+            .unwrap();
+        // A local agent's address gets the preset's /v1.
+        assert_eq!(agent.base_url, server.url("/v1"));
+        server.script(
+            Method::GET,
+            "/v1/models",
+            FakeResponse::new(StatusCode::OK, MODELS),
+        );
+        f.service
+            .set_slot(SlotKind::Chat, slot_edit(&agent.id, "hermes-3"))
+            .await
+            .unwrap();
         assert_eq!(f.live().ack, None);
         // The voice's check, then the acknowledgment.
         passing(&server, SlotKind::Tts);
