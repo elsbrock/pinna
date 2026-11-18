@@ -7,9 +7,6 @@
 //! The current file and the one before it stay on disk, because a run may
 //! still hold the older path; older files are deleted.
 
-// The service that keeps this cache is wired in by main.rs (T55).
-#![cfg_attr(not(test), allow(dead_code))]
-
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

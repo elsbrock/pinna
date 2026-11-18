@@ -1,7 +1,8 @@
 //! Sans-IO dispatcher for Pinna's MCP server (ADR 0017, §8).
 //!
-//! It turns one HTTP body into one reply body. The transport (T67) owns the
-//! Host, `Content-Type` and Origin checks; this module only speaks JSON-RPC.
+//! It turns one HTTP body into one reply body. The transport (pinnad's `/mcp`
+//! route) owns the Host, `Content-Type` and Origin checks; this module only
+//! speaks JSON-RPC.
 
 use serde_json::{Value, json};
 

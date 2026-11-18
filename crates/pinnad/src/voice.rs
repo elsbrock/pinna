@@ -148,8 +148,6 @@ pub enum ApiCommand {
     Speak(String, oneshot::Sender<Result<(), String>>),
     /// A question typed on the dashboard; standalone mode only. Replies
     /// once the request has started.
-    // The AssistantService's AskText (T57) sends it.
-    #[allow(dead_code)]
     AskText(String, ApiReply),
 }
 

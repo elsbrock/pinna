@@ -104,7 +104,7 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
         Op::MuteMicrophone => {
             tools.ask(|r| ApiCommand::SetMute(true, r)).await?;
             Ok(match tools.caller {
-                // The Brain mutes once the run that asked has ended (T28).
+                // The Brain mutes once the run that asked has ended.
                 Caller::Run(_) => {
                     "The microphone mutes when this reply ends. Only a person can unmute it."
                 }

@@ -41,8 +41,6 @@ pub enum Surface {
     /// The brain's tool loop in a standalone run.
     Brain,
     /// Pinna's MCP server.
-    // The `/mcp` handler (T67) offers this surface.
-    #[allow(dead_code)]
     Mcp,
 }
 
@@ -53,8 +51,6 @@ pub enum Caller {
     /// is current.
     Run(RunId),
     /// An MCP client.
-    // The `/mcp` handler (T67) calls as one.
-    #[allow(dead_code)]
     Mcp,
 }
 
@@ -784,7 +780,7 @@ mod tests {
             }
         }
 
-        /// As an MCP client: the Brain refuses a run's commands until T28.
+        /// As an MCP client, so the Brain applies the commands whatever runs.
         fn tools(&self, surface: Surface, switches: &[(&str, bool)]) -> DeviceTools {
             DeviceTools::new(
                 &crate::tools::ToolKit::new(crate::metrics::Counters::default()),

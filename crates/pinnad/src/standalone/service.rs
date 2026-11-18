@@ -331,7 +331,6 @@ struct Committed {
 struct State {
     config: AssistConfig,
     secrets: Secrets,
-    generation: u64,
     chat_gen: u64,
     brain: Option<BrainId>,
     /// The MCP servers last published, reused while unchanged.
@@ -372,7 +371,6 @@ impl Service {
         let mut state = State {
             config,
             secrets,
-            generation: 0,
             chat_gen: 0,
             brain: None,
             mcp: Vec::new(),
@@ -1003,7 +1001,6 @@ impl State {
             self.chat_gen += 1;
             self.brain = brain;
         }
-        self.generation += 1;
         let c = &self.config;
         let slots = SlotKind::ALL.map(|kind| slot_ready(c, kind));
         let pipeline = Pipeline::build(c, &self.secrets).ok().map(Arc::new);
@@ -1017,7 +1014,6 @@ impl State {
         let ack = ack::Source::wanted(c, pipeline.as_deref(), slot_ready(c, SlotKind::Tts))
             .and_then(|source| cache.path(&source));
         AssistLive {
-            generation: self.generation,
             chat_gen: self.chat_gen,
             ready: pipeline.is_some() && slots.iter().all(|ready| *ready),
             slots,
@@ -1566,7 +1562,7 @@ mod tests {
         let server = FakeServer::start().await;
         let connection = f.connect(&server).await;
         let before = f.file("standalone.toml");
-        let generation = f.live().generation;
+        let live = f.service.live();
         server.script_status(Method::GET, "/models", StatusCode::UNAUTHORIZED);
 
         let refused = f
@@ -1581,7 +1577,7 @@ mod tests {
         );
         assert!(f.service.view().chat.is_none());
         assert_eq!(f.file("standalone.toml"), before);
-        assert_eq!(f.live().generation, generation);
+        assert!(!live.has_changed().unwrap(), "nothing was published");
         assert!(!f.live().slots[1]);
     }
 
@@ -1744,7 +1740,7 @@ mod tests {
         let server = FakeServer::start().await;
         let connection = f.ready(&server).await;
         let before = (f.file("standalone.toml"), f.file("secrets.toml"));
-        let generation = f.live().generation;
+        let live = f.service.live();
         server.script_status(Method::GET, "/models", StatusCode::UNAUTHORIZED);
         server.script_status(Method::GET, "/models", StatusCode::UNAUTHORIZED);
         passing(&server, SlotKind::Tts);
@@ -1768,7 +1764,7 @@ mod tests {
             )
         );
         assert_eq!((f.file("standalone.toml"), f.file("secrets.toml")), before);
-        assert_eq!(f.live().generation, generation);
+        assert!(!live.has_changed().unwrap(), "nothing was published");
         assert!(f.live().ready);
         assert_eq!(
             f.service.view().connections[0].key_last4.as_deref(),

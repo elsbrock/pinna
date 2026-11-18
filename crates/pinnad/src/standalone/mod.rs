@@ -17,9 +17,6 @@ pub mod spawn;
 
 /// The standalone snapshot the Brain reads. The service owns and replaces it.
 pub struct AssistLive {
-    // Only the service's tests read it so far.
-    #[allow(dead_code)]
-    pub generation: u64,
     pub chat_gen: u64,
     pub ready: bool,
     pub slots: [bool; 3],
@@ -33,8 +30,6 @@ pub struct AssistLive {
     pub follow_ups: bool,
     pub ack: Option<PathBuf>,
     pub switches: BTreeMap<String, bool>,
-    // The radio tools (T64) read the stations, owner MCP servers (T69) `mcp`.
-    #[allow(dead_code)]
     pub stations: Arc<Vec<Station>>,
     /// The owner's enabled MCP servers that have an address.
     pub mcp: Vec<Arc<OwnerMcp>>,
@@ -45,7 +40,6 @@ impl AssistLive {
     #[cfg(test)]
     pub fn empty() -> Self {
         Self {
-            generation: 0,
             chat_gen: 0,
             ready: false,
             slots: [false; 3],
