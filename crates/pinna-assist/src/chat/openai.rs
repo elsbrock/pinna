@@ -471,6 +471,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_endless_event_stops_at_the_stream_cap() {
+        let server = FakeServer::start().await;
+        // `data:` lines with no blank line between them never end an event;
+        // 5 MiB of them must not pile up in memory.
+        let line = format!("data: {}\n", "x".repeat(1023));
+        let chunks: Vec<String> = (0..5 * 1024).map(|_| line.clone()).collect();
+        server.script(
+            Method::POST,
+            "/v1/chat/completions",
+            FakeResponse::sse(chunks, Duration::ZERO),
+        );
+        let deltas = collect(
+            &adapter(&server),
+            ChatRequest {
+                system: "Be brief.",
+                messages: &[],
+                tools: &[],
+                max_tokens: 500,
+                user: None,
+            },
+        )
+        .await;
+        assert_eq!(
+            deltas,
+            vec![Err(ProviderError::new(
+                Slot::Chat,
+                PresetId::OpenRouter,
+                Reason::TooLarge,
+            ))]
+        );
+    }
+
+    #[tokio::test]
     async fn the_request_sends_messages_tools_and_the_stable_user() {
         let server = FakeServer::start().await;
         server.script(

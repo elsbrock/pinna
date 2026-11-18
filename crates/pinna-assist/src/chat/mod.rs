@@ -30,6 +30,10 @@ pub use gemini::GeminiChat;
 pub use openai::OpenAiChat;
 
 const SSE_LINE_MAX: usize = 256 * 1024;
+/// One streamed reply, whole. The line limit alone doesn't bound an event:
+/// `data:` lines without a blank line pile up in the decoder. Reasoning
+/// tokens arrive and are dropped, so this leaves plenty of room.
+const SSE_BODY_MAX: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatDelta {
@@ -85,6 +89,8 @@ struct SseEvents {
     decoder: SseDecoder,
     pending: VecDeque<SseEvent>,
     eof: bool,
+    /// Bytes read from the body so far.
+    read: usize,
     preset: PresetId,
     clock_synced: fn() -> bool,
 }
@@ -96,6 +102,7 @@ impl SseEvents {
             decoder: SseDecoder::new(SSE_LINE_MAX),
             pending: VecDeque::new(),
             eof: false,
+            read: 0,
             preset,
             clock_synced,
         }
@@ -110,13 +117,20 @@ impl SseEvents {
                 return None;
             }
             match self.body.next().await {
-                Some(Ok(chunk)) => match self.decoder.push(&chunk) {
-                    Ok(events) => self.pending.extend(events),
-                    Err(_) => {
+                Some(Ok(chunk)) => {
+                    self.read = self.read.saturating_add(chunk.len());
+                    if self.read > SSE_BODY_MAX {
                         self.eof = true;
                         return Some(Err(provider_error(self.preset, Reason::TooLarge)));
                     }
-                },
+                    match self.decoder.push(&chunk) {
+                        Ok(events) => self.pending.extend(events),
+                        Err(_) => {
+                            self.eof = true;
+                            return Some(Err(provider_error(self.preset, Reason::TooLarge)));
+                        }
+                    }
+                }
                 Some(Err(error)) => {
                     self.eof = true;
                     return Some(Err(network_error(self.preset, &error, self.clock_synced)));
