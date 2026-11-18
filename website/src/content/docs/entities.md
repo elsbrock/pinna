@@ -14,7 +14,7 @@ keep the name the device had when you added it.
 | Entity | Object ID | Type | Values | What it does |
 | --- | --- | --- | --- | --- |
 | LED ring | `led_ring` | Light | Colour, brightness, effects Solid, Pulse and Flash | Uses the ring as a light while the device is idle. See [Light ring and buttons](/docs/ring-and-buttons/#use-the-ring-as-a-light) |
-| Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button |
+| Microphone mute | `microphone_mute` | Switch | On, off | Turns the microphones off in software. Shows on when the microphones are off for any reason, including the hardware button. Turning it off doesn't open the hardware switch: after the **Microphone off** button or a request by voice turned the microphones off, press the button. See [Microphone off](/docs/ring-and-buttons/#microphone-off) |
 | Wake word | `wake_word` | Switch (configuration) | On, off | Turns wake word detection on or off. The words themselves are chosen with the **Wake word** and **Wake word 2** selectors on the device page. The Action button still starts a request |
 | Listening direction | `listening_direction` | Switch (configuration) | On, off | While the device listens, points the light ring at the person speaking. Off shows the plain listening ring. On by default |
 | Wake sound | `wake_sound` | Switch (configuration) | On, off | Plays a short chime when the device starts listening. The dashboard has the same switch, under **Voice & sound** |
@@ -30,7 +30,7 @@ keep the name the device had when you added it.
 | Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
 | Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
 | Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While a developer's own update address replaces the channel, its only option is that address ([Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates)). See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
-| Assistant | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. Switching ends a request, stops an alarm, deletes every timer and reconnects Home Assistant. See [Use Pinna without Home Assistant](/docs/standalone/) |
+| Assistant | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. A change while the satellite answers a request, plays an announcement or rings an alarm waits until that has ended. Switching deletes every timer and reconnects Home Assistant. See [Use Pinna without Home Assistant](/docs/standalone/) |
 | Firmware | `firmware` | Update (configuration) | Installed and latest version, summary, release notes, progress | Shows a newer release on the device's channel, and installs it. After an install from Home Assistant, the device restarts on its own once it is Idle with no timer set and nothing playing. Unknown until a check has succeeded, and while **Updates** is off. See [Install an update from Home Assistant](/docs/update/#install-an-update-from-home-assistant) |
 
 Pinna saves the switch and number values on the device, so they survive a
@@ -124,7 +124,7 @@ chooses the wake words. Switching the mode deletes every timer, Home
 Assistant's included.
 
 The **Assistant** select stays, so you can switch back to Home Assistant from
-there. Standalone mode's other settings have no entities. You set them on the
+there, or say "switch to Home Assistant" to the satellite. Standalone mode's other settings have no entities. You set them on the
 dashboard.
 
 ## What's next

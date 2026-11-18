@@ -24,7 +24,9 @@ don't need YAML or an add-on.
   documentation.
 - The satellite is in Home Assistant mode, as a new one is. If you switched
   it to standalone mode, open **Assistant** on the dashboard, select **Home
-  Assistant** under **Mode**, and then select **Switch**.
+  Assistant** under **Mode**, and then select **Switch**. You can also switch
+  by voice, in both directions: see [Switch by
+  voice](/docs/standalone/#switch-by-voice).
 
 ## Encryption
 

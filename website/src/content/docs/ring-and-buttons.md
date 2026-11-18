@@ -268,18 +268,23 @@ When the microphones are off, the ring is solid red and Pinna ignores all
 audio from the microphones: it doesn't listen for the wake word, and a request
 that is running stops.
 
-The device has a hardware switch behind the **Microphone off** button. When
-the hardware switch is present, it turns the microphones off, and Pinna
-follows it. You can also turn the microphones off with the **Microphones**
+The Echo Dot (2nd gen) and the Echo (2nd gen) have a hardware switch behind
+the **Microphone off** button. It turns the microphones off, and Pinna follows
+it. You can also turn the microphones off with the **Microphones**
 switch on the [dashboard](/docs/dashboard/), under **Voice & sound** or on
 **Overview**, or with the **Microphone mute** switch in Home Assistant. The
 microphones are off when either the button or the software setting says so.
 
-When you ask the brain to mute the microphones, in standalone mode, it closes
-the hardware switch, so one press of the button turns the microphones back on.
-A press that turns the microphones on also clears a mute you set on the
-dashboard or in Home Assistant. If the button's switch was open at that time,
-the first press closes it, and the second turns the microphones on.
+In [standalone mode](/docs/standalone/), when you ask by voice to mute the
+microphones, or an agent mutes them through Pinna's MCP address, Pinna turns
+them off the way the **Microphone off** button does. One press of the button
+turns them back on; the dashboard and Home Assistant can't. In Home Assistant
+mode, a mute through Home Assistant uses its **Microphone mute** switch, as the
+dashboard does.
+
+If you turned the microphones off on the dashboard or in Home Assistant, press
+**Microphone off** until the ring is no longer red. That takes one or two
+presses, and the press that turns them on also clears that mute.
 
 ## What's next
 

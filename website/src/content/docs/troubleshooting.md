@@ -102,7 +102,7 @@ says whether the satellite listens, and why not:
 | --- | --- |
 | `Off. Press the action button to talk.` | Turn on **Wake word** |
 | `No wake word is chosen.` | Choose a wake word. In Home Assistant mode, while Home Assistant is connected, choose it there: see [Choose the wake words](/docs/home-assistant/#choose-the-wake-words). Otherwise choose it on the dashboard, under **Voice & sound**. If **Voice & sound** says **No wake word models are installed on this satellite**, the image was built without them: run `just models`, build the image again, and install it as an [update](/docs/update/) |
-| `Not listening for "Alexa" while the microphones are off` | Press the **Microphone off** button, or turn on **Microphones** |
+| `Not listening for "Alexa" while the microphones are off` | Press **Microphone off** until the ring is no longer red. After a mute by voice, only the button turns the microphones back on; **Microphones** on the dashboard helps only when the dashboard or Home Assistant turned them off |
 | `Not listening for "Alexa" until Home Assistant has a voice pipeline for this satellite` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/). The **Home Assistant** tile on **Overview** then shows **Connected** and **Voice pipeline ready** |
 | `Not listening for "Alexa" until the standalone services pass their check` | Open **Assistant > Services**: it shows which service isn't ready, and why. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
 | `Not listening for "Alexa" during the conversation` | Wait until the request ends |

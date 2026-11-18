@@ -131,22 +131,60 @@ cancels the timers that run and forgets the conversation. In standalone mode
 the dashboard chooses the wake words, under **Voice & sound**.
 
 To go back, select **Home Assistant** under **Mode**, then **Switch**. If Home
-Assistant isn't connected, nothing answers requests until it connects. You can
-also ask the satellite to switch: say "switch to Home Assistant". It switches
-once the reply has played, and listens for no follow-up after it.
+Assistant isn't connected, nothing answers requests until it connects.
 
-If Home Assistant is connected, you can also switch there: the satellite's
-**Assistant** select has the same two choices. It stays in both modes, and
-**Standalone** works only once the three services have passed their check.
-If the satellite is answering a request when the select changes, it switches
-once the reply has played.
+If Home Assistant is connected, you can also switch there, with the
+satellite's **Assistant** select that has the choices **Home Assistant** and
+**Standalone**. The device page in Home Assistant has a second select called
+**Assistant**: that one chooses the Assist pipeline. The mode select stays in
+both modes, and **Standalone** works only once the three services have passed
+their check. If the satellite is answering a request when the select changes,
+it switches once the reply has played.
 
-To switch to standalone mode by voice while Home Assistant answers, create a
-Home Assistant script that sets the satellite's **Assistant** select to
-**Standalone**, describe in the script's description when to use it, and
-expose the script to Assist. A conversation agent that uses an AI model can
-then run it when you say "switch to standalone mode". Assist has no command
-that changes a select by itself.
+### Switch by voice
+
+To switch back to Home Assistant, say the wake word and "switch to Home
+Assistant". The satellite switches once its reply has played, and doesn't
+listen for a follow-up. As with **Switch** on the dashboard, the timers are
+deleted, and if Home Assistant isn't connected, nothing answers requests until
+it connects. This uses the `switch_assistant` tool under
+[**Tools**](#choose-what-the-brain-may-do), so it works while that tool is on.
+With Hermes or OpenClaw as the brain, it works only if the agent uses
+[Pinna's MCP address](#use-an-ai-agent-as-the-brain).
+
+To switch to standalone mode while Home Assistant answers, Home Assistant needs
+something that sets the mode select, because Assist has no command that
+changes a select:
+
+- **With an AI conversation agent that may control Home Assistant**: in Home
+  Assistant, create a script under **Settings > Automations & scenes >
+  Scripts**, and expose it under **Settings > Voice assistants > Expose**. In
+  its **Description**, say when to use it. Replace the entity ID with your
+  satellite's mode select: copy it from the device page, because Home
+  Assistant's pipeline select may also end in `_assistant`.
+
+  ```yaml
+  alias: Switch the Echo Dot to standalone mode
+  description: >-
+    Switches the Echo Dot to Pinna's standalone mode. Use it when the person
+    asks to switch to standalone mode.
+  sequence:
+    - action: select.select_option
+      target:
+        entity_id: select.echo_dot_assistant
+      data:
+        option: Standalone
+  ```
+
+- **With Home Assistant's built-in agent**, or an AI conversation agent set to
+  prefer handling commands locally: create an automation with a sentence
+  trigger such as "switch to standalone mode", and the same
+  `select.select_option` action.
+
+If the three services haven't passed their check, the satellite refuses and
+the select goes back to **Home Assistant**, even if the agent says it
+switched. Switching deletes the timers that Home Assistant set on the satellite
+too.
 
 ### If you also use Home Assistant
 
@@ -192,9 +230,9 @@ Select **Assistant**, then **Tools**.
 - **Pinna's tools** lists what a brain can do on the satellite: timers, the
   time, the weather, the volume and the reply volume, the ring light, playing,
   pausing and stopping music and radio, clearing a notification, muting the
-  microphones, and switching between standalone mode and Home Assistant mode.
-  Only a person can turn the microphones back on. Turn off a tool you don't
-  want used.
+  microphones, and switching back to Home Assistant mode (`switch_assistant`).
+  Only a person can turn the microphones back on, with the **Microphone off**
+  button. Turn off a tool you don't want used.
 - **Radio stations**: add a station with its name and stream address. Then ask
   for it by name, such as "play Radio Eins". The brain can also search the
   radio directory for stations.
@@ -228,7 +266,8 @@ An agent reaches the satellite as an MCP server:
 3. Enter the address in the agent's MCP settings.
 
 The agent can then set timers, play a stream, speak a text, change the volume
-and the light, and read the satellite's status. It can't make the satellite
+and the light, mute the microphones, switch the satellite back to Home
+Assistant, and read the satellite's status. It can't make the satellite
 listen, and it doesn't get the weather. Like the dashboard, the MCP server has
 no password: anyone on your network can use it. It answers in standalone mode
 only. The list under it shows the agents that called.

@@ -127,7 +127,7 @@ device. `pinnad` serves it in two places:
 | `SetVolume` | `percent` (0–100) | Sets the volume. Values above 100 return `invalid_argument` |
 | `SetStreamVolume` | `percent` (0–100) | Sets the volume of live audio on the stream socket, on the same curve as the volume and under it. Only the device's own programs can call it, on `127.0.0.1`; from the network it returns `permission_denied`. [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) use it for the sender's volume |
 | `SetStreamMetadata` | `source`, `title`, `artist`, `album` | Sets the track of one program's live audio on the stream socket. `source` is the name that the program gives in the first line it sends there ([Audio](/docs/audio/)): 1 to 16 characters, each `a-z`, `0-9` or `-`. A name that breaks this rule returns `invalid_argument`. The call works before and after the program connects. The track stays until the program sets another, and empty fields clear it. `media` shows it only while audio with that name plays. Each field is cut to 256 bytes, at a character boundary. Only the device's own programs can call it, on `127.0.0.1`; from the network it returns `permission_denied`. [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) use it for the sender's track |
-| `SetMute` | `muted` (bool) | Turns the software mute on or off. The hardware switch isn't affected |
+| `SetMute` | `muted` (bool) | Turns the software mute on or off. The hardware switch isn't affected, so `muted: false` doesn't turn the microphones on after the **Microphone off** button or a request by voice closed it |
 | `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device (in standalone mode: if speech-to-text, the brain and text-to-speech haven't all passed their check), the microphones are off, a timer alarm rings, or a request, a reply or an announcement is already running |
 | `StopConversation` | Empty | Stops a request, a reply, an announcement or a timer alarm |
 | `LedTest` | Empty | Runs the LED test |
@@ -269,9 +269,10 @@ authentication, like the dashboard, and answers only to the same names.
   standalone mode only.
 - Its tools are the device's own, as `device_tools` lists them with `mcp` set:
   volume, the ring light, media and radio, the notification, muting the
-  microphones, switching the mode (`switch_assistant`), timers and the time,
-  and `speak`, `cancel_request` and `status`. A tool switched off with `UpdateAssistant` isn't offered. No tool
-  turns the microphones on or makes the device listen.
+  microphones, switching back to Home Assistant mode (`switch_assistant`),
+  timers and the time, and `speak`, `cancel_request` and `status`. A tool
+  switched off with `UpdateAssistant` isn't offered. No tool turns the
+  microphones on or makes the device listen.
 - It runs two tool calls at once. Another call is told the device is busy.
 
 ## What's next
