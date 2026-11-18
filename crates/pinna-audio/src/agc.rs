@@ -120,14 +120,28 @@ impl Agc {
     }
 }
 
-fn level_dbfs(frame: &[i16]) -> f32 {
+/// The frame's mean square, full scale being 1; an empty frame's is 0.
+/// Callers that average several frames add these, never dB values.
+pub fn mean_square(frame: &[i16]) -> f64 {
+    if frame.is_empty() {
+        return 0.0;
+    }
     let sum: f64 = frame.iter().map(|&s| f64::from(s) * f64::from(s)).sum();
-    let ms = sum / frame.len() as f64 / (32768.0 * 32768.0);
-    if ms > 0.0 {
-        ((10.0 * ms.log10()) as f32).max(SILENCE_DBFS)
+    sum / frame.len() as f64 / (32768.0 * 32768.0)
+}
+
+/// A [`mean_square`] in dBFS, the AGC's levels: a full-scale sine is
+/// -3 dBFS, and digital silence counts as -100 dBFS.
+pub fn mean_square_dbfs(mean_square: f64) -> f32 {
+    if mean_square > 0.0 {
+        ((10.0 * mean_square.log10()) as f32).max(SILENCE_DBFS)
     } else {
         SILENCE_DBFS
     }
+}
+
+fn level_dbfs(frame: &[i16]) -> f32 {
+    mean_square_dbfs(mean_square(frame))
 }
 
 fn db_to_linear(db: f32) -> f32 {
