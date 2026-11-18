@@ -4,6 +4,9 @@
 //! checked against its provider outside every lock, then committed with a
 //! compare-and-set on the connection revision. Commits are serialised, written
 //! off the runtime, and each one publishes a new [`AssistLive`] for the Brain.
+//!
+//! The owner's MCP servers are kept the same way. Their addresses may carry a
+//! token, so they are secrets: stored in `secrets.toml` and shown by host only.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -16,7 +19,8 @@ use std::time::SystemTime;
 use futures::future::join_all;
 use pinna_assist::check::{self, CHECK_TIMEOUT, CheckSetup};
 use pinna_assist::config::{
-    self as assist, Ack, AssistConfig, Connection, Place, SlotConfig, Station,
+    self as assist, Ack, AssistConfig, Connection, MAX_MCP_SERVERS, McpServer, Place, SlotConfig,
+    Station,
 };
 use pinna_assist::error::Slot;
 use pinna_assist::http::Auth;
@@ -28,7 +32,7 @@ use pinna_assist::secrets::Secrets;
 use pinna_http::{ClientKind, Secret, reqwest};
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
-use super::AssistLive;
+use super::{AssistLive, OwnerMcp};
 use crate::settings::{self, Mode};
 use crate::store::Store;
 use crate::tools::weather::{OpenMeteo, PlaceError};
@@ -55,6 +59,8 @@ const FIRST_TEXT_S: std::ops::RangeInclusive<u64> = 1..=300;
 /// The Advanced history caps (architecture §7, size caps).
 const HISTORY_TURNS_MAX: usize = 10;
 const HISTORY_BYTES_MAX: usize = 64 * 1024;
+/// An MCP server address is at most this many bytes.
+const MCP_URL_MAX: usize = 2048;
 
 const CLOCK_SYNCED: &str = "/run/systemd/timesync/synchronized";
 
@@ -62,6 +68,9 @@ const NOT_SAVED: &str = "The assistant settings couldn't be saved. Try again.";
 const CHANGED: &str = "This connection was changed meanwhile. Reload and try again.";
 const REMOVED: &str = "This connection was removed meanwhile. Reload and try again.";
 const NO_SUCH_PLACE: &str = "No place by that name was found. Try the nearest town or city.";
+const MCP_CHANGED: &str = "This MCP server was changed meanwhile. Reload and try again.";
+const MCP_REMOVED: &str = "This MCP server was removed meanwhile. Reload and try again.";
+const MCP_URL: &str = "Enter the MCP server's whole address, starting with http:// or https://.";
 
 /// Where the service keeps its files: beside `settings.toml`.
 #[derive(Clone, Debug)]
@@ -198,6 +207,19 @@ pub struct SlotEdit {
     pub model: String,
 }
 
+/// Add (`id: None`) or change one of the owner's MCP servers. There is no
+/// key: a server that needs one takes it in its address.
+#[derive(Clone, Debug)]
+pub struct McpEdit {
+    pub id: Option<String>,
+    /// The revision the owner edited; ignored when adding.
+    pub revision: u64,
+    pub name: String,
+    /// The whole address. `None` keeps the stored one; needed when adding.
+    pub url: Option<Secret>,
+    pub enabled: bool,
+}
+
 /// Settings that need no provider check. `None` leaves a field unchanged; for
 /// the optional fields, `Some(None)` clears it.
 #[derive(Clone, Debug, Default)]
@@ -297,6 +319,8 @@ struct State {
     generation: u64,
     chat_gen: u64,
     brain: Option<BrainId>,
+    /// The MCP servers last published, reused while unchanged.
+    mcp: Vec<Arc<OwnerMcp>>,
 }
 
 /// What makes a brain a different brain: changing any of it forgets the
@@ -332,6 +356,7 @@ impl Service {
             generation: 0,
             chat_gen: 0,
             brain: None,
+            mcp: Vec::new(),
         };
         let (live, _) = watch::channel(Arc::new(state.publish()));
         Arc::new(Self {
@@ -642,6 +667,94 @@ impl Service {
         .await
     }
 
+    /// Add or change one of the owner's MCP servers. Its name becomes the
+    /// prefix of its tools' names and a metric label, so names are unique.
+    pub async fn set_mcp_server(&self, e: McpEdit) -> Result<AssistantView, Refusal> {
+        let name = assist::mcp_name(&e.name).map_err(Refusal::Invalid)?;
+        let url = e.url.as_ref().map(mcp_url).transpose()?;
+        self.commit(|d| {
+            let taken =
+                |server: &McpServer| server.name == name && Some(&server.id) != e.id.as_ref();
+            if d.config.mcp_servers.iter().any(taken) {
+                return Err(Refusal::Invalid(format!(
+                    "Another MCP server is called {name}."
+                )));
+            }
+            let Some(id) = e.id else {
+                if d.config.mcp_servers.len() >= MAX_MCP_SERVERS {
+                    return Err(Refusal::Invalid(format!(
+                        "At most {MAX_MCP_SERVERS} MCP servers."
+                    )));
+                }
+                let url = url.ok_or_else(|| Refusal::Invalid(MCP_URL.into()))?;
+                let id = next_mcp_id(&d.config);
+                // A stale entry written by another image must not linger.
+                d.secrets.clear_mcp(&id);
+                d.secrets.set_mcp(&id, url, None);
+                d.config.mcp_servers.push(McpServer {
+                    host: d.secrets.mcp_host(&id).unwrap_or_default(),
+                    id,
+                    name,
+                    enabled: e.enabled,
+                    revision: 1,
+                });
+                return Ok(());
+            };
+            let server = d
+                .config
+                .mcp_servers
+                .iter_mut()
+                .find(|server| server.id == id)
+                .ok_or_else(|| Refusal::Conflict(MCP_REMOVED.into()))?;
+            if server.revision != e.revision {
+                return Err(Refusal::Conflict(MCP_CHANGED.into()));
+            }
+            let stored = d.secrets.mcp(&id).map(|(url, _)| url.clone());
+            let url = match (url, stored) {
+                (Some(url), stored) => (stored.as_ref() != Some(&url)).then_some(url),
+                // secrets.toml lost the address: the server can't be on without one.
+                (None, None) if e.enabled => {
+                    return Err(Refusal::Invalid(
+                        "Enter the MCP server's address again.".into(),
+                    ));
+                }
+                (None, _) => None,
+            };
+            if server.name == name && server.enabled == e.enabled && url.is_none() {
+                return Ok(());
+            }
+            if let Some(url) = url {
+                d.secrets.set_mcp(&id, url, None);
+                server.host = d.secrets.mcp_host(&id).unwrap_or_default();
+            }
+            server.name = name;
+            server.enabled = e.enabled;
+            server.revision += 1;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Remove one of the owner's MCP servers and its address.
+    pub async fn delete_mcp_server(
+        &self,
+        id: &str,
+        revision: u64,
+    ) -> Result<AssistantView, Refusal> {
+        self.commit(|d| {
+            let Some(server) = d.config.mcp_servers.iter().find(|s| s.id == id) else {
+                return Ok(());
+            };
+            if server.revision != revision {
+                return Err(Refusal::Conflict(MCP_CHANGED.into()));
+            }
+            d.config.mcp_servers.retain(|server| server.id != id);
+            d.secrets.clear_mcp(id);
+            Ok(())
+        })
+        .await
+    }
+
     /// Remember an MCP client for the dashboard. The name is the client's own
     /// `clientInfo.name`, cut short and stripped of control characters.
     // The `/mcp` handler (T67) records its callers here.
@@ -820,8 +933,33 @@ impl State {
             ack: None,
             switches: c.tools.clone(),
             stations: Arc::new(c.stations.clone()),
-            mcp: Vec::new(),
+            mcp: self.owner_mcp(),
         }
+    }
+
+    /// The enabled MCP servers with an address, each kept from the last
+    /// snapshot while its name and address are the same.
+    fn owner_mcp(&mut self) -> Vec<Arc<OwnerMcp>> {
+        let servers: Vec<Arc<OwnerMcp>> = self
+            .config
+            .mcp_servers
+            .iter()
+            .filter(|server| server.enabled)
+            .filter_map(|server| {
+                let (url, _) = self.secrets.mcp(&server.id)?;
+                let kept = self
+                    .mcp
+                    .iter()
+                    .find(|live| live.is(&server.id, &server.name, url))
+                    .cloned();
+                Some(kept.unwrap_or_else(|| {
+                    Arc::new(OwnerMcp::new(&server.id, &server.name, url.clone()))
+                }))
+            })
+            .take(MAX_MCP_SERVERS)
+            .collect();
+        self.mcp.clone_from(&servers);
+        servers
     }
 }
 
@@ -932,6 +1070,14 @@ fn brain_id(c: &AssistConfig) -> Option<BrainId> {
     })
 }
 
+/// The first free `mcp-<n>`.
+fn next_mcp_id(c: &AssistConfig) -> String {
+    (1..)
+        .map(|n| format!("mcp-{n}"))
+        .find(|id| c.mcp_servers.iter().all(|server| server.id != *id))
+        .expect("an unbounded range has a free id")
+}
+
 /// The first free `<preset>-<n>`.
 fn next_id(c: &AssistConfig, preset: PresetId) -> String {
     (1..)
@@ -960,6 +1106,33 @@ fn connection_url(preset: PresetId, input: &str) -> Result<String, Refusal> {
         input.to_owned()
     };
     assist::base_url(&url).map_err(Refusal::Invalid)
+}
+
+/// An MCP server address as it is stored. Unlike a provider's, it may carry a
+/// query, which is where a server that needs a key often takes it. A refusal
+/// never repeats the address.
+fn mcp_url(url: &Secret) -> Result<Secret, Refusal> {
+    let url = url.expose().trim();
+    let refuse = |sentence: &str| Err(Refusal::Invalid(sentence.into()));
+    if url.len() > MCP_URL_MAX {
+        return refuse("That address is too long.");
+    }
+    if url.chars().any(char::is_whitespace) {
+        return refuse("An address has no spaces.");
+    }
+    let Ok(parsed) = url::Url::parse(url) else {
+        return refuse(MCP_URL);
+    };
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return refuse(MCP_URL);
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return refuse("Leave out the user name and password.");
+    }
+    if parsed.fragment().is_some() {
+        return refuse("Leave out the # and everything after it.");
+    }
+    Ok(Secret::new(url))
 }
 
 fn key_value(key: &Secret) -> Result<Secret, Refusal> {
@@ -1862,6 +2035,252 @@ mod tests {
             .unwrap();
         assert_eq!(view.place, None);
         assert_eq!(f.live().place, None);
+    }
+
+    const MCP_ADDRESS: &str = "https://mcp.example:8443/private-token?key=s3cret";
+
+    fn add_mcp(name: &str, url: Option<&str>) -> McpEdit {
+        McpEdit {
+            id: None,
+            revision: 0,
+            name: name.into(),
+            url: url.map(Secret::new),
+            enabled: true,
+        }
+    }
+
+    fn change_mcp(server: &McpServerView, name: &str, url: Option<&str>, enabled: bool) -> McpEdit {
+        McpEdit {
+            id: Some(server.id.clone()),
+            revision: server.revision,
+            name: name.into(),
+            url: url.map(Secret::new),
+            enabled,
+        }
+    }
+
+    #[tokio::test]
+    async fn an_mcp_server_shows_its_host_and_never_its_address() {
+        let f = Fixture::new(Mode::Standalone);
+
+        let view = f
+            .service
+            .set_mcp_server(add_mcp("home", Some(MCP_ADDRESS)))
+            .await
+            .unwrap();
+
+        let home = McpServerView {
+            id: "mcp-1".into(),
+            name: "home".into(),
+            host: "mcp.example:8443".into(),
+            enabled: true,
+            revision: 1,
+        };
+        assert_eq!(view.mcp_servers, std::slice::from_ref(&home));
+        for text in [format!("{view:?}"), f.file("standalone.toml")] {
+            assert!(!text.contains("private-token"), "{text}");
+            assert!(!text.contains("s3cret"), "{text}");
+        }
+        assert!(f.file("secrets.toml").contains(MCP_ADDRESS));
+        let live = f.live();
+        assert_eq!(live.mcp.len(), 1);
+        assert_eq!(live.mcp[0].name, "home");
+        assert_eq!(f.reload().live().borrow().mcp.len(), 1);
+
+        // A rename keeps the address.
+        let view = f
+            .service
+            .set_mcp_server(change_mcp(&home, "house", None, true))
+            .await
+            .unwrap();
+        let house = view.mcp_servers[0].clone();
+        assert_eq!((house.name.as_str(), house.revision), ("house", 2));
+        assert_eq!(house.host, "mcp.example:8443");
+        let (secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
+        assert_eq!(secrets.mcp("mcp-1").unwrap().0.expose(), MCP_ADDRESS);
+        assert_eq!(f.live().mcp[0].name, "house");
+
+        // A new address is entered whole and shows its own host.
+        let view = f
+            .service
+            .set_mcp_server(change_mcp(
+                &house,
+                "house",
+                Some("http://192.168.1.9:9000/mcp"),
+                true,
+            ))
+            .await
+            .unwrap();
+        let moved = view.mcp_servers[0].clone();
+        assert_eq!(
+            (moved.host.as_str(), moved.revision),
+            ("192.168.1.9:9000", 3)
+        );
+        assert!(!f.file("secrets.toml").contains("private-token"));
+
+        // An edit made on an older revision is a conflict.
+        let stale = f
+            .service
+            .set_mcp_server(change_mcp(&house, "home", None, true))
+            .await
+            .unwrap_err();
+        assert_eq!(stale, Refusal::Conflict(MCP_CHANGED.into()));
+        assert_eq!(
+            f.service
+                .delete_mcp_server(&house.id, house.revision)
+                .await
+                .unwrap_err(),
+            Refusal::Conflict(MCP_CHANGED.into())
+        );
+
+        // Switched off, it leaves the brain; removed, its address goes too.
+        let view = f
+            .service
+            .set_mcp_server(change_mcp(&moved, "house", None, false))
+            .await
+            .unwrap();
+        assert!(!view.mcp_servers[0].enabled);
+        assert!(f.live().mcp.is_empty());
+        let off = view.mcp_servers[0].clone();
+        let view = f
+            .service
+            .delete_mcp_server(&off.id, off.revision)
+            .await
+            .unwrap();
+        assert!(view.mcp_servers.is_empty());
+        assert!(!f.file("secrets.toml").contains("192.168.1.9"));
+    }
+
+    #[tokio::test]
+    async fn mcp_servers_are_at_most_eight_with_unique_names_and_whole_addresses() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        for n in 0..MAX_MCP_SERVERS {
+            let url = format!("https://mcp{n}.example/mcp");
+            f.service
+                .set_mcp_server(add_mcp(&format!("s{n}"), Some(&url)))
+                .await
+                .unwrap();
+        }
+        assert_eq!(f.live().mcp.len(), MAX_MCP_SERVERS);
+        let saved = (f.file("standalone.toml"), f.file("secrets.toml"));
+        let s1 = f.service.view().mcp_servers[1].clone();
+
+        for (edit, sentence) in [
+            (
+                add_mcp("s8", Some("https://mcp8.example/mcp")),
+                "At most 8 MCP servers.",
+            ),
+            (
+                add_mcp("s0", Some("https://other.example/mcp")),
+                "Another MCP server is called s0.",
+            ),
+            (
+                change_mcp(&s1, "s0", None, true),
+                "Another MCP server is called s0.",
+            ),
+            (
+                add_mcp("Home", Some(MCP_ADDRESS)),
+                "A name is 1 to 24 lowercase letters, digits and hyphens.",
+            ),
+            (
+                add_mcp("home_lab", Some(MCP_ADDRESS)),
+                "A name is 1 to 24 lowercase letters, digits and hyphens.",
+            ),
+            (
+                add_mcp(" ", Some(MCP_ADDRESS)),
+                "Enter a name for the MCP server.",
+            ),
+            (add_mcp("home", Some("ftp://mcp.example/mcp")), MCP_URL),
+            (add_mcp("home", Some("mcp.example/mcp")), MCP_URL),
+            (
+                add_mcp("home", Some("https://user:pw@mcp.example/mcp")),
+                "Leave out the user name and password.",
+            ),
+            (
+                add_mcp("home", Some("https://mcp.example/mcp#token")),
+                "Leave out the # and everything after it.",
+            ),
+        ] {
+            assert_eq!(
+                f.service.set_mcp_server(edit).await.unwrap_err(),
+                Refusal::Invalid(sentence.into())
+            );
+        }
+        assert_eq!((f.file("standalone.toml"), f.file("secrets.toml")), saved);
+
+        // An address is needed when adding.
+        f.service
+            .delete_mcp_server(&s1.id, s1.revision)
+            .await
+            .unwrap();
+        assert_eq!(
+            f.service
+                .set_mcp_server(add_mcp("s9", None))
+                .await
+                .unwrap_err(),
+            Refusal::Invalid(MCP_URL.into())
+        );
+        assert_eq!(f.service.view().mcp_servers.len(), MAX_MCP_SERVERS - 1);
+    }
+
+    #[tokio::test]
+    async fn an_mcp_server_whose_address_was_lost_is_off_until_entered_again() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        f.service
+            .set_mcp_server(add_mcp("home", Some(MCP_ADDRESS)))
+            .await
+            .unwrap();
+        fs::write(f.dir.path().join("secrets.toml"), "").unwrap();
+        let service = f.reload();
+        let home = service.view().mcp_servers[0].clone();
+        assert!(home.enabled);
+        assert!(service.live().borrow().mcp.is_empty());
+
+        assert_eq!(
+            service
+                .set_mcp_server(change_mcp(&home, "home", None, true))
+                .await
+                .unwrap_err(),
+            Refusal::Invalid("Enter the MCP server's address again.".into())
+        );
+        let off = service
+            .set_mcp_server(change_mcp(&home, "home", None, false))
+            .await
+            .unwrap();
+        let home = off.mcp_servers[0].clone();
+        assert!(!home.enabled);
+        let on = service
+            .set_mcp_server(change_mcp(&home, "home", Some(MCP_ADDRESS), true))
+            .await
+            .unwrap();
+        assert!(on.mcp_servers[0].enabled);
+        assert_eq!(service.live().borrow().mcp.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_mcp_server_keeps_its_session_across_edits() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        f.service
+            .set_mcp_server(add_mcp("home", Some(MCP_ADDRESS)))
+            .await
+            .unwrap();
+        let before = f.live().mcp[0].clone();
+
+        f.service
+            .update(AssistantPatch {
+                language: Some(Some("de".into())),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&before, &f.live().mcp[0]));
+
+        let home = f.service.view().mcp_servers[0].clone();
+        f.service
+            .set_mcp_server(change_mcp(&home, "house", None, true))
+            .await
+            .unwrap();
+        assert!(!Arc::ptr_eq(&before, &f.live().mcp[0]));
     }
 
     #[test]

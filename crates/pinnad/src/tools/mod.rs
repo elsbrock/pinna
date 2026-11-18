@@ -3,20 +3,26 @@
 //! One table names every tool, the surfaces that offer it and its
 //! arguments. The owner switches tools off per name in standalone.toml; a
 //! tool that is off is left out of the list and refused when called anyway.
+//!
+//! A tool-loop brain also gets the tools of the owner's MCP servers, as
+//! `<server>_<tool>`. A device tool's name is never lent to one of them.
 
 mod device;
 pub mod weather;
 
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, join_all};
+use pinna_assist::presets::Delegation;
 use pinna_mcp::{ToolOutput, ToolSet, ToolSpec};
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::leds::LightEffect;
-use crate::standalone::AssistLive;
+use crate::standalone::{AssistLive, OwnerMcp};
 use crate::voice::{ApiCommand, Input, RunId, Snapshot};
 use device::Op;
 use weather::OpenMeteo;
@@ -505,16 +511,65 @@ impl DeviceTools {
         }
         answer.await.unwrap_or_else(|_| Err(SHUTTING_DOWN.into()))
     }
+
+    /// The owner's MCP tools on offer, each with its server; only `name`'s
+    /// when given. Only a tool-loop brain gets them. The first server to
+    /// list a name has it; a server that lists nothing is left out.
+    async fn owner_tools(&self, name: Option<&str>) -> Vec<(&OwnerMcp, ToolSpec)> {
+        if self.surface != Surface::Brain
+            || self.live.behaviour().delegation != Delegation::ToolLoop
+        {
+            return Vec::new();
+        }
+        // Only a server whose namespace prefixes the name can have it.
+        let servers = self.live.mcp.iter().filter(|server| {
+            name.is_none_or(|name| {
+                name.strip_prefix(server.name.replace('-', "_").as_str())
+                    .is_some_and(|rest| rest.starts_with('_'))
+            })
+        });
+        let listed = join_all(
+            servers.map(|server| async move { (server.as_ref(), server.tools.specs().await) }),
+        )
+        .await;
+        let mut seen = HashSet::new();
+        let mut offered = Vec::new();
+        for (server, specs) in listed {
+            if specs.is_empty() {
+                if server.left_out(Instant::now()) {
+                    tracing::warn!(
+                        "the MCP server {} listed no tools; the brain goes without it",
+                        server.name
+                    );
+                }
+                continue;
+            }
+            for spec in specs {
+                if name.is_none_or(|name| spec.name == name)
+                    && device_tool_name(&spec.name).is_none()
+                    && seen.insert(spec.name.clone())
+                {
+                    offered.push((server, spec));
+                }
+            }
+        }
+        offered
+    }
 }
 
 impl ToolSet for DeviceTools {
     fn specs(&self) -> BoxFuture<'_, Vec<ToolSpec>> {
-        let specs = TOOLS
-            .iter()
-            .filter(|t| t.reach.offers(self.surface) && self.switched_on(t.name))
-            .map(Tool::spec)
-            .collect();
-        Box::pin(std::future::ready(specs))
+        Box::pin(async move {
+            let device = TOOLS
+                .iter()
+                .filter(|t| t.reach.offers(self.surface))
+                .map(Tool::spec);
+            let owner = self.owner_tools(None).await.into_iter().map(|(_, s)| s);
+            device
+                .chain(owner)
+                .filter(|spec| self.switched_on(&spec.name))
+                .collect()
+        })
     }
 
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput> {
@@ -523,7 +578,15 @@ impl ToolSet for DeviceTools {
                 .iter()
                 .find(|t| t.name == name && t.reach.offers(self.surface))
             else {
-                return ToolOutput::error(format!("Unknown tool {name}."));
+                let Some((server, _)) = self.owner_tools(Some(name)).await.pop() else {
+                    return ToolOutput::error(format!("Unknown tool {name}."));
+                };
+                if !self.switched_on(name) {
+                    return ToolOutput::error(format!(
+                        "The owner switched {name} off under Assistant."
+                    ));
+                }
+                return server.tools.call(name, args).await;
             };
             if !self.switched_on(name) {
                 return ToolOutput::error(format!(
@@ -546,7 +609,12 @@ impl ToolSet for DeviceTools {
 mod tests {
     use std::collections::{BTreeMap, HashSet};
 
+    use pinna_assist::config::{AssistConfig, Connection, SlotConfig};
+    use pinna_assist::pipeline::Pipeline;
+    use pinna_assist::presets::PresetId;
+    use pinna_assist::secrets::Secrets;
     use pinna_esphome::{DeviceEvent, EsphomeHandle};
+    use pinna_http::Secret;
 
     use super::*;
     use crate::leds::LedState;
@@ -1065,6 +1133,207 @@ mod tests {
             seen.insert(spec.name.clone());
         }
         assert_eq!(seen.len(), TOOLS.len());
+    }
+
+    /// Tools on one of the owner's MCP servers; each says it ran.
+    struct Remote(&'static [&'static str]);
+
+    impl ToolSet for Remote {
+        fn specs(&self) -> BoxFuture<'_, Vec<ToolSpec>> {
+            let specs = self
+                .0
+                .iter()
+                .map(|name| ToolSpec {
+                    name: (*name).into(),
+                    description: format!("Remote {name}."),
+                    input_schema: json!({"type": "object"}),
+                })
+                .collect();
+            Box::pin(std::future::ready(specs))
+        }
+
+        fn call<'a>(&'a self, name: &'a str, _args: Value) -> BoxFuture<'a, ToolOutput> {
+            Box::pin(std::future::ready(ToolOutput::ok(format!(
+                "remote {name} ran"
+            ))))
+        }
+    }
+
+    /// An owner's MCP server on 127.0.0.1 offering `tools`, with a token in
+    /// its address.
+    async fn remote(tools: &'static [&'static str]) -> String {
+        use axum::response::IntoResponse;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp/token", listener.local_addr().unwrap());
+        let tools = Arc::new(Remote(tools));
+        let answer = move |body: axum::body::Bytes| {
+            let tools = tools.clone();
+            async move {
+                let info = pinna_mcp::server::ServerInfo {
+                    name: "remote".into(),
+                    version: "1".into(),
+                };
+                match pinna_mcp::server::handle(tools.as_ref(), &info, &body)
+                    .await
+                    .reply
+                {
+                    Some(reply) => (
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        reply,
+                    )
+                        .into_response(),
+                    None => axum::http::StatusCode::ACCEPTED.into_response(),
+                }
+            }
+        };
+        let app = axum::Router::new().route("/mcp/token", axum::routing::post(answer));
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        url
+    }
+
+    /// An address nothing answers on.
+    async fn down() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        format!("http://{}/mcp", listener.local_addr().unwrap())
+    }
+
+    /// A pipeline whose brain runs the tool loop or hands requests off.
+    fn pipeline(delegation: Delegation) -> Arc<Pipeline> {
+        let mut cfg = AssistConfig::default();
+        cfg.connections.push(Connection {
+            id: "c".into(),
+            preset: PresetId::OpenAi,
+            base_url: "http://127.0.0.1:9/v1".into(),
+            revision: 1,
+        });
+        let slot = |model: &str| {
+            Some(SlotConfig {
+                connection: "c".into(),
+                model: model.into(),
+                checked: 1,
+            })
+        };
+        cfg.stt = slot("whisper-1");
+        cfg.chat = slot("gpt-test");
+        cfg.tts = slot("nova");
+        cfg.chat_override.delegation = Some(delegation);
+        Arc::new(Pipeline::build(&cfg, &Secrets::default()).unwrap())
+    }
+
+    /// The tools of a brain with the owner's MCP servers `(name, address)`.
+    fn owner(
+        servers: &[(&str, &str)],
+        delegation: Delegation,
+        switches: &[(&str, bool)],
+        surface: Surface,
+    ) -> DeviceTools {
+        let mut live = AssistLive::empty();
+        live.pipeline = Some(pipeline(delegation));
+        live.switches = switches
+            .iter()
+            .map(|&(name, on)| (name.to_owned(), on))
+            .collect();
+        live.mcp = servers
+            .iter()
+            .enumerate()
+            .map(|(n, &(name, url))| {
+                Arc::new(OwnerMcp::new(&format!("mcp-{n}"), name, Secret::new(url)))
+            })
+            .collect();
+        let (inputs, _rx) = mpsc::channel(64);
+        let status = watch::channel(Snapshot::default()).1;
+        DeviceTools::new(
+            inputs,
+            status,
+            Arc::new(live),
+            surface,
+            Caller::Run(RunId(1)),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_tool_loop_brain_gets_the_owner_tools_under_their_server_name() {
+        let home = remote(&["lights_on", "volume"]).await;
+        let set = remote(&["volume", "scene"]).await;
+        let away = down().await;
+        let tools = owner(
+            &[("home", &home), ("set", &set), ("away", &away)],
+            Delegation::ToolLoop,
+            &[],
+            Surface::Brain,
+        );
+
+        let specs = tools.specs().await;
+
+        let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
+        for name in ["home_lights_on", "home_volume", "set_scene", "set_volume"] {
+            assert!(names.contains(&name), "{name}: {names:?}");
+        }
+        // A device tool's name stays the device tool's.
+        assert_eq!(names.iter().filter(|n| **n == "set_volume").count(), 1);
+        let set_volume = specs.iter().find(|s| s.name == "set_volume").unwrap();
+        assert_eq!(set_volume.description, "Set the speaker volume.");
+        // A server that is down is left out.
+        assert!(!names.iter().any(|n| n.starts_with("away_")), "{names:?}");
+        let lights = specs.iter().find(|s| s.name == "home_lights_on").unwrap();
+        assert_eq!(lights.description, "Remote lights_on.");
+
+        // A call reaches the server under the tool's own name.
+        assert_eq!(
+            tools.call("home_lights_on", json!({})).await,
+            ToolOutput::ok("remote lights_on ran")
+        );
+        assert_eq!(
+            tools.call("set_scene", json!({})).await,
+            ToolOutput::ok("remote scene ran")
+        );
+        for name in ["away_scene", "home_scene", "lights_on"] {
+            assert_eq!(
+                tools.call(name, json!({})).await,
+                ToolOutput::error(format!("Unknown tool {name}."))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_hand_off_brain_and_mcp_clients_get_no_owner_tools() {
+        let home = remote(&["lights_on"]).await;
+        for (delegation, surface) in [
+            (Delegation::HandOff, Surface::Brain),
+            (Delegation::ToolLoop, Surface::Mcp),
+        ] {
+            let tools = owner(&[("home", &home)], delegation, &[], surface);
+
+            let names = names(&tools).await;
+
+            assert!(names.contains(&"set_volume".to_owned()));
+            assert!(!names.iter().any(|n| n.starts_with("home_")), "{names:?}");
+            assert_eq!(
+                tools.call("home_lights_on", json!({})).await,
+                ToolOutput::error("Unknown tool home_lights_on.")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_switched_off_owner_tool_is_absent_and_refused() {
+        let home = remote(&["lights_on", "lights_off"]).await;
+        let tools = owner(
+            &[("home", &home)],
+            Delegation::ToolLoop,
+            &[("home_lights_on", false)],
+            Surface::Brain,
+        );
+
+        let names = names(&tools).await;
+
+        assert!(!names.contains(&"home_lights_on".to_owned()));
+        assert!(names.contains(&"home_lights_off".to_owned()));
+        assert_eq!(
+            tools.call("home_lights_on", json!({})).await,
+            ToolOutput::error("The owner switched home_lights_on off under Assistant.")
+        );
     }
 
     #[tokio::test]

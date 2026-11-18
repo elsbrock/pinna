@@ -23,8 +23,8 @@ use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, Prese
 use pinna_http::Secret;
 
 use crate::standalone::service::{
-    AssistantPatch, AssistantView, ConnectionEdit, KeyEdit, Refusal, Service, SlotEdit, SlotKind,
-    SlotView,
+    AssistantPatch, AssistantView, ConnectionEdit, KeyEdit, McpEdit, Refusal, Service, SlotEdit,
+    SlotKind, SlotView,
 };
 
 pub struct AssistantApi {
@@ -348,23 +348,36 @@ impl AssistantService for AssistantApi {
     async fn set_mcp_server(
         &self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, SetMcpServerRequest>,
+        request: ServiceRequest<'_, SetMcpServerRequest>,
     ) -> ServiceResult<SetMcpServerResponse> {
-        // The owner's MCP servers (T69) answer here.
-        Err(ConnectError::unimplemented(
-            "MCP servers can't be added yet.",
-        ))
+        let edit = McpEdit {
+            id: existing(request.id),
+            revision: request.revision,
+            name: request.name.to_owned(),
+            url: request.url.map(Secret::new),
+            enabled: request.enabled,
+        };
+        let view = self.service.set_mcp_server(edit).await.map_err(refused)?;
+        Response::ok(SetMcpServerResponse {
+            assistant: assistant(view),
+            ..Default::default()
+        })
     }
 
     async fn delete_mcp_server(
         &self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, DeleteMcpServerRequest>,
+        request: ServiceRequest<'_, DeleteMcpServerRequest>,
     ) -> ServiceResult<DeleteMcpServerResponse> {
-        // The owner's MCP servers (T69) answer here.
-        Err(ConnectError::unimplemented(
-            "MCP servers can't be removed yet.",
-        ))
+        let view = self
+            .service
+            .delete_mcp_server(request.id, request.revision)
+            .await
+            .map_err(refused)?;
+        Response::ok(DeleteMcpServerResponse {
+            assistant: assistant(view),
+            ..Default::default()
+        })
     }
 
     async fn play_sample(
@@ -825,6 +838,71 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(e.code, ErrorCode::Unimplemented);
+    }
+
+    #[tokio::test]
+    async fn mcp_servers_are_shown_by_host_and_never_by_address() {
+        let d = Device::start().await;
+        let address = "https://mcp.example:8443/private-token?key=s3cret";
+
+        let (status, added) = d
+            .json(
+                "AssistantService/SetMcpServer",
+                &format!(r#"{{"name": "home", "url": "{address}", "enabled": true}}"#),
+            )
+            .await;
+
+        assert_eq!(status, 200, "{added}");
+        assert!(added.contains(r#""host":"mcp.example:8443""#), "{added}");
+        let (_, got) = d.json("AssistantService/GetAssistant", "{}").await;
+        let bad = format!(r#"{{"name": "home-2", "url": "{address}#x", "enabled": true}}"#);
+        let (status, refused) = d.json("AssistantService/SetMcpServer", &bad).await;
+        assert_eq!(status, 400, "{refused}");
+        for body in [&added, &got, &refused] {
+            assert!(!body.contains("private-token"), "{body}");
+            assert!(!body.contains("s3cret"), "{body}");
+        }
+
+        let a = assistant!(d.assistant.get_assistant(GetAssistantRequest::default())).unwrap();
+        let home = a.mcp_servers[0].clone();
+        assert_eq!((home.name.as_str(), home.revision), ("home", 1));
+        assert!(home.enabled);
+        let rename = |revision| SetMcpServerRequest {
+            id: home.id.clone(),
+            revision,
+            name: "house".into(),
+            enabled: true,
+            ..Default::default()
+        };
+        let a = assistant!(d.assistant.set_mcp_server(rename(home.revision))).unwrap();
+        assert_eq!(a.mcp_servers[0].name, "house");
+        assert_eq!(a.mcp_servers[0].host, "mcp.example:8443");
+        let stale = d
+            .assistant
+            .set_mcp_server(rename(home.revision))
+            .await
+            .unwrap_err();
+        assert_eq!(stale.code, ErrorCode::Aborted);
+        let add = |n| SetMcpServerRequest {
+            name: format!("s{n}"),
+            url: Some(format!("https://mcp{n}.example/mcp")),
+            ..Default::default()
+        };
+        for n in 1..8 {
+            assistant!(d.assistant.set_mcp_server(add(n))).unwrap();
+        }
+        let e = d.assistant.set_mcp_server(add(8)).await.unwrap_err();
+        assert_eq!(e.code, ErrorCode::InvalidArgument);
+        assert_eq!(e.message.as_deref(), Some("At most 8 MCP servers."));
+
+        let house = &a.mcp_servers[0];
+        let a = assistant!(d.assistant.delete_mcp_server(DeleteMcpServerRequest {
+            id: house.id.clone(),
+            revision: house.revision,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert!(a.mcp_servers.iter().all(|s| s.id != house.id));
     }
 
     #[tokio::test]
