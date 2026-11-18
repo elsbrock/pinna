@@ -290,8 +290,17 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 
 - **A slot is checked when it is saved, and again when its connection changes.**
   - pinnad makes a cheap call, given 10 s: the model list, half a second of silence for a speech server
-    without one, or a one-word phrase. Only the brain's model is compared with the list; an agent's and
-    a speech model aren't.
+    without one (and always for ElevenLabs, whose list has no Scribe models), or a one-word phrase in
+    the slot's voice and text-to-speech model. Only the brain's model is compared with the list; an
+    agent's and a speech model aren't.
+  - A refused check (400 or 422) adds what the service said, masked and capped like the log: it names
+    the model the service didn't take, and often the ones it has.
+- **The model and voice fields suggest what the service offers**, as it lists it when the field opens:
+  the brain's models, an OpenAI-compatible server's speech models, and ElevenLabs' voices (by name, for
+  their IDs) and speech models. Pinna keeps no list of its own, and any name can still be typed; the
+  check stays the proof.
+- **Text-to-speech has an optional model** besides the voice. Empty is the preset's: `tts-1` for
+  OpenAI-compatible servers, `eleven_multilingual_v2` for ElevenLabs.
   - A slot is saved only when its check passes, in either mode.
   - A connection change re-checks the slots on it. In standalone mode a change that fails is refused
     with a sentence naming each slot that failed. In Home Assistant mode it is saved, and those slots
@@ -379,6 +388,4 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - ChatGPT sign-in, which needs a client ID;
   - speech-to-speech models;
   - MCP servers that need a header token or OAuth;
-  - a text-to-speech model field: OpenAI-compatible servers always get `tts-1`, ElevenLabs
-    `eleven_multilingual_v2`;
   - Spotify Connect, and several satellites sharing one conversation.
