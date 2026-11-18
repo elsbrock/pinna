@@ -18,7 +18,7 @@ use reqwest::Response;
 use crate::{
     error::{ProviderError, Reason, Slot},
     http::{self, Endpoint},
-    presets::{ChatProtocol, PresetId},
+    presets::{ChatProtocol, PresetId, Reasoning},
 };
 
 mod anthropic;
@@ -30,9 +30,16 @@ pub use gemini::GeminiChat;
 pub use openai::OpenAiChat;
 
 /// The adapter for a protocol, with the model to ask for.
-pub fn adapter(protocol: ChatProtocol, endpoint: Endpoint, model: String) -> Arc<dyn Chat> {
+/// `reasoning` reaches only the OpenAI-compatible protocol: Anthropic's and
+/// Gemini's thinking controls differ per model (ADR 0017).
+pub fn adapter(
+    protocol: ChatProtocol,
+    endpoint: Endpoint,
+    model: String,
+    reasoning: Option<Reasoning>,
+) -> Arc<dyn Chat> {
     match protocol {
-        ChatProtocol::OpenAi => Arc::new(OpenAiChat::new(endpoint, model)),
+        ChatProtocol::OpenAi => Arc::new(OpenAiChat::new(endpoint, model).reasoning(reasoning)),
         ChatProtocol::Anthropic => Arc::new(AnthropicChat::new(endpoint, model)),
         ChatProtocol::Gemini => Arc::new(GeminiChat::new(endpoint, model)),
     }

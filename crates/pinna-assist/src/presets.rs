@@ -138,6 +138,29 @@ pub enum Delegation {
     HandOff,
 }
 
+/// How long a reasoning model thinks before it answers: OpenAI's
+/// `reasoning_effort`, sent only when the owner chose one (ADR 0017).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reasoning {
+    None,
+    Low,
+    Medium,
+    High,
+}
+
+impl Reasoning {
+    /// The value of `reasoning_effort`.
+    pub fn effort(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
 /// How much of the conversation the brain gets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -206,6 +229,10 @@ pub struct ChatOverride {
     /// The first-text limit in seconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_text_s: Option<u64>,
+    /// Sent as `reasoning_effort` on the OpenAI-compatible protocol; unset
+    /// sends nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<Reasoning>,
 }
 
 /// One value for each slot: which slots a preset can serve, which are ready,
@@ -544,6 +571,7 @@ mod tests {
             delegation: Some(Delegation::HandOff),
             history: Some(HistoryPolicy::NewTurnOnly),
             first_text_s: Some(120),
+            reasoning: Some(Reasoning::None),
         };
         let over = base.overridden(&o);
         assert_eq!(over.delegation, Delegation::HandOff);

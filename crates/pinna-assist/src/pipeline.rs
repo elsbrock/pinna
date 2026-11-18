@@ -131,7 +131,12 @@ fn build_chat(
     let auth = row.chat_protocol.auth(key(secrets, connection));
     let endpoint = endpoint(connection, auth, read, clock_synced);
     Some(BuiltChat {
-        adapter: chat::adapter(row.chat_protocol, endpoint, model.to_owned()),
+        adapter: chat::adapter(
+            row.chat_protocol,
+            endpoint,
+            model.to_owned(),
+            cfg.chat_override.reasoning,
+        ),
         preset: connection.preset,
         behaviour,
         label: format!("{}: {model}", connection.preset.label()),

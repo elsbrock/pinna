@@ -21,7 +21,9 @@ use pinna_api::{
     SetSlotResponse, SlotChoice, UpdateAssistantRequest, UpdateAssistantResponse,
 };
 use pinna_assist::config::{Ack, Station};
-use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId};
+use pinna_assist::presets::{
+    self, ChatOverride, ChatProtocol, Delegation, HistoryPolicy, PresetId, Reasoning,
+};
 use pinna_assist::prompt::VOICE_RULES;
 use pinna_http::Secret;
 
@@ -159,6 +161,7 @@ fn render(v: AssistantView) -> Assistant {
                 tts: p.slots.tts,
                 model: p.model.unwrap_or_default().into(),
                 hand_off: p.behaviour.delegation == Delegation::HandOff,
+                thinking: p.chat_protocol == ChatProtocol::OpenAi,
                 ..Default::default()
             })
             .collect(),
@@ -193,7 +196,7 @@ fn slot_choice(slot: Option<SlotView>) -> MessageField<SlotChoice, Inline<SlotCh
 }
 
 fn brain_override(o: &ChatOverride) -> BrainOverride {
-    use pinna_api::{Delegation as D, History as H};
+    use pinna_api::{Delegation as D, History as H, Reasoning as R};
     let (history, history_limit) = match o.history {
         None => (H::HISTORY_UNSPECIFIED, 0),
         Some(HistoryPolicy::Turns(n)) => (H::HISTORY_TURNS, n),
@@ -209,12 +212,19 @@ fn brain_override(o: &ChatOverride) -> BrainOverride {
         history: EnumValue::Known(history),
         history_limit: u32::try_from(history_limit).unwrap_or(u32::MAX),
         first_text_seconds: o.first_text_s.map(|s| u32::try_from(s).unwrap_or(u32::MAX)),
+        reasoning: EnumValue::Known(match o.reasoning {
+            None => R::REASONING_UNSPECIFIED,
+            Some(Reasoning::None) => R::REASONING_NONE,
+            Some(Reasoning::Low) => R::REASONING_LOW,
+            Some(Reasoning::Medium) => R::REASONING_MEDIUM,
+            Some(Reasoning::High) => R::REASONING_HIGH,
+        }),
         ..Default::default()
     }
 }
 
 fn chat_override(o: &BrainOverride) -> Result<ChatOverride, ConnectError> {
-    use pinna_api::{Delegation as D, History as H};
+    use pinna_api::{Delegation as D, History as H, Reasoning as R};
     let delegation = match o.delegation.as_known() {
         Some(D::DELEGATION_UNSPECIFIED) => None,
         Some(D::DELEGATION_TOOL_LOOP) => Some(Delegation::ToolLoop),
@@ -233,10 +243,23 @@ fn chat_override(o: &BrainOverride) -> Result<ChatOverride, ConnectError> {
             ));
         }
     };
+    let reasoning = match o.reasoning.as_known() {
+        Some(R::REASONING_UNSPECIFIED) => None,
+        Some(R::REASONING_NONE) => Some(Reasoning::None),
+        Some(R::REASONING_LOW) => Some(Reasoning::Low),
+        Some(R::REASONING_MEDIUM) => Some(Reasoning::Medium),
+        Some(R::REASONING_HIGH) => Some(Reasoning::High),
+        None => {
+            return Err(ConnectError::invalid_argument(
+                "Choose how long the brain thinks.",
+            ));
+        }
+    };
     Ok(ChatOverride {
         delegation,
         history,
         first_text_s: o.first_text_seconds.map(u64::from),
+        reasoning,
     })
 }
 
@@ -1010,6 +1033,7 @@ mod tests {
             history: EnumValue::Known(pinna_api::History::HISTORY_BYTES),
             history_limit: 4096,
             first_text_seconds: Some(90),
+            reasoning: EnumValue::Known(pinna_api::Reasoning::REASONING_NONE),
             ..Default::default()
         };
         let a = assistant!(d.assistant.update_assistant(UpdateAssistantRequest {

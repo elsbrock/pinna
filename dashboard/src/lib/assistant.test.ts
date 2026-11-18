@@ -71,6 +71,7 @@ const preset = (id: string, over: Partial<Preset> = {}): Preset => ({
   tts: false,
   model: "",
   handOff: false,
+  thinking: false,
   ...over,
 });
 const view = (over: Partial<Assistant> = {}): Assistant =>
@@ -211,6 +212,7 @@ test("who runs the tools: the Advanced setting, else the brain's preset", () => 
     delegation,
     history: 0,
     historyLimit: 0,
+    reasoning: 0,
   });
   const base = view({
     connections: [connection("openai-1", "openai"), connection("hermes-1", "hermes")],

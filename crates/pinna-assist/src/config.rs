@@ -348,6 +348,13 @@ x = 1
             let back: ChatOverride = toml::from_str(&toml::to_string(&o).unwrap()).unwrap();
             assert_eq!(back, o);
         }
+        let o = ChatOverride {
+            reasoning: Some(crate::presets::Reasoning::None),
+            ..ChatOverride::default()
+        };
+        let text = toml::to_string(&o).unwrap();
+        assert_eq!(text.trim(), "reasoning = \"none\"");
+        assert_eq!(toml::from_str::<ChatOverride>(&text).unwrap(), o);
     }
 
     #[test]

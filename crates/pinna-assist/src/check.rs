@@ -15,7 +15,7 @@ use crate::{
     audio,
     error::{ProviderError, Reason, Slot},
     http::{self, Endpoint},
-    presets::{PresetId, preset},
+    presets::{ChatProtocol, PresetId, preset},
     reply::AudioBody,
     stt, tts,
 };
@@ -216,6 +216,15 @@ pub fn request_failure(error: &ProviderError) -> String {
         (Slot::Chat, Reason::Timeout) => "The brain didn't answer in time. If the server is \
             running, the model may need more Time to answer, under Services, Brain, Advanced."
             .to_owned(),
+        // Some reasoning models take tools only at a set effort: gpt-6-luna
+        // over Chat Completions only with `none`.
+        (Slot::Chat, Reason::Http(400))
+            if preset(error.preset).chat_protocol == ChatProtocol::OpenAi =>
+        {
+            "The service refused the request (400). Check the model's name. A reasoning model \
+            may need Thinking set, such as None, under Services, Brain, Advanced."
+                .to_owned()
+        }
         _ => refusal(error),
     }
 }
@@ -560,6 +569,16 @@ mod tests {
         assert!(!refusal(&slow).contains("Time to answer"));
         let stt = ProviderError::new(Slot::Stt, PresetId::OpenAi, Reason::Timeout);
         assert_eq!(request_failure(&stt), refusal(&stt));
+    }
+
+    #[test]
+    fn a_refused_brain_request_names_the_thinking_setting_where_it_applies() {
+        let openai = ProviderError::new(Slot::Chat, PresetId::OpenAi, Reason::Http(400));
+        assert!(request_failure(&openai).contains("Thinking"));
+        let anthropic = ProviderError::new(Slot::Chat, PresetId::Anthropic, Reason::Http(400));
+        assert_eq!(request_failure(&anthropic), refusal(&anthropic));
+        // The check lists models and never sends the setting.
+        assert!(!refusal(&openai).contains("Thinking"));
     }
 
     #[test]

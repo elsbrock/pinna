@@ -74,6 +74,17 @@ enum History {
   HISTORY_NEW_TURN_ONLY = 3;
 }
 
+// How long a reasoning model thinks before it answers, sent as
+// `reasoning_effort` to a brain on the OpenAI-compatible protocol.
+enum Reasoning {
+  // Nothing is sent: the service's default.
+  REASONING_UNSPECIFIED = 0;
+  REASONING_NONE = 1;
+  REASONING_LOW = 2;
+  REASONING_MEDIUM = 3;
+  REASONING_HIGH = 4;
+}
+
 message Assistant {
   // All three slots are ready: standalone mode can be switched on.
   bool ready = 1;
@@ -146,6 +157,8 @@ message BrainOverride {
   uint32 history_limit = 3;
   // How long the brain may take to its first text, 1 to 300 seconds.
   optional uint32 first_text_seconds = 4;
+  // Only a preset with `thinking` sends it.
+  Reasoning reasoning = 5;
 }
 
 message Place {
@@ -214,6 +227,8 @@ message Preset {
   string model = 6;
   // Its brain is an agent (DELEGATION_HAND_OFF).
   bool hand_off = 7;
+  // Its brain takes BrainOverride.reasoning (the OpenAI-compatible protocol).
+  bool thinking = 8;
 }
 
 // One of the satellite's own tools.

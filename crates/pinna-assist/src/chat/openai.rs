@@ -9,12 +9,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Chat, ChatDelta, ChatRequest, Message, protocol_error, response_stream};
-use crate::{error::ProviderError, http::Endpoint, presets::PresetId};
+use crate::{
+    error::ProviderError,
+    http::Endpoint,
+    presets::{PresetId, Reasoning},
+};
 
 #[derive(Clone)]
 pub struct OpenAiChat {
     endpoint: Endpoint,
     model: String,
+    reasoning: Option<Reasoning>,
 }
 
 impl OpenAiChat {
@@ -22,7 +27,14 @@ impl OpenAiChat {
         Self {
             endpoint,
             model: model.into(),
+            reasoning: None,
         }
+    }
+
+    /// Send `reasoning_effort`; `None` sends nothing.
+    pub fn reasoning(mut self, reasoning: Option<Reasoning>) -> Self {
+        self.reasoning = reasoning;
+        self
     }
 
     fn request_json(&self, req: &ChatRequest<'_>) -> Value {
@@ -75,6 +87,9 @@ impl OpenAiChat {
             "max_tokens"
         };
         body[limit] = req.max_tokens.into();
+        if let Some(reasoning) = self.reasoning {
+            body["reasoning_effort"] = reasoning.effort().into();
+        }
         if !req.tools.is_empty() {
             body["tools"] = req
                 .tools
@@ -621,5 +636,36 @@ mod tests {
         let none = ChatRequest { tools: &[], ..last };
         let body = adapter(&server).request_json(&none);
         assert!(body.get("tools").is_none() && body.get("tool_choice").is_none());
+    }
+
+    #[tokio::test]
+    async fn reasoning_effort_is_sent_only_when_the_owner_chose_one() {
+        let server = FakeServer::start().await;
+        let messages = [Message::User("Set a timer.".into())];
+        let req = ChatRequest {
+            system: "Be brief.",
+            messages: &messages,
+            tools: &[],
+            calls_allowed: true,
+            max_tokens: 10,
+            user: None,
+        };
+        assert!(
+            adapter(&server)
+                .request_json(&req)
+                .get("reasoning_effort")
+                .is_none()
+        );
+        for (reasoning, effort) in [
+            (Reasoning::None, "none"),
+            (Reasoning::Low, "low"),
+            (Reasoning::Medium, "medium"),
+            (Reasoning::High, "high"),
+        ] {
+            let body = adapter(&server)
+                .reasoning(Some(reasoning))
+                .request_json(&req);
+            assert_eq!(body["reasoning_effort"], effort);
+        }
     }
 }

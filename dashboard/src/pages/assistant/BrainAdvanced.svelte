@@ -1,8 +1,9 @@
 <!-- The brain's Advanced settings: who runs the tools, how much of the
-     conversation it gets, and how long it may take to start answering. Each
-     preset sets them; these are for a server of your own. Saved together. -->
+     conversation it gets, how long it may take to start answering, and how
+     long a reasoning model thinks. Each preset sets the first three; these
+     are for a server of your own. Saved together. -->
 <script lang="ts">
-  import { Delegation, History } from "../../gen/pinna/v1/assistant_pb.ts";
+  import { Delegation, History, Reasoning } from "../../gen/pinna/v1/assistant_pb.ts";
   import { assistant } from "../../lib/assistant.svelte.ts";
   import { brainPreset, delegation as runsTools, presetName } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
@@ -14,6 +15,8 @@
   // What the brain's preset does without the setting.
   const presetRuns = $derived(assistant.view ? runsTools({ ...assistant.view, brainOverride: undefined }) : null);
   const service = $derived(assistant.view ? presetName(brainPreset(assistant.view)?.id ?? "") : "");
+  // Only the OpenAI-compatible protocol takes reasoning_effort.
+  const thinks = $derived(assistant.view ? (brainPreset(assistant.view)?.thinking ?? false) : false);
 
   // The form follows the satellite until someone changes it.
   let touched = $state(false);
@@ -21,12 +24,14 @@
   let history = $state(String(History.UNSPECIFIED));
   let limit = $state("");
   let firstText = $state("");
+  let reasoning = $state(String(Reasoning.UNSPECIFIED));
   $effect(() => {
     if (touched) return;
     delegation = String(set?.delegation ?? Delegation.UNSPECIFIED);
     history = String(set?.history ?? History.UNSPECIFIED);
     limit = set?.historyLimit ? String(set.historyLimit) : "";
     firstText = set?.firstTextSeconds === undefined ? "" : String(set.firstTextSeconds);
+    reasoning = String(set?.reasoning ?? Reasoning.UNSPECIFIED);
   });
   const sized = $derived(Number(history) === History.TURNS || Number(history) === History.BYTES);
   const edit = (apply: () => void) => {
@@ -48,6 +53,7 @@
         history: Number(history),
         historyLimit: sized ? Math.max(0, Math.trunc(Number(limit) || 0)) : 0,
         firstTextSeconds: firstText.trim() ? Math.max(0, Math.trunc(Number(firstText) || 0)) : undefined,
+        reasoning: Number(reasoning),
       },
     });
     if (!error) touched = false;
@@ -127,6 +133,23 @@
     oninput={(e) => edit(() => (firstText = e.currentTarget.value))}
   />
 </div>
+{#if thinks}
+  <Select
+    id="brain-reasoning"
+    label="Thinking"
+    hint="How long a reasoning model thinks before it answers. None answers fastest, and some models use tools only with it, such as gpt-6-luna. Service default sends nothing, for a model that doesn't reason."
+    value={reasoning}
+    options={[
+      { id: String(Reasoning.UNSPECIFIED), label: "Service default" },
+      { id: String(Reasoning.NONE), label: "None" },
+      { id: String(Reasoning.LOW), label: "Low" },
+      { id: String(Reasoning.MEDIUM), label: "Medium" },
+      { id: String(Reasoning.HIGH), label: "High" },
+    ]}
+    disabled={!live}
+    choose={(v) => edit(() => (reasoning = v))}
+  />
+{/if}
 <div class="pn-row is-actions">
   {#if error}<span class="pn-field-error" role="alert"><Icon name="alert" />{error}</span>{/if}
   <button class="pn-btn pn-btn-primary" type="button" disabled={!live || assistant.busy || !touched} onclick={save}>
