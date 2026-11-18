@@ -299,7 +299,7 @@ fn gemini_schema(schema: &Value) -> Value {
     Value::Object(reduced)
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

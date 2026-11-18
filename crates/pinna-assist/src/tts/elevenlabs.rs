@@ -82,7 +82,7 @@ impl Tts for ElevenLabsTts {
     }
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use bytes::Bytes;
     use futures_util::StreamExt;

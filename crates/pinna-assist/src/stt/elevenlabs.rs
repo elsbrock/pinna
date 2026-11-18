@@ -60,7 +60,7 @@ impl Stt for ElevenLabsStt {
     }
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

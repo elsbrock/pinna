@@ -195,7 +195,7 @@ pub(crate) fn body_reason(error: &std::io::Error, clock_synced: bool) -> Reason 
     }
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

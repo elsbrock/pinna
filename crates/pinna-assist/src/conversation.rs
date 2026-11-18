@@ -28,7 +28,7 @@ pub struct Conversation {
 }
 
 impl Conversation {
-    pub const IDLE: Duration = Duration::from_secs(300);
+    const IDLE: Duration = Duration::from_secs(300);
 
     pub fn new(policy: HistoryPolicy) -> Self {
         Self {

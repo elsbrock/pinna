@@ -59,7 +59,7 @@ impl Tts for OpenAiTts {
     }
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

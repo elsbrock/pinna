@@ -28,17 +28,3 @@ pub trait Observer: Send + Sync {
     fn guard(&self, guard: Guard);
     fn failed(&self, error: &ProviderError);
 }
-
-/// An observer for callers that do not collect metrics.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NoObserver;
-
-impl Observer for NoObserver {
-    fn stage(&self, _slot: Slot, _seconds: f64) {}
-
-    fn spent(&self, _preset: PresetId, _spend: Spend) {}
-
-    fn guard(&self, _guard: Guard) {}
-
-    fn failed(&self, _error: &ProviderError) {}
-}

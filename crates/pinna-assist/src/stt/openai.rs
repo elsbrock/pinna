@@ -62,7 +62,7 @@ impl Stt for OpenAiStt {
     }
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

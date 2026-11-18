@@ -171,7 +171,7 @@ fn real_boundary(buf: &[char], dot_start: usize, next: usize) -> bool {
 
 /// Strip markdown and links so the text can be spoken: labels of links stay,
 /// URLs, emphasis markers, code ticks, headings and list markers go.
-pub fn speakable(text: &str) -> String {
+fn speakable(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::new();
     let mut i = 0;

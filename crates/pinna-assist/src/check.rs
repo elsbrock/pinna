@@ -25,7 +25,7 @@ pub const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The model-list body may be this large. Beyond it the status alone passes and
 /// the model isn't confirmed (architecture §7).
-pub const MODELS_CAP: usize = 2 * 1024 * 1024;
+const MODELS_CAP: usize = 2 * 1024 * 1024;
 
 /// Half a second of 16 kHz mono signed 16-bit silence, the smallest utterance
 /// that proves a speech-to-text server without a model list.
@@ -251,7 +251,7 @@ pub fn refusal(error: &ProviderError) -> String {
     }
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use pinna_http::{
         ClientKind, Secret, client,

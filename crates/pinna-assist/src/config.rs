@@ -17,7 +17,7 @@ pub const MAX_STATIONS: usize = 50;
 /// At most this many owner MCP servers.
 pub const MAX_MCP_SERVERS: usize = 8;
 /// An MCP server name is at most this many characters.
-pub const MCP_NAME_MAX: usize = 24;
+const MCP_NAME_MAX: usize = 24;
 
 /// Everything in `standalone.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -194,21 +194,6 @@ pub fn base_url(s: &str) -> Result<String, String> {
     Ok(s.to_string())
 }
 
-/// A station as it is stored, or why it can't be one.
-pub fn station(name: &str, url: &str) -> Result<Station, String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("Enter a station name.".into());
-    }
-    let url = base_url(url).map_err(|_| {
-        "Enter the station's address, starting with http:// or https://.".to_string()
-    })?;
-    Ok(Station {
-        name: name.to_string(),
-        url,
-    })
-}
-
 /// An MCP server name as it is stored, or why it can't be one.
 pub fn mcp_name(s: &str) -> Result<String, String> {
     let s = s.trim();
@@ -220,7 +205,9 @@ pub fn mcp_name(s: &str) -> Result<String, String> {
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     {
-        return Err("A name is 1 to 24 lowercase letters, digits and hyphens.".into());
+        return Err(format!(
+            "A name is 1 to {MCP_NAME_MAX} lowercase letters, digits and hyphens."
+        ));
     }
     Ok(s.to_string())
 }
@@ -231,17 +218,6 @@ pub fn prompt(s: &str) -> Result<String, String> {
         return Err("The prompt is at most 4,000 characters.".into());
     }
     Ok(s.to_string())
-}
-
-/// The whole-configuration caps that a save must keep.
-pub fn check(c: &AssistConfig) -> Result<(), String> {
-    if c.stations.len() > MAX_STATIONS {
-        return Err(format!("At most {MAX_STATIONS} stations."));
-    }
-    if c.mcp_servers.len() > MAX_MCP_SERVERS {
-        return Err(format!("At most {MAX_MCP_SERVERS} MCP servers."));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -399,20 +375,6 @@ x = 1
     }
 
     #[test]
-    fn stations() {
-        let s = station(" Radio One ", "http://radio.example/stream").unwrap();
-        assert_eq!(s.name, "Radio One");
-        assert_eq!(
-            station("", "http://x/").unwrap_err(),
-            "Enter a station name."
-        );
-        assert_eq!(
-            station("Radio", "nope").unwrap_err(),
-            "Enter the station's address, starting with http:// or https://."
-        );
-    }
-
-    #[test]
     fn mcp_names() {
         assert_eq!(mcp_name(" home-1 ").unwrap(), "home-1");
         assert_eq!(
@@ -432,34 +394,5 @@ x = 1
             prompt(&"a".repeat(PROMPT_MAX + 1)).unwrap_err(),
             "The prompt is at most 4,000 characters."
         );
-    }
-
-    #[test]
-    fn caps() {
-        let c = AssistConfig {
-            stations: (0..=MAX_STATIONS)
-                .map(|i| Station {
-                    name: format!("s{i}"),
-                    url: "http://x/".into(),
-                })
-                .collect(),
-            ..AssistConfig::default()
-        };
-        assert_eq!(check(&c).unwrap_err(), "At most 50 stations.");
-
-        let c = AssistConfig {
-            mcp_servers: (0..=MAX_MCP_SERVERS)
-                .map(|i| McpServer {
-                    id: format!("m{i}"),
-                    name: format!("m{i}"),
-                    host: "h".into(),
-                    enabled: true,
-                    revision: 0,
-                })
-                .collect(),
-            ..AssistConfig::default()
-        };
-        assert_eq!(check(&c).unwrap_err(), "At most 8 MCP servers.");
-        assert!(check(&AssistConfig::default()).is_ok());
     }
 }

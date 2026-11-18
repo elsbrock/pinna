@@ -298,7 +298,7 @@ fn required_string(value: &Value, field: &str) -> Result<String, ProviderError> 
         .ok_or_else(|| protocol_error(PresetId::Anthropic))
 }
 
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

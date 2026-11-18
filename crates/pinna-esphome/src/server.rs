@@ -142,12 +142,12 @@ pub struct EsphomeHandle {
 #[derive(Clone)]
 enum EventSender {
     Server(mpsc::Sender<Input>),
-    #[cfg(feature = "test-util")]
+    #[cfg(any(test, feature = "test-util"))]
     Detached(mpsc::Sender<DeviceEvent>),
 }
 
 impl EsphomeHandle {
-    #[cfg(feature = "test-util")]
+    #[cfg(any(test, feature = "test-util"))]
     pub fn detached(cap: usize) -> (Self, mpsc::Receiver<DeviceEvent>) {
         let (tx, rx) = mpsc::channel(cap);
         (
@@ -163,7 +163,7 @@ impl EsphomeHandle {
     pub async fn send(&self, ev: DeviceEvent) -> Result<(), Stopped> {
         match &self.tx {
             EventSender::Server(tx) => tx.send(Input::Device(ev)).await.map_err(|_| Stopped),
-            #[cfg(feature = "test-util")]
+            #[cfg(any(test, feature = "test-util"))]
             EventSender::Detached(tx) => tx.send(ev).await.map_err(|_| Stopped),
         }
     }
@@ -172,7 +172,7 @@ impl EsphomeHandle {
     pub fn try_send(&self, ev: DeviceEvent) -> Result<(), Stopped> {
         match &self.tx {
             EventSender::Server(tx) => tx.try_send(Input::Device(ev)).map_err(|_| Stopped),
-            #[cfg(feature = "test-util")]
+            #[cfg(any(test, feature = "test-util"))]
             EventSender::Detached(tx) => tx.try_send(ev).map_err(|_| Stopped),
         }
     }
@@ -207,7 +207,7 @@ pub async fn serve(
     ))
 }
 
-#[cfg(all(test, feature = "test-util"))]
+#[cfg(test)]
 #[tokio::test]
 async fn detached_events_arrive_in_order() {
     let (handle, mut events) = EsphomeHandle::detached(2);
