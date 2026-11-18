@@ -152,6 +152,8 @@ message Place {
   string name = 1;
   double latitude = 2;
   double longitude = 3;
+  // Its IANA time zone, such as "Europe/Berlin", when the search knew it.
+  string time_zone = 4;
 }
 
 // What a slow agent says while it thinks.

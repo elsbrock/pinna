@@ -2352,6 +2352,7 @@ mod tests {
             name: "München, Bayern, Deutschland".into(),
             lat: 48.13743,
             lon: 11.57549,
+            time_zone: None,
         };
 
         let view = f

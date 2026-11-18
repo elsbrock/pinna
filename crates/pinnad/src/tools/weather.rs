@@ -179,6 +179,7 @@ struct Found {
     longitude: f64,
     admin1: Option<String>,
     country: Option<String>,
+    timezone: Option<String>,
 }
 
 impl Found {
@@ -200,6 +201,7 @@ impl Found {
             name,
             lat: self.latitude,
             lon: self.longitude,
+            time_zone: self.timezone.filter(|zone| !zone.is_empty()),
         }
     }
 }
@@ -339,6 +341,7 @@ pub(crate) mod tests {
             name: "Munich, Bavaria, Germany".into(),
             lat: 48.14,
             lon: 11.58,
+            time_zone: None,
         }
     }
 
@@ -463,6 +466,7 @@ pub(crate) mod tests {
                 name: "München, Bayern, Deutschland".into(),
                 lat: 48.13743,
                 lon: 11.57549,
+                time_zone: Some("Europe/Berlin".into()),
             })
         );
         assert_eq!(

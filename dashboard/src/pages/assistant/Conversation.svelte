@@ -80,6 +80,14 @@
     if (!ackError) phraseTouched = false;
   }
 
+  // The place's time zone, offered when the satellite's differs.
+  const zone = $derived(s?.settings?.timeZone || "UTC");
+  const placeZone = $derived(view?.place?.timeZone ?? "");
+  let zoneError = $state<string | null>(null);
+  async function useZone(next: string) {
+    zoneError = await device.saveSettings({ timeZone: next }, `Time zone set to ${next}`);
+  }
+
   let question = $state("");
   let askError = $state<string | null>(null);
   // A question's progress, then how it ended. The failure is the status's
@@ -205,9 +213,20 @@
         <span class="pn-row-label">Time zone</span>
         <span class="pn-row-hint">The brain gets the local time with each request. Set it under System.</span>
       </span>
-      <span class="pn-row-value is-mono">{s.settings?.timeZone || "UTC"}</span>
+      <span class="pn-row-value is-mono">{zone}</span>
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
+    {#if placeZone && placeZone !== zone}
+      <div class="pn-row">
+        <span class="pn-row-text">
+          <span class="pn-row-hint">{view.place?.name} is in {placeZone}.</span>
+          {#if zoneError}<span class="pn-field-error" role="alert"><Icon name="alert" />{zoneError}</span>{/if}
+        </span>
+        <button class="pn-btn pn-btn-sm" type="button" disabled={!live} onclick={() => void useZone(placeZone)}
+          >Use {placeZone}</button
+        >
+      </div>
+    {/if}
   </Group>
 
   <Group title="Prompt">

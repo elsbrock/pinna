@@ -94,6 +94,10 @@ pub struct Place {
     pub name: String,
     pub lat: f64,
     pub lon: f64,
+    /// The place's IANA time zone, as the search found it, so setup can
+    /// offer it for the satellite.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
 }
 
 /// The acknowledgment played while a slow agent thinks.

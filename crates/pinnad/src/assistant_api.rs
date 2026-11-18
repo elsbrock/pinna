@@ -100,6 +100,7 @@ fn render(v: AssistantView) -> Assistant {
                 name: p.name,
                 latitude: p.lat,
                 longitude: p.lon,
+                time_zone: p.time_zone.unwrap_or_default(),
                 ..Default::default()
             })
         }),
