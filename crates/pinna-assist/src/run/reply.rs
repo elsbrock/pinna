@@ -156,8 +156,11 @@ pub(crate) async fn reply(
     let mut ack_sent = false;
     let ack_enabled = limits.ack_after.is_some() && request.ack.is_some();
 
+    // The history once; each round adds what the harness gathered since.
+    let mut messages = history_messages(request.history);
+    let history_len = messages.len();
     loop {
-        let mut messages = history_messages(request.history);
+        messages.truncate(history_len);
         messages.extend_from_slice(harness.messages());
         // Every round of a tool loop sends the tools; the last one forbids
         // calling them, so the conversation's calls still have their tools.
