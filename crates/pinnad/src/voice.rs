@@ -510,6 +510,8 @@ pub struct Brain {
     self_tx: mpsc::Sender<Input>,
     opts: Options,
     local: local::Local,
+    /// Writes `opts.mdns` after boot, one change after another.
+    mdns_writer: Arc<crate::identity::RecordWriter>,
 
     phase: Phase,
     conversation_id: String,
@@ -690,6 +692,7 @@ impl Brain {
             status,
             self_tx,
             local,
+            mdns_writer: crate::identity::RecordWriter::new(),
             phase: Phase::Idle,
             conversation_id: String::new(),
             continue_conversation: false,
@@ -1218,12 +1221,7 @@ impl Brain {
         self.send(DeviceEvent::FriendlyName(name.clone())).await;
         if let Some(dc) = &mut self.opts.mdns {
             dc.friendly_name = name;
-            let dc = dc.clone();
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::identity::publish_mdns(&dc) {
-                    tracing::warn!("mDNS: {e:#}");
-                }
-            });
+            self.mdns_writer.publish(dc.clone());
         }
         self.reconnect_pending = self.clients > 0;
         // Senders list it under the new name too.
@@ -1265,12 +1263,7 @@ impl Brain {
         self.settings.url.clone_from(&url);
         if let Some(dc) = &mut self.opts.mdns {
             dc.dashboard_url = url;
-            let dc = dc.clone();
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::identity::publish_mdns(&dc) {
-                    tracing::warn!("mDNS: {e:#}");
-                }
-            });
+            self.mdns_writer.publish(dc.clone());
         }
     }
 
@@ -1280,11 +1273,7 @@ impl Brain {
     fn set_group_record(&mut self) {
         let record = self.local.group_record();
         if let Some(dc) = group_record_changed(&mut self.opts.mdns, record) {
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::identity::publish_mdns(&dc) {
-                    tracing::warn!("mDNS: {e:#}");
-                }
-            });
+            self.mdns_writer.publish(dc);
         }
     }
 
@@ -1653,12 +1642,7 @@ impl Brain {
                 // Announce it, so Home Assistant asks for Noise (ADR 0018).
                 if let Some(dc) = &mut self.opts.mdns {
                     dc.encryption_key = Some(key);
-                    let dc = dc.clone();
-                    tokio::task::spawn_blocking(move || {
-                        if let Err(e) = crate::identity::publish_mdns(&dc) {
-                            tracing::warn!("mDNS: {e:#}");
-                        }
-                    });
+                    self.mdns_writer.publish(dc.clone());
                 }
             }
             other => tracing::debug!("ignored: {other:?}"),

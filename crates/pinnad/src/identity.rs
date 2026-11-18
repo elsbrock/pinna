@@ -2,8 +2,8 @@
 //! systemd-resolved's DNS-SD support.
 
 use std::path::Path;
-use std::sync::OnceLock;
 use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -284,6 +284,65 @@ pub fn publish_mdns(cfg: &DeviceConfig) -> Result<()> {
     Ok(())
 }
 
+/// Writes the ESPHome record for the Brain, its only writer after boot.
+/// Each change is written on the blocking pool, one write at a time, and
+/// each write takes the latest record handed over: two changes close
+/// together (a rename, or the group switched on and then started) can run in
+/// either order, and the record must end up as the later one.
+pub struct RecordWriter {
+    latest: Mutex<Option<DeviceConfig>>,
+    one_at_a_time: Mutex<()>,
+    publish: Box<Publish>,
+}
+
+/// What writes a record: [`publish_mdns`], or a test's stand-in.
+type Publish = dyn Fn(&DeviceConfig) -> Result<()> + Send + Sync;
+
+impl RecordWriter {
+    /// A writer to `/run/systemd/dnssd`, through [`publish_mdns`].
+    pub fn new() -> Arc<Self> {
+        Self::with(publish_mdns)
+    }
+
+    pub fn with(
+        publish: impl Fn(&DeviceConfig) -> Result<()> + Send + Sync + 'static,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            latest: Mutex::new(None),
+            one_at_a_time: Mutex::new(()),
+            publish: Box::new(publish),
+        })
+    }
+
+    /// Write `record` from the blocking pool. Returns at once.
+    pub fn publish(self: &Arc<Self>, record: DeviceConfig) {
+        self.hand_over(record);
+        let writer = self.clone();
+        tokio::task::spawn_blocking(move || writer.write_latest());
+    }
+
+    fn hand_over(&self, record: DeviceConfig) {
+        *self.latest.lock().unwrap_or_else(PoisonError::into_inner) = Some(record);
+    }
+
+    fn write_latest(&self) {
+        let _turn = self
+            .one_at_a_time
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let latest = self
+            .latest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(record) = latest
+            && let Err(e) = (self.publish)(&record)
+        {
+            tracing::warn!("mDNS: {e:#}");
+        }
+    }
+}
+
 /// The host name systemd-resolved announces over mDNS, `<name>.local`. It
 /// differs from the hostname after resolved lost a name conflict and picked
 /// another (ADR 0024). `None` without resolved or busctl. Blocking.
@@ -429,6 +488,29 @@ fn batched(window: Duration, action: impl Fn(bool) + Send + 'static) -> Sender<b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_write_that_runs_late_writes_the_latest_record() {
+        const ID: &str = "00112233445566778899aabbccddeeff";
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let log = written.clone();
+        let writer = RecordWriter::with(move |record| {
+            log.lock().unwrap().push(record.group.clone());
+            Ok(())
+        });
+        let record = |group: &str| DeviceConfig {
+            group: Some(group.to_owned()),
+            ..DeviceConfig::new("pinna-test", [2, 0, 0, 0, 0, 1])
+        };
+        // Switched on, then a group started: the first change's write runs
+        // after the second's.
+        writer.hand_over(record(""));
+        writer.hand_over(record(ID));
+        writer.write_latest();
+        writer.write_latest();
+        let id = Some(ID.to_owned());
+        assert_eq!(*written.lock().unwrap(), [id.clone(), id]);
+    }
 
     #[test]
     fn mac_parsing() {

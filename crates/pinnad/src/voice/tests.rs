@@ -375,3 +375,69 @@ fn the_mdns_record_follows_the_satellite_group() {
     assert!(group_record_changed(&mut off, Some(ID.into())).is_none());
     assert!(off.is_none());
 }
+
+/// The run loop rewrites the record when the standalone service publishes
+/// another group, and only then (ADR 0026).
+#[tokio::test]
+async fn the_run_loop_rewrites_the_record_when_the_group_changes() {
+    use crate::group::{Joined, Persisted, seal::Key};
+    use crate::standalone::AssistLive;
+    const ID: &str = "00112233445566778899aabbccddeeff";
+
+    let Device {
+        mut brain,
+        events: _events,
+        _dir,
+    } = Device::new();
+    let (live, live_rx) = watch::channel(Arc::new(AssistLive::empty()));
+    brain.local = local::Local::new(live_rx, Arc::new(local::NoopSpawner));
+    brain.opts.mdns = Some(pinna_esphome::DeviceConfig::new(
+        "pinna-test",
+        [2, 0, 0, 0, 0, 1],
+    ));
+    let (written_tx, mut written) = mpsc::unbounded_channel();
+    brain.mdns_writer = crate::identity::RecordWriter::with(move |dc| {
+        let _ = written_tx.send(dc.group.clone());
+        Ok(())
+    });
+    let publish = |group: Persisted| {
+        live.send_replace(Arc::new(AssistLive {
+            group,
+            ..AssistLive::empty()
+        }));
+    };
+    let on = Persisted {
+        on: true,
+        ..Persisted::default()
+    };
+    let in_group = Persisted {
+        joined: Some(Joined {
+            id: ID.into(),
+            key: Key::new([9; 32]),
+            members: Vec::new(),
+        }),
+        ..on.clone()
+    };
+
+    let (_inputs, inputs_rx) = mpsc::channel(8);
+    tokio::select! {
+        () = brain.run(inputs_rx) => panic!("the Brain stopped"),
+        () = async {
+            const WRITE: Duration = Duration::from_secs(5);
+            publish(on.clone());
+            let record = tokio::time::timeout(WRITE, written.recv()).await;
+            assert_eq!(record.unwrap(), Some(Some(String::new())));
+            publish(in_group.clone());
+            let record = tokio::time::timeout(WRITE, written.recv()).await;
+            assert_eq!(record.unwrap(), Some(Some(ID.to_owned())));
+            // The same group published again rewrites nothing: the loop
+            // passes at least twice a second.
+            publish(in_group.clone());
+            let quiet = tokio::time::timeout(Duration::from_millis(700), written.recv()).await;
+            assert!(quiet.is_err(), "an unchanged record was written");
+            publish(Persisted::default());
+            let record = tokio::time::timeout(WRITE, written.recv()).await;
+            assert_eq!(record.unwrap(), Some(None));
+        } => {}
+    }
+}
