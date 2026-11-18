@@ -79,11 +79,15 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
     (ADR 0007). Home Assistant reconnects and reads the new features.
 - **In standalone mode the dashboard always chooses the wake words** (amends ADR 0013). Without the Assist
   satellite, Home Assistant shows no wake word dropdowns.
-- **The standalone settings are on the dashboard only** (amends ADR 0007). The mode, connections, slots,
+- **The standalone settings are on the dashboard only** (amends ADR 0007). The connections, slots,
   language, place, the prompt, the tool switches, stations and MCP servers have no Home Assistant entity:
   - Home Assistant takes no part in a standalone request;
-  - keys never leave the device;
-  - an entity would let Home Assistant turn its own satellite off.
+  - keys never leave the device.
+- **The mode is also a Home Assistant entity**, the select *Assistant* with *Home Assistant* and
+  *Standalone*, so an owner who has both can switch from Home Assistant and back. It stays available in
+  both modes, since Home Assistant stays connected without the voice. It follows the same rule as the
+  dashboard: *Standalone* is refused until the three slots are ready, and the select then reports the
+  mode it stayed in.
 - **The configuration has its own files:** `standalone.toml` beside `settings.toml`, `secrets.toml` for
   keys (below) and `timers.toml` for device timers. Each is loaded entry by entry: a top-level key this
   image doesn't know is kept and written back, an array element or table entry it can't read is kept
@@ -116,6 +120,12 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   Handing off is one way. An agent that wants the device's tools reaches them over `/mcp` (below). The
   brain's Advanced settings override the preset for any brain, meant for a server of the owner's own:
   who runs the tools, how much of the conversation it gets, and the first-text limit (1 to 300 s).
+- **Thinking is the owner's choice.** A brain on the OpenAI-compatible protocol gets `reasoning_effort`
+  only when the owner picks *None*, *Low*, *Medium* or *High* under Advanced; unset sends nothing, so a
+  model or server that doesn't know the parameter keeps working. Some reasoning models need it: OpenAI's
+  `gpt-6-luna` calls tools over Chat Completions only with `none`. A brain request that fails with 400 on
+  that protocol names the setting. Anthropic's and Gemini's thinking controls differ per model and are
+  not offered yet.
 - **A local server's address is the computer it runs on.** For Ollama, LM Studio and Hermes the owner
   enters a name or address, with or without a scheme, port or path; the preset fills in what is missing
   (`192.168.1.5` becomes `http://192.168.1.5:11434/v1` for Ollama). OpenClaw's gateway has no fixed
