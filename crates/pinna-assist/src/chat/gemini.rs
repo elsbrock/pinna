@@ -130,6 +130,9 @@ impl GeminiChat {
                     "parameters": gemini_schema(&tool.input_schema),
                 })).collect::<Vec<_>>(),
             }]);
+            if !req.calls_allowed {
+                body["toolConfig"] = json!({"functionCallingConfig": {"mode": "NONE"}});
+            }
         }
         body
     }
@@ -381,6 +384,7 @@ mod tests {
                 system: "Be brief.",
                 messages: &[],
                 tools: &[],
+                calls_allowed: true,
                 max_tokens: 500,
                 user: None,
             },
@@ -420,6 +424,7 @@ mod tests {
                 system: "Be brief.",
                 messages: &[],
                 tools: &[],
+                calls_allowed: true,
                 max_tokens: 500,
                 user: None,
             },
@@ -495,6 +500,7 @@ mod tests {
                 system: "Speak plainly.",
                 messages: &messages,
                 tools: &tools,
+                calls_allowed: true,
                 max_tokens: 500,
                 user: Some("ignored-by-gemini"),
             },
@@ -543,5 +549,43 @@ mod tests {
                 "required": ["city"]
             })
         );
+    }
+
+    #[tokio::test]
+    async fn the_last_round_forbids_calls_but_keeps_the_tools() {
+        let server = FakeServer::start().await;
+        let tools = [ToolSpec {
+            name: "weather".into(),
+            description: "Weather".into(),
+            input_schema: json!({"type": "object"}),
+        }];
+        let messages = [Message::User("Hi.".into())];
+        let last = ChatRequest {
+            system: "Be brief.",
+            messages: &messages,
+            tools: &tools,
+            calls_allowed: false,
+            max_tokens: 10,
+            user: None,
+        };
+        let body = adapter(&server, "gemini-test").request_json(&last);
+        assert_eq!(
+            body["toolConfig"],
+            json!({"functionCallingConfig": {"mode": "NONE"}})
+        );
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(1));
+        let open = ChatRequest {
+            calls_allowed: true,
+            ..last
+        };
+        assert!(
+            adapter(&server, "gemini-test")
+                .request_json(&open)
+                .get("toolConfig")
+                .is_none()
+        );
+        let none = ChatRequest { tools: &[], ..last };
+        let body = adapter(&server, "gemini-test").request_json(&none);
+        assert!(body.get("tools").is_none() && body.get("toolConfig").is_none());
     }
 }

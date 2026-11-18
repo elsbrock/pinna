@@ -71,6 +71,10 @@ pub struct ChatRequest<'a> {
     pub system: &'a str,
     pub messages: &'a [Message],
     pub tools: &'a [ToolSpec],
+    /// The brain may call `tools` this round. On the last round of a tool
+    /// loop the tools are still sent, because the conversation already holds
+    /// calls to them, but the provider is told not to call any.
+    pub calls_allowed: bool,
     pub max_tokens: u32,
     pub user: Option<&'a str>,
 }

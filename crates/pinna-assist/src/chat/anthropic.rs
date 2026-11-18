@@ -82,14 +82,25 @@ impl AnthropicChat {
             "model": self.model,
             "system": req.system,
             "messages": messages,
-            "tools": req.tools.iter().map(|tool| json!({
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.input_schema,
-            })).collect::<Vec<_>>(),
             "max_tokens": req.max_tokens,
             "stream": true,
         });
+        if !req.tools.is_empty() {
+            body["tools"] = req
+                .tools
+                .iter()
+                .map(|tool| {
+                    json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "input_schema": tool.input_schema,
+                    })
+                })
+                .collect();
+            if !req.calls_allowed {
+                body["tool_choice"] = json!({"type": "none"});
+            }
+        }
         if let Some(user) = req.user {
             body["metadata"] = json!({"user_id": user});
         }
@@ -386,6 +397,7 @@ mod tests {
                 system: "Be brief.",
                 messages: &[],
                 tools: &[],
+                calls_allowed: true,
                 max_tokens: 500,
                 user: None,
             },
@@ -440,6 +452,7 @@ mod tests {
                 system: "Be brief.",
                 messages: &[],
                 tools: &[],
+                calls_allowed: true,
                 max_tokens: 500,
                 user: None,
             },
@@ -508,6 +521,7 @@ mod tests {
                 system: "Speak plainly.",
                 messages: &messages,
                 tools: &tools,
+                calls_allowed: true,
                 max_tokens: 500,
                 user: None,
             },
@@ -538,5 +552,40 @@ mod tests {
         assert_eq!(results[1]["content"], "Unknown zone");
         assert_eq!(results[1]["is_error"], true);
         assert_eq!(body["messages"].as_array().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn the_last_round_forbids_calls_but_keeps_the_tools() {
+        let server = FakeServer::start().await;
+        let tools = [ToolSpec {
+            name: "weather".into(),
+            description: "Weather".into(),
+            input_schema: json!({"type": "object"}),
+        }];
+        let messages = [Message::User("Hi.".into())];
+        let last = ChatRequest {
+            system: "Be brief.",
+            messages: &messages,
+            tools: &tools,
+            calls_allowed: false,
+            max_tokens: 10,
+            user: None,
+        };
+        let body = adapter(&server).request_json(&last);
+        assert_eq!(body["tool_choice"], json!({"type": "none"}));
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(1));
+        let open = ChatRequest {
+            calls_allowed: true,
+            ..last
+        };
+        assert!(
+            adapter(&server)
+                .request_json(&open)
+                .get("tool_choice")
+                .is_none()
+        );
+        let none = ChatRequest { tools: &[], ..last };
+        let body = adapter(&server).request_json(&none);
+        assert!(body.get("tools").is_none() && body.get("tool_choice").is_none());
     }
 }

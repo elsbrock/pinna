@@ -159,15 +159,14 @@ pub(crate) async fn reply(
     loop {
         let mut messages = history_messages(request.history);
         messages.extend_from_slice(harness.messages());
-        let offered = if tool_loop && round < limits.rounds {
-            specs.as_slice()
-        } else {
-            &[]
-        };
+        // Every round of a tool loop sends the tools; the last one forbids
+        // calling them, so the conversation's calls still have their tools.
+        let offered = if tool_loop { specs.as_slice() } else { &[] };
         let chat_request = ChatRequest {
             system: request.system,
             messages: &messages,
             tools: offered,
+            calls_allowed: tool_loop && round < limits.rounds,
             max_tokens: limits.max_tokens,
             user: if request.behaviour.stable_user {
                 request.user_id
@@ -358,6 +357,7 @@ pub(crate) mod test_util {
     pub(crate) struct RecordedRequest {
         pub messages: Vec<Message>,
         pub tools: usize,
+        pub calls_allowed: bool,
         pub max_tokens: u32,
         pub user: Option<String>,
     }
@@ -422,6 +422,7 @@ pub(crate) mod test_util {
             lock(&self.requests).push(RecordedRequest {
                 messages: req.messages.to_vec(),
                 tools: req.tools.len(),
+                calls_allowed: req.calls_allowed,
                 max_tokens: req.max_tokens,
                 user: req.user.map(str::to_owned),
             });
@@ -730,6 +731,40 @@ mod tests {
         )));
         assert_eq!(requests[0].tools, 1);
         assert_eq!(requests[1].tools, 1);
+        assert!(requests[0].calls_allowed && requests[1].calls_allowed);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_last_round_keeps_the_tools_but_allows_no_calls() {
+        // Anthropic refuses a conversation holding tool calls without the
+        // tools, so the last round sends them and forbids calling them.
+        let call = ToolCall {
+            id: "call-1".into(),
+            name: "weather".into(),
+            args: json!({}),
+        };
+        let chat = ScriptedChat::new([
+            vec![ChatDelta::Call(call), ChatDelta::End],
+            vec![ChatDelta::Text("Done.".into()), ChatDelta::End],
+        ]);
+        let tts = ScriptedTts::default();
+        let mut limits = RunLimits::MODEL;
+        limits.rounds = 2;
+        let behaviour = behaviour(limits, Delegation::ToolLoop);
+        let (sink, mut source) = reply_channel(2);
+        let events = TestEvents::default();
+        let observer = TestObserver::default();
+        let run = reply(
+            request(
+                "Question", &chat, &tts, &SlowTool, &behaviour, &sink, &observer,
+            ),
+            &events,
+        );
+        let (outcome, _) = tokio::join!(run, receive(&mut source, 1));
+        outcome.unwrap();
+        let requests = chat.requests();
+        assert_eq!((requests[0].tools, requests[0].calls_allowed), (1, true));
+        assert_eq!((requests[1].tools, requests[1].calls_allowed), (1, false));
     }
 
     #[tokio::test(start_paused = true)]
