@@ -82,17 +82,15 @@ impl Brain {
     }
 
     /// The "Assistant" select. A refusal leaves the mode as it was, and the
-    /// select goes back to it.
+    /// select goes back to it. Like the tool, it waits until the satellite is
+    /// idle: an Assist script that sets it runs inside Home Assistant's own
+    /// request, whose spoken reply would otherwise be cut off.
     pub(super) async fn mode_from_ha(&mut self, label: &str) {
         let Some(mode) = Mode::from_label(label) else {
             self.send_mode().await;
             return;
         };
-        let patch = SettingsPatch {
-            mode: Some(mode),
-            ..SettingsPatch::default()
-        };
-        if let Err(why) = self.update_settings(patch).await {
+        if let Err(why) = self.switch_mode(mode).await {
             tracing::info!("Home Assistant asked for {label}: {why}");
             self.send_mode().await;
         }
@@ -339,6 +337,48 @@ mod tests {
                 state: state.into(),
             })
             .await;
+    }
+
+    #[tokio::test]
+    async fn the_select_set_during_a_home_assistant_request_waits_until_it_ends() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.set_ready(true);
+        device.brain.ha(HaCommand::VoiceSubscribed(true)).await;
+        device
+            .brain
+            .handle(Input::Wake {
+                id: "alexa_v0.1".into(),
+                score: 0.9,
+            })
+            .await;
+        device
+            .brain
+            .ha(HaCommand::VoiceStarted {
+                port: 0,
+                error: false,
+            })
+            .await;
+        device.events();
+
+        // An Assist script sets the select while the request runs.
+        ha_select(&mut device, "Standalone").await;
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert_eq!(device.brain.pending_mode, Some(Mode::Standalone));
+        assert!(!device.events().contains(&DeviceEvent::VoiceStop));
+
+        device
+            .brain
+            .ha(HaCommand::VoiceEvent {
+                event: VoiceEventType::RunEnd,
+                data: Vec::new(),
+            })
+            .await;
+        assert_eq!(device.brain.phase, Phase::Idle);
+        device.brain.tick().await;
+
+        assert_eq!(device.brain.mode(), Mode::Standalone);
+        assert_eq!(mode_states(&device.events()), ["Standalone"]);
+        assert!(device.saved("settings.toml").contains("standalone"));
     }
 
     #[tokio::test]
