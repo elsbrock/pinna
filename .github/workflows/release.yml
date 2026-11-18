@@ -131,8 +131,13 @@ jobs:
             build/debs/linux-image-*.deb
           key: kernel-${{ hashFiles('kernel/**', 'flake.nix', 'flake.lock') }}
 
+      # git.kernel.org refused the runner's connections (dry run 2), so the
+      # stable tree comes from its GitHub mirror. kernel/build.sh still checks
+      # out exactly LINUX_BASE, so a mirror can't change the source.
       - name: Kernel
         if: steps.kernel.outputs.cache-hit != 'true'
+        env:
+          LINUX_LOCAL: https://github.com/gregkh/linux.git
         run: nix develop -c just kernel
 
       - name: Build
