@@ -197,6 +197,31 @@ pub fn default_friendly_name(model: &str, mac: &[u8; 6]) -> String {
     format!("{short} {:02x}{:02x}{:02x}", mac[3], mac[4], mac[5])
 }
 
+/// Whether `friendly` is still the name pinnad gave the satellite with this
+/// MAC, for either model. Such a name is hard to say, so the group notes it
+/// when it adds the satellite (ADR 0026). `mac` is as another satellite's
+/// record has it, in any separator or case.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the group's Add reads it (ADR 0026), in a later change"
+    )
+)]
+pub(crate) fn looks_default(friendly: &str, mac: &str) -> bool {
+    let digits = crate::satellites::mac_digits(mac);
+    let n = match u64::from_str_radix(&digits, 16) {
+        Ok(n) if digits.len() == 12 => n,
+        _ => return false,
+    };
+    let [_, _, mac @ ..] = n.to_be_bytes();
+    ["echo-dot-2", "echo-2"].iter().any(|model| {
+        friendly
+            .trim()
+            .eq_ignore_ascii_case(&default_friendly_name(model, &mac))
+    })
+}
+
 /// The speaker profile follows the hardware unless a developer set one.
 pub fn speaker_flat(profile: Option<&str>, model: &str) -> bool {
     match profile {
@@ -482,6 +507,19 @@ mod tests {
     }
 
     #[test]
+    fn a_default_name_is_told_from_a_chosen_one() {
+        let mac = "f0:27:2d:2a:91:4e";
+        assert!(looks_default("Echo Dot 2a914e", mac));
+        assert!(looks_default("Echo 2a914e", mac));
+        assert!(looks_default(" echo dot 2A914E ", "F0-27-2D-2A-91-4E"));
+        assert!(!looks_default("Kitchen", mac));
+        assert!(!looks_default("Echo Dot 2a914f", mac), "another MAC's");
+        assert!(!looks_default("Echo Dot", mac));
+        assert!(!looks_default("Echo Dot 2a914e", ""));
+        assert!(!looks_default("Echo Dot 2a914e", "2a:91:4e"));
+    }
+
+    #[test]
     fn dnssd_quotes_spaces() {
         let mut cfg = DeviceConfig::new("pinna-0a0b0c", [2, 0, 0, 0xa, 0xb, 0xc]);
         cfg.friendly_name = "Echo Dot".into();
@@ -499,6 +537,16 @@ mod tests {
         );
         assert!(unit.contains("\"friendly_name=Echo Dot\""));
         assert!(unit.contains("mac=02:00:00:0a:0b:0c"));
+        let has = |cfg: &DeviceConfig, item: &str| {
+            dnssd_unit(cfg, "pinna-0a0b0c")
+                .split_whitespace()
+                .any(|w| w == item)
+        };
+        assert!(!dnssd_unit(&cfg, "pinna-0a0b0c").contains("group"));
+        cfg.group = Some("0123456789abcdef0123456789abcdef".into());
+        assert!(has(&cfg, "group=0123456789abcdef0123456789abcdef"));
+        cfg.group = Some(String::new());
+        assert!(has(&cfg, "group="));
     }
 
     #[test]

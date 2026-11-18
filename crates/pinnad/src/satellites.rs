@@ -62,6 +62,14 @@ pub struct Found {
     pub url: String,
     pub ipv4: Vec<Ipv4Addr>,
     pub ipv6: Vec<Ipv6Addr>,
+    /// The satellite group its record names (ADR 0026): `None` without the
+    /// key (its *Satellite group* switch is off, or its Pinna is older),
+    /// `Some("")` in no group, otherwise the group's id.
+    pub group: Option<String>,
+    /// Searches it has missed in a row since it was last heard and its
+    /// dashboard answered: 0 when the latest search heard it. Until it has
+    /// missed `MISSES`, it stays listed as the last search that heard it.
+    pub missed: u8,
 }
 
 /// The records heard so far, merged across packets. Names are lowercase, in
@@ -204,6 +212,11 @@ impl Collected {
                 version: get("project_version"),
                 web_port,
                 url: get("url"),
+                // Not through `get`: an absent key and an empty value differ.
+                // An empty value may come as the bare key, which `ingest`
+                // stores as "".
+                group: txt.get("group").map(|g| g.to_ascii_lowercase()),
+                missed: 0,
                 ipv4: addrs(host, &self.ipv4)
                     .into_iter()
                     .filter(|a| !in_usb_net(*a))
@@ -262,6 +275,26 @@ pub struct Seen {
     pub satellites: Vec<Found>,
     /// Why the last search failed.
     pub error: Option<String>,
+    /// How many searches have run, failed ones included. None runs while the
+    /// satellite is off the network. A reader of the watch counts searches
+    /// in a row with it (ADR 0026), even when it missed a value in between.
+    pub search: u64,
+}
+
+impl Seen {
+    /// The satellite with this MAC, in any separator or case. An empty MAC
+    /// matches none.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the group reads it (ADR 0026), in a later change")
+    )]
+    pub fn by_mac(&self, mac: &str) -> Option<&Found> {
+        let mac = mac_digits(mac);
+        if mac.is_empty() {
+            return None;
+        }
+        self.satellites.iter().find(|f| mac_digits(&f.mac) == mac)
+    }
 }
 
 /// Look for the other satellites now and then every minute, and publish what
@@ -269,37 +302,14 @@ pub struct Seen {
 pub async fn run(own_mac: String, tx: watch::Sender<Seen>) {
     let mut kept = Vec::new();
     loop {
-        let seen = match look(&own_mac).await {
-            Ok(None) => {
-                kept.clear();
-                Seen {
-                    searched: true,
-                    ..Seen::default()
-                }
-            }
-            Ok(Some(found)) => Seen {
-                searched: true,
-                on_network: true,
-                satellites: keep(&mut kept, found),
-                error: None,
-            },
-            Err(e) => {
-                let why = format!("{e:#}");
-                // Once per new failure, not once a minute.
-                if tx.borrow().error.as_ref() != Some(&why) {
-                    tracing::warn!("looking for other satellites: {why}");
-                }
-                // A failed search is a miss for every satellite: the list
-                // doesn't freeze while searches fail, and the error shows
-                // once it is empty.
-                Seen {
-                    searched: true,
-                    on_network: true,
-                    satellites: keep(&mut kept, Vec::new()),
-                    error: Some(why),
-                }
-            }
-        };
+        let last = tx.borrow().search;
+        let seen = after(&mut kept, last, look(&own_mac).await);
+        // Once per new failure, not once a minute.
+        if let Some(why) = &seen.error
+            && tx.borrow().error.as_ref() != Some(why)
+        {
+            tracing::warn!("looking for other satellites: {why}");
+        }
         let wait = if seen.on_network {
             EVERY
         } else {
@@ -307,6 +317,37 @@ pub async fn run(own_mac: String, tx: watch::Sender<Seen>) {
         };
         tx.send_replace(seen);
         tokio::time::sleep(wait).await;
+    }
+}
+
+/// What is known after one more search, of which `last` came before.
+fn after(kept: &mut Vec<(Found, u8)>, last: u64, looked: Result<Option<Vec<Found>>>) -> Seen {
+    match looked {
+        // Nothing was asked, so it isn't a search.
+        Ok(None) => {
+            kept.clear();
+            Seen {
+                searched: true,
+                search: last,
+                ..Seen::default()
+            }
+        }
+        Ok(Some(found)) => Seen {
+            searched: true,
+            on_network: true,
+            satellites: keep(kept, found),
+            error: None,
+            search: last + 1,
+        },
+        // A failed search is a miss for every satellite: the list doesn't
+        // freeze while searches fail, and the error shows once it is empty.
+        Err(e) => Seen {
+            searched: true,
+            on_network: true,
+            satellites: keep(kept, Vec::new()),
+            error: Some(format!("{e:#}")),
+            search: last + 1,
+        },
     }
 }
 
@@ -375,7 +416,13 @@ fn same(a: &Found, b: &Found) -> bool {
 }
 
 fn listed(kept: &[(Found, u8)]) -> Vec<Found> {
-    let mut out: Vec<Found> = kept.iter().map(|(f, _)| f.clone()).collect();
+    let mut out: Vec<Found> = kept
+        .iter()
+        .map(|(f, missed)| Found {
+            missed: *missed,
+            ..f.clone()
+        })
+        .collect();
     by_name(&mut out);
     out
 }
@@ -674,6 +721,8 @@ mod tests {
                 url: "https://kitchen.example.com/".into(),
                 ipv4: vec![Ipv4Addr::new(192, 168, 1, 20)],
                 ipv6: vec!["2001:db8::20".parse().unwrap()],
+                group: None,
+                missed: 0,
             }]
         );
     }
@@ -896,6 +945,8 @@ mod tests {
             url: String::new(),
             ipv4: vec![],
             ipv6: vec![],
+            group: None,
+            missed: 0,
         }
     }
 
@@ -913,6 +964,77 @@ mod tests {
         assert_eq!(names(keep(&mut kept, vec![b.clone()])), ["a", "b"]);
         // Found again, it starts over: one more miss keeps it.
         assert_eq!(names(keep(&mut kept, vec![b])), ["b"]);
+    }
+
+    /// The record's `group` key (ADR 0026): an empty value and no value both
+    /// mean the switch is on, in no group; resolved may publish an empty
+    /// value as the bare key.
+    #[test]
+    fn the_record_tells_a_switch_that_is_off_from_no_group() {
+        let group = |extra: Option<(&str, Option<&str>)>| {
+            let mut t = TXT::new();
+            for (k, v) in pinna_txt() {
+                t.add_attribute(k, Some(v.as_bytes())).unwrap();
+            }
+            if let Some((k, v)) = extra {
+                t.add_attribute(k, v.map(str::as_bytes)).unwrap();
+            }
+            let mut c = Collected::default();
+            c.ingest(&response(
+                vec![rr(SERVICE, ptr(INSTANCE)), rr(INSTANCE, srv(HOST, 6053))],
+                vec![rr(INSTANCE, RData::TXT(t)), rr(HOST, a([192, 168, 1, 20]))],
+                true,
+            ));
+            c.finish("").remove(0).group
+        };
+        assert_eq!(group(None), None, "switch off, or an older Pinna");
+        assert_eq!(group(Some(("group", Some("")))), Some(String::new()));
+        assert_eq!(group(Some(("group", None))), Some(String::new()));
+        assert_eq!(
+            group(Some(("group", Some("0123456789ABCDEF0123456789abcdef")))),
+            Some("0123456789abcdef0123456789abcdef".into())
+        );
+    }
+
+    #[test]
+    fn a_listed_satellite_says_how_many_searches_it_missed() {
+        let mut kept = Vec::new();
+        let (a, b) = (found("a", "02:00:00:00:00:0a"), found("b", ""));
+        let missed = |l: Vec<Found>| l.into_iter().map(|f| f.missed).collect::<Vec<_>>();
+        assert_eq!(missed(keep(&mut kept, vec![a.clone(), b.clone()])), [0, 0]);
+        assert_eq!(missed(keep(&mut kept, vec![a.clone()])), [0, 1]);
+        assert_eq!(missed(keep(&mut kept, vec![b.clone()])), [1, 0]);
+        assert_eq!(missed(keep(&mut kept, vec![b])), [0]);
+    }
+
+    #[test]
+    fn every_search_counts_but_none_runs_off_the_network() {
+        let mut kept = Vec::new();
+        let a = found("a", "02:00:00:00:00:0a");
+        let seen = after(&mut kept, 0, Ok(Some(vec![a.clone()])));
+        assert_eq!((seen.search, seen.satellites[0].missed), (1, 0));
+        let seen = after(&mut kept, seen.search, Err(anyhow::anyhow!("no socket")));
+        assert_eq!(seen.search, 2);
+        assert_eq!(seen.error.as_deref(), Some("no socket"));
+        assert_eq!(seen.satellites[0].missed, 1, "a failed search is a miss");
+        let seen = after(&mut kept, seen.search, Ok(None));
+        assert_eq!(seen.search, 2, "nothing was asked");
+        assert!(!seen.on_network && seen.satellites.is_empty());
+        let seen = after(&mut kept, seen.search, Ok(Some(vec![a])));
+        assert_eq!((seen.search, seen.satellites[0].missed), (3, 0));
+    }
+
+    #[test]
+    fn a_satellite_is_found_by_its_mac_in_any_form() {
+        let seen = Seen {
+            satellites: vec![found("a", "02:00:00:00:00:0A"), found("b", "")],
+            ..Seen::default()
+        };
+        let name = |mac| seen.by_mac(mac).map(|f| f.name.as_str());
+        assert_eq!(name("02-00-00-00-00-0a"), Some("a"));
+        assert_eq!(name("02:00:00:00:00:0b"), None);
+        assert_eq!(name(""), None, "an empty MAC matches none");
+        assert_eq!(name("::"), None);
     }
 
     #[test]

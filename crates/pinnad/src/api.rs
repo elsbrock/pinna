@@ -1819,12 +1819,15 @@ mod tests {
             url: "https://kitchen.example.com/".into(),
             ipv4: vec![std::net::Ipv4Addr::new(192, 168, 1, 20)],
             ipv6: vec![],
+            group: Some(String::new()),
+            missed: 0,
         };
         tx.send_replace(satellites::Seen {
             searched: true,
             on_network: true,
             satellites: vec![kitchen],
             error: None,
+            search: 1,
         });
         let r = list().await.unwrap();
         assert!(r.searched && r.on_network);
