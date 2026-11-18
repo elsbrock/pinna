@@ -100,14 +100,25 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
-    /// Apply the owner's Advanced settings over this behaviour.
+    /// Apply the owner's Advanced settings over this behaviour. The limits
+    /// follow the delegation in effect: an agent switched to the tool loop
+    /// gets a model's tool rounds, a model handed off gets an agent's wait
+    /// and acknowledgment.
     pub fn overridden(self, o: &ChatOverride) -> Behaviour {
-        let mut limits = self.limits;
+        let delegation = o.delegation.unwrap_or(self.delegation);
+        let mut limits = if delegation == self.delegation {
+            self.limits
+        } else {
+            match delegation {
+                Delegation::ToolLoop => RunLimits::MODEL,
+                Delegation::HandOff => RunLimits::AGENT,
+            }
+        };
         if let Some(s) = o.first_text_s {
             limits.first_text = Duration::from_secs(s);
         }
         Behaviour {
-            delegation: o.delegation.unwrap_or(self.delegation),
+            delegation,
             history: o.history.unwrap_or(self.history),
             limits,
             stable_user: self.stable_user,
@@ -446,6 +457,17 @@ mod tests {
         assert_eq!(over.limits.first_text, Duration::from_secs(120));
         // Untouched fields stay.
         assert_eq!(over.limits.stt, base.limits.stt);
+        // A model handed off waits and acknowledges like an agent.
+        assert_eq!(over.limits.ack_after, RunLimits::AGENT.ack_after);
+        assert_eq!(over.limits.rounds, RunLimits::AGENT.rounds);
+
+        // An agent switched to the tool loop gets a model's tool rounds.
+        let agent = preset(PresetId::Hermes).behaviour;
+        let looped = agent.overridden(&ChatOverride {
+            delegation: Some(Delegation::ToolLoop),
+            ..ChatOverride::default()
+        });
+        assert_eq!(looped.limits, RunLimits::MODEL);
 
         // An empty override changes nothing.
         assert_eq!(base.overridden(&ChatOverride::default()), base);

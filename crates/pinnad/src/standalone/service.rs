@@ -26,7 +26,7 @@ use pinna_assist::error::Slot;
 use pinna_assist::http::Auth;
 use pinna_assist::pipeline::{self, Pipeline};
 use pinna_assist::presets::{
-    self, ChatOverride, ChatProtocol, HistoryPolicy, PresetId, SpeechProtocol,
+    self, ChatOverride, ChatProtocol, Delegation, HistoryPolicy, PresetId, SpeechProtocol,
 };
 use pinna_assist::secrets::Secrets;
 use pinna_assist::tts::Tts;
@@ -864,6 +864,13 @@ impl Service {
                 SpeechProtocol::ElevenLabs => Auth::ApiKey("xi-api-key", key),
             },
         };
+        let hand_off = kind == SlotKind::Chat && {
+            let state = self.committed.state.lock().unwrap();
+            row.behaviour
+                .overridden(&state.config.chat_override)
+                .delegation
+                == Delegation::HandOff
+        };
         Ok(CheckSetup {
             slot: kind.slot(),
             http: self.http.clone(),
@@ -872,6 +879,7 @@ impl Service {
             model,
             voice,
             auth,
+            hand_off,
             clock_synced,
         })
     }

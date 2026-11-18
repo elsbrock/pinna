@@ -16,7 +16,7 @@ use crate::{
     audio,
     error::{ProviderError, Reason, Slot},
     http::{self, Auth},
-    presets::{ChatProtocol, Delegation, PresetId, SpeechProtocol, preset},
+    presets::{ChatProtocol, PresetId, SpeechProtocol, preset},
     reply::AudioBody,
     stt::{ElevenLabsStt, OpenAiStt, Stt, SttSetup},
     tts::{ElevenLabsTts, OpenAiTts, Tts},
@@ -46,6 +46,10 @@ pub struct CheckSetup {
     /// The voice id for the text-to-speech slot.
     pub voice: Option<String>,
     pub auth: Auth,
+    /// The brain hands requests off (the preset's delegation after the
+    /// owner's Advanced override): its check never sends a prompt or names a
+    /// model.
+    pub hand_off: bool,
     pub clock_synced: fn() -> bool,
 }
 
@@ -110,7 +114,7 @@ async fn chat_check(setup: &CheckSetup) -> Result<(), String> {
         .await
         .map_err(|error| refusal(&error))?;
     // A hand-off brain owns its own model names; a successful list is enough.
-    if preset(setup.preset).behaviour.delegation == Delegation::HandOff {
+    if setup.hand_off {
         return Ok(());
     }
     let Some(body) = body else {
@@ -347,6 +351,8 @@ mod tests {
             model: model.into(),
             voice: Some("nova".into()),
             auth: Auth::Bearer(Secret::new("sk-test")),
+            hand_off: crate::presets::preset(preset).behaviour.delegation
+                == crate::presets::Delegation::HandOff,
             clock_synced: || true,
         }
     }
