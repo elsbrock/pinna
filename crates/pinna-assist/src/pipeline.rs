@@ -1,39 +1,30 @@
-//! Build the three provider adapters for one validated standalone snapshot.
+//! Build the three provider adapters for one standalone snapshot (ADR 0017
+//! §"The pipeline").
+//!
+//! A slot that can't be built (missing, its connection gone, a preset that
+//! can't serve it, no model) leaves the pipeline out; the setup service says
+//! which, in its own sentences, when the owner edits it.
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
-use pinna_http::{ClientKind, Secret, client};
+use pinna_http::{ClientKind, client};
 
 use crate::{
-    chat::{AnthropicChat, Chat, GeminiChat, OpenAiChat},
+    chat::{self, Chat},
     config::{self, AssistConfig, Connection, SlotConfig},
-    error::Slot,
-    http::Auth,
+    http::{Auth, Endpoint},
     limits::RunLimits,
-    presets::{Behaviour, ChatProtocol, PresetId, SpeechProtocol, preset},
+    presets::{Behaviour, Delegation, PresetId, preset},
     secrets::Secrets,
-    stt::{ElevenLabsStt, OpenAiStt, Stt, SttSetup},
-    tts::{ElevenLabsTts, OpenAiTts, Tts},
+    stt::{self, Stt},
+    tts::{self, Tts},
 };
-
-const OPENAI_TTS_MODEL: &str = "tts-1";
-const ELEVENLABS_TTS_MODEL: &str = "eleven_multilingual_v2";
-
-/// The synthesis model the pipeline uses for a protocol. The text-to-speech
-/// slot stores a voice, so its save-time check needs the model from here.
-pub fn tts_model(protocol: SpeechProtocol) -> &'static str {
-    match protocol {
-        SpeechProtocol::OpenAi => OPENAI_TTS_MODEL,
-        SpeechProtocol::ElevenLabs => ELEVENLABS_TTS_MODEL,
-    }
-}
 
 pub struct Pipeline {
     pub stt: Arc<dyn Stt>,
     pub chat: Arc<dyn Chat>,
     pub tts: Arc<dyn Tts>,
     pub presets: [PresetId; 3],
-    pub model: String,
     pub behaviour: Behaviour,
     pub label: String,
 }
@@ -45,247 +36,137 @@ pub struct Speech {
     pub preset: PresetId,
 }
 
-impl Speech {
-    pub fn build(cfg: &AssistConfig, secrets: &Secrets) -> Result<Speech, String> {
-        let tts = build_tts(cfg, secrets)?;
-        Ok(Speech {
-            tts,
-            preset: cfg.tts.as_ref().expect("built above").preset(cfg),
-        })
-    }
-}
-
-struct BuiltChat {
-    adapter: Arc<dyn Chat>,
-    model: String,
-    behaviour: Behaviour,
-    label: String,
-}
-
 impl Pipeline {
-    pub fn build(cfg: &AssistConfig, secrets: &Secrets) -> Result<Pipeline, Vec<(Slot, String)>> {
-        let stt = build_stt(cfg, secrets);
-        let chat = build_chat(cfg, secrets);
-        let tts = build_tts(cfg, secrets);
-        let mut errors = Vec::new();
-        if let Err(error) = &stt {
-            errors.push((Slot::Stt, error.clone()));
-        }
-        if let Err(error) = &chat {
-            errors.push((Slot::Chat, error.clone()));
-        }
-        if let Err(error) = &tts {
-            errors.push((Slot::Tts, error.clone()));
-        }
-        if !errors.is_empty() {
-            return Err(errors);
-        }
-
-        let chat = chat.expect("checked above");
-        Ok(Pipeline {
-            stt: stt.expect("checked above"),
-            presets: [
-                cfg.stt.as_ref().expect("checked above").preset(cfg),
-                cfg.chat.as_ref().expect("checked above").preset(cfg),
-                cfg.tts.as_ref().expect("checked above").preset(cfg),
-            ],
+    pub fn build(
+        cfg: &AssistConfig,
+        secrets: &Secrets,
+        clock_synced: fn() -> bool,
+    ) -> Option<Pipeline> {
+        let (stt, stt_preset) = build_stt(cfg, secrets, clock_synced)?;
+        let chat = build_chat(cfg, secrets, clock_synced)?;
+        let speech = Speech::build(cfg, secrets, clock_synced)?;
+        Some(Pipeline {
+            stt,
             chat: chat.adapter,
-            tts: tts.expect("checked above"),
-            model: chat.model.clone(),
+            tts: speech.tts,
+            presets: [stt_preset, chat.preset, speech.preset],
             behaviour: chat.behaviour,
             label: chat.label,
         })
     }
 }
 
-trait SlotPreset {
-    fn preset(&self, cfg: &AssistConfig) -> PresetId;
-}
-
-impl SlotPreset for SlotConfig {
-    fn preset(&self, cfg: &AssistConfig) -> PresetId {
-        cfg.connections
-            .iter()
-            .find(|connection| connection.id == self.connection)
-            .expect("a successfully built slot has a connection")
-            .preset
+impl Speech {
+    pub fn build(
+        cfg: &AssistConfig,
+        secrets: &Secrets,
+        clock_synced: fn() -> bool,
+    ) -> Option<Speech> {
+        let (voice, connection) = resolve(cfg.tts.as_ref(), cfg)?;
+        let row = preset(connection.preset);
+        if !row.slots.tts {
+            return None;
+        }
+        let auth = row.speech_protocol.auth(key(secrets, connection));
+        let read = Some(RunLimits::MODEL.tts_first_audio);
+        let language = cfg.language.as_deref().map(config::primary_language);
+        Some(Speech {
+            tts: tts::adapter(
+                row.speech_protocol,
+                endpoint(connection, auth, read, clock_synced),
+                voice.to_owned(),
+                language,
+            ),
+            preset: connection.preset,
+        })
     }
 }
 
-fn build_stt(cfg: &AssistConfig, secrets: &Secrets) -> Result<Arc<dyn Stt>, String> {
-    let (slot, connection) = resolve(cfg.stt.as_ref(), cfg, Slot::Stt)?;
+struct BuiltChat {
+    adapter: Arc<dyn Chat>,
+    preset: PresetId,
+    behaviour: Behaviour,
+    label: String,
+}
+
+fn build_stt(
+    cfg: &AssistConfig,
+    secrets: &Secrets,
+    clock_synced: fn() -> bool,
+) -> Option<(Arc<dyn Stt>, PresetId)> {
+    let (model, connection) = resolve(cfg.stt.as_ref(), cfg)?;
     let row = preset(connection.preset);
     if !row.slots.stt {
-        return Err(protocol(Slot::Stt, connection.preset));
+        return None;
     }
-    let model = required_model(slot, Slot::Stt)?;
-    let setup = SttSetup {
-        http: client(ClientKind::Provider {
-            read: Some(RunLimits::MODEL.stt),
-        }),
-        base_url: connection.base_url.clone(),
-        model,
-        auth: speech_auth(row.speech_protocol, secrets, connection),
-        preset: connection.preset,
-        clock_synced,
-    };
-    Ok(match row.speech_protocol {
-        SpeechProtocol::OpenAi => Arc::new(OpenAiStt::new(setup)),
-        SpeechProtocol::ElevenLabs => Arc::new(ElevenLabsStt::new(setup)),
-    })
+    let auth = row.speech_protocol.auth(key(secrets, connection));
+    let read = Some(RunLimits::MODEL.stt);
+    let endpoint = endpoint(connection, auth, read, clock_synced);
+    let adapter = stt::adapter(row.speech_protocol, endpoint, model.to_owned());
+    Some((adapter, connection.preset))
 }
 
-fn build_chat(cfg: &AssistConfig, secrets: &Secrets) -> Result<BuiltChat, String> {
-    let (slot, connection) = resolve(cfg.chat.as_ref(), cfg, Slot::Chat)?;
+fn build_chat(
+    cfg: &AssistConfig,
+    secrets: &Secrets,
+    clock_synced: fn() -> bool,
+) -> Option<BuiltChat> {
+    let (model, connection) = resolve(cfg.chat.as_ref(), cfg)?;
     let row = preset(connection.preset);
     if !row.slots.chat {
-        return Err(protocol(Slot::Chat, connection.preset));
+        return None;
     }
-    let model = row
-        .model
-        .map(str::to_owned)
-        .map_or_else(|| required_model(slot, Slot::Chat), Ok)?;
+    // An agent preset names its own model.
+    let model = row.model.unwrap_or(model);
     let behaviour = row.behaviour.overridden(&cfg.chat_override);
+    // An agent may think for minutes: only its run limits end it.
     let read = match behaviour.delegation {
-        crate::presets::Delegation::ToolLoop => Some(behaviour.limits.first_text),
-        crate::presets::Delegation::HandOff => None,
+        Delegation::ToolLoop => Some(behaviour.limits.first_text),
+        Delegation::HandOff => None,
     };
-    let http = client(ClientKind::Provider { read });
-    let key = secrets
-        .key_for(&connection.id, &connection.base_url)
-        .cloned();
-    let adapter: Arc<dyn Chat> = match row.chat_protocol {
-        ChatProtocol::OpenAi => Arc::new(OpenAiChat::new(
-            http,
-            &connection.base_url,
-            &model,
-            key,
-            connection.preset,
-            clock_synced,
-        )),
-        ChatProtocol::Anthropic => Arc::new(AnthropicChat::new(
-            http,
-            &connection.base_url,
-            &model,
-            required_key(key, Slot::Chat)?,
-            clock_synced,
-        )),
-        ChatProtocol::Gemini => Arc::new(GeminiChat::new(
-            http,
-            &connection.base_url,
-            &model,
-            required_key(key, Slot::Chat)?,
-            clock_synced,
-        )),
-    };
-    Ok(BuiltChat {
-        adapter,
-        label: format!("{}: {model}", connection.preset.label()),
-        model,
+    let auth = row.chat_protocol.auth(key(secrets, connection));
+    let endpoint = endpoint(connection, auth, read, clock_synced);
+    Some(BuiltChat {
+        adapter: chat::adapter(row.chat_protocol, endpoint, model.to_owned()),
+        preset: connection.preset,
         behaviour,
+        label: format!("{}: {model}", connection.preset.label()),
     })
 }
 
-fn build_tts(cfg: &AssistConfig, secrets: &Secrets) -> Result<Arc<dyn Tts>, String> {
-    let (slot, connection) = resolve(cfg.tts.as_ref(), cfg, Slot::Tts)?;
-    let row = preset(connection.preset);
-    if !row.slots.tts {
-        return Err(protocol(Slot::Tts, connection.preset));
-    }
-    let voice = required_model(slot, Slot::Tts)?;
-    let http = client(ClientKind::Provider {
-        read: Some(RunLimits::MODEL.tts_first_audio),
-    });
-    let auth = speech_auth(row.speech_protocol, secrets, connection);
-    Ok(match row.speech_protocol {
-        SpeechProtocol::OpenAi => Arc::new(OpenAiTts::new(
-            http,
-            &connection.base_url,
-            OPENAI_TTS_MODEL,
-            voice,
-            connection.preset,
-            auth,
-            clock_synced,
-        )),
-        SpeechProtocol::ElevenLabs => Arc::new(ElevenLabsTts::new(
-            http,
-            &connection.base_url,
-            ELEVENLABS_TTS_MODEL,
-            voice,
-            cfg.language.as_deref().map(config::primary_language),
-            connection.preset,
-            auth,
-            clock_synced,
-        )),
-    })
-}
-
+/// A slot's model (or voice) and its connection, when both are there.
 fn resolve<'a>(
     slot: Option<&'a SlotConfig>,
     cfg: &'a AssistConfig,
-    kind: Slot,
-) -> Result<(&'a SlotConfig, &'a Connection), String> {
-    let slot = slot.ok_or_else(|| missing(kind))?;
+) -> Option<(&'a str, &'a Connection)> {
+    let slot = slot?;
     let connection = cfg
         .connections
         .iter()
-        .find(|connection| connection.id == slot.connection)
-        .ok_or_else(|| format!("Choose the {} connection again.", slot_name(kind)))?;
-    Ok((slot, connection))
+        .find(|connection| connection.id == slot.connection)?;
+    let model = slot.model.trim();
+    (!model.is_empty()).then_some((model, connection))
 }
 
-fn required_model(slot: &SlotConfig, kind: Slot) -> Result<String, String> {
-    if slot.model.trim().is_empty() {
-        let what = if kind == Slot::Tts { "voice" } else { "model" };
-        Err(format!("Enter the {} {what}.", slot_name(kind)))
-    } else {
-        Ok(slot.model.clone())
-    }
-}
-
-fn required_key(key: Option<Secret>, kind: Slot) -> Result<Secret, String> {
-    key.ok_or_else(|| format!("Enter a key for the {} connection.", slot_name(kind)))
-}
-
-fn speech_auth(protocol: SpeechProtocol, secrets: &Secrets, connection: &Connection) -> Auth {
-    let key = secrets
+fn key(secrets: &Secrets, connection: &Connection) -> Option<pinna_http::Secret> {
+    secrets
         .key_for(&connection.id, &connection.base_url)
-        .cloned();
-    match (protocol, key) {
-        (_, None) => Auth::None,
-        (SpeechProtocol::OpenAi, Some(key)) => Auth::Bearer(key),
-        (SpeechProtocol::ElevenLabs, Some(key)) => Auth::ApiKey("xi-api-key", key),
-    }
+        .cloned()
 }
 
-fn missing(kind: Slot) -> String {
-    match kind {
-        Slot::Stt => "Choose a speech-to-text connection and model.".into(),
-        Slot::Chat => "Choose a brain connection and model.".into(),
-        Slot::Tts => "Choose a text-to-speech connection and voice.".into(),
-        Slot::Tool => unreachable!(),
-    }
-}
-
-fn protocol(kind: Slot, preset: PresetId) -> String {
-    format!(
-        "The {} preset cannot provide {}.",
-        preset.label(),
-        slot_name(kind)
+fn endpoint(
+    connection: &Connection,
+    auth: Auth,
+    read: Option<std::time::Duration>,
+    clock_synced: fn() -> bool,
+) -> Endpoint {
+    Endpoint::new(
+        client(ClientKind::Provider { read }),
+        &connection.base_url,
+        auth,
+        connection.preset,
+        clock_synced,
     )
-}
-
-fn slot_name(slot: Slot) -> &'static str {
-    match slot {
-        Slot::Stt => "speech-to-text",
-        Slot::Chat => "brain",
-        Slot::Tts => "text-to-speech",
-        Slot::Tool => "tool",
-    }
-}
-
-fn clock_synced() -> bool {
-    Path::new("/run/systemd/timesync/synchronized").exists()
 }
 
 #[cfg(test)]
@@ -318,36 +199,20 @@ mod tests {
             tts: Some(slot("openai", "nova")),
             ..AssistConfig::default()
         };
-        let pipeline = Pipeline::build(&cfg, &Secrets::default()).unwrap();
+        let pipeline = Pipeline::build(&cfg, &Secrets::default(), || true).unwrap();
         assert_eq!(pipeline.presets, [PresetId::OpenAi; 3]);
-        assert_eq!(pipeline.model, "gpt-test");
         assert_eq!(pipeline.label, "openai: gpt-test");
     }
 
     #[test]
-    fn missing_slots_return_owner_sentences_together() {
-        let errors = match Pipeline::build(&AssistConfig::default(), &Secrets::default()) {
-            Ok(_) => panic!("an empty configuration cannot build"),
-            Err(errors) => errors,
-        };
-        assert_eq!(
-            errors,
-            [
-                (
-                    Slot::Stt,
-                    "Choose a speech-to-text connection and model.".into()
-                ),
-                (Slot::Chat, "Choose a brain connection and model.".into()),
-                (
-                    Slot::Tts,
-                    "Choose a text-to-speech connection and voice.".into()
-                ),
-            ]
-        );
+    fn an_empty_configuration_builds_nothing() {
+        let empty = AssistConfig::default();
+        assert!(Pipeline::build(&empty, &Secrets::default(), || true).is_none());
+        assert!(Speech::build(&empty, &Secrets::default(), || true).is_none());
     }
 
     #[test]
-    fn a_preset_that_does_not_serve_a_slot_is_a_protocol_mismatch() {
+    fn a_preset_that_does_not_serve_a_slot_builds_no_pipeline() {
         let cfg = AssistConfig {
             connections: vec![
                 connection("openrouter", PresetId::OpenRouter),
@@ -358,16 +223,9 @@ mod tests {
             tts: Some(slot("openai", "nova")),
             ..AssistConfig::default()
         };
-        let errors = match Pipeline::build(&cfg, &Secrets::default()) {
-            Ok(_) => panic!("OpenRouter has no speech-to-text protocol"),
-            Err(errors) => errors,
-        };
-        assert_eq!(
-            errors,
-            [(
-                Slot::Stt,
-                "The openrouter preset cannot provide speech-to-text.".into()
-            )]
-        );
+        assert!(Pipeline::build(&cfg, &Secrets::default(), || true).is_none());
+        // The voice alone still builds, for a Speak.
+        let speech = Speech::build(&cfg, &Secrets::default(), || true).unwrap();
+        assert_eq!(speech.preset, PresetId::OpenAi);
     }
 }

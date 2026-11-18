@@ -1360,7 +1360,7 @@ mod tests {
         cfg.chat = slot("gpt-test");
         cfg.tts = slot("nova");
         cfg.chat_override.delegation = Some(delegation);
-        Arc::new(Pipeline::build(&cfg, &Secrets::default()).unwrap())
+        Arc::new(Pipeline::build(&cfg, &Secrets::default(), || true).unwrap())
     }
 
     /// The tools of a brain with the owner's MCP servers `(name, address)`.

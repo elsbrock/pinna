@@ -4,10 +4,18 @@
 //! tzdb; `libc::localtime_r` is not used because musl caches `/etc/localtime`,
 //! which pinnad repoints at runtime.
 
+use std::path::Path;
 use std::time::SystemTime;
 
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
+
+/// Whether systemd-timesyncd has set the clock since boot. Until it has, a
+/// TLS failure is most likely the clock, and wall-clock deadlines can't be
+/// trusted.
+pub fn synced() -> bool {
+    Path::new("/run/systemd/timesync/synchronized").exists()
+}
 
 /// The local time and zone for a request.
 ///

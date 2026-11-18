@@ -23,11 +23,9 @@ use pinna_assist::config::{
     Station,
 };
 use pinna_assist::error::Slot;
-use pinna_assist::http::Auth;
-use pinna_assist::pipeline::{self, Pipeline, Speech};
-use pinna_assist::presets::{
-    self, ChatOverride, ChatProtocol, Delegation, HistoryPolicy, PresetId, SpeechProtocol,
-};
+use pinna_assist::http::Endpoint;
+use pinna_assist::pipeline::{Pipeline, Speech};
+use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId};
 use pinna_assist::secrets::{Secrets, SecretsFile};
 use pinna_assist::tts::Tts;
 use pinna_http::{ClientKind, Secret, reqwest};
@@ -67,8 +65,6 @@ const HISTORY_TURNS_MAX: usize = 10;
 const HISTORY_BYTES_MAX: usize = 64 * 1024;
 /// An MCP server address is at most this many bytes.
 const MCP_URL_MAX: usize = 2048;
-
-const CLOCK_SYNCED: &str = "/run/systemd/timesync/synchronized";
 
 const NOT_SAVED: &str = "The assistant settings couldn't be saved. Try again.";
 const CHANGED: &str = "This connection was changed meanwhile. Reload and try again.";
@@ -830,45 +826,26 @@ impl Service {
                 kind.name()
             ));
         }
-        let row = presets::preset(preset);
-        // The text-to-speech slot holds a voice; the model is the pipeline's.
-        let (model, voice) = match kind {
-            SlotKind::Stt => (model.to_owned(), None),
-            SlotKind::Chat => (row.model.unwrap_or(model).to_owned(), None),
-            SlotKind::Tts => (
-                pipeline::tts_model(row.speech_protocol).to_owned(),
-                Some(model.to_owned()),
-            ),
-        };
-        let auth = match (kind, key.cloned()) {
-            (_, None) => Auth::None,
-            (SlotKind::Chat, Some(key)) => match row.chat_protocol {
-                ChatProtocol::OpenAi => Auth::Bearer(key),
-                ChatProtocol::Anthropic => Auth::ApiKey("x-api-key", key),
-                ChatProtocol::Gemini => Auth::ApiKey("x-goog-api-key", key),
-            },
-            (SlotKind::Stt | SlotKind::Tts, Some(key)) => match row.speech_protocol {
-                SpeechProtocol::OpenAi => Auth::Bearer(key),
-                SpeechProtocol::ElevenLabs => Auth::ApiKey("xi-api-key", key),
-            },
-        };
         let hand_off = kind == SlotKind::Chat && {
             let state = self.committed.state.lock().unwrap();
-            row.behaviour
+            presets::preset(preset)
+                .behaviour
                 .overridden(&state.config.chat_override)
                 .delegation
                 == Delegation::HandOff
         };
+        let auth = presets::auth(preset, kind.slot(), key.cloned());
         Ok(CheckSetup {
             slot: kind.slot(),
-            http: self.http.clone(),
-            preset,
-            base_url: base_url.to_owned(),
-            model,
-            voice,
-            auth,
+            endpoint: Endpoint::new(
+                self.http.clone(),
+                base_url,
+                auth,
+                preset,
+                crate::clock::synced,
+            ),
+            model: model.to_owned(),
             hand_off,
-            clock_synced,
         })
     }
 
@@ -1003,13 +980,13 @@ impl State {
         }
         let c = &self.config;
         let slots = SlotKind::ALL.map(|kind| slot_ready(c, kind));
-        let pipeline = Pipeline::build(c, &self.secrets).ok().map(Arc::new);
+        let pipeline = Pipeline::build(c, &self.secrets, crate::clock::synced).map(Arc::new);
         let speech = match &pipeline {
             Some(pipeline) => Some(Speech {
                 tts: pipeline.tts.clone(),
                 preset: pipeline.presets[2],
             }),
-            None => Speech::build(c, &self.secrets).ok(),
+            None => Speech::build(c, &self.secrets, crate::clock::synced),
         };
         let ack = ack::Source::wanted(c, pipeline.as_deref(), slot_ready(c, SlotKind::Tts))
             .and_then(|source| cache.path(&source));
@@ -1372,10 +1349,6 @@ fn override_value(o: ChatOverride) -> Result<ChatOverride, Refusal> {
     }
 }
 
-fn clock_synced() -> bool {
-    Path::new(CLOCK_SYNCED).exists()
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1627,7 +1600,7 @@ mod tests {
         // The text-to-speech check used the pipeline's model and the voice.
         let speech = server.requests().pop().unwrap();
         let sent: serde_json::Value = serde_json::from_slice(&speech.body).unwrap();
-        assert_eq!(sent["model"], pipeline::tts_model(SpeechProtocol::OpenAi));
+        assert_eq!(sent["model"], presets::SpeechProtocol::OpenAi.tts_model());
         assert_eq!(sent["voice"], "nova");
 
         // The checked revisions are stored: a restart is ready at once.

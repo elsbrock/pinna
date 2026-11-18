@@ -3,7 +3,7 @@
 //! Each adapter has a pure JSON/SSE codec and a small HTTP shell. Tool-call
 //! fragments are assembled here so the tool loop receives complete values.
 
-use std::{collections::VecDeque, pin::Pin};
+use std::{collections::VecDeque, pin::Pin, sync::Arc};
 
 use bytes::Bytes;
 use futures_core::{
@@ -11,23 +11,32 @@ use futures_core::{
     stream::{BoxStream, Stream},
 };
 use futures_util::{StreamExt, stream};
-use pinna_http::{NetError, SseDecoder, SseEvent, classify, reqwest};
+use pinna_http::{SseDecoder, SseEvent, reqwest};
 use pinna_mcp::{ToolCall, ToolSpec};
 use reqwest::Response;
 
 use crate::{
     error::{ProviderError, Reason, Slot},
-    presets::PresetId,
+    http::{self, Endpoint},
+    presets::{ChatProtocol, PresetId},
 };
 
 mod anthropic;
-pub(crate) use anthropic::API_VERSION as ANTHROPIC_VERSION;
 mod gemini;
 mod openai;
 
 pub use anthropic::AnthropicChat;
 pub use gemini::GeminiChat;
 pub use openai::OpenAiChat;
+
+/// The adapter for a protocol, with the model to ask for.
+pub fn adapter(protocol: ChatProtocol, endpoint: Endpoint, model: String) -> Arc<dyn Chat> {
+    match protocol {
+        ChatProtocol::OpenAi => Arc::new(OpenAiChat::new(endpoint, model)),
+        ChatProtocol::Anthropic => Arc::new(AnthropicChat::new(endpoint, model)),
+        ChatProtocol::Gemini => Arc::new(GeminiChat::new(endpoint, model)),
+    }
+}
 
 const SSE_LINE_MAX: usize = 256 * 1024;
 /// One streamed reply, whole. The line limit alone doesn't bound an event:
@@ -137,7 +146,12 @@ impl SseEvents {
                 }
                 Some(Err(error)) => {
                     self.eof = true;
-                    return Some(Err(network_error(self.preset, &error, self.clock_synced)));
+                    return Some(Err(http::network_error(
+                        Slot::Chat,
+                        self.preset,
+                        &error,
+                        self.clock_synced,
+                    )));
                 }
                 None => {
                     self.eof = true;
@@ -199,23 +213,4 @@ fn provider_error(preset: PresetId, reason: Reason) -> ProviderError {
 
 fn protocol_error(preset: PresetId) -> ProviderError {
     provider_error(preset, Reason::Protocol)
-}
-
-fn network_error(
-    preset: PresetId,
-    error: &reqwest::Error,
-    clock_synced: fn() -> bool,
-) -> ProviderError {
-    let reason = match classify(error) {
-        NetError::Tls if !clock_synced() => Reason::ClockNotSet,
-        NetError::Timeout => Reason::Timeout,
-        NetError::Unreachable => Reason::Unreachable,
-        NetError::Tls => Reason::Tls,
-        NetError::Protocol => Reason::Protocol,
-    };
-    provider_error(preset, reason)
-}
-
-fn endpoint(base_url: &str, path: &str) -> String {
-    format!("{}{path}", base_url.trim_end_matches('/'))
 }

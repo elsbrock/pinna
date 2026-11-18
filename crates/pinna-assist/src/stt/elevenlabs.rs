@@ -8,22 +8,27 @@ use bytes::Bytes;
 use futures_core::future::BoxFuture;
 use pinna_http::reqwest::multipart;
 
-use super::{STT_BODY_CAP, Stt, SttSetup, Transcript, join, wav_part};
+use super::{STT_BODY_CAP, Stt, Transcript, wav_part};
 use crate::{
     error::{ProviderError, Reason, Slot},
-    http,
+    http::Endpoint,
 };
 
 /// The ElevenLabs speech-to-text API.
 pub struct ElevenLabsStt {
-    setup: SttSetup,
+    endpoint: Endpoint,
+    model: String,
     url: String,
 }
 
 impl ElevenLabsStt {
-    pub fn new(setup: SttSetup) -> Self {
-        let url = join(&setup.base_url, "/v1/speech-to-text");
-        Self { setup, url }
+    pub fn new(endpoint: Endpoint, model: impl Into<String>) -> Self {
+        let url = endpoint.url("/v1/speech-to-text");
+        Self {
+            endpoint,
+            model: model.into(),
+            url,
+        }
     }
 }
 
@@ -34,33 +39,22 @@ impl Stt for ElevenLabsStt {
         language: Option<&'a str>,
     ) -> BoxFuture<'a, Result<String, ProviderError>> {
         Box::pin(async move {
-            let preset = self.setup.preset;
+            let preset = self.endpoint.preset;
             let mut form = multipart::Form::new()
                 .part("file", wav_part(wav, preset)?)
-                .text("model_id", self.setup.model.clone());
+                .text("model_id", self.model.clone());
             if let Some(language) = language {
                 form = form.text("language_code", language.to_string());
             }
 
-            let request = self.setup.http.post(&self.url).multipart(form);
-            let response = http::send(
-                request,
-                &self.setup.auth,
-                Slot::Stt,
-                preset,
-                self.setup.clock_synced,
-            )
-            .await?;
-            let body = http::read_capped(
-                response,
-                STT_BODY_CAP,
-                Slot::Stt,
-                preset,
-                self.setup.clock_synced,
-            )
-            .await?;
+            let request = self.endpoint.http.post(&self.url).multipart(form);
+            let response = self.endpoint.send(request, Slot::Stt).await?;
+            let body = self
+                .endpoint
+                .read_capped(response, STT_BODY_CAP, Slot::Stt)
+                .await?;
             let transcript: Transcript = serde_json::from_slice(&body)
-                .map_err(|_| ProviderError::new(Slot::Stt, preset, Reason::Protocol))?;
+                .map_err(|_| self.endpoint.error(Slot::Stt, Reason::Protocol))?;
             Ok(transcript.text)
         })
     }
@@ -81,17 +75,20 @@ mod tests {
 
     const PATH: &str = "/v1/speech-to-text";
 
-    fn setup(server: &FakeServer, model: &str) -> SttSetup {
-        SttSetup {
-            http: client(ClientKind::Provider {
+    fn endpoint(server: &FakeServer) -> Endpoint {
+        Endpoint::new(
+            client(ClientKind::Provider {
                 read: Some(Duration::from_secs(5)),
             }),
-            base_url: server.url(""),
-            model: model.into(),
-            auth: Auth::ApiKey("xi-api-key", pinna_http::Secret::new("el-key")),
-            preset: PresetId::ElevenLabs,
-            clock_synced: || true,
-        }
+            &server.url(""),
+            Auth::ApiKey("xi-api-key", pinna_http::Secret::new("el-key")),
+            PresetId::ElevenLabs,
+            || true,
+        )
+    }
+
+    fn stt(server: &FakeServer, model: &str) -> ElevenLabsStt {
+        ElevenLabsStt::new(endpoint(server), model)
     }
 
     #[tokio::test]
@@ -103,7 +100,7 @@ mod tests {
             FakeResponse::new(StatusCode::OK, "{\"text\":\"hallo welt\"}"),
         );
 
-        let transcript = ElevenLabsStt::new(setup(&server, "scribe_v1"))
+        let transcript = stt(&server, "scribe_v1")
             .transcribe(Bytes::from_static(b"RIFFdata"), Some("de"))
             .await
             .unwrap();
@@ -132,7 +129,7 @@ mod tests {
             PATH,
             FakeResponse::new(StatusCode::OK, "{\"text\":\"hi\"}"),
         );
-        let transcript = ElevenLabsStt::new(setup(&server, "scribe_v1"))
+        let transcript = stt(&server, "scribe_v1")
             .transcribe(Bytes::from_static(b"RIFFdata"), None)
             .await
             .unwrap();

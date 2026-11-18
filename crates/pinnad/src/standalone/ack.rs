@@ -505,7 +505,7 @@ mod tests {
             ..AssistConfig::default()
         };
         let wanted = |config: &AssistConfig, tts_ready: bool| {
-            let pipeline = Pipeline::build(config, &Secrets::default()).ok();
+            let pipeline = Pipeline::build(config, &Secrets::default(), || true);
             Source::wanted(config, pipeline.as_ref(), tts_ready)
         };
 

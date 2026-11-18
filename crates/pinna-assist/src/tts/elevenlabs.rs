@@ -6,27 +6,21 @@
 //! percent-encoded. Authentication is the `xi-api-key` header.
 
 use futures_core::future::BoxFuture;
-use pinna_http::reqwest;
 use serde::Serialize;
 
 use crate::{
     error::{ProviderError, Reason, Slot},
-    http::{Auth, send},
-    presets::PresetId,
+    http::Endpoint,
     reply::{AudioBody, AudioKind, SpeechAudio},
     tts::{Tts, body_stream},
 };
 
 /// One ElevenLabs speech endpoint.
 pub struct ElevenLabsTts {
-    client: reqwest::Client,
-    base_url: String,
+    endpoint: Endpoint,
     model: String,
     voice: String,
     language: Option<String>,
-    preset: PresetId,
-    auth: Auth,
-    clock_synced: fn() -> bool,
 }
 
 #[derive(Serialize)]
@@ -38,31 +32,22 @@ struct Request<'a> {
 }
 
 impl ElevenLabsTts {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        client: reqwest::Client,
-        base_url: impl Into<String>,
+        endpoint: Endpoint,
         model: impl Into<String>,
         voice: impl Into<String>,
         language: Option<String>,
-        preset: PresetId,
-        auth: Auth,
-        clock_synced: fn() -> bool,
     ) -> Self {
         Self {
-            client,
-            base_url: base_url.into().trim_end_matches('/').to_owned(),
+            endpoint,
             model: model.into(),
             voice: voice.into(),
             language,
-            preset,
-            auth,
-            clock_synced,
         }
     }
 
-    fn endpoint(&self) -> Result<url::Url, ProviderError> {
-        let mut url = url::Url::parse(&self.base_url).map_err(|_| self.fail())?;
+    fn url(&self) -> Result<url::Url, ProviderError> {
+        let mut url = url::Url::parse(&self.endpoint.base_url).map_err(|_| self.fail())?;
         url.path_segments_mut().map_err(|_| self.fail())?.extend([
             "v1",
             "text-to-speech",
@@ -75,26 +60,19 @@ impl ElevenLabsTts {
     }
 
     fn fail(&self) -> ProviderError {
-        ProviderError::new(Slot::Tts, self.preset, Reason::Protocol)
+        self.endpoint.error(Slot::Tts, Reason::Protocol)
     }
 }
 
 impl Tts for ElevenLabsTts {
     fn speak<'a>(&'a self, text: &'a str) -> BoxFuture<'a, Result<SpeechAudio, ProviderError>> {
         Box::pin(async move {
-            let request = self.client.post(self.endpoint()?).json(&Request {
+            let request = self.endpoint.http.post(self.url()?).json(&Request {
                 text,
                 model_id: &self.model,
                 language_code: self.language.as_deref(),
             });
-            let response = send(
-                request,
-                &self.auth,
-                Slot::Tts,
-                self.preset,
-                self.clock_synced,
-            )
-            .await?;
+            let response = self.endpoint.send(request, Slot::Tts).await?;
             Ok(SpeechAudio {
                 kind: AudioKind::Sentence,
                 mime: Some("audio/mpeg".into()),
@@ -114,18 +92,28 @@ mod tests {
     };
 
     use super::*;
-    use crate::testing::{FakeResponse, FakeServer};
+    use crate::{
+        http::Auth,
+        presets::PresetId,
+        testing::{FakeResponse, FakeServer},
+    };
+
+    fn endpoint(server: &FakeServer) -> Endpoint {
+        Endpoint::new(
+            client(ClientKind::Provider { read: None }),
+            &server.url(""),
+            Auth::ApiKey("xi-api-key", Secret::new("xi-secret")),
+            PresetId::ElevenLabs,
+            || true,
+        )
+    }
 
     fn adapter(server: &FakeServer, voice: &str) -> ElevenLabsTts {
         ElevenLabsTts::new(
-            client(ClientKind::Provider { read: None }),
-            server.url(""),
+            endpoint(server),
             "eleven_multilingual_v2",
             voice,
             Some("de".into()),
-            PresetId::ElevenLabs,
-            Auth::ApiKey("xi-api-key", Secret::new("xi-secret")),
-            || true,
         )
     }
 
@@ -194,16 +182,7 @@ mod tests {
             FakeResponse::new(StatusCode::OK, "audio"),
         );
 
-        let tts = ElevenLabsTts::new(
-            client(ClientKind::Provider { read: None }),
-            server.url(""),
-            "eleven_multilingual_v2",
-            "nova",
-            None,
-            PresetId::ElevenLabs,
-            Auth::ApiKey("xi-api-key", Secret::new("xi-secret")),
-            || true,
-        );
+        let tts = ElevenLabsTts::new(endpoint(&server), "eleven_multilingual_v2", "nova", None);
         tts.speak("Hi").await.unwrap();
 
         let requests = server.requests();

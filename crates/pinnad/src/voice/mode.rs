@@ -5,7 +5,7 @@ use std::time::{Instant, SystemTime};
 
 use pinna_esphome::{DeviceEvent, HaCommand};
 
-use super::{Brain, Phase, timers};
+use super::{Brain, Phase};
 use crate::settings::Mode;
 
 /// Why standalone mode can't be switched on yet.
@@ -33,7 +33,7 @@ impl Brain {
         }
         self.timers.clear();
         self.timer_store
-            .clear(Instant::now(), SystemTime::now(), timers::clock_synced());
+            .clear(Instant::now(), SystemTime::now(), crate::clock::synced());
         self.local.forget_conversation();
         self.continue_conversation = false;
         self.stale_run = false;

@@ -3,43 +3,28 @@
 use std::collections::BTreeMap;
 
 use futures_core::{future::BoxFuture, stream::BoxStream};
-use pinna_http::{Secret, SseEvent, reqwest};
+use pinna_http::SseEvent;
 use pinna_mcp::{ToolCall, ToolOutput};
 use serde_json::{Value, json};
 
-use super::{Chat, ChatDelta, ChatRequest, Message, endpoint, protocol_error, response_stream};
+use super::{Chat, ChatDelta, ChatRequest, Message, protocol_error, response_stream};
 use crate::{
     error::{ProviderError, Slot},
-    http::{Auth, send},
-    presets::PresetId,
+    http::Endpoint,
+    presets::{ChatProtocol, PresetId},
 };
-
-/// The Messages API version every Anthropic request names.
-pub(crate) const API_VERSION: &str = "2023-06-01";
 
 #[derive(Clone)]
 pub struct AnthropicChat {
-    client: reqwest::Client,
-    base_url: String,
+    endpoint: Endpoint,
     model: String,
-    auth: Auth,
-    clock_synced: fn() -> bool,
 }
 
 impl AnthropicChat {
-    pub fn new(
-        client: reqwest::Client,
-        base_url: impl Into<String>,
-        model: impl Into<String>,
-        key: Secret,
-        clock_synced: fn() -> bool,
-    ) -> Self {
+    pub fn new(endpoint: Endpoint, model: impl Into<String>) -> Self {
         Self {
-            client,
-            base_url: base_url.into(),
+            endpoint,
             model: model.into(),
-            auth: Auth::ApiKey("x-api-key", key),
-            clock_synced,
         }
     }
 
@@ -132,22 +117,17 @@ impl Chat for AnthropicChat {
         req: ChatRequest<'a>,
     ) -> BoxFuture<'a, Result<BoxStream<'a, Result<ChatDelta, ProviderError>>, ProviderError>> {
         Box::pin(async move {
-            let response = send(
-                self.client
-                    .post(endpoint(&self.base_url, "/v1/messages"))
-                    .header("anthropic-version", API_VERSION)
-                    .json(&self.request_json(&req)),
-                &self.auth,
-                Slot::Chat,
-                PresetId::Anthropic,
-                self.clock_synced,
-            )
-            .await?;
+            let mut request = self.endpoint.http.post(self.endpoint.url("/v1/messages"));
+            if let Some((name, value)) = ChatProtocol::Anthropic.version_header() {
+                request = request.header(name, value);
+            }
+            let request = request.json(&self.request_json(&req));
+            let response = self.endpoint.send(request, Slot::Chat).await?;
             let mut decoder = Decoder::default();
             Ok(response_stream(
                 response,
-                PresetId::Anthropic,
-                self.clock_synced,
+                self.endpoint.preset,
+                self.endpoint.clock_synced,
                 move |event| decoder.parse(event),
             ))
         })
@@ -330,13 +310,14 @@ mod tests {
     use crate::testing::{FakeResponse, FakeServer};
 
     fn adapter(server: &FakeServer) -> AnthropicChat {
-        AnthropicChat::new(
+        let endpoint = Endpoint::new(
             client(ClientKind::Provider { read: None }),
-            server.url(""),
-            "claude-test",
-            Secret::new("anthropic-test-key"),
+            &server.url(""),
+            ChatProtocol::Anthropic.auth(Some(pinna_http::Secret::new("anthropic-test-key"))),
+            PresetId::Anthropic,
             || true,
-        )
+        );
+        AnthropicChat::new(endpoint, "claude-test")
     }
 
     async fn collect(
@@ -532,7 +513,7 @@ mod tests {
         let requests = server.requests();
         let request = &requests[0];
         assert_eq!(request.header("x-api-key"), Some("anthropic-test-key"));
-        assert_eq!(request.header("anthropic-version"), Some(API_VERSION));
+        assert_eq!(request.header("anthropic-version"), Some("2023-06-01"));
         let body: Value = serde_json::from_slice(&request.body).unwrap();
         assert_eq!(body["system"], "Speak plainly.");
         assert_eq!(body["tools"][0]["input_schema"], json!({"type": "object"}));

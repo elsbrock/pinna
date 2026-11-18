@@ -3,44 +3,25 @@
 use std::collections::BTreeMap;
 
 use futures_core::{future::BoxFuture, stream::BoxStream};
-use pinna_http::{Secret, SseEvent, reqwest};
+use pinna_http::SseEvent;
 use pinna_mcp::ToolCall;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Chat, ChatDelta, ChatRequest, Message, endpoint, protocol_error, response_stream};
-use crate::{
-    error::ProviderError,
-    http::{Auth, send},
-    presets::PresetId,
-};
+use super::{Chat, ChatDelta, ChatRequest, Message, protocol_error, response_stream};
+use crate::{error::ProviderError, http::Endpoint, presets::PresetId};
 
 #[derive(Clone)]
 pub struct OpenAiChat {
-    client: reqwest::Client,
-    base_url: String,
+    endpoint: Endpoint,
     model: String,
-    auth: Auth,
-    preset: PresetId,
-    clock_synced: fn() -> bool,
 }
 
 impl OpenAiChat {
-    pub fn new(
-        client: reqwest::Client,
-        base_url: impl Into<String>,
-        model: impl Into<String>,
-        key: Option<Secret>,
-        preset: PresetId,
-        clock_synced: fn() -> bool,
-    ) -> Self {
+    pub fn new(endpoint: Endpoint, model: impl Into<String>) -> Self {
         Self {
-            client,
-            base_url: base_url.into(),
+            endpoint,
             model: model.into(),
-            auth: key.map(Auth::Bearer).unwrap_or_default(),
-            preset,
-            clock_synced,
         }
     }
 
@@ -88,7 +69,7 @@ impl OpenAiChat {
         // OpenAI's own API refuses `max_tokens` for its reasoning models and
         // takes the newer name for every model; compatible servers know only
         // the older one.
-        let limit = if self.preset == PresetId::OpenAi {
+        let limit = if self.endpoint.preset == PresetId::OpenAi {
             "max_completion_tokens"
         } else {
             "max_tokens"
@@ -126,21 +107,20 @@ impl Chat for OpenAiChat {
         req: ChatRequest<'a>,
     ) -> BoxFuture<'a, Result<BoxStream<'a, Result<ChatDelta, ProviderError>>, ProviderError>> {
         Box::pin(async move {
-            let response = send(
-                self.client
-                    .post(endpoint(&self.base_url, "/chat/completions"))
-                    .json(&self.request_json(&req)),
-                &self.auth,
-                crate::error::Slot::Chat,
-                self.preset,
-                self.clock_synced,
-            )
-            .await?;
-            let mut decoder = Decoder::new(self.preset);
+            let request = self
+                .endpoint
+                .http
+                .post(self.endpoint.url("/chat/completions"))
+                .json(&self.request_json(&req));
+            let response = self
+                .endpoint
+                .send(request, crate::error::Slot::Chat)
+                .await?;
+            let mut decoder = Decoder::new(self.endpoint.preset);
             Ok(response_stream(
                 response,
-                self.preset,
-                self.clock_synced,
+                self.endpoint.preset,
+                self.endpoint.clock_synced,
                 move |event| decoder.parse(event),
             ))
         })
@@ -308,14 +288,14 @@ mod tests {
     }
 
     fn adapter_for(server: &FakeServer, preset: PresetId) -> OpenAiChat {
-        OpenAiChat::new(
+        let endpoint = Endpoint::new(
             client(ClientKind::Provider { read: None }),
-            server.url("/v1"),
-            "test-model",
-            Some(Secret::new("sk-test")),
+            &server.url("/v1"),
+            crate::http::Auth::Bearer(pinna_http::Secret::new("sk-test")),
             preset,
             || true,
-        )
+        );
+        OpenAiChat::new(endpoint, "test-model")
     }
 
     async fn collect(

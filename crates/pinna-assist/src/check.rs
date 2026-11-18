@@ -10,16 +10,14 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::StreamExt;
-use pinna_http::{NetError, classify, reqwest};
 
 use crate::{
     audio,
     error::{ProviderError, Reason, Slot},
-    http::{self, Auth},
-    presets::{ChatProtocol, PresetId, SpeechProtocol, preset},
+    http::{self, Endpoint},
+    presets::{PresetId, preset},
     reply::AudioBody,
-    stt::{ElevenLabsStt, OpenAiStt, Stt, SttSetup},
-    tts::{ElevenLabsTts, OpenAiTts, Tts},
+    stt, tts,
 };
 
 /// A check gives up after this long (architecture §7).
@@ -33,35 +31,26 @@ pub const MODELS_CAP: usize = 2 * 1024 * 1024;
 /// that proves a speech-to-text server without a model list.
 const SILENCE_BYTES: usize = 16_000 * 500 / 1000 * 2;
 
-/// Everything one save-time check needs. The caller fills in the fields the
-/// slot uses; `voice` only matters for [`Slot::Tts`].
+/// Everything one save-time check needs.
 pub struct CheckSetup {
     pub slot: Slot,
-    pub http: reqwest::Client,
-    pub preset: PresetId,
-    pub base_url: String,
-    /// The model id: the brain's model, the speech-to-text model, or the
-    /// text-to-speech model.
+    /// The connection, with the key in its protocol's header
+    /// ([`crate::presets::auth`]).
+    pub endpoint: Endpoint,
+    /// What the slot names: the speech-to-text or brain model, or the
+    /// text-to-speech voice.
     pub model: String,
-    /// The voice id for the text-to-speech slot.
-    pub voice: Option<String>,
-    pub auth: Auth,
     /// The brain hands requests off (the preset's delegation after the
     /// owner's Advanced override): its check never sends a prompt or names a
     /// model.
     pub hand_off: bool,
-    pub clock_synced: fn() -> bool,
 }
 
 /// Check one connection, returning an owner sentence when it fails.
 pub async fn check(setup: &CheckSetup) -> Result<(), String> {
     match tokio::time::timeout(CHECK_TIMEOUT, run_check(setup)).await {
         Ok(result) => result,
-        Err(_) => Err(refusal(&ProviderError::new(
-            setup.slot,
-            setup.preset,
-            Reason::Timeout,
-        ))),
+        Err(_) => Err(refusal(&setup.endpoint.error(setup.slot, Reason::Timeout))),
     }
 }
 
@@ -77,18 +66,14 @@ async fn run_check(setup: &CheckSetup) -> Result<(), String> {
 
 /// List the models, or `None` when the body was too large to confirm one.
 async fn models(setup: &CheckSetup, slot: Slot) -> Result<Option<Bytes>, ProviderError> {
-    let url = format!(
-        "{}{}",
-        setup.base_url.trim_end_matches('/'),
-        models_path(setup.preset)
-    );
-    let mut request = setup.http.get(url);
-    if preset(setup.preset).chat_protocol == ChatProtocol::Anthropic {
-        // Anthropic refuses every request that doesn't name its API version.
-        request = request.header("anthropic-version", crate::chat::ANTHROPIC_VERSION);
+    let endpoint = &setup.endpoint;
+    let protocol = preset(endpoint.preset).chat_protocol;
+    let mut request = endpoint.http.get(endpoint.url(protocol.models_path()));
+    if let Some((name, value)) = protocol.version_header() {
+        request = request.header(name, value);
     }
-    let response = http::send(request, &setup.auth, slot, setup.preset, setup.clock_synced).await?;
-    match http::read_capped(response, MODELS_CAP, slot, setup.preset, setup.clock_synced).await {
+    let response = endpoint.send(request, slot).await?;
+    match endpoint.read_capped(response, MODELS_CAP, slot).await {
         Ok(body) => Ok(Some(body)),
         Err(error) if error.reason == Reason::TooLarge => Ok(None),
         Err(error) => Err(error),
@@ -100,11 +85,15 @@ async fn stt_check(setup: &CheckSetup) -> Result<(), String> {
         Ok(_) => Ok(()),
         // Some self-hosted servers have no model list. A short silence is the
         // smallest transcription that still proves the key and the address.
-        Err(error) if error.reason == Reason::Http(404) => stt_adapter(setup)
-            .transcribe(silence_wav(), None)
-            .await
-            .map(|_| ())
-            .map_err(|error| refusal(&error)),
+        Err(error) if error.reason == Reason::Http(404) => stt::adapter(
+            preset(setup.endpoint.preset).speech_protocol,
+            setup.endpoint.clone(),
+            setup.model.clone(),
+        )
+        .transcribe(silence_wav(), None)
+        .await
+        .map(|_| ())
+        .map_err(|error| refusal(&error)),
         Err(error) => Err(refusal(&error)),
     }
 }
@@ -120,22 +109,26 @@ async fn chat_check(setup: &CheckSetup) -> Result<(), String> {
     let Some(body) = body else {
         return Ok(());
     };
+    // A preset that names its own model is checked for that one.
+    let model = preset(setup.endpoint.preset).model.unwrap_or(&setup.model);
     if let Some(ids) = offered_models(&body)
-        && !ids.iter().any(|id| names_model(id, &setup.model))
+        && !ids.iter().any(|id| names_model(id, model))
     {
-        return Err(format!(
-            "The model {} isn't offered by this service.",
-            setup.model
-        ));
+        return Err(format!("The model {model} isn't offered by this service."));
     }
     Ok(())
 }
 
 async fn tts_check(setup: &CheckSetup) -> Result<(), String> {
-    let audio = tts_adapter(setup)
-        .speak("OK.")
-        .await
-        .map_err(|error| refusal(&error))?;
+    let audio = tts::adapter(
+        preset(setup.endpoint.preset).speech_protocol,
+        setup.endpoint.clone(),
+        setup.model.clone(),
+        None,
+    )
+    .speak("OK.")
+    .await
+    .map_err(|error| refusal(&error))?;
     let AudioBody::Stream(mut stream) = audio.body else {
         return Ok(());
     };
@@ -144,71 +137,16 @@ async fn tts_check(setup: &CheckSetup) -> Result<(), String> {
             Ok(bytes) if !bytes.is_empty() => return Ok(()),
             Ok(_) => continue,
             Err(error) => {
-                let reason = body_error_reason(&error, (setup.clock_synced)());
-                return Err(refusal(&ProviderError::new(
-                    Slot::Tts,
-                    setup.preset,
-                    reason,
-                )));
+                let reason = http::body_reason(&error, (setup.endpoint.clock_synced)());
+                return Err(refusal(&setup.endpoint.error(Slot::Tts, reason)));
             }
         }
     }
     Err("The text-to-speech service sent no audio.".to_owned())
 }
 
-fn stt_adapter(setup: &CheckSetup) -> Box<dyn Stt + '_> {
-    let inner = SttSetup {
-        http: setup.http.clone(),
-        base_url: setup.base_url.clone(),
-        model: setup.model.clone(),
-        auth: setup.auth.clone(),
-        preset: setup.preset,
-        clock_synced: setup.clock_synced,
-    };
-    match preset(setup.preset).speech_protocol {
-        SpeechProtocol::ElevenLabs => Box::new(ElevenLabsStt::new(inner)),
-        SpeechProtocol::OpenAi => Box::new(OpenAiStt::new(inner)),
-    }
-}
-
-fn tts_adapter(setup: &CheckSetup) -> Box<dyn Tts + '_> {
-    let voice = setup.voice.clone().unwrap_or_default();
-    match preset(setup.preset).speech_protocol {
-        SpeechProtocol::ElevenLabs => Box::new(ElevenLabsTts::new(
-            setup.http.clone(),
-            setup.base_url.clone(),
-            setup.model.clone(),
-            voice,
-            None,
-            setup.preset,
-            setup.auth.clone(),
-            setup.clock_synced,
-        )),
-        SpeechProtocol::OpenAi => Box::new(OpenAiTts::new(
-            setup.http.clone(),
-            setup.base_url.clone(),
-            setup.model.clone(),
-            voice,
-            setup.preset,
-            setup.auth.clone(),
-            setup.clock_synced,
-        )),
-    }
-}
-
 fn silence_wav() -> Bytes {
     audio::wav(&[Bytes::from(vec![0u8; SILENCE_BYTES])])
-}
-
-/// The model-list path for a protocol. The base URL already carries the API
-/// version for an OpenAI-compatible connection.
-fn models_path(id: PresetId) -> &'static str {
-    match preset(id).chat_protocol {
-        // Both page their lists; ask for the largest page they serve.
-        ChatProtocol::Anthropic => "/v1/models?limit=1000",
-        ChatProtocol::Gemini => "/v1beta/models?pageSize=1000",
-        ChatProtocol::OpenAi => "/models",
-    }
 }
 
 #[derive(serde::Deserialize)]
@@ -266,28 +204,6 @@ fn names_model(id: &str, model: &str) -> bool {
             .strip_prefix(model)
             .and_then(|rest| rest.strip_prefix('-'))
             .is_some_and(|date| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
-}
-
-fn network_reason(error: &reqwest::Error, clock_synced: bool) -> Reason {
-    match classify(error) {
-        NetError::Tls if !clock_synced => Reason::ClockNotSet,
-        NetError::Timeout => Reason::Timeout,
-        NetError::Unreachable => Reason::Unreachable,
-        NetError::Tls => Reason::Tls,
-        NetError::Protocol => Reason::Protocol,
-    }
-}
-
-/// The body stream of a provider response wraps the request error in an
-/// [`std::io::Error`]; classify the inner error when it is still there.
-fn body_error_reason(error: &std::io::Error, clock_synced: bool) -> Reason {
-    match error
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<reqwest::Error>())
-    {
-        Some(inner) => network_reason(inner, clock_synced),
-        None => Reason::Protocol,
-    }
 }
 
 /// One owner sentence for a failed check. It names the cause and the fix, and
@@ -348,17 +264,18 @@ mod tests {
     fn setup(server: &FakeServer, slot: Slot, preset: PresetId, model: &str) -> CheckSetup {
         CheckSetup {
             slot,
-            http: client(ClientKind::Provider {
-                read: Some(Duration::from_secs(5)),
-            }),
-            preset,
-            base_url: server.url(""),
+            endpoint: Endpoint::new(
+                client(ClientKind::Provider {
+                    read: Some(Duration::from_secs(5)),
+                }),
+                &server.url(""),
+                crate::presets::auth(preset, slot, Some(Secret::new("sk-test"))),
+                preset,
+                || true,
+            ),
             model: model.into(),
-            voice: Some("nova".into()),
-            auth: Auth::Bearer(Secret::new("sk-test")),
             hand_off: crate::presets::preset(preset).behaviour.delegation
                 == crate::presets::Delegation::HandOff,
-            clock_synced: || true,
         }
     }
 
@@ -436,7 +353,7 @@ mod tests {
             ),
         );
         let mut slow = setup(&server, Slot::Chat, PresetId::OpenAi, "gpt-4o");
-        slow.http = client(ClientKind::Provider {
+        slow.endpoint.http = client(ClientKind::Provider {
             read: Some(Duration::from_millis(5)),
         });
         let error = check(&slow).await.unwrap_err();
@@ -507,10 +424,7 @@ mod tests {
         .await
         .unwrap();
         let requests = server.requests();
-        assert_eq!(
-            requests[0].header("anthropic-version"),
-            Some(crate::chat::ANTHROPIC_VERSION)
-        );
+        assert_eq!(requests[0].header("anthropic-version"), Some("2023-06-01"));
     }
 
     #[tokio::test]
@@ -589,7 +503,7 @@ mod tests {
             "/audio/speech",
             FakeResponse::new(StatusCode::OK, "audio"),
         );
-        check(&setup(&server, Slot::Tts, PresetId::OpenAi, "tts-1"))
+        check(&setup(&server, Slot::Tts, PresetId::OpenAi, "nova"))
             .await
             .unwrap();
         let requests = server.requests();
@@ -608,7 +522,7 @@ mod tests {
             "/audio/speech",
             FakeResponse::empty(StatusCode::OK),
         );
-        let error = check(&setup(&server, Slot::Tts, PresetId::OpenAi, "tts-1"))
+        let error = check(&setup(&server, Slot::Tts, PresetId::OpenAi, "nova"))
             .await
             .unwrap_err();
         assert_eq!(error, "The text-to-speech service sent no audio.");

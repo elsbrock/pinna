@@ -14,30 +14,28 @@ pub use elevenlabs::ElevenLabsStt;
 pub use guard::is_invented;
 pub use openai::OpenAiStt;
 
+use std::sync::Arc;
+
 use bytes::Bytes;
 use futures_core::future::BoxFuture;
-use pinna_http::reqwest::{self, multipart};
+use pinna_http::reqwest::multipart;
 
 use crate::{
     error::{ProviderError, Reason, Slot},
-    http::Auth,
-    presets::PresetId,
+    http::Endpoint,
+    presets::{PresetId, SpeechProtocol},
 };
 
 /// The most a transcript body may be. A 15 s utterance becomes at most a few
 /// kilobytes of text; anything larger is not a transcript.
 pub const STT_BODY_CAP: usize = 256 * 1024;
 
-/// What every speech adapter needs: the connection's URL and key, the model,
-/// and whether the clock is set, so a TLS failure before NTP can be named.
-#[derive(Clone)]
-pub struct SttSetup {
-    pub http: reqwest::Client,
-    pub base_url: String,
-    pub model: String,
-    pub auth: Auth,
-    pub preset: PresetId,
-    pub clock_synced: fn() -> bool,
+/// The adapter for a protocol, with the model to ask for.
+pub fn adapter(protocol: SpeechProtocol, endpoint: Endpoint, model: String) -> Arc<dyn Stt> {
+    match protocol {
+        SpeechProtocol::OpenAi => Arc::new(OpenAiStt::new(endpoint, model)),
+        SpeechProtocol::ElevenLabs => Arc::new(ElevenLabsStt::new(endpoint, model)),
+    }
 }
 
 /// One speech-to-text provider: send WAV, get a transcript.
@@ -56,11 +54,6 @@ pub(crate) struct Transcript {
     pub text: String,
 }
 
-/// Join a path to a base URL without doubling a trailing slash.
-pub(crate) fn join(base_url: &str, path: &str) -> String {
-    format!("{}{}", base_url.trim_end_matches('/'), path)
-}
-
 /// The WAV file part every form sends.
 pub(crate) fn wav_part(wav: Bytes, preset: PresetId) -> Result<multipart::Part, ProviderError> {
     // A `Bytes` body has a known length and is sent without another copy.
@@ -68,21 +61,4 @@ pub(crate) fn wav_part(wav: Bytes, preset: PresetId) -> Result<multipart::Part, 
         .file_name("audio.wav")
         .mime_str("audio/wav")
         .map_err(|_| ProviderError::new(Slot::Stt, preset, Reason::Internal))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn joining_tolerates_a_trailing_slash() {
-        assert_eq!(
-            join("https://api.openai.com/v1", "/audio/transcriptions"),
-            "https://api.openai.com/v1/audio/transcriptions"
-        );
-        assert_eq!(
-            join("https://api.elevenlabs.io/", "/v1/speech-to-text"),
-            "https://api.elevenlabs.io/v1/speech-to-text"
-        );
-    }
 }

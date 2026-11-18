@@ -1,7 +1,7 @@
 //! Gemini's streaming GenerateContent API.
 
 use futures_core::{future::BoxFuture, stream::BoxStream};
-use pinna_http::{Secret, SseEvent, reqwest};
+use pinna_http::SseEvent;
 use pinna_mcp::{ToolCall, ToolOutput};
 use serde_json::{Map, Value, json};
 use url::Url;
@@ -9,39 +9,27 @@ use url::Url;
 use super::{Chat, ChatDelta, ChatRequest, Message, protocol_error, response_stream};
 use crate::{
     error::{ProviderError, Slot},
-    http::{Auth, send},
+    http::Endpoint,
     presets::PresetId,
 };
 
 #[derive(Clone)]
 pub struct GeminiChat {
-    client: reqwest::Client,
-    base_url: String,
+    endpoint: Endpoint,
     model: String,
-    auth: Auth,
-    clock_synced: fn() -> bool,
 }
 
 impl GeminiChat {
-    pub fn new(
-        client: reqwest::Client,
-        base_url: impl Into<String>,
-        model: impl Into<String>,
-        key: Secret,
-        clock_synced: fn() -> bool,
-    ) -> Self {
+    pub fn new(endpoint: Endpoint, model: impl Into<String>) -> Self {
         Self {
-            client,
-            base_url: base_url.into(),
+            endpoint,
             model: model.into(),
-            auth: Auth::ApiKey("x-goog-api-key", key),
-            clock_synced,
         }
     }
 
-    fn endpoint(&self) -> Result<Url, ProviderError> {
-        let mut url = Url::parse(self.base_url.trim_end_matches('/'))
-            .map_err(|_| protocol_error(PresetId::Gemini))?;
+    fn url(&self) -> Result<Url, ProviderError> {
+        let mut url =
+            Url::parse(&self.endpoint.base_url).map_err(|_| protocol_error(PresetId::Gemini))?;
         url.set_query(None);
         url.set_fragment(None);
         let mut model_parts = self
@@ -166,21 +154,17 @@ impl Chat for GeminiChat {
         req: ChatRequest<'a>,
     ) -> BoxFuture<'a, Result<BoxStream<'a, Result<ChatDelta, ProviderError>>, ProviderError>> {
         Box::pin(async move {
-            let response = send(
-                self.client
-                    .post(self.endpoint()?)
-                    .json(&self.request_json(&req)),
-                &self.auth,
-                Slot::Chat,
-                PresetId::Gemini,
-                self.clock_synced,
-            )
-            .await?;
+            let request = self
+                .endpoint
+                .http
+                .post(self.url()?)
+                .json(&self.request_json(&req));
+            let response = self.endpoint.send(request, Slot::Chat).await?;
             let mut decoder = Decoder::default();
             Ok(response_stream(
                 response,
-                PresetId::Gemini,
-                self.clock_synced,
+                self.endpoint.preset,
+                self.endpoint.clock_synced,
                 move |event| decoder.parse(event),
             ))
         })
@@ -327,13 +311,15 @@ mod tests {
     use crate::testing::{FakeResponse, FakeServer};
 
     fn adapter(server: &FakeServer, model: &str) -> GeminiChat {
-        GeminiChat::new(
+        let endpoint = Endpoint::new(
             client(ClientKind::Provider { read: None }),
-            server.url(""),
-            model,
-            Secret::new("gemini-secret-key"),
+            &server.url(""),
+            crate::presets::ChatProtocol::Gemini
+                .auth(Some(pinna_http::Secret::new("gemini-secret-key"))),
+            PresetId::Gemini,
             || true,
-        )
+        );
+        GeminiChat::new(endpoint, model)
     }
 
     async fn collect(

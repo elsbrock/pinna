@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use pinna_http::NetError;
+
 use crate::presets::PresetId;
 
 /// The pipeline stage that failed.
@@ -41,6 +43,21 @@ pub enum Reason {
     Protocol,
     TooLarge,
     Internal,
+}
+
+impl Reason {
+    /// The reason for a request that failed before a status arrived. A TLS
+    /// failure before the clock is set is named as that: the certificate is
+    /// probably fine, the clock isn't.
+    pub(crate) fn from_net(error: NetError, clock_synced: bool) -> Self {
+        match error {
+            NetError::Tls if !clock_synced => Self::ClockNotSet,
+            NetError::Timeout => Self::Timeout,
+            NetError::Unreachable => Self::Unreachable,
+            NetError::Tls => Self::Tls,
+            NetError::Protocol => Self::Protocol,
+        }
+    }
 }
 
 impl Reason {

@@ -32,7 +32,6 @@ use crate::wakewords::{Catalogue, KeywordSet};
 #[cfg(test)]
 pub(crate) use local::NoopSpawner;
 pub(crate) use local::{DeviceFacts, LocalOptions, LocalStart, RunSpawner};
-pub(crate) use timers::clock_synced;
 use timers::{Origin, Timer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -765,7 +764,7 @@ impl Brain {
                 let _ = tx.send(self.settings.bluetooth);
             }
         }
-        self.restore_timers(Instant::now(), SystemTime::now(), timers::clock_synced)
+        self.restore_timers(Instant::now(), SystemTime::now(), crate::clock::synced)
             .await;
         self.refresh();
         let mut sent_media = (self.media_state, self.media_volume(), self.media_muted);
@@ -1923,7 +1922,7 @@ impl Brain {
     }
 
     fn save_timers(&mut self) {
-        self.save_timers_at(Instant::now(), SystemTime::now(), timers::clock_synced());
+        self.save_timers_at(Instant::now(), SystemTime::now(), crate::clock::synced());
     }
 
     fn save_timers_at(&mut self, now: Instant, wall: SystemTime, synced: bool) {
@@ -2986,7 +2985,7 @@ impl Brain {
             }
         }
         self.tick_local(now).await;
-        self.tick_timers(now, SystemTime::now(), timers::clock_synced)
+        self.tick_timers(now, SystemTime::now(), crate::clock::synced)
             .await;
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
             self.end_calibration().await;

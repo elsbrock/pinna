@@ -9,9 +9,10 @@
 
 use std::time::Duration;
 
+use pinna_http::Secret;
 use serde::{Deserialize, Serialize};
 
-use crate::limits::RunLimits;
+use crate::{error::Slot, http::Auth, limits::RunLimits};
 
 /// A provider, or the owner's own URL (`Custom`). `label()` is bounded, so it
 /// can be a metric label.
@@ -60,11 +61,71 @@ pub enum ChatProtocol {
     Gemini,
 }
 
+impl ChatProtocol {
+    /// How the key travels.
+    pub fn auth(self, key: Option<Secret>) -> Auth {
+        match (self, key) {
+            (_, None) => Auth::None,
+            (Self::OpenAi, Some(key)) => Auth::Bearer(key),
+            (Self::Anthropic, Some(key)) => Auth::ApiKey("x-api-key", key),
+            (Self::Gemini, Some(key)) => Auth::ApiKey("x-goog-api-key", key),
+        }
+    }
+
+    /// The model list below the base URL. An OpenAI-compatible base URL
+    /// already carries its API version; the other two page their lists, so
+    /// ask for the largest page they serve.
+    pub fn models_path(self) -> &'static str {
+        match self {
+            Self::OpenAi => "/models",
+            Self::Anthropic => "/v1/models?limit=1000",
+            Self::Gemini => "/v1beta/models?pageSize=1000",
+        }
+    }
+
+    /// A header every request names besides the key: Anthropic refuses a
+    /// request without its API version.
+    pub fn version_header(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Anthropic => Some(("anthropic-version", "2023-06-01")),
+            Self::OpenAi | Self::Gemini => None,
+        }
+    }
+}
+
+/// How a connection's key travels for one slot.
+pub fn auth(id: PresetId, slot: Slot, key: Option<Secret>) -> Auth {
+    let row = preset(id);
+    match slot {
+        Slot::Chat => row.chat_protocol.auth(key),
+        Slot::Stt | Slot::Tts | Slot::Tool => row.speech_protocol.auth(key),
+    }
+}
+
 /// The speech slots' wire protocol.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpeechProtocol {
     OpenAi,
     ElevenLabs,
+}
+
+impl SpeechProtocol {
+    /// How the key travels.
+    pub fn auth(self, key: Option<Secret>) -> Auth {
+        match (self, key) {
+            (_, None) => Auth::None,
+            (Self::OpenAi, Some(key)) => Auth::Bearer(key),
+            (Self::ElevenLabs, Some(key)) => Auth::ApiKey("xi-api-key", key),
+        }
+    }
+
+    /// The text-to-speech model: the slot names only the voice.
+    pub fn tts_model(self) -> &'static str {
+        match self {
+            Self::OpenAi => "tts-1",
+            Self::ElevenLabs => "eleven_multilingual_v2",
+        }
+    }
 }
 
 /// Who runs the tools.

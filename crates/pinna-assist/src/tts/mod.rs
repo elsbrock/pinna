@@ -7,6 +7,7 @@
 use std::{
     io,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -14,13 +15,30 @@ use bytes::Bytes;
 use futures_core::{Stream, future::BoxFuture, stream::BoxStream};
 use pinna_http::reqwest;
 
-use crate::{error::ProviderError, reply::SpeechAudio};
+use crate::{error::ProviderError, http::Endpoint, presets::SpeechProtocol, reply::SpeechAudio};
 
 pub mod elevenlabs;
 pub mod openai;
 
 pub use elevenlabs::ElevenLabsTts;
 pub use openai::OpenAiTts;
+
+/// The adapter for a protocol: its own model, the owner's voice and, for
+/// ElevenLabs, the language.
+pub fn adapter(
+    protocol: SpeechProtocol,
+    endpoint: Endpoint,
+    voice: String,
+    language: Option<String>,
+) -> Arc<dyn Tts> {
+    let model = protocol.tts_model();
+    match protocol {
+        SpeechProtocol::OpenAi => Arc::new(OpenAiTts::new(endpoint, model, voice)),
+        SpeechProtocol::ElevenLabs => {
+            Arc::new(ElevenLabsTts::new(endpoint, model, voice, language))
+        }
+    }
+}
 
 /// Synthesise one phrase into audio for the voice lane.
 pub trait Tts: Send + Sync {

@@ -93,7 +93,6 @@ impl ProdSpawner {
             tools: Arc::new(tools),
             ack: live.ack.clone(),
             observer: self.observer.clone(),
-            clock_synced: crate::voice::clock_synced,
         })
     }
 }
@@ -296,7 +295,6 @@ mod tests {
             chat,
             tts: Arc::new(FakeTts),
             presets: [PresetId::OpenAi, brain, PresetId::OpenAi],
-            model: "test-model".into(),
             behaviour: preset(brain).behaviour,
             label: format!("{}: test-model", brain.label()),
         }

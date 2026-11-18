@@ -9,22 +9,27 @@ use bytes::Bytes;
 use futures_core::future::BoxFuture;
 use pinna_http::reqwest::multipart;
 
-use super::{STT_BODY_CAP, Stt, SttSetup, Transcript, join, wav_part};
+use super::{STT_BODY_CAP, Stt, Transcript, wav_part};
 use crate::{
     error::{ProviderError, Reason, Slot},
-    http,
+    http::Endpoint,
 };
 
 /// An OpenAI-compatible speech-to-text server.
 pub struct OpenAiStt {
-    setup: SttSetup,
+    endpoint: Endpoint,
+    model: String,
     url: String,
 }
 
 impl OpenAiStt {
-    pub fn new(setup: SttSetup) -> Self {
-        let url = join(&setup.base_url, "/audio/transcriptions");
-        Self { setup, url }
+    pub fn new(endpoint: Endpoint, model: impl Into<String>) -> Self {
+        let url = endpoint.url("/audio/transcriptions");
+        Self {
+            endpoint,
+            model: model.into(),
+            url,
+        }
     }
 }
 
@@ -35,34 +40,23 @@ impl Stt for OpenAiStt {
         language: Option<&'a str>,
     ) -> BoxFuture<'a, Result<String, ProviderError>> {
         Box::pin(async move {
-            let preset = self.setup.preset;
+            let preset = self.endpoint.preset;
             let mut form = multipart::Form::new()
                 .part("file", wav_part(wav, preset)?)
-                .text("model", self.setup.model.clone())
+                .text("model", self.model.clone())
                 .text("response_format", "json");
             if let Some(language) = language {
                 form = form.text("language", language.to_string());
             }
 
-            let request = self.setup.http.post(&self.url).multipart(form);
-            let response = http::send(
-                request,
-                &self.setup.auth,
-                Slot::Stt,
-                preset,
-                self.setup.clock_synced,
-            )
-            .await?;
-            let body = http::read_capped(
-                response,
-                STT_BODY_CAP,
-                Slot::Stt,
-                preset,
-                self.setup.clock_synced,
-            )
-            .await?;
+            let request = self.endpoint.http.post(&self.url).multipart(form);
+            let response = self.endpoint.send(request, Slot::Stt).await?;
+            let body = self
+                .endpoint
+                .read_capped(response, STT_BODY_CAP, Slot::Stt)
+                .await?;
             let transcript: Transcript = serde_json::from_slice(&body)
-                .map_err(|_| ProviderError::new(Slot::Stt, preset, Reason::Protocol))?;
+                .map_err(|_| self.endpoint.error(Slot::Stt, Reason::Protocol))?;
             Ok(transcript.text)
         })
     }
@@ -83,17 +77,20 @@ mod tests {
 
     const PATH: &str = "/audio/transcriptions";
 
-    fn setup(server: &FakeServer, model: &str) -> SttSetup {
-        SttSetup {
-            http: client(ClientKind::Provider {
+    fn endpoint(server: &FakeServer) -> Endpoint {
+        Endpoint::new(
+            client(ClientKind::Provider {
                 read: Some(Duration::from_secs(5)),
             }),
-            base_url: server.url(""),
-            model: model.into(),
-            auth: Auth::Bearer(pinna_http::Secret::new("sk-test")),
-            preset: PresetId::OpenAi,
-            clock_synced: || true,
-        }
+            &server.url(""),
+            Auth::Bearer(pinna_http::Secret::new("sk-test")),
+            PresetId::OpenAi,
+            || true,
+        )
+    }
+
+    fn stt(server: &FakeServer, model: &str) -> OpenAiStt {
+        OpenAiStt::new(endpoint(server), model)
     }
 
     #[tokio::test]
@@ -105,7 +102,7 @@ mod tests {
             FakeResponse::new(StatusCode::OK, "{\"text\":\"hello world\"}"),
         );
 
-        let transcript = OpenAiStt::new(setup(&server, "whisper-1"))
+        let transcript = stt(&server, "whisper-1")
             .transcribe(Bytes::from_static(b"RIFFdata"), Some("en"))
             .await
             .unwrap();
@@ -135,7 +132,7 @@ mod tests {
             PATH,
             FakeResponse::new(StatusCode::OK, "{\"text\":\"hi\"}"),
         );
-        let transcript = OpenAiStt::new(setup(&server, "whisper-1"))
+        let transcript = stt(&server, "whisper-1")
             .transcribe(Bytes::from_static(b"RIFFdata"), None)
             .await
             .unwrap();
@@ -154,7 +151,7 @@ mod tests {
             PATH,
             StatusCode::UNAUTHORIZED,
         );
-        let error = OpenAiStt::new(setup(&server, "whisper-1"))
+        let error = stt(&server, "whisper-1")
             .transcribe(Bytes::from_static(b"RIFFdata"), None)
             .await
             .unwrap_err();
@@ -172,7 +169,7 @@ mod tests {
             PATH,
             FakeResponse::new(StatusCode::OK, "not json"),
         );
-        let error = OpenAiStt::new(setup(&server, "whisper-1"))
+        let error = stt(&server, "whisper-1")
             .transcribe(Bytes::from_static(b"RIFFdata"), None)
             .await
             .unwrap_err();
@@ -191,11 +188,11 @@ mod tests {
                 Duration::from_millis(200),
             ),
         );
-        let mut slow = setup(&server, "whisper-1");
+        let mut slow = endpoint(&server);
         slow.http = client(ClientKind::Provider {
             read: Some(Duration::from_millis(5)),
         });
-        let error = OpenAiStt::new(slow)
+        let error = OpenAiStt::new(slow, "whisper-1")
             .transcribe(Bytes::from_static(b"RIFFdata"), None)
             .await
             .unwrap_err();

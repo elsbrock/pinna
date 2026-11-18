@@ -52,7 +52,6 @@ pub struct RunRequest {
     pub tools: Arc<dyn ToolSet>,
     pub ack: Option<PathBuf>,
     pub observer: Arc<dyn Observer>,
-    pub clock_synced: fn() -> bool,
 }
 
 /// Execute one request as a single future. Dropping it drops every in-flight
@@ -70,7 +69,6 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
         tools,
         ack,
         observer,
-        clock_synced: _,
     } = req;
     let question = match kind {
         RunKind::Typed(question) => question,
@@ -254,7 +252,6 @@ mod tests {
             chat,
             tts,
             presets: [PresetId::OpenAi; 3],
-            model: "test-model".into(),
             behaviour,
             label: "test".into(),
         })
@@ -279,7 +276,6 @@ mod tests {
             tools: Arc::new(NoTools),
             ack: None,
             observer,
-            clock_synced: || true,
         }
     }
 

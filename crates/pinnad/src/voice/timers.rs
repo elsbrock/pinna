@@ -12,7 +12,6 @@ use crate::store::Store;
 const CLOCK_WAIT: Duration = Duration::from_secs(60);
 const CLOCK_RECHECK: Duration = Duration::from_secs(5);
 const SAVE_INTERVAL: Duration = Duration::from_secs(60);
-const CLOCK_SYNCED: &str = "/run/systemd/timesync/synchronized";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Origin {
@@ -165,10 +164,6 @@ impl TimerStore {
             .take()
             .map(|c| Restore::Correct(c.deadlines))
     }
-}
-
-pub(crate) fn clock_synced() -> bool {
-    Path::new(CLOCK_SYNCED).exists()
 }
 
 pub(super) fn due(timers: &HashMap<String, Timer>, now: Instant) -> Vec<String> {

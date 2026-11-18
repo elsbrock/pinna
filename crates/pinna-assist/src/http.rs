@@ -1,10 +1,11 @@
-//! Shared provider HTTP authentication, status mapping and capped body reads.
+//! Shared provider HTTP: where an adapter sends ([`Endpoint`]),
+//! authentication, status mapping and capped body reads.
 //!
 //! Errors contain only a slot, preset and bounded reason. In particular, a
 //! reqwest error or response body is never formatted into a [`ProviderError`].
 
 use bytes::Bytes;
-use pinna_http::{NetError, Secret, classify, reqwest};
+use pinna_http::{Secret, classify, reqwest};
 use reqwest::{RequestBuilder, Response, header};
 
 use crate::{
@@ -37,6 +38,65 @@ impl Auth {
                 Ok(request.header(header::HeaderName::from_static(name), value))
             }
         }
+    }
+}
+
+/// Where and how one adapter reaches its service. Every adapter, for a run or
+/// for a save-time check, is built from one.
+#[derive(Clone)]
+pub struct Endpoint {
+    pub http: reqwest::Client,
+    /// The connection's address, without a trailing slash.
+    pub base_url: String,
+    pub auth: Auth,
+    pub preset: PresetId,
+    /// Whether the clock is set, so a TLS failure before it can be named.
+    pub clock_synced: fn() -> bool,
+}
+
+impl Endpoint {
+    pub fn new(
+        http: reqwest::Client,
+        base_url: &str,
+        auth: Auth,
+        preset: PresetId,
+        clock_synced: fn() -> bool,
+    ) -> Self {
+        Self {
+            http,
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            auth,
+            preset,
+            clock_synced,
+        }
+    }
+
+    /// The base URL with `path` appended.
+    pub fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base_url)
+    }
+
+    /// [`send`] with this endpoint's key.
+    pub async fn send(
+        &self,
+        request: RequestBuilder,
+        slot: Slot,
+    ) -> Result<Response, ProviderError> {
+        send(request, &self.auth, slot, self.preset, self.clock_synced).await
+    }
+
+    /// [`read_capped`] for this endpoint.
+    pub async fn read_capped(
+        &self,
+        response: Response,
+        cap: usize,
+        slot: Slot,
+    ) -> Result<Bytes, ProviderError> {
+        read_capped(response, cap, slot, self.preset, self.clock_synced).await
+    }
+
+    pub fn error(&self, slot: Slot, reason: Reason) -> ProviderError {
+        ProviderError::new(slot, self.preset, reason)
     }
 }
 
@@ -106,7 +166,8 @@ where
     Ok(Bytes::from(body))
 }
 
-fn network_error<F>(
+/// A request or body read that failed before or instead of a status.
+pub(crate) fn network_error<F>(
     slot: Slot,
     preset: PresetId,
     error: &reqwest::Error,
@@ -115,17 +176,22 @@ fn network_error<F>(
 where
     F: Fn() -> bool,
 {
-    let reason = network_reason(classify(error), clock_synced());
-    ProviderError::new(slot, preset, reason)
+    ProviderError::new(
+        slot,
+        preset,
+        Reason::from_net(classify(error), clock_synced()),
+    )
 }
 
-fn network_reason(error: NetError, clock_synced: bool) -> Reason {
-    match error {
-        NetError::Tls if !clock_synced => Reason::ClockNotSet,
-        NetError::Timeout => Reason::Timeout,
-        NetError::Unreachable => Reason::Unreachable,
-        NetError::Tls => Reason::Tls,
-        NetError::Protocol => Reason::Protocol,
+/// A response body stream wraps its request error in an [`std::io::Error`];
+/// name the inner error when it is still there.
+pub(crate) fn body_reason(error: &std::io::Error, clock_synced: bool) -> Reason {
+    match error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<reqwest::Error>())
+    {
+        Some(inner) => Reason::from_net(classify(inner), clock_synced),
+        None => Reason::Protocol,
     }
 }
 
@@ -139,10 +205,24 @@ mod tests {
     use crate::testing::{FakeResponse, FakeServer};
 
     #[test]
+    fn an_endpoint_url_tolerates_a_trailing_slash() {
+        let client = client(ClientKind::Provider { read: None });
+        for base in ["https://api.openai.com/v1", "https://api.openai.com/v1/"] {
+            let endpoint =
+                Endpoint::new(client.clone(), base, Auth::None, PresetId::OpenAi, || true);
+            assert_eq!(
+                endpoint.url("/audio/transcriptions"),
+                "https://api.openai.com/v1/audio/transcriptions"
+            );
+        }
+    }
+
+    #[test]
     fn tls_before_clock_sync_has_its_own_reason() {
-        assert_eq!(network_reason(NetError::Tls, false), Reason::ClockNotSet);
-        assert_eq!(network_reason(NetError::Tls, true), Reason::Tls);
-        assert_eq!(network_reason(NetError::Timeout, false), Reason::Timeout);
+        use pinna_http::NetError;
+        assert_eq!(Reason::from_net(NetError::Tls, false), Reason::ClockNotSet);
+        assert_eq!(Reason::from_net(NetError::Tls, true), Reason::Tls);
+        assert_eq!(Reason::from_net(NetError::Timeout, false), Reason::Timeout);
     }
 
     #[tokio::test]

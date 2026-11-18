@@ -5,26 +5,20 @@
 //! is streamed, so the request only waits for the response headers.
 
 use futures_core::future::BoxFuture;
-use pinna_http::reqwest;
 use serde::Serialize;
 
 use crate::{
     error::{ProviderError, Slot},
-    http::{Auth, send},
-    presets::PresetId,
+    http::Endpoint,
     reply::{AudioBody, AudioKind, SpeechAudio},
     tts::{Tts, body_stream},
 };
 
 /// One OpenAI-compatible speech endpoint.
 pub struct OpenAiTts {
-    client: reqwest::Client,
-    base_url: String,
+    endpoint: Endpoint,
     model: String,
     voice: String,
-    preset: PresetId,
-    auth: Auth,
-    clock_synced: fn() -> bool,
 }
 
 #[derive(Serialize)]
@@ -36,49 +30,26 @@ struct Request<'a> {
 }
 
 impl OpenAiTts {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        client: reqwest::Client,
-        base_url: impl Into<String>,
-        model: impl Into<String>,
-        voice: impl Into<String>,
-        preset: PresetId,
-        auth: Auth,
-        clock_synced: fn() -> bool,
-    ) -> Self {
+    pub fn new(endpoint: Endpoint, model: impl Into<String>, voice: impl Into<String>) -> Self {
         Self {
-            client,
-            base_url: base_url.into().trim_end_matches('/').to_owned(),
+            endpoint,
             model: model.into(),
             voice: voice.into(),
-            preset,
-            auth,
-            clock_synced,
         }
-    }
-
-    fn endpoint(&self) -> String {
-        format!("{}/audio/speech", self.base_url)
     }
 }
 
 impl Tts for OpenAiTts {
     fn speak<'a>(&'a self, text: &'a str) -> BoxFuture<'a, Result<SpeechAudio, ProviderError>> {
         Box::pin(async move {
-            let request = self.client.post(self.endpoint()).json(&Request {
+            let url = self.endpoint.url("/audio/speech");
+            let request = self.endpoint.http.post(url).json(&Request {
                 model: &self.model,
                 voice: &self.voice,
                 input: text,
                 response_format: "mp3",
             });
-            let response = send(
-                request,
-                &self.auth,
-                Slot::Tts,
-                self.preset,
-                self.clock_synced,
-            )
-            .await?;
+            let response = self.endpoint.send(request, Slot::Tts).await?;
             Ok(SpeechAudio {
                 kind: AudioKind::Sentence,
                 mime: Some("audio/mpeg".into()),
@@ -102,19 +73,20 @@ mod tests {
     use super::*;
     use crate::{
         error::Reason,
+        http::Auth,
+        presets::PresetId,
         testing::{FakeResponse, FakeServer},
     };
 
     fn adapter(server: &FakeServer) -> OpenAiTts {
-        OpenAiTts::new(
+        let endpoint = Endpoint::new(
             client(ClientKind::Provider { read: None }),
-            server.url(""),
-            "tts-1",
-            "nova",
-            PresetId::OpenAi,
+            &server.url(""),
             Auth::Bearer(Secret::new("sk-tts")),
+            PresetId::OpenAi,
             || true,
-        )
+        );
+        OpenAiTts::new(endpoint, "tts-1", "nova")
     }
 
     #[tokio::test]
