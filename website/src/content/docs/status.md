@@ -96,8 +96,8 @@ On the devices:
   that need nothing done by hand.
 - **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
   model and naming its phrase (ADR 0013).
-- **More for standalone mode**: MCP servers that need a sign-in, Spotify
-  Connect, and several satellites that share one conversation (ADR 0017).
+- **More for standalone mode**: MCP servers that need a sign-in, and several
+  satellites that share one conversation (ADR 0017).
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 - **Multi-room with Music Assistant** through its own protocol, Sendspin: the
   device would play in step with other speakers in a group.

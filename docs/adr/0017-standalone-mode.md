@@ -394,4 +394,9 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - ChatGPT sign-in, which needs a client ID;
   - speech-to-speech models;
   - MCP servers that need a header token or OAuth;
-  - Spotify Connect, and several satellites sharing one conversation.
+  - several satellites sharing one conversation.
+- Spotify Connect is not planned (2026-11-18). librespot logs in, but Spotify refuses the audio keys
+  of accounts created after a cutoff in 2024/2025, in every librespot version (librespot issue #1649,
+  locked without a fix on 2026-11-07); tested with zeroconf and librespot 0.8.0. Spotify's own headless
+  client, Soloist, may not be redistributed, its builds expire after 90 days, and each owner would need
+  a developer API key. Spotify plays to the satellite over AirPlay or Bluetooth (ADR 0011).
