@@ -28,7 +28,7 @@ use pinna_assist::pipeline::{self, Pipeline};
 use pinna_assist::presets::{
     self, ChatOverride, ChatProtocol, Delegation, HistoryPolicy, PresetId, SpeechProtocol,
 };
-use pinna_assist::secrets::Secrets;
+use pinna_assist::secrets::{Secrets, SecretsFile};
 use pinna_assist::tts::Tts;
 use pinna_http::{ClientKind, Secret, reqwest};
 use tokio::sync::{Mutex as AsyncMutex, watch};
@@ -309,7 +309,7 @@ pub struct AgentSeen {
 
 /// The configuration owner. See the module docs.
 pub struct Service {
-    paths: Paths,
+    files: Arc<Files>,
     status: watch::Receiver<Snapshot>,
     /// The client for save-time checks.
     http: reqwest::Client,
@@ -362,9 +362,13 @@ impl Service {
     }
 
     fn load_with(paths: Paths, status: watch::Receiver<Snapshot>, places: OpenMeteo) -> Arc<Self> {
-        let (_, config, _) =
+        let (config_store, config, _) =
             Store::load(&paths.config, settings::FILE_MODE, AssistConfig::default());
-        let (secrets, _) = crate::secrets::load(&paths.secrets);
+        let (secrets_store, secrets, _) = crate::secrets::load(&paths.secrets);
+        let files = Arc::new(Files {
+            config: config_store,
+            secrets: secrets_store,
+        });
         let mut state = State {
             config,
             secrets,
@@ -376,7 +380,7 @@ impl Service {
         let ack = AckCache::new(paths.cache.clone());
         let (live, _) = watch::channel(Arc::new(state.publish(&ack)));
         let service = Arc::new(Self {
-            paths,
+            files,
             status,
             http: pinna_http::client(ClientKind::Provider {
                 read: Some(CHECK_TIMEOUT),
@@ -914,11 +918,11 @@ impl Service {
             return Ok(self.view());
         }
 
-        let paths = self.paths.clone();
+        let files = self.files.clone();
         let committed = self.committed.clone();
         let saved = tokio::task::spawn_blocking(move || {
             let _writer = writer;
-            save(&paths, config.as_ref(), secrets.as_ref())?;
+            save(&files, config.as_ref(), secrets.as_ref())?;
             committed.replace(draft);
             Ok::<_, io::Error>(())
         })
@@ -1029,14 +1033,21 @@ impl State {
     }
 }
 
-fn save(paths: &Paths, config: Option<&AssistConfig>, secrets: Option<&Secrets>) -> io::Result<()> {
+/// The two files the service writes, each through the store it was loaded
+/// with, so entries this build couldn't read are written back.
+struct Files {
+    config: Store<AssistConfig>,
+    secrets: Store<SecretsFile>,
+}
+
+fn save(files: &Files, config: Option<&AssistConfig>, secrets: Option<&Secrets>) -> io::Result<()> {
     // A key is bound to its URL, so a crash between the two writes can lose a
     // key but never pair it with another address.
     if let Some(secrets) = secrets {
-        crate::secrets::save(&paths.secrets, secrets)?;
+        crate::secrets::save(&files.secrets, secrets)?;
     }
     if let Some(config) = config {
-        Store::new(&paths.config, settings::FILE_MODE).try_save(config)?;
+        files.config.try_save(config)?;
     }
     Ok(())
 }
@@ -1616,7 +1627,7 @@ mod tests {
             .await
             .unwrap();
 
-        let (secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
+        let (_, secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
         assert_eq!(
             secrets
                 .key_for(&connection.id, &new.url(""))
@@ -1824,7 +1835,7 @@ mod tests {
         let view = f.service.view();
         assert_eq!(view.connections[0].revision, connection.revision + 1);
         assert_eq!(view.connections[0].key_last4.as_deref(), Some(won));
-        let (secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
+        let (_, secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
         assert_eq!(secrets.last4(&connection.id).as_deref(), Some(won));
     }
 
@@ -2234,7 +2245,7 @@ mod tests {
         let house = view.mcp_servers[0].clone();
         assert_eq!((house.name.as_str(), house.revision), ("house", 2));
         assert_eq!(house.host, "mcp.example:8443");
-        let (secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
+        let (_, secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
         assert_eq!(secrets.mcp("mcp-1").unwrap().0.expose(), MCP_ADDRESS);
         assert_eq!(f.live().mcp[0].name, "house");
 
@@ -2600,5 +2611,40 @@ mod tests {
         assert_eq!(view.language, None);
         assert!(!view.follow_ups);
         assert!(!service.live().borrow().ready);
+    }
+
+    #[tokio::test]
+    async fn a_connection_from_a_newer_build_survives_this_one() {
+        // One connection uses a preset this build doesn't know (a rollback):
+        // the others stay usable, and the unknown one is written back.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("standalone.toml"),
+            "[[connections]]\nid = 'openai-1'\npreset = 'openai'\n\
+             base_url = 'https://api.openai.com/v1'\nrevision = 1\n\
+             [[connections]]\nid = 'future-1'\npreset = 'future'\n\
+             base_url = 'https://future.example/v1'\nrevision = 1\n",
+        )
+        .unwrap();
+        let (_status, rx) = watch::channel(Snapshot::default());
+        let service = Service::load(Paths::beside(&dir.path().join("settings.toml")), rx);
+        let ids: Vec<String> = service
+            .view()
+            .connections
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, ["openai-1"]);
+
+        service
+            .update(AssistantPatch {
+                follow_ups: Some(false),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        let text = fs::read_to_string(dir.path().join("standalone.toml")).unwrap();
+        assert!(text.contains("openai-1"), "{text}");
+        assert!(text.contains("future-1"), "{text}");
     }
 }

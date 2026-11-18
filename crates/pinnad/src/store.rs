@@ -39,9 +39,14 @@ pub fn write_durable(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
     File::open(dir)?.sync_all()
 }
 
+/// One TOML file of type `T`. Entries this build can't read are kept aside
+/// at load and written back on save, so a newer build finds them again after
+/// a rollback and a roll-forward.
 pub struct Store<T> {
     path: PathBuf,
     mode: u32,
+    /// Array elements and table entries that didn't deserialise, by key.
+    rejected: toml::Table,
     value: PhantomData<fn() -> T>,
 }
 
@@ -50,28 +55,53 @@ impl<T: Serialize + DeserializeOwned> Store<T> {
         Self {
             path: path.to_owned(),
             mode,
+            rejected: toml::Table::new(),
             value: PhantomData,
         }
     }
 
+    /// Read the file, salvaging what it can: a missing file gives `defaults`,
+    /// and the names of whatever was dropped are returned and logged.
     pub fn load(path: &Path, mode: u32, defaults: T) -> (Self, T, Vec<String>) {
-        let (value, dropped) = match fs::read_to_string(path) {
-            Ok(text) => salvage(&text, &defaults),
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
             Err(e) => {
                 if e.kind() != io::ErrorKind::NotFound {
                     tracing::warn!("{}: {e}; using defaults", path.display());
                 }
-                (defaults, vec![])
+                return (Self::new(path, mode), defaults, vec![]);
             }
         };
-        for key in &dropped {
+        let salvaged = match text.parse::<toml::Table>() {
+            Ok(table) => salvage_table(table, &defaults),
+            Err(e) => {
+                tracing::warn!("{}: not valid TOML ({e}); using defaults", path.display());
+                Salvaged {
+                    value: defaults,
+                    dropped: vec![],
+                    rejected: toml::Table::new(),
+                }
+            }
+        };
+        for key in &salvaged.dropped {
             tracing::warn!("{}: ignoring invalid key {key}", path.display());
         }
-        (Self::new(path, mode), value, dropped)
+        let store = Self {
+            rejected: salvaged.rejected,
+            ..Self::new(path, mode)
+        };
+        (store, salvaged.value, salvaged.dropped)
     }
 
     pub fn try_save(&self, value: &T) -> io::Result<()> {
-        let text = toml::to_string(value).map_err(io::Error::other)?;
+        let text = if self.rejected.is_empty() {
+            toml::to_string(value)
+        } else {
+            let mut table = toml::Table::try_from(value).map_err(io::Error::other)?;
+            put_back(&mut table, &self.rejected);
+            toml::to_string(&table)
+        }
+        .map_err(io::Error::other)?;
         write_durable(&self.path, text.as_bytes(), self.mode)
     }
 
@@ -82,32 +112,126 @@ impl<T: Serialize + DeserializeOwned> Store<T> {
     }
 }
 
+/// What [`salvage_table`] could read, and what it couldn't.
+struct Salvaged<T> {
+    value: T,
+    dropped: Vec<String>,
+    rejected: toml::Table,
+}
+
+/// `text` as `T`, salvaging key by key; invalid TOML gives `defaults`.
+#[cfg(test)]
 pub fn salvage<T: Serialize + DeserializeOwned>(text: &str, defaults: &T) -> (T, Vec<String>) {
-    let file = text.parse::<toml::Table>();
-    if let Ok(table) = &file
-        && let Ok(value) = table.clone().try_into()
-    {
-        return (value, vec![]);
+    match text.parse::<toml::Table>() {
+        Ok(table) => {
+            let salvaged = salvage_table(table, defaults);
+            (salvaged.value, salvaged.dropped)
+        }
+        Err(_) => (
+            toml::Table::try_from(defaults)
+                .expect("serializable store defaults")
+                .try_into()
+                .expect("deserializable store defaults"),
+            vec![],
+        ),
+    }
+}
+
+/// Read `table` as `T`. When the whole doesn't deserialise, keep each
+/// top-level key that does; for an array or a table that doesn't, keep each
+/// element or entry that does, and set the rest aside (named `key[i]` or
+/// `key.entry`). A scalar that doesn't is dropped and falls back to
+/// `defaults`.
+fn salvage_table<T: Serialize + DeserializeOwned>(table: toml::Table, defaults: &T) -> Salvaged<T> {
+    if let Ok(value) = table.clone().try_into() {
+        return Salvaged {
+            value,
+            dropped: vec![],
+            rejected: toml::Table::new(),
+        };
     }
     let mut kept = toml::Table::try_from(defaults).expect("serializable store defaults");
     let mut dropped = vec![];
-    if let Ok(table) = file {
-        for (key, value) in table {
-            let mut candidate = kept.clone();
-            candidate.insert(key.clone(), value);
-            if candidate.clone().try_into::<T>().is_ok() {
-                kept = candidate;
-            } else {
-                dropped.push(key);
-            }
+    let mut rejected = toml::Table::new();
+    let reads = |kept: &toml::Table, key: &str, value: toml::Value| {
+        let mut candidate = kept.clone();
+        candidate.insert(key.to_owned(), value);
+        candidate
+            .clone()
+            .try_into::<T>()
+            .is_ok()
+            .then_some(candidate)
+    };
+    for (key, value) in table {
+        if let Some(candidate) = reads(&kept, &key, value.clone()) {
+            kept = candidate;
+            continue;
         }
-    } else {
-        tracing::warn!("Invalid TOML; using defaults");
+        match value {
+            toml::Value::Array(items) => {
+                let (mut good, mut bad) = (Vec::new(), Vec::new());
+                for (i, item) in items.into_iter().enumerate() {
+                    let mut trial = good.clone();
+                    trial.push(item.clone());
+                    if let Some(candidate) = reads(&kept, &key, toml::Value::Array(trial.clone())) {
+                        kept = candidate;
+                        good = trial;
+                    } else {
+                        dropped.push(format!("{key}[{i}]"));
+                        bad.push(item);
+                    }
+                }
+                if !bad.is_empty() {
+                    rejected.insert(key, toml::Value::Array(bad));
+                }
+            }
+            toml::Value::Table(entries) => {
+                let (mut good, mut bad) = (toml::Table::new(), toml::Table::new());
+                for (name, entry) in entries {
+                    let mut trial = good.clone();
+                    trial.insert(name.clone(), entry.clone());
+                    if let Some(candidate) = reads(&kept, &key, toml::Value::Table(trial.clone())) {
+                        kept = candidate;
+                        good = trial;
+                    } else {
+                        dropped.push(format!("{key}.{name}"));
+                        bad.insert(name, entry);
+                    }
+                }
+                if !bad.is_empty() {
+                    rejected.insert(key, toml::Value::Table(bad));
+                }
+            }
+            _ => dropped.push(key),
+        }
     }
-    (
-        kept.try_into().expect("deserializable store defaults"),
+    Salvaged {
+        value: kept.try_into().expect("deserializable store defaults"),
         dropped,
-    )
+        rejected,
+    }
+}
+
+/// Add the set-aside entries back to a table about to be written: array
+/// elements after the build's own, table entries whose name the build left
+/// free. A key the build now writes as something else keeps the build's value.
+fn put_back(table: &mut toml::Table, rejected: &toml::Table) {
+    for (key, value) in rejected {
+        match (table.get_mut(key), value) {
+            (Some(toml::Value::Array(own)), toml::Value::Array(more)) => {
+                own.extend(more.iter().cloned());
+            }
+            (Some(toml::Value::Table(own)), toml::Value::Table(more)) => {
+                for (name, entry) in more {
+                    own.entry(name.clone()).or_insert_with(|| entry.clone());
+                }
+            }
+            (None, value) => {
+                table.insert(key.clone(), value.clone());
+            }
+            (Some(_), _) => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -157,5 +281,49 @@ mod tests {
                 .unwrap(),
             text.parse::<toml::Table>().unwrap()
         );
+    }
+
+    #[derive(Default, Serialize, Deserialize, Debug, PartialEq)]
+    struct Catalogue {
+        entries: Vec<Item>,
+        #[serde(default)]
+        named: std::collections::BTreeMap<String, Item>,
+    }
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct Item {
+        name: String,
+        kind: Kind,
+    }
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "lowercase")]
+    enum Kind {
+        Known,
+    }
+
+    #[test]
+    fn an_entry_a_newer_build_wrote_is_kept_aside_and_written_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("catalogue.toml");
+        let text = "[[entries]]\nname = 'one'\nkind = 'known'\n\
+                    [[entries]]\nname = 'two'\nkind = 'future'\n\
+                    [named.a]\nname = 'a'\nkind = 'known'\n\
+                    [named.b]\nname = 'b'\nkind = 'future'\n";
+        fs::write(&path, text).unwrap();
+
+        let (store, cat, dropped) = Store::load(&path, 0o600, Catalogue::default());
+        // One unreadable element costs only itself.
+        assert_eq!(dropped, ["entries[1]", "named.b"]);
+        assert_eq!(cat.entries.len(), 1);
+        assert_eq!(cat.entries[0].name, "one");
+        assert_eq!(cat.named.keys().collect::<Vec<_>>(), ["a"]);
+
+        // Saving keeps the set-aside entries for the newer build.
+        store.try_save(&cat).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("name = \"two\""), "{saved}");
+        assert!(saved.contains("[named.b]"), "{saved}");
+        let (_, again, dropped) = Store::load(&path, 0o600, Catalogue::default());
+        assert_eq!(again, cat);
+        assert_eq!(dropped, ["entries[1]", "named.b"]);
     }
 }

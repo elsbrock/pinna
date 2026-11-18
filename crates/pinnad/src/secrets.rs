@@ -14,22 +14,22 @@ use std::path::Path;
 
 use pinna_assist::secrets::{Secrets, SecretsFile};
 
-use crate::store::{Store, write_durable};
+use crate::store::Store;
 
 /// Only the owner reads provider keys and MCP tokens.
 pub const FILE_MODE: u32 = 0o600;
 
 /// Load `secrets.toml`. A missing file, or one whose keys are all invalid,
-/// gives empty secrets. The returned names are the keys that were dropped.
-pub fn load(path: &Path) -> (Secrets, Vec<String>) {
-    let (_, file, dropped) = Store::load(path, FILE_MODE, SecretsFile::default());
-    (Secrets::from(file), dropped)
+/// gives empty secrets. Returns the store to save through (it writes back the
+/// entries this build couldn't read), the secrets, and the names dropped.
+pub fn load(path: &Path) -> (Store<SecretsFile>, Secrets, Vec<String>) {
+    let (store, file, dropped) = Store::load(path, FILE_MODE, SecretsFile::default());
+    (store, Secrets::from(file), dropped)
 }
 
 /// Write `secrets.toml` atomically, with mode 0600.
-pub fn save(path: &Path, secrets: &Secrets) -> io::Result<()> {
-    let text = toml::to_string(&secrets.to_file()).map_err(io::Error::other)?;
-    write_durable(path, text.as_bytes(), FILE_MODE)
+pub fn save(store: &Store<SecretsFile>, secrets: &Secrets) -> io::Result<()> {
+    store.try_save(&secrets.to_file())
 }
 
 #[cfg(test)]
@@ -43,7 +43,7 @@ mod tests {
     fn a_missing_file_means_no_secrets() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("secrets.toml");
-        let (secrets, dropped) = load(&path);
+        let (_, secrets, dropped) = load(&path);
         assert!(dropped.is_empty());
         assert!(secrets.last4("openai").is_none());
         assert!(
@@ -82,14 +82,14 @@ mod tests {
             .collect(),
             extra: toml::Table::new(),
         };
-        save(&path, &Secrets::from(file)).unwrap();
+        save(&Store::new(&path, FILE_MODE), &Secrets::from(file)).unwrap();
 
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             FILE_MODE
         );
 
-        let (secrets, dropped) = load(&path);
+        let (_, secrets, dropped) = load(&path);
         assert!(dropped.is_empty());
         assert_eq!(secrets.last4("openai").as_deref(), Some("5678"));
         assert_eq!(
@@ -121,9 +121,9 @@ mod tests {
              future_connection_key = 7\n",
         )
         .unwrap();
-        let (secrets, dropped) = load(&path);
+        let (store, secrets, dropped) = load(&path);
         assert!(dropped.is_empty());
-        save(&path, &secrets).unwrap();
+        save(&store, &secrets).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("future_top_level = 9"), "{text}");
         assert!(text.contains("future_connection_key = 7"), "{text}");
