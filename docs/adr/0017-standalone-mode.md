@@ -84,7 +84,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - Home Assistant takes no part in a standalone request;
   - keys never leave the device.
 - **The mode is also a Home Assistant entity**, the select *Assistant* with *Home Assistant* and
-  *Standalone*, so an owner who has both can switch from Home Assistant and back. It stays available in
+  *Standalone*, so an owner who has both can switch from Home Assistant and back. In standalone mode the
+  brain and MCP clients can also switch back with a tool (below). It stays available in
   both modes, since Home Assistant stays connected without the voice. It follows the same rule as the
   dashboard: *Standalone* is refused until the three slots are ready, and the select then reports the
   mode it stayed in.
@@ -170,8 +171,17 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - the controls, not the configuration switches: the ring light, volume (set or change) and reply
     volume, the media player (play a URL, pause, resume, stop), and clearing the notification. Cancel
     request is an MCP tool only: the brain is the request;
-  - the microphone can be muted but not turned back on;
-  - Bluetooth pairing is left out.
+  - the microphone can be muted but not turned back on. On a device with the hardware switch, the mute
+    closes the switch (`privacy_trigger`), which software can't open again, so one press of the
+    **Microphone off** button turns the microphones back on;
+  - Bluetooth pairing is left out;
+  - the mode is the one configuration switch among them (`switch_assistant`), so the owner can ask a
+    standalone satellite to switch back to Home Assistant: the brain or an MCP client calls it. `/mcp`
+    answers in standalone mode only, so the way from Home Assistant to standalone stays the select,
+    which Home Assistant can set from a script or automation. The tool follows the select's rule:
+    *Standalone* is refused until the three slots are ready. The switch waits until the satellite is
+    idle, so the reply that confirms it still plays, and that reply gets no follow-up. Anyone on the
+    network can call it over MCP, as every MCP tool, until MCP has authentication.
 
   Added to them, because Home Assistant does them itself in its mode:
   - set, list and cancel timers;
