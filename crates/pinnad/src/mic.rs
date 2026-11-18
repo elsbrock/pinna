@@ -18,8 +18,10 @@ pub struct MicTap {
     gen_: AtomicU64,
     slot: Mutex<Option<mpsc::Sender<Bytes>>>,
     /// The shadow endpointer on the current Home Assistant stream, shared so the
-    /// Brain can log it beside Home Assistant's own end of speech.
-    shadow: Mutex<ShadowReport>,
+    /// Brain can log it beside Home Assistant's own end of speech. The audio
+    /// count moves every frame, so it is an atomic; the decision comes once.
+    shadow_ms: AtomicU64,
+    shadow_end: Mutex<Option<(Endpoint, u64)>>,
 }
 
 /// How far the shadow endpointer got on the current Home Assistant stream.
@@ -45,15 +47,18 @@ impl MicTap {
         self.gen_.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// Publish the shadow endpointer's progress. It is only ever read for a
-    /// log line.
-    fn report_shadow(&self, report: ShadowReport) {
-        *self.shadow.lock().unwrap() = report;
+    fn reset_shadow(&self) {
+        self.shadow_ms.store(0, Ordering::Relaxed);
+        *self.shadow_end.lock().unwrap() = None;
     }
 
     /// The shadow endpointer's progress on the current Home Assistant stream.
+    /// It is only ever read for a log line.
     pub fn shadow_report(&self) -> ShadowReport {
-        *self.shadow.lock().unwrap()
+        ShadowReport {
+            streamed_ms: self.shadow_ms.load(Ordering::Relaxed),
+            end: *self.shadow_end.lock().unwrap(),
+        }
     }
 
     /// Refresh a capture loop's cached sender. Returns true only at a route edge.
@@ -121,7 +126,7 @@ impl MicRouter {
             if !self.was_streaming {
                 self.shadow = Some(Endpointer::new(EndpointConfig::REQUEST, noise_seed));
                 self.shadow_report = ShadowReport::default();
-                tap.report_shadow(self.shadow_report);
+                tap.reset_shadow();
                 let preroll: Vec<_> = self.preroll.drain(..).collect();
                 for frame in preroll {
                     self.feed_shadow(&frame, tap);
@@ -158,17 +163,15 @@ impl MicRouter {
         let Some(shadow) = self.shadow.as_mut() else {
             return;
         };
-        let pcm: Vec<i16> = frame
-            .chunks_exact(2)
-            .map(|b| i16::from_le_bytes([b[0], b[1]]))
-            .collect();
-        let state = shadow.push(&pcm);
-        // 16 kHz mono: 16 samples per millisecond.
-        self.shadow_report.streamed_ms += pcm.len() as u64 / 16;
-        if state.is_terminal() && self.shadow_report.end.is_none() {
-            self.shadow_report.end = Some((state, self.shadow_report.streamed_ms));
+        let state = shadow.push_le(frame);
+        // 16 kHz mono 16-bit: 32 bytes per millisecond.
+        let report = &mut self.shadow_report;
+        report.streamed_ms += frame.len() as u64 / 32;
+        tap.shadow_ms.store(report.streamed_ms, Ordering::Relaxed);
+        if state.is_terminal() && report.end.is_none() {
+            report.end = Some((state, report.streamed_ms));
+            *tap.shadow_end.lock().unwrap() = report.end;
         }
-        tap.report_shadow(self.shadow_report);
     }
 
     pub fn dropped(&self) -> u64 {

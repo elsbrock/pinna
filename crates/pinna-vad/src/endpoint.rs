@@ -99,16 +99,27 @@ impl Endpointer {
     /// Feed 16 kHz mono samples of any length; returns the state. Terminal
     /// states stick, so later audio is ignored.
     pub fn push(&mut self, pcm: &[i16]) -> Endpoint {
+        self.feed(pcm.iter().copied())
+    }
+
+    /// [`Self::push`] for little-endian 16-bit bytes, as the microphone
+    /// sends them, without converting them into a buffer first: this runs on
+    /// every microphone frame.
+    pub fn push_le(&mut self, bytes: &[u8]) -> Endpoint {
+        self.feed(
+            bytes
+                .chunks_exact(2)
+                .map(|sample| i16::from_le_bytes([sample[0], sample[1]])),
+        )
+    }
+
+    fn feed(&mut self, samples: impl Iterator<Item = i16>) -> Endpoint {
         if self.state.is_terminal() {
             return self.state;
         }
-        let mut offset = 0;
-        while offset < pcm.len() {
-            let n = (FRAME_SAMPLES - self.frame_len).min(pcm.len() - offset);
-            self.frame[self.frame_len..self.frame_len + n]
-                .copy_from_slice(&pcm[offset..offset + n]);
-            self.frame_len += n;
-            offset += n;
+        for sample in samples {
+            self.frame[self.frame_len] = sample;
+            self.frame_len += 1;
             if self.frame_len == FRAME_SAMPLES {
                 self.frame_len = 0;
                 self.step();
@@ -284,5 +295,20 @@ mod tests {
         // 1.1 s of speech plus 0.8 s of silence, rounded up to the last chunk.
         let expected = 190 * FRAME_SAMPLES;
         assert!((total as isize - expected as isize).unsigned_abs() <= 7);
+    }
+
+    #[test]
+    fn bytes_and_samples_reach_the_same_decision() {
+        let mut signal = vec![QUIET; 160 * 30];
+        signal.extend(vec![LOUD; 160 * 110]);
+        signal.extend(vec![QUIET; 160 * 80]);
+        let bytes: Vec<u8> = signal.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let mut samples = Endpointer::new(EndpointConfig::REQUEST, Some(SEED));
+        let mut le = Endpointer::new(EndpointConfig::REQUEST, Some(SEED));
+        // Frames of 320 bytes, as the microphone sends them.
+        for (pcm, raw) in signal.chunks(160).zip(bytes.chunks(320)) {
+            assert_eq!(samples.push(pcm), le.push_le(raw));
+        }
+        assert_eq!(le.push_le(&[]), Endpoint::Ended);
     }
 }

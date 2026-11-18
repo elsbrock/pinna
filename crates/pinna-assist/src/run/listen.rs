@@ -31,11 +31,7 @@ pub async fn listen(mic: &mut MicInput, limits: &RunLimits) -> Result<Vec<Bytes>
     let mut speech_started = false;
     let collect = async {
         while let Some(frame) = mic.frames.recv().await {
-            let pcm: Vec<i16> = frame
-                .chunks_exact(2)
-                .map(|sample| i16::from_le_bytes([sample[0], sample[1]]))
-                .collect();
-            let endpoint = endpointer.push(&pcm);
+            let endpoint = endpointer.push_le(&frame);
             speech_started |= matches!(
                 endpoint,
                 Endpoint::Speech | Endpoint::Ended | Endpoint::Capped
