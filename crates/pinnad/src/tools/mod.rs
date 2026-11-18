@@ -10,6 +10,7 @@
 mod device;
 mod http;
 pub mod radio;
+mod update;
 pub mod weather;
 
 use std::collections::HashSet;
@@ -26,6 +27,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::leds::LightEffect;
 use crate::metrics::{Counters, Via};
 use crate::standalone::{AssistLive, OwnerMcp};
+use crate::updates::Updater;
 use crate::voice::{ApiCommand, Input, RunId, Snapshot};
 use device::Op;
 use radio::RadioBrowser;
@@ -334,6 +336,20 @@ static TOOLS: &[Tool] = &[
         op: Op::SwitchAssistant,
     },
     Tool {
+        name: "updates",
+        reach: Reach::Both,
+        about: "The software version the satellite runs and the update state: the other slot, the update channel, what the last check found or why it failed, and the install that runs or the last one.",
+        params: &[],
+        op: Op::Updates,
+    },
+    Tool {
+        name: "check_for_updates",
+        reach: Reach::Both,
+        about: "Check now for a new software release. Answers with what the check found, or says the check goes on when it takes longer than a few seconds. Refused while updates are off.",
+        params: &[],
+        op: Op::CheckForUpdates,
+    },
+    Tool {
         name: "set_timer",
         reach: Reach::Both,
         about: "Start a timer that rings on this satellite.",
@@ -537,6 +553,8 @@ pub struct ToolKit {
     weather: OpenMeteo,
     radio: RadioBrowser,
     counters: Counters,
+    /// What the update tools use; without one they answer with an error.
+    updater: Option<Arc<Updater>>,
 }
 
 impl ToolKit {
@@ -545,7 +563,14 @@ impl ToolKit {
             weather: OpenMeteo::default(),
             radio: RadioBrowser::default(),
             counters,
+            updater: None,
         }
+    }
+
+    /// The updater the update tools check and install with.
+    pub fn with_updater(mut self, updater: Arc<Updater>) -> Self {
+        self.updater = Some(updater);
+        self
     }
 
     /// The weather from another address, for tests.
@@ -771,6 +796,7 @@ mod tests {
     use super::*;
     use crate::leds::LedState;
     use crate::settings::{Mode, Settings};
+    use crate::updates::UpdateChannel;
     use crate::voice::{Brain, Defaults, Options};
 
     /// A real Brain on its own task, as the dashboard reaches it.
@@ -1675,6 +1701,88 @@ mod tests {
         let names: Vec<String> = mcp.specs().await.into_iter().map(|s| s.name).collect();
         assert!(names.contains(&"time".to_owned()));
         assert!(!names.contains(&weather::NAME.to_owned()));
+    }
+
+    /// Tools over a bare channel with an updater, as `main` builds them.
+    fn with_updater(surface: Surface, updater: Option<Arc<Updater>>) -> DeviceTools {
+        let (inputs, _rx) = mpsc::channel(64);
+        let mut kit = ToolKit::new(crate::metrics::Counters::default());
+        if let Some(updater) = updater {
+            kit = kit.with_updater(updater);
+        }
+        DeviceTools::new(
+            &kit,
+            inputs,
+            watch::channel(Snapshot::default()).1,
+            live(&[]),
+            surface,
+            match surface {
+                Surface::Run => Caller::Run(RunId(1)),
+                Surface::Mcp => Caller::Mcp,
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn the_update_tools_are_offered_on_both_surfaces() {
+        for tool in ["updates", "check_for_updates"] {
+            let info = catalogue().find(|t| t.name == tool).unwrap();
+            assert!(info.brain && info.mcp, "{tool}");
+            for surface in [Surface::Run, Surface::Mcp] {
+                assert!(
+                    names(&with_updater(surface, None))
+                        .await
+                        .contains(&tool.to_owned())
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_update_tools_say_when_there_is_no_updater() {
+        let tools = with_updater(Surface::Mcp, None);
+        for tool in ["updates", "check_for_updates"] {
+            let out = tools.call(tool, json!({})).await;
+            assert!(out.is_error, "{tool}");
+            assert_eq!(out.text, update::NO_UPDATER);
+        }
+    }
+
+    #[tokio::test]
+    async fn checking_is_refused_with_the_updaters_sentence_while_updates_are_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let updater = update::rigged_updater(dir.path(), "2.0.0", UpdateChannel::Off);
+        let tools = with_updater(Surface::Run, Some(updater));
+
+        let out = tools.call("check_for_updates", json!({})).await;
+
+        assert_eq!(
+            out,
+            ToolOutput::error("Updates are off. Choose stable or beta to check for releases.")
+        );
+        let state = tools.call("updates", json!({})).await;
+        assert!(!state.is_error);
+        assert!(state.text.contains("\"channel\":\"off\""), "{}", state.text);
+    }
+
+    #[tokio::test]
+    async fn a_check_through_the_tool_answers_with_the_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let updater = update::rigged_updater(dir.path(), "2.0.0", UpdateChannel::Stable);
+        let tools = with_updater(Surface::Mcp, Some(updater));
+
+        let out = tools.call("check_for_updates", json!({})).await;
+
+        assert!(!out.is_error, "{}", out.text);
+        let shown: Value = serde_json::from_str(&out.text).unwrap();
+        assert_eq!(shown["release"]["version"], "2.0.0");
+        assert_eq!(shown["release"]["action"], "install");
+        assert_eq!(shown["channel"], "stable");
+        // The rig boots 1.0.0 from slot a, as a satellite would.
+        assert_eq!(shown["version"], "1.0.0");
+        assert_eq!(shown["slot"], "a");
+        assert!(shown.get("unavailable").is_none(), "{shown}");
+        assert!(!out.text.contains("://"), "{}", out.text);
     }
 
     #[tokio::test]

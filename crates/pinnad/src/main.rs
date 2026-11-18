@@ -814,8 +814,8 @@ async fn main() -> Result<()> {
         assistant.clone(),
         in_tx.clone(),
     ));
-    // The tools' HTTP clients and counters, shared by every run and /mcp call.
-    let tool_kit = tools::ToolKit::new(shared.counters.clone());
+    // The tools' HTTP clients, counters and updater, shared by every run and /mcp call.
+    let tool_kit = tools::ToolKit::new(shared.counters.clone()).with_updater(updater.clone());
     let mcp_server = Arc::new(mcp::McpServer::new(
         assistant.clone(),
         in_tx.clone(),

@@ -986,7 +986,7 @@ pub fn home_assistant_state(
 }
 
 /// Home Assistant's progress for an install stage.
-fn stage_percent(stage: InstallStage, fraction: Option<f32>) -> f32 {
+pub fn stage_percent(stage: InstallStage, fraction: Option<f32>) -> f32 {
     match stage {
         InstallStage::INSTALL_STAGE_CHECK => 2.0,
         InstallStage::INSTALL_STAGE_DOWNLOAD => 5.0 + 80.0 * fraction.unwrap_or(0.0),

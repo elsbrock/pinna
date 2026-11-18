@@ -7,7 +7,7 @@ use std::time::Instant;
 use pinna_esphome::{MediaPlayerCommand, MediaPlayerStateKind};
 use serde_json::{Value, json};
 
-use super::{Args, Caller, DeviceTools, radio};
+use super::{Args, Caller, DeviceTools, radio, update};
 use crate::checks::{self, TIMER_NAME_MAX};
 use crate::leds::LightEffect;
 use crate::settings::Mode;
@@ -26,6 +26,8 @@ pub(super) enum Op {
     ClearNotification,
     MuteMicrophone,
     SwitchAssistant,
+    Updates,
+    CheckForUpdates,
     SetTimer,
     ListTimers,
     CancelTimer,
@@ -144,6 +146,8 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
                 (false, Caller::Mcp) => format!("Switching to {label} once the satellite is idle."),
             })
         }
+        Op::Updates => update::updates(tools).await,
+        Op::CheckForUpdates => update::check(tools).await,
         Op::SetTimer => {
             // The Brain refuses a length out of range with its own sentence.
             let seconds = unsigned(args.need_int("seconds")?);
