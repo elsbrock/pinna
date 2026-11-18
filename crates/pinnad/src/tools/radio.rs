@@ -390,7 +390,7 @@ mod tests {
             inputs,
             status,
             Arc::new(live),
-            Surface::Brain,
+            Surface::Run,
             Caller::Run(RunId(3)),
         );
         (tools, rx)
@@ -667,7 +667,7 @@ mod tests {
         let out = tools.call("search_radio", json!({"name": "Jazz"})).await;
 
         assert_eq!(out, ToolOutput::ok(r#"{"stations":[]}"#));
-        for surface in [Surface::Brain, Surface::Mcp] {
+        for surface in [Surface::Run, Surface::Mcp] {
             tools.surface = surface;
             let names: Vec<String> = tools.specs().await.into_iter().map(|s| s.name).collect();
             for name in ["play_station", "list_stations", "search_radio"] {

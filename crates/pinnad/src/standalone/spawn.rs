@@ -75,7 +75,7 @@ impl ProdSpawner {
             self.inputs.clone(),
             self.status.clone(),
             live.clone(),
-            Surface::Brain,
+            Surface::Run,
             Caller::Run(run),
         );
         Ok(RunRequest {

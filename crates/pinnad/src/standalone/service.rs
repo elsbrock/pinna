@@ -328,7 +328,7 @@ struct State {
     config: AssistConfig,
     secrets: Secrets,
     chat_gen: u64,
-    brain: Option<BrainId>,
+    chat: Option<ChatId>,
     /// The MCP servers last published, reused while unchanged.
     mcp: Vec<Arc<OwnerMcp>>,
     /// The adapters last built and what they were built from. An edit that
@@ -374,7 +374,7 @@ impl BuildInputs {
 /// What makes a brain a different brain: changing any of it forgets the
 /// conversation (`chat_gen`). A key rotation does not.
 #[derive(Clone, Debug, PartialEq)]
-struct BrainId {
+struct ChatId {
     connection: String,
     preset: PresetId,
     base_url: String,
@@ -406,7 +406,7 @@ impl Service {
             config,
             secrets,
             chat_gen: 0,
-            brain: None,
+            chat: None,
             built: None,
             mcp: Vec::new(),
         };
@@ -1009,10 +1009,10 @@ impl Committed {
 impl State {
     /// The next snapshot for the Brain.
     fn publish(&mut self, cache: &AckCache) -> AssistLive {
-        let brain = brain_id(&self.config);
-        if brain != self.brain {
+        let chat = chat_id(&self.config);
+        if chat != self.chat {
             self.chat_gen += 1;
-            self.brain = brain;
+            self.chat = chat;
         }
         let (pipeline, speech) = self.adapters();
         let c = &self.config;
@@ -1203,10 +1203,10 @@ fn slot_ready(c: &AssistConfig, kind: SlotKind) -> bool {
     })
 }
 
-fn brain_id(c: &AssistConfig) -> Option<BrainId> {
+fn chat_id(c: &AssistConfig) -> Option<ChatId> {
     let slot = c.chat.as_ref()?;
     let connection = find(c, &slot.connection)?;
-    Some(BrainId {
+    Some(ChatId {
         connection: connection.id.clone(),
         preset: connection.preset,
         base_url: connection.base_url.clone(),

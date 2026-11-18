@@ -121,8 +121,8 @@ pub struct Counters {
 /// Who asked for a tool call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Via {
-    /// The brain's tool loop in a standalone request.
-    Brain,
+    /// A standalone run's tool loop. Its label stays "brain".
+    Run,
     /// A client of Pinna's MCP server.
     Mcp,
 }
@@ -146,7 +146,7 @@ impl Counters {
                 tool: tool_label(tool, servers),
                 outcome: if ok { "ok" } else { "error" },
                 via: match via {
-                    Via::Brain => "brain",
+                    Via::Run => "brain",
                     Via::Mcp => "mcp",
                 },
             })
@@ -1462,8 +1462,8 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         ] {
             o.guard(g);
         }
-        c.tool_call("set_volume", &[], Via::Brain, true);
-        c.tool_call("set_volume", &[], Via::Brain, true);
+        c.tool_call("set_volume", &[], Via::Run, true);
+        c.tool_call("set_volume", &[], Via::Run, true);
         c.tool_call("play_url", &[], Via::Mcp, false);
         c.mic_dropped(3);
         let s = Snapshot {

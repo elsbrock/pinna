@@ -38,8 +38,8 @@ const SHUTTING_DOWN: &str = "pinnad is shutting down.";
 /// Where a tool list is offered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
-    /// The brain's tool loop in a standalone run.
-    Brain,
+    /// A standalone run's tool loop.
+    Run,
     /// Pinna's MCP server.
     Mcp,
 }
@@ -58,7 +58,7 @@ pub enum Caller {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reach {
     Both,
-    BrainOnly,
+    RunOnly,
     McpOnly,
 }
 
@@ -66,7 +66,7 @@ impl Reach {
     fn offers(self, surface: Surface) -> bool {
         matches!(
             (self, surface),
-            (Reach::Both, _) | (Reach::BrainOnly, Surface::Brain) | (Reach::McpOnly, Surface::Mcp)
+            (Reach::Both, _) | (Reach::RunOnly, Surface::Run) | (Reach::McpOnly, Surface::Mcp)
         )
     }
 }
@@ -371,7 +371,7 @@ static TOOLS: &[Tool] = &[
     },
     Tool {
         name: weather::NAME,
-        reach: Reach::BrainOnly,
+        reach: Reach::RunOnly,
         about: "The weather now and for the next two days at the satellite's place.",
         params: &[],
         op: Op::Weather,
@@ -426,7 +426,7 @@ pub fn catalogue() -> impl Iterator<Item = ToolInfo> {
     TOOLS.iter().map(|t| ToolInfo {
         name: t.name,
         description: t.about,
-        brain: t.reach.offers(Surface::Brain),
+        brain: t.reach.offers(Surface::Run),
         mcp: t.reach.offers(Surface::Mcp),
     })
 }
@@ -587,8 +587,7 @@ impl DeviceTools {
     /// when given. Only a tool-loop brain gets them. The first server to
     /// list a name has it; a server that lists nothing is left out.
     async fn owner_tools(&self, name: Option<&str>) -> Vec<(&OwnerMcp, ToolSpec)> {
-        if self.surface != Surface::Brain
-            || self.live.behaviour().delegation != Delegation::ToolLoop
+        if self.surface != Surface::Run || self.live.behaviour().delegation != Delegation::ToolLoop
         {
             return Vec::new();
         }
@@ -660,7 +659,7 @@ impl ToolSet for DeviceTools {
             let output = self.dispatch(name, args).await;
             let servers: Vec<&str> = self.live.mcp.iter().map(|s| s.name.as_str()).collect();
             let via = match self.surface {
-                Surface::Brain => Via::Brain,
+                Surface::Run => Via::Run,
                 Surface::Mcp => Via::Mcp,
             };
             self.kit
@@ -859,7 +858,7 @@ mod tests {
     #[tokio::test]
     async fn no_tool_unmutes_the_microphone() {
         let mut d = Device::start(Mode::Standalone).await;
-        for surface in [Surface::Brain, Surface::Mcp] {
+        for surface in [Surface::Run, Surface::Mcp] {
             let tools = d.tools(surface, &[]);
             assert!(!names(&tools).await.iter().any(|n| n.contains("unmute")));
             let mute = tools
@@ -892,7 +891,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_non_http_address_is_refused_before_the_brain() {
-        let (tools, mut rx) = bare(Surface::Brain, Caller::Run(RunId(1)));
+        let (tools, mut rx) = bare(Surface::Run, Caller::Run(RunId(1)));
 
         let out = tools
             .call("play_url", json!({"url": "ftp://radio.test/live"}))
@@ -909,7 +908,7 @@ mod tests {
     #[tokio::test]
     async fn a_switched_off_tool_is_absent_and_refused() {
         let d = Device::start(Mode::Standalone).await;
-        for surface in [Surface::Brain, Surface::Mcp] {
+        for surface in [Surface::Run, Surface::Mcp] {
             let tools = d.tools(surface, &[("set_volume", false), ("stop_media", true)]);
             let names = names(&tools).await;
             assert!(!names.contains(&"set_volume".to_owned()));
@@ -929,12 +928,12 @@ mod tests {
 
     #[tokio::test]
     async fn each_surface_offers_only_its_tools() {
-        let (brain, _rx) = bare(Surface::Brain, Caller::Run(RunId(1)));
+        let (run, _rx) = bare(Surface::Run, Caller::Run(RunId(1)));
         let (mcp, _rx) = bare(Surface::Mcp, Caller::Mcp);
-        let brain_names = names(&brain).await;
+        let run_names = names(&run).await;
         let mcp_names = names(&mcp).await;
         for name in ["speak", "cancel_request", "status"] {
-            assert!(!brain_names.iter().any(|n| n == name), "{name}");
+            assert!(!run_names.iter().any(|n| n == name), "{name}");
         }
         assert!(!mcp_names.iter().any(|n| n == "weather"));
         for name in [
@@ -946,25 +945,25 @@ mod tests {
         ] {
             assert!(mcp_names.iter().any(|n| n == name), "{name}");
         }
-        let out = brain.call("cancel_request", json!({})).await;
+        let out = run.call("cancel_request", json!({})).await;
         assert_eq!(out, ToolOutput::error("Unknown tool cancel_request."));
-        assert!(!Reach::BrainOnly.offers(Surface::Mcp));
-        assert!(!Reach::McpOnly.offers(Surface::Brain));
-        assert!(Reach::Both.offers(Surface::Brain) && Reach::Both.offers(Surface::Mcp));
+        assert!(!Reach::RunOnly.offers(Surface::Mcp));
+        assert!(!Reach::McpOnly.offers(Surface::Run));
+        assert!(Reach::Both.offers(Surface::Run) && Reach::Both.offers(Surface::Mcp));
     }
 
     #[tokio::test]
     async fn the_catalogue_lists_each_tool_with_its_surfaces() {
-        let (brain, _rx) = bare(Surface::Brain, Caller::Run(RunId(1)));
+        let (run, _rx) = bare(Surface::Run, Caller::Run(RunId(1)));
         let (mcp, _rx) = bare(Surface::Mcp, Caller::Mcp);
-        let brain_names = names(&brain).await;
+        let run_names = names(&run).await;
         let mcp_names = names(&mcp).await;
 
         let listed: Vec<ToolInfo> = catalogue().collect();
 
         assert_eq!(listed.len(), TOOLS.len());
         for tool in &listed {
-            assert_eq!(tool.brain, brain_names.iter().any(|n| n == tool.name));
+            assert_eq!(tool.brain, run_names.iter().any(|n| n == tool.name));
             assert_eq!(tool.mcp, mcp_names.iter().any(|n| n == tool.name));
             assert!(tool.brain || tool.mcp, "{}", tool.name);
             assert!(!tool.description.is_empty(), "{}", tool.name);
@@ -981,7 +980,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_run_sends_its_commands_fenced_by_its_id() {
-        let (tools, mut rx) = bare(Surface::Brain, Caller::Run(RunId(7)));
+        let (tools, mut rx) = bare(Surface::Run, Caller::Run(RunId(7)));
         let call =
             tokio::spawn(async move { tools.call("set_volume", json!({"percent": 30})).await });
 
@@ -1004,7 +1003,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_run_hears_when_its_mute_takes_effect() {
-        let (tools, mut rx) = bare(Surface::Brain, Caller::Run(RunId(2)));
+        let (tools, mut rx) = bare(Surface::Run, Caller::Run(RunId(2)));
         let call = tokio::spawn(async move { tools.call("mute_microphone", json!({})).await });
 
         match rx.recv().await.unwrap() {
@@ -1260,8 +1259,8 @@ mod tests {
     async fn every_spec_is_a_closed_object_schema() {
         let (tools, _rx) = bare(Surface::Mcp, Caller::Mcp);
         let mut specs = tools.specs().await;
-        let (brain, _rx) = bare(Surface::Brain, Caller::Run(RunId(1)));
-        specs.extend(brain.specs().await);
+        let (run, _rx) = bare(Surface::Run, Caller::Run(RunId(1)));
+        specs.extend(run.specs().await);
         let mut seen = HashSet::new();
         for spec in &specs {
             let schema = &spec.input_schema;
@@ -1404,7 +1403,7 @@ mod tests {
             &[("home", &home), ("set", &set), ("away", &away)],
             Delegation::ToolLoop,
             &[],
-            Surface::Brain,
+            Surface::Run,
         );
 
         let specs = tools.specs().await;
@@ -1443,7 +1442,7 @@ mod tests {
     async fn a_hand_off_brain_and_mcp_clients_get_no_owner_tools() {
         let home = remote(&["lights_on"]).await;
         for (delegation, surface) in [
-            (Delegation::HandOff, Surface::Brain),
+            (Delegation::HandOff, Surface::Run),
             (Delegation::ToolLoop, Surface::Mcp),
         ] {
             let tools = owner(&[("home", &home)], delegation, &[], surface);
@@ -1466,7 +1465,7 @@ mod tests {
             &[("home", &home)],
             Delegation::ToolLoop,
             &[("home_lights_on", false)],
-            Surface::Brain,
+            Surface::Run,
         );
 
         let names = names(&tools).await;
@@ -1489,7 +1488,7 @@ mod tests {
             inputs.clone(),
             status.clone(),
             live.clone(),
-            Surface::Brain,
+            Surface::Run,
             Caller::Mcp,
         );
         let time = brain.call("time", json!({})).await;
@@ -1521,7 +1520,7 @@ mod tests {
             inputs,
             status,
             Arc::new(AssistLive::empty()),
-            Surface::Brain,
+            Surface::Run,
             Caller::Mcp,
         );
         assert!(!tools.call("time", json!({})).await.is_error);
