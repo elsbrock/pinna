@@ -329,7 +329,7 @@ static TOOLS: &[Tool] = &[
                 name: "seconds",
                 kind: Kind::Integer {
                     min: 1,
-                    max: 86_400,
+                    max: crate::checks::TIMER_SECONDS_MAX as i64,
                 },
                 required: true,
                 about: "How long the timer runs, in seconds.",

@@ -150,6 +150,13 @@ pub enum HistoryPolicy {
     NewTurnOnly,
 }
 
+impl HistoryPolicy {
+    /// The most turns a model gets, and the owner may choose.
+    pub const TURNS_MAX: usize = 10;
+    /// The most history text an agent gets, and the owner may choose.
+    pub const BYTES_MAX: usize = 64 * 1024;
+}
+
 /// How the tool loop treats a brain: delegation, conversation and limits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Behaviour {
@@ -252,7 +259,7 @@ pub struct Preset {
 const fn model() -> Behaviour {
     Behaviour {
         delegation: Delegation::ToolLoop,
-        history: HistoryPolicy::Turns(10),
+        history: HistoryPolicy::Turns(HistoryPolicy::TURNS_MAX),
         limits: RunLimits::MODEL,
         stable_user: false,
     }
@@ -399,7 +406,7 @@ static PRESETS: &[Preset] = &[
             tts: false,
         },
         model: None,
-        behaviour: agent(HistoryPolicy::Bytes(64 * 1024), false),
+        behaviour: agent(HistoryPolicy::Bytes(HistoryPolicy::BYTES_MAX), false),
     },
     Preset {
         id: PresetId::OpenClaw,

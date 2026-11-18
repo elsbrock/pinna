@@ -56,9 +56,6 @@ const MAX_SWITCHES: usize = 128;
 const STATION_NAME_MAX: usize = 60;
 /// The Advanced first-text limit, in seconds.
 const FIRST_TEXT_S: std::ops::RangeInclusive<u64> = 1..=300;
-/// The Advanced history caps.
-const HISTORY_TURNS_MAX: usize = 10;
-const HISTORY_BYTES_MAX: usize = 64 * 1024;
 /// An MCP server address is at most this many bytes.
 const MCP_URL_MAX: usize = 2048;
 
@@ -1386,11 +1383,14 @@ fn override_value(o: ChatOverride) -> Result<ChatOverride, Refusal> {
         )));
     }
     match o.history {
-        Some(HistoryPolicy::Turns(n)) if !(1..=HISTORY_TURNS_MAX).contains(&n) => Err(
-            Refusal::Invalid(format!("Keep 1 to {HISTORY_TURNS_MAX} turns.")),
+        Some(HistoryPolicy::Turns(n)) if !(1..=HistoryPolicy::TURNS_MAX).contains(&n) => Err(
+            Refusal::Invalid(format!("Keep 1 to {} turns.", HistoryPolicy::TURNS_MAX)),
         ),
-        Some(HistoryPolicy::Bytes(n)) if !(1..=HISTORY_BYTES_MAX).contains(&n) => {
-            Err(Refusal::Invalid("Keep at most 64 KiB of history.".into()))
+        Some(HistoryPolicy::Bytes(n)) if !(1..=HistoryPolicy::BYTES_MAX).contains(&n) => {
+            Err(Refusal::Invalid(format!(
+                "Keep at most {} KiB of history.",
+                HistoryPolicy::BYTES_MAX / 1024
+            )))
         }
         _ => Ok(o),
     }

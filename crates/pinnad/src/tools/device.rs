@@ -8,12 +8,9 @@ use pinna_esphome::{MediaPlayerCommand, MediaPlayerStateKind};
 use serde_json::{Value, json};
 
 use super::{Args, Caller, DeviceTools, radio};
-use crate::checks;
+use crate::checks::{self, TIMER_NAME_MAX};
 use crate::leds::LightEffect;
 use crate::voice::{ApiCommand, RingLight, RingLightPatch, SettingsPatch, Snapshot, TimerSnapshot};
-
-/// The longest timer name, in characters.
-const TIMER_NAME_MAX: usize = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Op {

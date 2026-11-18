@@ -602,8 +602,6 @@ const START_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTEN_TIMEOUT: Duration = Duration::from_secs(15);
 const THINK_TIMEOUT: Duration = Duration::from_secs(30);
 const RING_TIMEOUT: Duration = Duration::from_secs(300);
-const MAX_TIMERS: usize = 10;
-const MAX_TIMER_SECONDS: u32 = 24 * 60 * 60;
 const BOOT_ANIMATION: Duration = Duration::from_millis(1200);
 /// LED test: one effect per step.
 const LED_TEST_STEP: Duration = Duration::from_millis(1000);
@@ -1758,11 +1756,12 @@ impl Brain {
         if self.settings.mode != Mode::Standalone {
             return Err("Device timers are available in standalone mode only.".into());
         }
-        if !(1..=MAX_TIMER_SECONDS).contains(&seconds) {
-            return Err("A timer must be between 1 second and 24 hours.".into());
-        }
-        if self.timers.len() >= MAX_TIMERS {
-            return Err("At most 10 timers can run at once.".into());
+        let seconds = crate::checks::timer_seconds(seconds)?;
+        if self.timers.len() >= crate::checks::TIMERS_MAX {
+            return Err(format!(
+                "At most {} timers can run at once.",
+                crate::checks::TIMERS_MAX
+            ));
         }
         let id = loop {
             let id = format!("local-{:016x}", fastrand::u64(..));

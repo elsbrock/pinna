@@ -19,6 +19,25 @@ pub fn media_url(s: &str) -> Result<String, String> {
     }
 }
 
+/// The longest device timer.
+pub const TIMER_SECONDS_MAX: u32 = 24 * 60 * 60;
+/// At most this many device timers run at once.
+pub const TIMERS_MAX: usize = 10;
+/// The longest timer name, in characters.
+pub const TIMER_NAME_MAX: usize = 40;
+
+/// A device timer's length, or why it can't be one.
+pub fn timer_seconds(seconds: u32) -> Result<u32, String> {
+    if (1..=TIMER_SECONDS_MAX).contains(&seconds) {
+        Ok(seconds)
+    } else {
+        Err(format!(
+            "A timer must be between 1 second and {} hours.",
+            TIMER_SECONDS_MAX / 3600
+        ))
+    }
+}
+
 /// The longest text `speak` says.
 pub const SPEAK_MAX: usize = 500;
 
