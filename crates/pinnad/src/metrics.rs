@@ -45,9 +45,6 @@ const STAGE_BUCKETS: [f64; 12] = [
 /// The standalone slots in `AssistStatus::slots` order.
 const SLOTS: [Slot; 3] = [Slot::Stt, Slot::Chat, Slot::Tts];
 
-/// The most owner MCP servers that become `tool` labels.
-const MAX_SERVERS: usize = 8;
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct Word {
     pub word: String,
@@ -138,12 +135,12 @@ impl Counters {
         self.errors.get_or_create(&Code { code }).inc();
     }
 
-    /// A tool call ended. `tool` is the name as called; `servers` are the
-    /// owner's MCP servers, as configured.
-    pub fn tool_call(&self, tool: &str, servers: &[&str], via: Via, ok: bool) {
+    /// A tool call ended. `tool` is the name as called; `server` is the
+    /// owner's MCP server that answered it, if one did.
+    pub fn tool_call(&self, tool: &str, server: Option<&str>, via: Via, ok: bool) {
         self.tool_calls
             .get_or_create(&ToolUse {
-                tool: tool_label(tool, servers),
+                tool: tool_label(tool, server),
                 outcome: if ok { "ok" } else { "error" },
                 via: match via {
                     Via::Run => "brain",
@@ -180,27 +177,16 @@ impl Default for Counters {
 }
 
 /// The `tool` label of a call: a device tool's own name, else the owner's
-/// MCP server whose `<server>_<tool>` namespace it is in, else `other`. A name
-/// the brain made up or an MCP client sent never becomes a label.
-fn tool_label(tool: &str, servers: &[&str]) -> Cow<'static, str> {
+/// MCP server that answered (a configured name, one of at most eight), else
+/// `other`. A name the brain made up or an MCP client sent never becomes a
+/// label.
+fn tool_label(tool: &str, server: Option<&str>) -> Cow<'static, str> {
     if let Some(own) = crate::tools::device_tool_name(tool) {
         return Cow::Borrowed(own);
     }
-    servers
-        .iter()
-        .take(MAX_SERVERS)
-        .filter(|server| !server.is_empty())
-        // Namespacing turns a server's hyphens into underscores.
-        .filter(|server| {
-            tool.strip_prefix(server.replace('-', "_").as_str())
-                .and_then(|rest| rest.strip_prefix('_'))
-                .is_some_and(|rest| !rest.is_empty())
-        })
-        // "home_lab_x" belongs to "home_lab" rather than "home".
-        .max_by_key(|server| server.len())
-        .map_or(Cow::Borrowed("other"), |server| {
-            Cow::Owned((*server).to_owned())
-        })
+    server.map_or(Cow::Borrowed("other"), |server| {
+        Cow::Owned(server.to_owned())
+    })
 }
 
 /// What standalone requests count (ADR 0017). Runs report through
@@ -1462,9 +1448,9 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         ] {
             o.guard(g);
         }
-        c.tool_call("set_volume", &[], Via::Run, true);
-        c.tool_call("set_volume", &[], Via::Run, true);
-        c.tool_call("play_url", &[], Via::Mcp, false);
+        c.tool_call("set_volume", None, Via::Run, true);
+        c.tool_call("set_volume", None, Via::Run, true);
+        c.tool_call("play_url", None, Via::Mcp, false);
         c.mic_dropped(3);
         let s = Snapshot {
             mode: Mode::Standalone,
@@ -1569,31 +1555,19 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
 
     #[test]
     fn unknown_labels_become_custom_or_other() {
-        assert_eq!(tool_label("set_timer", &[]), "set_timer");
+        assert_eq!(tool_label("set_timer", None), "set_timer");
         // A name a brain made up, or an MCP client sent.
         for name in ["", "rm -rf /", "https://example.com/x", "SET_VOLUME"] {
-            assert_eq!(tool_label(name, &["home"]), "other", "{name:?}");
+            assert_eq!(tool_label(name, None), "other", "{name:?}");
         }
-        // An owner MCP server's tools count as the server.
-        assert_eq!(tool_label("home_lights_on", &["home"]), "home");
-        assert_eq!(tool_label("my_ha_lights_on", &["my-ha"]), "my-ha");
-        assert_eq!(
-            tool_label("home_lab_reboot", &["home", "home_lab"]),
-            "home_lab"
-        );
-        // A bare server prefix is no tool of that server.
-        assert_eq!(tool_label("home_", &["home"]), "other");
-        assert_eq!(tool_label("homework", &["home"]), "other");
-        // A device tool keeps its own name even if a server shares a prefix.
-        assert_eq!(tool_label("set_volume", &["set"]), "set_volume");
-        // Only the first eight servers become labels.
-        let servers = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
-        assert_eq!(tool_label("s8_x", &servers), "s8");
-        assert_eq!(tool_label("s9_x", &servers), "other");
+        // An owner MCP server's tools count as the server that answered.
+        assert_eq!(tool_label("my_ha_lights_on", Some("my-ha")), "my-ha");
+        // A device tool keeps its own name.
+        assert_eq!(tool_label("set_volume", Some("set")), "set_volume");
 
         let dir = tempfile::tempdir().unwrap();
         let c = Counters::default();
-        c.tool_call("made up", &["home"], Via::Mcp, false);
+        c.tool_call("made up", None, Via::Mcp, false);
         // The owner's own URL is the Custom preset, so it never shows.
         c.standalone.spent(PresetId::Custom, Spend::Characters(5));
         let t = scrape(Snapshot::default(), &c, dir.path());

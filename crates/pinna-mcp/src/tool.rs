@@ -79,9 +79,33 @@ pub fn namespaced(server: &str, tool: &str) -> Option<String> {
     Some(format!("{}_{}", server.replace('-', "_"), tool))
 }
 
+/// Whether `name` is one of `server`'s tools: `<server>_<tool>`, with the
+/// server's hyphens written as underscores, as [`namespaced`] names them.
+pub fn in_namespace(server: &str, name: &str) -> bool {
+    let (server, name) = (server.as_bytes(), name.as_bytes());
+    !server.is_empty()
+        && name.len() > server.len() + 1
+        && name[server.len()] == b'_'
+        && server
+            .iter()
+            .zip(name)
+            .all(|(s, n)| if *s == b'-' { *n == b'_' } else { s == n })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_is_in_the_namespace_its_server_gave_it() {
+        let named = namespaced("my-ha", "lights_on").unwrap();
+        assert!(in_namespace("my-ha", &named));
+        assert!(in_namespace("home", "home_lab_reboot"));
+        assert!(!in_namespace("home", "home_"));
+        assert!(!in_namespace("home", "homework"));
+        assert!(!in_namespace("", "_x"));
+        assert!(!in_namespace("my-ha", "my-ha_lights"));
+    }
     use serde_json::json;
 
     #[test]

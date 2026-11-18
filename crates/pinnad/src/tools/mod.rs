@@ -591,13 +591,11 @@ impl DeviceTools {
         {
             return Vec::new();
         }
-        // Only a server whose namespace prefixes the name can have it.
-        let servers = self.live.mcp.iter().filter(|server| {
-            name.is_none_or(|name| {
-                name.strip_prefix(server.name.replace('-', "_").as_str())
-                    .is_some_and(|rest| rest.starts_with('_'))
-            })
-        });
+        // Only a server whose namespace the name is in can have it.
+        let servers =
+            self.live.mcp.iter().filter(|server| {
+                name.is_none_or(|name| pinna_mcp::in_namespace(&server.name, name))
+            });
         let listed = join_all(
             servers.map(|server| async move { (server.as_ref(), server.tools.list().await) }),
         )
@@ -656,15 +654,14 @@ impl ToolSet for DeviceTools {
 
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput> {
         Box::pin(async move {
-            let output = self.dispatch(name, args).await;
-            let servers: Vec<&str> = self.live.mcp.iter().map(|s| s.name.as_str()).collect();
+            let (output, server) = self.dispatch(name, args).await;
             let via = match self.surface {
                 Surface::Run => Via::Run,
                 Surface::Mcp => Via::Mcp,
             };
             self.kit
                 .counters
-                .tool_call(name, &servers, via, !output.is_error);
+                .tool_call(name, server, via, !output.is_error);
             output
         })
     }
@@ -672,36 +669,35 @@ impl ToolSet for DeviceTools {
 
 impl DeviceTools {
     /// Run a device tool, or an owner MCP server's for a tool-loop brain.
-    async fn dispatch(&self, name: &str, args: Value) -> ToolOutput {
-        {
-            let Some(tool) = TOOLS
-                .iter()
-                .find(|t| t.name == name && t.reach.offers(self.surface))
-            else {
-                let Some((server, _)) = self.owner_tools(Some(name)).await.pop() else {
-                    return ToolOutput::error(format!("Unknown tool {name}."));
-                };
-                if !self.switched_on(name) {
-                    return ToolOutput::error(format!(
-                        "The owner switched {name} off under Assistant."
-                    ));
-                }
-                return server.tools.call(name, args).await;
+    /// Returns the output and, for an MCP server's tool, the server that
+    /// answered.
+    async fn dispatch(&self, name: &str, args: Value) -> (ToolOutput, Option<&str>) {
+        let switched_off =
+            || ToolOutput::error(format!("The owner switched {name} off under Assistant."));
+        let Some(tool) = TOOLS
+            .iter()
+            .find(|t| t.name == name && t.reach.offers(self.surface))
+        else {
+            let Some((server, _)) = self.owner_tools(Some(name)).await.pop() else {
+                return (ToolOutput::error(format!("Unknown tool {name}.")), None);
             };
             if !self.switched_on(name) {
-                return ToolOutput::error(format!(
-                    "The owner switched {name} off under Assistant."
-                ));
+                return (switched_off(), Some(&server.name));
             }
-            let result = match Args::parse(tool, args) {
-                Ok(args) => device::run(self, tool.op, &args).await,
-                Err(why) => Err(why),
-            };
-            match result {
-                Ok(text) => ToolOutput::ok(text),
-                Err(why) => ToolOutput::error(why),
-            }
+            return (server.tools.call(name, args).await, Some(&server.name));
+        };
+        if !self.switched_on(name) {
+            return (switched_off(), None);
         }
+        let result = match Args::parse(tool, args) {
+            Ok(args) => device::run(self, tool.op, &args).await,
+            Err(why) => Err(why),
+        };
+        let output = match result {
+            Ok(text) => ToolOutput::ok(text),
+            Err(why) => ToolOutput::error(why),
+        };
+        (output, None)
     }
 }
 
@@ -1435,6 +1431,16 @@ mod tests {
                 tools.call(name, json!({})).await,
                 ToolOutput::error(format!("Unknown tool {name}."))
             );
+        }
+
+        // Each call counts as the server that answered it.
+        let text = tools.kit.counters.tool_calls_text();
+        for line in [
+            "pinna_tool_calls_total{tool=\"home\",outcome=\"ok\",via=\"brain\"} 1",
+            "pinna_tool_calls_total{tool=\"set\",outcome=\"ok\",via=\"brain\"} 1",
+            "pinna_tool_calls_total{tool=\"other\",outcome=\"error\",via=\"brain\"} 3",
+        ] {
+            assert!(text.lines().any(|l| l == line), "no {line:?} in\n{text}");
         }
     }
 

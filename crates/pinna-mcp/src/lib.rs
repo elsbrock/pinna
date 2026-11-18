@@ -9,4 +9,6 @@ pub mod jsonrpc;
 pub mod server;
 pub mod tool;
 
-pub use tool::{MAX_TOOL_OUTPUT, ToolCall, ToolOutput, ToolSet, ToolSpec, namespaced};
+pub use tool::{
+    MAX_TOOL_OUTPUT, ToolCall, ToolOutput, ToolSet, ToolSpec, in_namespace, namespaced,
+};
