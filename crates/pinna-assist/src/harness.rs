@@ -140,11 +140,14 @@ impl Harness {
         &self.messages
     }
 
-    pub fn turn(&self) -> Turn {
-        Turn {
+    /// The exchange to remember, or `None` when the brain said nothing:
+    /// Anthropic and Gemini refuse an empty assistant message, so an empty
+    /// turn would break every later request in the conversation.
+    pub fn turn(&self) -> Option<Turn> {
+        (!self.reply.trim().is_empty()).then(|| Turn {
             user: self.user.clone(),
             assistant: self.reply.clone(),
-        }
+        })
     }
 
     /// `run::reply` drains a fragment flushed by `on_stream_end`. Normally the
@@ -203,11 +206,20 @@ mod tests {
         );
         assert_eq!(
             harness.turn(),
-            Turn {
+            Some(Turn {
                 user: "How are you?".into(),
                 assistant: "I am well. Thanks for asking.".into(),
-            }
+            })
         );
+    }
+
+    #[test]
+    fn a_silent_brain_leaves_no_turn_to_remember() {
+        let mut harness = Harness::new("Hello?".into(), &RunLimits::MODEL, true);
+        harness.on_delta(ChatDelta::Text("  ".into()));
+        harness.on_delta(ChatDelta::End);
+        assert!(matches!(harness.on_stream_end(), Step::Done { .. }));
+        assert_eq!(harness.turn(), None);
     }
 
     #[test]

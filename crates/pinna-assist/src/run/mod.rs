@@ -154,7 +154,7 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
             drop(sink);
             events
                 .emit(RunEvent::Done {
-                    turn: Some(outcome.turn),
+                    turn: outcome.turn,
                     spoke: outcome.spoke,
                 })
                 .await;

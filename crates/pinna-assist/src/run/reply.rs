@@ -39,7 +39,7 @@ pub(crate) struct ReplyRequest<'a> {
 
 #[derive(Debug)]
 pub(crate) struct ReplyOutcome {
-    pub turn: Turn,
+    pub turn: Option<Turn>,
     pub spoke: bool,
 }
 
