@@ -297,7 +297,15 @@ pub struct McpServerView {
     pub revision: u64,
     /// How the last listing went: its tools, or why it failed. `None` while
     /// it is off or wasn't asked.
-    pub listing: Option<Result<usize, String>>,
+    pub listing: Option<Result<Vec<McpToolView>, String>>,
+}
+
+/// One of an MCP server's tools, by the name the brain calls it, which is
+/// also the name of its switch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpToolView {
+    pub name: String,
+    pub description: String,
 }
 
 /// An MCP client that called `/mcp` (ADR 0017 §"Pinna as an MCP server").
@@ -454,7 +462,19 @@ impl Service {
                 .iter()
                 .find(|live| live.id() == server.id)
                 .and_then(|live| live.tools.last_listing())
-                .map(|listing| listing.map_err(|e| e.to_string()));
+                .map(|listing| {
+                    listing
+                        .map(|specs| {
+                            specs
+                                .into_iter()
+                                .map(|spec| McpToolView {
+                                    name: spec.name,
+                                    description: spec.description,
+                                })
+                                .collect()
+                        })
+                        .map_err(|e| e.to_string())
+                });
         }
         view
     }

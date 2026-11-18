@@ -58,6 +58,13 @@
   // The owner's MCP servers: offered only to a brain the satellite runs the
   // tools for, not to an agent, which has its own.
   const agentBrain = $derived(!!view && delegation(view) === "hand-off");
+  /** The servers whose tools are unfolded. */
+  let shownTools = $state(new Set<string>());
+  function toggleTools(id: string) {
+    const next = new Set(shownTools);
+    if (!next.delete(id)) next.add(id);
+    shownTools = next;
+  }
   /** The server being changed, "new" while one is added, or null. */
   let editing = $state<string | null>(null);
   let serverError = $state<string | null>(null);
@@ -140,6 +147,40 @@
               }}
             ></button>
           </div>
+          {#if srv.enabled && srv.listed.length}
+            {@const open = shownTools.has(srv.id)}
+            <button
+              class="pn-row"
+              type="button"
+              aria-expanded={open}
+              aria-controls="mcp-{srv.id}-tools"
+              onclick={() => toggleTools(srv.id)}
+            >
+              <span class="pn-row-text">
+                <span class="pn-row-label">Its tools</span>
+                <span class="pn-row-hint">
+                  {srv.listed.filter((t) => isOn(t.name)).length} of {srv.listed.length} on. Turn off the ones the brain
+                  shouldn't call.
+                </span>
+              </span>
+              <Icon name={open ? "chevron-down" : "chevron-right"} class="pn-icon pn-row-chev" />
+            </button>
+            {#if open}
+              <div id="mcp-{srv.id}-tools" class="server-tools">
+                {#each srv.listed as t (t.name)}
+                  <SwitchRow
+                    id="tool-{t.name}"
+                    label={t.name}
+                    checked={isOn(t.name)}
+                    disabled={!live}
+                    busy={assistant.busy}
+                    hint={t.description}
+                    toggle={(on) => setTool(t.name, on)}
+                  />
+                {/each}
+              </div>
+            {/if}
+          {/if}
         {/if}
       {/each}
       {#if serverError}

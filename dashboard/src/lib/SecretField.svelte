@@ -1,7 +1,8 @@
 <!-- A key or a secret address, write-only (ADR 0017). Once stored it shows as
      set, with what tells it apart (a key's last four characters, a server's
      host), never itself: Replace types a new one, Remove drops it. What is
-     typed stays in this field until the form is saved or closed. -->
+     typed stays in this field until the form is saved or closed. A key is
+     hidden while it is typed; an address shows, so it can be checked. -->
 <script lang="ts">
   import { tick } from "svelte";
 
@@ -15,6 +16,7 @@
     shown,
     edit = $bindable({ kind: "keep" }),
     removable = true,
+    plain = false,
     placeholder,
     hint,
     error,
@@ -29,6 +31,8 @@
     edit?: SecretEdit;
     /** Offer Remove: a key may go, an MCP server's address may not. */
     removable?: boolean;
+    /** Show what is typed (an address); a key stays hidden. */
+    plain?: boolean;
     placeholder?: string;
     hint?: string;
     error?: string | null;
@@ -60,7 +64,8 @@
         bind:this={input}
         {id}
         class="pn-input is-mono"
-        type="password"
+        type={plain ? "text" : "password"}
+        inputmode={plain ? "url" : undefined}
         autocomplete="off"
         autocapitalize="off"
         spellcheck="false"

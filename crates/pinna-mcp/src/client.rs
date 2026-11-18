@@ -441,15 +441,16 @@ impl McpToolSet {
         outcome
     }
 
-    /// How the last listing went: the number of tools, or why it failed.
-    /// `None` before the first. It stays after the cache expires: it is what
-    /// the server last said.
-    pub fn last_listing(&self) -> Option<Result<usize, McpError>> {
-        self.cache
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|cached| cached.outcome.clone().map(|tools| tools.len()))
+    /// How the last listing went: the tools as the model sees them, or why
+    /// it failed. `None` before the first. It stays after the cache expires:
+    /// it is what the server last said.
+    pub fn last_listing(&self) -> Option<Result<Vec<ToolSpec>, McpError>> {
+        self.cache.lock().unwrap().as_ref().map(|cached| {
+            cached
+                .outcome
+                .clone()
+                .map(|tools| tools.iter().map(|tool| tool.spec.clone()).collect())
+        })
     }
 
     /// Ask the server again now, whatever the cache holds.
@@ -849,8 +850,11 @@ mod tests {
         assert_eq!(tools.last_listing(), None);
         let specs = tools.specs().await;
         assert_eq!(specs.len(), MAX_TOOLS);
-        assert_eq!(tools.last_listing(), Some(Ok(MAX_TOOLS)));
+        assert_eq!(tools.last_listing().unwrap().unwrap().len(), MAX_TOOLS);
         assert_eq!(specs[0].name, "home_2_time");
+        // The listing names each tool as the model sees it, which is the
+        // name of its switch.
+        assert_eq!(tools.last_listing().unwrap().unwrap()[0], specs[0]);
         assert_eq!(
             tools.call("home_2_time", json!({"zone": "UTC"})).await,
             ToolOutput::ok("noon UTC")
@@ -860,7 +864,7 @@ mod tests {
 
         tools.cache.lock().unwrap().as_mut().unwrap().fetched = Instant::now() - CACHE_TTL;
         // What the server last said stays while the cache has expired.
-        assert_eq!(tools.last_listing(), Some(Ok(MAX_TOOLS)));
+        assert_eq!(tools.last_listing().unwrap().unwrap().len(), MAX_TOOLS);
         assert_eq!(tools.specs().await.len(), MAX_TOOLS);
         assert_eq!(server.state.list_count.load(Ordering::Relaxed), 2);
         // A refresh asks again even while the cache is fresh.

@@ -139,7 +139,22 @@ fn render(v: AssistantView) -> Assistant {
                     .listing
                     .as_ref()
                     .and_then(|l| l.as_ref().ok())
-                    .map_or(0, |&n| n as u32),
+                    .map_or(0, |tools| u32::try_from(tools.len()).unwrap_or(u32::MAX)),
+                listed: s
+                    .listing
+                    .as_ref()
+                    .and_then(|l| l.as_ref().ok())
+                    .map(|tools| {
+                        tools
+                            .iter()
+                            .map(|t| pinna_api::McpServerTool {
+                                name: t.name.clone(),
+                                description: t.description.clone(),
+                                ..Default::default()
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 problem: s.listing.and_then(Result::err).unwrap_or_default(),
                 ..Default::default()
             })

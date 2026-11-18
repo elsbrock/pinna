@@ -284,7 +284,9 @@
     >
       <span class="pn-row-text">
         <span class="pn-row-label">Advanced</span>
-        <span class="pn-row-hint">Who runs the tools, how much of the conversation it gets, and how long it may take</span>
+        <span class="pn-row-hint"
+          >Who runs the tools, how much of the conversation it gets, how long it may take, and how long it thinks</span
+        >
       </span>
       <Icon name={advanced ? "chevron-down" : "chevron-right"} class="pn-icon pn-row-chev" />
     </button>

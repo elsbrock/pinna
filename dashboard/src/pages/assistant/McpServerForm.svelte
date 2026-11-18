@@ -86,6 +86,7 @@
       shown="set, on {server?.host ?? ''}"
       bind:edit={url}
       removable={false}
+      plain
       placeholder="https://example.com/mcp"
       hint="The whole address, with any token in it. The satellite keeps it and shows only its host. Servers that ask for a sign-in or a token in a header can't be added yet."
       disabled={!live}

@@ -180,8 +180,9 @@ Select **Assistant**, then **Tools**.
 - **Your MCP servers**: add an MCP server on your network with a name and its
   address. The brain then calls its tools next to Pinna's. Saving a server asks
   it for its tools, and the list shows how many it has, or why it can't be
-  reached. A server that needs a sign-in or a token in a header can't be added
-  yet.
+  reached. **Its tools** under a server lists them, each with a switch: turn
+  off the ones the brain shouldn't call. A server that needs a sign-in or a
+  token in a header can't be added yet.
 
 ## Use an AI agent as the brain
 

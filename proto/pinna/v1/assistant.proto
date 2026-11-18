@@ -238,6 +238,16 @@ message McpServer {
   // worked or wasn't asked. A saved server is asked at once; the brain asks
   // again before a request.
   string problem = 7;
+  // The tools it listed when last asked, by the name the brain calls them
+  // (`<name>_<tool>`), which is also the name of their switch in
+  // Assistant.tools.
+  repeated McpServerTool listed = 8;
+}
+
+message McpServerTool {
+  string name = 1;
+  // As the server describes it.
+  string description = 2;
 }
 
 // An MCP client that called this satellite's /mcp.

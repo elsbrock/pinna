@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file pinna/v1/assistant.proto.
  */
 export const file_pinna_v1_assistant: GenFile = /*@__PURE__*/
-  fileDesc("ChhwaW5uYS92MS9hc3Npc3RhbnQucHJvdG8SCHBpbm5hLnYxInMKEkxpc3RDaG9pY2VzUmVxdWVzdBIlCgRzbG90GAEgASgOMhcucGlubmEudjEuQXNzaXN0YW50U2xvdBISCgpjb25uZWN0aW9uGAIgASgJEiIKBGtpbmQYAyABKA4yFC5waW5uYS52MS5DaG9pY2VLaW5kIjgKE0xpc3RDaG9pY2VzUmVzcG9uc2USIQoHY2hvaWNlcxgBIAMoCzIQLnBpbm5hLnYxLkNob2ljZSIjCgZDaG9pY2USCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAki1wUKCUFzc2lzdGFudBINCgVyZWFkeRgBIAEoCBIxCgtjb25uZWN0aW9ucxgCIAMoCzIcLnBpbm5hLnYxLlByb3ZpZGVyQ29ubmVjdGlvbhIhCgNzdHQYAyABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEiMKBWJyYWluGAQgASgLMhQucGlubmEudjEuU2xvdENob2ljZRIhCgN0dHMYBSABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEi8KDmJyYWluX292ZXJyaWRlGAYgASgLMhcucGlubmEudjEuQnJhaW5PdmVycmlkZRIQCghsYW5ndWFnZRgHIAEoCRIeCgVwbGFjZRgIIAEoCzIPLnBpbm5hLnYxLlBsYWNlEhMKBnByb21wdBgJIAEoCUgAiAEBEhIKCmZvbGxvd191cHMYCiABKAgSJQoDYWNrGAsgASgLMhgucGlubmEudjEuQWNrbm93bGVkZ21lbnQSLQoFdG9vbHMYDCADKAsyHi5waW5uYS52MS5Bc3Npc3RhbnQuVG9vbHNFbnRyeRIjCghzdGF0aW9ucxgNIAMoCzIRLnBpbm5hLnYxLlN0YXRpb24SKAoLbWNwX3NlcnZlcnMYDiADKAsyEy5waW5uYS52MS5NY3BTZXJ2ZXISIgoGYWdlbnRzGA8gAygLMhIucGlubmEudjEuTWNwQWdlbnQSIQoHcHJlc2V0cxgQIAMoCzIQLnBpbm5hLnYxLlByZXNldBISCgphY2tfc3Bva2VuGBEgASgJEhMKC3ZvaWNlX3J1bGVzGBIgASgJEioKDGRldmljZV90b29scxgTIAMoCzIULnBpbm5hLnYxLkRldmljZVRvb2wSFwoPcHJvbXB0X3JldmlzaW9uGBQgASgJGiwKClRvb2xzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgIOgI4AUIJCgdfcHJvbXB0IngKElByb3ZpZGVyQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIOCgZwcmVzZXQYAiABKAkSEAoIYmFzZV91cmwYAyABKAkSEAoIcmV2aXNpb24YBCABKAQSDwoHa2V5X3NldBgFIAEoCBIRCglrZXlfbGFzdDQYBiABKAkiVAoKU2xvdENob2ljZRISCgpjb25uZWN0aW9uGAEgASgJEg0KBW1vZGVsGAIgASgJEg0KBXJlYWR5GAMgASgIEhQKDHNwZWVjaF9tb2RlbBgEIAEoCSLUAQoNQnJhaW5PdmVycmlkZRIoCgpkZWxlZ2F0aW9uGAEgASgOMhQucGlubmEudjEuRGVsZWdhdGlvbhIiCgdoaXN0b3J5GAIgASgOMhEucGlubmEudjEuSGlzdG9yeRIVCg1oaXN0b3J5X2xpbWl0GAMgASgNEh8KEmZpcnN0X3RleHRfc2Vjb25kcxgEIAEoDUgAiAEBEiYKCXJlYXNvbmluZxgFIAEoDjITLnBpbm5hLnYxLlJlYXNvbmluZ0IVChNfZmlyc3RfdGV4dF9zZWNvbmRzIk0KBVBsYWNlEgwKBG5hbWUYASABKAkSEAoIbGF0aXR1ZGUYAiABKAESEQoJbG9uZ2l0dWRlGAMgASgBEhEKCXRpbWVfem9uZRgEIAEoCSIxCg5BY2tub3dsZWRnbWVudBIPCgdlbmFibGVkGAEgASgIEg4KBnBocmFzZRgCIAEoCSIkCgdTdGF0aW9uEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJInYKCU1jcFNlcnZlchIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGhvc3QYAyABKAkSDwoHZW5hYmxlZBgEIAEoCBIQCghyZXZpc2lvbhgFIAEoBBINCgV0b29scxgGIAEoDRIPCgdwcm9ibGVtGAcgASgJIkQKCE1jcEFnZW50EgwKBG5hbWUYASABKAkSDwoHYWRkcmVzcxgCIAEoCRIZChFsYXN0X3NlZW5fdW5peF9tcxgDIAEoBCKVAQoGUHJlc2V0EgoKAmlkGAEgASgJEhAKCGJhc2VfdXJsGAIgASgJEgsKA3N0dBgDIAEoCBINCgVicmFpbhgEIAEoCBILCgN0dHMYBSABKAgSDQoFbW9kZWwYBiABKAkSEAoIaGFuZF9vZmYYByABKAgSEAoIdGhpbmtpbmcYCCABKAgSEQoJdHRzX21vZGVsGAkgASgJIksKCkRldmljZVRvb2wSDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRINCgVicmFpbhgDIAEoCBILCgNtY3AYBCABKAgiFQoTR2V0QXNzaXN0YW50UmVxdWVzdCI+ChRHZXRBc3Npc3RhbnRSZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQigwEKFFNldENvbm5lY3Rpb25SZXF1ZXN0EgoKAmlkGAEgASgJEhAKCHJldmlzaW9uGAIgASgEEg4KBnByZXNldBgDIAEoCRIQCghiYXNlX3VybBgEIAEoCRIQCgNrZXkYBSABKAlIAIgBARIRCgljbGVhcl9rZXkYBiABKAhCBgoEX2tleSI/ChVTZXRDb25uZWN0aW9uUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IjcKF0RlbGV0ZUNvbm5lY3Rpb25SZXF1ZXN0EgoKAmlkGAEgASgJEhAKCHJldmlzaW9uGAIgASgEIkIKGERlbGV0ZUNvbm5lY3Rpb25SZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQicAoOU2V0U2xvdFJlcXVlc3QSJQoEc2xvdBgBIAEoDjIXLnBpbm5hLnYxLkFzc2lzdGFudFNsb3QSEgoKY29ubmVjdGlvbhgCIAEoCRINCgVtb2RlbBgDIAEoCRIUCgxzcGVlY2hfbW9kZWwYBCABKAkiOQoPU2V0U2xvdFJlc3BvbnNlEiYKCWFzc2lzdGFudBgBIAEoCzITLnBpbm5hLnYxLkFzc2lzdGFudCL7AgoWVXBkYXRlQXNzaXN0YW50UmVxdWVzdBIVCghsYW5ndWFnZRgBIAEoCUgAiAEBEhMKBnByb21wdBgCIAEoCUgBiAEBEhYKDmRlZmF1bHRfcHJvbXB0GAMgASgIEhcKCmZvbGxvd191cHMYBCABKAhIAogBARIlCgNhY2sYBSABKAsyGC5waW5uYS52MS5BY2tub3dsZWRnbWVudBIlCgV0b29scxgGIAEoCzIWLnBpbm5hLnYxLlRvb2xTd2l0Y2hlcxIvCg5icmFpbl9vdmVycmlkZRgHIAEoCzIXLnBpbm5hLnYxLkJyYWluT3ZlcnJpZGUSEgoFcGxhY2UYCCABKAlIA4gBARInCghzdGF0aW9ucxgJIAEoCzIVLnBpbm5hLnYxLlN0YXRpb25MaXN0EhcKD3Byb21wdF9yZXZpc2lvbhgKIAEoCUILCglfbGFuZ3VhZ2VCCQoHX3Byb21wdEINCgtfZm9sbG93X3Vwc0IICgZfcGxhY2UiMgoLU3RhdGlvbkxpc3QSIwoIc3RhdGlvbnMYASADKAsyES5waW5uYS52MS5TdGF0aW9uImUKDFRvb2xTd2l0Y2hlcxIqCgJvbhgBIAMoCzIeLnBpbm5hLnYxLlRvb2xTd2l0Y2hlcy5PbkVudHJ5GikKB09uRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgIOgI4ASJBChdVcGRhdGVBc3Npc3RhbnRSZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQibAoTU2V0TWNwU2VydmVyUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIMCgRuYW1lGAMgASgJEhAKA3VybBgEIAEoCUgAiAEBEg8KB2VuYWJsZWQYBSABKAhCBgoEX3VybCI+ChRTZXRNY3BTZXJ2ZXJSZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQiNgoWRGVsZXRlTWNwU2VydmVyUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBCJBChdEZWxldGVNY3BTZXJ2ZXJSZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQiIQoRUGxheVNhbXBsZVJlcXVlc3QSDAoEdGV4dBgBIAEoCSIUChJQbGF5U2FtcGxlUmVzcG9uc2UiHgoOQXNrVGV4dFJlcXVlc3QSDAoEdGV4dBgBIAEoCSIRCg9Bc2tUZXh0UmVzcG9uc2UqVwoKQ2hvaWNlS2luZBIbChdDSE9JQ0VfS0lORF9VTlNQRUNJRklFRBAAEhUKEUNIT0lDRV9LSU5EX01PREVMEAESFQoRQ0hPSUNFX0tJTkRfVk9JQ0UQAip5Cg1Bc3Npc3RhbnRTbG90Eh4KGkFTU0lTVEFOVF9TTE9UX1VOU1BFQ0lGSUVEEAASFgoSQVNTSVNUQU5UX1NMT1RfU1RUEAESGAoUQVNTSVNUQU5UX1NMT1RfQlJBSU4QAhIWChJBU1NJU1RBTlRfU0xPVF9UVFMQAypbCgpEZWxlZ2F0aW9uEhoKFkRFTEVHQVRJT05fVU5TUEVDSUZJRUQQABIYChRERUxFR0FUSU9OX1RPT0xfTE9PUBABEhcKE0RFTEVHQVRJT05fSEFORF9PRkYQAipjCgdIaXN0b3J5EhcKE0hJU1RPUllfVU5TUEVDSUZJRUQQABIRCg1ISVNUT1JZX1RVUk5TEAESEQoNSElTVE9SWV9CWVRFUxACEhkKFUhJU1RPUllfTkVXX1RVUk5fT05MWRADKncKCVJlYXNvbmluZxIZChVSRUFTT05JTkdfVU5TUEVDSUZJRUQQABISCg5SRUFTT05JTkdfTk9ORRABEhEKDVJFQVNPTklOR19MT1cQAhIUChBSRUFTT05JTkdfTUVESVVNEAMSEgoOUkVBU09OSU5HX0hJR0gQBDKiBgoQQXNzaXN0YW50U2VydmljZRJNCgxHZXRBc3Npc3RhbnQSHS5waW5uYS52MS5HZXRBc3Npc3RhbnRSZXF1ZXN0Gh4ucGlubmEudjEuR2V0QXNzaXN0YW50UmVzcG9uc2USUAoNU2V0Q29ubmVjdGlvbhIeLnBpbm5hLnYxLlNldENvbm5lY3Rpb25SZXF1ZXN0Gh8ucGlubmEudjEuU2V0Q29ubmVjdGlvblJlc3BvbnNlElkKEERlbGV0ZUNvbm5lY3Rpb24SIS5waW5uYS52MS5EZWxldGVDb25uZWN0aW9uUmVxdWVzdBoiLnBpbm5hLnYxLkRlbGV0ZUNvbm5lY3Rpb25SZXNwb25zZRI+CgdTZXRTbG90EhgucGlubmEudjEuU2V0U2xvdFJlcXVlc3QaGS5waW5uYS52MS5TZXRTbG90UmVzcG9uc2USVgoPVXBkYXRlQXNzaXN0YW50EiAucGlubmEudjEuVXBkYXRlQXNzaXN0YW50UmVxdWVzdBohLnBpbm5hLnYxLlVwZGF0ZUFzc2lzdGFudFJlc3BvbnNlEk0KDFNldE1jcFNlcnZlchIdLnBpbm5hLnYxLlNldE1jcFNlcnZlclJlcXVlc3QaHi5waW5uYS52MS5TZXRNY3BTZXJ2ZXJSZXNwb25zZRJWCg9EZWxldGVNY3BTZXJ2ZXISIC5waW5uYS52MS5EZWxldGVNY3BTZXJ2ZXJSZXF1ZXN0GiEucGlubmEudjEuRGVsZXRlTWNwU2VydmVyUmVzcG9uc2USRwoKUGxheVNhbXBsZRIbLnBpbm5hLnYxLlBsYXlTYW1wbGVSZXF1ZXN0GhwucGlubmEudjEuUGxheVNhbXBsZVJlc3BvbnNlEj4KB0Fza1RleHQSGC5waW5uYS52MS5Bc2tUZXh0UmVxdWVzdBoZLnBpbm5hLnYxLkFza1RleHRSZXNwb25zZRJKCgtMaXN0Q2hvaWNlcxIcLnBpbm5hLnYxLkxpc3RDaG9pY2VzUmVxdWVzdBodLnBpbm5hLnYxLkxpc3RDaG9pY2VzUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChhwaW5uYS92MS9hc3Npc3RhbnQucHJvdG8SCHBpbm5hLnYxInMKEkxpc3RDaG9pY2VzUmVxdWVzdBIlCgRzbG90GAEgASgOMhcucGlubmEudjEuQXNzaXN0YW50U2xvdBISCgpjb25uZWN0aW9uGAIgASgJEiIKBGtpbmQYAyABKA4yFC5waW5uYS52MS5DaG9pY2VLaW5kIjgKE0xpc3RDaG9pY2VzUmVzcG9uc2USIQoHY2hvaWNlcxgBIAMoCzIQLnBpbm5hLnYxLkNob2ljZSIjCgZDaG9pY2USCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAki1wUKCUFzc2lzdGFudBINCgVyZWFkeRgBIAEoCBIxCgtjb25uZWN0aW9ucxgCIAMoCzIcLnBpbm5hLnYxLlByb3ZpZGVyQ29ubmVjdGlvbhIhCgNzdHQYAyABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEiMKBWJyYWluGAQgASgLMhQucGlubmEudjEuU2xvdENob2ljZRIhCgN0dHMYBSABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEi8KDmJyYWluX292ZXJyaWRlGAYgASgLMhcucGlubmEudjEuQnJhaW5PdmVycmlkZRIQCghsYW5ndWFnZRgHIAEoCRIeCgVwbGFjZRgIIAEoCzIPLnBpbm5hLnYxLlBsYWNlEhMKBnByb21wdBgJIAEoCUgAiAEBEhIKCmZvbGxvd191cHMYCiABKAgSJQoDYWNrGAsgASgLMhgucGlubmEudjEuQWNrbm93bGVkZ21lbnQSLQoFdG9vbHMYDCADKAsyHi5waW5uYS52MS5Bc3Npc3RhbnQuVG9vbHNFbnRyeRIjCghzdGF0aW9ucxgNIAMoCzIRLnBpbm5hLnYxLlN0YXRpb24SKAoLbWNwX3NlcnZlcnMYDiADKAsyEy5waW5uYS52MS5NY3BTZXJ2ZXISIgoGYWdlbnRzGA8gAygLMhIucGlubmEudjEuTWNwQWdlbnQSIQoHcHJlc2V0cxgQIAMoCzIQLnBpbm5hLnYxLlByZXNldBISCgphY2tfc3Bva2VuGBEgASgJEhMKC3ZvaWNlX3J1bGVzGBIgASgJEioKDGRldmljZV90b29scxgTIAMoCzIULnBpbm5hLnYxLkRldmljZVRvb2wSFwoPcHJvbXB0X3JldmlzaW9uGBQgASgJGiwKClRvb2xzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgIOgI4AUIJCgdfcHJvbXB0IngKElByb3ZpZGVyQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIOCgZwcmVzZXQYAiABKAkSEAoIYmFzZV91cmwYAyABKAkSEAoIcmV2aXNpb24YBCABKAQSDwoHa2V5X3NldBgFIAEoCBIRCglrZXlfbGFzdDQYBiABKAkiVAoKU2xvdENob2ljZRISCgpjb25uZWN0aW9uGAEgASgJEg0KBW1vZGVsGAIgASgJEg0KBXJlYWR5GAMgASgIEhQKDHNwZWVjaF9tb2RlbBgEIAEoCSLUAQoNQnJhaW5PdmVycmlkZRIoCgpkZWxlZ2F0aW9uGAEgASgOMhQucGlubmEudjEuRGVsZWdhdGlvbhIiCgdoaXN0b3J5GAIgASgOMhEucGlubmEudjEuSGlzdG9yeRIVCg1oaXN0b3J5X2xpbWl0GAMgASgNEh8KEmZpcnN0X3RleHRfc2Vjb25kcxgEIAEoDUgAiAEBEiYKCXJlYXNvbmluZxgFIAEoDjITLnBpbm5hLnYxLlJlYXNvbmluZ0IVChNfZmlyc3RfdGV4dF9zZWNvbmRzIk0KBVBsYWNlEgwKBG5hbWUYASABKAkSEAoIbGF0aXR1ZGUYAiABKAESEQoJbG9uZ2l0dWRlGAMgASgBEhEKCXRpbWVfem9uZRgEIAEoCSIxCg5BY2tub3dsZWRnbWVudBIPCgdlbmFibGVkGAEgASgIEg4KBnBocmFzZRgCIAEoCSIkCgdTdGF0aW9uEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJIp8BCglNY3BTZXJ2ZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRob3N0GAMgASgJEg8KB2VuYWJsZWQYBCABKAgSEAoIcmV2aXNpb24YBSABKAQSDQoFdG9vbHMYBiABKA0SDwoHcHJvYmxlbRgHIAEoCRInCgZsaXN0ZWQYCCADKAsyFy5waW5uYS52MS5NY3BTZXJ2ZXJUb29sIjIKDU1jcFNlcnZlclRvb2wSDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCSJECghNY3BBZ2VudBIMCgRuYW1lGAEgASgJEg8KB2FkZHJlc3MYAiABKAkSGQoRbGFzdF9zZWVuX3VuaXhfbXMYAyABKAQilQEKBlByZXNldBIKCgJpZBgBIAEoCRIQCghiYXNlX3VybBgCIAEoCRILCgNzdHQYAyABKAgSDQoFYnJhaW4YBCABKAgSCwoDdHRzGAUgASgIEg0KBW1vZGVsGAYgASgJEhAKCGhhbmRfb2ZmGAcgASgIEhAKCHRoaW5raW5nGAggASgIEhEKCXR0c19tb2RlbBgJIAEoCSJLCgpEZXZpY2VUb29sEgwKBG5hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSDQoFYnJhaW4YAyABKAgSCwoDbWNwGAQgASgIIhUKE0dldEFzc2lzdGFudFJlcXVlc3QiPgoUR2V0QXNzaXN0YW50UmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IoMBChRTZXRDb25uZWN0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZwcmVzZXQYAyABKAkSEAoIYmFzZV91cmwYBCABKAkSEAoDa2V5GAUgASgJSACIAQESEQoJY2xlYXJfa2V5GAYgASgIQgYKBF9rZXkiPwoVU2V0Q29ubmVjdGlvblJlc3BvbnNlEiYKCWFzc2lzdGFudBgBIAEoCzITLnBpbm5hLnYxLkFzc2lzdGFudCI3ChdEZWxldGVDb25uZWN0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBCJCChhEZWxldGVDb25uZWN0aW9uUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50InAKDlNldFNsb3RSZXF1ZXN0EiUKBHNsb3QYASABKA4yFy5waW5uYS52MS5Bc3Npc3RhbnRTbG90EhIKCmNvbm5lY3Rpb24YAiABKAkSDQoFbW9kZWwYAyABKAkSFAoMc3BlZWNoX21vZGVsGAQgASgJIjkKD1NldFNsb3RSZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQi+wIKFlVwZGF0ZUFzc2lzdGFudFJlcXVlc3QSFQoIbGFuZ3VhZ2UYASABKAlIAIgBARITCgZwcm9tcHQYAiABKAlIAYgBARIWCg5kZWZhdWx0X3Byb21wdBgDIAEoCBIXCgpmb2xsb3dfdXBzGAQgASgISAKIAQESJQoDYWNrGAUgASgLMhgucGlubmEudjEuQWNrbm93bGVkZ21lbnQSJQoFdG9vbHMYBiABKAsyFi5waW5uYS52MS5Ub29sU3dpdGNoZXMSLwoOYnJhaW5fb3ZlcnJpZGUYByABKAsyFy5waW5uYS52MS5CcmFpbk92ZXJyaWRlEhIKBXBsYWNlGAggASgJSAOIAQESJwoIc3RhdGlvbnMYCSABKAsyFS5waW5uYS52MS5TdGF0aW9uTGlzdBIXCg9wcm9tcHRfcmV2aXNpb24YCiABKAlCCwoJX2xhbmd1YWdlQgkKB19wcm9tcHRCDQoLX2ZvbGxvd191cHNCCAoGX3BsYWNlIjIKC1N0YXRpb25MaXN0EiMKCHN0YXRpb25zGAEgAygLMhEucGlubmEudjEuU3RhdGlvbiJlCgxUb29sU3dpdGNoZXMSKgoCb24YASADKAsyHi5waW5uYS52MS5Ub29sU3dpdGNoZXMuT25FbnRyeRopCgdPbkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCDoCOAEiQQoXVXBkYXRlQXNzaXN0YW50UmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50ImwKE1NldE1jcFNlcnZlclJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQSDAoEbmFtZRgDIAEoCRIQCgN1cmwYBCABKAlIAIgBARIPCgdlbmFibGVkGAUgASgIQgYKBF91cmwiPgoUU2V0TWNwU2VydmVyUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IjYKFkRlbGV0ZU1jcFNlcnZlclJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQiQQoXRGVsZXRlTWNwU2VydmVyUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IiEKEVBsYXlTYW1wbGVSZXF1ZXN0EgwKBHRleHQYASABKAkiFAoSUGxheVNhbXBsZVJlc3BvbnNlIh4KDkFza1RleHRSZXF1ZXN0EgwKBHRleHQYASABKAkiEQoPQXNrVGV4dFJlc3BvbnNlKlcKCkNob2ljZUtpbmQSGwoXQ0hPSUNFX0tJTkRfVU5TUEVDSUZJRUQQABIVChFDSE9JQ0VfS0lORF9NT0RFTBABEhUKEUNIT0lDRV9LSU5EX1ZPSUNFEAIqeQoNQXNzaXN0YW50U2xvdBIeChpBU1NJU1RBTlRfU0xPVF9VTlNQRUNJRklFRBAAEhYKEkFTU0lTVEFOVF9TTE9UX1NUVBABEhgKFEFTU0lTVEFOVF9TTE9UX0JSQUlOEAISFgoSQVNTSVNUQU5UX1NMT1RfVFRTEAMqWwoKRGVsZWdhdGlvbhIaChZERUxFR0FUSU9OX1VOU1BFQ0lGSUVEEAASGAoUREVMRUdBVElPTl9UT09MX0xPT1AQARIXChNERUxFR0FUSU9OX0hBTkRfT0ZGEAIqYwoHSGlzdG9yeRIXChNISVNUT1JZX1VOU1BFQ0lGSUVEEAASEQoNSElTVE9SWV9UVVJOUxABEhEKDUhJU1RPUllfQllURVMQAhIZChVISVNUT1JZX05FV19UVVJOX09OTFkQAyp3CglSZWFzb25pbmcSGQoVUkVBU09OSU5HX1VOU1BFQ0lGSUVEEAASEgoOUkVBU09OSU5HX05PTkUQARIRCg1SRUFTT05JTkdfTE9XEAISFAoQUkVBU09OSU5HX01FRElVTRADEhIKDlJFQVNPTklOR19ISUdIEAQyogYKEEFzc2lzdGFudFNlcnZpY2USTQoMR2V0QXNzaXN0YW50Eh0ucGlubmEudjEuR2V0QXNzaXN0YW50UmVxdWVzdBoeLnBpbm5hLnYxLkdldEFzc2lzdGFudFJlc3BvbnNlElAKDVNldENvbm5lY3Rpb24SHi5waW5uYS52MS5TZXRDb25uZWN0aW9uUmVxdWVzdBofLnBpbm5hLnYxLlNldENvbm5lY3Rpb25SZXNwb25zZRJZChBEZWxldGVDb25uZWN0aW9uEiEucGlubmEudjEuRGVsZXRlQ29ubmVjdGlvblJlcXVlc3QaIi5waW5uYS52MS5EZWxldGVDb25uZWN0aW9uUmVzcG9uc2USPgoHU2V0U2xvdBIYLnBpbm5hLnYxLlNldFNsb3RSZXF1ZXN0GhkucGlubmEudjEuU2V0U2xvdFJlc3BvbnNlElYKD1VwZGF0ZUFzc2lzdGFudBIgLnBpbm5hLnYxLlVwZGF0ZUFzc2lzdGFudFJlcXVlc3QaIS5waW5uYS52MS5VcGRhdGVBc3Npc3RhbnRSZXNwb25zZRJNCgxTZXRNY3BTZXJ2ZXISHS5waW5uYS52MS5TZXRNY3BTZXJ2ZXJSZXF1ZXN0Gh4ucGlubmEudjEuU2V0TWNwU2VydmVyUmVzcG9uc2USVgoPRGVsZXRlTWNwU2VydmVyEiAucGlubmEudjEuRGVsZXRlTWNwU2VydmVyUmVxdWVzdBohLnBpbm5hLnYxLkRlbGV0ZU1jcFNlcnZlclJlc3BvbnNlEkcKClBsYXlTYW1wbGUSGy5waW5uYS52MS5QbGF5U2FtcGxlUmVxdWVzdBocLnBpbm5hLnYxLlBsYXlTYW1wbGVSZXNwb25zZRI+CgdBc2tUZXh0EhgucGlubmEudjEuQXNrVGV4dFJlcXVlc3QaGS5waW5uYS52MS5Bc2tUZXh0UmVzcG9uc2USSgoLTGlzdENob2ljZXMSHC5waW5uYS52MS5MaXN0Q2hvaWNlc1JlcXVlc3QaHS5waW5uYS52MS5MaXN0Q2hvaWNlc1Jlc3BvbnNlYgZwcm90bzM");
 
 /**
  * @generated from message pinna.v1.ListChoicesRequest
@@ -505,6 +505,15 @@ export type McpServer = Message<"pinna.v1.McpServer"> & {
    * @generated from field: string problem = 7;
    */
   problem: string;
+
+  /**
+   * The tools it listed when last asked, by the name the brain calls them
+   * (`<name>_<tool>`), which is also the name of their switch in
+   * Assistant.tools.
+   *
+   * @generated from field: repeated pinna.v1.McpServerTool listed = 8;
+   */
+  listed: McpServerTool[];
 };
 
 /**
@@ -513,6 +522,30 @@ export type McpServer = Message<"pinna.v1.McpServer"> & {
  */
 export const McpServerSchema: GenMessage<McpServer> = /*@__PURE__*/
   messageDesc(file_pinna_v1_assistant, 10);
+
+/**
+ * @generated from message pinna.v1.McpServerTool
+ */
+export type McpServerTool = Message<"pinna.v1.McpServerTool"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * As the server describes it.
+   *
+   * @generated from field: string description = 2;
+   */
+  description: string;
+};
+
+/**
+ * Describes the message pinna.v1.McpServerTool.
+ * Use `create(McpServerToolSchema)` to create a new message.
+ */
+export const McpServerToolSchema: GenMessage<McpServerTool> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 11);
 
 /**
  * An MCP client that called this satellite's /mcp.
@@ -547,7 +580,7 @@ export type McpAgent = Message<"pinna.v1.McpAgent"> & {
  * Use `create(McpAgentSchema)` to create a new message.
  */
 export const McpAgentSchema: GenMessage<McpAgent> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 11);
+  messageDesc(file_pinna_v1_assistant, 12);
 
 /**
  * A provider preset: the address and defaults a connection starts from.
@@ -622,7 +655,7 @@ export type Preset = Message<"pinna.v1.Preset"> & {
  * Use `create(PresetSchema)` to create a new message.
  */
 export const PresetSchema: GenMessage<Preset> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 12);
+  messageDesc(file_pinna_v1_assistant, 13);
 
 /**
  * One of the satellite's own tools.
@@ -664,7 +697,7 @@ export type DeviceTool = Message<"pinna.v1.DeviceTool"> & {
  * Use `create(DeviceToolSchema)` to create a new message.
  */
 export const DeviceToolSchema: GenMessage<DeviceTool> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 13);
+  messageDesc(file_pinna_v1_assistant, 14);
 
 /**
  * @generated from message pinna.v1.GetAssistantRequest
@@ -677,7 +710,7 @@ export type GetAssistantRequest = Message<"pinna.v1.GetAssistantRequest"> & {
  * Use `create(GetAssistantRequestSchema)` to create a new message.
  */
 export const GetAssistantRequestSchema: GenMessage<GetAssistantRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 14);
+  messageDesc(file_pinna_v1_assistant, 15);
 
 /**
  * @generated from message pinna.v1.GetAssistantResponse
@@ -694,7 +727,7 @@ export type GetAssistantResponse = Message<"pinna.v1.GetAssistantResponse"> & {
  * Use `create(GetAssistantResponseSchema)` to create a new message.
  */
 export const GetAssistantResponseSchema: GenMessage<GetAssistantResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 15);
+  messageDesc(file_pinna_v1_assistant, 16);
 
 /**
  * @generated from message pinna.v1.SetConnectionRequest
@@ -750,7 +783,7 @@ export type SetConnectionRequest = Message<"pinna.v1.SetConnectionRequest"> & {
  * Use `create(SetConnectionRequestSchema)` to create a new message.
  */
 export const SetConnectionRequestSchema: GenMessage<SetConnectionRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 16);
+  messageDesc(file_pinna_v1_assistant, 17);
 
 /**
  * @generated from message pinna.v1.SetConnectionResponse
@@ -767,7 +800,7 @@ export type SetConnectionResponse = Message<"pinna.v1.SetConnectionResponse"> & 
  * Use `create(SetConnectionResponseSchema)` to create a new message.
  */
 export const SetConnectionResponseSchema: GenMessage<SetConnectionResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 17);
+  messageDesc(file_pinna_v1_assistant, 18);
 
 /**
  * @generated from message pinna.v1.DeleteConnectionRequest
@@ -789,7 +822,7 @@ export type DeleteConnectionRequest = Message<"pinna.v1.DeleteConnectionRequest"
  * Use `create(DeleteConnectionRequestSchema)` to create a new message.
  */
 export const DeleteConnectionRequestSchema: GenMessage<DeleteConnectionRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 18);
+  messageDesc(file_pinna_v1_assistant, 19);
 
 /**
  * @generated from message pinna.v1.DeleteConnectionResponse
@@ -806,7 +839,7 @@ export type DeleteConnectionResponse = Message<"pinna.v1.DeleteConnectionRespons
  * Use `create(DeleteConnectionResponseSchema)` to create a new message.
  */
 export const DeleteConnectionResponseSchema: GenMessage<DeleteConnectionResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 19);
+  messageDesc(file_pinna_v1_assistant, 20);
 
 /**
  * @generated from message pinna.v1.SetSlotRequest
@@ -846,7 +879,7 @@ export type SetSlotRequest = Message<"pinna.v1.SetSlotRequest"> & {
  * Use `create(SetSlotRequestSchema)` to create a new message.
  */
 export const SetSlotRequestSchema: GenMessage<SetSlotRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 20);
+  messageDesc(file_pinna_v1_assistant, 21);
 
 /**
  * @generated from message pinna.v1.SetSlotResponse
@@ -863,7 +896,7 @@ export type SetSlotResponse = Message<"pinna.v1.SetSlotResponse"> & {
  * Use `create(SetSlotResponseSchema)` to create a new message.
  */
 export const SetSlotResponseSchema: GenMessage<SetSlotResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 21);
+  messageDesc(file_pinna_v1_assistant, 22);
 
 /**
  * Each field unset leaves its setting as it is.
@@ -945,7 +978,7 @@ export type UpdateAssistantRequest = Message<"pinna.v1.UpdateAssistantRequest"> 
  * Use `create(UpdateAssistantRequestSchema)` to create a new message.
  */
 export const UpdateAssistantRequestSchema: GenMessage<UpdateAssistantRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 22);
+  messageDesc(file_pinna_v1_assistant, 23);
 
 /**
  * @generated from message pinna.v1.StationList
@@ -962,7 +995,7 @@ export type StationList = Message<"pinna.v1.StationList"> & {
  * Use `create(StationListSchema)` to create a new message.
  */
 export const StationListSchema: GenMessage<StationList> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 23);
+  messageDesc(file_pinna_v1_assistant, 24);
 
 /**
  * @generated from message pinna.v1.ToolSwitches
@@ -981,7 +1014,7 @@ export type ToolSwitches = Message<"pinna.v1.ToolSwitches"> & {
  * Use `create(ToolSwitchesSchema)` to create a new message.
  */
 export const ToolSwitchesSchema: GenMessage<ToolSwitches> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 24);
+  messageDesc(file_pinna_v1_assistant, 25);
 
 /**
  * @generated from message pinna.v1.UpdateAssistantResponse
@@ -998,7 +1031,7 @@ export type UpdateAssistantResponse = Message<"pinna.v1.UpdateAssistantResponse"
  * Use `create(UpdateAssistantResponseSchema)` to create a new message.
  */
 export const UpdateAssistantResponseSchema: GenMessage<UpdateAssistantResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 25);
+  messageDesc(file_pinna_v1_assistant, 26);
 
 /**
  * @generated from message pinna.v1.SetMcpServerRequest
@@ -1042,7 +1075,7 @@ export type SetMcpServerRequest = Message<"pinna.v1.SetMcpServerRequest"> & {
  * Use `create(SetMcpServerRequestSchema)` to create a new message.
  */
 export const SetMcpServerRequestSchema: GenMessage<SetMcpServerRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 26);
+  messageDesc(file_pinna_v1_assistant, 27);
 
 /**
  * @generated from message pinna.v1.SetMcpServerResponse
@@ -1059,7 +1092,7 @@ export type SetMcpServerResponse = Message<"pinna.v1.SetMcpServerResponse"> & {
  * Use `create(SetMcpServerResponseSchema)` to create a new message.
  */
 export const SetMcpServerResponseSchema: GenMessage<SetMcpServerResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 27);
+  messageDesc(file_pinna_v1_assistant, 28);
 
 /**
  * @generated from message pinna.v1.DeleteMcpServerRequest
@@ -1081,7 +1114,7 @@ export type DeleteMcpServerRequest = Message<"pinna.v1.DeleteMcpServerRequest"> 
  * Use `create(DeleteMcpServerRequestSchema)` to create a new message.
  */
 export const DeleteMcpServerRequestSchema: GenMessage<DeleteMcpServerRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 28);
+  messageDesc(file_pinna_v1_assistant, 29);
 
 /**
  * @generated from message pinna.v1.DeleteMcpServerResponse
@@ -1098,7 +1131,7 @@ export type DeleteMcpServerResponse = Message<"pinna.v1.DeleteMcpServerResponse"
  * Use `create(DeleteMcpServerResponseSchema)` to create a new message.
  */
 export const DeleteMcpServerResponseSchema: GenMessage<DeleteMcpServerResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 29);
+  messageDesc(file_pinna_v1_assistant, 30);
 
 /**
  * @generated from message pinna.v1.PlaySampleRequest
@@ -1117,7 +1150,7 @@ export type PlaySampleRequest = Message<"pinna.v1.PlaySampleRequest"> & {
  * Use `create(PlaySampleRequestSchema)` to create a new message.
  */
 export const PlaySampleRequestSchema: GenMessage<PlaySampleRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 30);
+  messageDesc(file_pinna_v1_assistant, 31);
 
 /**
  * @generated from message pinna.v1.PlaySampleResponse
@@ -1130,7 +1163,7 @@ export type PlaySampleResponse = Message<"pinna.v1.PlaySampleResponse"> & {
  * Use `create(PlaySampleResponseSchema)` to create a new message.
  */
 export const PlaySampleResponseSchema: GenMessage<PlaySampleResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 31);
+  messageDesc(file_pinna_v1_assistant, 32);
 
 /**
  * @generated from message pinna.v1.AskTextRequest
@@ -1147,7 +1180,7 @@ export type AskTextRequest = Message<"pinna.v1.AskTextRequest"> & {
  * Use `create(AskTextRequestSchema)` to create a new message.
  */
 export const AskTextRequestSchema: GenMessage<AskTextRequest> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 32);
+  messageDesc(file_pinna_v1_assistant, 33);
 
 /**
  * @generated from message pinna.v1.AskTextResponse
@@ -1160,7 +1193,7 @@ export type AskTextResponse = Message<"pinna.v1.AskTextResponse"> & {
  * Use `create(AskTextResponseSchema)` to create a new message.
  */
 export const AskTextResponseSchema: GenMessage<AskTextResponse> = /*@__PURE__*/
-  messageDesc(file_pinna_v1_assistant, 33);
+  messageDesc(file_pinna_v1_assistant, 34);
 
 /**
  * What a ListChoices request asks for.
