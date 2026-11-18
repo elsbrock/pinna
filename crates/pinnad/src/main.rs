@@ -693,6 +693,13 @@ async fn main() -> Result<()> {
             pinna_hal::privacy::PRIVACY_STATE_FALLBACK_PATH.into(),
         ],
     };
+    let privacy_trigger: Vec<PathBuf> = match &virt {
+        Some(v) => vec![v.latch_path().into()],
+        None => vec![
+            pinna_hal::privacy::PRIVACY_TRIGGER_PATH.into(),
+            pinna_hal::privacy::PRIVACY_TRIGGER_FALLBACK_PATH.into(),
+        ],
+    };
     let has_hw_privacy = pinna_hal::privacy::read_privacy_state_from(
         &privacy_paths
             .iter()
@@ -857,6 +864,7 @@ async fn main() -> Result<()> {
             mdns,
             encrypted,
             has_hw_privacy,
+            privacy_trigger,
             settings_file: cli.settings.clone(),
             airplay,
             bluetooth,

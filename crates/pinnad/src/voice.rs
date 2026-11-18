@@ -122,6 +122,9 @@ pub enum ApiCommand {
     /// The track a bridge's stream plays, under its source name (ADR 0011).
     SetStreamMetadata(String, pinna_audio::Track, ApiReply),
     SetMute(bool, ApiReply),
+    /// The `mute_microphone` tool: closes the hardware latch when there is
+    /// one, so the Microphone off button can open it again.
+    VoiceMute(ApiReply),
     /// Switch the mode once the satellite is idle, so a reply that confirms
     /// it still plays; at once when it already is.
     SwitchMode(Mode, ApiReply),
@@ -168,6 +171,7 @@ impl ApiCommand {
             | Self::SetStreamVolume(_, reply)
             | Self::SetStreamMetadata(_, _, reply)
             | Self::SetMute(_, reply)
+            | Self::VoiceMute(reply)
             | Self::SwitchMode(_, reply)
             | Self::StartConversation(reply)
             | Self::StopConversation(reply)
@@ -468,6 +472,9 @@ pub struct Options {
     /// The ESPHome API is encrypted at start.
     pub encrypted: bool,
     pub has_hw_privacy: bool,
+    /// Where a voice mute closes the hardware latch: the driver's
+    /// `privacy_trigger`, or the virtual Dot's latch file.
+    pub privacy_trigger: Vec<std::path::PathBuf>,
     /// Where runtime settings are persisted.
     pub settings_file: std::path::PathBuf,
     /// AirPlay can run: there is a speaker and a stream socket.
@@ -949,6 +956,10 @@ impl Brain {
             ApiCommand::SetMute(on, reply) => {
                 self.sw_muted = on;
                 self.apply_mute().await;
+                (Ok(()), reply)
+            }
+            ApiCommand::VoiceMute(reply) => {
+                self.voice_mute().await;
                 (Ok(()), reply)
             }
             ApiCommand::SwitchMode(mode, reply) => (self.switch_mode(mode).await, reply),
@@ -3286,6 +3297,7 @@ mod checked_media_tests {
                 mdns: None,
                 encrypted: false,
                 has_hw_privacy: false,
+                privacy_trigger: Vec::new(),
                 airplay: false,
                 bluetooth: false,
                 settings: Settings::default(),

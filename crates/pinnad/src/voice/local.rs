@@ -427,7 +427,7 @@ impl Brain {
             return;
         }
         match cmd {
-            ApiCommand::SetMute(true, reply) => {
+            ApiCommand::VoiceMute(reply) => {
                 tracing::info!("the microphone mutes when this request ends");
                 self.local.pending_mute = true;
                 let _ = reply.send(Ok(self.snapshot()));
@@ -447,9 +447,30 @@ impl Brain {
     pub(super) async fn apply_deferred_mute(&mut self) {
         if std::mem::take(&mut self.local.pending_mute) {
             tracing::info!("muting the microphone as the request asked");
-            self.sw_muted = true;
-            Box::pin(self.apply_mute()).await;
+            Box::pin(self.voice_mute()).await;
         }
+    }
+
+    /// Mute for the `mute_microphone` tool. The hardware latch is closed
+    /// when the device has one: software can't open it, so a press of the
+    /// Microphone off button turns the microphones back on, which the
+    /// software mute can't do alone. The latch reaches `hw_muted` by the
+    /// poll. Without the latch, or when closing it fails, the software mute.
+    pub(super) async fn voice_mute(&mut self) {
+        if self.opts.has_hw_privacy {
+            let paths: Vec<&std::path::Path> = self
+                .opts
+                .privacy_trigger
+                .iter()
+                .map(|p| p.as_path())
+                .collect();
+            match pinna_hal::privacy::enter_privacy_to(&paths) {
+                Ok(()) => return,
+                Err(e) => tracing::warn!("closing the hardware mute failed: {e}"),
+            }
+        }
+        self.sw_muted = true;
+        self.apply_mute().await;
     }
 
     /// Hand the reply channel to the player, which owns the voice lane until
@@ -1033,6 +1054,7 @@ mod tests {
                     mdns: None,
                     encrypted: false,
                     has_hw_privacy: false,
+                    privacy_trigger: Vec::new(),
                     airplay: false,
                     bluetooth: false,
                     settings: Settings {
@@ -2357,10 +2379,7 @@ mod tests {
         let run = replying(&mut device).await;
         device.events();
 
-        let snapshot = device
-            .run_tool(run, |reply| ApiCommand::SetMute(true, reply))
-            .await
-            .unwrap();
+        let snapshot = device.run_tool(run, ApiCommand::VoiceMute).await.unwrap();
 
         assert!(!snapshot.sw_muted, "the confirming reply still plays");
         assert!(device.brain.local.run.is_some());
@@ -2391,10 +2410,7 @@ mod tests {
     async fn a_mute_the_run_asked_for_applies_when_it_is_cancelled() {
         let mut device = TestDevice::ready();
         let run = replying(&mut device).await;
-        device
-            .run_tool(run, |reply| ApiCommand::SetMute(true, reply))
-            .await
-            .unwrap();
+        device.run_tool(run, ApiCommand::VoiceMute).await.unwrap();
         device.events();
 
         device.api(ApiCommand::StopConversation).await.unwrap();
@@ -2405,6 +2421,69 @@ mod tests {
         // The next request is refused: the microphone is muted.
         device.brain.start_local_run(RunKind::Request, None).await;
         assert_eq!(device.spawner.count(), 0);
+    }
+
+    /// A device with the hardware latch, its trigger a file in its directory.
+    fn with_latch(device: &mut TestDevice) -> PathBuf {
+        let trigger = device.dir.path().join("privacy_trigger");
+        std::fs::write(&trigger, "").unwrap();
+        device.brain.opts.has_hw_privacy = true;
+        device.brain.opts.privacy_trigger = vec![trigger.clone()];
+        trigger
+    }
+
+    #[tokio::test]
+    async fn a_voice_mute_closes_the_hardware_latch_when_the_run_ends() {
+        let mut device = TestDevice::ready();
+        let trigger = with_latch(&mut device);
+        let run = replying(&mut device).await;
+        device.run_tool(run, ApiCommand::VoiceMute).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&trigger).unwrap(), "");
+
+        speak_reply(&mut device, run, true).await;
+
+        assert_eq!(std::fs::read_to_string(&trigger).unwrap(), "1");
+        assert!(
+            !device.brain.sw_muted,
+            "the latch is the mute, not the software"
+        );
+        assert!(!device.brain.local.pending_mute);
+    }
+
+    #[tokio::test]
+    async fn a_voice_mute_without_the_latch_is_a_software_mute() {
+        let mut device = TestDevice::ready();
+
+        device.api(ApiCommand::VoiceMute).await.unwrap();
+
+        assert!(device.brain.sw_muted);
+        assert!(device.brain.muted());
+    }
+
+    #[tokio::test]
+    async fn a_voice_mute_falls_back_to_software_when_the_latch_does_not_take_it() {
+        let mut device = TestDevice::ready();
+        device.brain.opts.has_hw_privacy = true;
+        device.brain.opts.privacy_trigger = vec![device.dir.path().join("missing/privacy_trigger")];
+
+        device.api(ApiCommand::VoiceMute).await.unwrap();
+
+        assert!(device.brain.sw_muted);
+        assert!(device.brain.muted());
+    }
+
+    #[tokio::test]
+    async fn the_dashboards_mute_stays_a_software_mute_on_a_device_with_the_latch() {
+        let mut device = TestDevice::ready();
+        let trigger = with_latch(&mut device);
+
+        device
+            .api(|reply| ApiCommand::SetMute(true, reply))
+            .await
+            .unwrap();
+
+        assert!(device.brain.sw_muted);
+        assert_eq!(std::fs::read_to_string(&trigger).unwrap(), "");
     }
 
     #[tokio::test]

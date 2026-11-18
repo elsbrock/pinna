@@ -109,7 +109,7 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
             Ok("The notification is cleared.".into())
         }
         Op::MuteMicrophone => {
-            tools.ask(|r| ApiCommand::SetMute(true, r)).await?;
+            tools.ask(ApiCommand::VoiceMute).await?;
             Ok(match tools.caller {
                 // The Brain mutes once the run that asked has ended.
                 Caller::Run(_) => {

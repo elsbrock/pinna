@@ -36,6 +36,7 @@ impl Device {
                 mdns: None,
                 encrypted: false,
                 has_hw_privacy: false,
+                privacy_trigger: Vec::new(),
                 airplay: false,
                 bluetooth: false,
                 settings: Settings::default(),

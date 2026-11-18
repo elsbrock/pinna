@@ -811,6 +811,7 @@ mod tests {
                     mdns: None,
                     encrypted: false,
                     has_hw_privacy: false,
+                    privacy_trigger: Vec::new(),
                     airplay: false,
                     bluetooth: false,
                     settings: Settings {
@@ -1132,7 +1133,7 @@ mod tests {
         match rx.recv().await.unwrap() {
             Input::RunTool {
                 run: RunId(2),
-                cmd: ApiCommand::SetMute(true, reply),
+                cmd: ApiCommand::VoiceMute(reply),
             } => reply.send(Ok(Snapshot::default())).unwrap(),
             other => panic!("unexpected input {other:?}"),
         }

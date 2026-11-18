@@ -1335,6 +1335,7 @@ mod tests {
                 mdns: None,
                 encrypted: false,
                 has_hw_privacy: false,
+                privacy_trigger: Vec::new(),
                 // One file per device: tests run in parallel, and a failed
                 // save is an error.
                 settings_file: std::env::temp_dir().join(format!(
