@@ -45,6 +45,19 @@ jobs:
           grep -q "^$USER:" /etc/subuid || echo "$USER:100000:65536" | sudo tee -a /etc/subuid
           grep -q "^$USER:" /etc/subgid || echo "$USER:100000:65536" | sudo tee -a /etc/subgid
 
+      # mkosi runs the armhf packages' maintainer scripts while it builds the
+      # root, so the runner must run ARM binaries: QEMU, registered with the F
+      # flag so that it also works inside mkosi's sandbox. Without it, libc6's
+      # preinst fails with "Exec format error" (dry run 3).
+      - name: Run ARM binaries under QEMU
+        run: |
+          sudo apt-get install -y qemu-user-static
+          grep -q '^flags: .*F' /proc/sys/fs/binfmt_misc/qemu-arm || {
+            cat /proc/sys/fs/binfmt_misc/qemu-arm || true
+            echo "QEMU for ARM is not registered with the F flag" >&2
+            exit 1
+          }
+
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
