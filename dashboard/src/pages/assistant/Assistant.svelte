@@ -151,7 +151,8 @@
   {/if}
 
   {#snippet setupFoot()}
-    Everything here can be set up while Home Assistant answers. Switch above once all three services pass their check.
+    Everything here can be set up in Home Assistant mode, connected or not. Switch above once all three services pass
+    their check.
   {/snippet}
   <Group title={standalone ? "Setup" : "Set up standalone"} foot={standalone ? undefined : setupFoot}>
     <a class="pn-row" href="#/assistant/services">
@@ -192,9 +193,11 @@
         hearing it, and the timers that run now are cancelled.
       </p>
       <p>Home Assistant can still play music on it and control its light.</p>
+    {:else if s.haConnected}
+      <p>Home Assistant's voice assistant answers requests again. The timers that run now are cancelled.</p>
     {:else}
       <p>
-        Home Assistant's voice assistant answers requests again once it is connected. The timers that run now are
+        Home Assistant isn't connected, so nothing answers requests until it connects. The timers that run now are
         cancelled.
       </p>
     {/if}
