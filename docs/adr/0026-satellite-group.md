@@ -305,8 +305,9 @@ the mDNS record).
   word it passes on with its level before the gain: the mean level in dBFS
   of the speech frames among the 1.28 s the detector's classifier saw, and
   the detection's time to the millisecond. Clocks are synced by
-  systemd-timesyncd. Only wakes that would start something are logged: none
-  while muted or listening. On the owner's Echo Dot (2nd gen) and Echo (2nd
+  systemd-timesyncd. None is logged while muted or listening. A wake that
+  only stops an alarm or counts for a calibration is logged too; the state
+  machine's next line tells it apart. On the owner's Echo Dot (2nd gen) and Echo (2nd
   gen) in two rooms, this measures:
   - whether the level, or the score, picks the nearer satellite;
   - the offset between the two models, and the busy bonus;
