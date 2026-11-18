@@ -5,7 +5,7 @@
   import { onMount } from "svelte";
 
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { isStandalone, mcpAddress, toolLabel, toolReach } from "../../lib/assistant.ts";
+  import { delegation, isStandalone, mcpAddress, toolLabel, toolReach } from "../../lib/assistant.ts";
   import { copyText } from "../../lib/copy.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
@@ -14,6 +14,7 @@
   import SwitchRow from "../../lib/SwitchRow.svelte";
   import { toasts } from "../../lib/toast.svelte.ts";
   import { shortUrl, when } from "../../lib/view.ts";
+  import McpServerForm from "./McpServerForm.svelte";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -50,6 +51,16 @@
     return saveStations(list, `${name} removed`);
   }
 
+  // The owner's MCP servers: offered only to a brain the satellite runs the
+  // tools for, not to an agent, which has its own.
+  const agentBrain = $derived(!!view && delegation(view) === "hand-off");
+  /** The server being changed, "new" while one is added, or null. */
+  let editing = $state<string | null>(null);
+  let serverError = $state<string | null>(null);
+  async function setEnabled(id: string, revision: bigint, name: string, enabled: boolean) {
+    serverError = await assistant.setMcpServer({ id, revision, name, enabled }, enabled ? `${name} on` : `${name} off`);
+  }
+
   const address = $derived(s ? mcpAddress(location, network.ipv4 ?? undefined, s.name) : "");
   async function copyAddress() {
     await copyText(address);
@@ -61,7 +72,7 @@
   <Group title="Pinna's tools">
     {#snippet foot()}
       Each switch applies to the brain and to MCP clients alike. A tool that is off isn't offered, and is refused if
-      asked for anyway.
+      asked for anyway.{agentBrain ? " The brain is an agent and calls none of them: only MCP clients do." : ""}
     {/snippet}
     {#each view.deviceTools as t (t.name)}
       <SwitchRow
@@ -74,6 +85,81 @@
         toggle={(on) => setTool(t.name, on)}
       />
     {/each}
+  </Group>
+
+  {#snippet serversFoot()}
+    The brain can call the tools of MCP servers you run, such as Home Assistant's or your own, next to Pinna's. A server
+    that doesn't answer is left out of that request. At most 8.
+  {/snippet}
+  <Group title="Your MCP servers" foot={agentBrain ? undefined : serversFoot}>
+    {#if agentBrain}
+      <div class="pn-row">
+        <span class="pn-row-hint">
+          The brain is an agent: it brings tools of its own, so the satellite offers it none of these. Its MCP servers
+          are set up on the agent.
+        </span>
+      </div>
+    {:else}
+      {#each view.mcpServers as srv (srv.id)}
+        {#if editing === srv.id}
+          <McpServerForm server={srv} onclose={() => (editing = null)} />
+        {:else}
+          <div class="pn-row">
+            <div class="pn-row-text">
+              <label id="mcp-{srv.id}-label" class="pn-row-label server-name" for="mcp-{srv.id}">{srv.name}</label>
+              <span id="mcp-{srv.id}-hint" class="pn-row-hint">On {srv.host}</span>
+            </div>
+            <button
+              class="pn-btn pn-btn-sm"
+              type="button"
+              disabled={!live || editing !== null}
+              aria-label="Change {srv.name}"
+              onclick={() => {
+                serverError = null;
+                editing = srv.id;
+              }}>Change</button
+            >
+            <button
+              id="mcp-{srv.id}"
+              class="pn-switch-control"
+              role="switch"
+              aria-checked={srv.enabled}
+              aria-labelledby="mcp-{srv.id}-label"
+              aria-describedby="mcp-{srv.id}-hint"
+              disabled={!live}
+              aria-disabled={assistant.busy || undefined}
+              onclick={() => {
+                if (!assistant.busy) void setEnabled(srv.id, srv.revision, srv.name, !srv.enabled);
+              }}
+            ></button>
+          </div>
+        {/if}
+      {/each}
+      {#if serverError}
+        <div class="pn-row">
+          <span class="pn-field-error" role="alert"><Icon name="alert" />{serverError}</span>
+        </div>
+      {/if}
+      {#if editing === "new"}
+        <McpServerForm onclose={() => (editing = null)} />
+      {:else if view.mcpServers.length < 8}
+        <div class="pn-row">
+          <div class="pn-row-text">
+            <span class="pn-row-label">{view.mcpServers.length ? "Add another server" : "Add a server"}</span>
+            <span class="pn-row-hint">By its address, which may carry a token</span>
+          </div>
+          <button
+            class="pn-btn pn-btn-sm"
+            type="button"
+            disabled={!live || editing !== null}
+            onclick={() => {
+              serverError = null;
+              editing = "new";
+            }}>Add…</button
+          >
+        </div>
+      {/if}
+    {/if}
   </Group>
 
   <Group title="Radio stations">
@@ -221,6 +307,9 @@
   .url {
     font-family: var(--font-mono);
     overflow-wrap: anywhere;
+  }
+  .server-name {
+    font-family: var(--font-mono);
   }
   .address {
     display: flex;

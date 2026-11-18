@@ -10,6 +10,7 @@ import {
   AssistantService,
   AssistantSlot,
   type SetConnectionRequestSchema,
+  type SetMcpServerRequestSchema,
   type UpdateAssistantRequestSchema,
 } from "../gen/pinna/v1/assistant_pb.ts";
 import type { SlotKey } from "./assistant.ts";
@@ -88,6 +89,16 @@ class AssistantSetup {
 
   async update(patch: MessageInitShape<typeof UpdateAssistantRequestSchema>, done = "Saved") {
     return (await this.#edit(() => client.updateAssistant(patch), done))?.sentence ?? null;
+  }
+
+  /** Add or change one of the owner's MCP servers. Its address is sent
+   *  only when typed; the satellite answers with its host alone. */
+  async setMcpServer(edit: MessageInitShape<typeof SetMcpServerRequestSchema>, done: string) {
+    return (await this.#edit(() => client.setMcpServer(edit), done))?.sentence ?? null;
+  }
+
+  async deleteMcpServer(id: string, revision: bigint) {
+    return (await this.#edit(() => client.deleteMcpServer({ id, revision }), "MCP server removed"))?.sentence ?? null;
   }
 
   /** Ask the brain a typed question, as if it was spoken; the satellite
