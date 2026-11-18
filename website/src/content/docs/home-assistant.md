@@ -27,7 +27,7 @@ Home Assistant encrypts the connection itself. When it adds the device, it
 gives the device a key, the same encryption that ESPHome devices use, and from
 then on the device accepts nothing else. A device that Home Assistant added
 unencrypted gets its key the next time Home Assistant connects. You never see
-or type the key. The **Home Assistant** page of the
+or type the key. The **Assistant** page of the
 [dashboard](/docs/dashboard/) shows whether the connection is encrypted.
 
 This needs a Home Assistant whose ESPHome integration sets keys on devices. An
@@ -54,7 +54,7 @@ key when you add the device.
 3. If you built the device with a key, enter it when Home Assistant asks for
    it. Otherwise Home Assistant sets one itself; see [Encryption](#encryption).
 
-If the device doesn't appear, add it by hand: open the **Home Assistant** page
+If the device doesn't appear, add it by hand: open the **Assistant** page
 of the [dashboard](/docs/dashboard/), copy the host and the port under **Add it
 to Home Assistant**, and enter them in Home Assistant under **Add integration >
 ESPHome**.
@@ -105,13 +105,16 @@ and add it again, and Home Assistant gives it a new key.
 
 ## Check the connection
 
-Open the **Home Assistant** page of the [dashboard](/docs/dashboard/).
+Open the **Assistant** page of the [dashboard](/docs/dashboard/).
 **Home Assistant** shows **Connected** when Home Assistant is connected, and
 **Voice pipeline** shows **Ready** when it has an Assist pipeline for the
 device. **Encryption** shows whether the connection is encrypted.
 
 ## What's next
 
+- To have the device answer requests itself, with the services you choose, see
+  [Use Pinna without Home Assistant](/docs/standalone/). Home Assistant can stay
+  connected in standalone mode, without the Assist satellite.
 - See every entity that the device adds, in
   [Home Assistant entities](/docs/entities/).
 - Learn what the light ring and the buttons do, in

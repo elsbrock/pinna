@@ -6,7 +6,8 @@ description: Scrape the device's host and Pinna metrics with Prometheus from the
 The device serves metrics in the Prometheus text format at `/metrics`, on the
 same port as the [dashboard](/docs/dashboard/). They show how the device is
 doing (CPU, memory, temperature, Wi-Fi, its services) and how Pinna is doing
-(wakes, requests, reply times, Home Assistant's connection).
+(wakes, requests, reply times, Home Assistant's connection, and in
+[standalone mode](/docs/standalone/) your services and what they cost).
 
 Use them if you run Prometheus or a program that reads its format. Home
 Assistant doesn't need them.
@@ -68,8 +69,8 @@ the device doesn't serve those metrics.
 
 ## Pinna metrics
 
-Counters start at 0 when `pinnad` starts. Those with a `word` or `code`
-label appear after the first wake or error.
+Counters start at 0 when `pinnad` starts. Those with a label, such as `word`
+or `code`, appear once they first count something.
 
 | Metric | What it is |
 | --- | --- |
@@ -85,9 +86,9 @@ label appear after the first wake or error.
 | `pinna_bluetooth_paired_devices` | Phones paired over Bluetooth |
 | `pinna_wakes_total{word}` | Wake word detections, per wake word ID, such as `alexa_v0.1` |
 | `pinna_wake_near_misses_total` | Sounds that almost woke the device |
-| `pinna_assist_runs_total` | Voice requests started |
-| `pinna_assist_errors_total{code}` | Voice requests that Home Assistant ended with an error, by its error code, such as `stt-no-text-recognized` or `intent-failed`. Other codes count as `other` |
-| `pinna_reply_first_audio_seconds` | Histogram of the time from the end of your speech to the first sound of the reply, in buckets from 0.25 to 13 seconds |
+| `pinna_assist_runs_total` | Voice requests started, in either mode. In standalone mode, a question typed on the dashboard counts too, and a follow-up counts once it hears speech |
+| `pinna_assist_errors_total{code}` | Voice requests that Home Assistant ended with an error, by its error code, such as `stt-no-text-recognized` or `intent-failed`. Other codes count as `other`. Failed standalone requests count in `pinna_standalone_errors_total` instead |
+| `pinna_reply_first_audio_seconds` | Histogram of the time from the end of your speech to the first sound of the reply, in either mode, in buckets from 0.25 to 13 seconds |
 | `pinna_speaker_underruns_total` | Times the speaker ran out of sound and restarted, which can click |
 
 For example, wakes in the last hour, and the time 9 replies in 10 take to
@@ -98,13 +99,49 @@ increase(pinna_wakes_total[1h])
 histogram_quantile(0.9, sum by (le) (rate(pinna_reply_first_audio_seconds_bucket[1h])))
 ```
 
+### Standalone mode
+
+These metrics describe [standalone mode](/docs/standalone/). The gauges are
+there in either mode.
+
+| Metric | What it is |
+| --- | --- |
+| `pinna_standalone_mode` | 1 while the device runs in standalone mode |
+| `pinna_standalone_slot_ready{slot}` | 1 while a slot is set up and has passed its check: `stt` (speech-to-text), `brain` or `tts` (text-to-speech) |
+| `pinna_standalone_errors_total{slot,reason}` | Standalone requests that failed. `slot` is `stt`, `brain`, `tts` or `tool`. `reason` is the HTTP status (`http_401`, `http_402`, `http_403`, `http_404`, `http_429`, `http_3xx`, `http_4xx`, `http_5xx` or `http_other`), `timeout`, `unreachable`, `tls`, `clock` (the device's clock wasn't set), `protocol` (an answer the device couldn't read), `too_large` or `internal` |
+| `pinna_standalone_stage_seconds{slot}` | Histogram of the time each stage took: `stt` to the transcript, `brain` to the brain's first text, `tts` to text-to-speech's first audio. Buckets from 0.25 to 120 seconds |
+| `pinna_standalone_audio_seconds_total{preset}` | Seconds of speech sent to speech-to-text |
+| `pinna_standalone_tokens_total{preset,direction}` | Tokens that the brain's service reports it read (`input`) and wrote (`output`) |
+| `pinna_standalone_characters_total{preset}` | Characters sent to text-to-speech |
+| `pinna_standalone_guards_total{guard}` | Times a guard against spending acted: `no_speech` (a request or follow-up heard no speech, so nothing was uploaded), `invented` (a transcript that speech-to-text invents on silence was dropped), `follow_up` (a follow-up heard speech), `ack` (a slow agent's acknowledgment played), `stopped_by_wake` and `stopped_by_button` (the wake word or the Action button stopped a request) |
+| `pinna_tool_calls_total{tool,outcome,via}` | Tool calls. `tool` is the device tool's name, such as `set_timer`; for a tool of one of your MCP servers, the server's name; and `other` for any other name. `outcome` is `ok` or `error`. `via` is `brain` (the brain's tool loop) or `mcp` (a client of the device's MCP server) |
+| `pinna_mic_frames_dropped_total` | Microphone frames that a standalone request didn't take in time |
+
+`preset` is the preset of the connection that served the slot: `openai`,
+`openrouter`, `anthropic`, `gemini`, `groq`, `mistral`, `elevenlabs`,
+`ollama`, `lmstudio`, `hermes`, `openclaw`, or `custom` for an address you
+entered in full.
+
+No label carries an address, a key, what was said, or a name that an MCP
+client sends. Each label value comes from a fixed list, or is the name of one
+of your MCP servers (at most 8), so a device on your network can't add series.
+
+For example, the tokens each service used in the last day, and the standalone
+requests that failed, by slot and reason:
+
+```promql
+increase(pinna_standalone_tokens_total[1d])
+sum by (slot, reason) (increase(pinna_standalone_errors_total[1d]))
+```
+
 The `pinna_*` names can change before Pinna 1.0. The release notes say when
 one does. The `node_*` names follow node_exporter.
 
 ## Who can read them
 
 Like the dashboard, `/metrics` has no password. Anyone on your network can
-read it, including how often the wake word fired. It doesn't show what was
-said, or whether a request is running. It has no switch of its own: it is off
+read it, including how often the wake word fired and, in standalone mode,
+which services you use and how much. It doesn't show what was said, or
+whether a request is running. It has no switch of its own: it is off
 only when the dashboard is off (`[web] listen = ""`, a developer setting, see
 [Configure Pinna](/docs/configure/)).

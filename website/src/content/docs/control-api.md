@@ -70,11 +70,17 @@ timers:
 - `muted` is `no`, `yes (hardware)`, `yes (software)` or
   `yes (hardware, software)`.
 - `voice subscribed` means Home Assistant has an Assist pipeline for the
-  device.
+  device. In [standalone mode](/docs/standalone/), the device offers Home
+  Assistant no voice assistant: the line says only whether Home Assistant is
+  connected, and a `mode:` line before it says `standalone, services ready`
+  or `standalone, services not ready`, followed by `last failure:` and the
+  last failed request's sentence when there is one.
 - The wake word line names the active words, or `none chosen`, and is `armed`
   when the device listens for them right now: the microphones are on, and
   either a timer alarm rings, or the device isn't listening to a request and
-  Home Assistant is subscribed.
+  can start one. In Home Assistant mode, that means Home Assistant is
+  subscribed; in standalone mode, that speech-to-text, the brain and
+  text-to-speech have passed their check.
 - A paused timer shows `(paused)`.
 
 ### Watch
@@ -94,15 +100,18 @@ The API is a [ConnectRPC](https://connectrpc.com/) service,
 `pinna.v1.DeviceService`, defined in
 [`proto/pinna/v1/device.proto`](https://github.com/elsbrock/pinna/blob/main/proto/pinna/v1/device.proto).
 You can call it with any Connect, gRPC or gRPC-Web client, or with plain HTTP
-and JSON.
+and JSON. A second service, `pinna.v1.AssistantService`, sets up standalone
+mode; see [AssistantService](#assistantservice).
 
 The API has no authentication: anyone who can reach it can control the
 device. `pinnad` serves it in two places:
 
 - On `127.0.0.1:7470`, which only programs on the device itself can reach.
-  `pinnactl` and the boot health check use this address.
+  `pinnactl` and the boot health check use this address. It serves
+  `DeviceService` only.
 - On port 80, with the dashboard, for your network (`[web]` in the
-  [configuration](/docs/configure/#web)). This one only answers requests for IP
+  [configuration](/docs/configure/#web)). It serves `DeviceService` and
+  `AssistantService`. This one only answers requests for IP
   addresses, `localhost`, `.local` names, the device's own hostname (its node name, such as `pinna-2a914e`),
   the host of the dashboard address set on the **Network** page, and the names
   in `[web] allowed_hosts`. Other names get `421 Misdirected Request`.
@@ -118,11 +127,11 @@ device. `pinnad` serves it in two places:
 | `SetStreamVolume` | `percent` (0–100) | Sets the volume of live audio on the stream socket, on the same curve as the volume and under it. Only the device's own programs can call it, on `127.0.0.1`; from the network it returns `permission_denied`. [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) use it for the sender's volume |
 | `SetStreamMetadata` | `source`, `title`, `artist`, `album` | Sets the track of one program's live audio on the stream socket. `source` is the name that the program gives in the first line it sends there ([Audio](/docs/audio/)): 1 to 16 characters, each `a-z`, `0-9` or `-`. A name that breaks this rule returns `invalid_argument`. The call works before and after the program connects. The track stays until the program sets another, and empty fields clear it. `media` shows it only while audio with that name plays. Each field is cut to 256 bytes, at a character boundary. Only the device's own programs can call it, on `127.0.0.1`; from the network it returns `permission_denied`. [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) use it for the sender's track |
 | `SetMute` | `muted` (bool) | Turns the software mute on or off. The hardware switch isn't affected |
-| `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device, the microphones are off, a timer alarm rings, or a request, a reply or an announcement is already running |
+| `StartConversation` | Empty | Starts a request, like the Action button. Returns `failed_precondition` if Home Assistant has no Assist pipeline for the device (in standalone mode: if speech-to-text, the brain and text-to-speech haven't all passed their check), the microphones are off, a timer alarm rings, or a request, a reply or an announcement is already running |
 | `StopConversation` | Empty | Stops a request, a reply, an announcement or a timer alarm |
 | `LedTest` | Empty | Runs the LED test |
 | `ClearNotification` | Empty | Clears a waiting notification, even if the ring shows something else: the **Notification** switch turns off and the `cleared` event fires. Does nothing if no notification is waiting |
-| `UpdateSettings` | Any of `friendly_name` (the name Home Assistant shows: 1 to 64 characters, no control characters), `wake_word` and `wake_sound` (bool), `wake_sensitivity` and `led_brightness` (0–100), `wake_words` (up to two ids from `Status.wake_word.available`), `airplay` and `bluetooth` (bool), `hostname` (one DNS label, stored lowercase), `time_zone` (one of `ListTimeZones`), `url` (the dashboard address: `http://` or `https://`, a host that other devices can reach and an optional port, nothing after it; stored with a `/` at the end; an empty string clears it), `reply_volume` (0–100), `reply_follows_volume` and `listening_direction` (bool), and `update_channel` (`UPDATE_CHANNEL_STABLE`, `_BETA` or `_OFF`) | Changes those settings through the same paths as Home Assistant's entities; `friendly_name`, `hostname`, `time_zone` and `url` have no entity. Home Assistant reads a new `friendly_name` or `hostname` when it next connects: the device makes it reconnect once no request, reply, announcement, music or timer alarm plays. `reply_follows_volume` set to true makes replies follow the volume again; false keeps the current level. `reply_follows_volume` true together with `reply_volume` returns `invalid_argument`. `airplay` returns `failed_precondition` on a device without a working speaker, `bluetooth` also on one without Bluetooth. `update_channel` starts a check of the new channel, and returns `failed_precondition` while `[update] manifest` in `pinnad.toml` replaces the channel. Values above 100, an empty or too long name, an invalid hostname or dashboard address, a time zone the device doesn't have, unknown or repeated wake word ids and more than two return `invalid_argument`. `wake_words` returns `failed_precondition` while Home Assistant is connected: its dropdowns own the choice then |
+| `UpdateSettings` | Any of `friendly_name` (the name Home Assistant shows: 1 to 64 characters, no control characters), `wake_word` and `wake_sound` (bool), `wake_sensitivity` and `led_brightness` (0–100), `wake_words` (up to two ids from `Status.wake_word.available`), `airplay` and `bluetooth` (bool), `hostname` (one DNS label, stored lowercase), `time_zone` (one of `ListTimeZones`), `url` (the dashboard address: `http://` or `https://`, a host that other devices can reach and an optional port, nothing after it; stored with a `/` at the end; an empty string clears it), `reply_volume` (0–100), `reply_follows_volume` and `listening_direction` (bool), `update_channel` (`UPDATE_CHANNEL_STABLE`, `_BETA` or `_OFF`), and `mode` (`MODE_HOME_ASSISTANT` or `MODE_STANDALONE`) | Changes those settings through the same paths as Home Assistant's entities; `friendly_name`, `hostname`, `time_zone`, `url` and `mode` have no entity. Home Assistant reads a new `friendly_name` or `hostname` when it next connects: the device makes it reconnect once no request, reply, announcement, music or timer alarm plays. `reply_follows_volume` set to true makes replies follow the volume again; false keeps the current level. `reply_follows_volume` true together with `reply_volume` returns `invalid_argument`. `airplay` returns `failed_precondition` on a device without a working speaker, `bluetooth` also on one without Bluetooth. `update_channel` starts a check of the new channel, and returns `failed_precondition` while `[update] manifest` in `pinnad.toml` replaces the channel. Values above 100, an empty or too long name, an invalid hostname or dashboard address, a time zone the device doesn't have, unknown or repeated wake word ids and more than two return `invalid_argument`. `wake_words` returns `failed_precondition` while Home Assistant is connected in Home Assistant mode: its dropdowns own the choice then. `mode` set to `MODE_STANDALONE` returns `failed_precondition` until `Status.assistant.ready`. A change of `mode` stops a running request and a ringing timer alarm, deletes every timer and forgets the conversation; music keeps playing. If Home Assistant is connected, the device makes it reconnect once no request runs, no alarm rings and nothing but music plays, so it reads the new voice features |
 | `ListTimeZones` | Empty | Returns the IANA time zones the device has, from tzdata's `zone1970.tab`, plus `UTC`, that `UpdateSettings` accepts as `time_zone` |
 | `ListSatellites` | Empty | Returns the other Pinna devices that the device's background search last found, at once. The device searches once a minute with a one-shot mDNS query over IPv4 and IPv6 and follow-ups for missing records, and lists a device once its dashboard accepts a connection. A device stays listed until it misses two searches in a row: it isn't found, its dashboard doesn't answer, or the search fails. Returns `satellites`, one per MAC address, each with its ESPHome instance name, the host its SRV record names (its `.local` name), friendly name, model, MAC, version, dashboard port, dashboard address and addresses (without the USB link's `10.42.0.0/24` and without link-local IPv6 addresses); `on_network`, which is false, with an empty list, while the device has no address beyond USB; and `searched`, which is false until the first search after the device starts has finished. Returns `unavailable` when the last search failed and nothing is listed |
 | `SetRingLight` | Any of `on` (bool), `brightness` (0–100), `rgb` (`0xRRGGBB`) and `effect` (one of `Status.ring_light.effects`) | Changes the ring light, as Home Assistant's **LED ring** light does. Out-of-range values and unknown effects return `invalid_argument` |
@@ -142,7 +151,7 @@ device. `pinnad` serves it in two places:
 | `WatchInstall` | Empty | Streams the output of the running or last install, each line with its `stage`, and ends with a message that has `done` set |
 | `SetActiveSlot` | `slot` (`a` or `b`) | Chooses the slot that starts next. The other slot: its image is checked, it starts next as a trial, and the device restarts; if the restart fails, the slots are put back. Only a slot that is good or hasn't been started yet. The running slot: it starts next again, which cancels a pending update, without a restart. Refused while an install runs or while the running slot is on trial |
 | `Reboot` | Empty | Restarts the device |
-| `FactoryReset` | `name` (the device's name or node name, as typed to confirm; case and surrounding spaces don't matter) | Forgets the settings, the saved Wi-Fi networks, the encryption key that Home Assistant set, SSH keys added on the device and its SSH host key, and restarts the device. The log stays. Another name returns `invalid_argument`. See [Reset the device](/docs/dashboard/#reset-the-device) |
+| `FactoryReset` | `name` (the device's name or node name, as typed to confirm; case and surrounding spaces don't matter) | Forgets the settings, standalone mode's setup and keys, the saved Wi-Fi networks, the encryption key that Home Assistant set, SSH keys added on the device and its SSH host key, and restarts the device. The log stays. Another name returns `invalid_argument`. See [Reset the device](/docs/dashboard/#reset-the-device) |
 | `ScanWifi` | Empty | Scans for Wi-Fi networks, which takes a few seconds. Returns `networks`, strongest first, one per name, each with `ssid`, `signal_dbm`, `frequency_mhz`, `security`, `saved` and `current`. Networks that hide their name are left out. Returns `failed_precondition` while a join runs |
 | `ListWifi` | Empty | Returns the `saved` networks in the order the device tries them (each with `ssid`, `security`, `hidden` and `current`; never the password), whether a join runs (`joining`), the last join's final step (`last_join`), and the network on `trial` |
 | `JoinWifi` | `ssid`, `security` (`WIFI_SECURITY_OPEN` or `_WPA_PSK`), `passphrase` (8 to 63 characters or 64 hex digits; empty for an open network) and `hidden` | Tries a network and streams the steps: `JOIN_STAGE_CONNECTING`, `_ADDRESS`, then `_TRIAL` or `_FAILED` (with `failure`). Without an address within 45 seconds, the device goes back to the network it was on. On trial, it keeps the network once the dashboard is opened at the new `address` or `KeepWifi` keeps it, and goes back after `keep_seconds` (5 minutes) otherwise. The join goes on when the caller goes away. Returns `failed_precondition` while another join runs or a network is on trial. See [Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network) |
@@ -163,6 +172,13 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
   http://127.0.0.1:7470/pinna.v1.DeviceService/GetStatus
 ```
 
+To read standalone mode's setup, which only the dashboard's listener serves:
+
+```sh
+curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
+  http://localhost/pinna.v1.AssistantService/GetAssistant
+```
+
 ### Status
 
 | Field | Type | Description |
@@ -172,6 +188,7 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `mac` | string | The Wi-Fi MAC address, in lowercase |
 | `uptime_seconds` | uint64 | Seconds since `pinnad` started |
 | `phase` | `Phase` | `PHASE_IDLE`, `PHASE_LISTENING`, `PHASE_THINKING` or `PHASE_SPEAKING` |
+| `mode` | `Mode` | `MODE_HOME_ASSISTANT` or `MODE_STANDALONE`: which service answers voice requests |
 | `muted` | bool | The microphones are off, by either the button or software |
 | `hardware_muted` | bool | The hardware switch has turned the microphones off |
 | `software_muted` | bool | The software mute is on |
@@ -184,7 +201,8 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `led_backend` | string | `is31`, `mock`, `virtual` (the virtual Echo Dot) or `none` |
 | `alarm_ringing` | bool | A finished timer's alarm rings. `StopConversation` stops it |
 | `notification` | bool | A notification is waiting. `ClearNotification` clears it |
-| `settings` | `Settings` | `wake_word`, `wake_sensitivity`, `led_brightness`, `wake_words` (the active ids, at most two), `friendly_name`, `default_name` (nobody chose a name yet), `wake_sound`, `url` (the dashboard address; empty when none is set), `airplay` and `bluetooth` (the switches), `time_zone` (`UTC` until one is set), `reply_volume` (unset while replies follow the volume), `listening_direction` and `update_channel` (the **Updates** setting in effect) |
+| `settings` | `Settings` | `wake_word`, `wake_sensitivity`, `led_brightness`, `wake_words` (the active ids, at most two), `friendly_name`, `default_name` (nobody chose a name yet), `wake_sound`, `url` (the dashboard address; empty when none is set), `airplay` and `bluetooth` (the switches), `time_zone` (`UTC` until one is set), `reply_volume` (unset while replies follow the volume), `listening_direction`, `update_channel` (the **Updates** setting in effect) and `mode` |
+| `assistant` | `AssistantStatus` | Standalone mode's services, in either mode: `ready` (speech-to-text, the brain and text-to-speech are set up and have passed their check, so standalone mode can be switched on), `stt_ready`, `brain_ready` and `tts_ready`, and `label` (the brain as the dashboard shows it, such as `openai: gpt-4o-mini`; empty until all three are set up). The last standalone request that failed: `last_error` (one sentence, such as `No credit is left on this account.`; never a key, an address or what was said), `last_error_slot` (`stt`, `brain`, `tts` or `tool`), `last_error_preset` (the preset of the connection that failed, such as `openrouter`) and `last_error_unix_ms`. They are empty, and `last_error_unix_ms` is 0, when no request has failed since `pinnad` started or a request has been answered since |
 | `ring_light` | `RingLight` | The ring as a light: `on`, `brightness` (0–100), `rgb` (`0xRRGGBB`), `effect` and `effects` (every effect it takes) |
 | `media` | `Media` | The media player: `state` (`MEDIA_STATE_IDLE`, `_PLAYING`, `_PAUSED` or `_ANNOUNCING`), `url` (what plays, or the URL that is opening while nothing plays; empty for AirPlay and Bluetooth), `stream` (AirPlay or Bluetooth plays), `muted` (the music, not the microphones), `error` (why the last play failed to open or ended badly, until the next play or a stop), `error_url` (with `error`, the URL that failed; what still plays stays in `url`), `available` (the device has a working speaker), `volume` (0–100: the stream's own while AirPlay or Bluetooth plays, the volume otherwise), `title`, `artist` and `album` (what plays: the sender's track, a file's tags or a radio station's title; empty when none is known, while nothing plays, and for media that Home Assistant plays), `station` (an internet radio station's name) and `source` (while a stream plays, the name its program gives, such as `airplay` or `bluetooth`) |
 | `airplay` | `AirPlay` | The AirPlay receiver as it runs: `state` (`AIRPLAY_STATE_OFF`, `_STARTING`, `_READY`, `_FAILED`, or `_UNAVAILABLE` on a device without a working speaker), `name` (what senders list it as, while it is on) and `reason` (systemd's result when it failed, for example `exit-code`) |
@@ -196,7 +214,66 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
 | `api_key_from_image` | bool | The encryption key came with the image, so a factory reset keeps it |
 | `led_test` | bool | The ring runs its test pattern (`LedTest`, or **Identify** on the dashboard) |
 
+## AssistantService
+
+`pinna.v1.AssistantService`, defined in
+[`proto/pinna/v1/assistant.proto`](https://github.com/elsbrock/pinna/blob/main/proto/pinna/v1/assistant.proto),
+sets up [standalone mode](/docs/standalone/): the connections to your
+services, the speech-to-text, brain and text-to-speech slots that use them,
+the conversation, the tools and your MCP servers. The dashboard's
+**Assistant** page uses it. `pinnad` serves it on port 80 with the dashboard,
+not on `127.0.0.1:7470`. It works in either mode, so you can set up standalone
+mode before you switch to it with `UpdateSettings`.
+
+Keys and MCP server addresses are write-only: no response contains them. A
+connection shows only `key_set` and `key_last4`, the key's last four
+characters. An MCP server shows only its `host`, because its address can carry
+a token. A key belongs to the address it was entered for: a new `base_url`
+without a new `key` removes the stored key.
+
+A refused change changes nothing. Its message is one sentence for the owner,
+with one of these codes:
+
+- `invalid_argument`: the request is wrong in itself, for example an empty
+  model or a prompt over 4,000 characters.
+- `failed_precondition`: a service's check failed, or the device refuses it
+  now.
+- `aborted`: the request names a `revision` that changed meanwhile. Read the
+  setup again with `GetAssistant`, then retry.
+
+| Method | Request | What it does |
+| --- | --- | --- |
+| `GetAssistant` | Empty | Returns the `Assistant`: `ready` (all three slots have passed their check), `connections`, the `stt`, `brain` and `tts` slots, `brain_override`, `language`, `place`, `prompt` (unset means `voice_rules`), `follow_ups`, `ack` and `ack_spoken` (what a slow agent's acknowledgment says), the tool switches `tools` (a tool without an entry is on), `stations`, `mcp_servers`, `agents` (the last 8 MCP clients that called `/mcp` since `pinnad` started, each with the name it gave and its address), the `presets` a connection can use, `voice_rules` and `device_tools` |
+| `SetConnection` | `id` (empty adds a connection), `revision`, `preset` (an id from `presets`, such as `openai` or `ollama`), `base_url`, and `key` or `clear_key` | Adds or changes a connection. An empty `base_url` takes the preset's address. For the `ollama`, `lmstudio`, `hermes` and `openclaw` presets, the computer's name or address is enough: the preset adds what is missing (OpenClaw needs the port too). The `custom` preset takes the whole address. The slots that use the connection are checked again with the new address and key. In standalone mode, a failed check refuses the change with `failed_precondition`; in Home Assistant mode, the change is saved, and the slot isn't ready until it passes. At most 16 connections. `key` together with `clear_key` returns `invalid_argument` |
+| `DeleteConnection` | `id`, `revision` | Removes a connection and its key. In standalone mode, a connection that a slot uses returns `failed_precondition`. In Home Assistant mode, the slots that use it are cleared with it |
+| `SetSlot` | `slot` (`ASSISTANT_SLOT_STT`, `_BRAIN` or `_TTS`), `connection`, and `model` (the model, or for text-to-speech the voice; empty for a preset with a fixed brain model) | Checks the slot and saves it only when the check passes; the slot is then ready. A check asks for the model list, transcribes half a second of silence, or speaks one word. It never sends a prompt. A failed check returns `failed_precondition` with the reason |
+| `UpdateAssistant` | Any of `language` (a BCP 47 tag such as `de` or `en-US`; empty clears it), `prompt` (at most 4,000 characters; empty sends only the context) or `default_prompt` (back to `voice_rules`), `follow_ups` (bool), `ack` (`enabled` and a `phrase` of at most 100 characters), `tools` (replaces every switch), `brain_override` (replaces every Advanced setting: `delegation`, `history` with `history_limit` (1 to 10 turns, or at most 65536 bytes), and `first_text_seconds`, 1 to 300), `place` (a place name to look up, such as a town; empty clears it) and `stations` (replaces every station: at most 50, each a `name` of at most 60 characters and an `http://` or `https://` `url`) | Changes the settings that need no check. A place that the search doesn't find returns `invalid_argument`. `prompt` together with `default_prompt` returns `invalid_argument` |
+| `SetMcpServer` | `id` (empty adds a server), `revision`, `name` (1 to 24 lowercase letters, digits and hyphens, not used by another server), `url` (the whole address, with any token it carries; needed to add a server, unset keeps the stored one) and `enabled` | Adds or changes one of your MCP servers. The brain may call its tools as `<name>_<tool>`. At most 8. After the change, the device asks each enabled server for its tools, and `McpServer.tools` and `problem` say how it answered |
+| `DeleteMcpServer` | `id`, `revision` | Removes an MCP server and its address |
+| `PlaySample` | `text` (at most 500 characters) | Says the text with the text-to-speech slot, in either mode, and answers once it sounds, or with why it couldn't. Music gets quieter under it. Returns `failed_precondition` while a request runs, a timer alarm rings or the device already says something, before text-to-speech is set up, and on a device without a working speaker |
+| `AskText` | `text` (at most 1,000 characters) | Asks the brain a typed question, as if it was spoken. The reply plays on the device, and no follow-up comes after it. Returns `failed_precondition` in Home Assistant mode, while a request runs or a timer alarm rings, while the microphones are off, and until all three slots have passed their check |
+
+## MCP server
+
+In standalone mode, `pinnad` also serves an MCP server at `/mcp`, on port 80
+with the dashboard, so that an AI agent can use the device. It has no
+authentication, like the dashboard, and answers only to the same names.
+
+- It speaks MCP 2025-06-18 and 2025-03-26, as JSON over HTTP `POST`: no event
+  stream, and no batches. A request must be `application/json`, at most
+  64 KiB. A request from a web page must come from a name the dashboard
+  answers to.
+- In Home Assistant mode, every call gets an error that says MCP works in
+  standalone mode only.
+- Its tools are the device's own, as `device_tools` lists them with `mcp` set:
+  volume, the ring light, media and radio, the notification, muting the
+  microphones, timers and the time, and `speak`, `cancel_request` and
+  `status`. A tool switched off with `UpdateAssistant` isn't offered. No tool
+  turns the microphones on or makes the device listen.
+- It runs two tool calls at once. Another call is told the device is busy.
+
 ## What's next
 
+- [Use Pinna without Home Assistant](/docs/standalone/)
 - [Home Assistant entities](/docs/entities/)
 - [Troubleshooting](/docs/troubleshooting/)

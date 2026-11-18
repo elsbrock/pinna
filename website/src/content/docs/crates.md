@@ -11,7 +11,7 @@ This page helps you find your way around the
 | Path | Contents |
 | --- | --- |
 | `crates/` | Pinna's Rust code, as one Cargo workspace. See [Crates](#crates) |
-| `proto/` | The definition of the control API (`pinna/v1/device.proto`) |
+| `proto/` | The definition of the control API (`pinna/v1/device.proto`) and of standalone mode's setup API (`pinna/v1/assistant.proto`) |
 | `kernel/` | The kernel source reference (`source.env`), Pinna's patches and configuration, and the build script that packages the kernel as a Debian package. `kernel/firmware/` holds the microphone FPGA bitstream |
 | `dashboard/` | The dashboard, written in Svelte. `pinnad` serves it |
 | `services/updates/` | The release service behind `updates.getpinna.dev`, a Cloudflare Worker in TypeScript: update channels and release downloads (ADR 0022) |
@@ -34,7 +34,7 @@ This page helps you find your way around the
 
 | Crate | Purpose |
 | --- | --- |
-| `pinnad` | The voice satellite: wake word, buttons, light ring, requests to Home Assistant, timers, announcements, media playback, mute and volume. Also serves the control API and the dashboard, and checks the update channel |
+| `pinnad` | The voice satellite: wake word, buttons, light ring, requests to Home Assistant or, in standalone mode, to your own services, timers, announcements, media playback, mute and volume. Also serves the control API, the dashboard and the MCP server, and checks the update channel |
 | `pinna-esphome` | The server side of the ESPHome native API, with or without encryption |
 | `pinna-wakeword` | Wake word detection for `.onnx` and `.tflite` models (the openWakeWord words and compatible classifiers), run on the `tract` inference library |
 | `pinna-audio` | Microphone capture and speaker playback, through ALSA or PipeWire, with mixing, ducking and audio decoding |
@@ -49,6 +49,29 @@ This page helps you find your way around the
 | `pinna-airplay` | Runs `shairport-sync` and passes its audio, the sender's volume and the sender's track to `pinnad` (ADR 0011) |
 | `pinna-bt` | Opens the Bluetooth pairing window in BlueZ, accepts pairings only then, reports the paired phones, and passes a phone's audio (BlueALSA), volume and track to `pinnad` (ADR 0011) |
 | `pinna-bridge` | What `pinna-airplay` and `pinna-bt` share: sessions on the stream socket and the control API on `127.0.0.1` |
+| `pinna-assist` | One standalone request, without device state (ADR 0017): the adapters for speech-to-text (OpenAI-compatible and ElevenLabs), the brain (OpenAI-compatible chat completions, Anthropic's Messages API and Gemini) and text-to-speech (OpenAI-compatible and ElevenLabs), the presets, the checks a connection gets when it is saved, the tool loop, the sentence splitter, the system prompt and the format of `standalone.toml` |
+| `pinna-mcp` | The MCP protocol (ADR 0017): JSON-RPC messages and tool types, the server logic behind `pinnad`'s `/mcp`, and the Streamable HTTP client for your own MCP servers |
+| `pinna-vad` | The energy VAD and the end-of-speech detector, without dependencies. The wake word detection and standalone requests use it (ADR 0017) |
+| `pinna-http` | The HTTP clients that the updater, the media player and standalone mode share, with one TLS setup: rustls on ring, trusting the image's CA certificates (ADR 0017) |
+
+### Standalone mode in `pinnad`
+
+These modules of `pinnad` run [standalone mode](/docs/standalone/) (ADR 0017):
+
+| Module | Purpose |
+| --- | --- |
+| `standalone/` | Owns `standalone.toml` and `secrets.toml`: checks and saves each change and hands the result to the state machine (`service.rs`), starts each request as a task of its own (`spawn.rs`), and keeps the spoken acknowledgment for a slow agent (`ack.rs`) |
+| `voice/local.rs` | A standalone request inside the state machine: its phase and deadlines, the conversation, the reply on the voice lane, the last failure, typed questions and spoken samples |
+| `voice/mode.rs` | The switch between Home Assistant and standalone mode, and the Home Assistant commands that standalone mode ignores |
+| `voice/timers.rs` | The timers that Home Assistant sets, and the device's own, which it saves in `timers.toml` |
+| `tools/` | The tools that the brain and MCP clients call: the device's controls, timers, the time, the weather from Open-Meteo, and radio |
+| `mcp.rs` | The MCP server at `/mcp` on the dashboard's listener |
+| `assistant_api.rs` | `AssistantService`, the setup API that the dashboard's **Assistant** page uses |
+| `mic.rs` | Sends the microphone audio to Home Assistant or to a standalone request, starting 200 ms before the end of the wake word |
+| `checks.rs` | The checks on a command's values that the control API and the tools share |
+| `store.rs` | Writes `settings.toml` and the standalone files durably, and keeps the entries this version can't read |
+| `secrets.rs` | Reads and writes `secrets.toml`, which only its owner can read (mode 0600) |
+| `clock.rs` | The local time, from the time zone setting, for the time tool and the brain |
 
 ### On your computer
 

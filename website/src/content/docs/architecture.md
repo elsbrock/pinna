@@ -111,7 +111,7 @@ Pinna's own services:
 
 | Service | Job |
 | --- | --- |
-| `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons. Serves the dashboard and the control API on port 80, and the control API on `127.0.0.1:7470` for `pinnactl` and the health check |
+| `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons. In standalone mode, runs each request itself with the services you set up. Serves the dashboard, the control API, standalone mode's setup API and its MCP server on port 80, and the control API on `127.0.0.1:7470` for `pinnactl` and the health check |
 | `pinna-wifi` | Powers up the Wi-Fi chip and loads its firmware |
 | `pinna-gadget` | Sets up the USB serial console and network |
 | `pinna-bootstages` | Shows the start-up steps on the ring after the system starts (USB, Wi-Fi, `pinnad`), then hands the ring to `pinnad` |
@@ -123,6 +123,8 @@ Pinna's own services:
 | `pinna-bluetooth.target` | Bluetooth: Debian's `bluetoothd` and BlueALSA, and `pinna-bt`, which passes a phone's audio to `pinnad`. `pinnad` starts and stops them with the **Bluetooth** switch. See [Play music over Bluetooth](/docs/bluetooth/) |
 
 ## A voice request
+
+In Home Assistant mode, Home Assistant answers each request:
 
 1. `pinnad` reads audio from the microphones in 20 ms frames and runs the wake
    word detection on it.
@@ -140,6 +142,38 @@ Pinna's own services:
 
 At each step, `pinnad` sets the light ring and sends a `voice_assistant` event
 to Home Assistant.
+
+## A request in standalone mode
+
+In [standalone mode](/docs/standalone/), `pinnad` runs the request itself,
+with the speech-to-text, brain and text-to-speech services you set up on the
+dashboard. Home Assistant takes no part. The request runs as a task of its
+own and reports each step to `pinnad`'s state machine, which keeps the phase,
+the ring and the speaker.
+
+1. When it hears the wake word, `pinnad` passes the microphone audio to the
+   request, starting 200 milliseconds before the end of the wake word.
+2. The request detects the end of speech with the wake word detection's
+   energy VAD (`pinna-vad`): speech starts after 300 ms of voice and ends
+   after 800 ms of silence. If it hears no speech within 5 seconds, the
+   request ends and nothing is uploaded. It records at most 15 seconds.
+3. The recording goes to the speech-to-text service. A transcript that
+   speech-to-text invents on silence is dropped.
+4. The brain gets the prompt, the earlier turns of the conversation and the
+   transcript, and streams its answer. A model gets the device's tools and
+   those of your MCP servers: `pinnad` runs the tool calls it asks for, sends
+   the results back and asks again, for at most 5 rounds. An agent, such as
+   Hermes or OpenClaw, gets the request and answers it with its own tools.
+5. The answer is cut into sentences as it arrives. Text-to-speech speaks each
+   sentence, and it plays on the speaker's voice lane while the next ones are
+   made, at most two ahead.
+6. With follow-ups on, the device listens for 4 seconds more without the wake
+   word.
+
+Each stage has a time limit. A request that fails stops, plays the error cue,
+and the dashboard's **Assistant** page shows why. The wake word or the Action
+button stops a request at any step. The conversation stays in memory only,
+for 5 minutes after the last request.
 
 ## What's next
 

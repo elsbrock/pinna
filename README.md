@@ -4,7 +4,10 @@ An open, local-first voice satellite OS for the **Echo (2nd gen)** and
 **Echo Dot (2nd gen)** (MediaTek MT8163).
 
 Pinna turns the device into a Home Assistant voice satellite with on-device wake
-word, LED ring feedback and button control. It also plays music over AirPlay
+word, LED ring feedback and button control. Without Home Assistant, its
+standalone mode answers requests itself, with the speech services and the
+language model or AI agent you choose, and keeps timers, the weather and radio
+on the device. It also plays music over AirPlay
 and Bluetooth, and a dashboard on the device manages it from your browser. It
 finds new releases on its update channel and shows them on the dashboard and in
 Home Assistant, which install them with one button. It
@@ -24,7 +27,7 @@ backs the device up first, and every step says how to undo it.
 
 | Path | What |
 |---|---|
-| `crates/` | Rust workspace: `pinnad` (device daemon), ESPHome API, wake word, HAL, audio, boot image tooling, `pinna-init` + signed A/B slot images and the updater |
+| `crates/` | Rust workspace: `pinnad` (device daemon), ESPHome API, wake word, HAL, audio, standalone requests (`pinna-assist`, `pinna-mcp`, `pinna-vad`, `pinna-http`), boot image tooling, `pinna-init` + signed A/B slot images and the updater |
 | `keys/` | Release public key (images are signed with `secrets/release.key`, see ADR 0003) |
 | `kernel/` | Debian 6.12 source pin, MT8163 board-support patches, config fragments and build (packaged as a Debian `.deb`) |
 | `mkosi/` | Debian trixie image definition |

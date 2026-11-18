@@ -71,10 +71,10 @@ under **Troubleshooting**.
 2. Home Assistant finds devices by mDNS, which doesn't cross network
    boundaries. If Home Assistant runs in another network, VLAN or container
    network, add the device by hand with the host and port from the
-   dashboard's **Home Assistant** page: **Add integration > ESPHome**.
+   dashboard's **Assistant** page: **Add integration > ESPHome**.
 3. If Home Assistant connects and then fails, its key and the device's don't
    match, for example after a factory reset or a reinstall. The dashboard's
-   **Home Assistant** page shows whether the device has a key. Remove the
+   **Assistant** page shows whether the device has a key. Remove the
    device from Home Assistant and add it again; if the device has a key that
    Home Assistant doesn't know,
    [reset the device](/docs/dashboard/#reset-the-device) first.
@@ -99,7 +99,7 @@ Check each condition with `pinnactl status`:
 | Line | Must show | If not |
 | --- | --- | --- |
 | `muted` | `no` | Press the **Microphone off** button, or run `pinnactl mute off` |
-| `home assistant` | `connected, voice subscribed` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/) |
+| `home assistant` | `connected, voice subscribed` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/). In standalone mode, this line doesn't matter: see [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
 | `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while the device listens to a request |
 | `audio` | Anything but `none` | `none` means Pinna found no audio device. Check for `microphone unavailable` in the log |
 
@@ -189,9 +189,37 @@ The request didn't work. The log says why:
 | `Home Assistant did not answer the run start` | Home Assistant didn't start the request within 5 seconds |
 | `Assist error: …` | The pipeline reported an error, for example from speech-to-text |
 | `Assist run timed out` | Home Assistant didn't answer within 30 seconds of thinking, including the wait for the reply to start. After 15 seconds of listening, the device stops the microphone and waits for the answer |
+| `standalone request failed: …` | In standalone mode, a service failed. The line names the slot, the preset and why, for example `brain via openrouter: HTTP 402`. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
+| `no standalone request: the assistant isn't set up` | In standalone mode, speech-to-text, the brain or text-to-speech hasn't passed its check |
 
 The ring also flashes red when you press the Action button while the
-microphones are off.
+microphones are off. In standalone mode, it also flashes red when a request
+heard no speech within 5 seconds of the wake word, so nothing was uploaded, or
+when speech-to-text heard only silence.
+
+## Standalone mode doesn't answer
+
+Open the dashboard's **Assistant** page.
+
+- **You can't select Standalone.** The mode switch stays unavailable until
+  speech-to-text, the brain and text-to-speech are each set up and have
+  passed their check. **Services** shows which one isn't ready, and why its
+  check failed.
+- **A request fails.** The device plays the error cue, and **Last failure**
+  shows why, with the service and the time, until a request is answered
+  again. The log has the same failure in a `standalone request failed` line.
+
+A check or a request that fails gives one of these sentences:
+
+| Sentence | What to do |
+| --- | --- |
+| `The key is wrong. Enter it again.` | Enter the key on the connection again. A key belongs to the address it was entered for: after you change the address, enter the key again too |
+| `No credit is left on this account.` | Add credit to your account with the service, or choose another connection |
+| `Nothing answered at this address. An OpenAI-compatible server's address usually ends in /v1.` | Add `/v1` to the end of your server's address |
+| `The clock isn't set yet. Connect the satellite to the network, then try again.` | The device sets its clock from a time server on the internet after it starts. Check that its network reaches the internet, wait a minute, and try again |
+| `The secure connection failed. Check the address and the server's certificate.` | Pinna trusts only the certificate authorities in its image. For a server on your network with a certificate of its own, use an `http://` address for now |
+
+For the setup, see [Use Pinna without Home Assistant](/docs/standalone/).
 
 ## The device opens fastboot on its own
 

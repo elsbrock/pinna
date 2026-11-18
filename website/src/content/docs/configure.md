@@ -6,7 +6,8 @@ description: The developer settings in pinnad.toml, such as the audio and LED ba
 You don't need this page to use Pinna. The device's name, the wake words,
 the wake sound, the volume, the sensitivity, the ring brightness, the hostname,
 the time zone and the dashboard address are on the [dashboard](/docs/dashboard/), and most of
-them are [entities in Home Assistant](/docs/entities/) too.
+them are [entities in Home Assistant](/docs/entities/) too. You set up
+[standalone mode](/docs/standalone/) on the dashboard as well.
 
 This page is for developers. It covers the configuration file for `pinnad`,
 the program that runs the voice satellite: the audio and LED hardware, the
@@ -31,6 +32,21 @@ to `/var/lib/pinna/pinnad.toml` on first boot.
 Pinna also keeps the values you change on the dashboard or in Home Assistant,
 such as the name and the volume, in `/var/lib/pinna/settings.toml`. Don't edit
 that file: Pinna writes it itself.
+
+Standalone mode keeps its setup in files beside `settings.toml`:
+
+| File | Contents |
+| --- | --- |
+| `/var/lib/pinna/standalone.toml` | The connections to your services, the speech-to-text, brain and text-to-speech slots, the conversation settings, the tool switches, the radio stations and the MCP servers |
+| `/var/lib/pinna/secrets.toml` | The keys, each with the address it was entered for, and the MCP server addresses. Only its owner can read it (mode 0600) |
+| `/var/lib/pinna/timers.toml` | The timers set in standalone mode, so that they survive a restart |
+
+You set these on the dashboard's **Assistant** page; the files are for
+developers. Pinna writes them itself, like `settings.toml`, and reads them
+entry by entry: an entry it can't read, such as one that a newer version
+wrote, is kept and written back, and doesn't reset the rest. A
+[factory reset](/docs/dashboard/#reset-the-device) deletes them with the other
+settings.
 
 ## Change a setting
 
@@ -82,7 +98,7 @@ How the device introduces itself to Home Assistant.
 | `volume` | `50` | The volume on the first boot, from 0 to 100. After that, Pinna keeps the last volume you set |
 | `speaker_profile` | Not set | The speaker tuning of the audio codec, `"Flat"` or `"Radar"`. Not set means the hardware's: `"Radar"` on the Echo (2nd gen), `"Flat"` otherwise |
 | `wake_sound` | `false` | Plays a short sound when the device starts listening, until someone sets **Wake sound** on the dashboard or in Home Assistant, which wins |
-| `capture_gain_db` | Not set | A fixed gain on the microphone audio before wake word detection and before it goes to Home Assistant, in dB. It turns off the automatic gain. Not set means automatic gain, which starts at +12 dB on the Echo Dot with PipeWire and at 0 dB otherwise. See [Audio](/docs/audio/) |
+| `capture_gain_db` | Not set | A fixed gain on the microphone audio before wake word detection and before it goes to Home Assistant or to a standalone request, in dB. It turns off the automatic gain. Not set means automatic gain, which starts at +12 dB on the Echo Dot with PipeWire and at 0 dB otherwise. See [Audio](/docs/audio/) |
 | `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane: a first line `s16le 44100 2` or `s16le 48000 2`, optionally followed by a name for the program (see [Audio](/docs/audio/)), then stereo samples. Empty turns it off |
 | `capture_target` | Not set | The PipeWire node to record from, with the `pipewire` backend. Not set means the default source. The virtual Echo Dot's image sets it to `"dev_mic"` |
 
@@ -94,8 +110,8 @@ Nabu; each is offered when its model file is in the `models` folder.
 
 `keyword`, `id` and `phrase` name the word that listens on the first boot. After
 that, the choice is made in Home Assistant, or on the
-[dashboard](/docs/dashboard/) while Home Assistant isn't connected, and saved in
-`/var/lib/pinna/settings.toml`. A `[wake]` word whose `id` isn't one of the
+[dashboard](/docs/dashboard/) while Home Assistant isn't connected or the
+device is in standalone mode, and saved in `/var/lib/pinna/settings.toml`. A `[wake]` word whose `id` isn't one of the
 ready-made ones is offered too, if you put its model into the `models` folder
 yourself.
 
@@ -160,11 +176,12 @@ no effect:
 - The wake word sensitivity (`[wake] threshold`)
 - The wake words (`[wake] keyword`, `id` and `phrase` name only the first
   boot's; after that the choice is Home Assistant's, or the dashboard's while
-  Home Assistant isn't connected)
+  Home Assistant isn't connected or the device is in standalone mode)
 
 To start over with the values from `pinnad.toml`, delete
 `/var/lib/pinna/settings.toml` and restart Pinna. This also resets the other
-values you set in Home Assistant.
+values you set in Home Assistant, and switches the device back to Home
+Assistant mode. Standalone mode's files stay.
 
 ## What's next
 

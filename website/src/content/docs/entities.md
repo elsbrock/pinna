@@ -74,7 +74,9 @@ The media player plays two kinds of audio:
   speaks, media gets quieter and comes back afterwards.
 - **Announcements**, from Home Assistant's announcement actions. An
   announcement interrupts a running request. Home Assistant can ask the device
-  to listen for an answer after the announcement.
+  to listen for an answer after the announcement. In standalone mode, only the
+  media player's announcements play: there is no Assist satellite to announce
+  on or to ask for an answer.
 
 It supports play, pause, stop, mute and volume. The volume up and down
 commands change the volume by 5. A new URL replaces what plays once its audio
@@ -92,13 +94,36 @@ radio station's address played from the dashboard shows its titles.
 
 ## Voice assistant and timers
 
-The device works as an Assist satellite. It listens for the wake words chosen
-in Home Assistant or on the [dashboard](/docs/dashboard/), up to two at once;
+In Home Assistant mode, the device works as an Assist satellite. It listens
+for the wake words chosen in Home Assistant or on the
+[dashboard](/docs/dashboard/), up to two at once;
 see [Choose the wake words](/docs/home-assistant/#choose-the-wake-words). It
 supports timers: when you set a timer by voice, the ring shows an amber arc
 while it runs. When the timer ends, an alarm plays until you say the wake
 word, press the Action button, use **Cancel request**, or 5 minutes pass. The
 wake word only stops the alarm; it doesn't start a request.
+
+### In standalone mode
+
+In [standalone mode](/docs/standalone/), the device answers requests itself,
+with the services you set up on the dashboard. It reports no voice assistant
+features to Home Assistant, so Home Assistant shows no Assist satellite for
+it, and no wake word selectors. The device doesn't send Home Assistant any
+microphone audio.
+
+The other entities on this page keep working: the media player and its
+announcements, the volume, the microphone mute, the ring, the buttons and the
+events. The `voice_assistant` and `timer` events fire for the device's own
+requests and timers.
+
+The device ignores what only an Assist satellite does: Home Assistant's
+requests, timers and wake word choice, and its announcements through the
+Assist satellite. The device keeps its timers itself, and the dashboard
+chooses the wake words. Switching the mode deletes every timer, Home
+Assistant's included.
+
+Standalone mode's settings, and the mode itself, have no entities. You set
+them on the dashboard.
 
 ## What's next
 

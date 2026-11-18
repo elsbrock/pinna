@@ -18,7 +18,7 @@ and they accept early-stage software.
   satellite: the wake word runs on the device, requests go to their own Home
   Assistant, and the ring, buttons, mute, volume, timers and media are Home
   Assistant entities.
-- In standalone mode (planned) the device runs the request itself. It sends
+- In standalone mode the device runs the request itself. It sends
   requests to the speech-to-text, language model or agent, and text-to-speech
   services the owner sets up on the dashboard. It keeps timers on the device,
   tells the weather, plays radio streams, and offers its tools to agents over

@@ -41,8 +41,8 @@ it on.
 In standalone mode the device is a voice assistant on its own. It sends your
 requests to the services you choose, from hosted models to your own servers,
 or to an AI agent such as Hermes or OpenClaw. Agents can also use the device as
-their voice and speaker. You set everything up on the dashboard. Standalone
-mode is planned; see [Status and roadmap](/docs/status/).
+their voice and speaker. You set everything up on the dashboard; see
+[Use Pinna without Home Assistant](/docs/standalone/).
 
 ### Be safe to install and update
 

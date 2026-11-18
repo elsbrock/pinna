@@ -4,8 +4,9 @@ description: What works in Pinna today, what is known to be missing or rough, an
 ---
 
 Pinna is in early development. You can build it, install it on an Echo
-(2nd gen) or an Echo Dot (2nd gen) and use it with Home Assistant and its own
-dashboard. Parts of it are still being tuned on real hardware.
+(2nd gen) or an Echo Dot (2nd gen) and use it with Home Assistant, or on its
+own in [standalone mode](/docs/standalone/), and with its own dashboard. Parts
+of it are still being tuned on real hardware.
 
 ## What works
 
@@ -38,6 +39,12 @@ These parts are covered by tests that run without hardware:
   against a simulated Home Assistant. The reply plays while it downloads, the
   wake word interrupts a reply and stops a ringing timer alarm, and changes on
   the dashboard reach Home Assistant.
+- [Standalone mode](/docs/standalone/) runs a request against simulated
+  services: a spoken or typed request goes through speech-to-text, the brain's
+  tool loop or an agent, and text-to-speech that plays while it streams. The
+  adapters for OpenAI-compatible services, Anthropic, Gemini and ElevenLabs,
+  the save-time checks, the MCP server and client, device timers and the
+  dashboard's setup API pass their tests.
 - [AirPlay](/docs/airplay/) turns on and off in the x86_64 virtual machine:
   the receiver starts, publishes its AirPlay record, reports that it is ready,
   and stops again.
@@ -78,6 +85,12 @@ On the devices:
 - **No automated test runs.** The tests run when contributors run them; there
   is no CI for them yet. The release workflow builds the images but doesn't
   run the tests.
+- **Standalone mode is new.** Its tests run against simulated services, not
+  yet against each hosted service, and not yet on a device.
+  - MCP servers that need a sign-in or a token in a header can't be added.
+  - The dashboard doesn't suggest model names; you type them as the service
+    lists them.
+  - An **Other server** for text-to-speech always gets the model `tts-1`.
 
 ## Planned
 
@@ -85,9 +98,8 @@ On the devices:
   that need nothing done by hand.
 - **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
   model and naming its phrase (ADR 0013).
-- **Standalone mode**: using the device as a voice assistant without Home
-  Assistant, with the speech and language services you choose, and as the
-  voice of agents such as Hermes or OpenClaw (ADR 0017).
+- **More for standalone mode**: MCP servers that need a sign-in, Spotify
+  Connect, and several satellites that share one conversation (ADR 0017).
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 - **Multi-room with Music Assistant** through its own protocol, Sendspin: the
   device would play in step with other speakers in a group.

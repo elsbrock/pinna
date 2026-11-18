@@ -6,9 +6,10 @@ description: What Pinna is, how it works, and where to start.
 Pinna is an open-source operating system for the Echo (2nd gen) and the Echo
 Dot (2nd gen). It turns the device into a voice satellite for
 [Home Assistant](https://www.home-assistant.io/): you say the wake word, the
-device sends your request to your Home Assistant, and it plays the reply. The
-wake word detection runs on the device, and Pinna doesn't use Amazon's
-services.
+device sends your request to your Home Assistant, and it plays the reply. Or,
+in [standalone mode](/docs/standalone/), it answers requests itself, with the
+speech services and the language model or AI agent you choose. The wake word
+detection runs on the device, and Pinna doesn't use Amazon's services.
 
 > **Early development.** Pinna works, but you install it yourself over
 > fastboot, and you control it from the command line, from the
@@ -23,6 +24,9 @@ services.
    pipeline turns the speech into text, handles the request and creates the
    spoken reply.
 3. The device plays the reply. The light ring shows each step.
+
+In standalone mode the device detects the end of what you said itself, and
+sends it to the services you set up on the dashboard instead.
 
 Home Assistant also gets the light ring, the buttons, mute, volume, timers and
 a media player as entities, so you can use them in automations. Phones and
@@ -42,7 +46,8 @@ To install Pinna, follow these pages in order:
    published, you can download them from it instead.
 3. [Install Pinna](/docs/flash/): install them over fastboot.
 4. [Connect to Home Assistant](/docs/home-assistant/): add the device and
-   choose an Assist pipeline.
+   choose an Assist pipeline. Without Home Assistant,
+   [use Pinna without Home Assistant](/docs/standalone/) instead.
 
 If something goes wrong, see [Recover a device](/docs/recovery/) and
 [Troubleshooting](/docs/troubleshooting/).
