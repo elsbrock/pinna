@@ -2,7 +2,11 @@ use std::{env, fs, path::PathBuf};
 
 use prost::Message as _;
 
-const FILES: &[&str] = &["pinna/v1/device.proto", "pinna/v1/assistant.proto"];
+const FILES: &[&str] = &[
+    "pinna/v1/device.proto",
+    "pinna/v1/assistant.proto",
+    "pinna/v1/peer.proto",
+];
 
 fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=../../proto");

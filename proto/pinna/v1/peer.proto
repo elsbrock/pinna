@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package pinna.v1;
+
+import "pinna/v1/device.proto";
+
+// Calls between the satellites of a group (ADR 0026). Served with the
+// dashboard, beside DeviceService and AssistantService (ADR 0005). Its
+// callers are other satellites, not browsers, and they call by IP address.
+//
+// Every call and answer except Join is a PeerEnvelope, signed with the
+// group's key: a handler never sees the bytes that were sent, so the tag
+// covers the inner message's bytes, carried in the envelope. The receiver
+// checks the tag on those bytes before it decodes them.
+//
+// A refusal is an unsigned Connect error, so it never makes a satellite
+// forget the group:
+// - UNAUTHENTICATED: the tag is wrong.
+// - FAILED_PRECONDITION: the receiver is in no group, or in another one,
+//   with "This satellite is not in this group."; or it refuses a Join now.
+// - PERMISSION_DENIED: the sender is still not a member after the receiver
+//   fetched and merged its list.
+// - UNAVAILABLE: a Join while the receiver is adding a satellite itself.
+//
+// There is no replay protection: the LAN is trusted (ADR 0005).
+service PeerService {
+  // Add the receiver to the sender's group: the group id, its key and its
+  // member list. The only unsigned call, since the receiver has no key yet.
+  // Accepted only while the receiver's Satellite group switch is on and it
+  // is in no group.
+  rpc Join(PeerJoinRequest) returns (PeerJoinResponse);
+  // The receiver's member list. Body PeerHello, answer PeerMemberList. Needs
+  // only a valid tag, so a member can learn that it was removed.
+  rpc GetGroup(PeerEnvelope) returns (PeerEnvelope);
+  // Member list entries for the receiver to merge. Body PeerMemberList,
+  // answer PeerHello.
+  rpc PutGroup(PeerEnvelope) returns (PeerEnvelope);
+  // A message for the receiver to say. Body PeerMessage, answer
+  // PeerDelivery, sent once the receiver has taken it, before it plays.
+  rpc Deliver(PeerEnvelope) returns (PeerEnvelope);
+  // A device tool for the receiver to run, as its /mcp would. Body
+  // PeerToolCall, answer PeerToolResult.
+  rpc Call(PeerEnvelope) returns (PeerEnvelope);
+}
+
+// A signed call or answer.
+message PeerEnvelope {
+  // The group's id: 32 lowercase hex digits. It tells groups apart and
+  // grants nothing.
+  string group_id = 1;
+  // The sender's MAC, in lowercase colon form.
+  string sender_mac = 2;
+  // The inner message, protobuf-encoded. The tag covers these exact bytes,
+  // so a JSON caller's re-encoding can't break it.
+  bytes body = 3;
+  // HMAC-SHA256 under the group's key over "pinna-group-v1", the group id,
+  // the sender's MAC and the body, joined by zero bytes.
+  bytes tag = 4;
+}
+
+// The sender's facts. Every inner message starts with them, so they are
+// signed too.
+message PeerSender {
+  // Its dashboard's port: a new member may not be in the receiver's search
+  // yet, and the receiver calls back at the address the call came from.
+  uint32 web_port = 1;
+  // Its mode, here and not in the mDNS record, so a mode change doesn't
+  // restart systemd-resolved (ADR 0024). The group works in standalone mode
+  // only; a sender that leaves it out reads as Home Assistant mode.
+  Mode mode = 2;
+}
+
+// The body of a call that carries nothing else, and of PutGroup's answer.
+message PeerHello {
+  PeerSender sender = 1;
+}
+
+// One entry of the member list.
+message PeerMember {
+  // In lowercase colon form. The entry's identity: one entry per MAC.
+  string mac = 1;
+  // The last friendly name the search heard. A rename doesn't raise the
+  // version, since each member hears it for itself.
+  string name = 2;
+  // Raised by every change of the entry. In a merge the higher version wins.
+  uint64 version = 3;
+  // Removed from the group. At equal versions, a removal wins.
+  bool removed = 4;
+}
+
+// The sender's member list, with this satellite's own entry.
+message PeerMemberList {
+  PeerSender sender = 1;
+  // Sorted by MAC.
+  repeated PeerMember members = 2;
+}
+
+// A message from a member, said by the receiver in its own voice.
+message PeerMessage {
+  PeerSender sender = 1;
+  // At most 500 characters, as for the speak tool (ADR 0017).
+  string text = 2;
+}
+
+// What the receiver did with a message.
+message PeerDelivery {
+  PeerSender sender = 1;
+
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    // It plays now.
+    OUTCOME_PLAYED = 1;
+    // It plays once the receiver is idle again and not muted.
+    OUTCOME_HELD = 2;
+    // It won't play. `reason` says why.
+    OUTCOME_REFUSED = 3;
+  }
+  Outcome outcome = 2;
+  // One sentence for the brain to say when refused, e.g. that the
+  // receiver's Group messages switch is off. Empty otherwise.
+  string reason = 3;
+}
+
+// A device tool call for the receiver.
+message PeerToolCall {
+  PeerSender sender = 1;
+  // One of the device tools a member may run for another (ADR 0026). Never
+  // with a `satellite` argument, so a call is never passed on.
+  string tool = 2;
+  // The tool's arguments, a JSON object as /mcp takes them.
+  string arguments_json = 3;
+}
+
+// A device tool's result, as text, as /mcp returns it.
+message PeerToolResult {
+  PeerSender sender = 1;
+  string text = 2;
+  // The tool failed or was refused; `text` says why.
+  bool is_error = 3;
+}
+
+message PeerJoinRequest {
+  // The group's id: 32 lowercase hex digits.
+  string group_id = 1;
+  // The group's key, 32 bytes. Sent unencrypted, as plain HTTP on the LAN
+  // (ADR 0026). The receiver keeps it in secrets.toml and never shows it.
+  bytes key = 2;
+  // The group's member list.
+  repeated PeerMember members = 3;
+  // The adding satellite's MAC, in lowercase colon form.
+  string sender_mac = 4;
+  // The adding satellite's dashboard port, to call it back.
+  uint32 web_port = 5;
+}
+
+message PeerJoinResponse {
+  // The joiner's own entry: its MAC and friendly name.
+  PeerMember member = 1;
+}

@@ -1,6 +1,7 @@
 //! Generated ConnectRPC types, server traits and clients for Pinna's local control API
-//! (`proto/pinna/v1/device.proto`) and standalone mode's setup
-//! (`proto/pinna/v1/assistant.proto`).
+//! (`proto/pinna/v1/device.proto`), standalone mode's setup
+//! (`proto/pinna/v1/assistant.proto`) and the calls between the satellites of a
+//! group (`proto/pinna/v1/peer.proto`, ADR 0026).
 
 #[allow(clippy::all, dead_code, unreachable_pub)]
 mod generated {
