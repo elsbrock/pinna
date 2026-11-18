@@ -139,7 +139,7 @@ satellite's **Assistant** select that has the choices **Home Assistant** and
 **Assistant**: that one chooses the Assist pipeline. The mode select stays in
 both modes, and **Standalone** works only once the three services have passed
 their check. If the satellite is answering a request when the select changes,
-it switches once the reply has played.
+it switches once the request has ended, after the reply and any follow-up.
 
 ### Switch by voice
 
