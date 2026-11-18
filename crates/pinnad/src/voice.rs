@@ -43,7 +43,15 @@ pub struct AssistStatus {
     pub ready: bool,
     pub slots: pinna_assist::presets::Slots,
     pub label: String,
-    pub last_error: Option<String>,
+    /// Cleared once a request is answered again.
+    pub last_error: Option<LastFailure>,
+}
+
+/// The last standalone request that failed, and when.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LastFailure {
+    pub error: pinna_assist::error::ProviderError,
+    pub at: SystemTime,
 }
 
 /// Flags shared with the capture task.

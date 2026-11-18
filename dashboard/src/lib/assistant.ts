@@ -100,10 +100,34 @@ export function slotLines(
   });
 }
 
-/** The slot a standalone failure names, as in "brain via openrouter: HTTP 402". */
-export function errorSlot(error: string): SlotKey | "tool" | null {
-  const m = /^(stt|brain|tts|tool) via /.exec(error);
-  return m ? (m[1] as SlotKey | "tool") : null;
+type Failure = Pick<AssistantStatus, "lastError" | "lastErrorSlot" | "lastErrorPreset" | "lastErrorUnixMs">;
+
+/** The slot the last failed request failed in; `null` without one. */
+export function errorSlot(a: Failure | undefined): SlotKey | "tool" | null {
+  if (!a?.lastError) return null;
+  return (["stt", "brain", "tts", "tool"] as const).find((k) => k === a.lastErrorSlot) ?? null;
+}
+
+const FAILED_PART: Record<string, string> = {
+  stt: "Speech-to-text",
+  brain: "The brain",
+  tts: "Text-to-speech",
+  tool: "A tool",
+};
+
+/**
+ * The last failed request as the owner reads it: what failed, through which
+ * service, when, and the satellite's sentence for why. Empty without one.
+ */
+export function failureText(a: Failure | undefined, timeZone?: string): string {
+  if (!a?.lastError) return "";
+  const part = FAILED_PART[a.lastErrorSlot] ?? "A request";
+  const service = a.lastErrorPreset ? ` (${presetName(a.lastErrorPreset)})` : "";
+  const ms = Number(a.lastErrorUnixMs);
+  const at = ms
+    ? ` at ${new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone })}`
+    : "";
+  return `${part}${service} failed${at}. ${a.lastError}`;
 }
 
 /** A server as the page shows it: its host and port, never a path or query. */

@@ -523,7 +523,12 @@ mod tests {
             ["listening", "thinking", "stopped"]
         );
         assert_eq!(
-            sat.idle().await.assist.last_error.as_deref(),
+            sat.idle()
+                .await
+                .assist
+                .last_error
+                .map(|f| f.error.to_string())
+                .as_deref(),
             Some("brain via openai: internal error")
         );
         let counted = &sat.shared.counters.standalone;
@@ -557,7 +562,12 @@ mod tests {
         assert_eq!(counted.guard_total(Guard::NoSpeech), 1);
         assert_eq!(counted.failure_total(Slot::Stt, Reason::Http(401)), 1);
         assert_eq!(
-            sat.idle().await.assist.last_error.as_deref(),
+            sat.idle()
+                .await
+                .assist
+                .last_error
+                .map(|f| f.error.to_string())
+                .as_deref(),
             Some("stt via openai: HTTP 401")
         );
     }

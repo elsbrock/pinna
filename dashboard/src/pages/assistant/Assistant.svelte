@@ -6,7 +6,7 @@
 
   import { Mode } from "../../gen/pinna/v1/device_pb.ts";
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { isStandalone, slotLines } from "../../lib/assistant.ts";
+  import { failureText, isStandalone, slotLines } from "../../lib/assistant.ts";
   import Confirm from "../../lib/Confirm.svelte";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
@@ -122,9 +122,9 @@
         <div class="pn-row-text">
           <span class="pn-row-label">Last failure</span>
           {#if s.assistant?.lastError}
-            <span class="pn-row-hint is-danger">{s.assistant.lastError}</span>
+            <span class="pn-row-hint is-danger">{failureText(s.assistant)}</span>
           {:else}
-            <span class="pn-row-hint">No request has failed since the satellite started.</span>
+            <span class="pn-row-hint">No request has failed since the last one answered.</span>
           {/if}
         </div>
       </div>

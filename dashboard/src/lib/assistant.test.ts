@@ -10,6 +10,7 @@ import {
   chars,
   delegation,
   errorSlot,
+  failureText,
   hostOf,
   isStandalone,
   keyFields,
@@ -38,6 +39,9 @@ const status = (over: Partial<AssistantStatus> = {}): AssistantStatus => ({
   ttsReady: false,
   label: "",
   lastError: "",
+  lastErrorSlot: "",
+  lastErrorPreset: "",
+  lastErrorUnixMs: 0n,
   ...over,
 });
 const connection = (id: string, preset: string): ProviderConnection => ({
@@ -144,12 +148,33 @@ test("Status decides readiness; without the view the slots are only ready or not
   );
 });
 
+const failed = (slot: string, preset = "custom", ms = 0n) => ({
+  lastError: "The service can't be reached.",
+  lastErrorSlot: slot,
+  lastErrorPreset: preset,
+  lastErrorUnixMs: ms,
+});
+
 test("a failure names its slot", () => {
-  assert.equal(errorSlot("brain via openrouter: HTTP 402"), "brain");
-  assert.equal(errorSlot("stt via groq: timeout"), "stt");
-  assert.equal(errorSlot("tool via openai: protocol"), "tool");
-  assert.equal(errorSlot("something else"), null);
-  assert.equal(errorSlot(""), null);
+  assert.equal(errorSlot(failed("brain")), "brain");
+  assert.equal(errorSlot(failed("stt")), "stt");
+  assert.equal(errorSlot(failed("tool")), "tool");
+  assert.equal(errorSlot(failed("something else")), null);
+  assert.equal(errorSlot({ ...failed("brain"), lastError: "" }), null);
+  assert.equal(errorSlot(undefined), null);
+});
+
+test("a failure reads as what failed, through which service, when and why", () => {
+  assert.equal(
+    failureText(failed("brain", "custom", 1_794_966_900_000n), "UTC"),
+    `The brain (Other server) failed at ${new Date(1_794_966_900_000).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    })}. The service can't be reached.`,
+  );
+  assert.equal(failureText(failed("stt", "")), "Speech-to-text failed. The service can't be reached.");
+  assert.equal(failureText(undefined), "");
 });
 
 test("a server shows by host and port, a key by its last four characters", () => {

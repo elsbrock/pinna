@@ -4,7 +4,7 @@
      text-to-speech plays a sample. -->
 <script lang="ts">
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { errorSlot, hostOf, presetName, SLOTS, servesSlot, slotLines } from "../../lib/assistant.ts";
+  import { errorSlot, failureText, hostOf, presetName, SLOTS, servesSlot, slotLines } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
   import Icon from "../../lib/Icon.svelte";
@@ -17,7 +17,7 @@
   const view = $derived(assistant.view);
   const choice = $derived(view?.[slot.key]);
   const line = $derived(slotLines(s?.assistant, view, assistant.failed).find((l) => l.key === slot.key)!);
-  const lastError = $derived(s?.assistant?.lastError ?? "");
+  const failure = $derived(errorSlot(s?.assistant) === slot.key ? failureText(s?.assistant) : "");
   const presetOf = (id: string) => view?.presets.find((p) => p.id === view?.connections.find((c) => c.id === id)?.preset);
   const options = $derived(
     (view?.connections ?? []).filter((c) => {
@@ -89,11 +89,11 @@
     </div>
     <span class="pn-row-value"><span class="pn-health" data-tone={line.tone}>{line.word}</span></span>
   </div>
-  {#if errorSlot(lastError) === slot.key}
+  {#if failure}
     <div class="pn-row">
       <div class="pn-row-text">
         <span class="pn-row-label">Last failed request</span>
-        <span class="pn-row-hint is-danger">{lastError}</span>
+        <span class="pn-row-hint is-danger">{failure}</span>
       </div>
     </div>
   {/if}

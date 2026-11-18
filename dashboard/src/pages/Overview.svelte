@@ -1,7 +1,7 @@
 <script lang="ts">
   import { drawingFor } from "../../../design/devices/index.ts";
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
-  import { brainLabel, isStandalone } from "../lib/assistant.ts";
+  import { brainLabel, failureText, isStandalone } from "../lib/assistant.ts";
   import Controls from "../lib/Controls.svelte";
   import Device from "../lib/Device.svelte";
   import { client, device } from "../lib/device.svelte.ts";
@@ -155,7 +155,7 @@
         {:else if !s.assistant?.ready}
           <span class="pn-health" data-tone="caution">Services not ready</span>
         {:else if s.assistant.lastError}
-          <span class="pn-health" data-tone="danger" title="The last request that failed">{s.assistant.lastError}</span>
+          <span class="pn-health" data-tone="danger" title={failureText(s.assistant)}>Last request failed</span>
         {:else}
           <span class="pn-health" data-tone="ok">Ready</span>
         {/if}

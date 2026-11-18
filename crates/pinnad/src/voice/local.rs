@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use futures::future::BoxFuture;
 use pinna_assist::audio::MicInput;
@@ -22,7 +22,7 @@ use pinna_audio::{Speaker, VoicePlayback, tone};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use super::{ApiCommand, AssistStatus, Brain, Input, Phase, PlaybackKind, RunId};
+use super::{ApiCommand, AssistStatus, Brain, Input, LastFailure, Phase, PlaybackKind, RunId};
 use crate::metrics::StandaloneCounters;
 use crate::mic::MIC_QUEUE;
 use crate::settings::Mode;
@@ -79,7 +79,7 @@ pub(super) struct Local {
     noise_seed: Option<u64>,
     live: watch::Receiver<Arc<AssistLive>>,
     spawner: Arc<dyn RunSpawner>,
-    last_error: Option<String>,
+    last_error: Option<LastFailure>,
     /// The run asked to mute the microphone; applied when the run ends.
     pending_mute: bool,
 }
@@ -409,7 +409,10 @@ impl Brain {
         self.phase = Phase::Idle;
         self.event("voice_assistant", "stopped").await;
         tracing::warn!("standalone request failed: {error}");
-        self.local.last_error = Some(error.to_string());
+        self.local.last_error = Some(LastFailure {
+            error,
+            at: SystemTime::now(),
+        });
         self.error_feedback();
         self.apply_deferred_mute().await;
     }
@@ -499,6 +502,10 @@ impl Brain {
         };
         self.phase = Phase::Idle;
         self.event("voice_assistant", "finished").await;
+        // An answered request clears an old failure: it is fixed, or passed.
+        if run.spoke {
+            self.local.last_error = None;
+        }
         self.apply_deferred_mute().await;
         if self.follows_up(&run) {
             self.start_local_run(RunKind::FollowUp, None).await;
@@ -1773,9 +1780,30 @@ mod tests {
         assert_eq!(device.overlay(), Some(LedEffect::Error));
         let error = "brain via openai: request timed out";
         assert_eq!(
-            device.brain.snapshot().assist.last_error.as_deref(),
+            device
+                .brain
+                .snapshot()
+                .assist
+                .last_error
+                .map(|f| f.error.to_string())
+                .as_deref(),
             Some(error)
         );
+    }
+
+    #[tokio::test]
+    async fn an_answered_request_clears_the_last_failure() {
+        let mut device = TestDevice::ready();
+        let run = device.request().await.start.run;
+        device.assist(run, RunEvent::SpeechEnded).await;
+        device.assist(run, RunEvent::Failed(failure())).await;
+        assert!(device.brain.snapshot().assist.last_error.is_some());
+
+        let run = device.request().await.start.run;
+        device.assist(run, RunEvent::SpeechEnded).await;
+        speak_reply(&mut device, run, true).await;
+
+        assert_eq!(device.brain.snapshot().assist.last_error, None);
     }
 
     #[tokio::test]
@@ -1845,7 +1873,13 @@ mod tests {
         assert_eq!(device.overlay(), Some(LedEffect::Error));
         let error = "brain via custom: request timed out";
         assert_eq!(
-            device.brain.snapshot().assist.last_error.as_deref(),
+            device
+                .brain
+                .snapshot()
+                .assist
+                .last_error
+                .map(|f| f.error.to_string())
+                .as_deref(),
             Some(error)
         );
     }
@@ -2101,7 +2135,13 @@ mod tests {
         assert_eq!(device.overlay(), Some(LedEffect::Error));
         let error = "tts via custom: invalid provider response";
         assert_eq!(
-            device.brain.snapshot().assist.last_error.as_deref(),
+            device
+                .brain
+                .snapshot()
+                .assist
+                .last_error
+                .map(|f| f.error.to_string())
+                .as_deref(),
             Some(error)
         );
     }
@@ -2135,7 +2175,13 @@ mod tests {
         assert_eq!(device.events(), [stopped()]);
         assert_eq!(device.overlay(), Some(LedEffect::Error));
         assert_eq!(
-            device.brain.snapshot().assist.last_error.as_deref(),
+            device
+                .brain
+                .snapshot()
+                .assist
+                .last_error
+                .map(|f| f.error.to_string())
+                .as_deref(),
             Some("tts via custom: invalid provider response")
         );
     }
@@ -2763,7 +2809,13 @@ mod tests {
             .await;
         assert!(device.brain.local.run.is_none());
         assert_eq!(
-            device.brain.snapshot().assist.last_error.as_deref(),
+            device
+                .brain
+                .snapshot()
+                .assist
+                .last_error
+                .map(|f| f.error.to_string())
+                .as_deref(),
             Some("brain via hermes: request timed out")
         );
     }

@@ -308,7 +308,26 @@ fn assistant(a: &crate::voice::AssistStatus) -> pinna_api::AssistantStatus {
         brain_ready: a.slots.chat,
         tts_ready: a.slots.tts,
         label: a.label.clone(),
-        last_error: a.last_error.clone().unwrap_or_default(),
+        last_error: a
+            .last_error
+            .as_ref()
+            .map(|f| pinna_assist::check::refusal(&f.error))
+            .unwrap_or_default(),
+        last_error_slot: a
+            .last_error
+            .as_ref()
+            .map(|f| f.error.slot.label().into())
+            .unwrap_or_default(),
+        last_error_preset: a
+            .last_error
+            .as_ref()
+            .map(|f| f.error.preset.label().into())
+            .unwrap_or_default(),
+        last_error_unix_ms: a
+            .last_error
+            .as_ref()
+            .and_then(|f| f.at.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_millis() as u64),
         ..Default::default()
     }
 }
