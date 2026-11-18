@@ -339,7 +339,7 @@ test("update phases come from the slots", async () => {
   assert.equal(switchTarget(trial), undefined);
 });
 
-test("routeOf: sections, sub-pages, moved v1 paths and unknowns", () => {
+test("routeOf: sections, sub-pages, moved paths and unknowns", () => {
   assert.equal(routeOf(""), "/");
   assert.equal(routeOf("#/"), "/");
   assert.equal(routeOf("#/voice"), "/voice");
@@ -349,6 +349,8 @@ test("routeOf: sections, sub-pages, moved v1 paths and unknowns", () => {
   assert.equal(routeOf("#/settings"), "/voice");
   assert.equal(routeOf("#/updates"), "/system");
   assert.equal(routeOf("#/logs"), "/system/logs");
+  assert.equal(routeOf("#/assistant"), "/assistant");
+  assert.equal(routeOf("#/home-assistant"), "/assistant");
   assert.equal(routeOf("#/nope"), null);
 });
 

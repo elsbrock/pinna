@@ -12,6 +12,7 @@ export default defineConfig({
     fs: { allow: [".."] },
     proxy: {
       "/pinna.v1.DeviceService": { target, changeOrigin: true },
+      "/pinna.v1.AssistantService": { target, changeOrigin: true },
       // The virtual Echo Dot's socket (ADR 0014), on the development VM.
       "/virtual-device": { target, changeOrigin: true, ws: true },
     },

@@ -482,15 +482,20 @@ export const PATHS = [
   "/voice",
   "/voice/wake-word",
   "/voice/media-sources",
-  "/home-assistant",
+  "/assistant",
   "/network",
   "/system",
   "/system/logs",
 ] as const;
 export type Path = (typeof PATHS)[number];
 
-// v1 addresses that people may have bookmarked.
-const MOVED: Record<string, Path> = { "/settings": "/voice", "/updates": "/system", "/logs": "/system/logs" };
+// Addresses that people may have bookmarked.
+const MOVED: Record<string, Path> = {
+  "/settings": "/voice",
+  "/updates": "/system",
+  "/logs": "/system/logs",
+  "/home-assistant": "/assistant",
+};
 
 /** The page a location hash opens: itself, where it moved, or null for none. */
 export function routeOf(hash: string): Path | null {

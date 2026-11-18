@@ -25,12 +25,12 @@ export const SECTIONS: Section[] = [
     description: "What the satellite listens for, how loud it is, what may play music to it, and how bright its ring is.",
   },
   {
-    path: "/home-assistant",
-    title: "Home Assistant",
-    short: "Home Assistant",
-    icon: "house",
+    path: "/assistant",
+    title: "Assistant",
+    short: "Assistant",
+    icon: "assistant",
     group: "Connections",
-    description: "How Home Assistant reaches this satellite.",
+    description: "Who answers requests: Home Assistant, or services the satellite calls itself.",
   },
   {
     path: "/network",

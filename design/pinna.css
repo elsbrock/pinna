@@ -62,6 +62,24 @@
 .pn-btn-lg { height: var(--control-lg); padding: 0 20px; font-size: 16px; }
 .pn-btn-quiet.pn-btn-sm { padding: 0 var(--space-2); }
 
+/* ---------- Segmented (one of a few choices that applies at once, such as the mode) ---------- */
+/* Toggle buttons in a role="group": the chosen one has aria-pressed="true". */
+.pn-segmented {
+  display: inline-flex; flex: none; max-width: 100%; gap: 2px; padding: 3px; box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-sunken);
+}
+.pn-segmented > button {
+  appearance: none; -webkit-appearance: none; flex: 1 1 auto; min-width: 0;
+  height: calc(var(--control-md) - 8px); padding: 0 var(--space-3); box-sizing: border-box;
+  border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-muted);
+  font: inherit; font-size: 14px; font-weight: 650; line-height: 1; white-space: nowrap;
+  cursor: pointer; transition: background-color .12s, color .12s;
+}
+.pn-segmented > button:hover { color: var(--ink); }
+.pn-segmented > button[aria-pressed="true"] { background: var(--surface-raised); color: var(--ink); box-shadow: var(--shadow-raised); }
+.pn-segmented > button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.pn-segmented > button:disabled, .pn-segmented > button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+
 /* ---------- Switch ---------- */
 .pn-switch { display: flex; align-items: flex-start; gap: var(--space-3); }
 .pn-switch-control {

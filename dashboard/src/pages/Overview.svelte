@@ -111,7 +111,7 @@
         {/if}
         <p>
           Home Assistant usually finds the satellite on its own under Settings › Devices &amp; services.
-          <a href="#/home-assistant">How to add it by hand</a>
+          <a href="#/assistant">How to add it by hand</a>
         </p>
       </div>
     </div>
@@ -141,7 +141,7 @@
 
   <div class="stats">
     <StatTile
-      href="#/home-assistant"
+      href="#/assistant"
       icon="house"
       label="Home Assistant"
       value={!live ? "—" : s.haConnected ? "Connected" : "Not connected"}

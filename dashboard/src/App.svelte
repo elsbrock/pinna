@@ -13,7 +13,7 @@
   import { wifi } from "./lib/wifi.svelte.ts";
   import WifiTrial from "./lib/WifiTrial.svelte";
   import { displayName, DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
-  import HomeAssistant from "./pages/HomeAssistant.svelte";
+  import Assistant from "./pages/assistant/Assistant.svelte";
   import Logs from "./pages/Logs.svelte";
   import Network from "./pages/Network.svelte";
   import Overview from "./pages/Overview.svelte";
@@ -191,7 +191,7 @@
         {#if page.path === "/voice"}<Voice />
         {:else if page.path === "/voice/wake-word"}<WakeWord />
         {:else if page.path === "/voice/media-sources"}<MediaSources />
-        {:else if page.path === "/home-assistant"}<HomeAssistant />
+        {:else if page.path === "/assistant"}<Assistant />
         {:else if page.path === "/network"}<Network />
         {:else if page.path === "/system"}<System />
         {:else if page.path === "/system/logs"}<Logs />{/if}
