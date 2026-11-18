@@ -35,7 +35,7 @@ const SESSION_HEADER: HeaderName = HeaderName::from_static("mcp-session-id");
 const PROTOCOL_HEADER: HeaderName = HeaderName::from_static("mcp-protocol-version");
 const ACCEPT_HEADER: HeaderValue = HeaderValue::from_static("application/json, text/event-stream");
 
-#[derive(Debug, Error)]
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum McpError {
     #[error("The MCP request timed out.")]
     Timeout,
@@ -360,9 +360,21 @@ async fn read_sse(mut response: reqwest::Response, id: u64) -> Result<Response, 
     Err(McpError::Protocol)
 }
 
+/// How long a failed listing is remembered: a server that is down costs one
+/// listing timeout per this, not one per request.
+const FAILED_TTL: Duration = Duration::from_secs(30);
+
+/// The last listing, with the server's tool names as the model sees them.
 struct CachedTools {
     fetched: Instant,
-    tools: Vec<ToolSpec>,
+    outcome: Result<Arc<[RemoteTool]>, McpError>,
+}
+
+/// One remote tool: its spec under the namespaced name, and the name the
+/// server knows it by.
+struct RemoteTool {
+    spec: ToolSpec,
+    remote: String,
 }
 
 pub struct McpToolSet {
@@ -382,62 +394,72 @@ impl McpToolSet {
         }
     }
 
-    fn cached(&self) -> Option<Vec<ToolSpec>> {
+    fn cached(&self) -> Option<Result<Arc<[RemoteTool]>, McpError>> {
         self.cache
             .lock()
             .unwrap()
             .as_ref()
-            .filter(|cached| cached.fetched.elapsed() < CACHE_TTL)
-            .map(|cached| cached.tools.clone())
+            .filter(|cached| {
+                let ttl = if cached.outcome.is_ok() {
+                    CACHE_TTL
+                } else {
+                    FAILED_TTL
+                };
+                cached.fetched.elapsed() < ttl
+            })
+            .map(|cached| cached.outcome.clone())
     }
 
-    async fn tools(&self) -> Vec<ToolSpec> {
-        if let Some(tools) = self.cached() {
-            return tools;
+    async fn remote_tools(&self) -> Result<Arc<[RemoteTool]>, McpError> {
+        if let Some(outcome) = self.cached() {
+            return outcome;
         }
         let _refresh = self.refresh.lock().await;
-        if let Some(tools) = self.cached() {
-            return tools;
+        if let Some(outcome) = self.cached() {
+            return outcome;
         }
-        match self.client.list(LIST_TIMEOUT).await {
-            Ok(tools) => {
-                self.cache.lock().unwrap().replace(CachedTools {
-                    fetched: Instant::now(),
-                    tools: tools.clone(),
-                });
-                tools
-            }
-            Err(_) => {
-                self.cache.lock().unwrap().take();
-                Vec::new()
-            }
-        }
+        let outcome = self.client.list(LIST_TIMEOUT).await.map(|tools| {
+            tools
+                .into_iter()
+                .filter_map(|mut spec| {
+                    let remote = spec.name;
+                    spec.name = namespaced(&self.server, &remote)?;
+                    Some(RemoteTool { spec, remote })
+                })
+                .collect::<Arc<[RemoteTool]>>()
+        });
+        self.cache.lock().unwrap().replace(CachedTools {
+            fetched: Instant::now(),
+            outcome: outcome.clone(),
+        });
+        outcome
+    }
+
+    /// The server's tools as the model sees them, or why it can't be listed.
+    /// Both outcomes are cached, a failure for a shorter time.
+    pub async fn list(&self) -> Result<Vec<ToolSpec>, McpError> {
+        Ok(self
+            .remote_tools()
+            .await?
+            .iter()
+            .map(|tool| tool.spec.clone())
+            .collect())
     }
 }
 
 impl ToolSet for McpToolSet {
     fn specs(&self) -> BoxFuture<'_, Vec<ToolSpec>> {
-        Box::pin(async move {
-            self.tools()
-                .await
-                .into_iter()
-                .filter_map(|mut tool| {
-                    tool.name = namespaced(&self.server, &tool.name)?;
-                    Some(tool)
-                })
-                .collect()
-        })
+        Box::pin(async move { self.list().await.unwrap_or_default() })
     }
 
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput> {
         Box::pin(async move {
-            let remote = self
-                .tools()
-                .await
-                .into_iter()
-                .find(|tool| namespaced(&self.server, &tool.name).as_deref() == Some(name));
-            match remote {
-                Some(tool) => self.client.call(&tool.name, args, CALL_TIMEOUT).await,
+            let tools = match self.remote_tools().await {
+                Ok(tools) => tools,
+                Err(error) => return ToolOutput::error(error.to_string()),
+            };
+            match tools.iter().find(|tool| tool.spec.name == name) {
+                Some(tool) => self.client.call(&tool.remote, args, CALL_TIMEOUT).await,
                 None => ToolOutput::error(format!("Unknown MCP tool {name}.")),
             }
         })

@@ -564,21 +564,33 @@ impl DeviceTools {
             })
         });
         let listed = join_all(
-            servers.map(|server| async move { (server.as_ref(), server.tools.specs().await) }),
+            servers.map(|server| async move { (server.as_ref(), server.tools.list().await) }),
         )
         .await;
         let mut seen = HashSet::new();
         let mut offered = Vec::new();
-        for (server, specs) in listed {
-            if specs.is_empty() {
-                if server.left_out(Instant::now()) {
-                    tracing::warn!(
-                        "the MCP server {} listed no tools; the brain goes without it",
-                        server.name
-                    );
+        for (server, listing) in listed {
+            let specs = match listing {
+                Ok(specs) if !specs.is_empty() => specs,
+                Ok(_) => {
+                    if server.left_out(Instant::now()) {
+                        tracing::warn!(
+                            "the MCP server {} listed no tools the brain can use; it goes without it",
+                            server.name
+                        );
+                    }
+                    continue;
                 }
-                continue;
-            }
+                Err(error) => {
+                    if server.left_out(Instant::now()) {
+                        tracing::warn!(
+                            "the MCP server {} can't be used: {error} The brain goes without it.",
+                            server.name
+                        );
+                    }
+                    continue;
+                }
+            };
             for spec in specs {
                 if name.is_none_or(|name| spec.name == name)
                     && device_tool_name(&spec.name).is_none()
