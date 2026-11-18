@@ -66,16 +66,20 @@ pub(super) struct SavedTimer {
     deadline_unix_ms: u64,
 }
 
-struct Pending {
-    saved: SavedTimers,
+/// Saved deadlines that will correct the resumed timers once the wall
+/// clock can be trusted.
+struct Correction {
+    deadlines: Vec<(String, u64)>,
     started: Instant,
     next_check: Instant,
 }
 
-/// The device-timer file and a restore waiting for the wall clock.
+/// The device-timer file, the saved timers not yet handed to the Brain, and
+/// the deadlines waiting for the wall clock.
 pub(super) struct TimerStore {
     store: Store<SavedTimers>,
-    pending: Option<Pending>,
+    saved: Option<SavedTimers>,
+    correction: Option<Correction>,
     last_save: Instant,
 }
 
@@ -83,14 +87,10 @@ impl TimerStore {
     pub(super) fn load(timers_file: &Path, restore_saved: bool) -> Self {
         let now = Instant::now();
         let (store, saved, _) = Store::load(timers_file, FILE_MODE, SavedTimers::default());
-        let pending = (restore_saved && !saved.timer.is_empty()).then_some(Pending {
-            saved,
-            started: now,
-            next_check: now,
-        });
         Self {
             store,
-            pending,
+            saved: (restore_saved && !saved.timer.is_empty()).then_some(saved),
+            correction: None,
             last_save: now,
         }
     }
@@ -106,10 +106,11 @@ impl TimerStore {
         self.last_save = now;
     }
 
-    /// Forget every device timer, a restore still waiting for the clock
-    /// included, and leave an empty file.
+    /// Forget every device timer, saved ones not yet restored and pending
+    /// corrections included, and leave an empty file.
     pub(super) fn clear(&mut self, now: Instant, wall: SystemTime, synced: bool) {
-        self.pending = None;
+        self.saved = None;
+        self.correction = None;
         self.save(&HashMap::new(), now, wall, synced);
     }
 
@@ -117,29 +118,52 @@ impl TimerStore {
         now.saturating_duration_since(self.last_save) >= SAVE_INTERVAL
     }
 
+    /// What the Brain should do with the saved timers now: take them (at
+    /// once, so they can be listed and cancelled), and later correct them
+    /// from their saved deadlines once the clock has synced. `synced` is only
+    /// asked when the answer is needed.
     pub(super) fn restore(
         &mut self,
         now: Instant,
         wall: SystemTime,
-        synced: bool,
+        synced: fn() -> bool,
     ) -> Option<Restore> {
-        let pending = self.pending.as_mut()?;
-        if now < pending.next_check {
+        if let Some(saved) = self.saved.take() {
+            let synced = synced();
+            if saved.clock_synced && !synced {
+                tracing::info!(
+                    "device timers resume from their remaining time until the clock syncs"
+                );
+                // Resume from the saved remaining time now; the deadlines say
+                // what really happened once the clock is right.
+                self.correction = Some(Correction {
+                    deadlines: saved
+                        .timer
+                        .iter()
+                        .map(|timer| (timer.id.clone(), timer.deadline_unix_ms))
+                        .collect(),
+                    started: now,
+                    next_check: now + CLOCK_RECHECK,
+                });
+            }
+            return Some(restore(&saved, now, wall, synced));
+        }
+        let correction = self.correction.as_mut()?;
+        if now < correction.next_check {
             return None;
         }
-        let restored = restore(
-            &pending.saved,
-            now,
-            wall,
-            synced,
-            now.saturating_duration_since(pending.started),
-        );
-        if matches!(restored, Restore::Wait) {
-            pending.next_check = now + CLOCK_RECHECK;
-            return Some(Restore::Wait);
+        if now.saturating_duration_since(correction.started) >= CLOCK_WAIT {
+            tracing::info!("the clock didn't sync; device timers keep their saved remaining time");
+            self.correction = None;
+            return None;
         }
-        self.pending = None;
-        Some(restored)
+        if !synced() {
+            correction.next_check = now + CLOCK_RECHECK;
+            return None;
+        }
+        self.correction
+            .take()
+            .map(|c| Restore::Correct(c.deadlines))
     }
 }
 
@@ -189,26 +213,28 @@ pub(super) fn save(
 }
 
 pub(super) enum Restore {
-    Wait,
+    /// The saved timers, to take: running ones, ones to ring now, and ones
+    /// left out because they expired long ago.
     Ready {
         timers: Vec<(String, Timer)>,
         ring: Vec<String>,
         dropped: Vec<String>,
     },
+    /// The saved deadlines, now that the clock is right: [`correct`] applies
+    /// them to the timers still running.
+    Correct(Vec<(String, u64)>),
 }
 
+/// The saved timers, resumed. With a trusted clock at save time and now,
+/// each continues from its saved deadline; otherwise from its saved remaining
+/// time, without the time the satellite was off.
 pub(super) fn restore(
     saved: &SavedTimers,
     now: Instant,
     wall: SystemTime,
     synced: bool,
-    waited: Duration,
 ) -> Restore {
     if !(synced && saved.clock_synced) {
-        if !synced && waited < CLOCK_WAIT {
-            return Restore::Wait;
-        }
-        tracing::info!("restoring device timers from their remaining time, without downtime");
         return Restore::Ready {
             timers: saved
                 .timer
@@ -246,6 +272,37 @@ pub(super) fn restore(
         ring,
         dropped,
     }
+}
+
+/// Apply saved deadlines to the resumed device timers once the clock is
+/// right: a running one gets its true remaining time, one that came due rings,
+/// one overdue past the ring timeout goes. A timer no longer there (it rang or
+/// was cancelled meanwhile) is skipped. Returns the ones to ring and the ones
+/// dropped.
+pub(super) fn correct(
+    timers: &mut HashMap<String, Timer>,
+    deadlines: &[(String, u64)],
+    now: Instant,
+    wall: SystemTime,
+) -> (Vec<String>, Vec<String>) {
+    let wall_ms = unix_ms(wall);
+    let (mut ring, mut dropped) = (Vec::new(), Vec::new());
+    for (id, deadline) in deadlines {
+        let Some(timer) = timers.get_mut(id).filter(|t| t.origin == Origin::Local) else {
+            continue;
+        };
+        if *deadline > wall_ms {
+            timer.left = (deadline - wall_ms).div_ceil(1000).min(u64::from(u32::MAX)) as u32;
+            timer.at = now;
+        } else if wall_ms - deadline < super::RING_TIMEOUT.as_millis() as u64 {
+            ring.push(id.clone());
+        } else {
+            tracing::info!("device timer {id:?} expired over five minutes ago; dropping it");
+            timers.remove(id);
+            dropped.push(id.clone());
+        }
+    }
+    (ring, dropped)
 }
 
 fn resume(saved: &SavedTimer, left_ms: u64, now: Instant) -> Timer {
@@ -302,7 +359,7 @@ mod tests {
                 ring,
                 dropped,
             } => (timers, ring, dropped),
-            Restore::Wait => panic!("timer restore is still waiting"),
+            Restore::Correct(_) => panic!("a restore hands over timers first"),
         }
     }
 
@@ -336,7 +393,6 @@ mod tests {
             now,
             SystemTime::UNIX_EPOCH + Duration::from_millis(1_010_000),
             true,
-            Duration::ZERO,
         ));
         assert!(ring.is_empty() && dropped.is_empty());
         assert_eq!(timers.len(), 1);
@@ -358,7 +414,6 @@ mod tests {
             Instant::now(),
             SystemTime::UNIX_EPOCH + Duration::from_millis(1_000_000),
             true,
-            Duration::ZERO,
         ));
         assert!(timers.is_empty() && dropped.is_empty());
         assert_eq!(ring, ["tea"]);
@@ -372,31 +427,43 @@ mod tests {
             Instant::now(),
             SystemTime::UNIX_EPOCH + Duration::from_millis(1_000_000),
             true,
-            Duration::ZERO,
         ));
         assert!(timers.is_empty() && ring.is_empty());
         assert_eq!(dropped, ["tea"]);
     }
 
     #[test]
-    fn unsynced_restore_waits_then_resumes_the_saved_time() {
+    fn unsynced_restore_resumes_the_saved_time() {
         let now = Instant::now();
         let saved = saved_timer(1_090_000, 42_500);
         let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(9_000_000);
-        assert!(matches!(
-            restore(&saved, now, wall, false, Duration::ZERO),
-            Restore::Wait
-        ));
-        assert!(matches!(
-            restore(&saved, now, wall, false, Duration::from_secs(59)),
-            Restore::Wait
-        ));
-        let (timers, ring, dropped) =
-            ready(restore(&saved, now, wall, false, Duration::from_secs(60)));
+        let (timers, ring, dropped) = ready(restore(&saved, now, wall, false));
         assert!(ring.is_empty() && dropped.is_empty());
         assert_eq!(timers.len(), 1);
         assert_eq!(timers[0].1.left, 43);
         assert_eq!(timers[0].1.at, now);
+    }
+
+    #[test]
+    fn a_correction_moves_rings_or_drops_a_resumed_timer() {
+        let now = Instant::now();
+        let wall = SystemTime::UNIX_EPOCH + Duration::from_millis(1_000_000);
+        let mut timers = HashMap::from([
+            ("later".into(), timer(Origin::Local, 90, now)),
+            ("due".into(), timer(Origin::Local, 90, now)),
+            ("old".into(), timer(Origin::Local, 90, now)),
+        ]);
+        let deadlines = [
+            ("later".to_string(), 1_030_000),
+            ("due".to_string(), 990_000),
+            ("old".to_string(), 600_000),
+            ("cancelled".to_string(), 1_050_000),
+        ];
+        let (ring, dropped) = correct(&mut timers, &deadlines, now, wall);
+        assert_eq!(ring, ["due"]);
+        assert_eq!(dropped, ["old"]);
+        assert_eq!(timers["later"].left, 30);
+        assert!(!timers.contains_key("old") && !timers.contains_key("cancelled"));
     }
 
     #[test]
@@ -424,7 +491,7 @@ mod brain_tests {
     use tokio::sync::{mpsc, oneshot, watch};
 
     use super::super::{ApiCommand, Brain, Defaults, Input, Options, Shared, Snapshot};
-    use super::{Origin, Restore};
+    use super::Origin;
     use crate::leds::LedState;
     use crate::settings::{Mode, Settings};
     use crate::wakewords;
@@ -492,7 +559,7 @@ mod brain_tests {
     }
 
     #[tokio::test]
-    async fn a_one_second_device_timer_rings_in_real_time() {
+    async fn a_one_second_device_timer_rings_after_a_second() {
         let dir = tempfile::tempdir().unwrap();
         let (mut brain, mut events) = brain_at(dir.path(), Mode::Standalone);
         let started = Instant::now();
@@ -506,12 +573,15 @@ mod brain_tests {
             }
         );
 
-        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        // Ticked a second on, not slept: the test can't be late.
         brain
-            .tick_timers(Instant::now(), SystemTime::now(), false)
+            .tick_timers(
+                started + Duration::from_millis(1_100),
+                SystemTime::now(),
+                || false,
+            )
             .await;
 
-        assert!(started.elapsed() < Duration::from_millis(1_500));
         assert_eq!(brain.ringing.as_ref().map(|(id, _)| id), Some(&id));
         assert!(brain.timers.is_empty());
         assert_eq!(
@@ -558,24 +628,45 @@ mod brain_tests {
         first.timer_store.save(&first.timers, saved_at, wall, true);
         drop(first);
 
+        // Booted without a synced clock: the timer is there at once, from
+        // its saved remaining time, and can be listed.
         let (mut restored, _events) = brain_at(dir.path(), Mode::Standalone);
-        let attempted = Instant::now();
-        assert!(matches!(
-            restored.timer_store.restore(attempted, wall, false),
-            Some(Restore::Wait)
-        ));
-        restored
-            .restore_timers(
-                attempted + Duration::from_secs(5),
-                wall + Duration::from_secs(5),
-                true,
-            )
-            .await;
+        let booted = Instant::now();
+        restored.restore_timers(booted, wall, || false).await;
+        assert_eq!(restored.snapshot().timers.len(), 1);
+        assert_eq!(restored.timers[&id].left, 120);
 
-        assert_eq!(restored.timers.len(), 1);
+        // The clock syncs and says 5 s more went by than the countdown knows.
+        let synced_at = booted + Duration::from_secs(5);
+        restored
+            .restore_timers(synced_at, wall + Duration::from_secs(10), || true)
+            .await;
         let timer = &restored.timers[&id];
         assert_eq!(timer.name, "Tea");
         assert_eq!(timer.origin, Origin::Local);
-        assert_eq!(timer.left, 115);
+        assert_eq!(timer.left, 110);
+        assert_eq!(timer.at, synced_at);
+    }
+
+    #[tokio::test]
+    async fn a_timer_cancelled_while_the_clock_syncs_stays_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut first, _events) = brain_at(dir.path(), Mode::Standalone);
+        set_timer(&mut first, Some("Tea"), 120).await.unwrap();
+        let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        first
+            .timer_store
+            .save(&first.timers, Instant::now(), wall, true);
+        drop(first);
+
+        let (mut restored, _events) = brain_at(dir.path(), Mode::Standalone);
+        let booted = Instant::now();
+        restored.restore_timers(booted, wall, || false).await;
+        cancel_timer(&mut restored, "Tea").await.unwrap();
+        restored
+            .restore_timers(booted + Duration::from_secs(5), wall, || true)
+            .await;
+        assert!(restored.timers.is_empty());
+        assert!(restored.ringing.is_none());
     }
 }

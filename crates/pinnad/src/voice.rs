@@ -767,7 +767,7 @@ impl Brain {
                 let _ = tx.send(self.settings.bluetooth);
             }
         }
-        self.restore_timers(Instant::now(), SystemTime::now(), timers::clock_synced())
+        self.restore_timers(Instant::now(), SystemTime::now(), timers::clock_synced)
             .await;
         self.refresh();
         let mut sent_media = (self.media_state, self.media_volume(), self.media_muted);
@@ -1930,23 +1930,30 @@ impl Brain {
         self.timer_store.save(&self.timers, now, wall, synced);
     }
 
-    async fn restore_timers(&mut self, now: Instant, wall: SystemTime, synced: bool) {
-        let Some(timers::Restore::Ready {
-            timers: restored,
-            ring,
-            dropped,
-        }) = self.timer_store.restore(now, wall, synced)
-        else {
-            return;
+    /// Take the saved device timers at boot, and correct them from their
+    /// saved deadlines once the clock has synced.
+    async fn restore_timers(&mut self, now: Instant, wall: SystemTime, synced: fn() -> bool) {
+        let (ring, dropped) = match self.timer_store.restore(now, wall, synced) {
+            None => return,
+            Some(timers::Restore::Ready {
+                timers: restored,
+                ring,
+                dropped,
+            }) => {
+                self.timers.extend(restored);
+                (ring, dropped)
+            }
+            Some(timers::Restore::Correct(deadlines)) => {
+                timers::correct(&mut self.timers, &deadlines, now, wall)
+            }
         };
-        self.timers.extend(restored);
-        let finished = !ring.is_empty();
+        let changed = !ring.is_empty() || !dropped.is_empty();
         for id in ring {
             self.event("timer", "finished").await;
             self.timer_finished(id).await;
         }
-        if finished || !dropped.is_empty() {
-            self.save_timers_at(now, wall, synced);
+        if changed {
+            self.save_timers_at(now, wall, synced());
         }
     }
 
@@ -2979,7 +2986,7 @@ impl Brain {
             }
         }
         self.tick_local(now).await;
-        self.tick_timers(now, SystemTime::now(), timers::clock_synced())
+        self.tick_timers(now, SystemTime::now(), timers::clock_synced)
             .await;
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
             self.end_calibration().await;
@@ -3016,7 +3023,9 @@ impl Brain {
         self.track_talker();
     }
 
-    async fn tick_timers(&mut self, now: Instant, wall: SystemTime, synced: bool) {
+    /// `synced` is asked only when a save or a restore needs it: this runs
+    /// four times a second.
+    async fn tick_timers(&mut self, now: Instant, wall: SystemTime, synced: fn() -> bool) {
         self.restore_timers(now, wall, synced).await;
         for id in timers::due(&self.timers, now) {
             self.event("timer", "finished").await;
@@ -3027,7 +3036,7 @@ impl Brain {
             .values()
             .any(|timer| timer.origin == Origin::Local && timer.active);
         if running && self.timer_store.save_needed(now) {
-            self.save_timers_at(now, wall, synced);
+            self.save_timers_at(now, wall, synced());
         }
     }
 

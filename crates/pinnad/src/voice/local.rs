@@ -1658,7 +1658,7 @@ mod tests {
                     .tick_timers(
                         Instant::now() + Duration::from_secs(2),
                         SystemTime::now(),
-                        false,
+                        || false,
                     )
                     .await;
                 assert!(device.brain.ringing.is_some());
