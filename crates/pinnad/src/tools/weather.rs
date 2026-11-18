@@ -1,8 +1,8 @@
 //! The `weather` tool and the place search, over Open-Meteo (ADR 0017
 //! §"The pipeline").
 //!
-//! Both APIs are keyless. The forecast is for the owner's place, in the
-//! place's own time zone; units follow the language: Fahrenheit and miles per
+//! Both APIs are keyless. The forecast is for a place the person named, else
+//! for the owner's place, in the place's own time zone; units follow the language: Fahrenheit and miles per
 //! hour for US English, Celsius and kilometres per hour otherwise. The text is
 //! for the brain, which says it in the owner's language.
 
@@ -24,7 +24,7 @@ const DAYS: usize = 3;
 /// A place name to search for is at most this many characters.
 const PLACE_NAME_MAX: usize = 100;
 
-const NO_PLACE: &str = "No place is set for the weather. The owner sets one on the Assistant page, under Conversation.";
+const NO_PLACE: &str = "No place is set for this satellite. Ask for a place by name, or the owner sets one on the Assistant page, under Conversation.";
 
 /// Why the place search found nothing to store.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,9 +93,24 @@ impl OpenMeteo {
         ToolOutput::ok(forecast.describe(&place.name, units))
     }
 
+    /// The `weather` tool for a place the person named: the place search's
+    /// first match, then its forecast. Open-Meteo searches the name and
+    /// takes a country after a comma ("Paris, France").
+    pub async fn forecast_at(&self, name: &str, language: Option<&str>) -> ToolOutput {
+        match self.geocode(name, language).await {
+            Ok(place) => self.forecast(Some(&place), language).await,
+            Err(PlaceError::NotFound) => ToolOutput::error(format!(
+                "No place called {} was found. Name the town or city, and if needed its country \
+                 after a comma, such as Paris, France.",
+                capped(name)
+            )),
+            Err(PlaceError::Unavailable(why)) => ToolOutput::error(why),
+        }
+    }
+
     /// Search a place by name, in the owner's language.
     pub async fn geocode(&self, name: &str, language: Option<&str>) -> Result<Place, PlaceError> {
-        let name: String = name.trim().chars().take(PLACE_NAME_MAX).collect();
+        let name = capped(name);
         let url = format!(
             "{}?name={}&count=1&language={}&format=json",
             self.geocoding,
@@ -112,6 +127,10 @@ impl OpenMeteo {
             .map(Found::into_place)
             .ok_or(PlaceError::NotFound)
     }
+}
+
+fn capped(name: &str) -> String {
+    name.trim().chars().take(PLACE_NAME_MAX).collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -473,6 +492,50 @@ pub(crate) mod tests {
             weather.geocode("Berlin", None).await.unwrap().name,
             "Berlin, Germany"
         );
+    }
+
+    #[tokio::test]
+    async fn the_weather_for_a_named_place_finds_it_first() {
+        let server = FakeServer::start().await;
+        server.script(
+            Method::GET,
+            "/v1/search?name=Munich&count=1&language=de&format=json",
+            FakeResponse::new(
+                StatusCode::OK,
+                r#"{"results": [{"name": "Munich", "latitude": 48.14, "longitude": 11.58,
+                    "admin1": "Bavaria", "country": "Germany", "timezone": "Europe/Berlin"}]}"#,
+            ),
+        );
+        server.script(
+            Method::GET,
+            &forecast_path("&temperature_unit=celsius&wind_speed_unit=kmh"),
+            FakeResponse::new(StatusCode::OK, FORECAST),
+        );
+        server.script(
+            Method::GET,
+            "/v1/search?name=Nowhere&count=1&language=de&format=json",
+            FakeResponse::new(StatusCode::OK, r#"{"generationtime_ms": 0.4}"#),
+        );
+        let weather = open_meteo(&server);
+
+        let found = weather.forecast_at(" Munich ", Some("de")).await;
+        assert!(!found.is_error, "{found:?}");
+        assert!(
+            found
+                .text
+                .starts_with("Weather at Munich, Bavaria, Germany."),
+            "{found:?}"
+        );
+        let missing = weather.forecast_at("Nowhere", Some("de")).await;
+        assert!(missing.is_error);
+        assert!(
+            missing
+                .text
+                .starts_with("No place called Nowhere was found."),
+            "{missing:?}"
+        );
+        // The forecast is asked only for the place found.
+        assert_eq!(server.requests().len(), 3);
     }
 
     #[tokio::test]

@@ -44,9 +44,9 @@ tools.
   that sounds like the wake word still costs a request.
 
 After the wake word, the audio goes to the services you chose, and nowhere
-else. Two more services are fixed: Pinna looks up your place and the weather
-at [Open-Meteo](https://open-meteo.com/), which gets the place's name and its
-coordinates, and searches for radio stations at
+else. Two more services are fixed: Pinna looks up places and the weather at
+[Open-Meteo](https://open-meteo.com/), which gets the name and coordinates of
+your place and of any place you ask about, and searches for radio stations at
 [radio-browser.info](https://www.radio-browser.info/), which gets what you
 searched for. Leave **Place** empty and turn off the **Weather** and **Search
 radio** tools to use neither. Neither needs an account.
@@ -141,7 +141,8 @@ Select **Assistant**, then **Conversation**.
 - **Language**: a tag such as `en`, `de` or `en-US`. Speech-to-text listens for
   the language, and the brain answers in it.
 - **Place**: a town or city, for the weather and so the brain knows where it
-  is. Select **Find**. If the place is in another time zone than the
+  is. Select **Find**. You can still ask for the weather somewhere else, such
+  as "the weather in Paris"; add the country when a name is ambiguous. If the place is in another time zone than the
   satellite, the page offers to use the place's.
 - **What the brain is told**: the prompt, at most 4,000 characters. It starts
   as the satellite's voice rules: short, plain spoken answers. **Reset to the

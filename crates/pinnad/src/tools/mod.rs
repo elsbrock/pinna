@@ -373,8 +373,13 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: weather::NAME,
         reach: Reach::RunOnly,
-        about: "The weather now and for the next two days at the satellite's place.",
-        params: &[],
+        about: "The weather now and for the next two days, at a place the person names, or else at the satellite's place.",
+        params: &[Param {
+            name: "place",
+            kind: Kind::Text,
+            required: false,
+            about: "A town or city, with its country after a comma when the name is ambiguous, such as Paris, France. Leave it out for the satellite's own place.",
+        }],
         op: Op::Weather,
     },
     Tool {
@@ -529,6 +534,13 @@ impl ToolKit {
             radio: RadioBrowser::default(),
             counters,
         }
+    }
+
+    /// The weather from another address, for tests.
+    #[cfg(test)]
+    fn with_weather(mut self, weather: OpenMeteo) -> Self {
+        self.weather = weather;
+        self
     }
 }
 
@@ -1499,6 +1511,39 @@ mod tests {
             tools.call("home_lights_on", json!({})).await,
             ToolOutput::error("The owner switched home_lights_on off under Assistant.")
         );
+    }
+
+    #[tokio::test]
+    async fn the_weather_tool_searches_a_named_place() {
+        use pinna_assist::testing::{FakeResponse, FakeServer};
+        use pinna_http::reqwest::{Method, StatusCode};
+
+        let server = FakeServer::start().await;
+        server.script(
+            Method::GET,
+            "/v1/search?name=Paris%2C+France&count=1&language=en&format=json",
+            FakeResponse::new(StatusCode::OK, r#"{"generationtime_ms": 0.4}"#),
+        );
+        let (inputs, _rx) = mpsc::channel(64);
+        let (_tx, status) = watch::channel(Snapshot::default());
+        let brain = DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default())
+                .with_weather(weather::tests::open_meteo(&server)),
+            inputs,
+            status,
+            Arc::new(AssistLive::empty()),
+            Surface::Run,
+            Caller::Mcp,
+        );
+        let out = brain
+            .call("weather", json!({"place": "Paris, France"}))
+            .await;
+        assert!(out.is_error);
+        assert!(
+            out.text.starts_with("No place called Paris, France"),
+            "{out:?}"
+        );
+        assert_eq!(server.requests().len(), 1, "the named place is searched");
     }
 
     #[tokio::test]

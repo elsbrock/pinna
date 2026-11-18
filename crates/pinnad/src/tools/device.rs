@@ -47,11 +47,12 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
             Ok(format!("{time} ({zone})"))
         }
         Op::Weather => {
-            let out = tools
-                .kit
-                .weather
-                .forecast(tools.live.place.as_ref(), tools.live.language.as_deref())
-                .await;
+            let language = tools.live.language.as_deref();
+            let weather = &tools.kit.weather;
+            let out = match args.text("place").map(str::trim).filter(|p| !p.is_empty()) {
+                Some(name) => weather.forecast_at(name, language).await,
+                None => weather.forecast(tools.live.place.as_ref(), language).await,
+            };
             if out.is_error {
                 Err(out.text)
             } else {
