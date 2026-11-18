@@ -84,6 +84,12 @@ Anyone who can use the dashboard can change your services and use them; see
 5. Under **Text-to-speech**, select **Play sample** to hear the voice on the
    satellite.
 
+Some reasoning models refuse requests with tools until you choose how long
+they think. OpenAI's `gpt-6-luna`, for example, uses tools only with thinking
+off. Under **Brain**, select **Advanced**, and under **Thinking** choose
+**None**. **None** also answers fastest. **Thinking** is there for OpenAI and
+the other services that speak OpenAI's API; **Service default** sends nothing.
+
 A key goes to the satellite and never comes back: the page shows only that it
 is set, with its last four characters. A key belongs to the address it was
 entered for. If you change a connection's address, enter the key again.
@@ -115,6 +121,10 @@ cancels the timers that run and forgets the conversation. In standalone mode
 the dashboard chooses the wake words, under **Voice & sound**.
 
 To go back, select **Home Assistant** under **Mode**.
+
+If Home Assistant is connected, you can also switch there: the satellite's
+**Assistant** select has the same two choices. It stays in both modes, and
+**Standalone** works only once the three services have passed their check.
 
 ### If you also use Home Assistant
 

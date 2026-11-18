@@ -30,6 +30,7 @@ keep the name the device had when you added it.
 | Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
 | Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
 | Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While `[update] manifest` in `pinnad.toml` replaces the channel, its only option is that address. See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
+| Assistant | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. Switching ends a request, stops an alarm, deletes every timer and reconnects Home Assistant. See [Use Pinna without Home Assistant](/docs/standalone/) |
 | Firmware | `firmware` | Update (configuration) | Installed and latest version, summary, release notes, progress | Shows a newer release on the device's channel, and installs it. After an install from Home Assistant, the device restarts on its own once it is Idle with no timer set and nothing playing. Unknown until a check has succeeded, and while **Updates** is off. See [Install an update from Home Assistant](/docs/update/#install-an-update-from-home-assistant) |
 
 Pinna saves the switch and number values on the device, so they survive a
@@ -122,8 +123,9 @@ Assist satellite. The device keeps its timers itself, and the dashboard
 chooses the wake words. Switching the mode deletes every timer, Home
 Assistant's included.
 
-Standalone mode's settings, and the mode itself, have no entities. You set
-them on the dashboard.
+The **Assistant** select stays, so you can switch back to Home Assistant from
+there. Standalone mode's other settings have no entities. You set them on the
+dashboard.
 
 ## What's next
 

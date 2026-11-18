@@ -237,6 +237,7 @@ A check or a request that fails gives one of these sentences:
 | `The service moved to another address. Enter its new address.` | The satellite doesn't follow a redirect, so a key never goes to another host. Enter the address the service gives now |
 | `The service answered 400. Check the key, the address and the account.` | The service refused the request. Check the model name, and for a local model that it supports tool calls |
 | `The service had an error (500). Try again later, or check the server's log.` | The service failed on its side. For your own server, its log says why |
+| `The service refused the request (400). …` | The brain refused the request. Check the model name. A reasoning model may need **Thinking** set, such as **None**, under **Services** › **Brain** › **Advanced**; OpenAI's `gpt-6-luna` uses tools only then |
 | `The brain didn't answer in time. …` | The brain took longer than its time limit. If the server runs, the model may be slow: raise **Time to answer** under **Services** › **Brain** › **Advanced** |
 | `The service didn't answer the way this check expects. Check the address and the model.` | The address points at something that isn't the service, or the model is wrong |
 
