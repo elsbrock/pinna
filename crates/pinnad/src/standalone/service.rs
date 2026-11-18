@@ -429,14 +429,7 @@ impl Service {
                 .cloned()
                 .ok_or_else(|| Refusal::Conflict(REMOVED.into()))?;
             let current_key = state.secrets.key_for(&id, &current.base_url).cloned();
-            let used_by: Vec<(SlotKind, String)> = SlotKind::ALL
-                .into_iter()
-                .filter_map(|kind| {
-                    let slot = kind.get(&state.config)?;
-                    (slot.connection == id).then(|| (kind, slot.model.clone()))
-                })
-                .collect();
-            (current, current_key, used_by)
+            (current, current_key, slots_on(&state.config, &id))
         };
         if current.revision != e.revision {
             return Err(Refusal::Conflict(CHANGED.into()));
@@ -463,23 +456,34 @@ impl Service {
         )
         .await;
         if self.standalone() {
-            let failed = used_by.iter().zip(&checks).find_map(|((kind, _), result)| {
-                result.as_ref().err().map(|sentence| (kind, sentence))
-            });
-            if let Some((kind, sentence)) = failed {
+            let failed: Vec<(SlotKind, &String)> = used_by
+                .iter()
+                .zip(&checks)
+                .filter_map(|((kind, _), result)| result.as_ref().err().map(|e| (*kind, e)))
+                .collect();
+            if let Some((_, sentence)) = failed.first() {
+                let kinds: Vec<SlotKind> = failed.iter().map(|(kind, _)| *kind).collect();
                 return Err(Refusal::Precondition(format!(
-                    "Not saved: the {} check failed. {sentence}",
-                    kind.name()
+                    "Not saved: {} {sentence} To save it anyway, switch to Home Assistant \
+                     mode first.",
+                    checks_failed(&kinds)
                 )));
             }
         }
 
         self.commit(|d| {
             let connection =
-                find_mut(&mut d.config, &id).ok_or_else(|| Refusal::Conflict(REMOVED.into()))?;
+                find(&d.config, &id).ok_or_else(|| Refusal::Conflict(REMOVED.into()))?;
             if connection.revision != current.revision {
                 return Err(Refusal::Conflict(CHANGED.into()));
             }
+            // A slot moved onto, off or within this connection while the
+            // checks ran wasn't checked with the new address and key.
+            if slots_on(&d.config, &id) != used_by {
+                return Err(Refusal::Conflict(CHANGED.into()));
+            }
+            let connection =
+                find_mut(&mut d.config, &id).ok_or_else(|| Refusal::Conflict(REMOVED.into()))?;
             connection.preset = e.preset;
             connection.base_url.clone_from(&url);
             connection.revision += 1;
@@ -491,12 +495,8 @@ impl Service {
                 KeyEdit::Keep if url_changed => d.secrets.clear(&id),
                 KeyEdit::Keep => {}
             }
-            for ((kind, model), result) in used_by.iter().zip(&checks) {
-                if let Some(slot) = kind.get_mut(&mut d.config)
-                    && result.is_ok()
-                    && slot.connection == id
-                    && slot.model == *model
-                {
+            for ((kind, _), result) in used_by.iter().zip(&checks) {
+                if let (Some(slot), Ok(())) = (kind.get_mut(&mut d.config), result) {
                     slot.checked = revision;
                 }
             }
@@ -549,12 +549,9 @@ impl Service {
             if connection.revision != revision {
                 return Err(Refusal::Conflict(CHANGED.into()));
             }
-            let used: Vec<SlotKind> = SlotKind::ALL
+            let used: Vec<SlotKind> = slots_on(&d.config, id)
                 .into_iter()
-                .filter(|kind| {
-                    kind.get(&d.config)
-                        .is_some_and(|slot| slot.connection == id)
-                })
+                .map(|(kind, _)| kind)
                 .collect();
             if standalone && !used.is_empty() {
                 return Err(Refusal::Precondition(format!(
@@ -1103,6 +1100,27 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
             })
             .collect(),
         agents,
+    }
+}
+
+/// The slots that use a connection, with their models.
+fn slots_on(c: &AssistConfig, id: &str) -> Vec<(SlotKind, String)> {
+    SlotKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            let slot = kind.get(c)?;
+            (slot.connection == id).then(|| (kind, slot.model.clone()))
+        })
+        .collect()
+}
+
+/// "the brain check failed.", "the speech-to-text and brain checks failed.", ...
+fn checks_failed(kinds: &[SlotKind]) -> String {
+    let names: Vec<&str> = kinds.iter().map(|kind| kind.name()).collect();
+    match names.as_slice() {
+        [one] => format!("the {one} check failed."),
+        [first @ .., last] => format!("the {} and {last} checks failed.", first.join(", ")),
+        [] => String::new(),
     }
 }
 
@@ -1694,7 +1712,8 @@ mod tests {
         assert_eq!(
             refused,
             Refusal::Precondition(
-                "Not saved: the speech-to-text check failed. The key is wrong. Enter it again."
+                "Not saved: the speech-to-text and brain checks failed. The key is wrong. \
+                 Enter it again. To save it anyway, switch to Home Assistant mode first."
                     .into()
             )
         );
@@ -1837,6 +1856,38 @@ mod tests {
         assert_eq!(view.connections[0].key_last4.as_deref(), Some(won));
         let (_, secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
         assert_eq!(secrets.last4(&connection.id).as_deref(), Some(won));
+    }
+
+    #[tokio::test]
+    async fn a_slot_changed_during_a_connection_check_refuses_the_edit() {
+        let f = Fixture::new(Mode::Standalone);
+        let server = FakeServer::start().await;
+        let connection = f.ready(&server).await;
+        let slow = Duration::from_millis(200);
+        // The key edit checks all three slots slowly; the voice change in
+        // between is checked at once and saved first.
+        passing_after(&server, SlotKind::Stt, slow);
+        passing_after(&server, SlotKind::Chat, slow);
+        passing_after(&server, SlotKind::Tts, slow);
+        passing(&server, SlotKind::Tts);
+        let (key_edit, voice) = tokio::join!(
+            f.service.set_connection(edit(
+                &connection,
+                connection.base_url.clone(),
+                KeyEdit::Set(Secret::new("sk-new-9999")),
+            )),
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                f.service
+                    .set_slot(SlotKind::Tts, slot_edit(&connection.id, "alloy"))
+                    .await
+            },
+        );
+        voice.unwrap();
+        assert_eq!(key_edit.unwrap_err(), Refusal::Conflict(CHANGED.into()));
+        assert_eq!(f.saved().tts.unwrap().model, "alloy");
+        assert_eq!(f.live().slots, [true; 3]);
+        assert!(f.live().ready);
     }
 
     #[tokio::test]
