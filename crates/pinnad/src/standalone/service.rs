@@ -54,8 +54,6 @@ const ACK_MAX: usize = 100;
 const MAX_SWITCHES: usize = 128;
 /// A station name is at most this many characters.
 const STATION_NAME_MAX: usize = 60;
-/// A tool name is at most this many characters (the model's limit).
-const TOOL_NAME_MAX: usize = 64;
 /// The Advanced first-text limit, in seconds.
 const FIRST_TEXT_S: std::ops::RangeInclusive<u64> = 1..=300;
 /// The Advanced history caps.
@@ -1330,13 +1328,8 @@ fn switches_value(tools: BTreeMap<String, bool>) -> Result<BTreeMap<String, bool
             "At most {MAX_SWITCHES} tool switches."
         )));
     }
-    let valid = |name: &str| {
-        (1..=TOOL_NAME_MAX).contains(&name.len())
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-    };
-    if let Some(name) = tools.keys().find(|name| !valid(name)) {
+    // Owner MCP tools keep their own names, capitals and hyphens included.
+    if let Some(name) = tools.keys().find(|name| !pinna_mcp::tool_name(name)) {
         return Err(Refusal::Invalid(format!("{name:?} isn't a tool name.")));
     }
     Ok(tools)
@@ -1999,6 +1992,21 @@ mod tests {
             .await
             .unwrap();
         assert!(!Arc::ptr_eq(&before, f.live().pipeline.as_ref().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn an_owner_tool_keeps_its_own_name_for_its_switch() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        let switch = |name: &str| AssistantPatch {
+            tools: Some([(name.to_owned(), false)].into()),
+            ..AssistantPatch::default()
+        };
+        f.service.update(switch("home_Lights-On")).await.unwrap();
+        assert_eq!(f.saved().tools.get("home_Lights-On"), Some(&false));
+        assert_eq!(
+            f.service.update(switch("lights on")).await.unwrap_err(),
+            Refusal::Invalid("\"lights on\" isn't a tool name.".into())
+        );
     }
 
     #[tokio::test]

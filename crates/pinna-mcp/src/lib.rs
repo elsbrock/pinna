@@ -10,5 +10,6 @@ pub mod server;
 pub mod tool;
 
 pub use tool::{
-    MAX_TOOL_OUTPUT, ToolCall, ToolOutput, ToolSet, ToolSpec, in_namespace, namespaced,
+    MAX_TOOL_OUTPUT, TOOL_NAME_MAX, ToolCall, ToolOutput, ToolSet, ToolSpec, in_namespace,
+    namespaced, tool_name,
 };

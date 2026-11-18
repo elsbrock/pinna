@@ -59,24 +59,30 @@ pub trait ToolSet: Send + Sync {
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput>;
 }
 
+/// The longest tool name every provider accepts.
+pub const TOOL_NAME_MAX: usize = 64;
+
+/// A name every provider accepts for a tool: 1 to [`TOOL_NAME_MAX`] bytes of
+/// `[A-Za-z0-9_-]`.
+pub fn tool_name(name: &str) -> bool {
+    (1..=TOOL_NAME_MAX).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 /// The name a model sees for a server's tool: `<server>_<tool>`, within the
-/// alphabet every provider accepts for tool names (`[A-Za-z0-9_-]`, at most
-/// 64 bytes). The server part is lowercase with its hyphens turned into
+/// alphabet every provider accepts for tool names ([`tool_name`]). The server part is lowercase with its hyphens turned into
 /// underscores, so the `<server>_` prefix reads one way and names the server.
 /// `None` when the tool's name can't be offered.
 pub fn namespaced(server: &str, tool: &str) -> Option<String> {
     let server_byte =
         |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-';
-    let tool_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
-    if server.is_empty()
-        || tool.is_empty()
-        || server.len().saturating_add(tool.len()) >= 64
-        || !server.bytes().all(server_byte)
-        || !tool.bytes().all(tool_byte)
-    {
+    if server.is_empty() || !server.bytes().all(server_byte) || tool.is_empty() {
         return None;
     }
-    Some(format!("{}_{}", server.replace('-', "_"), tool))
+    let name = format!("{}_{}", server.replace('-', "_"), tool);
+    tool_name(&name).then_some(name)
 }
 
 /// Whether `name` is one of `server`'s tools: `<server>_<tool>`, with the
