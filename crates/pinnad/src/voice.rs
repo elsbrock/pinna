@@ -976,100 +976,10 @@ impl Brain {
                 self.clear_notification().await;
                 (Ok(()), reply)
             }
-            ApiCommand::UpdateSettings(mut patch, reply) if patch.mode.is_some() => {
-                // The mode first: the other settings then apply under it.
-                let mode = patch.mode.take().expect("checked by the guard");
-                match self.set_mode(mode).await {
-                    Ok(()) => {
-                        return Box::pin(self.api(ApiCommand::UpdateSettings(patch, reply))).await;
-                    }
-                    Err(why) => (Err(why), reply),
-                }
-            }
-            ApiCommand::UpdateSettings(patch, reply)
-                if patch.wake_words.is_some()
-                    && self.clients > 0
-                    && self.mode() == Mode::HomeAssistant =>
-            {
-                // Its dropdowns can't show a word chosen here (ADR 0013).
-                let why = "Home Assistant chooses the wake words while it is connected. \
-                           Choose them on this satellite's device page there.";
-                (Err(why.into()), reply)
-            }
-            ApiCommand::UpdateSettings(patch, reply)
-                if patch.airplay == Some(true) && !self.opts.airplay =>
-            {
-                let why = "This satellite has no working speaker, so it can't receive AirPlay. \
-                           Logs, under System, says why.";
-                (Err(why.into()), reply)
-            }
-            ApiCommand::UpdateSettings(patch, reply)
-                if patch.bluetooth == Some(true) && !self.opts.bluetooth =>
-            {
-                let why = "This satellite has no Bluetooth or no working speaker. \
-                           Logs, under System, says why.";
-                (Err(why.into()), reply)
-            }
-            ApiCommand::UpdateSettings(patch, reply) => {
-                // The same paths as Home Assistant's entities, so it sees the change.
-                if let Some(name) = patch.friendly_name {
-                    self.set_friendly_name(name).await;
-                }
-                if let Some(h) = patch.hostname {
-                    self.set_hostname(h).await;
-                }
-                if let Some(zone) = patch.time_zone {
-                    self.set_time_zone(zone);
-                }
-                if let Some(on) = patch.wake_sound {
-                    self.set_wake_sound(on).await;
-                }
-                if let Some(url) = patch.url {
-                    self.set_dashboard_url(url);
-                }
-                if let Some(ids) = patch.wake_words {
-                    self.set_wake_words(ids, false).await;
-                }
-                if let Some(v) = patch.wake_sensitivity {
-                    self.number("wake_word_sensitivity".into(), f32::from(v))
-                        .await;
-                }
-                if let Some(v) = patch.led_brightness {
-                    self.number("led_brightness".into(), f32::from(v)).await;
-                }
-                if let Some(on) = patch.wake_word {
-                    self.set_wake_word(on).await;
-                }
-                if let Some(on) = patch.airplay {
-                    self.set_airplay(on).await;
-                }
-                if let Some(on) = patch.bluetooth {
-                    self.set_bluetooth(on).await;
-                }
-                match (patch.reply_follows_volume, patch.reply_volume) {
-                    (Some(true), _) => self.set_reply_volume(None).await,
-                    (_, Some(v)) => self.set_reply_volume(Some(v)).await,
-                    (Some(false), None) if self.settings.reply_volume.is_none() => {
-                        self.set_reply_volume(Some(self.settings.volume)).await;
-                    }
-                    _ => {}
-                }
-                if let Some(on) = patch.listening_direction {
-                    self.set_listening_direction(on).await;
-                }
-                if let Some(c) = patch.update_channel {
-                    self.set_update_channel(c).await;
-                }
-                // Applied, but a restart would undo it: say so (ADR 0007).
-                let saved = self.store.try_save(&self.settings).map_err(|e| {
-                    tracing::warn!("saving the settings: {e}");
-                    format!(
-                        "The change applies now, but the satellite couldn't save it ({e}). \
-                         It is lost when the satellite restarts."
-                    )
-                });
-                (saved, reply)
-            }
+            ApiCommand::UpdateSettings(patch, reply) => match self.refuse_settings(&patch) {
+                Some(why) => (Err(why.into()), reply),
+                None => (self.update_settings(patch).await, reply),
+            },
             ApiCommand::StartCalibration(reply) => (self.set_calibration(true).await, reply),
             ApiCommand::StopCalibration(reply) => {
                 let _ = self.set_calibration(false).await;
@@ -1904,6 +1814,98 @@ impl Brain {
         self.timers.remove(&id);
         self.save_timers();
         Ok(())
+    }
+
+    /// Why a settings change can't be made at all, judged under the mode it
+    /// asks for. A refused change changes nothing.
+    fn refuse_settings(&self, patch: &SettingsPatch) -> Option<&'static str> {
+        let mode = patch.mode.unwrap_or(self.mode());
+        if patch.wake_words.is_some() && self.clients > 0 && mode == Mode::HomeAssistant {
+            // Its dropdowns can't show a word chosen here (ADR 0013).
+            return Some(
+                "Home Assistant chooses the wake words while it is connected. \
+                 Choose them on this satellite's device page there.",
+            );
+        }
+        if patch.airplay == Some(true) && !self.opts.airplay {
+            return Some(
+                "This satellite has no working speaker, so it can't receive AirPlay. \
+                 Logs, under System, says why.",
+            );
+        }
+        if patch.bluetooth == Some(true) && !self.opts.bluetooth {
+            return Some(
+                "This satellite has no Bluetooth or no working speaker. \
+                 Logs, under System, says why.",
+            );
+        }
+        None
+    }
+
+    /// Apply a settings change and save it once. The mode goes first, so the
+    /// other settings apply under it; its only refusal comes before it
+    /// changes anything.
+    async fn update_settings(&mut self, patch: SettingsPatch) -> Result<(), String> {
+        if let Some(mode) = patch.mode {
+            self.set_mode(mode).await?;
+        }
+        // The same paths as Home Assistant's entities, so it sees the change.
+        if let Some(name) = patch.friendly_name {
+            self.set_friendly_name(name).await;
+        }
+        if let Some(h) = patch.hostname {
+            self.set_hostname(h).await;
+        }
+        if let Some(zone) = patch.time_zone {
+            self.set_time_zone(zone);
+        }
+        if let Some(on) = patch.wake_sound {
+            self.set_wake_sound(on).await;
+        }
+        if let Some(url) = patch.url {
+            self.set_dashboard_url(url);
+        }
+        if let Some(ids) = patch.wake_words {
+            self.set_wake_words(ids, false).await;
+        }
+        if let Some(v) = patch.wake_sensitivity {
+            self.number("wake_word_sensitivity".into(), f32::from(v))
+                .await;
+        }
+        if let Some(v) = patch.led_brightness {
+            self.number("led_brightness".into(), f32::from(v)).await;
+        }
+        if let Some(on) = patch.wake_word {
+            self.set_wake_word(on).await;
+        }
+        if let Some(on) = patch.airplay {
+            self.set_airplay(on).await;
+        }
+        if let Some(on) = patch.bluetooth {
+            self.set_bluetooth(on).await;
+        }
+        match (patch.reply_follows_volume, patch.reply_volume) {
+            (Some(true), _) => self.set_reply_volume(None).await,
+            (_, Some(v)) => self.set_reply_volume(Some(v)).await,
+            (Some(false), None) if self.settings.reply_volume.is_none() => {
+                self.set_reply_volume(Some(self.settings.volume)).await;
+            }
+            _ => {}
+        }
+        if let Some(on) = patch.listening_direction {
+            self.set_listening_direction(on).await;
+        }
+        if let Some(c) = patch.update_channel {
+            self.set_update_channel(c).await;
+        }
+        // Applied, but a restart would undo it: say so (ADR 0007).
+        self.store.try_save(&self.settings).map_err(|e| {
+            tracing::warn!("saving the settings: {e}");
+            format!(
+                "The change applies now, but the satellite couldn't save it ({e}). \
+                 It is lost when the satellite restarts."
+            )
+        })
     }
 
     async fn timer_finished(&mut self, id: String) {

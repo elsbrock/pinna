@@ -388,6 +388,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_switch_with_a_refused_setting_changes_nothing() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.set_ready(true);
+        let (reply, result) = oneshot::channel();
+        device
+            .brain
+            .handle(Input::Api(ApiCommand::UpdateSettings(
+                SettingsPatch {
+                    mode: Some(Mode::Standalone),
+                    airplay: Some(true),
+                    ..SettingsPatch::default()
+                },
+                reply,
+            )))
+            .await;
+
+        assert!(result.await.unwrap().is_err());
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert!(device.events().is_empty());
+        assert!(!device.saved("settings.toml").contains("mode"));
+    }
+
+    #[tokio::test]
     async fn a_switch_stops_a_home_assistant_run_before_the_voice_features_change() {
         let mut device = Device::new(Mode::HomeAssistant);
         device.brain.ha(HaCommand::VoiceSubscribed(true)).await;
