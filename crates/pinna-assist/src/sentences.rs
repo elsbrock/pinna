@@ -76,7 +76,17 @@ impl Sentences {
 }
 
 fn is_terminator(c: char) -> bool {
-    matches!(c, '.' | '!' | '?' | '…')
+    matches!(c, '.' | '!' | '?' | '…') || is_cjk_terminator(c)
+}
+
+/// Chinese and Japanese sentence ends, which aren't followed by a space.
+fn is_cjk_terminator(c: char) -> bool {
+    matches!(c, '。' | '｡' | '！' | '？')
+}
+
+/// Closing quotes and brackets that belong to the sentence before them.
+fn is_closer(c: char) -> bool {
+    matches!(c, '」' | '』' | '”' | '’' | '）' | ')' | '"')
 }
 
 /// The index just after a complete sentence, or `None` when more text is
@@ -89,8 +99,21 @@ fn sentence_end(buf: &[char]) -> Option<usize> {
             continue;
         }
         let mut j = i;
+        let mut cjk = false;
         while j < buf.len() && is_terminator(buf[j]) {
+            cjk |= is_cjk_terminator(buf[j]);
             j += 1;
+        }
+        if cjk {
+            while j < buf.len() && is_closer(buf[j]) {
+                j += 1;
+            }
+            // CJK text runs on without a space: once anything follows, the
+            // sentence is complete.
+            if j < buf.len() {
+                return Some(j);
+            }
+            return None;
         }
         if j < buf.len() && buf[j].is_whitespace() {
             let mut k = j;
@@ -292,6 +315,22 @@ mod tests {
             collect("Hallo. Wie geht es dir? Mir geht es gut!"),
             ["Hallo.", "Wie geht es dir?", "Mir geht es gut!"]
         );
+    }
+
+    #[test]
+    fn chinese_and_japanese_sentences_split_without_spaces() {
+        assert_eq!(
+            collect("你好。今天天气很好！"),
+            ["你好。", "今天天气很好！"]
+        );
+        assert_eq!(
+            collect("「はい。」と言った。"),
+            ["「はい。」", "と言った。"]
+        );
+        // A sentence end at the very end waits for what follows, or the finish.
+        let mut s = Sentences::new(1_000);
+        assert!(s.push("你好。").is_empty());
+        assert_eq!(s.push("再见"), ["你好。"]);
     }
 
     #[test]
