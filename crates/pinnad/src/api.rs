@@ -311,7 +311,7 @@ fn assistant(a: &crate::voice::AssistStatus) -> pinna_api::AssistantStatus {
         last_error: a
             .last_error
             .as_ref()
-            .map(|f| pinna_assist::check::refusal(&f.error))
+            .map(|f| pinna_assist::check::request_failure(&f.error))
             .unwrap_or_default(),
         last_error_slot: a
             .last_error

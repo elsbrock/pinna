@@ -833,7 +833,10 @@ mod tests {
                     ..Default::default()
                 }
             ))),
-            (ErrorCode::InvalidArgument, "Keep 1 to 10 turns.".to_owned())
+            (
+                ErrorCode::InvalidArgument,
+                "Enter 1 to 10 requests.".to_owned()
+            )
         );
 
         // The provider refuses it now.

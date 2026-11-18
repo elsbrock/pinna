@@ -1188,12 +1188,12 @@ fn checks_failed(kinds: &[SlotKind]) -> String {
     }
 }
 
-/// "The brain slot uses", "The speech-to-text and brain slots use", ...
+/// "The brain uses", "The speech-to-text and brain use", ...
 fn slots_using(kinds: &[SlotKind]) -> String {
     let names: Vec<&str> = kinds.iter().map(|kind| kind.name()).collect();
     match names.as_slice() {
-        [one] => format!("The {one} slot uses"),
-        [first @ .., last] => format!("The {} and {last} slots use", first.join(", ")),
+        [one] => format!("The {one} uses"),
+        [first @ .., last] => format!("The {} and {last} use", first.join(", ")),
         [] => String::new(),
     }
 }
@@ -1408,19 +1408,19 @@ fn override_value(o: ChatOverride) -> Result<ChatOverride, Refusal> {
         && !FIRST_TEXT_S.contains(&s)
     {
         return Err(Refusal::Invalid(format!(
-            "The first-text limit is {} to {} seconds.",
+            "Time to answer is {} to {} seconds.",
             FIRST_TEXT_S.start(),
             FIRST_TEXT_S.end()
         )));
     }
     match o.history {
         Some(HistoryPolicy::Turns(n)) if !(1..=HistoryPolicy::TURNS_MAX).contains(&n) => Err(
-            Refusal::Invalid(format!("Keep 1 to {} turns.", HistoryPolicy::TURNS_MAX)),
+            Refusal::Invalid(format!("Enter 1 to {} requests.", HistoryPolicy::TURNS_MAX)),
         ),
         Some(HistoryPolicy::Bytes(n)) if !(1..=HistoryPolicy::BYTES_MAX).contains(&n) => {
             Err(Refusal::Invalid(format!(
-                "Keep at most {} KiB of history.",
-                HistoryPolicy::BYTES_MAX / 1024
+                "Enter a size from 1 to {} bytes.",
+                HistoryPolicy::BYTES_MAX
             )))
         }
         _ => Ok(o),
@@ -1860,7 +1860,7 @@ mod tests {
         assert_eq!(
             refused,
             Refusal::Precondition(
-                "The speech-to-text, brain and text-to-speech slots use this connection. Choose another connection there first."
+                "The speech-to-text, brain and text-to-speech use this connection. Choose another connection there first."
                     .into()
             )
         );
@@ -2247,7 +2247,7 @@ mod tests {
                     }),
                     ..AssistantPatch::default()
                 },
-                "Keep 1 to 10 turns.",
+                "Enter 1 to 10 requests.",
             ),
         ] {
             assert_eq!(

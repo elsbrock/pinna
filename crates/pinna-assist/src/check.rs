@@ -208,6 +208,18 @@ fn names_model(id: &str, model: &str) -> bool {
             .is_some_and(|date| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// One owner sentence for a request that failed: a check's, except that a
+/// brain that ran out of time during a request is more likely slow than down,
+/// and its limit is the owner's to raise.
+pub fn request_failure(error: &ProviderError) -> String {
+    match (error.slot, error.reason) {
+        (Slot::Chat, Reason::Timeout) => "The brain didn't answer in time. If the server is \
+            running, the model may need more Time to answer, under Services, Brain, Advanced."
+            .to_owned(),
+        _ => refusal(error),
+    }
+}
+
 /// One owner sentence for a failed check. It names the cause and the fix, and
 /// never a URL, key or body.
 pub fn refusal(error: &ProviderError) -> String {
@@ -228,6 +240,10 @@ pub fn refusal(error: &ProviderError) -> String {
         Reason::Http(300..=399) => {
             "The service moved to another address. Enter its new address.".to_owned()
         }
+        // The service's own fault: no key or address is wrong.
+        Reason::Http(status @ 500..=599) => format!(
+            "The service had an error ({status}). Try again later, or check the server's log."
+        ),
         Reason::Http(status) => format!(
             "The service answered {status}. Check the key, the address and the account."
         ),
@@ -533,6 +549,17 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error, "The text-to-speech service sent no audio.");
+    }
+
+    #[test]
+    fn a_server_error_and_a_slow_brain_get_their_own_advice() {
+        let down = ProviderError::new(Slot::Chat, PresetId::Ollama, Reason::Http(500));
+        assert!(refusal(&down).starts_with("The service had an error (500)."));
+        let slow = ProviderError::new(Slot::Chat, PresetId::Ollama, Reason::Timeout);
+        assert!(request_failure(&slow).contains("Time to answer"));
+        assert!(!refusal(&slow).contains("Time to answer"));
+        let stt = ProviderError::new(Slot::Stt, PresetId::OpenAi, Reason::Timeout);
+        assert_eq!(request_failure(&stt), refusal(&stt));
     }
 
     #[test]
