@@ -575,6 +575,18 @@ async fn main() -> Result<()> {
         dc.name,
         dc.mac_string()
     );
+    // The mode is known before the Brain's first snapshot: the setup API and
+    // /mcp read it from the start.
+    let (status_tx, status_rx) = watch::channel(Snapshot {
+        mode: initial.mode,
+        ..Snapshot::default()
+    });
+    // The standalone configuration (ADR 0017): its files sit beside settings.toml.
+    let assistant = Service::load(Paths::beside(&cli.settings), status_rx.clone());
+    // The record names the satellite group from the start, so a satellite in
+    // a group doesn't rewrite it, and restart resolved, on every boot
+    // (ADR 0026). The Brain republishes it when the group changes.
+    dc.group = assistant.live().borrow().group.record();
     if cfg.esphome.mdns {
         if let Err(e) = identity::publish_mdns(&dc) {
             tracing::warn!("mDNS: {e:#}");
@@ -641,14 +653,6 @@ async fn main() -> Result<()> {
     // the stage helper keeps drawing the boot stages (ADR 0012).
 
     let shared = Arc::new(Shared::default());
-    // The mode is known before the Brain's first snapshot: the setup API and
-    // /mcp read it from the start.
-    let (status_tx, status_rx) = watch::channel(Snapshot {
-        mode: initial.mode,
-        ..Snapshot::default()
-    });
-    // The standalone configuration (ADR 0017): its files sit beside settings.toml.
-    let assistant = Service::load(Paths::beside(&cli.settings), status_rx.clone());
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);
 
     // Microphone + wake word. Words chosen later reach the detector here.

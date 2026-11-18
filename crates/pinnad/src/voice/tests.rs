@@ -350,3 +350,28 @@ async fn thinking_times_out_on_tick() {
     d.expect(&[voice_event("stopped"), DeviceEvent::VoiceStop]);
     assert_eq!(d.brain.phase, Phase::Idle);
 }
+
+#[test]
+fn the_mdns_record_follows_the_satellite_group() {
+    const ID: &str = "00112233445566778899aabbccddeeff";
+    let mut mdns = Some(pinna_esphome::DeviceConfig::new(
+        "pinna-test",
+        [2, 0, 0, 0, 0, 1],
+    ));
+    let mut publish = |group: Option<&str>| {
+        group_record_changed(&mut mdns, group.map(str::to_owned)).map(|dc| dc.group)
+    };
+    // The record at boot already says what the group says: nothing to do.
+    assert_eq!(publish(None), None);
+    // Each change is published once, and an unchanged record never again.
+    for group in [Some(""), Some(ID), Some(""), None] {
+        assert_eq!(publish(group), Some(group.map(str::to_owned)), "{group:?}");
+        assert_eq!(publish(group), None, "{group:?}");
+    }
+    assert_eq!(mdns.unwrap().group, None);
+
+    // Without mDNS there is no record to write.
+    let mut off = None;
+    assert!(group_record_changed(&mut off, Some(ID.into())).is_none());
+    assert!(off.is_none());
+}

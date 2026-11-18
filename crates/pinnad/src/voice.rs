@@ -828,6 +828,7 @@ impl Brain {
                 sent_pairing = pairing;
                 self.send_pairing_switch(pairing).await;
             }
+            self.set_group_record();
             self.refresh();
         }
     }
@@ -1265,6 +1266,20 @@ impl Brain {
         if let Some(dc) = &mut self.opts.mdns {
             dc.dashboard_url = url;
             let dc = dc.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::identity::publish_mdns(&dc) {
+                    tracing::warn!("mDNS: {e:#}");
+                }
+            });
+        }
+    }
+
+    /// Follow the satellite group in the mDNS record (ADR 0026): the switch,
+    /// joining and leaving change it. The standalone service saves the
+    /// group; the Brain stays the only writer of the record.
+    fn set_group_record(&mut self) {
+        let record = self.local.group_record();
+        if let Some(dc) = group_record_changed(&mut self.opts.mdns, record) {
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = crate::identity::publish_mdns(&dc) {
                     tracing::warn!("mDNS: {e:#}");
@@ -3217,6 +3232,24 @@ impl Brain {
             changed
         });
     }
+}
+
+/// The record to publish when its `group` value differs from `group`, with
+/// the Brain's copy updated to it; `None` when nothing changed, or without
+/// mDNS. Every change restarts systemd-resolved (ADR 0024), so an unchanged
+/// record is never written again.
+fn group_record_changed(
+    mdns: &mut Option<pinna_esphome::DeviceConfig>,
+    group: Option<String>,
+) -> Option<pinna_esphome::DeviceConfig> {
+    let dc = mdns.as_mut().filter(|dc| dc.group != group)?;
+    match group.as_deref() {
+        None => tracing::info!("mDNS record: Satellite group off"),
+        Some("") => tracing::info!("mDNS record: Satellite group on, in no group"),
+        Some(id) => tracing::info!("mDNS record: in the satellite group {id}"),
+    }
+    dc.group = group;
+    Some(dc.clone())
 }
 
 /// Object id of a button's Home Assistant event entity.

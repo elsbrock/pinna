@@ -115,6 +115,11 @@ impl Local {
         self.live.borrow().ready
     }
 
+    /// What the mDNS record should say about the satellite group (ADR 0026).
+    pub(super) fn group_record(&self) -> Option<String> {
+        self.live.borrow().group.record()
+    }
+
     /// Start the next request without any earlier turns.
     pub(super) fn forget_conversation(&mut self) {
         let live = self.live.borrow();
