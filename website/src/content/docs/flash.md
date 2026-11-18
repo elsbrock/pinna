@@ -12,8 +12,7 @@ to undo it.
 
 - Get the images: from a [release](https://github.com/elsbrock/pinna/releases)
   (download all its files into one folder) or by building them, as described
-  in [Build Pinna](/docs/build/). No release is published yet, so for now you
-  build them.
+  in [Build Pinna](/docs/build/).
 - Back up the device, as described in
   [What you need](/docs/requirements/#backup-of-the-device). Installing Pinna
   erases the data partition.

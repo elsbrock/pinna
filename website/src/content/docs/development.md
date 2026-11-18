@@ -255,9 +255,8 @@ Assistant's update entity:
    python3 -m http.server 8000 --directory build/release
    ```
 
-   Its version, such as `0.4.1-dev.202611170910.g1a2b3c4` (or `0.0.1-dev.…`
-   while no release is tagged), is newer than the release it builds on and
-   than older builds of yours.
+   Its version, such as `0.4.1-dev.202611170910.g1a2b3c4`, is newer than the
+   release it builds on and than older builds of yours.
 
 2. On the satellite, over SSH, add the address to
    `/var/lib/pinna/pinnad.toml` ([`[update]`](/docs/configure/#update)) and

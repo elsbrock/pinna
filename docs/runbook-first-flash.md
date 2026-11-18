@@ -28,8 +28,6 @@ repository too (`kernel/firmware/`) and built into the kernel.
 
 Two ways in: from a release (no build), or from a build of the repository.
 
-No release has been published yet; until one is, build the images (step 2b).
-
 **From a release**, you need `fastboot`, `adb` and `sha256sum` from your
 distribution (on Debian/Ubuntu, `android-tools` has the first two), and all
 five files of one [release](https://github.com/elsbrock/pinna/releases)
@@ -268,8 +266,7 @@ LED direction.
 
 Release images look for new releases on their update channel
 (`updates.getpinna.dev`, ADR 0022) and show them on the dashboard's **System**
-page and in Home Assistant, where you install them. No release is published
-yet. From the device, the same channel by hand (it needs Wi-Fi with internet
+page and in Home Assistant, where you install them. From the device, the same channel by hand (it needs Wi-Fi with internet
 access):
 
 ```sh

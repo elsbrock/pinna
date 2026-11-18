@@ -58,10 +58,6 @@ A newer release then shows on the dashboard's **System** page and in Home
 Assistant. The satellite never goes back to an older version on its own, and a
 satellite on **Stable** never installs a beta.
 
-No release is published yet. Until one is, **System** shows **No release
-yet**, and you install builds of your own as described in
-[Install a build of your own](#install-a-build-of-your-own).
-
 ## Before you begin
 
 - The device runs Pinna, and its current slot is marked **Good** on the
@@ -184,8 +180,8 @@ switch to one of them, install an update to leave it.
 
 ## Install a build of your own
 
-Until a release is published, you install builds of your own. A satellite
-without internet access installs releases the same way. You serve the release
+You install builds of your own this way. A satellite without internet access
+installs releases the same way. You serve the release
 folder from your computer, and the satellite downloads it. Before you begin,
 the device must reach your computer over Wi-Fi or over the USB cable.
 

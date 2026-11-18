@@ -21,8 +21,7 @@ root in signed A/B slots verified by dm-verity, and small Rust daemons.
 Pinna needs an Echo that has already been unlocked with Kaeru/amonet (as
 for the previous firmware). To install it, follow `docs/runbook-first-flash.md`:
 it covers downloading a prebuilt image from a
-[release](https://github.com/elsbrock/pinna/releases) (none is published yet)
-or building your own,
+[release](https://github.com/elsbrock/pinna/releases) or building your own,
 backs the device up first, and every step says how to undo it.
 
 ## Layout
