@@ -8,10 +8,6 @@ use serde_json::{Value, json};
 use crate::jsonrpc::{Error, Id, Incoming, Payload, Request, Response, Version, parse};
 use crate::tool::{ToolOutput, ToolSet};
 
-/// The newest protocol version this server speaks.
-const PROTOCOL_LATEST: &str = "2025-06-18";
-/// The only older version this server still accepts.
-const PROTOCOL_PREVIOUS: &str = "2025-03-26";
 /// A client name is for the dashboard; it never becomes a metric label.
 const CLIENT_NAME_MAX: usize = 40;
 
@@ -84,8 +80,8 @@ fn initialize(info: &ServerInfo, req: &Request) -> Value {
         .as_ref()
         .and_then(|p| p.get("protocolVersion"))
         .and_then(Value::as_str)
-        .filter(|v| *v == PROTOCOL_LATEST || *v == PROTOCOL_PREVIOUS)
-        .unwrap_or(PROTOCOL_LATEST);
+        .filter(|v| crate::PROTOCOL_VERSIONS.contains(v))
+        .unwrap_or(crate::PROTOCOL_VERSIONS[0]);
     json!({
         "protocolVersion": version,
         "capabilities": { "tools": {} },

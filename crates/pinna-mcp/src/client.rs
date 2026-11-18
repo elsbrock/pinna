@@ -25,7 +25,6 @@ use crate::{
     namespaced,
 };
 
-const PROTOCOL_VERSION: &str = "2025-06-18";
 const MAX_BODY: usize = 256 * 1024;
 const MAX_TOOLS: usize = 32;
 const LIST_TIMEOUT: Duration = Duration::from_secs(2);
@@ -67,6 +66,9 @@ struct Session {
     initialized: bool,
     generation: u64,
     id: Option<String>,
+    /// The version the server agreed to; every request after `initialize`
+    /// names it.
+    protocol: &'static str,
 }
 
 pub struct McpClient {
@@ -177,14 +179,10 @@ impl McpClient {
         let session = self.session.lock().await;
         let generation = session.generation;
         let id = session.id.clone();
+        let protocol = session.protocol;
         drop(session);
         let result = self
-            .exchange(
-                method,
-                params.clone(),
-                id.as_deref(),
-                Some(PROTOCOL_VERSION),
-            )
+            .exchange(method, params.clone(), id.as_deref(), Some(protocol))
             .await
             .map(|(result, _)| result);
         (generation, result)
@@ -199,7 +197,7 @@ impl McpClient {
             .exchange(
                 "initialize",
                 json!({
-                    "protocolVersion": PROTOCOL_VERSION,
+                    "protocolVersion": crate::PROTOCOL_VERSIONS[0],
                     "capabilities": {},
                     "clientInfo": {"name": "pinna", "version": env!("CARGO_PKG_VERSION")},
                 }),
@@ -207,22 +205,30 @@ impl McpClient {
                 None,
             )
             .await?;
-        if result.get("protocolVersion").and_then(Value::as_str) != Some(PROTOCOL_VERSION) {
-            return Err(McpError::Protocol);
-        }
-        self.notify_initialized(id.as_deref()).await?;
+        // A server may answer with an older version it shares with us.
+        let protocol = result
+            .get("protocolVersion")
+            .and_then(Value::as_str)
+            .and_then(|v| crate::PROTOCOL_VERSIONS.iter().copied().find(|s| *s == v))
+            .ok_or(McpError::Protocol)?;
+        self.notify_initialized(id.as_deref(), protocol).await?;
         session.id = id;
+        session.protocol = protocol;
         session.generation = session.generation.wrapping_add(1);
         session.initialized = true;
         Ok(())
     }
 
-    async fn notify_initialized(&self, session: Option<&str>) -> Result<(), McpError> {
+    async fn notify_initialized(
+        &self,
+        session: Option<&str>,
+        protocol: &str,
+    ) -> Result<(), McpError> {
         let response = self
             .post(
                 json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
                 session,
-                Some(PROTOCOL_VERSION),
+                Some(protocol),
             )
             .await?;
         if response.status().is_success() {
@@ -511,6 +517,8 @@ mod tests {
         oversized_list: AtomicBool,
         long_output: AtomicBool,
         tool_count: AtomicUsize,
+        /// The protocol version `initialize` answers with.
+        version: Mutex<&'static str>,
     }
 
     impl FakeState {
@@ -525,6 +533,7 @@ mod tests {
                 oversized_list: AtomicBool::new(false),
                 long_output: AtomicBool::new(false),
                 tool_count: AtomicUsize::new(1),
+                version: Mutex::new(crate::PROTOCOL_VERSIONS[0]),
             }
         }
 
@@ -598,7 +607,7 @@ mod tests {
             "initialize" => {
                 state.initialize_count.fetch_add(1, Ordering::Relaxed);
                 json!({
-                    "protocolVersion": PROTOCOL_VERSION,
+                    "protocolVersion": *state.version.lock().unwrap(),
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "fake", "version": "1"},
                 })
@@ -704,7 +713,7 @@ mod tests {
             assert!(
                 requests[1..]
                     .iter()
-                    .all(|request| request.protocol.as_deref() == Some(PROTOCOL_VERSION))
+                    .all(|request| request.protocol.as_deref() == Some(crate::PROTOCOL_VERSIONS[0]))
             );
             assert!(
                 requests
@@ -714,9 +723,34 @@ mod tests {
             );
             assert_eq!(
                 requests[0].body["params"]["protocolVersion"],
-                PROTOCOL_VERSION
+                crate::PROTOCOL_VERSIONS[0]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_server_on_the_older_protocol_is_used_with_it() {
+        let server = FakeServer::start(Wire::Json).await;
+        *server.state.version.lock().unwrap() = "2025-03-26";
+        let client = server.client();
+        assert_eq!(client.list(Duration::from_secs(1)).await.unwrap().len(), 1);
+        let requests = server.state.requests();
+        assert!(
+            requests[1..]
+                .iter()
+                .all(|request| request.protocol.as_deref() == Some("2025-03-26"))
+        );
+
+        let server = FakeServer::start(Wire::Json).await;
+        *server.state.version.lock().unwrap() = "1999-01-01";
+        assert_eq!(
+            server
+                .client()
+                .list(Duration::from_secs(1))
+                .await
+                .unwrap_err(),
+            McpError::Protocol
+        );
     }
 
     #[tokio::test]
