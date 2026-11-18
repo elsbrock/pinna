@@ -235,7 +235,7 @@ impl StandaloneCounters {
     pub fn guard_total(&self, guard: Guard) -> u64 {
         self.guards
             .get_or_create(&GuardKind {
-                guard: guard_label(guard),
+                guard: guard.label(),
             })
             .get()
     }
@@ -248,17 +248,6 @@ impl StandaloneCounters {
                 reason: reason.label(),
             })
             .get()
-    }
-}
-
-fn guard_label(guard: Guard) -> &'static str {
-    match guard {
-        Guard::NoSpeech => "no_speech",
-        Guard::Invented => "invented",
-        Guard::FollowUp => "follow_up",
-        Guard::Ack => "ack",
-        Guard::StoppedByWake => "stopped_by_wake",
-        Guard::StoppedByButton => "stopped_by_button",
     }
 }
 
@@ -294,9 +283,10 @@ impl Observer for StandaloneCounters {
     }
 
     fn guard(&self, guard: Guard) {
+        tracing::debug!("standalone guard: {}", guard.label());
         self.guards
             .get_or_create(&GuardKind {
-                guard: guard_label(guard),
+                guard: guard.label(),
             })
             .inc();
     }

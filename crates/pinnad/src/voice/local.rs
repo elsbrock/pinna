@@ -346,8 +346,6 @@ impl Brain {
                 Effect::StartPlayer => self.start_reply_player(),
                 Effect::Finish => self.finish_local().await,
                 Effect::Fail(error) => self.fail_local(error).await,
-                // The run counted it through its observer.
-                Effect::Guard(guard) => tracing::debug!("standalone guard: {guard:?}"),
             }
         }
         match &self.local.run {
@@ -816,7 +814,6 @@ enum Effect {
     StartPlayer,
     Finish,
     Fail(ProviderError),
-    Guard(Guard),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -855,32 +852,17 @@ fn step(phase: Phase, kind: &RunKind, ev: &RunEvent, now: Instant) -> Step {
                 ],
             }
         }
-        (Phase::Listening(_), RunKind::Request, RunEvent::NoSpeech { invented }) => Step {
+        // The run counted the guard (nothing heard, or an invented
+        // transcript) through its observer.
+        (Phase::Listening(_), RunKind::Request, RunEvent::NoSpeech { .. }) => Step {
             phase: Phase::Idle,
             deadline: DeadlineRule::Keep,
-            effects: vec![
-                Effect::CloseMic,
-                Effect::Guard(if *invented {
-                    Guard::Invented
-                } else {
-                    Guard::NoSpeech
-                }),
-                Effect::Event("stopped"),
-                Effect::ErrorCue,
-            ],
+            effects: vec![Effect::CloseMic, Effect::Event("stopped"), Effect::ErrorCue],
         },
-        (Phase::Listening(_), RunKind::FollowUp, RunEvent::NoSpeech { invented }) => Step {
+        (Phase::Listening(_), RunKind::FollowUp, RunEvent::NoSpeech { .. }) => Step {
             phase: Phase::Idle,
             deadline: DeadlineRule::Keep,
-            effects: vec![
-                Effect::CloseMic,
-                Effect::Guard(if *invented {
-                    Guard::Invented
-                } else {
-                    Guard::NoSpeech
-                }),
-                Effect::Finish,
-            ],
+            effects: vec![Effect::CloseMic, Effect::Finish],
         },
         (Phase::Thinking(_) | Phase::Speaking, _, RunEvent::Progress) => Step {
             phase,
@@ -1276,7 +1258,7 @@ mod tests {
     #[test]
     fn no_speech_after_a_request_has_the_home_assistant_error_feedback() {
         let now = Instant::now();
-        for (invented, guard) in [(false, Guard::NoSpeech), (true, Guard::Invented)] {
+        for invented in [false, true] {
             assert_eq!(
                 step(
                     Phase::Listening(now),
@@ -1287,12 +1269,7 @@ mod tests {
                 Step {
                     phase: Phase::Idle,
                     deadline: DeadlineRule::Keep,
-                    effects: vec![
-                        Effect::CloseMic,
-                        Effect::Guard(guard),
-                        Effect::Event("stopped"),
-                        Effect::ErrorCue,
-                    ],
+                    effects: vec![Effect::CloseMic, Effect::Event("stopped"), Effect::ErrorCue],
                 }
             );
         }
@@ -1301,7 +1278,7 @@ mod tests {
     #[test]
     fn no_speech_after_a_follow_up_finishes_quietly() {
         let now = Instant::now();
-        for (invented, guard) in [(false, Guard::NoSpeech), (true, Guard::Invented)] {
+        for invented in [false, true] {
             assert_eq!(
                 step(
                     Phase::Listening(now),
@@ -1312,7 +1289,7 @@ mod tests {
                 Step {
                     phase: Phase::Idle,
                     deadline: DeadlineRule::Keep,
-                    effects: vec![Effect::CloseMic, Effect::Guard(guard), Effect::Finish],
+                    effects: vec![Effect::CloseMic, Effect::Finish],
                 }
             );
         }

@@ -22,6 +22,20 @@ pub enum Guard {
     StoppedByButton,
 }
 
+impl Guard {
+    /// The metric label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NoSpeech => "no_speech",
+            Self::Invented => "invented",
+            Self::FollowUp => "follow_up",
+            Self::Ack => "ack",
+            Self::StoppedByWake => "stopped_by_wake",
+            Self::StoppedByButton => "stopped_by_button",
+        }
+    }
+}
+
 pub trait Observer: Send + Sync {
     fn stage(&self, slot: Slot, seconds: f64);
     fn spent(&self, preset: PresetId, spend: Spend);
