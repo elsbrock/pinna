@@ -83,8 +83,11 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   language, place, the prompt, the tool switches, stations and MCP servers have no Home Assistant entity:
   - Home Assistant takes no part in a standalone request;
   - keys never leave the device.
-- **The mode is also a Home Assistant entity**, the select *Assistant* with *Home Assistant* and
-  *Standalone*, so an owner who has both can switch from Home Assistant and back. In standalone mode the
+- **The mode is also a Home Assistant entity**, the select *Voice mode* with *Home Assistant* and
+  *Standalone*, so an owner who has both can switch from Home Assistant and back. It was called
+  *Assistant* at first, which Home Assistant's own select for the Assist pipeline is also called, on
+  the same device page. Home Assistant builds the entity's unique ID from the name, so the rename
+  makes a new entity; it came before the first release. The object ID stays `assistant`. In standalone mode the
   brain and MCP clients can also switch back with a tool (below). It stays available in
   both modes, since Home Assistant stays connected without the voice. It follows the same rule as the
   dashboard: *Standalone* is refused until the three slots are ready, and the select then reports the
