@@ -159,6 +159,14 @@
       <span class="pn-row-value">{lines.filter((l) => l.ready).length} of 3 ready</span>
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
+    <a class="pn-row" href="#/assistant/conversation">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Conversation</span>
+        <span class="pn-row-hint">Language, place, the prompt, follow-ups, and a box to type a question</span>
+      </span>
+      {#if assistant.view?.language}<span class="pn-row-value is-mono">{assistant.view.language}</span>{/if}
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
   </Group>
 
   <Confirm

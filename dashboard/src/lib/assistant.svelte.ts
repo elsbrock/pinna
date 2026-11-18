@@ -90,6 +90,12 @@ class AssistantSetup {
     return (await this.#edit(() => client.updateAssistant(patch), done))?.sentence ?? null;
   }
 
+  /** Ask the brain a typed question, as if it was spoken; the satellite
+   *  answers aloud. Standalone mode only. */
+  async askText(text: string) {
+    return (await this.#edit(() => client.askText({ text }).then(() => ({}))))?.sentence ?? null;
+  }
+
   /** Say `text` with the text-to-speech slot; resolves once it sounds. */
   async playSample(text: string) {
     return (await this.#edit(() => client.playSample({ text }).then(() => ({}))))?.sentence ?? null;

@@ -5,6 +5,8 @@ import type { Assistant, BrainOverride, Preset, ProviderConnection, SlotChoice }
 import type { AssistantStatus } from "../gen/pinna/v1/device_pb.ts";
 import {
   addressKind,
+  brainPreset,
+  chars,
   delegation,
   errorSlot,
   hostOf,
@@ -13,6 +15,8 @@ import {
   keyShown,
   MODE,
   presetName,
+  PROMPT_MAX,
+  promptCount,
   servesWords,
   slotLines,
   slotName,
@@ -177,6 +181,8 @@ test("who runs the tools: the Advanced setting, else the brain's preset", () => 
     presets: [preset("openai"), preset("hermes", { handOff: true })],
   });
   assert.equal(delegation(base), null);
+  assert.equal(brainPreset(base), undefined);
+  assert.equal(brainPreset({ ...base, brain: slot("hermes-1", "hermes") })?.id, "hermes");
   assert.equal(delegation({ ...base, brain: slot("openai-1", "gpt") }), "tool-loop");
   assert.equal(delegation({ ...base, brain: slot("hermes-1", "hermes") }), "hand-off");
   assert.equal(delegation({ ...base, brain: slot("hermes-1", "hermes"), brainOverride: over(1) }), "tool-loop");
@@ -188,4 +194,11 @@ test("a key edit becomes the request's key fields", () => {
   assert.deepEqual(keyFields({ kind: "set", value: "sk-1" }), { key: "sk-1", clearKey: false });
   assert.deepEqual(keyFields({ kind: "clear" }), { clearKey: true });
   assert.deepEqual(keyFields({ kind: "keep" }), { clearKey: false });
+});
+
+test("the prompt counts characters as the satellite does", () => {
+  assert.equal(chars("Grüß dich 👋"), 11);
+  assert.equal(promptCount(""), "0 of 4,000");
+  assert.equal(promptCount("a".repeat(1234)), "1,234 of 4,000");
+  assert.equal(PROMPT_MAX, 4000);
 });

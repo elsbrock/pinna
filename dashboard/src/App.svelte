@@ -14,6 +14,7 @@
   import WifiTrial from "./lib/WifiTrial.svelte";
   import { displayName, DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
   import Assistant from "./pages/assistant/Assistant.svelte";
+  import Conversation from "./pages/assistant/Conversation.svelte";
   import Services from "./pages/assistant/Services.svelte";
   import Logs from "./pages/Logs.svelte";
   import Network from "./pages/Network.svelte";
@@ -194,6 +195,7 @@
         {:else if page.path === "/voice/media-sources"}<MediaSources />
         {:else if page.path === "/assistant"}<Assistant />
         {:else if page.path === "/assistant/services"}<Services />
+        {:else if page.path === "/assistant/conversation"}<Conversation />
         {:else if page.path === "/network"}<Network />
         {:else if page.path === "/system"}<System />
         {:else if page.path === "/system/logs"}<Logs />{/if}

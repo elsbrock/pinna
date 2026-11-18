@@ -484,6 +484,7 @@ export const PATHS = [
   "/voice/media-sources",
   "/assistant",
   "/assistant/services",
+  "/assistant/conversation",
   "/network",
   "/system",
   "/system/logs",

@@ -151,6 +151,12 @@ export function slotWords(keys: SlotKey[]): string {
   return list(keys.map((k) => (k === "brain" ? "the brain" : SLOTS.find((s) => s.key === k)!.name.toLowerCase())));
 }
 
+/** The preset of the brain's connection, while a brain is chosen. */
+export function brainPreset(view: Assistant): Preset | undefined {
+  const connection = view.connections.find((c) => c.id === view.brain?.connection);
+  return view.presets.find((p) => p.id === connection?.preset);
+}
+
 // pinna.v1.Delegation values (a generated TS enum, which `node --test` cannot load).
 const DELEGATION = { toolLoop: 1, handOff: 2 } as const;
 
@@ -160,10 +166,8 @@ const DELEGATION = { toolLoop: 1, handOff: 2 } as const;
  * Advanced setting wins over the preset; null while no brain is chosen.
  */
 export function delegation(view: Assistant): "tool-loop" | "hand-off" | null {
-  const choice = view.brain;
-  const connection = view.connections.find((c) => c.id === choice?.connection);
-  const preset = view.presets.find((p) => p.id === connection?.preset);
-  if (!choice || !preset) return null;
+  const preset = brainPreset(view);
+  if (!preset) return null;
   const set = view.brainOverride?.delegation;
   if (set === DELEGATION.toolLoop) return "tool-loop";
   if (set === DELEGATION.handOff) return "hand-off";
@@ -177,4 +181,18 @@ export type SecretEdit = { kind: "keep" } | { kind: "set"; value: string } | { k
 export function keyFields(e: SecretEdit): { key?: string; clearKey: boolean } {
   if (e.kind === "set") return { key: e.value, clearKey: false };
   return { clearKey: e.kind === "clear" };
+}
+
+/** The longest prompt, in characters (pinna-assist's PROMPT_MAX). */
+export const PROMPT_MAX = 4000;
+
+/** Characters as the satellite counts them: Unicode code points, not UTF-16 units. */
+export function chars(text: string): number {
+  return [...text].length;
+}
+
+/** "1,234 of 4,000" */
+export function promptCount(text: string): string {
+  const n = (x: number) => x.toLocaleString("en");
+  return `${n(chars(text))} of ${n(PROMPT_MAX)}`;
 }

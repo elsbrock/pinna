@@ -70,6 +70,11 @@ const SUBPAGES: Omit<Page, "section">[] = [
       "What turns speech into text, answers, and speaks the reply in standalone mode: the services, their keys and their checks.",
   },
   {
+    path: "/assistant/conversation",
+    title: "Conversation",
+    description: "The language, the place, what the brain is told, and how a conversation goes on.",
+  },
+  {
     path: "/system/logs",
     title: "Logs",
     description:
