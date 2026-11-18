@@ -394,7 +394,7 @@ impl Service {
             }),
             agents: Mutex::new(VecDeque::new()),
         });
-        service.refresh_ack();
+        service.committed.refresh_ack();
         service
     }
 
@@ -804,19 +804,6 @@ impl Service {
 
     /// Make the acknowledgment the configuration now asks for, off the
     /// caller's path, and publish it once it is on disk.
-    fn refresh_ack(&self) {
-        // Without a runtime (plain unit tests) there is nothing to run it on.
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            return;
-        };
-        let committed = self.committed.clone();
-        runtime.spawn(async move {
-            if committed.ack.refresh(|| committed.ack_wanted()).await {
-                committed.republish();
-            }
-        });
-    }
-
     /// The save-time check for one slot, or the sentence why it failed.
     async fn check(
         &self,
@@ -889,8 +876,8 @@ impl Service {
 
     /// Apply `edit` to the committed configuration, write what changed and
     /// publish. Commits run one at a time. Once the edit is accepted, the
-    /// write and the publish finish even if the caller goes away, so memory
-    /// and disk never disagree.
+    /// write and the publish finish even if the caller goes away. A write
+    /// that fails is rolled back, so memory and disk agree.
     async fn commit(
         &self,
         edit: impl FnOnce(&mut Draft) -> Result<(), Refusal>,
@@ -919,16 +906,26 @@ impl Service {
         let committed = self.committed.clone();
         let saved = tokio::task::spawn_blocking(move || {
             let _writer = writer;
-            save(&files, config.as_ref(), secrets.as_ref())?;
+            // A key is bound to its URL, so a crash between the two writes
+            // can lose a key but never pair it with another address.
+            if let Some(secrets) = &secrets {
+                crate::secrets::save(&files.secrets, secrets)?;
+            }
+            if let Some(config) = &config
+                && let Err(e) = files.config.try_save(config)
+            {
+                if let Some(secrets) = secrets {
+                    committed.roll_back_secrets(&files, secrets);
+                }
+                return Err(e);
+            }
             committed.replace(draft);
+            committed.refresh_ack();
             Ok::<_, io::Error>(())
         })
         .await;
         match saved {
-            Ok(Ok(())) => {
-                self.refresh_ack();
-                Ok(self.view())
-            }
+            Ok(Ok(())) => Ok(self.view()),
             Ok(Err(e)) => {
                 tracing::warn!("saving the assistant settings: {e}");
                 Err(Refusal::Precondition(NOT_SAVED.into()))
@@ -942,6 +939,35 @@ impl Service {
 }
 
 impl Committed {
+    /// Synthesise the acknowledgment again if what it says or sounds like
+    /// changed, then publish it.
+    fn refresh_ack(self: &Arc<Self>) {
+        // Without a runtime (plain unit tests) there is nothing to run it on.
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let committed = self.clone();
+        runtime.spawn(async move {
+            if committed.ack.refresh(|| committed.ack_wanted()).await {
+                committed.republish();
+            }
+        });
+    }
+
+    /// The keys were written but the configuration wasn't: put the committed
+    /// keys back on disk. If that fails too, memory takes the written keys,
+    /// so the dashboard shows what the next start will read.
+    fn roll_back_secrets(&self, files: &Files, written: Secrets) {
+        let committed = self.state.lock().unwrap().secrets.clone();
+        if let Err(e) = crate::secrets::save(&files.secrets, &committed) {
+            tracing::warn!("putting the previous keys back after a failed save: {e}");
+            let mut state = self.state.lock().unwrap();
+            state.secrets = written;
+            let live = state.publish(&self.ack);
+            self.live.send_replace(Arc::new(live));
+        }
+    }
+
     fn replace(&self, draft: Draft) {
         let mut state = self.state.lock().unwrap();
         state.config = draft.config;
@@ -1035,18 +1061,6 @@ impl State {
 struct Files {
     config: Store<AssistConfig>,
     secrets: Store<SecretsFile>,
-}
-
-fn save(files: &Files, config: Option<&AssistConfig>, secrets: Option<&Secrets>) -> io::Result<()> {
-    // A key is bound to its URL, so a crash between the two writes can lose a
-    // key but never pair it with another address.
-    if let Some(secrets) = secrets {
-        crate::secrets::save(&files.secrets, secrets)?;
-    }
-    if let Some(config) = config {
-        files.config.try_save(config)?;
-    }
-    Ok(())
 }
 
 fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>) -> AssistantView {
@@ -1508,6 +1522,34 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(audio.body, AudioBody::Stream(_)));
+    }
+
+    #[tokio::test]
+    async fn a_failed_configuration_write_puts_the_previous_key_back() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        let server = FakeServer::start().await;
+        let connection = f.connect(&server).await;
+        let keys_before = f.file("secrets.toml");
+        // The configuration can't be replaced; the keys file still can.
+        let config = f.dir.path().join("standalone.toml");
+        fs::remove_file(&config).unwrap();
+        fs::create_dir_all(config.join("blocked")).unwrap();
+
+        let refused = f
+            .service
+            .set_connection(edit(
+                &connection,
+                server.url("/elsewhere"),
+                KeyEdit::Set(Secret::new("sk-new-9999")),
+            ))
+            .await
+            .unwrap_err();
+
+        assert_eq!(refused, Refusal::Precondition(NOT_SAVED.into()));
+        assert_eq!(f.file("secrets.toml"), keys_before);
+        let view = f.service.view();
+        assert_eq!(view.connections[0].base_url, connection.base_url);
+        assert_eq!(view.connections[0].key_last4.as_deref(), Some("3456"));
     }
 
     #[tokio::test]
