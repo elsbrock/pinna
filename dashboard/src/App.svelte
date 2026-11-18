@@ -18,6 +18,7 @@
   import Conversation from "./pages/assistant/Conversation.svelte";
   import Services from "./pages/assistant/Services.svelte";
   import Tools from "./pages/assistant/Tools.svelte";
+  import LightRing from "./pages/LightRing.svelte";
   import Logs from "./pages/Logs.svelte";
   import Network from "./pages/Network.svelte";
   import Overview from "./pages/Overview.svelte";
@@ -206,6 +207,7 @@
         {#if page.path === "/voice"}<Voice />
         {:else if page.path === "/voice/wake-word"}<WakeWord />
         {:else if page.path === "/voice/media-sources"}<MediaSources />
+        {:else if page.path === "/voice/ring"}<LightRing />
         {:else if page.path === "/assistant"}<Assistant />
         {:else if page.path === "/assistant/services"}<Services />
         {:else if page.path === "/assistant/conversation"}<Conversation />
