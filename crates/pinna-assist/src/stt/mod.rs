@@ -63,7 +63,8 @@ pub(crate) fn join(base_url: &str, path: &str) -> String {
 
 /// The WAV file part every form sends.
 pub(crate) fn wav_part(wav: Bytes, preset: PresetId) -> Result<multipart::Part, ProviderError> {
-    multipart::Part::bytes(wav.to_vec())
+    // A `Bytes` body has a known length and is sent without another copy.
+    multipart::Part::stream(wav)
         .file_name("audio.wav")
         .mime_str("audio/wav")
         .map_err(|_| ProviderError::new(Slot::Stt, preset, Reason::Internal))
