@@ -41,7 +41,7 @@ pub struct RunId(pub u64);
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AssistStatus {
     pub ready: bool,
-    pub slots: [bool; 3],
+    pub slots: pinna_assist::presets::Slots,
     pub label: String,
     pub last_error: Option<String>,
 }

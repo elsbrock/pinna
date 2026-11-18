@@ -80,6 +80,8 @@ mod tests {
     use pinna_esphome::{EsphomeHandle, TimerEventType, VOICE_FEATURE_FLAGS, VoiceEventType};
     use tokio::sync::{mpsc, oneshot, watch};
 
+    use pinna_assist::presets::Slots;
+
     use super::*;
     use crate::leds::LedState;
     use crate::settings::Settings;
@@ -148,7 +150,7 @@ mod tests {
             self.live
                 .send(Arc::new(AssistLive {
                     ready,
-                    slots: [ready; 3],
+                    slots: Slots::all(ready),
                     label: "test brain".into(),
                     ..AssistLive::empty()
                 }))
@@ -214,7 +216,7 @@ mod tests {
         assert!(device.brain.assist_ready());
         let assist = device.brain.snapshot().assist;
         assert!(assist.ready);
-        assert_eq!(assist.slots, [true; 3]);
+        assert_eq!(assist.slots, Slots::all(true));
         assert_eq!(assist.label, "test brain");
     }
 

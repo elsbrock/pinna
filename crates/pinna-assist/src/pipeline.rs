@@ -14,7 +14,7 @@ use crate::{
     config::{self, AssistConfig, Connection, SlotConfig},
     http::{Auth, Endpoint},
     limits::RunLimits,
-    presets::{Behaviour, Delegation, PresetId, preset},
+    presets::{Behaviour, Delegation, PresetId, Slots, preset},
     secrets::Secrets,
     stt::{self, Stt},
     tts::{self, Tts},
@@ -24,7 +24,7 @@ pub struct Pipeline {
     pub stt: Arc<dyn Stt>,
     pub chat: Arc<dyn Chat>,
     pub tts: Arc<dyn Tts>,
-    pub presets: [PresetId; 3],
+    pub presets: Slots<PresetId>,
     pub behaviour: Behaviour,
     pub label: String,
 }
@@ -49,7 +49,11 @@ impl Pipeline {
             stt,
             chat: chat.adapter,
             tts: speech.tts,
-            presets: [stt_preset, chat.preset, speech.preset],
+            presets: Slots {
+                stt: stt_preset,
+                chat: chat.preset,
+                tts: speech.preset,
+            },
             behaviour: chat.behaviour,
             label: chat.label,
         })
@@ -200,7 +204,7 @@ mod tests {
             ..AssistConfig::default()
         };
         let pipeline = Pipeline::build(&cfg, &Secrets::default(), || true).unwrap();
-        assert_eq!(pipeline.presets, [PresetId::OpenAi; 3]);
+        assert_eq!(pipeline.presets, Slots::all(PresetId::OpenAi));
         assert_eq!(pipeline.label, "openai: gpt-test");
     }
 

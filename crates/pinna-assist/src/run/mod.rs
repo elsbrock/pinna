@@ -75,7 +75,7 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
         RunKind::Request | RunKind::FollowUp => {
             let Some(mut mic) = mic else {
                 return fail(
-                    ProviderError::new(Slot::Stt, pipeline.presets[0], Reason::Internal),
+                    ProviderError::new(Slot::Stt, pipeline.presets.stt, Reason::Internal),
                     sink,
                     observer,
                     events,
@@ -95,7 +95,7 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
             events.emit(RunEvent::SpeechEnded).await;
 
             let seconds = frames.iter().map(|frame| frame.len()).sum::<usize>() as f32 / 32_000.0;
-            observer.spent(pipeline.presets[0], Spend::AudioSeconds(seconds));
+            observer.spent(pipeline.presets.stt, Spend::AudioSeconds(seconds));
             let started = Instant::now();
             let transcript = match tokio::time::timeout(
                 pipeline.behaviour.limits.stt,
@@ -109,7 +109,7 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
                 }
                 Err(_) => {
                     return fail(
-                        ProviderError::new(Slot::Stt, pipeline.presets[0], Reason::Timeout),
+                        ProviderError::new(Slot::Stt, pipeline.presets.stt, Reason::Timeout),
                         sink,
                         observer,
                         events,
@@ -138,8 +138,8 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
             tts: pipeline.tts.as_ref(),
             tools: tools.as_ref(),
             behaviour: &pipeline.behaviour,
-            chat_preset: pipeline.presets[1],
-            tts_preset: pipeline.presets[2],
+            chat_preset: pipeline.presets.chat,
+            tts_preset: pipeline.presets.tts,
             sink: &sink,
             ack: ack.as_deref(),
             observer: observer.as_ref(),
@@ -251,7 +251,7 @@ mod tests {
             stt,
             chat,
             tts,
-            presets: [PresetId::OpenAi; 3],
+            presets: crate::presets::Slots::all(PresetId::OpenAi),
             behaviour,
             label: "test".into(),
         })

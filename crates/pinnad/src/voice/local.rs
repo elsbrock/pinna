@@ -386,17 +386,12 @@ impl Brain {
 
     /// The preset serving `slot` in the current configuration.
     fn slot_preset(&self, slot: Slot) -> PresetId {
-        let index = match slot {
-            Slot::Stt => 0,
-            Slot::Chat | Slot::Tool => 1,
-            Slot::Tts => 2,
-        };
         self.local
             .live
             .borrow()
             .pipeline
             .as_ref()
-            .map_or(PresetId::Custom, |p| p.presets[index])
+            .map_or(PresetId::Custom, |p| p.presets.get(slot))
     }
 
     /// A failure only the Brain saw: a passed deadline or a reply that didn't
@@ -928,6 +923,7 @@ mod tests {
 
     use pinna_assist::error::{Reason, Slot};
     use pinna_assist::pipeline::Pipeline;
+    use pinna_assist::presets::Slots;
     use pinna_assist::reply::Credit;
     use pinna_audio::{Backend, PlaybackState, SpeakerConfig};
     use pinna_esphome::{DeviceEvent, EsphomeHandle, HaCommand};
@@ -1060,7 +1056,7 @@ mod tests {
             let device = Self::new(Mode::Standalone, speaker);
             device.set_live(AssistLive {
                 ready: true,
-                slots: [true; 3],
+                slots: Slots::all(true),
                 label: "test brain".into(),
                 ..AssistLive::empty()
             });
@@ -1919,7 +1915,7 @@ mod tests {
         let mut device = TestDevice::ready_with(true);
         device.set_live(AssistLive {
             ready: true,
-            slots: [true; 3],
+            slots: Slots::all(true),
             follow_ups: false,
             ..AssistLive::empty()
         });
@@ -2258,7 +2254,7 @@ mod tests {
                 "ringing" => device.brain.ringing = Some(("tea".into(), Instant::now())),
                 "off" => device.set_live(AssistLive {
                     ready: true,
-                    slots: [true; 3],
+                    slots: Slots::all(true),
                     follow_ups: false,
                     ..AssistLive::empty()
                 }),
@@ -2458,12 +2454,12 @@ mod tests {
             let device = Self::new(mode, true);
             device.set_live(AssistLive {
                 ready: true,
-                slots: [true; 3],
+                slots: Slots::all(true),
                 pipeline: Some(Arc::new(Pipeline {
                     stt: Arc::new(Unasked),
                     chat: Arc::new(Unasked),
                     tts: Arc::new(voice),
-                    presets: [PresetId::OpenAi; 3],
+                    presets: Slots::all(PresetId::OpenAi),
                     behaviour: pinna_assist::presets::preset(PresetId::OpenAi).behaviour,
                     label: "openai: test-model".into(),
                 })),
@@ -2528,7 +2524,10 @@ mod tests {
     async fn speak_needs_only_the_text_to_speech_slot() {
         let mut device = TestDevice::new(Mode::HomeAssistant, true);
         device.set_live(AssistLive {
-            slots: [false, false, true],
+            slots: Slots {
+                tts: true,
+                ..Slots::all(false)
+            },
             speech: Some(Speech {
                 tts: Arc::new(Voice::Wav(100)),
                 preset: PresetId::OpenAi,
@@ -2666,7 +2665,7 @@ mod tests {
         device.brain.voice_subscribed = true;
         device.set_live(AssistLive {
             ready: true,
-            slots: [true; 3],
+            slots: Slots::all(true),
             ..AssistLive::empty()
         });
 
@@ -2733,12 +2732,15 @@ mod tests {
         device.set_live(AssistLive {
             chat_gen: 1,
             ready: true,
-            slots: [true; 3],
+            slots: Slots::all(true),
             pipeline: Some(Arc::new(Pipeline {
                 stt: Arc::new(Unasked),
                 chat: Arc::new(Unasked),
                 tts: Arc::new(Voice::Silent),
-                presets: [PresetId::OpenAi, PresetId::Hermes, PresetId::OpenAi],
+                presets: Slots {
+                    chat: PresetId::Hermes,
+                    ..Slots::all(PresetId::OpenAi)
+                },
                 behaviour: pinna_assist::presets::preset(PresetId::Hermes).behaviour,
                 label: "hermes: agent".into(),
             })),

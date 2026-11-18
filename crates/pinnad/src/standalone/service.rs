@@ -25,7 +25,7 @@ use pinna_assist::config::{
 use pinna_assist::error::Slot;
 use pinna_assist::http::Endpoint;
 use pinna_assist::pipeline::{Pipeline, Speech};
-use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId};
+use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId, Slots};
 use pinna_assist::secrets::{Secrets, SecretsFile};
 use pinna_assist::tts::Tts;
 use pinna_http::{ClientKind, Secret, reqwest};
@@ -337,11 +337,14 @@ struct State {
     built: Option<(BuildInputs, Option<Arc<Pipeline>>, Option<Speech>)>,
 }
 
+/// One slot's connection, model or voice, and key.
+type BuiltSlot = (Connection, String, Option<Secret>);
+
 /// Everything the adapters are built from.
 #[derive(PartialEq)]
 struct BuildInputs {
     /// Each slot's connection, model or voice, and key.
-    slots: [Option<(Connection, String, Option<Secret>)>; 3],
+    slots: Slots<Option<BuiltSlot>>,
     overrides: ChatOverride,
     language: Option<String>,
 }
@@ -357,7 +360,11 @@ impl BuildInputs {
             Some((connection.clone(), slot.model.clone(), key))
         };
         Self {
-            slots: SlotKind::ALL.map(slot),
+            slots: Slots {
+                stt: slot(SlotKind::Stt),
+                chat: slot(SlotKind::Chat),
+                tts: slot(SlotKind::Tts),
+            },
             overrides: c.chat_override,
             language: c.language.clone(),
         }
@@ -1009,12 +1016,16 @@ impl State {
         }
         let (pipeline, speech) = self.adapters();
         let c = &self.config;
-        let slots = SlotKind::ALL.map(|kind| slot_ready(c, kind));
+        let slots = Slots {
+            stt: slot_ready(c, SlotKind::Stt),
+            chat: slot_ready(c, SlotKind::Chat),
+            tts: slot_ready(c, SlotKind::Tts),
+        };
         let ack = ack::Source::wanted(c, pipeline.as_deref(), slot_ready(c, SlotKind::Tts))
             .and_then(|source| cache.path(&source));
         AssistLive {
             chat_gen: self.chat_gen,
-            ready: pipeline.is_some() && slots.iter().all(|ready| *ready),
+            ready: pipeline.is_some() && slots.every(),
             slots,
             label: pipeline
                 .as_ref()
@@ -1046,7 +1057,7 @@ impl State {
         let speech = match &pipeline {
             Some(pipeline) => Some(Speech {
                 tts: pipeline.tts.clone(),
-                preset: pipeline.presets[2],
+                preset: pipeline.presets.tts,
             }),
             None => Speech::build(c, &self.secrets, crate::clock::synced),
         };
@@ -1594,7 +1605,7 @@ mod tests {
         assert!(f.service.view().chat.is_none());
         assert_eq!(f.file("standalone.toml"), before);
         assert!(!live.has_changed().unwrap(), "nothing was published");
-        assert!(!f.live().slots[1]);
+        assert!(!f.live().slots.chat);
     }
 
     #[tokio::test]
@@ -1619,7 +1630,13 @@ mod tests {
             })
         );
         assert!(!view.ready);
-        assert_eq!(f.live().slots, [false, true, false]);
+        assert_eq!(
+            f.live().slots,
+            Slots {
+                chat: true,
+                ..Slots::all(false)
+            }
+        );
         assert!(!f.live().ready);
         let request = &server.requests()[0];
         assert_eq!(request.path, "/models");
@@ -1637,7 +1654,7 @@ mod tests {
         }
         let live = f.live();
         assert!(live.ready);
-        assert_eq!(live.slots, [true; 3]);
+        assert_eq!(live.slots, Slots::all(true));
         assert_eq!(live.label, "openai: gpt-test");
         assert!(f.service.view().ready);
         // The text-to-speech check used the pipeline's model and the voice.
@@ -1745,7 +1762,7 @@ mod tests {
         assert_eq!(view.connections[0].base_url, unscripted.url(""));
         assert!(!view.ready);
         assert!(view.chat.as_ref().is_some_and(|slot| !slot.ready));
-        assert_eq!(f.live().slots, [false; 3]);
+        assert_eq!(f.live().slots, Slots::all(false));
         assert!(!f.live().ready);
         assert_eq!(f.saved().connections[0].base_url, unscripted.url(""));
     }
@@ -1888,7 +1905,13 @@ mod tests {
         let saved = f.saved();
         assert_eq!(saved.stt.unwrap().model, "whisper-1");
         assert_eq!(saved.tts.unwrap().model, "nova");
-        assert_eq!(f.live().slots, [true, false, true]);
+        assert_eq!(
+            f.live().slots,
+            Slots {
+                chat: false,
+                ..Slots::all(true)
+            }
+        );
 
         // Two key edits from the same revision: one wins, one is told.
         passing_after(&server, SlotKind::Stt, slow);
@@ -1948,7 +1971,7 @@ mod tests {
         voice.unwrap();
         assert_eq!(key_edit.unwrap_err(), Refusal::Conflict(CHANGED.into()));
         assert_eq!(f.saved().tts.unwrap().model, "alloy");
-        assert_eq!(f.live().slots, [true; 3]);
+        assert_eq!(f.live().slots, Slots::all(true));
         assert!(f.live().ready);
     }
 

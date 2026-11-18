@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use pinna_assist::config::{Place, Station};
 use pinna_assist::pipeline::{Pipeline, Speech};
-use pinna_assist::presets::{Behaviour, PresetId, preset};
+use pinna_assist::presets::{Behaviour, PresetId, Slots, preset};
 use pinna_http::Secret;
 use pinna_mcp::client::{McpClient, McpToolSet};
 
@@ -19,7 +19,7 @@ pub mod spawn;
 pub struct AssistLive {
     pub chat_gen: u64,
     pub ready: bool,
-    pub slots: [bool; 3],
+    pub slots: Slots,
     pub label: String,
     pub pipeline: Option<Arc<Pipeline>>,
     /// The text-to-speech slot, whenever it is set up: Speak needs no more.
@@ -42,7 +42,7 @@ impl AssistLive {
         Self {
             chat_gen: 0,
             ready: false,
-            slots: [false; 3],
+            slots: Slots::all(false),
             label: String::new(),
             pipeline: None,
             speech: None,

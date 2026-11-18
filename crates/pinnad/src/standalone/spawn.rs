@@ -109,7 +109,7 @@ impl RunSpawner for ProdSpawner {
         tokio::spawn(async move {
             let failure = match request {
                 Ok(request) => {
-                    let preset = request.pipeline.presets[1];
+                    let preset = request.pipeline.presets.chat;
                     let outcome = AssertUnwindSafe(pinna_assist::run::run(request, &events))
                         .catch_unwind()
                         .await;
@@ -178,7 +178,7 @@ mod tests {
     use pinna_assist::limits::RunLimits;
     use pinna_assist::observe::Guard;
     use pinna_assist::pipeline::Pipeline;
-    use pinna_assist::presets::preset;
+    use pinna_assist::presets::{Slots, preset};
     use pinna_assist::reply::{AudioBody, AudioKind, SpeechAudio};
     use pinna_assist::stt::Stt;
     use pinna_assist::tts::Tts;
@@ -295,7 +295,10 @@ mod tests {
             stt: Arc::new(FakeStt(heard)),
             chat,
             tts: Arc::new(FakeTts),
-            presets: [PresetId::OpenAi, brain, PresetId::OpenAi],
+            presets: Slots {
+                chat: brain,
+                ..Slots::all(PresetId::OpenAi)
+            },
             behaviour: preset(brain).behaviour,
             label: format!("{}: test-model", brain.label()),
         }
@@ -344,7 +347,7 @@ mod tests {
             let (live_tx, live) = watch::channel(Arc::new(AssistLive {
                 chat_gen: 1,
                 ready: true,
-                slots: [true; 3],
+                slots: Slots::all(true),
                 label: pipeline.label.clone(),
                 // A reply ends the conversation.
                 follow_ups: false,

@@ -570,10 +570,12 @@ impl Collector for Status {
             &mut enc,
             "pinna_standalone_slot_ready",
             "A standalone slot (speech-to-text, brain, text-to-speech) is set up and its check passed.",
-            SLOTS
-                .iter()
-                .zip(s.assist.slots)
-                .map(|(slot, ready)| (vec![("slot", slot.label())], flag(ready))),
+            SLOTS.iter().map(|slot| {
+                (
+                    vec![("slot", slot.label())],
+                    flag(s.assist.slots.get(*slot)),
+                )
+            }),
         )?;
         gauge(
             &mut enc,
@@ -1467,7 +1469,10 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         let s = Snapshot {
             mode: Mode::Standalone,
             assist: crate::voice::AssistStatus {
-                slots: [true, false, true],
+                slots: pinna_assist::presets::Slots {
+                    chat: false,
+                    ..pinna_assist::presets::Slots::all(true)
+                },
                 ..Default::default()
             },
             ..Default::default()

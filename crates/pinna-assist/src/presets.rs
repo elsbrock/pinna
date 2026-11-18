@@ -201,12 +201,38 @@ pub struct ChatOverride {
     pub first_text_s: Option<u64>,
 }
 
-/// Which slots a preset can serve.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Slots {
-    pub stt: bool,
-    pub chat: bool,
-    pub tts: bool,
+/// One value for each slot: which slots a preset can serve, which are ready,
+/// or the preset behind each.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Slots<T = bool> {
+    pub stt: T,
+    pub chat: T,
+    pub tts: T,
+}
+
+impl<T: Copy> Slots<T> {
+    pub const fn all(value: T) -> Self {
+        Self {
+            stt: value,
+            chat: value,
+            tts: value,
+        }
+    }
+
+    /// A tool counts as the brain's: the brain asked for it.
+    pub fn get(self, slot: Slot) -> T {
+        match slot {
+            Slot::Stt => self.stt,
+            Slot::Chat | Slot::Tool => self.chat,
+            Slot::Tts => self.tts,
+        }
+    }
+}
+
+impl Slots<bool> {
+    pub fn every(self) -> bool {
+        self.stt && self.chat && self.tts
+    }
 }
 
 /// One preset row.
