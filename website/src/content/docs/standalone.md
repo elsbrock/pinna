@@ -223,7 +223,10 @@ the satellite.
 
 The satellite plays the error sound and the ring flashes red. **Assistant**
 shows the last failure, with what failed, the service and the time, until a
-request is answered again. **System** › **Logs** has a line for each failure.
+request is answered again. **System** › **Logs** has a line for each failure,
+with what the service said, a line for each tool the brain called, and one
+line for each request with how long each part took and how it ended. The log
+never contains what was said, and it masks keys.
 See [Standalone mode doesn't answer](/docs/troubleshooting/#standalone-mode-doesnt-answer)
 for what the messages mean.
 

@@ -208,13 +208,25 @@ Open the dashboard's **Assistant** page.
 - **A request fails.** The device plays the error sound and the ring flashes
   red. **Last failure** shows why, with the service and the time, until a
   request is answered again. The log has the same failure in a
-  `standalone request failed` line.
+  `standalone request failed` line, followed by what the service said, such
+  as `; the service said: "'whisper-1' is not a valid model_id."`. A check
+  that fails is logged the same way, in a line that starts with `the stt
+  check failed`, `the brain check failed` or `the tts check failed`. The log
+  masks anything that looks like a key.
+- **The brain says it did something, but nothing happened.** Each tool the
+  brain calls leaves a line in the log, such as `request 12: tool set_timer:
+  ok, 2 ms`. If there is no such line, the model only said it did it. Choose a
+  model that supports tool calls, or try **Thinking** under **Services** ›
+  **Brain** › **Advanced**.
 - **The brain's check passes, but every request fails with `The service
   answered 400`.** A local model that doesn't support tool calls refuses each
   request, because the satellite offers it its tools. Choose a model that
   supports them.
-- **Replies are slow.** The log line `reply: first audio … after the end of
-  speech` gives the delay. The `pinna_standalone_stage_seconds`
+- **Replies are slow.** Each request ends with one line in the log, such as
+  `request 12: speech-to-text 0.6 s (2.5 s of audio), brain 1.4 s to its first
+  words, first audio 0.4 s, 260 tokens in, 21 out, 62 characters spoken;
+  answered`. The log line `reply: first audio … after the end of speech`
+  gives the whole delay. The `pinna_standalone_stage_seconds`
   [metric](/docs/metrics/) shows which part takes the time: speech-to-text,
   the brain's first text, or text-to-speech. A smaller or nearer model, or a
   faster speech service, helps. For an agent, the acknowledgment says it heard
