@@ -146,6 +146,11 @@ pub enum ApiCommand {
     /// Say a text with the assistant's voice (Play sample, `/mcp speak`).
     /// Replies once it sounds, or with why it can't.
     Speak(String, oneshot::Sender<Result<(), String>>),
+    /// A question typed on the dashboard; standalone mode only. Replies
+    /// once the request has started.
+    // The AssistantService's AskText (T57) sends it.
+    #[allow(dead_code)]
+    AskText(String, ApiReply),
 }
 
 impl ApiCommand {
@@ -169,7 +174,8 @@ impl ApiCommand {
             | Self::SetRingLight(_, reply)
             | Self::ControlMedia(_, _, reply)
             | Self::PlayMedia(_, reply)
-            | Self::CancelTimer(_, reply) => {
+            | Self::CancelTimer(_, reply)
+            | Self::AskText(_, reply) => {
                 let _ = reply.send(Err(why.into()));
             }
             Self::PlayMediaChecked(_, reply) | Self::Speak(_, reply) => {
@@ -1139,6 +1145,7 @@ impl Brain {
                 self.refresh();
                 return;
             }
+            ApiCommand::AskText(question, reply) => (self.ask_text(question).await, reply),
         };
         self.refresh();
         let _ = reply.send(result.map(|()| self.snapshot()));

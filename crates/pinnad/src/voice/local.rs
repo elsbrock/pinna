@@ -31,6 +31,10 @@ use crate::standalone::AssistLive;
 /// Sentences a run may synthesise before the first of them sounds.
 const REPLY_AHEAD: usize = 2;
 
+/// Why a typed question is refused in Home Assistant mode.
+const ASK_STANDALONE_ONLY: &str =
+    "Pinna answers typed questions in standalone mode only. Switch it on under Assistant.";
+
 /// A Speak's answer when it was stopped before it sounded.
 const SPEAK_STOPPED: &str = "It was stopped before it was said.";
 
@@ -517,6 +521,28 @@ impl Brain {
             && self.ringing.is_none()
             && self.mode() == Mode::Standalone
             && self.assist_ready()
+    }
+
+    /// A question typed on the dashboard: a request without the microphone,
+    /// starting in Thinking. Standalone mode only, so a local run never
+    /// overlaps Home Assistant's voice path. No follow-up comes after it.
+    pub(super) async fn ask_text(&mut self, question: String) -> Result<(), String> {
+        let question = crate::checks::question(&question)?;
+        if self.mode() != Mode::Standalone {
+            return Err(ASK_STANDALONE_ONLY.into());
+        }
+        if self.ringing.is_some() || self.phase != Phase::Idle {
+            return Err("a conversation or timer alarm is already active".into());
+        }
+        // The same refusals as start_local_run, as sentences.
+        if self.muted() {
+            return Err("the microphone is muted".into());
+        }
+        if !self.assist_ready() {
+            return Err(super::mode::NOT_READY.into());
+        }
+        self.start_local_run(RunKind::Typed(question), None).await;
+        Ok(())
     }
 
     /// Say `text` with the assistant's voice (Play sample, `/mcp speak`). It
@@ -2569,5 +2595,99 @@ mod tests {
             Some((_, PlaybackKind::Cue, _))
         ));
         assert_eq!(device.spawner.count(), 1);
+    }
+
+    async fn ask(device: &mut TestDevice, question: &str) -> Result<Snapshot, String> {
+        let question = question.to_owned();
+        device
+            .api(|reply| ApiCommand::AskText(question, reply))
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_typed_question_starts_thinking_without_the_microphone() {
+        let mut device = TestDevice::ready();
+        device.brain.settings.wake_sound = Some(true);
+
+        let snapshot = ask(&mut device, " What time is it? ").await.unwrap();
+
+        assert_eq!(snapshot.phase, pinna_api::Phase::PHASE_THINKING);
+        assert!(matches!(device.brain.phase, Phase::Thinking(_)));
+        assert_eq!(device.events(), [voice_event("thinking")]);
+        assert!(device.brain.playback.is_none(), "no wake chime");
+        let (mut seen, mut route) = (0, None);
+        device.shared.mic.current(&mut seen, &mut route);
+        assert!(route.is_none(), "the microphone stays closed");
+        let run = device.spawner.take();
+        assert_eq!(run.start.kind, RunKind::Typed("What time is it?".into()));
+        assert!(run.start.mic.is_none());
+        assert_eq!(device.shared.counters.runs.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_typed_question_is_refused_in_home_assistant_mode() {
+        let mut device = TestDevice::new(Mode::HomeAssistant, false);
+        device.brain.voice_subscribed = true;
+        device.set_live(AssistLive {
+            ready: true,
+            slots: [true; 3],
+            ..AssistLive::empty()
+        });
+
+        assert_eq!(
+            ask(&mut device, "What time is it?").await.unwrap_err(),
+            ASK_STANDALONE_ONLY
+        );
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert_eq!(device.spawner.count(), 0);
+        assert!(device.events().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_typed_question_is_refused_when_busy_muted_or_empty() {
+        let mut device = TestDevice::ready();
+        assert_eq!(
+            ask(&mut device, "  ").await.unwrap_err(),
+            "Type a question."
+        );
+        device.request().await;
+        assert_eq!(
+            ask(&mut device, "What time is it?").await.unwrap_err(),
+            "a conversation or timer alarm is already active"
+        );
+        device.api(ApiCommand::StopConversation).await.unwrap();
+        device.brain.sw_muted = true;
+        assert_eq!(
+            ask(&mut device, "What time is it?").await.unwrap_err(),
+            "the microphone is muted"
+        );
+        let mut unready = TestDevice::new(Mode::Standalone, false);
+        assert_eq!(
+            ask(&mut unready, "What time is it?").await.unwrap_err(),
+            crate::voice::mode::NOT_READY
+        );
+        assert_eq!(device.spawner.count() + unready.spawner.count(), 0);
+    }
+
+    #[tokio::test]
+    async fn no_follow_up_after_a_typed_question() {
+        let mut device = TestDevice::ready();
+        assert!(device.brain.local.live.borrow().follow_ups);
+        ask(&mut device, "What time is it?").await.unwrap();
+        let run = device.spawner.take().start.run;
+        device.events();
+
+        speak_reply(&mut device, run, true).await;
+
+        assert_eq!(
+            device.events(),
+            [voice_event("replying"), voice_event("finished")]
+        );
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert!(device.brain.local.run.is_none());
+        assert_eq!(device.spawner.count(), 0);
+        // The typed turn is part of the conversation.
+        let next = device.request().await;
+        assert_eq!(next.start.history, [turn("Question", "Answer?")]);
     }
 }

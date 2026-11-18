@@ -36,6 +36,21 @@ pub fn speak_text(s: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
+/// The longest question typed on the dashboard.
+pub const QUESTION_MAX: usize = 1_000;
+
+/// A typed question, trimmed.
+pub fn question(s: &str) -> Result<String, String> {
+    let question = s.trim();
+    if question.is_empty() {
+        return Err("Type a question.".into());
+    }
+    if question.chars().count() > QUESTION_MAX {
+        return Err(format!("A question is at most {QUESTION_MAX} characters."));
+    }
+    Ok(question.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,6 +75,17 @@ mod tests {
         assert!(media_url(&full).is_ok());
         assert!(media_url(&(full + "a")).is_err());
         assert!(media_url("file:///etc/hosts").is_err());
+    }
+
+    #[test]
+    fn typed_questions() {
+        assert_eq!(question(" What time is it? ").unwrap(), "What time is it?");
+        assert_eq!(question("\t").unwrap_err(), "Type a question.");
+        assert!(question(&"ß".repeat(QUESTION_MAX)).is_ok());
+        assert_eq!(
+            question(&"ß".repeat(QUESTION_MAX + 1)).unwrap_err(),
+            "A question is at most 1000 characters."
+        );
     }
 
     #[test]
