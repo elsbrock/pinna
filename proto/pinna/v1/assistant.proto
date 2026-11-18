@@ -33,9 +33,10 @@ service AssistantService {
   rpc SetMcpServer(SetMcpServerRequest) returns (SetMcpServerResponse);
   // Remove an MCP server and its address.
   rpc DeleteMcpServer(DeleteMcpServerRequest) returns (DeleteMcpServerResponse);
-  // Speak a text with the text-to-speech slot, in either mode. Refused unless
-  // the satellite is idle with nothing playing; answers at the first audio or
-  // with why it failed.
+  // Speak a text with the text-to-speech slot, in either mode. Refused while a
+  // request runs, a timer alarm rings or the satellite is already saying
+  // something (a reply, a chime, an announcement or another sample); music
+  // ducks under it. Answers at the first audio or with why it failed.
   rpc PlaySample(PlaySampleRequest) returns (PlaySampleResponse);
   // Ask the brain a typed question, as if it was spoken. Standalone mode
   // only; the reply is spoken.

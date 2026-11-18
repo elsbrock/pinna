@@ -1212,9 +1212,10 @@ export const AssistantService: GenService<{
     output: typeof DeleteMcpServerResponseSchema;
   },
   /**
-   * Speak a text with the text-to-speech slot, in either mode. Refused unless
-   * the satellite is idle with nothing playing; answers at the first audio or
-   * with why it failed.
+   * Speak a text with the text-to-speech slot, in either mode. Refused while a
+   * request runs, a timer alarm rings or the satellite is already saying
+   * something (a reply, a chime, an announcement or another sample); music
+   * ducks under it. Answers at the first audio or with why it failed.
    *
    * @generated from rpc pinna.v1.AssistantService.PlaySample
    */
