@@ -440,22 +440,7 @@ impl Speaker {
     pub async fn play_url(&self, url: &str) -> Result<VoicePlayback> {
         let epoch = self.inner.voice_epoch.load(Ordering::SeqCst);
         let src = open_voice(self.inner.media.client(), url).await?;
-        let (started_tx, started) = oneshot::channel();
-        let (done_tx, done) = oneshot::channel();
-        self.inner
-            .tx
-            .send(Cmd::PlayStream(StreamItem {
-                src,
-                cur: Vec::new(),
-                pos: 0,
-                started: Some(started_tx),
-                done: done_tx,
-                epoch,
-                waiting: 0,
-                stalled: 0,
-            }))
-            .map_err(|_| Error::Other("speaker task ended".into()))?;
-        Ok(VoicePlayback { started, done })
+        self.queue_voice(epoch, src)
     }
 
     /// Stream encoded audio on the voice lane, behind anything queued there.
@@ -468,6 +453,12 @@ impl Speaker {
     ) -> Result<VoicePlayback> {
         let epoch = self.inner.voice_epoch.load(Ordering::SeqCst);
         let src = open_voice_stream(mime, body).await?;
+        self.queue_voice(epoch, src)
+    }
+
+    /// Queue an opened source on the voice lane. `epoch` is the lane's when
+    /// opening began: a stop meanwhile drops it.
+    fn queue_voice(&self, epoch: u64, src: VoiceSource) -> Result<VoicePlayback> {
         let (started_tx, started) = oneshot::channel();
         let (done_tx, done) = oneshot::channel();
         self.inner

@@ -7,6 +7,8 @@
 //! an address, not fetched. HLS segment playlists are recognised by their
 //! `#EXT-X-` tags and refused with a sentence.
 
+use crate::media::is_http;
+
 /// What an owner reads when a playlist is an HLS segment stream.
 pub const HLS_SENTENCE: &str =
     "This is an HLS playlist, which doesn't play here. Use the stream's own address.";
@@ -174,11 +176,6 @@ fn normalize_path(path: &str) -> String {
     let mut out = String::from("/");
     out.push_str(&segments.join("/"));
     out
-}
-
-fn is_http(url: &str) -> bool {
-    let head = url.get(..8).unwrap_or(url).to_ascii_lowercase();
-    head.starts_with("http://") || head.starts_with("https://")
 }
 
 /// Whether an entry starts with a URI scheme (`scheme:`) other than http(s).

@@ -854,18 +854,18 @@ impl TrackSink {
 }
 
 async fn pump(
-    mut resp: reqwest::Response,
+    mut body: BoxStream<'static, std::io::Result<Bytes>>,
     tx: mpsc::Sender<std::io::Result<Bytes>>,
     mut icy: Option<(IcyDemux, Option<TrackSink>)>,
 ) {
     let mut audio = Vec::new();
     loop {
         let chunk = tokio::select! {
-            c = resp.chunk() => c,
+            c = body.next() => c,
             _ = tx.closed() => return,
         };
         match chunk {
-            Ok(Some(b)) => {
+            Some(Ok(b)) => {
                 let b = match &mut icy {
                     Some((demux, sink)) => {
                         audio.clear();
@@ -887,32 +887,8 @@ async fn pump(
                     return;
                 }
             }
-            Ok(None) => return,
-            Err(e) => {
-                let _ = tx.send(Err(std::io::Error::other(e))).await;
-                return;
-            }
-        }
-    }
-}
-
-async fn pump_stream(
-    mut body: BoxStream<'static, std::io::Result<Bytes>>,
-    tx: mpsc::Sender<std::io::Result<Bytes>>,
-) {
-    loop {
-        let chunk = tokio::select! {
-            chunk = body.next() => chunk,
-            _ = tx.closed() => return,
-        };
-        match chunk {
-            Some(Ok(bytes)) => {
-                if tx.send(Ok(bytes)).await.is_err() {
-                    return;
-                }
-            }
-            Some(Err(error)) => {
-                let _ = tx.send(Err(error)).await;
+            Some(Err(e)) => {
+                let _ = tx.send(Err(e)).await;
                 return;
             }
             None => return,
@@ -936,9 +912,71 @@ fn is_playlist_url(url: &str) -> bool {
     )
 }
 
-fn is_http(url: &str) -> bool {
+pub(crate) fn is_http(url: &str) -> bool {
     let u = url.get(..8).unwrap_or(url).to_ascii_lowercase();
     u.starts_with("http://") || u.starts_with("https://")
+}
+
+/// Name the format for the decoder from a `Content-Type`.
+fn hint_mime(hint: &mut Hint, content_type: &str) {
+    let mime = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim()
+        .to_ascii_lowercase();
+    let ext = match mime.as_str() {
+        "audio/mpeg" | "audio/mp3" => Some("mp3"),
+        "audio/flac" | "audio/x-flac" => Some("flac"),
+        "audio/wav" | "audio/x-wav" | "audio/wave" | "audio/vnd.wave" => Some("wav"),
+        "audio/ogg" | "application/ogg" | "audio/vorbis" => Some("ogg"),
+        _ => None,
+    };
+    if let Some(ext) = ext {
+        hint.with_extension(ext);
+    }
+    hint.mime_type(&mime);
+}
+
+/// Send a media or playlist request; a refused status is a sentence.
+async fn get_ok(request: reqwest::RequestBuilder, url: &str) -> Result<reqwest::Response> {
+    let resp = request.send().await.map_err(|e| {
+        // A media URL can carry a token (Home Assistant signs its URLs):
+        // the log names the host only.
+        tracing::warn!("media: open {}: {}", host_of(url), unreachable(&e));
+        tracing::debug!("media: open {url}: {e}");
+        Error::Other(unreachable(&e).into())
+    })?;
+    if !resp.status().is_success() {
+        return Err(Error::Other(format!(
+            "The server answered HTTP {}. Check the address.",
+            resp.status()
+        )));
+    }
+    Ok(resp)
+}
+
+/// The path of a local media or playlist address.
+fn local_path(url: &str) -> Result<&str> {
+    let path = url.strip_prefix("file://").unwrap_or(url);
+    if path.contains("://") {
+        return Err(Error::Other(
+            "Only addresses that start with http:// or https:// play.".into(),
+        ));
+    }
+    Ok(path)
+}
+
+/// A decoder's first audio, or why it has none.
+async fn first_audio(
+    decoder: Decoder,
+    ready: oneshot::Receiver<std::result::Result<(), String>>,
+) -> Result<VoiceSource> {
+    match ready.await {
+        Ok(Ok(())) => Ok(VoiceSource::new(decoder)),
+        Ok(Err(msg)) => Err(Error::Other(msg)),
+        Err(_) => Err(Error::Other("decoder stopped".into())),
+    }
 }
 
 /// Open `url` for decoding. With a `sink` (music, not replies), its tags and
@@ -957,19 +995,7 @@ async fn open(
         if sink.is_some() {
             req = req.header("Icy-MetaData", "1");
         }
-        let resp = req.send().await.map_err(|e| {
-            // A media URL can carry a token (Home Assistant signs its URLs):
-            // the log names the host only.
-            tracing::warn!("media: open {}: {}", host_of(url), unreachable(&e));
-            tracing::debug!("media: open {url}: {e}");
-            Error::Other(unreachable(&e).into())
-        })?;
-        if !resp.status().is_success() {
-            return Err(Error::Other(format!(
-                "The server answered HTTP {}. Check the address.",
-                resp.status()
-            )));
-        }
+        let resp = get_ok(req, url).await?;
         // A server that interleaves ICY metadata says how often; without
         // removing it, the decoder would hear it as noise.
         let metaint = resp
@@ -988,27 +1014,15 @@ async fn open(
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
         {
-            let mime = ct
-                .split(';')
-                .next()
-                .unwrap_or(ct)
-                .trim()
-                .to_ascii_lowercase();
-            let ext = match mime.as_str() {
-                "audio/mpeg" | "audio/mp3" => Some("mp3"),
-                "audio/flac" | "audio/x-flac" => Some("flac"),
-                "audio/wav" | "audio/x-wav" | "audio/wave" | "audio/vnd.wave" => Some("wav"),
-                "audio/ogg" | "application/ogg" | "audio/vorbis" => Some("ogg"),
-                _ => None,
-            };
-            if let Some(ext) = ext {
-                hint.with_extension(ext);
-            }
-            hint.mime_type(&mime);
+            hint_mime(&mut hint, ct);
         }
         let icy = metaint.map(|n| (IcyDemux::new(n), sink.clone()));
         let (tx, rx) = mpsc::channel(NET_CHUNKS);
-        let pump = tokio::spawn(pump(resp, tx, icy));
+        let body = resp
+            .bytes_stream()
+            .map(|r| r.map_err(std::io::Error::other))
+            .boxed();
+        let pump = tokio::spawn(pump(body, tx, icy));
         let reader = ChanReader {
             rx,
             cur: Bytes::new(),
@@ -1020,12 +1034,7 @@ async fn open(
             sink,
         )
     } else {
-        let path = url.strip_prefix("file://").unwrap_or(url);
-        if path.contains("://") {
-            return Err(Error::Other(
-                "Only addresses that start with http:// or https:// play.".into(),
-            ));
-        }
+        let path = local_path(url)?;
         let file = tokio::fs::File::open(path)
             .await
             .map_err(|e| Error::Other(format!("open {path}: {e}")))?
@@ -1047,24 +1056,9 @@ fn host_of(url: &str) -> &str {
 /// entry. An http(s) URL is fetched; a local path is read.
 async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<String> {
     if is_http(url) {
-        let resp = client.get(url).send().await.map_err(|e| {
-            tracing::debug!("media: playlist {url}: {e}");
-            Error::Other(unreachable(&e).into())
-        })?;
-        if !resp.status().is_success() {
-            return Err(Error::Other(format!(
-                "The server answered HTTP {}. Check the address.",
-                resp.status()
-            )));
-        }
-        read_playlist_body(resp).await
+        read_playlist_body(get_ok(client.get(url), url).await?).await
     } else {
-        let path = url.strip_prefix("file://").unwrap_or(url);
-        if path.contains("://") {
-            return Err(Error::Other(
-                "Only addresses that start with http:// or https:// play.".into(),
-            ));
-        }
+        let path = local_path(url)?;
         use tokio::io::AsyncReadExt;
         let mut bytes = Vec::new();
         tokio::fs::File::open(path)
@@ -1114,26 +1108,10 @@ pub(crate) async fn open_voice_stream(
 ) -> Result<VoiceSource> {
     let mut hint = Hint::new();
     if let Some(mime) = mime {
-        let mime = mime
-            .split(';')
-            .next()
-            .unwrap_or(mime)
-            .trim()
-            .to_ascii_lowercase();
-        let ext = match mime.as_str() {
-            "audio/mpeg" | "audio/mp3" => Some("mp3"),
-            "audio/flac" | "audio/x-flac" => Some("flac"),
-            "audio/wav" | "audio/x-wav" | "audio/wave" | "audio/vnd.wave" => Some("wav"),
-            "audio/ogg" | "application/ogg" | "audio/vorbis" => Some("ogg"),
-            _ => None,
-        };
-        if let Some(ext) = ext {
-            hint.with_extension(ext);
-        }
-        hint.mime_type(&mime);
+        hint_mime(&mut hint, mime);
     }
     let (tx, rx) = mpsc::channel(NET_CHUNKS);
-    let pump = tokio::spawn(pump_stream(body, tx));
+    let pump = tokio::spawn(pump(body, tx, None));
     let reader = ChanReader {
         rx,
         cur: Bytes::new(),
@@ -1144,11 +1122,7 @@ pub(crate) async fn open_voice_stream(
         Some(pump),
         None,
     )?;
-    match ready.await {
-        Ok(Ok(())) => Ok(VoiceSource::new(decoder)),
-        Ok(Err(msg)) => Err(Error::Other(msg)),
-        Err(_) => Err(Error::Other("decoder stopped".into())),
-    }
+    first_audio(decoder, ready).await
 }
 
 // ---------------------------------------------------------------------------
@@ -1481,11 +1455,7 @@ impl VoiceSource {
 /// (an empty stream is an error); nothing keeps running after an error.
 pub(crate) async fn open_voice(client: &reqwest::Client, url: &str) -> Result<VoiceSource> {
     let (decoder, ready) = open(client, url, None).await?;
-    match ready.await {
-        Ok(Ok(())) => Ok(VoiceSource::new(decoder)),
-        Ok(Err(msg)) => Err(Error::Other(msg)),
-        Err(_) => Err(Error::Other("decoder stopped".into())),
-    }
+    first_audio(decoder, ready).await
 }
 
 // ---------------------------------------------------------------------------
