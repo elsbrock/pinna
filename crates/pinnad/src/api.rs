@@ -401,7 +401,7 @@ fn calibration_kind(kind: crate::calibration::EventKind) -> CalibrationEventKind
 }
 
 /// A satellite found on the network, as the API reports it.
-fn satellite(f: satellites::Found) -> pinna_api::Satellite {
+pub(crate) fn satellite(f: satellites::Found) -> pinna_api::Satellite {
     pinna_api::Satellite {
         name: f.name,
         host: f.host,

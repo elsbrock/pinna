@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package pinna.v1;
 
+import "pinna/v1/device.proto";
+
 // Standalone mode's setup (ADR 0017): the provider connections, the
 // speech-to-text, brain and text-to-speech slots, the conversation, the tools
 // and the owner's MCP servers. Served with the dashboard, without
@@ -45,6 +47,12 @@ service AssistantService {
   // suggestions for the model and voice fields. Empty when it lists none;
   // a failure is `failed_precondition` with the check's sentence.
   rpc ListChoices(ListChoicesRequest) returns (ListChoicesResponse);
+  // The satellite group (ADR 0026): its switches, its members and the
+  // satellites the search found. The group's key is never returned.
+  rpc GetSatelliteGroup(GetSatelliteGroupRequest) returns (GetSatelliteGroupResponse);
+  // Turn Satellite group or Control from the group on or off. Turning
+  // Satellite group off leaves the group.
+  rpc SetSatelliteGroup(SetSatelliteGroupRequest) returns (SetSatelliteGroupResponse);
 }
 
 // What a ListChoices request asks for.
@@ -423,3 +431,90 @@ message AskTextRequest {
 }
 
 message AskTextResponse {}
+
+message GetSatelliteGroupRequest {}
+
+message GetSatelliteGroupResponse {
+  SatelliteGroupView group = 1;
+}
+
+// Each field unset leaves its switch as it is.
+message SetSatelliteGroupRequest {
+  // Satellite group. Off leaves the group.
+  optional bool on = 1;
+  // Control from the group: the other members may run this satellite's
+  // device tools.
+  optional bool control = 2;
+}
+
+message SetSatelliteGroupResponse {
+  SatelliteGroupView group = 1;
+}
+
+// The satellite group as the Assistant page shows it.
+message SatelliteGroupView {
+  // The Satellite group switch.
+  bool on = 1;
+  // This satellite is in a group.
+  bool in_group = 2;
+  // The Control from the group switch.
+  bool control = 3;
+  // The group's members, this satellite included, by name. Empty in no
+  // group.
+  repeated SatelliteGroupMember members = 4;
+  // The other satellites the search found (ADR 0021), except members whose
+  // record says they are in this group. A member that left the group is in
+  // both lists: here with STATE_LEFT_THE_GROUP, and in `members`. Empty
+  // while the switch is off.
+  repeated SatelliteGroupCandidate candidates = 5;
+}
+
+// A member of this satellite's group.
+message SatelliteGroupMember {
+  // In lowercase colon form.
+  string mac = 1;
+  // The last friendly name the search heard; this satellite's own name for
+  // itself.
+  string name = 2;
+  // This satellite.
+  bool this_satellite = 3;
+  // Its mode, from its last signed answer. Unset until one arrived, and
+  // for this satellite.
+  optional Mode mode = 4;
+  // When it last answered the search or a call, in milliseconds since the
+  // Unix epoch; 0 when it hasn't since pinnad started, and for this
+  // satellite. Kept in memory only.
+  uint64 last_seen_unix_ms = 5;
+}
+
+// A satellite the search found, other than a member whose record says it
+// is in this group.
+message SatelliteGroupCandidate {
+  // As the search found it: its MAC, friendly name, host and addresses, for
+  // the link to its dashboard.
+  Satellite satellite = 1;
+
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // Its Satellite group switch is on and it is in no group.
+    STATE_ADDABLE = 1;
+    // It is in another group.
+    STATE_IN_ANOTHER_GROUP = 2;
+    // Satellite group is off there, or its Pinna is older.
+    STATE_OFF_OR_OLDER = 3;
+    // A member of this group whose record says it is in no group: its
+    // switch was turned off, or it was reset. It is listed in `members`
+    // too.
+    STATE_LEFT_THE_GROUP = 4;
+  }
+  State state = 2;
+  // Add is offered: its switch is on and it is in no group. Its name may
+  // still refuse it (`name_refusal`).
+  bool addable = 3;
+  // Its friendly name is still the one Pinna gave it, which is hard to say.
+  // It can be added all the same.
+  bool default_name = 4;
+  // Why Add would be refused for its name, as one sentence; empty when the
+  // name can be added, and when Add isn't offered.
+  string name_refusal = 5;
+}

@@ -52,6 +52,13 @@ impl Key {
         Self(bytes)
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the calls between members sign with it (ADR 0026), in a later change"
+        )
+    )]
     pub fn bytes(&self) -> &[u8; KEY_LEN] {
         &self.0
     }
@@ -92,6 +99,13 @@ pub fn new_key() -> Result<[u8; KEY_LEN]> {
 /// The tag of an envelope: HMAC-SHA256 under the group's key over
 /// `pinna-group-v1`, the group id, the sender's MAC and the body, joined by
 /// zero bytes.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the calls between members sign with it (ADR 0026), in a later change"
+    )
+)]
 pub fn sign(key: &[u8; KEY_LEN], group_id: &str, sender_mac: &str, body: &[u8]) -> [u8; TAG_LEN] {
     let key = hmac::Key::new(hmac::HMAC_SHA256, key);
     let tag = hmac::sign(&key, &input(group_id, sender_mac, body));
@@ -105,6 +119,13 @@ pub fn sign(key: &[u8; KEY_LEN], group_id: &str, sender_mac: &str, body: &[u8]) 
 /// A group id or MAC with a zero byte in it never verifies: the zero bytes
 /// separate the parts of the input, and one inside a part would let two
 /// different envelopes share a tag.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the calls between members sign with it (ADR 0026), in a later change"
+    )
+)]
 pub fn verify(
     key: &[u8; KEY_LEN],
     group_id: &str,

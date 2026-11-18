@@ -4,13 +4,15 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Mode, Satellite } from "./device_pb";
+import { file_pinna_v1_device } from "./device_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file pinna/v1/assistant.proto.
  */
 export const file_pinna_v1_assistant: GenFile = /*@__PURE__*/
-  fileDesc("ChhwaW5uYS92MS9hc3Npc3RhbnQucHJvdG8SCHBpbm5hLnYxInMKEkxpc3RDaG9pY2VzUmVxdWVzdBIlCgRzbG90GAEgASgOMhcucGlubmEudjEuQXNzaXN0YW50U2xvdBISCgpjb25uZWN0aW9uGAIgASgJEiIKBGtpbmQYAyABKA4yFC5waW5uYS52MS5DaG9pY2VLaW5kIjgKE0xpc3RDaG9pY2VzUmVzcG9uc2USIQoHY2hvaWNlcxgBIAMoCzIQLnBpbm5hLnYxLkNob2ljZSIjCgZDaG9pY2USCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAki1wUKCUFzc2lzdGFudBINCgVyZWFkeRgBIAEoCBIxCgtjb25uZWN0aW9ucxgCIAMoCzIcLnBpbm5hLnYxLlByb3ZpZGVyQ29ubmVjdGlvbhIhCgNzdHQYAyABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEiMKBWJyYWluGAQgASgLMhQucGlubmEudjEuU2xvdENob2ljZRIhCgN0dHMYBSABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEi8KDmJyYWluX292ZXJyaWRlGAYgASgLMhcucGlubmEudjEuQnJhaW5PdmVycmlkZRIQCghsYW5ndWFnZRgHIAEoCRIeCgVwbGFjZRgIIAEoCzIPLnBpbm5hLnYxLlBsYWNlEhMKBnByb21wdBgJIAEoCUgAiAEBEhIKCmZvbGxvd191cHMYCiABKAgSJQoDYWNrGAsgASgLMhgucGlubmEudjEuQWNrbm93bGVkZ21lbnQSLQoFdG9vbHMYDCADKAsyHi5waW5uYS52MS5Bc3Npc3RhbnQuVG9vbHNFbnRyeRIjCghzdGF0aW9ucxgNIAMoCzIRLnBpbm5hLnYxLlN0YXRpb24SKAoLbWNwX3NlcnZlcnMYDiADKAsyEy5waW5uYS52MS5NY3BTZXJ2ZXISIgoGYWdlbnRzGA8gAygLMhIucGlubmEudjEuTWNwQWdlbnQSIQoHcHJlc2V0cxgQIAMoCzIQLnBpbm5hLnYxLlByZXNldBISCgphY2tfc3Bva2VuGBEgASgJEhMKC3ZvaWNlX3J1bGVzGBIgASgJEioKDGRldmljZV90b29scxgTIAMoCzIULnBpbm5hLnYxLkRldmljZVRvb2wSFwoPcHJvbXB0X3JldmlzaW9uGBQgASgJGiwKClRvb2xzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgIOgI4AUIJCgdfcHJvbXB0IngKElByb3ZpZGVyQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIOCgZwcmVzZXQYAiABKAkSEAoIYmFzZV91cmwYAyABKAkSEAoIcmV2aXNpb24YBCABKAQSDwoHa2V5X3NldBgFIAEoCBIRCglrZXlfbGFzdDQYBiABKAkiVAoKU2xvdENob2ljZRISCgpjb25uZWN0aW9uGAEgASgJEg0KBW1vZGVsGAIgASgJEg0KBXJlYWR5GAMgASgIEhQKDHNwZWVjaF9tb2RlbBgEIAEoCSLUAQoNQnJhaW5PdmVycmlkZRIoCgpkZWxlZ2F0aW9uGAEgASgOMhQucGlubmEudjEuRGVsZWdhdGlvbhIiCgdoaXN0b3J5GAIgASgOMhEucGlubmEudjEuSGlzdG9yeRIVCg1oaXN0b3J5X2xpbWl0GAMgASgNEh8KEmZpcnN0X3RleHRfc2Vjb25kcxgEIAEoDUgAiAEBEiYKCXJlYXNvbmluZxgFIAEoDjITLnBpbm5hLnYxLlJlYXNvbmluZ0IVChNfZmlyc3RfdGV4dF9zZWNvbmRzIk0KBVBsYWNlEgwKBG5hbWUYASABKAkSEAoIbGF0aXR1ZGUYAiABKAESEQoJbG9uZ2l0dWRlGAMgASgBEhEKCXRpbWVfem9uZRgEIAEoCSIxCg5BY2tub3dsZWRnbWVudBIPCgdlbmFibGVkGAEgASgIEg4KBnBocmFzZRgCIAEoCSIkCgdTdGF0aW9uEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJIp8BCglNY3BTZXJ2ZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRob3N0GAMgASgJEg8KB2VuYWJsZWQYBCABKAgSEAoIcmV2aXNpb24YBSABKAQSDQoFdG9vbHMYBiABKA0SDwoHcHJvYmxlbRgHIAEoCRInCgZsaXN0ZWQYCCADKAsyFy5waW5uYS52MS5NY3BTZXJ2ZXJUb29sIjIKDU1jcFNlcnZlclRvb2wSDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCSJECghNY3BBZ2VudBIMCgRuYW1lGAEgASgJEg8KB2FkZHJlc3MYAiABKAkSGQoRbGFzdF9zZWVuX3VuaXhfbXMYAyABKAQilQEKBlByZXNldBIKCgJpZBgBIAEoCRIQCghiYXNlX3VybBgCIAEoCRILCgNzdHQYAyABKAgSDQoFYnJhaW4YBCABKAgSCwoDdHRzGAUgASgIEg0KBW1vZGVsGAYgASgJEhAKCGhhbmRfb2ZmGAcgASgIEhAKCHRoaW5raW5nGAggASgIEhEKCXR0c19tb2RlbBgJIAEoCSJjCgpEZXZpY2VUb29sEgwKBG5hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSDQoFYnJhaW4YAyABKAgSCwoDbWNwGAQgASgIEhYKDm9mZl9ieV9kZWZhdWx0GAUgASgIIhUKE0dldEFzc2lzdGFudFJlcXVlc3QiPgoUR2V0QXNzaXN0YW50UmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IoMBChRTZXRDb25uZWN0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZwcmVzZXQYAyABKAkSEAoIYmFzZV91cmwYBCABKAkSEAoDa2V5GAUgASgJSACIAQESEQoJY2xlYXJfa2V5GAYgASgIQgYKBF9rZXkiPwoVU2V0Q29ubmVjdGlvblJlc3BvbnNlEiYKCWFzc2lzdGFudBgBIAEoCzITLnBpbm5hLnYxLkFzc2lzdGFudCI3ChdEZWxldGVDb25uZWN0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBCJCChhEZWxldGVDb25uZWN0aW9uUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50InAKDlNldFNsb3RSZXF1ZXN0EiUKBHNsb3QYASABKA4yFy5waW5uYS52MS5Bc3Npc3RhbnRTbG90EhIKCmNvbm5lY3Rpb24YAiABKAkSDQoFbW9kZWwYAyABKAkSFAoMc3BlZWNoX21vZGVsGAQgASgJIjkKD1NldFNsb3RSZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQi+wIKFlVwZGF0ZUFzc2lzdGFudFJlcXVlc3QSFQoIbGFuZ3VhZ2UYASABKAlIAIgBARITCgZwcm9tcHQYAiABKAlIAYgBARIWCg5kZWZhdWx0X3Byb21wdBgDIAEoCBIXCgpmb2xsb3dfdXBzGAQgASgISAKIAQESJQoDYWNrGAUgASgLMhgucGlubmEudjEuQWNrbm93bGVkZ21lbnQSJQoFdG9vbHMYBiABKAsyFi5waW5uYS52MS5Ub29sU3dpdGNoZXMSLwoOYnJhaW5fb3ZlcnJpZGUYByABKAsyFy5waW5uYS52MS5CcmFpbk92ZXJyaWRlEhIKBXBsYWNlGAggASgJSAOIAQESJwoIc3RhdGlvbnMYCSABKAsyFS5waW5uYS52MS5TdGF0aW9uTGlzdBIXCg9wcm9tcHRfcmV2aXNpb24YCiABKAlCCwoJX2xhbmd1YWdlQgkKB19wcm9tcHRCDQoLX2ZvbGxvd191cHNCCAoGX3BsYWNlIjIKC1N0YXRpb25MaXN0EiMKCHN0YXRpb25zGAEgAygLMhEucGlubmEudjEuU3RhdGlvbiJlCgxUb29sU3dpdGNoZXMSKgoCb24YASADKAsyHi5waW5uYS52MS5Ub29sU3dpdGNoZXMuT25FbnRyeRopCgdPbkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCDoCOAEiQQoXVXBkYXRlQXNzaXN0YW50UmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50ImwKE1NldE1jcFNlcnZlclJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQSDAoEbmFtZRgDIAEoCRIQCgN1cmwYBCABKAlIAIgBARIPCgdlbmFibGVkGAUgASgIQgYKBF91cmwiPgoUU2V0TWNwU2VydmVyUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IjYKFkRlbGV0ZU1jcFNlcnZlclJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQiQQoXRGVsZXRlTWNwU2VydmVyUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IiEKEVBsYXlTYW1wbGVSZXF1ZXN0EgwKBHRleHQYASABKAkiFAoSUGxheVNhbXBsZVJlc3BvbnNlIh4KDkFza1RleHRSZXF1ZXN0EgwKBHRleHQYASABKAkiEQoPQXNrVGV4dFJlc3BvbnNlKlcKCkNob2ljZUtpbmQSGwoXQ0hPSUNFX0tJTkRfVU5TUEVDSUZJRUQQABIVChFDSE9JQ0VfS0lORF9NT0RFTBABEhUKEUNIT0lDRV9LSU5EX1ZPSUNFEAIqeQoNQXNzaXN0YW50U2xvdBIeChpBU1NJU1RBTlRfU0xPVF9VTlNQRUNJRklFRBAAEhYKEkFTU0lTVEFOVF9TTE9UX1NUVBABEhgKFEFTU0lTVEFOVF9TTE9UX0JSQUlOEAISFgoSQVNTSVNUQU5UX1NMT1RfVFRTEAMqWwoKRGVsZWdhdGlvbhIaChZERUxFR0FUSU9OX1VOU1BFQ0lGSUVEEAASGAoUREVMRUdBVElPTl9UT09MX0xPT1AQARIXChNERUxFR0FUSU9OX0hBTkRfT0ZGEAIqYwoHSGlzdG9yeRIXChNISVNUT1JZX1VOU1BFQ0lGSUVEEAASEQoNSElTVE9SWV9UVVJOUxABEhEKDUhJU1RPUllfQllURVMQAhIZChVISVNUT1JZX05FV19UVVJOX09OTFkQAyp3CglSZWFzb25pbmcSGQoVUkVBU09OSU5HX1VOU1BFQ0lGSUVEEAASEgoOUkVBU09OSU5HX05PTkUQARIRCg1SRUFTT05JTkdfTE9XEAISFAoQUkVBU09OSU5HX01FRElVTRADEhIKDlJFQVNPTklOR19ISUdIEAQyogYKEEFzc2lzdGFudFNlcnZpY2USTQoMR2V0QXNzaXN0YW50Eh0ucGlubmEudjEuR2V0QXNzaXN0YW50UmVxdWVzdBoeLnBpbm5hLnYxLkdldEFzc2lzdGFudFJlc3BvbnNlElAKDVNldENvbm5lY3Rpb24SHi5waW5uYS52MS5TZXRDb25uZWN0aW9uUmVxdWVzdBofLnBpbm5hLnYxLlNldENvbm5lY3Rpb25SZXNwb25zZRJZChBEZWxldGVDb25uZWN0aW9uEiEucGlubmEudjEuRGVsZXRlQ29ubmVjdGlvblJlcXVlc3QaIi5waW5uYS52MS5EZWxldGVDb25uZWN0aW9uUmVzcG9uc2USPgoHU2V0U2xvdBIYLnBpbm5hLnYxLlNldFNsb3RSZXF1ZXN0GhkucGlubmEudjEuU2V0U2xvdFJlc3BvbnNlElYKD1VwZGF0ZUFzc2lzdGFudBIgLnBpbm5hLnYxLlVwZGF0ZUFzc2lzdGFudFJlcXVlc3QaIS5waW5uYS52MS5VcGRhdGVBc3Npc3RhbnRSZXNwb25zZRJNCgxTZXRNY3BTZXJ2ZXISHS5waW5uYS52MS5TZXRNY3BTZXJ2ZXJSZXF1ZXN0Gh4ucGlubmEudjEuU2V0TWNwU2VydmVyUmVzcG9uc2USVgoPRGVsZXRlTWNwU2VydmVyEiAucGlubmEudjEuRGVsZXRlTWNwU2VydmVyUmVxdWVzdBohLnBpbm5hLnYxLkRlbGV0ZU1jcFNlcnZlclJlc3BvbnNlEkcKClBsYXlTYW1wbGUSGy5waW5uYS52MS5QbGF5U2FtcGxlUmVxdWVzdBocLnBpbm5hLnYxLlBsYXlTYW1wbGVSZXNwb25zZRI+CgdBc2tUZXh0EhgucGlubmEudjEuQXNrVGV4dFJlcXVlc3QaGS5waW5uYS52MS5Bc2tUZXh0UmVzcG9uc2USSgoLTGlzdENob2ljZXMSHC5waW5uYS52MS5MaXN0Q2hvaWNlc1JlcXVlc3QaHS5waW5uYS52MS5MaXN0Q2hvaWNlc1Jlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChhwaW5uYS92MS9hc3Npc3RhbnQucHJvdG8SCHBpbm5hLnYxInMKEkxpc3RDaG9pY2VzUmVxdWVzdBIlCgRzbG90GAEgASgOMhcucGlubmEudjEuQXNzaXN0YW50U2xvdBISCgpjb25uZWN0aW9uGAIgASgJEiIKBGtpbmQYAyABKA4yFC5waW5uYS52MS5DaG9pY2VLaW5kIjgKE0xpc3RDaG9pY2VzUmVzcG9uc2USIQoHY2hvaWNlcxgBIAMoCzIQLnBpbm5hLnYxLkNob2ljZSIjCgZDaG9pY2USCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAki1wUKCUFzc2lzdGFudBINCgVyZWFkeRgBIAEoCBIxCgtjb25uZWN0aW9ucxgCIAMoCzIcLnBpbm5hLnYxLlByb3ZpZGVyQ29ubmVjdGlvbhIhCgNzdHQYAyABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEiMKBWJyYWluGAQgASgLMhQucGlubmEudjEuU2xvdENob2ljZRIhCgN0dHMYBSABKAsyFC5waW5uYS52MS5TbG90Q2hvaWNlEi8KDmJyYWluX292ZXJyaWRlGAYgASgLMhcucGlubmEudjEuQnJhaW5PdmVycmlkZRIQCghsYW5ndWFnZRgHIAEoCRIeCgVwbGFjZRgIIAEoCzIPLnBpbm5hLnYxLlBsYWNlEhMKBnByb21wdBgJIAEoCUgAiAEBEhIKCmZvbGxvd191cHMYCiABKAgSJQoDYWNrGAsgASgLMhgucGlubmEudjEuQWNrbm93bGVkZ21lbnQSLQoFdG9vbHMYDCADKAsyHi5waW5uYS52MS5Bc3Npc3RhbnQuVG9vbHNFbnRyeRIjCghzdGF0aW9ucxgNIAMoCzIRLnBpbm5hLnYxLlN0YXRpb24SKAoLbWNwX3NlcnZlcnMYDiADKAsyEy5waW5uYS52MS5NY3BTZXJ2ZXISIgoGYWdlbnRzGA8gAygLMhIucGlubmEudjEuTWNwQWdlbnQSIQoHcHJlc2V0cxgQIAMoCzIQLnBpbm5hLnYxLlByZXNldBISCgphY2tfc3Bva2VuGBEgASgJEhMKC3ZvaWNlX3J1bGVzGBIgASgJEioKDGRldmljZV90b29scxgTIAMoCzIULnBpbm5hLnYxLkRldmljZVRvb2wSFwoPcHJvbXB0X3JldmlzaW9uGBQgASgJGiwKClRvb2xzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgIOgI4AUIJCgdfcHJvbXB0IngKElByb3ZpZGVyQ29ubmVjdGlvbhIKCgJpZBgBIAEoCRIOCgZwcmVzZXQYAiABKAkSEAoIYmFzZV91cmwYAyABKAkSEAoIcmV2aXNpb24YBCABKAQSDwoHa2V5X3NldBgFIAEoCBIRCglrZXlfbGFzdDQYBiABKAkiVAoKU2xvdENob2ljZRISCgpjb25uZWN0aW9uGAEgASgJEg0KBW1vZGVsGAIgASgJEg0KBXJlYWR5GAMgASgIEhQKDHNwZWVjaF9tb2RlbBgEIAEoCSLUAQoNQnJhaW5PdmVycmlkZRIoCgpkZWxlZ2F0aW9uGAEgASgOMhQucGlubmEudjEuRGVsZWdhdGlvbhIiCgdoaXN0b3J5GAIgASgOMhEucGlubmEudjEuSGlzdG9yeRIVCg1oaXN0b3J5X2xpbWl0GAMgASgNEh8KEmZpcnN0X3RleHRfc2Vjb25kcxgEIAEoDUgAiAEBEiYKCXJlYXNvbmluZxgFIAEoDjITLnBpbm5hLnYxLlJlYXNvbmluZ0IVChNfZmlyc3RfdGV4dF9zZWNvbmRzIk0KBVBsYWNlEgwKBG5hbWUYASABKAkSEAoIbGF0aXR1ZGUYAiABKAESEQoJbG9uZ2l0dWRlGAMgASgBEhEKCXRpbWVfem9uZRgEIAEoCSIxCg5BY2tub3dsZWRnbWVudBIPCgdlbmFibGVkGAEgASgIEg4KBnBocmFzZRgCIAEoCSIkCgdTdGF0aW9uEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJIp8BCglNY3BTZXJ2ZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRob3N0GAMgASgJEg8KB2VuYWJsZWQYBCABKAgSEAoIcmV2aXNpb24YBSABKAQSDQoFdG9vbHMYBiABKA0SDwoHcHJvYmxlbRgHIAEoCRInCgZsaXN0ZWQYCCADKAsyFy5waW5uYS52MS5NY3BTZXJ2ZXJUb29sIjIKDU1jcFNlcnZlclRvb2wSDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCSJECghNY3BBZ2VudBIMCgRuYW1lGAEgASgJEg8KB2FkZHJlc3MYAiABKAkSGQoRbGFzdF9zZWVuX3VuaXhfbXMYAyABKAQilQEKBlByZXNldBIKCgJpZBgBIAEoCRIQCghiYXNlX3VybBgCIAEoCRILCgNzdHQYAyABKAgSDQoFYnJhaW4YBCABKAgSCwoDdHRzGAUgASgIEg0KBW1vZGVsGAYgASgJEhAKCGhhbmRfb2ZmGAcgASgIEhAKCHRoaW5raW5nGAggASgIEhEKCXR0c19tb2RlbBgJIAEoCSJjCgpEZXZpY2VUb29sEgwKBG5hbWUYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSDQoFYnJhaW4YAyABKAgSCwoDbWNwGAQgASgIEhYKDm9mZl9ieV9kZWZhdWx0GAUgASgIIhUKE0dldEFzc2lzdGFudFJlcXVlc3QiPgoUR2V0QXNzaXN0YW50UmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IoMBChRTZXRDb25uZWN0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIOCgZwcmVzZXQYAyABKAkSEAoIYmFzZV91cmwYBCABKAkSEAoDa2V5GAUgASgJSACIAQESEQoJY2xlYXJfa2V5GAYgASgIQgYKBF9rZXkiPwoVU2V0Q29ubmVjdGlvblJlc3BvbnNlEiYKCWFzc2lzdGFudBgBIAEoCzITLnBpbm5hLnYxLkFzc2lzdGFudCI3ChdEZWxldGVDb25uZWN0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBCJCChhEZWxldGVDb25uZWN0aW9uUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50InAKDlNldFNsb3RSZXF1ZXN0EiUKBHNsb3QYASABKA4yFy5waW5uYS52MS5Bc3Npc3RhbnRTbG90EhIKCmNvbm5lY3Rpb24YAiABKAkSDQoFbW9kZWwYAyABKAkSFAoMc3BlZWNoX21vZGVsGAQgASgJIjkKD1NldFNsb3RSZXNwb25zZRImCglhc3Npc3RhbnQYASABKAsyEy5waW5uYS52MS5Bc3Npc3RhbnQi+wIKFlVwZGF0ZUFzc2lzdGFudFJlcXVlc3QSFQoIbGFuZ3VhZ2UYASABKAlIAIgBARITCgZwcm9tcHQYAiABKAlIAYgBARIWCg5kZWZhdWx0X3Byb21wdBgDIAEoCBIXCgpmb2xsb3dfdXBzGAQgASgISAKIAQESJQoDYWNrGAUgASgLMhgucGlubmEudjEuQWNrbm93bGVkZ21lbnQSJQoFdG9vbHMYBiABKAsyFi5waW5uYS52MS5Ub29sU3dpdGNoZXMSLwoOYnJhaW5fb3ZlcnJpZGUYByABKAsyFy5waW5uYS52MS5CcmFpbk92ZXJyaWRlEhIKBXBsYWNlGAggASgJSAOIAQESJwoIc3RhdGlvbnMYCSABKAsyFS5waW5uYS52MS5TdGF0aW9uTGlzdBIXCg9wcm9tcHRfcmV2aXNpb24YCiABKAlCCwoJX2xhbmd1YWdlQgkKB19wcm9tcHRCDQoLX2ZvbGxvd191cHNCCAoGX3BsYWNlIjIKC1N0YXRpb25MaXN0EiMKCHN0YXRpb25zGAEgAygLMhEucGlubmEudjEuU3RhdGlvbiJlCgxUb29sU3dpdGNoZXMSKgoCb24YASADKAsyHi5waW5uYS52MS5Ub29sU3dpdGNoZXMuT25FbnRyeRopCgdPbkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCDoCOAEiQQoXVXBkYXRlQXNzaXN0YW50UmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50ImwKE1NldE1jcFNlcnZlclJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQSDAoEbmFtZRgDIAEoCRIQCgN1cmwYBCABKAlIAIgBARIPCgdlbmFibGVkGAUgASgIQgYKBF91cmwiPgoUU2V0TWNwU2VydmVyUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IjYKFkRlbGV0ZU1jcFNlcnZlclJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQiQQoXRGVsZXRlTWNwU2VydmVyUmVzcG9uc2USJgoJYXNzaXN0YW50GAEgASgLMhMucGlubmEudjEuQXNzaXN0YW50IiEKEVBsYXlTYW1wbGVSZXF1ZXN0EgwKBHRleHQYASABKAkiFAoSUGxheVNhbXBsZVJlc3BvbnNlIh4KDkFza1RleHRSZXF1ZXN0EgwKBHRleHQYASABKAkiEQoPQXNrVGV4dFJlc3BvbnNlIhoKGEdldFNhdGVsbGl0ZUdyb3VwUmVxdWVzdCJIChlHZXRTYXRlbGxpdGVHcm91cFJlc3BvbnNlEisKBWdyb3VwGAEgASgLMhwucGlubmEudjEuU2F0ZWxsaXRlR3JvdXBWaWV3IlQKGFNldFNhdGVsbGl0ZUdyb3VwUmVxdWVzdBIPCgJvbhgBIAEoCEgAiAEBEhQKB2NvbnRyb2wYAiABKAhIAYgBAUIFCgNfb25CCgoIX2NvbnRyb2wiSAoZU2V0U2F0ZWxsaXRlR3JvdXBSZXNwb25zZRIrCgVncm91cBgBIAEoCzIcLnBpbm5hLnYxLlNhdGVsbGl0ZUdyb3VwVmlldyKrAQoSU2F0ZWxsaXRlR3JvdXBWaWV3EgoKAm9uGAEgASgIEhAKCGluX2dyb3VwGAIgASgIEg8KB2NvbnRyb2wYAyABKAgSLwoHbWVtYmVycxgEIAMoCzIeLnBpbm5hLnYxLlNhdGVsbGl0ZUdyb3VwTWVtYmVyEjUKCmNhbmRpZGF0ZXMYBSADKAsyIS5waW5uYS52MS5TYXRlbGxpdGVHcm91cENhbmRpZGF0ZSKQAQoUU2F0ZWxsaXRlR3JvdXBNZW1iZXISCwoDbWFjGAEgASgJEgwKBG5hbWUYAiABKAkSFgoOdGhpc19zYXRlbGxpdGUYAyABKAgSIQoEbW9kZRgEIAEoDjIOLnBpbm5hLnYxLk1vZGVIAIgBARIZChFsYXN0X3NlZW5fdW5peF9tcxgFIAEoBEIHCgVfbW9kZSK3AgoXU2F0ZWxsaXRlR3JvdXBDYW5kaWRhdGUSJgoJc2F0ZWxsaXRlGAEgASgLMhMucGlubmEudjEuU2F0ZWxsaXRlEjYKBXN0YXRlGAIgASgOMicucGlubmEudjEuU2F0ZWxsaXRlR3JvdXBDYW5kaWRhdGUuU3RhdGUSDwoHYWRkYWJsZRgDIAEoCBIUCgxkZWZhdWx0X25hbWUYBCABKAgSFAoMbmFtZV9yZWZ1c2FsGAUgASgJIn8KBVN0YXRlEhUKEVNUQVRFX1VOU1BFQ0lGSUVEEAASEQoNU1RBVEVfQUREQUJMRRABEhoKFlNUQVRFX0lOX0FOT1RIRVJfR1JPVVAQAhIWChJTVEFURV9PRkZfT1JfT0xERVIQAxIYChRTVEFURV9MRUZUX1RIRV9HUk9VUBAEKlcKCkNob2ljZUtpbmQSGwoXQ0hPSUNFX0tJTkRfVU5TUEVDSUZJRUQQABIVChFDSE9JQ0VfS0lORF9NT0RFTBABEhUKEUNIT0lDRV9LSU5EX1ZPSUNFEAIqeQoNQXNzaXN0YW50U2xvdBIeChpBU1NJU1RBTlRfU0xPVF9VTlNQRUNJRklFRBAAEhYKEkFTU0lTVEFOVF9TTE9UX1NUVBABEhgKFEFTU0lTVEFOVF9TTE9UX0JSQUlOEAISFgoSQVNTSVNUQU5UX1NMT1RfVFRTEAMqWwoKRGVsZWdhdGlvbhIaChZERUxFR0FUSU9OX1VOU1BFQ0lGSUVEEAASGAoUREVMRUdBVElPTl9UT09MX0xPT1AQARIXChNERUxFR0FUSU9OX0hBTkRfT0ZGEAIqYwoHSGlzdG9yeRIXChNISVNUT1JZX1VOU1BFQ0lGSUVEEAASEQoNSElTVE9SWV9UVVJOUxABEhEKDUhJU1RPUllfQllURVMQAhIZChVISVNUT1JZX05FV19UVVJOX09OTFkQAyp3CglSZWFzb25pbmcSGQoVUkVBU09OSU5HX1VOU1BFQ0lGSUVEEAASEgoOUkVBU09OSU5HX05PTkUQARIRCg1SRUFTT05JTkdfTE9XEAISFAoQUkVBU09OSU5HX01FRElVTRADEhIKDlJFQVNPTklOR19ISUdIEAQy3gcKEEFzc2lzdGFudFNlcnZpY2USTQoMR2V0QXNzaXN0YW50Eh0ucGlubmEudjEuR2V0QXNzaXN0YW50UmVxdWVzdBoeLnBpbm5hLnYxLkdldEFzc2lzdGFudFJlc3BvbnNlElAKDVNldENvbm5lY3Rpb24SHi5waW5uYS52MS5TZXRDb25uZWN0aW9uUmVxdWVzdBofLnBpbm5hLnYxLlNldENvbm5lY3Rpb25SZXNwb25zZRJZChBEZWxldGVDb25uZWN0aW9uEiEucGlubmEudjEuRGVsZXRlQ29ubmVjdGlvblJlcXVlc3QaIi5waW5uYS52MS5EZWxldGVDb25uZWN0aW9uUmVzcG9uc2USPgoHU2V0U2xvdBIYLnBpbm5hLnYxLlNldFNsb3RSZXF1ZXN0GhkucGlubmEudjEuU2V0U2xvdFJlc3BvbnNlElYKD1VwZGF0ZUFzc2lzdGFudBIgLnBpbm5hLnYxLlVwZGF0ZUFzc2lzdGFudFJlcXVlc3QaIS5waW5uYS52MS5VcGRhdGVBc3Npc3RhbnRSZXNwb25zZRJNCgxTZXRNY3BTZXJ2ZXISHS5waW5uYS52MS5TZXRNY3BTZXJ2ZXJSZXF1ZXN0Gh4ucGlubmEudjEuU2V0TWNwU2VydmVyUmVzcG9uc2USVgoPRGVsZXRlTWNwU2VydmVyEiAucGlubmEudjEuRGVsZXRlTWNwU2VydmVyUmVxdWVzdBohLnBpbm5hLnYxLkRlbGV0ZU1jcFNlcnZlclJlc3BvbnNlEkcKClBsYXlTYW1wbGUSGy5waW5uYS52MS5QbGF5U2FtcGxlUmVxdWVzdBocLnBpbm5hLnYxLlBsYXlTYW1wbGVSZXNwb25zZRI+CgdBc2tUZXh0EhgucGlubmEudjEuQXNrVGV4dFJlcXVlc3QaGS5waW5uYS52MS5Bc2tUZXh0UmVzcG9uc2USSgoLTGlzdENob2ljZXMSHC5waW5uYS52MS5MaXN0Q2hvaWNlc1JlcXVlc3QaHS5waW5uYS52MS5MaXN0Q2hvaWNlc1Jlc3BvbnNlElwKEUdldFNhdGVsbGl0ZUdyb3VwEiIucGlubmEudjEuR2V0U2F0ZWxsaXRlR3JvdXBSZXF1ZXN0GiMucGlubmEudjEuR2V0U2F0ZWxsaXRlR3JvdXBSZXNwb25zZRJcChFTZXRTYXRlbGxpdGVHcm91cBIiLnBpbm5hLnYxLlNldFNhdGVsbGl0ZUdyb3VwUmVxdWVzdBojLnBpbm5hLnYxLlNldFNhdGVsbGl0ZUdyb3VwUmVzcG9uc2ViBnByb3RvMw", [file_pinna_v1_device]);
 
 /**
  * @generated from message pinna.v1.ListChoicesRequest
@@ -1204,6 +1206,286 @@ export const AskTextResponseSchema: GenMessage<AskTextResponse> = /*@__PURE__*/
   messageDesc(file_pinna_v1_assistant, 34);
 
 /**
+ * @generated from message pinna.v1.GetSatelliteGroupRequest
+ */
+export type GetSatelliteGroupRequest = Message<"pinna.v1.GetSatelliteGroupRequest"> & {
+};
+
+/**
+ * Describes the message pinna.v1.GetSatelliteGroupRequest.
+ * Use `create(GetSatelliteGroupRequestSchema)` to create a new message.
+ */
+export const GetSatelliteGroupRequestSchema: GenMessage<GetSatelliteGroupRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 35);
+
+/**
+ * @generated from message pinna.v1.GetSatelliteGroupResponse
+ */
+export type GetSatelliteGroupResponse = Message<"pinna.v1.GetSatelliteGroupResponse"> & {
+  /**
+   * @generated from field: pinna.v1.SatelliteGroupView group = 1;
+   */
+  group?: SatelliteGroupView | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.GetSatelliteGroupResponse.
+ * Use `create(GetSatelliteGroupResponseSchema)` to create a new message.
+ */
+export const GetSatelliteGroupResponseSchema: GenMessage<GetSatelliteGroupResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 36);
+
+/**
+ * Each field unset leaves its switch as it is.
+ *
+ * @generated from message pinna.v1.SetSatelliteGroupRequest
+ */
+export type SetSatelliteGroupRequest = Message<"pinna.v1.SetSatelliteGroupRequest"> & {
+  /**
+   * Satellite group. Off leaves the group.
+   *
+   * @generated from field: optional bool on = 1;
+   */
+  on?: boolean | undefined;
+
+  /**
+   * Control from the group: the other members may run this satellite's
+   * device tools.
+   *
+   * @generated from field: optional bool control = 2;
+   */
+  control?: boolean | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.SetSatelliteGroupRequest.
+ * Use `create(SetSatelliteGroupRequestSchema)` to create a new message.
+ */
+export const SetSatelliteGroupRequestSchema: GenMessage<SetSatelliteGroupRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 37);
+
+/**
+ * @generated from message pinna.v1.SetSatelliteGroupResponse
+ */
+export type SetSatelliteGroupResponse = Message<"pinna.v1.SetSatelliteGroupResponse"> & {
+  /**
+   * @generated from field: pinna.v1.SatelliteGroupView group = 1;
+   */
+  group?: SatelliteGroupView | undefined;
+};
+
+/**
+ * Describes the message pinna.v1.SetSatelliteGroupResponse.
+ * Use `create(SetSatelliteGroupResponseSchema)` to create a new message.
+ */
+export const SetSatelliteGroupResponseSchema: GenMessage<SetSatelliteGroupResponse> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 38);
+
+/**
+ * The satellite group as the Assistant page shows it.
+ *
+ * @generated from message pinna.v1.SatelliteGroupView
+ */
+export type SatelliteGroupView = Message<"pinna.v1.SatelliteGroupView"> & {
+  /**
+   * The Satellite group switch.
+   *
+   * @generated from field: bool on = 1;
+   */
+  on: boolean;
+
+  /**
+   * This satellite is in a group.
+   *
+   * @generated from field: bool in_group = 2;
+   */
+  inGroup: boolean;
+
+  /**
+   * The Control from the group switch.
+   *
+   * @generated from field: bool control = 3;
+   */
+  control: boolean;
+
+  /**
+   * The group's members, this satellite included, by name. Empty in no
+   * group.
+   *
+   * @generated from field: repeated pinna.v1.SatelliteGroupMember members = 4;
+   */
+  members: SatelliteGroupMember[];
+
+  /**
+   * The other satellites the search found (ADR 0021), except members whose
+   * record says they are in this group. A member that left the group is in
+   * both lists: here with STATE_LEFT_THE_GROUP, and in `members`. Empty
+   * while the switch is off.
+   *
+   * @generated from field: repeated pinna.v1.SatelliteGroupCandidate candidates = 5;
+   */
+  candidates: SatelliteGroupCandidate[];
+};
+
+/**
+ * Describes the message pinna.v1.SatelliteGroupView.
+ * Use `create(SatelliteGroupViewSchema)` to create a new message.
+ */
+export const SatelliteGroupViewSchema: GenMessage<SatelliteGroupView> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 39);
+
+/**
+ * A member of this satellite's group.
+ *
+ * @generated from message pinna.v1.SatelliteGroupMember
+ */
+export type SatelliteGroupMember = Message<"pinna.v1.SatelliteGroupMember"> & {
+  /**
+   * In lowercase colon form.
+   *
+   * @generated from field: string mac = 1;
+   */
+  mac: string;
+
+  /**
+   * The last friendly name the search heard; this satellite's own name for
+   * itself.
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * This satellite.
+   *
+   * @generated from field: bool this_satellite = 3;
+   */
+  thisSatellite: boolean;
+
+  /**
+   * Its mode, from its last signed answer. Unset until one arrived, and
+   * for this satellite.
+   *
+   * @generated from field: optional pinna.v1.Mode mode = 4;
+   */
+  mode?: Mode | undefined;
+
+  /**
+   * When it last answered the search or a call, in milliseconds since the
+   * Unix epoch; 0 when it hasn't since pinnad started, and for this
+   * satellite. Kept in memory only.
+   *
+   * @generated from field: uint64 last_seen_unix_ms = 5;
+   */
+  lastSeenUnixMs: bigint;
+};
+
+/**
+ * Describes the message pinna.v1.SatelliteGroupMember.
+ * Use `create(SatelliteGroupMemberSchema)` to create a new message.
+ */
+export const SatelliteGroupMemberSchema: GenMessage<SatelliteGroupMember> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 40);
+
+/**
+ * A satellite the search found, other than a member whose record says it
+ * is in this group.
+ *
+ * @generated from message pinna.v1.SatelliteGroupCandidate
+ */
+export type SatelliteGroupCandidate = Message<"pinna.v1.SatelliteGroupCandidate"> & {
+  /**
+   * As the search found it: its MAC, friendly name, host and addresses, for
+   * the link to its dashboard.
+   *
+   * @generated from field: pinna.v1.Satellite satellite = 1;
+   */
+  satellite?: Satellite | undefined;
+
+  /**
+   * @generated from field: pinna.v1.SatelliteGroupCandidate.State state = 2;
+   */
+  state: SatelliteGroupCandidate_State;
+
+  /**
+   * Add is offered: its switch is on and it is in no group. Its name may
+   * still refuse it (`name_refusal`).
+   *
+   * @generated from field: bool addable = 3;
+   */
+  addable: boolean;
+
+  /**
+   * Its friendly name is still the one Pinna gave it, which is hard to say.
+   * It can be added all the same.
+   *
+   * @generated from field: bool default_name = 4;
+   */
+  defaultName: boolean;
+
+  /**
+   * Why Add would be refused for its name, as one sentence; empty when the
+   * name can be added, and when Add isn't offered.
+   *
+   * @generated from field: string name_refusal = 5;
+   */
+  nameRefusal: string;
+};
+
+/**
+ * Describes the message pinna.v1.SatelliteGroupCandidate.
+ * Use `create(SatelliteGroupCandidateSchema)` to create a new message.
+ */
+export const SatelliteGroupCandidateSchema: GenMessage<SatelliteGroupCandidate> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_assistant, 41);
+
+/**
+ * @generated from enum pinna.v1.SatelliteGroupCandidate.State
+ */
+export enum SatelliteGroupCandidate_State {
+  /**
+   * @generated from enum value: STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Its Satellite group switch is on and it is in no group.
+   *
+   * @generated from enum value: STATE_ADDABLE = 1;
+   */
+  ADDABLE = 1,
+
+  /**
+   * It is in another group.
+   *
+   * @generated from enum value: STATE_IN_ANOTHER_GROUP = 2;
+   */
+  IN_ANOTHER_GROUP = 2,
+
+  /**
+   * Satellite group is off there, or its Pinna is older.
+   *
+   * @generated from enum value: STATE_OFF_OR_OLDER = 3;
+   */
+  OFF_OR_OLDER = 3,
+
+  /**
+   * A member of this group whose record says it is in no group: its
+   * switch was turned off, or it was reset. It is listed in `members`
+   * too.
+   *
+   * @generated from enum value: STATE_LEFT_THE_GROUP = 4;
+   */
+  LEFT_THE_GROUP = 4,
+}
+
+/**
+ * Describes the enum pinna.v1.SatelliteGroupCandidate.State.
+ */
+export const SatelliteGroupCandidate_StateSchema: GenEnum<SatelliteGroupCandidate_State> = /*@__PURE__*/
+  enumDesc(file_pinna_v1_assistant, 41, 0);
+
+/**
  * What a ListChoices request asks for.
  *
  * @generated from enum pinna.v1.ChoiceKind
@@ -1512,6 +1794,28 @@ export const AssistantService: GenService<{
     methodKind: "unary";
     input: typeof ListChoicesRequestSchema;
     output: typeof ListChoicesResponseSchema;
+  },
+  /**
+   * The satellite group (ADR 0026): its switches, its members and the
+   * satellites the search found. The group's key is never returned.
+   *
+   * @generated from rpc pinna.v1.AssistantService.GetSatelliteGroup
+   */
+  getSatelliteGroup: {
+    methodKind: "unary";
+    input: typeof GetSatelliteGroupRequestSchema;
+    output: typeof GetSatelliteGroupResponseSchema;
+  },
+  /**
+   * Turn Satellite group or Control from the group on or off. Turning
+   * Satellite group off leaves the group.
+   *
+   * @generated from rpc pinna.v1.AssistantService.SetSatelliteGroup
+   */
+  setSatelliteGroup: {
+    methodKind: "unary";
+    input: typeof SetSatelliteGroupRequestSchema;
+    output: typeof SetSatelliteGroupResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_pinna_v1_assistant, 0);

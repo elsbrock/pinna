@@ -199,15 +199,8 @@ pub fn default_friendly_name(model: &str, mac: &[u8; 6]) -> String {
 
 /// Whether `friendly` is still the name pinnad gave the satellite with this
 /// MAC, for either model. Such a name is hard to say, so the group notes it
-/// when it adds the satellite (ADR 0026). `mac` is as another satellite's
+/// beside Add (ADR 0026). `mac` is as another satellite's
 /// record has it, in any separator or case.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the group's Add reads it (ADR 0026), in a later change"
-    )
-)]
 pub(crate) fn looks_default(friendly: &str, mac: &str) -> bool {
     let digits = crate::satellites::mac_digits(mac);
     let n = match u64::from_str_radix(&digits, 16) {

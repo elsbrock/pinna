@@ -52,6 +52,10 @@ pub struct Joined {
 impl Joined {
     /// A new group of this satellite and `other`: a new id and key from the
     /// secure random generator, and both entries at their first version.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "Add starts a group (ADR 0026), in a later change")
+    )]
     pub fn start(own: Member, other: Member) -> anyhow::Result<Self> {
         let first = |m: Member| Member {
             version: 1,
@@ -70,6 +74,13 @@ impl Persisted {
     /// What the mDNS record says (ADR 0026): `None` without the `group` key
     /// while the switch is off, `Some("")` while it is on in no group, and
     /// the group's id otherwise.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the mDNS record reads it (ADR 0026), in a later change"
+        )
+    )]
     pub fn record(&self) -> Option<String> {
         self.on.then(|| {
             self.joined

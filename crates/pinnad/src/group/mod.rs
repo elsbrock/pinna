@@ -3,14 +3,12 @@
 //! every call between them signed with the group's key.
 //!
 //! `model` holds the member list's rules and `seal` the group's id, key and
-//! signatures. `persisted` is the group as the standalone files keep it.
-//! None of them does any I/O.
-
-// Used by the group runtime (ADR 0026), added next.
-#![allow(dead_code)]
+//! signatures. `persisted` is the group as the standalone files keep it, and
+//! `view` what the dashboard shows of it. None of them does any I/O.
 
 pub mod model;
 pub mod persisted;
 pub mod seal;
+pub mod view;
 
 pub use persisted::{Joined, Persisted};

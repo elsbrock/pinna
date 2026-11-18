@@ -2321,8 +2321,13 @@ mod tests {
         assert_eq!(view.connections[0].key_last4.as_deref(), Some("3456"));
         assert!(!format!("{view:?}").contains(KEY));
         assert!(!format!("{connection:?}").contains(KEY));
+        let group_view = f
+            .service
+            .group_view(&own.mac, &crate::satellites::Seen::default());
+        assert!(group_view.in_group);
         for shown in [
             format!("{view:?}"),
+            format!("{group_view:?}"),
             format!("{:?}", f.live().group),
             format!("{group:?}"),
         ] {

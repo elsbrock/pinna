@@ -10,7 +10,9 @@ use pinna_assist::config::AssistConfig;
 
 use super::{Draft, Refusal, Service};
 use crate::group::model::{self, Member};
+use crate::group::view::{self, GroupView};
 use crate::group::{Joined, Persisted, seal};
+use crate::satellites::Seen;
 
 const OFF_HERE: &str = "Satellite group is off on this satellite. Switch it on first.";
 const IN_A_GROUP_HERE: &str =
@@ -52,26 +54,19 @@ impl Draft {
 
 impl Service {
     /// The satellite group as last committed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the dashboard reads it (ADR 0026), in a later change"
-        )
-    )]
     pub(crate) fn group(&self) -> Persisted {
         self.committed.live.borrow().group.clone()
     }
 
+    /// What the Assistant page shows of the group, with the satellites in
+    /// `seen`. This satellite is `own_mac`, under the name it has now.
+    pub(crate) fn group_view(&self, own_mac: &str, seen: &Seen) -> GroupView {
+        let own_name = self.status.borrow().friendly_name.clone();
+        view::view(&self.group(), own_mac, &own_name, seen)
+    }
+
     /// Turn *Satellite group* on or off. Off leaves the group: the group it
     /// left is returned, so its members can be told.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the dashboard sets it (ADR 0026), in a later change"
-        )
-    )]
     pub(crate) async fn set_group_switch(&self, on: bool) -> Result<Option<Joined>, Refusal> {
         let mut changed = false;
         let mut left = None;
@@ -96,13 +91,6 @@ impl Service {
     }
 
     /// Turn *Control from the group* on or off.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the dashboard sets it (ADR 0026), in a later change"
-        )
-    )]
     pub(crate) async fn set_group_control(&self, control: bool) -> Result<(), Refusal> {
         self.commit(|d| {
             let mut group = d.group();
@@ -298,6 +286,7 @@ mod tests {
     use super::super::{NOT_SAVED, Paths};
     use super::*;
     use crate::group::seal::Key;
+    use crate::satellites::Found;
     use crate::voice::Snapshot;
 
     const OWN: &str = "02:00:00:00:00:01";
@@ -836,5 +825,38 @@ mod tests {
         assert!(!saved.on);
         assert!(!saved.control);
         assert!(!f.service.view().follow_ups);
+    }
+
+    #[tokio::test]
+    async fn the_view_lists_the_members_and_the_search() {
+        let f = Fixture::new();
+        f.in_group().await;
+        let seen = Seen {
+            searched: true,
+            on_network: true,
+            satellites: vec![Found {
+                name: "office".into(),
+                host: "office".into(),
+                friendly_name: "Office".into(),
+                board: "Echo (2nd Gen)".into(),
+                mac: C.into(),
+                version: "0.4.0".into(),
+                web_port: 80,
+                url: String::new(),
+                ipv4: Vec::new(),
+                ipv6: Vec::new(),
+                group: Some(String::new()),
+                missed: 0,
+            }],
+            error: None,
+            search: 3,
+        };
+        let view = f.service.group_view(OWN, &seen);
+        assert!(view.on && view.in_group && view.control);
+        let names: Vec<&str> = view.members.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["Hall", "Kitchen"]);
+        assert!(view.members[0].this_satellite);
+        assert_eq!(view.candidates.len(), 1);
+        assert_eq!(view.candidates[0].state, view::CandidateState::Addable);
     }
 }

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use buffa::{EnumValue, Inline, MessageField};
 use connectrpc::{ConnectError, RequestContext, Response, Router, ServiceRequest, ServiceResult};
@@ -16,10 +16,12 @@ use pinna_api::{
     Acknowledgment, AskTextRequest, AskTextResponse, Assistant, AssistantService, AssistantSlot,
     BrainOverride, ChoiceKind, DeleteConnectionRequest, DeleteConnectionResponse,
     DeleteMcpServerRequest, DeleteMcpServerResponse, DeviceTool, GetAssistantRequest,
-    GetAssistantResponse, ListChoicesRequest, ListChoicesResponse, McpAgent, PlaySampleRequest,
-    PlaySampleResponse, ProviderConnection, SetConnectionRequest, SetConnectionResponse,
-    SetMcpServerRequest, SetMcpServerResponse, SetSlotRequest, SetSlotResponse, SlotChoice,
-    UpdateAssistantRequest, UpdateAssistantResponse,
+    GetAssistantResponse, GetSatelliteGroupRequest, GetSatelliteGroupResponse, ListChoicesRequest,
+    ListChoicesResponse, McpAgent, PlaySampleRequest, PlaySampleResponse, ProviderConnection,
+    SatelliteGroupCandidate, SatelliteGroupMember, SatelliteGroupView, SetConnectionRequest,
+    SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse, SetSatelliteGroupRequest,
+    SetSatelliteGroupResponse, SetSlotRequest, SetSlotResponse, SlotChoice, UpdateAssistantRequest,
+    UpdateAssistantResponse,
 };
 use pinna_assist::choices::Wanted;
 use pinna_assist::config::{Ack, Station};
@@ -30,6 +32,8 @@ use pinna_assist::prompt::VOICE_RULES;
 use pinna_http::Secret;
 
 use crate::checks;
+use crate::group::view::{CandidateState, GroupView};
+use crate::satellites::Seen;
 use crate::standalone::service::{
     AssistantPatch, AssistantView, ConnectionEdit, KeyEdit, McpEdit, Refusal, Service, SlotEdit,
     SlotKind, SlotView,
@@ -41,11 +45,34 @@ pub struct AssistantApi {
     service: Arc<Service>,
     /// The Brain's input queue, for what plays or runs on the satellite.
     inputs: mpsc::Sender<Input>,
+    /// What the background search last found (satellites::run), for the
+    /// satellite group's candidates.
+    satellites: watch::Receiver<Seen>,
+    /// This satellite's MAC, to find its own entry in the group.
+    own_mac: String,
 }
 
 impl AssistantApi {
     pub fn new(service: Arc<Service>, inputs: mpsc::Sender<Input>) -> Self {
-        Self { service, inputs }
+        Self {
+            service,
+            inputs,
+            satellites: watch::channel(Seen::default()).1,
+            own_mac: String::new(),
+        }
+    }
+
+    /// The search's results and this satellite's MAC, for the satellite
+    /// group (ADR 0026).
+    pub fn with_satellites(mut self, satellites: watch::Receiver<Seen>, own_mac: String) -> Self {
+        self.satellites = satellites;
+        self.own_mac = own_mac;
+        self
+    }
+
+    fn group_view(&self) -> MessageField<SatelliteGroupView, Inline<SatelliteGroupView>> {
+        let seen = self.satellites.borrow().clone();
+        MessageField::some(render_group(self.service.group_view(&self.own_mac, &seen)))
     }
 
     /// Hand a command to the Brain and wait for its answer. A refusal is a
@@ -197,6 +224,44 @@ fn render(v: AssistantView) -> Assistant {
                 brain: t.brain,
                 mcp: t.mcp,
                 off_by_default: t.off_by_default,
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+/// The group as the dashboard shows it. The key isn't part of the view.
+fn render_group(v: GroupView) -> SatelliteGroupView {
+    use pinna_api::satellite_group_candidate::State;
+    SatelliteGroupView {
+        on: v.on,
+        in_group: v.in_group,
+        control: v.control,
+        members: v
+            .members
+            .into_iter()
+            .map(|m| SatelliteGroupMember {
+                mac: m.mac,
+                name: m.name,
+                this_satellite: m.this_satellite,
+                ..Default::default()
+            })
+            .collect(),
+        candidates: v
+            .candidates
+            .into_iter()
+            .map(|c| SatelliteGroupCandidate {
+                satellite: MessageField::some(crate::api::satellite(c.found)),
+                state: EnumValue::Known(match c.state {
+                    CandidateState::Addable => State::STATE_ADDABLE,
+                    CandidateState::InAnotherGroup => State::STATE_IN_ANOTHER_GROUP,
+                    CandidateState::OffOrOlder => State::STATE_OFF_OR_OLDER,
+                    CandidateState::LeftTheGroup => State::STATE_LEFT_THE_GROUP,
+                }),
+                addable: c.addable,
+                default_name: c.default_name,
+                name_refusal: c.name_refusal.unwrap_or_default(),
                 ..Default::default()
             })
             .collect(),
@@ -530,6 +595,39 @@ impl AssistantService for AssistantApi {
             ..Default::default()
         })
     }
+
+    async fn get_satellite_group(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, GetSatelliteGroupRequest>,
+    ) -> ServiceResult<GetSatelliteGroupResponse> {
+        Response::ok(GetSatelliteGroupResponse {
+            group: self.group_view(),
+            ..Default::default()
+        })
+    }
+
+    async fn set_satellite_group(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, SetSatelliteGroupRequest>,
+    ) -> ServiceResult<SetSatelliteGroupResponse> {
+        if let Some(on) = request.on {
+            // Telling the members that this satellite left comes with the
+            // calls between members (ADR 0026).
+            self.service.set_group_switch(on).await.map_err(refused)?;
+        }
+        if let Some(control) = request.control {
+            self.service
+                .set_group_control(control)
+                .await
+                .map_err(refused)?;
+        }
+        Response::ok(SetSatelliteGroupResponse {
+            group: self.group_view(),
+            ..Default::default()
+        })
+    }
 }
 
 #[cfg(test)]
@@ -576,9 +674,15 @@ mod tests {
         device: DeviceServiceClient<HttpClient>,
         assistant: AssistantServiceClient<HttpClient>,
         url: String,
+        service: Arc<Service>,
+        /// What the search found, as the satellite group lists it.
+        satellites: watch::Sender<Seen>,
         _events: mpsc::Receiver<DeviceEvent>,
         _dir: tempfile::TempDir,
     }
+
+    /// This satellite's MAC in the tests.
+    const OWN_MAC: &str = "02:00:00:aa:bb:cc";
 
     impl Device {
         async fn start() -> Self {
@@ -637,8 +741,10 @@ mod tests {
                 key_from_image: false,
             };
             let device = Arc::new(DeviceApi::new(info, status_rx, inputs.clone()));
-            let router = crate::api::router(device)
-                .add_service(Arc::new(AssistantApi::new(service, inputs)));
+            let (satellites, seen) = watch::channel(Seen::default());
+            let router = crate::api::router(device).add_service(Arc::new(
+                AssistantApi::new(service.clone(), inputs).with_satellites(seen, OWN_MAC.into()),
+            ));
             let server = Server::bind("127.0.0.1:0").await.unwrap();
             let url = format!("http://{}", server.local_addr().unwrap());
             tokio::spawn(async move { server.serve(router).await });
@@ -647,9 +753,44 @@ mod tests {
                 device: DeviceServiceClient::new(HttpClient::plaintext(), config()),
                 assistant: AssistantServiceClient::new(HttpClient::plaintext(), config()),
                 url,
+                service,
+                satellites,
                 _events: events,
                 _dir: dir,
             }
+        }
+
+        /// Switched on, in a group with one other satellite. Returns the
+        /// group's key in every form it could leak in: base64 (how JSON
+        /// carries bytes) and hex.
+        async fn in_group(&self) -> [String; 2] {
+            use crate::group::model::Member;
+            self.service.set_group_switch(true).await.unwrap();
+            let own = Member {
+                mac: OWN_MAC.into(),
+                name: "Test".into(),
+                version: 1,
+                removed: false,
+            };
+            let other = Member {
+                mac: "02:00:00:aa:bb:cd".into(),
+                name: "Kitchen".into(),
+                ..own.clone()
+            };
+            let group = crate::group::Joined::start(own, other).unwrap();
+            self.service
+                .start_group(group.clone(), OWN_MAC)
+                .await
+                .unwrap();
+            [
+                group.key.to_base64(),
+                group
+                    .key
+                    .bytes()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect(),
+            ]
         }
 
         async fn status(&self) -> Status {
@@ -858,6 +999,7 @@ mod tests {
         assert!(body.contains(r#""keyLast4":"3456""#), "{body}");
         bodies.push(body);
         let a = d.ready(&server).await;
+        let group_key = d.in_group().await;
         let id = &a.connections[0].id;
         // Refusals don't echo it either.
         for request in [
@@ -873,13 +1015,27 @@ mod tests {
             "AssistantService/GetAssistant",
             "DeviceService/GetStatus",
             "AssistantService/UpdateAssistant",
+            "AssistantService/GetSatelliteGroup",
+            "AssistantService/SetSatelliteGroup",
         ] {
             let (status, body) = d.json(procedure, "{}").await;
             assert_eq!(status, 200, "{body}");
             bodies.push(body);
         }
+        let (status, body) = d
+            .json(
+                "AssistantService/SetSatelliteGroup",
+                r#"{"control": false}"#,
+            )
+            .await;
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains(r#""inGroup":true"#), "{body}");
+        bodies.push(body);
         for body in &bodies {
             assert!(!body.contains(KEY), "{body}");
+            for key in &group_key {
+                assert!(!body.contains(key.as_str()), "{body}");
+            }
         }
 
         // The binary encoding, as the typed clients receive it.
@@ -894,6 +1050,118 @@ mod tests {
         assert!(!bytes.windows(KEY.len()).any(|w| w == KEY.as_bytes()));
         assert!(!format!("{got:?}").contains(KEY));
         assert!(got.assistant.as_option().unwrap().connections[0].key_set);
+        let raw_key = d.service.group().joined.unwrap().key;
+        let group = d
+            .assistant
+            .get_satellite_group(GetSatelliteGroupRequest::default())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        let bytes = group.encode_to_vec();
+        assert!(!bytes.windows(32).any(|w| w == raw_key.bytes()));
+        for key in &group_key {
+            assert!(!format!("{group:?}").contains(key.as_str()));
+        }
+        assert!(group.group.as_option().unwrap().in_group);
+    }
+
+    #[tokio::test]
+    async fn the_satellite_group_switches_and_lists_the_search() {
+        use pinna_api::satellite_group_candidate::State;
+
+        let d = Device::start().await;
+        d.satellites.send_replace(Seen {
+            searched: true,
+            on_network: true,
+            satellites: vec![crate::satellites::Found {
+                name: "kitchen".into(),
+                host: "kitchen".into(),
+                friendly_name: "Kitchen".into(),
+                board: "Echo Dot (2nd Gen)".into(),
+                mac: "02:00:00:aa:bb:cd".into(),
+                version: "0.4.0".into(),
+                web_port: 8080,
+                url: String::new(),
+                ipv4: vec!["192.168.1.21".parse().unwrap()],
+                ipv6: Vec::new(),
+                group: Some(String::new()),
+                missed: 0,
+            }],
+            error: None,
+            search: 1,
+        });
+        let group = |response: SetSatelliteGroupResponse| response.group.into_option().unwrap();
+
+        let got = d
+            .assistant
+            .get_satellite_group(GetSatelliteGroupRequest::default())
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message()
+            .group
+            .into_option()
+            .unwrap();
+        // Off by default, with Control from the group on, and nothing listed.
+        assert!(!got.on && !got.in_group && got.control);
+        assert!(got.candidates.is_empty());
+
+        let on = group(
+            d.assistant
+                .set_satellite_group(SetSatelliteGroupRequest {
+                    on: Some(true),
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .into_view()
+                .to_owned_message(),
+        );
+        assert!(on.on && !on.in_group && on.control);
+        assert!(on.members.is_empty());
+        let candidate = &on.candidates[0];
+        assert_eq!(candidate.state, EnumValue::Known(State::STATE_ADDABLE));
+        assert!(candidate.addable && !candidate.default_name);
+        assert_eq!(candidate.name_refusal, "");
+        let satellite = candidate.satellite.as_option().unwrap();
+        assert_eq!(
+            (
+                satellite.friendly_name.as_str(),
+                satellite.host.as_str(),
+                satellite.web_port
+            ),
+            ("Kitchen", "kitchen", 8080)
+        );
+        assert_eq!(d.service.group().record(), Some(String::new()));
+
+        let control = group(
+            d.assistant
+                .set_satellite_group(SetSatelliteGroupRequest {
+                    control: Some(false),
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .into_view()
+                .to_owned_message(),
+        );
+        assert!(control.on && !control.control);
+
+        let off = group(
+            d.assistant
+                .set_satellite_group(SetSatelliteGroupRequest {
+                    on: Some(false),
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .into_view()
+                .to_owned_message(),
+        );
+        assert!(!off.on && !off.control);
+        assert!(off.candidates.is_empty());
+        assert_eq!(d.service.group().record(), None);
     }
 
     #[tokio::test]

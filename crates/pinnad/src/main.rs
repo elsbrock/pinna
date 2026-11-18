@@ -804,7 +804,7 @@ async fn main() -> Result<()> {
     let device_api = api::DeviceApi::with_updater(
         api::Info {
             version: booted_version.clone(),
-            mac: dc_mac,
+            mac: dc_mac.clone(),
             time_zones: Arc::new(timezone::zones(Path::new(timezone::ZONEINFO))),
             wake_words: catalogue.clone(),
             audio_backend: audio_backend.into(),
@@ -824,7 +824,7 @@ async fn main() -> Result<()> {
     let device_api = Arc::new(
         device_api
             .with_ring(shown_rx)
-            .with_satellites(satellites_rx),
+            .with_satellites(satellites_rx.clone()),
     );
     // A Wi-Fi trial that a stopped pinnad left behind goes back (ADR 0008).
     let wifi_api = device_api.clone();
@@ -848,10 +848,10 @@ async fn main() -> Result<()> {
     ));
 
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
-    let assistant_api = Arc::new(assistant_api::AssistantApi::new(
-        assistant.clone(),
-        in_tx.clone(),
-    ));
+    let assistant_api = Arc::new(
+        assistant_api::AssistantApi::new(assistant.clone(), in_tx.clone())
+            .with_satellites(satellites_rx, dc_mac),
+    );
     // The tools' HTTP clients, counters and updater, shared by every run and /mcp call.
     let tool_kit = tools::ToolKit::new(shared.counters.clone()).with_updater(updater.clone());
     let mcp_server = Arc::new(mcp::McpServer::new(
