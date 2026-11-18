@@ -231,6 +231,12 @@ pub struct DeviceConfig {
     pub webserver_port: u16,
     /// The dashboard address (ADR 0021), announced for other satellites.
     pub dashboard_url: Option<String>,
+    /// The satellite group (ADR 0026), announced so other satellites can
+    /// tell who can be added. `None` while the *Satellite group* switch is
+    /// off (no key), `Some("")` while it is on and the satellite is in no
+    /// group, otherwise the group's id. The id may be public: it only tells
+    /// groups apart, and grants nothing without the group's key.
+    pub group: Option<String>,
 }
 
 /// The encryption key is not base64 of exactly 32 bytes.
@@ -277,6 +283,7 @@ impl DeviceConfig {
             encryption_key: None,
             webserver_port: 0,
             dashboard_url: None,
+            group: None,
         }
     }
 
@@ -314,6 +321,11 @@ pub fn mdns_txt(cfg: &DeviceConfig) -> Vec<(String, String)> {
     }
     if let Some(url) = &cfg.dashboard_url {
         txt.push(("url", url.clone()));
+    }
+    // ADR 0026: an empty value still says the switch is on, so the key is
+    // there whenever the switch is.
+    if let Some(group) = &cfg.group {
+        txt.push(("group", group.clone()));
     }
     txt.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }
@@ -598,6 +610,14 @@ mod tests {
         assert!(txt.contains(&("url".into(), "https://dot.example.com/".into())));
         cfg.webserver_port = 0;
         assert!(!mdns_txt(&cfg).iter().any(|(k, _)| k == "web_port"));
+
+        assert!(!mdns_txt(&cfg).iter().any(|(k, _)| k == "group"));
+        cfg.group = Some(String::new());
+        assert!(mdns_txt(&cfg).contains(&("group".into(), String::new())));
+        cfg.group = Some("0123456789abcdef0123456789abcdef".into());
+        assert!(
+            mdns_txt(&cfg).contains(&("group".into(), "0123456789abcdef0123456789abcdef".into()))
+        );
     }
 
     #[test]
