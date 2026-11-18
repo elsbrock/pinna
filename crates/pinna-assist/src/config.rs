@@ -1,6 +1,6 @@
 //! The standalone settings (`standalone.toml`): connections, the three slots,
 //! the prompt and place, the owner's tools, MCP servers and stations
-//! (ADR 0017 §"The pipeline", architecture §6).
+//! (ADR 0017 §"The pipeline").
 //!
 //! The codec holds no secrets; keys live in `secrets.toml`. Unknown keys are
 //! kept in `extra`, so a rollback never drops what a newer image wrote.

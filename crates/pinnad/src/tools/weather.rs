@@ -1,5 +1,5 @@
-//! The `weather` tool and the place search, over Open-Meteo (ADR 0017,
-//! architecture §8).
+//! The `weather` tool and the place search, over Open-Meteo (ADR 0017
+//! §"The pipeline").
 //!
 //! Both APIs are keyless. The forecast is for the owner's place, in the
 //! place's own time zone; units follow the language: Fahrenheit and miles per

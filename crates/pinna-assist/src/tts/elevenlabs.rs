@@ -1,6 +1,6 @@
 //! The ElevenLabs text-to-speech adapter:
 //! `POST {base}/v1/text-to-speech/{voice}/stream?output_format=mp3_44100_64`
-//! (architecture §7).
+//! (ADR 0017 §"The pipeline").
 //!
 //! The voice id is a path segment, so it is built through [`url::Url`] and
 //! percent-encoded. Authentication is the `xi-api-key` header.

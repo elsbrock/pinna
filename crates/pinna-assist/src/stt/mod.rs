@@ -1,5 +1,5 @@
 //! The speech-to-text slot: one adapter per wire protocol (ADR 0017
-//! §"The pipeline", architecture §7).
+//! §"The pipeline").
 //!
 //! An adapter is a small IO shell around the request helpers in [`crate::http`].
 //! Provider clients follow no redirects, so a key stays on the origin its

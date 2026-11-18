@@ -1,5 +1,5 @@
 //! The radio tools: the owner's stations and the radio-browser.info
-//! directory (ADR 0017, architecture §8).
+//! directory (ADR 0017 §"The pipeline").
 //!
 //! `play_station` finds one of the owner's stations by name and plays it
 //! through the same checked path as `play_url`. `search_radio` lists

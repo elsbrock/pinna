@@ -1,5 +1,5 @@
 //! Per-stage time limits and the Brain's backstops (ADR 0017 §"Each stage has
-//! a time limit", architecture §7).
+//! a time limit").
 //!
 //! A stage limit is what a request waits on the provider; a backstop is the
 //! later wall-clock bound the Brain re-arms so a stalled stage still fails.

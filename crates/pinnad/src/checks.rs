@@ -19,7 +19,7 @@ pub fn media_url(s: &str) -> Result<String, String> {
     }
 }
 
-/// The longest text `speak` says (architecture §7, size caps).
+/// The longest text `speak` says.
 pub const SPEAK_MAX: usize = 500;
 
 /// A text for the assistant's voice to say, trimmed.

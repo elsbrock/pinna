@@ -1,4 +1,4 @@
-//! The standalone configuration owner (ADR 0017, architecture §4 and §6).
+//! The standalone configuration owner (ADR 0017).
 //!
 //! The service owns `standalone.toml` and `secrets.toml`. An edit is validated,
 //! checked against its provider outside every lock, then committed with a
@@ -42,7 +42,7 @@ use crate::voice::Snapshot;
 
 /// At most this many connections.
 pub const MAX_CONNECTIONS: usize = 16;
-/// The dashboard lists this many MCP agents, most recent first (architecture §8).
+/// The dashboard lists this many MCP agents, most recent first.
 pub const MAX_AGENTS: usize = 8;
 /// An agent name is cut to this many characters.
 pub const AGENT_NAME_MAX: usize = 40;
@@ -60,7 +60,7 @@ const STATION_NAME_MAX: usize = 60;
 const TOOL_NAME_MAX: usize = 64;
 /// The Advanced first-text limit, in seconds.
 const FIRST_TEXT_S: std::ops::RangeInclusive<u64> = 1..=300;
-/// The Advanced history caps (architecture §7, size caps).
+/// The Advanced history caps.
 const HISTORY_TURNS_MAX: usize = 10;
 const HISTORY_BYTES_MAX: usize = 64 * 1024;
 /// An MCP server address is at most this many bytes.
@@ -295,7 +295,8 @@ pub struct McpServerView {
     pub revision: u64,
 }
 
-/// An MCP client that called `/mcp` (architecture §8). Never a metric label.
+/// An MCP client that called `/mcp` (ADR 0017 §"Pinna as an MCP server").
+/// Never a metric label.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentSeen {
     pub name: String,

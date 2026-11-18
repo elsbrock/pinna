@@ -1,4 +1,4 @@
-//! Streamable HTTP client for the owner's MCP servers (ADR 0017, §8).
+//! Streamable HTTP client for the owner's MCP servers (ADR 0017 §"The pipeline").
 
 use std::{
     sync::{

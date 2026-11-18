@@ -1,4 +1,4 @@
-//! Save-time checks for a provider connection (ADR 0017, architecture §7).
+//! Save-time checks for a provider connection (ADR 0017 §"The pipeline").
 //!
 //! A check is the cheapest call that proves a connection works: list the
 //! models, transcribe half a second of silence, or synthesise one word. No
@@ -20,11 +20,11 @@ use crate::{
     stt, tts,
 };
 
-/// A check gives up after this long (architecture §7).
+/// A check gives up after this long.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The model-list body may be this large. Beyond it the status alone passes and
-/// the model isn't confirmed (architecture §7).
+/// the model isn't confirmed.
 const MODELS_CAP: usize = 2 * 1024 * 1024;
 
 /// Half a second of 16 kHz mono signed 16-bit silence, the smallest utterance

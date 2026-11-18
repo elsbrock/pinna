@@ -1,5 +1,5 @@
 //! The OpenAI-compatible text-to-speech adapter: `POST {base}/audio/speech`
-//! (architecture §7).
+//! (ADR 0017 §"The pipeline").
 //!
 //! The JSON body carries the model, the voice, the text and `mp3`. The audio
 //! is streamed, so the request only waits for the response headers.

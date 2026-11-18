@@ -1,4 +1,4 @@
-//! Sans-IO dispatcher for Pinna's MCP server (ADR 0017, §8).
+//! Sans-IO dispatcher for Pinna's MCP server (ADR 0017 §"Pinna as an MCP server").
 //!
 //! It turns one HTTP body into one reply body. The transport (pinnad's `/mcp`
 //! route) owns the Host, `Content-Type` and Origin checks; this module only

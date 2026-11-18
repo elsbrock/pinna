@@ -1,4 +1,4 @@
-//! The acknowledgment a slow agent plays (ADR 0017, architecture §6).
+//! The acknowledgment a slow agent plays (ADR 0017 §"The pipeline").
 //!
 //! The phrase is the owner's. While the owner keeps the default, it is the
 //! language's own from a small table that falls back to English. It is

@@ -1,4 +1,4 @@
-//! The tool loop's protocol-independent state (architecture §7).
+//! The tool loop's protocol-independent state (ADR 0017 §"The pipeline").
 //!
 //! The harness owns the messages for the current turn and turns streamed text
 //! into spoken sentences. Network and tool IO stay in `run::reply`.

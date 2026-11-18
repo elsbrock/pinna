@@ -1,5 +1,5 @@
 //! OpenAI-compatible speech-to-text: `POST {base}/audio/transcriptions`
-//! (ADR 0017 §"The pipeline", architecture §7).
+//! (ADR 0017 §"The pipeline").
 //!
 //! This covers OpenAI, Groq and every self-hosted server that copies the audio
 //! API. The WAV goes up as a multipart file with the model, an optional

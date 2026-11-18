@@ -1,5 +1,5 @@
-//! Pinna's MCP server, `/mcp` on the dashboard listener (ADR 0017,
-//! architecture §8).
+//! Pinna's MCP server, `/mcp` on the dashboard listener (ADR 0017
+//! §"Pinna as an MCP server").
 //!
 //! It trusts the LAN as the dashboard does: no token, and the dashboard's Host
 //! allowlist applies. On top of that a browser `Origin` must be one the
@@ -32,7 +32,7 @@ use crate::voice::{Input, Snapshot};
 use crate::web::{Conn, Hosts};
 
 pub const ROUTE: &str = "/mcp";
-/// The largest request body (architecture §7, size caps).
+/// The largest request body.
 const MAX_BODY: usize = 64 * 1024;
 /// Tool calls that may run at once; another is told the satellite is busy.
 const MAX_CALLS: usize = 2;

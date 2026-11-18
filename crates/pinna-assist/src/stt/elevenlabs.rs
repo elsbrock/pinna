@@ -1,5 +1,5 @@
 //! ElevenLabs speech-to-text: `POST {base}/v1/speech-to-text`
-//! (ADR 0017 §"The pipeline", architecture §7).
+//! (ADR 0017 §"The pipeline").
 //!
 //! The WAV goes up with the Scribe model and an optional `language_code`; the
 //! key goes in `xi-api-key`, not a bearer header.

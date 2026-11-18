@@ -1,4 +1,5 @@
-//! The production run spawner (ADR 0017, architecture §4).
+//! The production run spawner (ADR 0017 §"The pipeline": a standalone
+//! request is its own task).
 //!
 //! The Brain hands over what a run needs; the spawner adds the system prompt,
 //! the device tools and the metrics, and runs the request on its own task.
