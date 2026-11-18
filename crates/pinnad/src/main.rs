@@ -802,10 +802,13 @@ async fn main() -> Result<()> {
         assistant.clone(),
         in_tx.clone(),
     ));
+    // The tools' HTTP clients and counters, shared by every run and /mcp call.
+    let tool_kit = tools::ToolKit::new(shared.counters.clone());
     let mcp_server = Arc::new(mcp::McpServer::new(
         assistant.clone(),
         in_tx.clone(),
         status_rx.clone(),
+        tool_kit.clone(),
         booted_version.clone(),
     ));
     match web::start(
@@ -831,6 +834,7 @@ async fn main() -> Result<()> {
         in_tx.clone(),
         status_rx,
         Arc::new(shared.counters.standalone.clone()),
+        tool_kit,
     );
     let brain = Brain::new_with_local(
         esp,

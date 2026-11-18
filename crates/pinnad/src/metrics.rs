@@ -119,8 +119,6 @@ pub struct Counters {
 }
 
 /// Who asked for a tool call.
-// DeviceTools (T61) is the first caller.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Via {
     /// The brain's tool loop in a standalone request.
@@ -142,8 +140,6 @@ impl Counters {
 
     /// A tool call ended. `tool` is the name as called; `servers` are the
     /// owner's MCP servers, as configured.
-    // DeviceTools (T61) counts its calls here.
-    #[allow(dead_code)]
     pub fn tool_call(&self, tool: &str, servers: &[&str], via: Via, ok: bool) {
         self.tool_calls
             .get_or_create(&ToolUse {
@@ -418,6 +414,17 @@ pub fn registry(
     r.register_collector(Box::new(Host(sources)));
     r.register_collector(Box::new(Process));
     r
+}
+
+#[cfg(test)]
+impl Counters {
+    /// The `pinna_tool_calls` family as `/metrics` renders it, for tests of
+    /// the callers.
+    pub fn tool_calls_text(&self) -> String {
+        let mut r = Registry::default();
+        r.register("pinna_tool_calls", "", self.tool_calls.clone());
+        render(&r)
+    }
 }
 
 /// The text `/metrics` answers with.

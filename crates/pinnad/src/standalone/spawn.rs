@@ -22,7 +22,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::AssistLive;
-use crate::tools::{Caller, DeviceTools, Surface};
+use crate::tools::{Caller, DeviceTools, Surface, ToolKit};
 use crate::voice::{DeviceFacts, Input, LocalStart, RunId, RunSpawner, Snapshot};
 
 /// Builds each standalone run from the live configuration and spawns it.
@@ -31,6 +31,7 @@ pub struct ProdSpawner {
     inputs: mpsc::Sender<Input>,
     status: watch::Receiver<Snapshot>,
     observer: Arc<dyn Observer>,
+    kit: ToolKit,
 }
 
 impl ProdSpawner {
@@ -38,11 +39,13 @@ impl ProdSpawner {
         inputs: mpsc::Sender<Input>,
         status: watch::Receiver<Snapshot>,
         observer: Arc<dyn Observer>,
+        kit: ToolKit,
     ) -> Self {
         Self {
             inputs,
             status,
             observer,
+            kit,
         }
     }
 
@@ -67,6 +70,7 @@ impl ProdSpawner {
             ));
         };
         let tools = DeviceTools::new(
+            &self.kit,
             self.inputs.clone(),
             self.status.clone(),
             live.clone(),
@@ -352,6 +356,7 @@ mod tests {
                 inputs.clone(),
                 status.clone(),
                 Arc::new(shared.counters.standalone.clone()),
+                ToolKit::new(shared.counters.clone()),
             );
             let brain = Brain::new_with_local(
                 esp,

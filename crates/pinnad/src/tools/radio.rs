@@ -386,6 +386,7 @@ mod tests {
         let mut live = AssistLive::empty();
         live.stations = Arc::new(stations);
         let tools = DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
             inputs,
             status,
             Arc::new(live),
@@ -661,7 +662,7 @@ mod tests {
             FakeResponse::new(StatusCode::OK, "[]"),
         );
         let (mut tools, _rx) = with_stations(Vec::new());
-        tools.radio = RadioBrowser::at(pinna_http::client(ClientKind::Tool), server.url(PATH));
+        tools.kit.radio = RadioBrowser::at(pinna_http::client(ClientKind::Tool), server.url(PATH));
 
         let out = tools.call("search_radio", json!({"name": "Jazz"})).await;
 

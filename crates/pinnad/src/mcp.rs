@@ -27,7 +27,7 @@ use tokio::sync::{Semaphore, mpsc, watch};
 use crate::settings::Mode;
 use crate::standalone::AssistLive;
 use crate::standalone::service::Service;
-use crate::tools::{self, Caller, DeviceTools, Surface};
+use crate::tools::{self, Caller, DeviceTools, Surface, ToolKit};
 use crate::voice::{Input, Snapshot};
 use crate::web::{Conn, Hosts};
 
@@ -56,15 +56,15 @@ pub struct McpServer {
     status: watch::Receiver<Snapshot>,
     calls: Semaphore,
     info: ServerInfo,
+    kit: ToolKit,
 }
 
 impl McpServer {
-    // main.rs builds the server once it loads the standalone service (T55).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new(
         service: Arc<Service>,
         inputs: mpsc::Sender<Input>,
         status: watch::Receiver<Snapshot>,
+        kit: ToolKit,
         version: impl Into<String>,
     ) -> Self {
         Self {
@@ -72,6 +72,7 @@ impl McpServer {
             service,
             inputs,
             status,
+            kit,
             calls: Semaphore::new(MAX_CALLS),
             info: ServerInfo {
                 name: "pinna".into(),
@@ -83,6 +84,7 @@ impl McpServer {
     /// The tools as the owner switched them now.
     fn tools(&self) -> DeviceTools {
         DeviceTools::new(
+            &self.kit,
             self.inputs.clone(),
             self.status.clone(),
             self.live.borrow().clone(),
@@ -265,7 +267,13 @@ mod tests {
                 Paths::beside(&dir.path().join("settings.toml")),
                 status.clone(),
             );
-            let server = McpServer::new(service.clone(), inputs.clone(), status.clone(), "0.1.0");
+            let server = McpServer::new(
+                service.clone(),
+                inputs.clone(),
+                status.clone(),
+                crate::tools::ToolKit::new(crate::metrics::Counters::default()),
+                "0.1.0",
+            );
             let api = Arc::new(DeviceApi::new(info(), status.clone(), inputs.clone()));
             let hosts = Hosts::new(Some("pinna"), &[]);
             let assistant = Arc::new(crate::assistant_api::AssistantApi::new(
@@ -597,6 +605,7 @@ mod tests {
             .collect();
         let (inputs, _) = mpsc::channel(1);
         let expected: Vec<String> = DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
             inputs,
             f.status.clone(),
             Arc::new(AssistLive::empty()),

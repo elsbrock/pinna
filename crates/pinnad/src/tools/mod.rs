@@ -23,6 +23,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::leds::LightEffect;
+use crate::metrics::{Counters, Via};
 use crate::standalone::{AssistLive, OwnerMcp};
 use crate::voice::{ApiCommand, Input, RunId, Snapshot};
 use device::Op;
@@ -491,12 +492,31 @@ pub struct DeviceTools {
     live: Arc<AssistLive>,
     surface: Surface,
     caller: Caller,
+    kit: ToolKit,
+}
+
+/// What every [`DeviceTools`] shares, built once: the network tools' HTTP
+/// clients, so connections are reused across requests, and the counters.
+#[derive(Clone)]
+pub struct ToolKit {
     weather: OpenMeteo,
     radio: RadioBrowser,
+    counters: Counters,
+}
+
+impl ToolKit {
+    pub fn new(counters: Counters) -> Self {
+        Self {
+            weather: OpenMeteo::default(),
+            radio: RadioBrowser::default(),
+            counters,
+        }
+    }
 }
 
 impl DeviceTools {
     pub fn new(
+        kit: &ToolKit,
         inputs: mpsc::Sender<Input>,
         status: watch::Receiver<Snapshot>,
         live: Arc<AssistLive>,
@@ -509,8 +529,7 @@ impl DeviceTools {
             live,
             surface,
             caller,
-            weather: OpenMeteo::default(),
-            radio: RadioBrowser::default(),
+            kit: kit.clone(),
         }
     }
 
@@ -621,6 +640,24 @@ impl ToolSet for DeviceTools {
 
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput> {
         Box::pin(async move {
+            let output = self.dispatch(name, args).await;
+            let servers: Vec<&str> = self.live.mcp.iter().map(|s| s.name.as_str()).collect();
+            let via = match self.surface {
+                Surface::Brain => Via::Brain,
+                Surface::Mcp => Via::Mcp,
+            };
+            self.kit
+                .counters
+                .tool_call(name, &servers, via, !output.is_error);
+            output
+        })
+    }
+}
+
+impl DeviceTools {
+    /// Run a device tool, or an owner MCP server's for a tool-loop brain.
+    async fn dispatch(&self, name: &str, args: Value) -> ToolOutput {
+        {
             let Some(tool) = TOOLS
                 .iter()
                 .find(|t| t.name == name && t.reach.offers(self.surface))
@@ -648,7 +685,7 @@ impl ToolSet for DeviceTools {
                 Ok(text) => ToolOutput::ok(text),
                 Err(why) => ToolOutput::error(why),
             }
-        })
+        }
     }
 }
 
@@ -729,6 +766,7 @@ mod tests {
         /// As an MCP client: the Brain refuses a run's commands until T28.
         fn tools(&self, surface: Surface, switches: &[(&str, bool)]) -> DeviceTools {
             DeviceTools::new(
+                &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
                 self.inputs.clone(),
                 self.status.clone(),
                 live(switches),
@@ -759,7 +797,14 @@ mod tests {
     fn bare(surface: Surface, caller: Caller) -> (DeviceTools, mpsc::Receiver<Input>) {
         let (inputs, rx) = mpsc::channel(64);
         let status = watch::channel(Snapshot::default()).1;
-        let tools = DeviceTools::new(inputs, status, live(&[]), surface, caller);
+        let tools = DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
+            inputs,
+            status,
+            live(&[]),
+            surface,
+            caller,
+        );
         (tools, rx)
     }
 
@@ -979,7 +1024,14 @@ mod tests {
             inputs.try_send(Input::Privacy(false)).unwrap();
         }
         let status = watch::channel(Snapshot::default()).1;
-        let tools = DeviceTools::new(inputs.clone(), status, live(&[]), Surface::Mcp, Caller::Mcp);
+        let tools = DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
+            inputs.clone(),
+            status,
+            live(&[]),
+            Surface::Mcp,
+            Caller::Mcp,
+        );
 
         let out = tools.call("set_volume", json!({"percent": 30})).await;
 
@@ -1291,6 +1343,7 @@ mod tests {
         let (inputs, _rx) = mpsc::channel(64);
         let status = watch::channel(Snapshot::default()).1;
         DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
             inputs,
             status,
             Arc::new(live),
@@ -1389,6 +1442,7 @@ mod tests {
         let (_tx, status) = watch::channel(Snapshot::default());
         let live = Arc::new(AssistLive::empty());
         let brain = DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
             inputs.clone(),
             status.clone(),
             live.clone(),
@@ -1400,9 +1454,41 @@ mod tests {
         // No place is set: the tool says so instead of guessing one.
         assert!(brain.call("weather", json!({})).await.is_error);
 
-        let mcp = DeviceTools::new(inputs, status, live, Surface::Mcp, Caller::Mcp);
+        let mcp = DeviceTools::new(
+            &crate::tools::ToolKit::new(crate::metrics::Counters::default()),
+            inputs,
+            status,
+            live,
+            Surface::Mcp,
+            Caller::Mcp,
+        );
         let names: Vec<String> = mcp.specs().await.into_iter().map(|s| s.name).collect();
         assert!(names.contains(&"time".to_owned()));
         assert!(!names.contains(&weather::NAME.to_owned()));
+    }
+
+    #[tokio::test]
+    async fn every_call_counts_once_by_tool_and_surface() {
+        let counters = Counters::default();
+        let kit = ToolKit::new(counters.clone());
+        let (inputs, _rx) = mpsc::channel(64);
+        let (_tx, status) = watch::channel(Snapshot::default());
+        let tools = DeviceTools::new(
+            &kit,
+            inputs,
+            status,
+            Arc::new(AssistLive::empty()),
+            Surface::Brain,
+            Caller::Mcp,
+        );
+        assert!(!tools.call("time", json!({})).await.is_error);
+        assert!(tools.call("no_such_tool", json!({})).await.is_error);
+        let text = counters.tool_calls_text();
+        for line in [
+            "pinna_tool_calls_total{tool=\"time\",outcome=\"ok\",via=\"brain\"} 1",
+            "pinna_tool_calls_total{tool=\"other\",outcome=\"error\",via=\"brain\"} 1",
+        ] {
+            assert!(text.lines().any(|l| l == line), "no {line:?} in\n{text}");
+        }
     }
 }

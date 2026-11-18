@@ -51,6 +51,7 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
         }
         Op::Weather => {
             let out = tools
+                .kit
                 .weather
                 .forecast(tools.live.place.as_ref(), tools.live.language.as_deref())
                 .await;
@@ -92,7 +93,7 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
         }
         Op::PlayStation => radio::play_station(tools, args.need_text("name")?).await,
         Op::ListStations => Ok(radio::list_stations(&tools.live.stations)),
-        Op::SearchRadio => tools.radio.search(args.need_text("name")?).await,
+        Op::SearchRadio => tools.kit.radio.search(args.need_text("name")?).await,
         Op::PauseMedia => media(tools, MediaPlayerCommand::Pause, "Paused.").await,
         Op::ResumeMedia => media(tools, MediaPlayerCommand::Play, "Resumed.").await,
         Op::StopMedia => media(tools, MediaPlayerCommand::Stop, "Stopped.").await,
