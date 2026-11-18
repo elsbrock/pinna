@@ -828,6 +828,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn clearing_no_notification_says_so_and_points_at_the_light() {
+        let (tools, mut rx) = bare(Surface::Mcp, Caller::Mcp);
+        let out = tools.call("clear_notification", json!({})).await;
+        assert!(!out.is_error, "{}", out.text);
+        assert!(
+            out.text.starts_with("No notification is showing"),
+            "{}",
+            out.text
+        );
+        assert!(out.text.contains("ring_light"), "{}", out.text);
+        assert!(rx.try_recv().is_err(), "nothing reaches the Brain");
+    }
+
+    #[tokio::test]
     async fn set_volume_takes_the_dashboard_path_to_the_brain() {
         let mut d = Device::start(Mode::Standalone).await;
         let tools = d.tools(Surface::Mcp, &[]);

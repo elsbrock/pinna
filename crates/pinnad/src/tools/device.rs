@@ -95,6 +95,13 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
         Op::ResumeMedia => media(tools, MediaPlayerCommand::Play, "Resumed.").await,
         Op::StopMedia => media(tools, MediaPlayerCommand::Stop, "Stopped.").await,
         Op::ClearNotification => {
+            // "Cleared" for nothing reads as done: asked to clear the ring,
+            // a brain would stop there instead of switching the light off.
+            if !tools.status.borrow().settings.notification {
+                return Ok("No notification is showing, so nothing was cleared. \
+                    The ring light is switched with ring_light."
+                    .into());
+            }
             tools.ask(ApiCommand::ClearNotification).await?;
             Ok("The notification is cleared.".into())
         }
