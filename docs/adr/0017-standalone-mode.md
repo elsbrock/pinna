@@ -88,7 +88,9 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   brain and MCP clients can also switch back with a tool (below). It stays available in
   both modes, since Home Assistant stays connected without the voice. It follows the same rule as the
   dashboard: *Standalone* is refused until the three slots are ready, and the select then reports the
-  mode it stayed in.
+  mode it stayed in. Unlike the dashboard's switch, it waits until the satellite is idle, as the tool
+  does: an Assist script that sets it runs inside Home Assistant's request, and switching at once
+  would cut off the reply that confirms it.
 - **The configuration has its own files:** `standalone.toml` beside `settings.toml`, `secrets.toml` for
   keys (below) and `timers.toml` for device timers. Each is loaded entry by entry: a top-level key this
   image doesn't know is kept and written back, an array element or table entry it can't read is kept
