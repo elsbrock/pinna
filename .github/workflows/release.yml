@@ -50,8 +50,24 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      # Keeps the store paths Nix builds itself between runs, above all the
+      # armv7l cross GCC, which cache.nixos.org doesn't have and which takes
+      # over an hour to build. GitHub scopes caches to the ref, and a tag run
+      # also reads the default branch's: dry runs on main fill the cache that
+      # releases use. No diagnostics to Determinate Systems, no FlakeHub.
+      - uses: DeterminateSystems/magic-nix-cache-action@v15
+        with:
+          use-flakehub: false
+          diagnostic-endpoint: ""
+
       - name: Rust toolchain (rust-toolchain.toml)
         run: nix develop -c rustup toolchain install
+
+      # Dependencies only: rust-cache leaves out the workspace's own crates, so
+      # they, and the public key pinna-image compiles in, build fresh each run.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Semantic versions only (ADR 0022): v<major>.<minor>.<patch>, or a beta
       # v<major>.<minor>.<patch>-beta.<n>, which becomes a prerelease.
@@ -102,8 +118,25 @@ jobs:
         if: github.event_name != 'push'
         run: nix develop -c just keygen
 
+      # The kernel changes rarely. The key covers its sources, patches and
+      # configuration, and the toolchain; the paths are what bootimg and mkosi
+      # read.
+      - name: Kernel cache
+        id: kernel
+        uses: actions/cache@v6
+        with:
+          path: |
+            build/kernel/arch/arm/boot/zImage
+            build/kernel/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dtb
+            build/debs/linux-image-*.deb
+          key: kernel-${{ hashFiles('kernel/**', 'flake.nix', 'flake.lock') }}
+
+      - name: Kernel
+        if: steps.kernel.outputs.cache-hit != 'true'
+        run: nix develop -c just kernel
+
       - name: Build
-        run: nix develop -c just kernel models release
+        run: nix develop -c just models release
 
       - name: Check the files
         run: |
