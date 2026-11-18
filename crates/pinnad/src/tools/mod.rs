@@ -298,7 +298,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "search_radio",
         reach: Reach::Both,
-        about: "Search the radio-browser.info directory for internet radio stations this satellite can play. Play a result with play_url.",
+        about: "Search the radio-browser.info directory for internet radio stations this satellite can play. The brain plays a station it finds with play_url.",
         params: &[Param {
             name: "name",
             kind: Kind::Text,

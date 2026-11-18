@@ -10,6 +10,7 @@
     addressKind,
     connectionAddress,
     hostOf,
+    isStandalone,
     keyFields,
     presetName,
     type SecretEdit,
@@ -26,6 +27,7 @@
   let { connection, onclose }: { connection?: ProviderConnection; onclose: () => void } = $props();
 
   const view = $derived(assistant.view);
+  const standalone = $derived(isStandalone(device.status));
   const live = $derived(device.link === "live");
   const id = $derived(connection ? `conn-${connection.id}` : "conn-new");
 
@@ -190,11 +192,10 @@
     confirm={remove}
   >
     <p>Its key is removed from the satellite too.</p>
-    {#if used.length}
-      <p>
-        It is chosen for {slotWords(used)}. In Home Assistant mode they are cleared with it; in standalone mode, choose
-        another connection there first.
-      </p>
+    {#if used.length && standalone}
+      <p>It is chosen for {slotWords(used)}. Choose another connection there first: the satellite needs them.</p>
+    {:else if used.length}
+      <p>It is chosen for {slotWords(used)}, which are cleared with it.</p>
     {/if}
   </Confirm>
 {/if}

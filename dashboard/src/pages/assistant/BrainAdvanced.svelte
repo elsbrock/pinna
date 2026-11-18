@@ -4,7 +4,7 @@
 <script lang="ts">
   import { Delegation, History } from "../../gen/pinna/v1/assistant_pb.ts";
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { delegation as runsTools } from "../../lib/assistant.ts";
+  import { brainPreset, delegation as runsTools, presetName } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Icon from "../../lib/Icon.svelte";
   import Select from "../../lib/Select.svelte";
@@ -13,6 +13,7 @@
   const set = $derived(assistant.view?.brainOverride);
   // What the brain's preset does without the setting.
   const presetRuns = $derived(assistant.view ? runsTools({ ...assistant.view, brainOverride: undefined }) : null);
+  const service = $derived(assistant.view ? presetName(brainPreset(assistant.view)?.id ?? "") : "");
 
   // The form follows the satellite until someone changes it.
   let touched = $state(false);
@@ -51,8 +52,9 @@
 <Select
   id="brain-delegation"
   label="Who runs the tools"
-  hint="The satellite offers the brain its tools and runs the ones it asks for. A brain that is an agent answers with tools and memory of its own.{presetRuns
-    ? ` Its preset lets ${presetRuns === 'hand-off' ? 'the brain' : 'the satellite'} run them.`
+  hint="The satellite offers the brain its tools and runs the ones it asks for. A brain that is an agent answers with tools and memory of its own.{presetRuns &&
+  service
+    ? ` For ${service}, ${presetRuns === 'hand-off' ? 'the brain' : 'the satellite'} runs them unless you choose here.`
     : ''}"
   value={delegation}
   options={[

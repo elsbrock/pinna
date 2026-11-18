@@ -188,6 +188,8 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-field[data-invalid] .pn-input { border-color: var(--danger); }
 .pn-select-wrap { position: relative; display: inline-flex; align-items: center; flex: none; max-width: min(100%, 22em); }
 .pn-field > .pn-select-wrap { align-self: flex-start; }
+/* Beside a row's text a select may shrink, so a long option never pushes past the card on a phone. */
+.pn-row > .pn-select-wrap { flex: 0 1 auto; min-width: 0; }
 .pn-select {
   appearance: none; -webkit-appearance: none; max-width: 100%; height: var(--control-md);
   padding: 0 calc(var(--space-3) + 22px) 0 var(--space-3); box-sizing: border-box;

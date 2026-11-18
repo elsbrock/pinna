@@ -305,8 +305,8 @@
       disabled={!live}
       busy={assistant.busy}
       hint={agent?.handOff
-        ? `${presetName(agent.id)} can take a while: the satellite says this when no answer has come after 3 seconds.`
-        : "Only a brain that is an agent, such as Hermes or OpenClaw, can take long enough for it."}
+        ? `A short phrase the satellite says when ${presetName(agent.id)} hasn't answered after 3 seconds, so you know it heard you.`
+        : "A short phrase the satellite says while a slow brain thinks. Only an agent, such as Hermes or OpenClaw, takes long enough for it."}
       toggle={(on) => saveAck(on, phrase)}
     />
     <form
@@ -344,9 +344,9 @@
         {#if ackError}<span class="pn-field-error" role="alert"><Icon name="alert" />{ackError}</span>{/if}
         <span id="ack-said" class="pn-field-hint">
           {#if view.ackSpoken && view.ackSpoken !== view.ack?.phrase}
-            Said as “{view.ackSpoken}” in the conversation's language.
+            The satellite says “{view.ackSpoken}”, in the conversation's language.
           {:else if view.ackSpoken}
-            It says “{view.ackSpoken}”.
+            The satellite says this phrase as it is.
           {/if}
         </span>
       </div>
