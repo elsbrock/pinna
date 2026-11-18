@@ -146,7 +146,8 @@ marked *default* are not confirmed by the owner yet.
 - On `stable` or `beta`, pinnad checks once a day at a time of day it picks at
   random and keeps, which spreads the load. It also checks once after each
   start, once the clock is synchronized, and when the owner asks: "Check now"
-  on the dashboard, or Home Assistant's check (`UPDATE_COMMAND_CHECK`).
+  on the dashboard, Home Assistant's check (`UPDATE_COMMAND_CHECK`), or the
+  satellite itself in standalone mode (ADR 0017).
   *(default)*
 - A check fetches the channel's manifest and its signature, nothing else.
   pinnad runs it as `pinnactl update --check`, as it runs installs through
@@ -171,8 +172,9 @@ marked *default* are not confirmed by the owner yet.
 
 ### Installing
 
-- The owner installs from the dashboard or with Home Assistant's Install
-  button. pinnad runs the install it runs today (`InstallUpdate`, ADR 0003)
+- The owner installs from the dashboard, with Home Assistant's Install
+  button, or in standalone mode by asking the satellite, once they have
+  turned that tool on (ADR 0017). pinnad runs the install it runs today (`InstallUpdate`, ADR 0003)
   on the release it showed: the `/v1/releases/<tag>/manifest.json` that the
   check found, not the channel again, so a release published in between is
   never installed unseen. pinnactl applies the channel's rules (below). The
@@ -192,9 +194,10 @@ marked *default* are not confirmed by the owner yet.
   running slot on trial), the entity's summary and the Updates
   page say why before anyone presses it. Home Assistant's Install sends a
   command that has no answer.
-- After an install started from Home Assistant, pinnad restarts the
-  satellite the next time it is Idle with no timer set and nothing playing:
-  Home Assistant has no restart button. After an install from the dashboard,
+- After an install started from Home Assistant or by asking the satellite,
+  pinnad restarts the satellite the next time it is Idle with no timer set
+  and nothing playing: Home Assistant has no restart button, and nobody is at
+  one when the satellite was asked. After an install from the dashboard,
   the dashboard offers "Restart now" and "Start it later", as before. pinnad
   keeps a pending restart in `/run`: a restart of pinnad keeps it, a restart
   of the satellite ends it.
@@ -233,7 +236,8 @@ download fails.
   synchronized or while the running slot is still on trial. Such releases are
   shown and wait for the owner.
 - An install the owner starts ignores the window: from the dashboard, with
-  Home Assistant's Install button, or from a Home Assistant automation.
+  Home Assistant's Install button, from a Home Assistant automation, or by
+  asking the satellite.
 
 ### The manifest
 

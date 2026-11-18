@@ -1,7 +1,7 @@
 # ADR 0017: Standalone mode runs the voice request on services the owner picks
 
 Status: proposed (2026-11-16), built on its branch (2026-11-18), not yet on `main`. Amends ADR 0005,
-ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 0021 and ADR 0022.
+ADR 0007, ADR 0013, ADR 0020 and ADR 0022; builds on ADR 0008, ADR 0011, ADR 0018 and ADR 0021.
 
 ## Context
 
@@ -204,6 +204,25 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   Playing a URL works as on the dashboard (ADR 0011): the tool returns once the stream has audio or has
   failed, with the reason, which the brain can say. Each tool has an owner's switch; a tool that is off
   isn't offered and is refused if asked for.
+
+  Updates are tools too (amends ADR 0022), so the owner can ask which version runs and install the next
+  one. They do what the dashboard's Updates page does, through the same calls:
+  - `updates` tells the booted version and slot, the other slot's version and state, the update
+    channel, what the last check found or why it failed, and the install that runs or the last one;
+  - `check_for_updates` checks now. A check can outlast a tool's 10 s (it is given up after 3 minutes),
+    so the tool waits at most 8 s and answers with the result, or says that the check goes on and
+    `updates` will have it. While Updates is `off` it is refused, with the dashboard's sentence;
+  - `install_update` installs the release the last check found, named by its version, as the
+    dashboard's Install does: never an older version, and a release held back in the other slot boots
+    next instead of downloading again. It returns once the install has started. The satellite then
+    restarts the next time it is Idle with no timer set and nothing playing, as after an install from
+    Home Assistant: nobody is at a restart button. It is refused where Install is, with the same
+    sentence;
+  - starting the other slot and installing an older version stay on the dashboard (ADR 0022);
+  - `install_update` is the brain's only, not `/mcp`'s, and its switch starts off; every other tool's
+    starts on. A model can call a tool nobody asked for, on a misheard request or on text a tool
+    returned, and this one ends in a restart. An agent acts on its own and reads text from anywhere,
+    where the dashboard's Install needs a person. An owner who wants it turns it on.
 - **Local time comes from the time zone setting** (ADR 0007), for the time tool and the brain. Unset is
   UTC. The place search returns the place's time zone, and the dashboard offers it when the device's
   differs.
@@ -272,7 +291,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 
 - **`/mcp` on the dashboard's listener** (amends ADR 0005) offers the device's tools to agents. It answers
   in standalone mode only; in Home Assistant mode it refuses with a sentence that says so. Its tools:
-  - pinnad's own tools, except the weather, so an agent can set a timer or start a stream on the device;
+  - pinnad's own tools, except the weather and `install_update`, so an agent can set a timer or start
+    a stream on the device;
   - speak a text;
   - cancel the request the device is handling, or silence an alarm;
   - status.
