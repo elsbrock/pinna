@@ -821,7 +821,7 @@ async fn main() -> Result<()> {
         assistant_api,
         &cfg.web,
         virt,
-        Some(mcp_server),
+        mcp_server,
         &shared.counters,
     )
     .await

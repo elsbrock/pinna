@@ -274,7 +274,7 @@ mod tests {
                 Path::new("/nonexistent"),
                 hosts,
                 None,
-                Some(Arc::new(server)),
+                Arc::new(server),
                 Arc::new(Registry::default()),
             );
             Self {

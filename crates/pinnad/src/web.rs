@@ -121,7 +121,7 @@ pub fn app(
     root: &Path,
     hosts: Hosts,
     virt: Option<Arc<VirtualDevice>>,
-    mcp: Option<Arc<McpServer>>,
+    mcp: Arc<McpServer>,
     registry: Arc<Registry>,
 ) -> axum::Router {
     let files = axum::Router::new()
@@ -136,15 +136,13 @@ pub fn app(
             "/pinna.v1.AssistantService/{method}",
             assistant_api::router(assistant).into_axum_service(),
         )
+        .route(mcp::ROUTE, mcp::route(mcp, hosts.clone()))
         .route("/metrics", axum::routing::get(scrape).with_state(registry));
     if let Some(v) = virt {
         router = router.route(
             virtual_device::ROUTE,
             axum::routing::get(virtual_device::socket).with_state(v),
         );
-    }
-    if let Some(server) = mcp {
-        router = router.route(mcp::ROUTE, mcp::route(server, hosts.clone()));
     }
     router
         .fallback_service(files)
@@ -300,7 +298,7 @@ pub async fn start(
     assistant: Arc<AssistantApi>,
     cfg: &Web,
     virt: Option<Arc<VirtualDevice>>,
-    mcp: Option<Arc<McpServer>>,
+    mcp: Arc<McpServer>,
     counters: &Counters,
 ) -> Result<Option<SocketAddr>> {
     if cfg.listen.is_empty() {
@@ -462,14 +460,15 @@ mod tests {
             key_from_image: false,
         };
         let api = Arc::new(DeviceApi::new(info, status_rx.clone(), in_tx));
+        let (assistant, mcp) = assistant(&dir, status_rx);
         Fixture {
             app: app(
                 api,
-                assistant(&dir, status_rx),
+                assistant,
                 &dir,
                 hosts(),
                 None,
-                None,
+                mcp,
                 Arc::new(registry()),
             ),
             _inputs: in_rx,
@@ -477,13 +476,21 @@ mod tests {
         }
     }
 
-    /// The setup API over files in `dir`.
-    fn assistant(dir: &Path, status: watch::Receiver<Snapshot>) -> Arc<AssistantApi> {
-        let paths = Paths::beside(&dir.join("settings.toml"));
-        Arc::new(AssistantApi::new(
-            Service::load(paths, status),
-            tokio::sync::mpsc::channel(1).0,
-        ))
+    /// The setup API and `/mcp` over files in `dir`.
+    fn assistant(
+        dir: &Path,
+        status: watch::Receiver<Snapshot>,
+    ) -> (Arc<AssistantApi>, Arc<McpServer>) {
+        let service = Service::load(Paths::beside(&dir.join("settings.toml")), status.clone());
+        let inputs = tokio::sync::mpsc::channel(1).0;
+        let mcp = McpServer::new(
+            service.clone(),
+            inputs.clone(),
+            status,
+            crate::tools::ToolKit::new(Counters::default()),
+            "0.1.0",
+        );
+        (Arc::new(AssistantApi::new(service, inputs)), Arc::new(mcp))
     }
 
     fn registry() -> Registry {
@@ -690,7 +697,7 @@ mod tests {
             key_from_image: false,
         };
         let api = Arc::new(DeviceApi::new(info, rx.clone(), tx));
-        let assistant = assistant(&f.dir, rx);
+        let (assistant, mcp) = assistant(&f.dir, rx);
         let cfg = Web {
             listen: String::new(),
             root: f.dir.clone(),
@@ -698,9 +705,16 @@ mod tests {
         };
         let counters = Counters::default();
         assert_eq!(
-            start(api.clone(), assistant.clone(), &cfg, None, None, &counters)
-                .await
-                .unwrap(),
+            start(
+                api.clone(),
+                assistant.clone(),
+                &cfg,
+                None,
+                mcp.clone(),
+                &counters
+            )
+            .await
+            .unwrap(),
             None
         );
         // A typo in the config is an error for main to log, never a panic.
@@ -709,7 +723,7 @@ mod tests {
             ..cfg
         };
         assert!(
-            start(api, assistant, &cfg, None, None, &counters)
+            start(api, assistant, &cfg, None, mcp, &counters)
                 .await
                 .is_err()
         );
