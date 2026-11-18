@@ -332,6 +332,37 @@ struct State {
     brain: Option<BrainId>,
     /// The MCP servers last published, reused while unchanged.
     mcp: Vec<Arc<OwnerMcp>>,
+    /// The adapters last built and what they were built from. An edit that
+    /// doesn't change the inputs (a prompt, a station, the acknowledgment
+    /// arriving) keeps them, and their open connections.
+    built: Option<(BuildInputs, Option<Arc<Pipeline>>, Option<Speech>)>,
+}
+
+/// Everything the adapters are built from.
+#[derive(PartialEq)]
+struct BuildInputs {
+    /// Each slot's connection, model or voice, and key.
+    slots: [Option<(Connection, String, Option<Secret>)>; 3],
+    overrides: ChatOverride,
+    language: Option<String>,
+}
+
+impl BuildInputs {
+    fn of(c: &AssistConfig, secrets: &Secrets) -> Self {
+        let slot = |kind: SlotKind| {
+            let slot = kind.get(c)?;
+            let connection = find(c, &slot.connection)?;
+            let key = secrets
+                .key_for(&connection.id, &connection.base_url)
+                .cloned();
+            Some((connection.clone(), slot.model.clone(), key))
+        };
+        Self {
+            slots: SlotKind::ALL.map(slot),
+            overrides: c.chat_override,
+            language: c.language.clone(),
+        }
+    }
 }
 
 /// What makes a brain a different brain: changing any of it forgets the
@@ -370,6 +401,7 @@ impl Service {
             secrets,
             chat_gen: 0,
             brain: None,
+            built: None,
             mcp: Vec::new(),
         };
         let ack = AckCache::new(paths.cache.clone());
@@ -979,16 +1011,9 @@ impl State {
             self.chat_gen += 1;
             self.brain = brain;
         }
+        let (pipeline, speech) = self.adapters();
         let c = &self.config;
         let slots = SlotKind::ALL.map(|kind| slot_ready(c, kind));
-        let pipeline = Pipeline::build(c, &self.secrets, crate::clock::synced).map(Arc::new);
-        let speech = match &pipeline {
-            Some(pipeline) => Some(Speech {
-                tts: pipeline.tts.clone(),
-                preset: pipeline.presets[2],
-            }),
-            None => Speech::build(c, &self.secrets, crate::clock::synced),
-        };
         let ack = ack::Source::wanted(c, pipeline.as_deref(), slot_ready(c, SlotKind::Tts))
             .and_then(|source| cache.path(&source));
         AssistLive {
@@ -1010,6 +1035,27 @@ impl State {
             stations: Arc::new(c.stations.clone()),
             mcp: self.owner_mcp(),
         }
+    }
+
+    /// The pipeline and the voice, rebuilt only when their inputs changed.
+    fn adapters(&mut self) -> (Option<Arc<Pipeline>>, Option<Speech>) {
+        let inputs = BuildInputs::of(&self.config, &self.secrets);
+        if let Some((built, pipeline, speech)) = &self.built
+            && *built == inputs
+        {
+            return (pipeline.clone(), speech.clone());
+        }
+        let c = &self.config;
+        let pipeline = Pipeline::build(c, &self.secrets, crate::clock::synced).map(Arc::new);
+        let speech = match &pipeline {
+            Some(pipeline) => Some(Speech {
+                tts: pipeline.tts.clone(),
+                preset: pipeline.presets[2],
+            }),
+            None => Speech::build(c, &self.secrets, crate::clock::synced),
+        };
+        self.built = Some((inputs, pipeline.clone(), speech.clone()));
+        (pipeline, speech)
     }
 
     /// The enabled MCP servers with an address, each kept from the last
@@ -1908,6 +1954,32 @@ mod tests {
         assert_eq!(f.saved().tts.unwrap().model, "alloy");
         assert_eq!(f.live().slots, [true; 3]);
         assert!(f.live().ready);
+    }
+
+    #[tokio::test]
+    async fn an_edit_that_leaves_the_providers_alone_keeps_the_adapters() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        let server = FakeServer::start().await;
+        f.ready(&server).await;
+        let before = f.live().pipeline.clone().unwrap();
+
+        f.service
+            .update(AssistantPatch {
+                prompt: Some(Some("Be brief.".into())),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&before, f.live().pipeline.as_ref().unwrap()));
+
+        f.service
+            .update(AssistantPatch {
+                language: Some(Some("de".into())),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        assert!(!Arc::ptr_eq(&before, f.live().pipeline.as_ref().unwrap()));
     }
 
     #[tokio::test]
