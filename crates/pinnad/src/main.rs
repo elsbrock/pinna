@@ -797,7 +797,10 @@ async fn main() -> Result<()> {
     ));
 
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
-    let assistant_api = Arc::new(assistant_api::AssistantApi::new(assistant.clone()));
+    let assistant_api = Arc::new(assistant_api::AssistantApi::new(
+        assistant.clone(),
+        in_tx.clone(),
+    ));
     match web::start(device_api, assistant_api, &cfg.web, virt, &shared.counters).await {
         Ok(Some(addr)) => tracing::info!("dashboard listening on http://{addr}"),
         Ok(None) => {}

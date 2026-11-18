@@ -464,7 +464,10 @@ mod tests {
     /// The setup API over files in `dir`.
     fn assistant(dir: &Path, status: watch::Receiver<Snapshot>) -> Arc<AssistantApi> {
         let paths = Paths::beside(&dir.join("settings.toml"));
-        Arc::new(AssistantApi::new(Service::load(paths, status)))
+        Arc::new(AssistantApi::new(
+            Service::load(paths, status),
+            tokio::sync::mpsc::channel(1).0,
+        ))
     }
 
     fn registry() -> Registry {

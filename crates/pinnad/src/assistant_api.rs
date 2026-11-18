@@ -8,6 +8,8 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use tokio::sync::{mpsc, oneshot};
+
 use buffa::{EnumValue, Inline, MessageField};
 use connectrpc::{ConnectError, RequestContext, Response, Router, ServiceRequest, ServiceResult};
 use pinna_api::{
@@ -22,18 +24,38 @@ use pinna_assist::config::Ack;
 use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId};
 use pinna_http::Secret;
 
+use crate::checks;
 use crate::standalone::service::{
     AssistantPatch, AssistantView, ConnectionEdit, KeyEdit, McpEdit, Refusal, Service, SlotEdit,
     SlotKind, SlotView,
 };
+use crate::voice::{ApiCommand, Input};
 
 pub struct AssistantApi {
     service: Arc<Service>,
+    /// The Brain's input queue, for what plays or runs on the satellite.
+    inputs: mpsc::Sender<Input>,
 }
 
 impl AssistantApi {
-    pub fn new(service: Arc<Service>) -> Self {
-        Self { service }
+    pub fn new(service: Arc<Service>, inputs: mpsc::Sender<Input>) -> Self {
+        Self { service, inputs }
+    }
+
+    /// Hand a command to the Brain and wait for its answer. A refusal is a
+    /// sentence for the owner.
+    async fn brain<T>(
+        &self,
+        make: impl FnOnce(oneshot::Sender<Result<T, String>>) -> ApiCommand,
+    ) -> Result<T, ConnectError> {
+        let (tx, rx) = oneshot::channel();
+        self.inputs
+            .send(Input::Api(make(tx)))
+            .await
+            .map_err(|_| ConnectError::unavailable("pinnad is shutting down"))?;
+        rx.await
+            .map_err(|_| ConnectError::unavailable("pinnad is shutting down"))?
+            .map_err(ConnectError::failed_precondition)
     }
 }
 
@@ -383,23 +405,22 @@ impl AssistantService for AssistantApi {
     async fn play_sample(
         &self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, PlaySampleRequest>,
+        request: ServiceRequest<'_, PlaySampleRequest>,
     ) -> ServiceResult<PlaySampleResponse> {
-        // ApiCommand::Speak (T56) plays the sample.
-        Err(ConnectError::unimplemented(
-            "Playing a sample isn't available yet.",
-        ))
+        let text = checks::speak_text(request.text).map_err(ConnectError::invalid_argument)?;
+        self.brain(|reply| ApiCommand::Speak(text, reply)).await?;
+        Response::ok(PlaySampleResponse::default())
     }
 
     async fn ask_text(
         &self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, AskTextRequest>,
+        request: ServiceRequest<'_, AskTextRequest>,
     ) -> ServiceResult<AskTextResponse> {
-        // ApiCommand::AskText (T33) starts the typed request.
-        Err(ConnectError::unimplemented(
-            "Typed questions aren't available yet.",
-        ))
+        let question = checks::question(request.text).map_err(ConnectError::invalid_argument)?;
+        self.brain(|reply| ApiCommand::AskText(question, reply))
+            .await?;
+        Response::ok(AskTextResponse::default())
     }
 }
 
@@ -504,9 +525,9 @@ mod tests {
                 last_boot: crate::boot::LastBoot::cold(),
                 key_from_image: false,
             };
-            let device = Arc::new(DeviceApi::new(info, status_rx, inputs));
-            let router =
-                crate::api::router(device).add_service(Arc::new(AssistantApi::new(service)));
+            let device = Arc::new(DeviceApi::new(info, status_rx, inputs.clone()));
+            let router = crate::api::router(device)
+                .add_service(Arc::new(AssistantApi::new(service, inputs)));
             let server = Server::bind("127.0.0.1:0").await.unwrap();
             let url = format!("http://{}", server.local_addr().unwrap());
             tokio::spawn(async move { server.serve(router).await });
@@ -825,19 +846,38 @@ mod tests {
             .unwrap_err();
         assert_eq!(gone.code, ErrorCode::Aborted);
 
-        // Not wired yet.
+        // Empty text is the caller's mistake; the Brain refuses the rest with
+        // a sentence (no pipeline behind these fakes, Home Assistant mode).
         let e = d
             .assistant
             .play_sample(PlaySampleRequest::default())
             .await
             .unwrap_err();
-        assert_eq!(e.code, ErrorCode::Unimplemented);
+        assert_eq!(e.code, ErrorCode::InvalidArgument);
+        let e = d
+            .assistant
+            .play_sample(PlaySampleRequest {
+                text: "Hello.".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::FailedPrecondition);
         let e = d
             .assistant
             .ask_text(AskTextRequest::default())
             .await
             .unwrap_err();
-        assert_eq!(e.code, ErrorCode::Unimplemented);
+        assert_eq!(e.code, ErrorCode::InvalidArgument);
+        let e = d
+            .assistant
+            .ask_text(AskTextRequest {
+                text: "What time is it?".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::FailedPrecondition);
     }
 
     #[tokio::test]
