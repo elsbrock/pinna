@@ -81,6 +81,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
 
       # Semantic versions only (ADR 0022): v<major>.<minor>.<patch>, or a beta
       # v<major>.<minor>.<patch>-beta.<n>, which becomes a prerelease.
@@ -133,10 +134,11 @@ jobs:
 
       # The kernel changes rarely. The key covers its sources, patches and
       # configuration, and the toolchain; the paths are what bootimg and mkosi
-      # read.
+      # read. It is saved right after it is built, so a later failure doesn't
+      # lose it.
       - name: Kernel cache
         id: kernel
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             build/kernel/arch/arm/boot/zImage
@@ -152,6 +154,16 @@ jobs:
         env:
           LINUX_LOCAL: https://github.com/gregkh/linux.git
         run: nix develop -c just kernel
+
+      - name: Save the kernel
+        if: steps.kernel.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            build/kernel/arch/arm/boot/zImage
+            build/kernel/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dtb
+            build/debs/linux-image-*.deb
+          key: ${{ steps.kernel.outputs.cache-primary-key }}
 
       - name: Build
         run: nix develop -c just models release
