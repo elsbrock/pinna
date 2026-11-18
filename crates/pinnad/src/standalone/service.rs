@@ -223,11 +223,11 @@ pub struct McpEdit {
     pub enabled: bool,
 }
 
-/// Settings that need no provider check. `None` leaves a field unchanged; for
-/// the optional fields, `Some(None)` clears it.
+/// Settings that need no provider check. `None` leaves a field unchanged.
 #[derive(Clone, Debug, Default)]
 pub struct AssistantPatch {
-    pub language: Option<Option<String>>,
+    /// A BCP 47 tag; empty or blank clears it.
+    pub language: Option<String>,
     /// `Some(None)` restores the voice rules; an empty prompt keeps only the
     /// context.
     pub prompt: Option<Option<String>>,
@@ -236,8 +236,9 @@ pub struct AssistantPatch {
     /// The whole switch table; an absent name means on.
     pub tools: Option<BTreeMap<String, bool>>,
     pub chat_override: Option<ChatOverride>,
-    /// A place name to look up; the coordinates are stored with it.
-    pub place: Option<Option<String>>,
+    /// A place name to look up, the coordinates stored with it; empty or
+    /// blank clears it.
+    pub place: Option<String>,
     /// The whole station list. Names must differ, as `play_station` finds a
     /// station by its name.
     pub stations: Option<Vec<Station>>,
@@ -650,9 +651,9 @@ impl Service {
     pub async fn update(&self, p: AssistantPatch) -> Result<AssistantView, Refusal> {
         let language = p
             .language
-            .map(|language| match language {
-                Some(tag) if !tag.trim().is_empty() => assist::language(&tag).map(Some),
-                _ => Ok(None),
+            .map(|tag| match tag.trim() {
+                "" => Ok(None),
+                _ => assist::language(&tag).map(Some),
             })
             .transpose()
             .map_err(Refusal::Invalid)?;
@@ -666,7 +667,7 @@ impl Service {
         let chat_override = p.chat_override.map(override_value).transpose()?;
         let stations = p.stations.map(stations_value).transpose()?;
         let place = match p.place {
-            Some(Some(name)) if !name.trim().is_empty() => {
+            Some(name) if !name.trim().is_empty() => {
                 let language = match &language {
                     Some(language) => language.clone(),
                     None => self.committed.state.lock().unwrap().config.language.clone(),
@@ -1969,7 +1970,7 @@ mod tests {
 
         f.service
             .update(AssistantPatch {
-                language: Some(Some("de".into())),
+                language: Some("de".into()),
                 ..AssistantPatch::default()
             })
             .await
@@ -2101,7 +2102,7 @@ mod tests {
         let view = f
             .service
             .update(AssistantPatch {
-                language: Some(Some("de".into())),
+                language: Some("de".into()),
                 prompt: Some(Some(String::new())),
                 follow_ups: Some(false),
                 ack: Some(Ack {
@@ -2131,7 +2132,7 @@ mod tests {
         let cleared = f
             .service
             .update(AssistantPatch {
-                language: Some(Some(" ".into())),
+                language: Some(" ".into()),
                 prompt: Some(None),
                 ..AssistantPatch::default()
             })
@@ -2143,7 +2144,7 @@ mod tests {
         for (patch, sentence) in [
             (
                 AssistantPatch {
-                    language: Some(Some("englisch".into())),
+                    language: Some("englisch".into()),
                     ..AssistantPatch::default()
                 },
                 "That isn't a language like en or en-US.",
@@ -2191,7 +2192,7 @@ mod tests {
         let german = f
             .service
             .update(AssistantPatch {
-                language: Some(Some("de-AT".into())),
+                language: Some("de-AT".into()),
                 ..AssistantPatch::default()
             })
             .await
@@ -2283,8 +2284,8 @@ mod tests {
         let view = f
             .service
             .update(AssistantPatch {
-                language: Some(Some("de".into())),
-                place: Some(Some("Munich".into())),
+                language: Some("de".into()),
+                place: Some("Munich".into()),
                 ..AssistantPatch::default()
             })
             .await
@@ -2299,7 +2300,7 @@ mod tests {
             FakeResponse::new(StatusCode::OK, "{}"),
         );
         let place = |name: &str| AssistantPatch {
-            place: Some(Some(name.into())),
+            place: Some(name.into()),
             ..AssistantPatch::default()
         };
         assert_eq!(
@@ -2315,7 +2316,7 @@ mod tests {
         let view = f
             .service
             .update(AssistantPatch {
-                place: Some(None),
+                place: Some(String::new()),
                 ..AssistantPatch::default()
             })
             .await
@@ -2555,7 +2556,7 @@ mod tests {
 
         f.service
             .update(AssistantPatch {
-                language: Some(Some("de".into())),
+                language: Some("de".into()),
                 ..AssistantPatch::default()
             })
             .await
@@ -2576,7 +2577,7 @@ mod tests {
         let server = FakeServer::start().await;
         f.service
             .update(AssistantPatch {
-                language: Some(Some("de".into())),
+                language: Some("de".into()),
                 ..AssistantPatch::default()
             })
             .await

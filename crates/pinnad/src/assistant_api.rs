@@ -357,8 +357,8 @@ impl AssistantService for AssistantApi {
             (None, false) => None,
         };
         let patch = AssistantPatch {
-            // The service reads an empty language or place as "clear it".
-            language: r.language.map(Some),
+            // An empty language or place clears it.
+            language: r.language,
             prompt,
             follow_ups: r.follow_ups,
             ack: r.ack.into_option().map(|a| Ack {
@@ -371,7 +371,7 @@ impl AssistantService for AssistantApi {
                 .as_option()
                 .map(chat_override)
                 .transpose()?,
-            place: r.place.map(Some),
+            place: r.place,
             stations: r.stations.into_option().map(|list| {
                 list.stations
                     .into_iter()
