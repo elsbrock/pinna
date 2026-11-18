@@ -68,11 +68,14 @@
   const SAMPLE = "This is how replies sound.";
   const canSample = $derived(live && line.ready);
   let sampling = $state(false);
+  let sampled = $state(false);
   let sampleError = $state<string | null>(null);
   async function sample() {
     sampling = true;
+    sampled = false;
     sampleError = await assistant.playSample(SAMPLE);
     sampling = false;
+    sampled = !sampleError;
   }
 
   let advanced = $state(false);
@@ -196,6 +199,8 @@
         <span id="sample-hint" class="pn-row-hint">
           {#if !line.ready}
             Plays once this voice passes its check.
+          {:else if sampled}
+            It played on the satellite.
           {:else}
             The satellite says “{SAMPLE}” with this voice.
           {/if}

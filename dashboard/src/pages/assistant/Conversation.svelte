@@ -5,8 +5,17 @@
   import { onMount } from "svelte";
 
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { brainPreset, chars, isStandalone, PROMPT_MAX, presetName, promptCount } from "../../lib/assistant.ts";
+  import {
+    brainPreset,
+    chars,
+    failureText,
+    isStandalone,
+    PROMPT_MAX,
+    presetName,
+    promptCount,
+  } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
+  import { badge } from "../../lib/view.ts";
   import Group from "../../lib/Group.svelte";
   import Icon from "../../lib/Icon.svelte";
   import SwitchRow from "../../lib/SwitchRow.svelte";
@@ -73,9 +82,32 @@
 
   let question = $state("");
   let askError = $state<string | null>(null);
+  // A question's progress, then how it ended. The failure is the status's
+  // last one when it changed since the question was asked.
+  let asking = $state<{ failedBefore: bigint; leftIdle: boolean } | null>(null);
+  let outcome = $state<{ text: string; failed: boolean } | null>(null);
+  const IDLE = 1;
+  $effect(() => {
+    if (!asking || !s) return;
+    if (s.phase !== IDLE) {
+      asking.leftIdle = true;
+      return;
+    }
+    if (!asking.leftIdle) return;
+    const failed = !!s.assistant?.lastError && s.assistant.lastErrorUnixMs !== asking.failedBefore;
+    outcome = failed
+      ? { text: failureText(s.assistant), failed: true }
+      : { text: "Answered aloud on the satellite.", failed: false };
+    asking = null;
+  });
   async function ask() {
+    outcome = null;
+    const failedBefore = s?.assistant?.lastErrorUnixMs ?? 0n;
     askError = await assistant.askText(question);
-    if (!askError) question = "";
+    if (!askError) {
+      question = "";
+      asking = { failedBefore, leftIdle: s?.phase !== IDLE };
+    }
   }
 </script>
 
@@ -334,6 +366,13 @@
           </button>
         </div>
         {#if askError}<span class="pn-field-error" role="alert"><Icon name="alert" />{askError}</span>{/if}
+        {#if outcome?.failed}
+          <span class="pn-field-error" role="alert"><Icon name="alert" />{outcome.text}</span>
+        {:else}
+          <span class="pn-field-hint" role="status">
+            {#if asking && s}{badge(s).word}…{:else if outcome}{outcome.text}{/if}
+          </span>
+        {/if}
         <span id="question-hint" class="pn-field-hint">
           {#if standalone}
             The brain gets it as if you had said it, and the satellite answers aloud.
