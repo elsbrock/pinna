@@ -2,6 +2,10 @@
 import Logo from "./Logo.astro";
 import { docHref, SITE } from "../lib/site";
 
+// Set by astro.config.mjs from git at build time.
+declare const __PINNA_SITE_VERSION__: { describe: string; commit: string };
+const version = __PINNA_SITE_VERSION__;
+
 const docs = [
   { slug: "", title: "Overview" },
   { slug: "requirements", title: "What you need" },
@@ -80,7 +84,20 @@ const project = [
         Site source in <a
           class="text-ink-muted hover:text-ink font-mono"
           href={`${SITE.repo}/tree/main/website`}>website/</a
-        > · built with Astro and Tailwind CSS.
+        > · built with Astro and Tailwind CSS ·
+        {
+          version.commit ? (
+            <a
+              class="text-ink-muted hover:text-ink font-mono"
+              href={`${SITE.repo}/commit/${version.commit}`}
+              title="The commit this site was built from"
+            >
+              {version.describe}
+            </a>
+          ) : (
+            <span class="font-mono">{version.describe}</span>
+          )
+        }
       </p>
       <p>
         <a class="text-ink-muted hover:text-ink" href={docHref("status")}
