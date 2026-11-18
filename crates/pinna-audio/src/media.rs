@@ -958,7 +958,10 @@ async fn open(
             req = req.header("Icy-MetaData", "1");
         }
         let resp = req.send().await.map_err(|e| {
-            tracing::warn!("media: open {url}: {e}");
+            // A media URL can carry a token (Home Assistant signs its URLs):
+            // the log names the host only.
+            tracing::warn!("media: open {}: {}", host_of(url), unreachable(&e));
+            tracing::debug!("media: open {url}: {e}");
             Error::Other(unreachable(&e).into())
         })?;
         if !resp.status().is_success() {
@@ -1032,12 +1035,20 @@ async fn open(
     }
 }
 
+/// The host of an http(s) URL, for logs; anything else as "a local file".
+fn host_of(url: &str) -> &str {
+    url.split_once("://")
+        .map(|(_, rest)| rest.split(['/', '?', '#']).next().unwrap_or(rest))
+        .map(|host| host.rsplit_once('@').map_or(host, |(_, host)| host))
+        .unwrap_or("a local file")
+}
+
 /// Fetch a playlist's body, at most [`PLAYLIST_MAX`], to resolve its first
 /// entry. An http(s) URL is fetched; a local path is read.
 async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<String> {
     if is_http(url) {
         let resp = client.get(url).send().await.map_err(|e| {
-            tracing::warn!("media: open {url}: {e}");
+            tracing::debug!("media: playlist {url}: {e}");
             Error::Other(unreachable(&e).into())
         })?;
         if !resp.status().is_success() {
@@ -1090,7 +1101,7 @@ async fn resolve_playlist(client: &reqwest::Client, url: &str) -> Result<String>
         Ok(Some(entry)) => Ok(entry),
         Ok(None) => Ok(url.to_string()),
         Err(e) => {
-            tracing::warn!("media: playlist {url}: {e}");
+            tracing::debug!("media: playlist {url}: {e}");
             Err(Error::Other(e.sentence().to_string()))
         }
     }
@@ -3951,5 +3962,18 @@ mod tests {
             v.pull(),
             Pull::End(Some("decoder stopped unexpectedly".into()))
         );
+    }
+
+    #[test]
+    fn a_logged_url_shows_its_host_only() {
+        assert_eq!(
+            host_of("https://ha.local:8123/api/tts_proxy/x.mp3?authSig=secret"),
+            "ha.local:8123"
+        );
+        assert_eq!(
+            host_of("http://user:pw@radio.example/live"),
+            "radio.example"
+        );
+        assert_eq!(host_of("/tmp/clip.wav"), "a local file");
     }
 }
