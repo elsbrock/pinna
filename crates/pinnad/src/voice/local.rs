@@ -81,7 +81,7 @@ pub(super) struct Local {
     spawner: Arc<dyn RunSpawner>,
     last_error: Option<LastFailure>,
     /// The run asked to mute the microphone; applied when the run ends.
-    pending_mute: bool,
+    pub(super) pending_mute: bool,
 }
 
 impl Local {

@@ -907,6 +907,13 @@ impl Brain {
             Input::Button(ev) => self.button(ev).await,
             Input::Privacy(muted) => {
                 tracing::info!("hardware mute: {muted}");
+                // Opening the latch is the owner's say: the button turns the
+                // microphones on, whoever muted them. Only a change counts;
+                // the poll's first reading at boot must keep a saved mute.
+                if self.hw_muted && !muted {
+                    self.sw_muted = false;
+                    self.local.pending_mute = false;
+                }
                 self.hw_muted = muted;
                 self.apply_mute().await;
             }

@@ -310,6 +310,39 @@ async fn mute_interrupts_listening() {
 }
 
 #[tokio::test]
+async fn opening_the_latch_also_clears_the_software_mute_and_saves_it() {
+    let mut d = Device::new();
+    d.ha(HaCommand::MuteSwitch(true)).await;
+    d.brain.handle(Input::Privacy(true)).await;
+    d.brain.local.pending_mute = true;
+    assert!(d.brain.settings.muted);
+
+    d.brain.handle(Input::Privacy(false)).await;
+
+    assert!(!d.brain.muted());
+    assert!(!d.brain.local.pending_mute);
+    assert!(!d.brain.settings.muted);
+    assert!(!d.brain.shared.muted.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn closing_the_latch_leaves_the_software_mute_alone() {
+    let mut d = Device::new();
+    d.ha(HaCommand::MuteSwitch(true)).await;
+
+    d.brain.handle(Input::Privacy(true)).await;
+    assert!(d.brain.sw_muted);
+    d.brain.handle(Input::Privacy(false)).await;
+    d.ha(HaCommand::MuteSwitch(true)).await;
+    d.brain.handle(Input::Privacy(false)).await;
+
+    assert!(
+        d.brain.sw_muted,
+        "a reading that is no change keeps a saved mute"
+    );
+}
+
+#[tokio::test]
 async fn thinking_times_out_on_tick() {
     let mut d = Device::new();
     d.brain.phase = Phase::Thinking(Instant::now() - THINK_TIMEOUT - Duration::from_secs(1));
