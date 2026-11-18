@@ -30,7 +30,7 @@ this table wins:
 | --- | --- |
 | Solid red | The microphones are off |
 | Amber, pulsing twice a second | A timer has finished. Say the wake word or press the Action button to stop it |
-| Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch, on the dashboard under **Voice & sound** or in Home Assistant |
+| Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch, on the dashboard under **Voice & sound > Ring** or in Home Assistant |
 | A violet light that runs around the ring | Your request is being answered: by Home Assistant, or in standalone mode by your services |
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | A green arc | Wake word calibration runs. The arc shows the sensitivity, and the volume buttons tune it. It shows in place of a running timer's arc, a notification, the light and the music. See [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) |
@@ -50,7 +50,7 @@ Short signals appear on top of these states:
 
 ### Use the ring as a light
 
-The ring is also a light: **Light**, under **Voice & sound** on the
+The ring is also a light: **Light**, under **Voice & sound > Ring** on the
 [dashboard](/docs/dashboard/), and **LED ring** in Home Assistant. You can set
 its colour, its brightness and one of three effects. On the dashboard,
 **Colour**, **Light brightness** and **Effect** appear once **Light** is on:
@@ -288,6 +288,6 @@ presses, and the press that turns them on also clears that mute.
 
 ## What's next
 
-- Change the ring brightness, the volume and the wake words on the
-  [dashboard](/docs/dashboard/), under **Voice & sound**.
+- Change the volume and the wake words on the [dashboard](/docs/dashboard/),
+  under **Voice & sound**, and the ring brightness under **Voice & sound > Ring**.
 - See all entities in [Home Assistant entities](/docs/entities/).
