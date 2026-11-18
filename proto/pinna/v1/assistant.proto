@@ -41,6 +41,38 @@ service AssistantService {
   // Ask the brain a typed question, as if it was spoken. Standalone mode
   // only; the reply is spoken.
   rpc AskText(AskTextRequest) returns (AskTextResponse);
+  // What a connection's service offers for a slot, as it lists them now:
+  // suggestions for the model and voice fields. Empty when it lists none;
+  // a failure is `failed_precondition` with the check's sentence.
+  rpc ListChoices(ListChoicesRequest) returns (ListChoicesResponse);
+}
+
+// What a ListChoices request asks for.
+enum ChoiceKind {
+  CHOICE_KIND_UNSPECIFIED = 0;
+  // The slot's model: the brain's, speech-to-text's, or the one that
+  // speaks the text-to-speech voice.
+  CHOICE_KIND_MODEL = 1;
+  // Text-to-speech voices.
+  CHOICE_KIND_VOICE = 2;
+}
+
+message ListChoicesRequest {
+  AssistantSlot slot = 1;
+  // One of Assistant.connections, by id.
+  string connection = 2;
+  ChoiceKind kind = 3;
+}
+
+message ListChoicesResponse {
+  // At most 500, in the service's order or by name.
+  repeated Choice choices = 1;
+}
+
+// One suggestion: what goes into the field, and what to show for it.
+message Choice {
+  string id = 1;
+  string label = 2;
 }
 
 // The slots of a standalone request.
@@ -150,6 +182,9 @@ message SlotChoice {
   string model = 2;
   // It passed its check at the connection's current revision.
   bool ready = 3;
+  // Text-to-speech only: the model that speaks the voice; empty is the
+  // preset's (Preset.tts_model).
+  string speech_model = 4;
 }
 
 // The brain's Advanced settings. Each one unset keeps the preset's.
@@ -232,6 +267,9 @@ message Preset {
   bool hand_off = 7;
   // Its brain takes BrainOverride.reasoning (the OpenAI-compatible protocol).
   bool thinking = 8;
+  // The text-to-speech model it uses while the slot names none; empty
+  // without text-to-speech.
+  string tts_model = 9;
 }
 
 // One of the satellite's own tools.
@@ -289,6 +327,9 @@ message SetSlotRequest {
   // The model, or for text-to-speech the voice. Empty for a preset with a
   // fixed brain model.
   string model = 3;
+  // Text-to-speech only: the model that speaks the voice; empty is the
+  // preset's. Checked with the voice.
+  string speech_model = 4;
 }
 
 message SetSlotResponse {

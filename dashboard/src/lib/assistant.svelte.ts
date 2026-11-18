@@ -9,6 +9,8 @@ import {
   type Assistant,
   AssistantService,
   AssistantSlot,
+  type Choice,
+  ChoiceKind,
   type SetConnectionRequestSchema,
   type SetMcpServerRequestSchema,
   type UpdateAssistantRequestSchema,
@@ -82,10 +84,37 @@ class AssistantSetup {
     return (await this.#edit(() => client.deleteConnection({ id, revision }), "Connection removed"))?.sentence ?? null;
   }
 
+  /** What each connection's service offered, per slot and kind, while this
+   * page is open; a change to the connection (its revision) asks again. */
+  #choices = new Map<string, Promise<Choice[]>>();
+
+  /**
+   * What the connection's service offers for a slot: suggestions for its
+   * model or voice field. A list that fails rejects with the sentence why;
+   * the field still takes any name.
+   */
+  choices(key: SlotKey, connection: string, kind: "model" | "voice"): Promise<Choice[]> {
+    const revision = this.view?.connections.find((c) => c.id === connection)?.revision ?? 0n;
+    const at = `${key}|${connection}|${revision}|${kind}`;
+    let list = this.#choices.get(at);
+    if (!list) {
+      list = client
+        .listChoices({ slot: SLOT[key], connection, kind: kind === "voice" ? ChoiceKind.VOICE : ChoiceKind.MODEL })
+        .then((r) => r.choices)
+        .catch((e: unknown) => {
+          // Asked again next time; the field says why there is no list.
+          this.#choices.delete(at);
+          throw new Error(errorSentence(e));
+        });
+      this.#choices.set(at, list);
+    }
+    return list;
+  }
+
   /** Point a slot at a connection; it is saved only when its check passes. */
-  async setSlot(key: SlotKey, connection: string, model: string) {
+  async setSlot(key: SlotKey, connection: string, model: string, speechModel = "") {
     const refused = await this.#edit(
-      () => client.setSlot({ slot: SLOT[key], connection, model }),
+      () => client.setSlot({ slot: SLOT[key], connection, model, speechModel }),
       "Checked and saved",
     );
     if (!refused) {

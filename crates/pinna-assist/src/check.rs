@@ -25,7 +25,7 @@ pub const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The model-list body may be this large. Beyond it the status alone passes and
 /// the model isn't confirmed.
-const MODELS_CAP: usize = 2 * 1024 * 1024;
+pub(crate) const MODELS_CAP: usize = 2 * 1024 * 1024;
 
 /// Half a second of 16 kHz mono signed 16-bit silence, the smallest utterance
 /// that proves a speech-to-text server without a model list.
@@ -40,6 +40,9 @@ pub struct CheckSetup {
     /// What the slot names: the speech-to-text or brain model, or the
     /// text-to-speech voice.
     pub model: String,
+    /// Text-to-speech only: the model that speaks the voice; `None` is the
+    /// preset's.
+    pub speech_model: Option<String>,
     /// The brain hands requests off (the preset's delegation after the
     /// owner's Advanced override): its check never sends a prompt or names a
     /// model.
@@ -65,7 +68,7 @@ async fn run_check(setup: &CheckSetup) -> Result<(), String> {
 }
 
 /// List the models, or `None` when the body was too large to confirm one.
-async fn models(setup: &CheckSetup, slot: Slot) -> Result<Option<Bytes>, ProviderError> {
+pub(crate) async fn models(setup: &CheckSetup, slot: Slot) -> Result<Option<Bytes>, ProviderError> {
     let endpoint = &setup.endpoint;
     let protocol = preset(endpoint.preset).chat_protocol;
     let mut request = endpoint.http.get(endpoint.url(protocol.models_path()));
@@ -133,6 +136,7 @@ async fn tts_check(setup: &CheckSetup) -> Result<(), String> {
         preset(setup.endpoint.preset).speech_protocol,
         setup.endpoint.clone(),
         setup.model.clone(),
+        setup.speech_model.clone(),
         None,
     )
     .speak("OK.")
@@ -182,7 +186,7 @@ struct ModelEntry {
 
 /// The ids in a model list, or `None` when the body isn't an authoritative
 /// list: it didn't parse, named no models, or is one page of several.
-fn offered_models(body: &Bytes) -> Option<Vec<String>> {
+pub(crate) fn offered_models(body: &Bytes) -> Option<Vec<String>> {
     let list: ModelList = serde_json::from_slice(body).ok()?;
     if list.has_more || list.next_page_token.is_some_and(|t| !t.is_empty()) {
         return None;
@@ -343,6 +347,7 @@ mod tests {
                 || true,
             ),
             model: model.into(),
+            speech_model: None,
             hand_off: crate::presets::preset(preset).behaviour.delegation
                 == crate::presets::Delegation::HandOff,
         }
@@ -570,9 +575,14 @@ mod tests {
                 r#"{"detail": {"status": "invalid_model_id", "message": "'whisper-1' is not a valid model_id. Available models: 'scribe_v1', 'scribe_v2'"}}"#,
             ),
         );
-        let error = check(&setup(&server, Slot::Stt, PresetId::ElevenLabs, "whisper-1"))
-            .await
-            .unwrap_err();
+        let error = check(&setup(
+            &server,
+            Slot::Stt,
+            PresetId::ElevenLabs,
+            "whisper-1",
+        ))
+        .await
+        .unwrap_err();
         assert_eq!(
             error,
             "The service refused the request (400). Check the model's name. The service said: \
@@ -595,7 +605,10 @@ mod tests {
         let error = check(&setup(&server, Slot::Tts, PresetId::ElevenLabs, "Rachel"))
             .await
             .unwrap_err();
-        assert!(error.starts_with("ElevenLabs has no voice with this ID."), "{error}");
+        assert!(
+            error.starts_with("ElevenLabs has no voice with this ID."),
+            "{error}"
+        );
     }
 
     #[test]

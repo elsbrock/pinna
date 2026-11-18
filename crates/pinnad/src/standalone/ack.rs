@@ -94,6 +94,8 @@ pub struct Source {
     /// Another server may have a voice of the same name.
     base_url: String,
     voice: String,
+    /// The slot's own speech model; empty is the preset's.
+    model: String,
     language: Option<String>,
     phrase: String,
 }
@@ -120,6 +122,7 @@ impl Source {
             preset: connection.preset,
             base_url: connection.base_url.clone(),
             voice: slot.model.clone(),
+            model: slot.speech_model.clone().unwrap_or_default(),
             phrase: phrase(&config.ack, language.as_deref()),
             language,
         })
@@ -132,13 +135,17 @@ impl Source {
     /// `ack-<16 hex digits of the inputs' SHA-256>.mp3`.
     pub fn file_name(&self) -> String {
         let mut hash = Sha256::new();
-        for part in [
+        let parts = [
             self.preset.label(),
             &self.base_url,
             &self.voice,
             self.language.as_deref().unwrap_or(""),
             &self.phrase,
-        ] {
+        ];
+        // The model only when the slot names one, so the files made before
+        // it could be named keep their names.
+        let model = (!self.model.is_empty()).then_some(self.model.as_str());
+        for part in parts.into_iter().chain(model) {
             // Length first, so the parts can't run into each other.
             hash.update((part.len() as u64).to_le_bytes());
             hash.update(part.as_bytes());
@@ -390,6 +397,7 @@ mod tests {
             preset: PresetId::OpenAi,
             base_url: "https://api.openai.com/v1".into(),
             voice: "nova".into(),
+            model: String::new(),
             language: Some("de".into()),
             phrase: phrase.into(),
         }
@@ -462,11 +470,18 @@ mod tests {
                 language: None,
                 ..base.clone()
             },
+            Source {
+                model: "gpt-4o-mini-tts".into(),
+                ..base.clone()
+            },
             source("Moment."),
         ];
         let names: BTreeSet<String> = others.iter().map(Source::file_name).collect();
         assert_eq!(names.len(), others.len());
         assert!(!names.contains(&name));
+        // Without a model of its own, the name is the one made before the
+        // model could be chosen, so a cached phrase isn't synthesised again.
+        assert_eq!(name, "ack-e0351b0e25a91b8f.mp3");
     }
 
     #[test]
@@ -490,16 +505,19 @@ mod tests {
                 connection: "speech".into(),
                 model: "whisper-1".into(),
                 checked: 1,
+                speech_model: None,
             }),
             chat: Some(SlotConfig {
                 connection: "brain".into(),
                 model: "gpt-test".into(),
                 checked: 1,
+                speech_model: None,
             }),
             tts: Some(SlotConfig {
                 connection: "speech".into(),
                 model: "nova".into(),
                 checked: 1,
+                speech_model: None,
             }),
             language: Some("de-DE".into()),
             ..AssistConfig::default()
@@ -516,6 +534,7 @@ mod tests {
                 preset: PresetId::OpenAi,
                 base_url: "https://api.openai.com/v1".into(),
                 voice: "nova".into(),
+                model: String::new(),
                 language: Some("de-DE".into()),
                 phrase: "Einen Moment.".into(),
             })

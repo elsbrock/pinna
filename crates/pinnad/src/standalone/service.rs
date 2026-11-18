@@ -18,6 +18,7 @@ use std::time::SystemTime;
 
 use futures::future::join_all;
 use pinna_assist::check::{self, CHECK_TIMEOUT, CheckSetup};
+use pinna_assist::choices::{self as assist_choices, Choice, Wanted};
 use pinna_assist::config::{
     self as assist, Ack, AssistConfig, Connection, MAX_MCP_SERVERS, McpServer, Place, SlotConfig,
     Station,
@@ -201,6 +202,8 @@ pub struct ConnectionEdit {
 pub struct SlotEdit {
     pub connection: String,
     pub model: String,
+    /// Text-to-speech only; empty is the preset's model.
+    pub speech_model: String,
 }
 
 /// Add (`id: None`) or change one of the owner's MCP servers. There is no
@@ -281,6 +284,8 @@ pub struct SlotView {
     pub model: String,
     /// The slot passed its check at the connection's current revision.
     pub ready: bool,
+    /// Text-to-speech only; empty is the preset's model.
+    pub speech_model: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -492,17 +497,22 @@ impl Service {
             return Ok(self.view());
         }
 
-        let checks = join_all(
-            used_by
-                .iter()
-                .map(|(kind, model)| self.check(*kind, e.preset, &url, model, new_key.as_ref())),
-        )
+        let checks = join_all(used_by.iter().map(|(kind, model, speech_model)| {
+            self.check(
+                *kind,
+                e.preset,
+                &url,
+                model,
+                speech_model.as_deref(),
+                new_key.as_ref(),
+            )
+        }))
         .await;
         if self.standalone() {
             let failed: Vec<(SlotKind, &String)> = used_by
                 .iter()
                 .zip(&checks)
-                .filter_map(|((kind, _), result)| result.as_ref().err().map(|e| (*kind, e)))
+                .filter_map(|((kind, ..), result)| result.as_ref().err().map(|e| (*kind, e)))
                 .collect();
             if let Some((_, sentence)) = failed.first() {
                 let kinds: Vec<SlotKind> = failed.iter().map(|(kind, _)| *kind).collect();
@@ -538,7 +548,7 @@ impl Service {
                 KeyEdit::Keep if url_changed => d.secrets.clear(&id),
                 KeyEdit::Keep => {}
             }
-            for ((kind, _), result) in used_by.iter().zip(&checks) {
+            for ((kind, ..), result) in used_by.iter().zip(&checks) {
                 if let (Some(slot), Ok(())) = (kind.get_mut(&mut d.config), result) {
                     slot.checked = revision;
                 }
@@ -594,7 +604,7 @@ impl Service {
             }
             let used: Vec<SlotKind> = slots_on(&d.config, id)
                 .into_iter()
-                .map(|(kind, _)| kind)
+                .map(|(kind, ..)| kind)
                 .collect();
             if standalone && !used.is_empty() {
                 return Err(Refusal::Precondition(format!(
@@ -618,6 +628,10 @@ impl Service {
     /// passes, and is then ready.
     pub async fn set_slot(&self, kind: SlotKind, e: SlotEdit) -> Result<AssistantView, Refusal> {
         let model = model_value(kind, &e.model)?;
+        let speech_model = match kind {
+            SlotKind::Tts => Some(model_value(kind, &e.speech_model)?).filter(|m| !m.is_empty()),
+            _ => None,
+        };
         let (connection, key) = {
             let state = self.committed.state.lock().unwrap();
             let connection = find(&state.config, &e.connection)
@@ -642,6 +656,7 @@ impl Service {
             connection.preset,
             &connection.base_url,
             &model,
+            speech_model.as_deref(),
             key.as_ref(),
         )
         .await
@@ -658,10 +673,45 @@ impl Service {
                 connection: connection.id.clone(),
                 model,
                 checked: connection.revision,
+                speech_model,
             });
             Ok(())
         })
         .await
+    }
+
+    /// What connection `id`'s service offers for a slot: suggestions for
+    /// the dashboard's fields, with the connection's key.
+    pub async fn choices(
+        &self,
+        kind: SlotKind,
+        id: &str,
+        wanted: Wanted,
+    ) -> Result<Vec<Choice>, Refusal> {
+        let (connection, key) = {
+            let state = self.committed.state.lock().unwrap();
+            let connection = find(&state.config, id)
+                .cloned()
+                .ok_or_else(|| Refusal::Conflict(REMOVED.into()))?;
+            let key = state
+                .secrets
+                .key_for(&connection.id, &connection.base_url)
+                .cloned();
+            (connection, key)
+        };
+        let setup = self
+            .check_setup(
+                kind,
+                connection.preset,
+                &connection.base_url,
+                "",
+                None,
+                key.as_ref(),
+            )
+            .map_err(Refusal::Invalid)?;
+        assist_choices::choices(&setup, wanted)
+            .await
+            .map_err(Refusal::Precondition)
     }
 
     /// Change the settings that need no provider check.
@@ -711,9 +761,10 @@ impl Service {
             if let Some(prompt) = prompt {
                 // Two windows editing the prompt: the second save would
                 // silently replace the first.
-                if p.prompt_revision.as_ref().is_some_and(|started| {
-                    *started != prompt_revision(c.prompt.as_deref())
-                }) {
+                if p.prompt_revision
+                    .as_ref()
+                    .is_some_and(|started| *started != prompt_revision(c.prompt.as_deref()))
+                {
                     return Err(Refusal::Conflict(PROMPT_CHANGED.into()));
                 }
                 c.prompt = prompt;
@@ -865,9 +916,10 @@ impl Service {
         preset: PresetId,
         base_url: &str,
         model: &str,
+        speech_model: Option<&str>,
         key: Option<&Secret>,
     ) -> Result<(), String> {
-        let setup = self.check_setup(kind, preset, base_url, model, key)?;
+        let setup = self.check_setup(kind, preset, base_url, model, speech_model, key)?;
         check::check(&setup).await
     }
 
@@ -877,6 +929,7 @@ impl Service {
         preset: PresetId,
         base_url: &str,
         model: &str,
+        speech_model: Option<&str>,
         key: Option<&Secret>,
     ) -> Result<CheckSetup, String> {
         if !kind.served_by(preset) {
@@ -905,6 +958,7 @@ impl Service {
                 crate::clock::synced,
             ),
             model: model.to_owned(),
+            speech_model: speech_model.map(str::to_owned),
             hand_off,
         })
     }
@@ -1127,6 +1181,7 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
         kind.get(c).map(|slot| SlotView {
             connection: slot.connection.clone(),
             model: slot.model.clone(),
+            speech_model: slot.speech_model.clone().unwrap_or_default(),
             ready: slot_ready(c, kind),
         })
     };
@@ -1179,12 +1234,14 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
 }
 
 /// The slots that use a connection, with their models.
-fn slots_on(c: &AssistConfig, id: &str) -> Vec<(SlotKind, String)> {
+/// The slots on connection `id`: each with its model (or voice) and, for
+/// text-to-speech, its own speech model.
+fn slots_on(c: &AssistConfig, id: &str) -> Vec<(SlotKind, String, Option<String>)> {
     SlotKind::ALL
         .into_iter()
         .filter_map(|kind| {
             let slot = kind.get(c)?;
-            (slot.connection == id).then(|| (kind, slot.model.clone()))
+            (slot.connection == id).then(|| (kind, slot.model.clone(), slot.speech_model.clone()))
         })
         .collect()
 }
@@ -1283,7 +1340,10 @@ fn connection_url(preset: PresetId, input: &str) -> Result<String, Refusal> {
         template.to_owned()
     } else if template.contains("<host>") {
         // Only a scheme, such as `http://`: the computer is still missing.
-        if input.split_once("://").is_some_and(|(_, rest)| rest.trim_matches('/').is_empty()) {
+        if input
+            .split_once("://")
+            .is_some_and(|(_, rest)| rest.trim_matches('/').is_empty())
+        {
             return Err(Refusal::Invalid(
                 "Enter the computer's name or address, such as 192.168.1.20.".into(),
             ));
@@ -1575,6 +1635,7 @@ mod tests {
         SlotEdit {
             connection: connection.into(),
             model: model.into(),
+            speech_model: String::new(),
         }
     }
 
@@ -1683,6 +1744,7 @@ mod tests {
                 connection: connection.id.clone(),
                 model: "gpt-test".into(),
                 ready: true,
+                speech_model: String::new(),
             })
         );
         assert!(!view.ready);
@@ -2058,6 +2120,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_speech_model_is_checked_with_the_voice_and_kept() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        let server = FakeServer::start().await;
+        let connection = f.connect(&server).await;
+        passing(&server, SlotKind::Tts);
+        let edit = SlotEdit {
+            speech_model: " gpt-4o-mini-tts ".into(),
+            ..slot_edit(&connection.id, "nova")
+        };
+        let view = f.service.set_slot(SlotKind::Tts, edit).await.unwrap();
+        assert_eq!(view.tts.unwrap().speech_model, "gpt-4o-mini-tts");
+        assert_eq!(
+            f.saved().tts.unwrap().speech_model.as_deref(),
+            Some("gpt-4o-mini-tts")
+        );
+        let sent: serde_json::Value =
+            serde_json::from_slice(&server.requests().last().unwrap().body).unwrap();
+        assert_eq!(sent["model"], "gpt-4o-mini-tts");
+        assert_eq!(sent["voice"], "nova");
+
+        // Empty is the preset's model again; another slot never keeps one.
+        passing(&server, SlotKind::Tts);
+        let view = f
+            .service
+            .set_slot(SlotKind::Tts, slot_edit(&connection.id, "nova"))
+            .await
+            .unwrap();
+        assert_eq!(view.tts.unwrap().speech_model, "");
+        assert_eq!(f.saved().tts.unwrap().speech_model, None);
+        passing(&server, SlotKind::Stt);
+        let stt = SlotEdit {
+            speech_model: "ignored".into(),
+            ..slot_edit(&connection.id, "whisper-1")
+        };
+        f.service.set_slot(SlotKind::Stt, stt).await.unwrap();
+        assert_eq!(f.saved().stt.unwrap().speech_model, None);
+    }
+
+    #[tokio::test]
     async fn a_prompt_edit_from_an_older_version_is_refused() {
         let f = Fixture::new(Mode::HomeAssistant);
         let first = f.service.view().prompt_revision;
@@ -2074,7 +2175,10 @@ mod tests {
         assert_ne!(saved.prompt_revision, first);
         // The second is refused, and the first one's text stays.
         assert_eq!(
-            f.service.update(edit("Be chatty.", &first)).await.unwrap_err(),
+            f.service
+                .update(edit("Be chatty.", &first))
+                .await
+                .unwrap_err(),
             Refusal::Conflict(PROMPT_CHANGED.into())
         );
         assert_eq!(f.service.view().prompt.as_deref(), Some("Be brief."));
@@ -2188,7 +2292,11 @@ mod tests {
                 "http://",
                 "Enter the computer's name or address, such as 192.168.1.20.",
             ),
-            (PresetId::Custom, "https://", "The address needs a host name."),
+            (
+                PresetId::Custom,
+                "https://",
+                "The address needs a host name.",
+            ),
         ] {
             assert_eq!(
                 f.service

@@ -14,12 +14,14 @@ use buffa::{EnumValue, Inline, MessageField};
 use connectrpc::{ConnectError, RequestContext, Response, Router, ServiceRequest, ServiceResult};
 use pinna_api::{
     Acknowledgment, AskTextRequest, AskTextResponse, Assistant, AssistantService, AssistantSlot,
-    BrainOverride, DeleteConnectionRequest, DeleteConnectionResponse, DeleteMcpServerRequest,
-    DeleteMcpServerResponse, DeviceTool, GetAssistantRequest, GetAssistantResponse, McpAgent,
-    PlaySampleRequest, PlaySampleResponse, ProviderConnection, SetConnectionRequest,
-    SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse, SetSlotRequest,
-    SetSlotResponse, SlotChoice, UpdateAssistantRequest, UpdateAssistantResponse,
+    BrainOverride, ChoiceKind, DeleteConnectionRequest, DeleteConnectionResponse,
+    DeleteMcpServerRequest, DeleteMcpServerResponse, DeviceTool, GetAssistantRequest,
+    GetAssistantResponse, ListChoicesRequest, ListChoicesResponse, McpAgent, PlaySampleRequest,
+    PlaySampleResponse, ProviderConnection, SetConnectionRequest, SetConnectionResponse,
+    SetMcpServerRequest, SetMcpServerResponse, SetSlotRequest, SetSlotResponse, SlotChoice,
+    UpdateAssistantRequest, UpdateAssistantResponse,
 };
+use pinna_assist::choices::Wanted;
 use pinna_assist::config::{Ack, Station};
 use pinna_assist::presets::{
     self, ChatOverride, ChatProtocol, Delegation, HistoryPolicy, PresetId, Reasoning,
@@ -163,6 +165,11 @@ fn render(v: AssistantView) -> Assistant {
                 model: p.model.unwrap_or_default().into(),
                 hand_off: p.behaviour.delegation == Delegation::HandOff,
                 thinking: p.chat_protocol == ChatProtocol::OpenAi,
+                tts_model: if p.slots.tts {
+                    p.speech_protocol.tts_model().into()
+                } else {
+                    String::new()
+                },
                 ..Default::default()
             })
             .collect(),
@@ -191,6 +198,7 @@ fn slot_choice(slot: Option<SlotView>) -> MessageField<SlotChoice, Inline<SlotCh
             connection: s.connection,
             model: s.model,
             ready: s.ready,
+            speech_model: s.speech_model,
             ..Default::default()
         })
     })
@@ -363,6 +371,7 @@ impl AssistantService for AssistantApi {
         let edit = SlotEdit {
             connection: request.connection.to_owned(),
             model: request.model.to_owned(),
+            speech_model: request.speech_model.to_owned(),
         };
         let view = self.service.set_slot(kind, edit).await.map_err(refused)?;
         Response::ok(SetSlotResponse {
@@ -475,6 +484,35 @@ impl AssistantService for AssistantApi {
         self.brain(|reply| ApiCommand::AskText(question, reply))
             .await?;
         Response::ok(AskTextResponse::default())
+    }
+
+    async fn list_choices(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, ListChoicesRequest>,
+    ) -> ServiceResult<ListChoicesResponse> {
+        let kind = slot_kind(&request.slot)?;
+        let wanted = match request.kind.as_known() {
+            Some(ChoiceKind::CHOICE_KIND_MODEL) => Wanted::Models,
+            Some(ChoiceKind::CHOICE_KIND_VOICE) => Wanted::Voices,
+            _ => return Err(ConnectError::invalid_argument("Choose models or voices.")),
+        };
+        let list = self
+            .service
+            .choices(kind, request.connection, wanted)
+            .await
+            .map_err(refused)?;
+        Response::ok(ListChoicesResponse {
+            choices: list
+                .into_iter()
+                .map(|c| pinna_api::Choice {
+                    id: c.id,
+                    label: c.label,
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        })
     }
 }
 
@@ -733,6 +771,54 @@ mod tests {
         assert!(assistant.stt_ready && assistant.brain_ready && assistant.tts_ready);
         assert_eq!(assistant.label, "openai: gpt-test");
         assert_eq!(assistant.last_error, "");
+    }
+
+    #[tokio::test]
+    async fn choices_come_from_the_connections_service() {
+        let d = Device::start().await;
+        let server = FakeServer::start().await;
+        let connection = d.connect(&server).await;
+        server.script(
+            Method::GET,
+            "/models",
+            FakeResponse::new(StatusCode::OK, MODELS),
+        );
+        let ask = |slot, kind| pinna_api::ListChoicesRequest {
+            slot: EnumValue::Known(slot),
+            connection: connection.id.clone(),
+            kind: EnumValue::Known(kind),
+            ..Default::default()
+        };
+        let listed = d
+            .assistant
+            .list_choices(ask(
+                AssistantSlot::ASSISTANT_SLOT_STT,
+                ChoiceKind::CHOICE_KIND_MODEL,
+            ))
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        let ids: Vec<String> = listed.choices.into_iter().map(|c| c.id).collect();
+        assert_eq!(ids, ["whisper-1"]);
+        // The key went along, and never comes back.
+        assert_eq!(
+            server.requests()[0].header("authorization"),
+            Some(format!("Bearer {KEY}").as_str())
+        );
+
+        let unknown = d
+            .assistant
+            .list_choices(pinna_api::ListChoicesRequest {
+                connection: "gone-1".into(),
+                ..ask(
+                    AssistantSlot::ASSISTANT_SLOT_BRAIN,
+                    ChoiceKind::CHOICE_KIND_MODEL,
+                )
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(unknown.code, ErrorCode::Aborted);
     }
 
     #[tokio::test]

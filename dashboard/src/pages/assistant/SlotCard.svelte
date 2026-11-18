@@ -19,6 +19,7 @@
   import Group from "../../lib/Group.svelte";
   import Dropdown from "../../lib/Dropdown.svelte";
   import Icon from "../../lib/Icon.svelte";
+  import SuggestInput from "../../lib/SuggestInput.svelte";
   import BrainAdvanced from "./BrainAdvanced.svelte";
 
   let { slot }: { slot: (typeof SLOTS)[number] } = $props();
@@ -48,14 +49,37 @@
   let touched = $state(false);
   let connection = $state("");
   let model = $state("");
+  let speechModel = $state("");
   $effect(() => {
     if (touched) return;
     connection = choice?.connection ?? options[0]?.id ?? "";
     model = choice?.model ?? "";
+    speechModel = choice?.speechModel ?? "";
+  });
+  const edited = () => {
+    touched = true;
+    error = null;
+  };
+  const preset = $derived(presetOf(connection));
+  // ElevenLabs takes a voice's ID, which nobody can read: the list shows the
+  // names. Its speech-to-text models are Scribe's, which it doesn't list.
+  const modelHint = $derived.by(() => {
+    const elevenlabs = preset?.id === "elevenlabs";
+    if (slot.holds === "voice")
+      return elevenlabs
+        ? "The voice's ID. Choose a voice from your library by name, or paste its ID."
+        : "The voice's name or ID, as the service lists it, such as alloy or nova for OpenAI.";
+    if (slot.key === "stt" && elevenlabs) return "A Scribe model, such as scribe_v2.";
+    return "The model's ID, as the service lists it. Choose from its list, or type it.";
   });
   // A preset that names its own model (OpenClaw) takes none.
   const fixedModel = $derived(slot.key === "brain" ? (presetOf(connection)?.model ?? "") : "");
-  const unchanged = $derived(!!choice && choice.connection === connection && choice.model === model.trim());
+  const unchanged = $derived(
+    !!choice &&
+      choice.connection === connection &&
+      choice.model === model.trim() &&
+      choice.speechModel === speechModel.trim(),
+  );
   const id = $derived(`slot-${slot.key}`);
 
   let checking = $state(false);
@@ -73,7 +97,12 @@
   );
   async function check() {
     checking = true;
-    error = await assistant.setSlot(slot.key, connection, fixedModel ? "" : model.trim());
+    error = await assistant.setSlot(
+      slot.key,
+      connection,
+      fixedModel ? "" : model.trim(),
+      slot.key === "tts" ? speechModel.trim() : "",
+    );
     checking = false;
     if (!error) touched = false;
   }
@@ -167,27 +196,35 @@
                connection as much as the model. -->
           <div class="pn-field">
             <label class="pn-field-label" for="{id}-model">{slot.holds === "voice" ? "Voice" : "Model"}</label>
-            <input
+            <SuggestInput
               id="{id}-model"
-              class="pn-input is-mono"
-              type="text"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck="false"
               bind:value={model}
-              disabled={!live}
-              aria-describedby="{id}-model-hint"
-              oninput={() => {
-                touched = true;
-                error = null;
-              }}
+              source="{connection}|{slot.holds}"
+              load={() => assistant.choices(slot.key, connection, slot.holds === "voice" ? "voice" : "model")}
+              disabled={!live || !connection}
+              describedby="{id}-model-hint"
+              oninput={edited}
             />
-            <span id="{id}-model-hint" class="pn-field-hint">
-              {slot.holds === "voice"
-                ? "The voice's name or ID, as the service lists it."
-                : "The model's ID, as the service lists it."}
-            </span>
+            <span id="{id}-model-hint" class="pn-field-hint">{modelHint}</span>
           </div>
+          {#if slot.key === "tts"}
+            <div class="pn-field">
+              <label class="pn-field-label" for="{id}-speech-model">Model</label>
+              <SuggestInput
+                id="{id}-speech-model"
+                bind:value={speechModel}
+                source="{connection}|model"
+                load={() => assistant.choices("tts", connection, "model")}
+                placeholder={preset?.ttsModel}
+                disabled={!live || !connection}
+                describedby="{id}-speech-model-hint"
+                oninput={edited}
+              />
+              <span id="{id}-speech-model-hint" class="pn-field-hint">
+                The model that speaks the voice. Empty uses {preset?.ttsModel || "the service's"}.
+              </span>
+            </div>
+          {/if}
         {/if}
       </div>
       {#if error}<span class="pn-field-error" role="alert"

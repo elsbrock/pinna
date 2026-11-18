@@ -61,6 +61,7 @@ const slot = (conn: string, model: string, ready = true): SlotChoice => ({
   connection: conn,
   model,
   ready,
+  speechModel: "",
 });
 const preset = (id: string, over: Partial<Preset> = {}): Preset => ({
   $typeName: "pinna.v1.Preset",
@@ -72,6 +73,7 @@ const preset = (id: string, over: Partial<Preset> = {}): Preset => ({
   model: "",
   handOff: false,
   thinking: false,
+  ttsModel: "",
   ...over,
 });
 const view = (over: Partial<Assistant> = {}): Assistant =>

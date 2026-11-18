@@ -1409,6 +1409,7 @@ mod tests {
                 connection: "c".into(),
                 model: model.into(),
                 checked: 1,
+                speech_model: None,
             })
         };
         cfg.stt = slot("whisper-1");

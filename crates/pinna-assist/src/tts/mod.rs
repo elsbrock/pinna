@@ -25,13 +25,15 @@ pub use openai::OpenAiTts;
 
 /// The adapter for a protocol: its own model, the owner's voice and, for
 /// ElevenLabs, the language.
+/// `model` is the slot's own text-to-speech model; `None` is the preset's.
 pub fn adapter(
     protocol: SpeechProtocol,
     endpoint: Endpoint,
     voice: String,
+    model: Option<String>,
     language: Option<String>,
 ) -> Arc<dyn Tts> {
-    let model = protocol.tts_model();
+    let model = model.unwrap_or_else(|| protocol.tts_model().to_owned());
     match protocol {
         SpeechProtocol::OpenAi => Arc::new(OpenAiTts::new(endpoint, model, voice)),
         SpeechProtocol::ElevenLabs => {

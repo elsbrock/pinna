@@ -86,6 +86,10 @@ pub struct SlotConfig {
     /// A model id, or the voice id for the text-to-speech slot.
     pub model: String,
     pub checked: u64,
+    /// Text-to-speech only: the model that speaks the voice. Unset is the
+    /// preset's ([`crate::presets::SpeechProtocol::tts_model`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speech_model: Option<String>,
 }
 
 /// A place for the weather tool and the prompt's context.

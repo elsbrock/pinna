@@ -53,3 +53,25 @@ export function typeahead(options: ListOption[], from: number, typed: string): n
   }
   return -1;
 }
+
+/** The suggestions shown at most, while typing narrows them. */
+export const SUGGESTIONS_MAX = 50;
+
+/**
+ * The choices whose id or label contains `typed` (case-insensitive), the
+ * ones that start with it first; all of them for nothing typed. At most
+ * `max`.
+ */
+export function matching<T extends ListOption>(choices: T[], typed: string, max = SUGGESTIONS_MAX): T[] {
+  const text = typed.trim().toLocaleLowerCase();
+  if (!text) return choices.slice(0, max);
+  const starts: T[] = [];
+  const contains: T[] = [];
+  for (const c of choices) {
+    const id = c.id.toLocaleLowerCase();
+    const label = c.label.toLocaleLowerCase();
+    if (id.startsWith(text) || label.startsWith(text)) starts.push(c);
+    else if (id.includes(text) || label.includes(text)) contains.push(c);
+  }
+  return [...starts, ...contains].slice(0, max);
+}

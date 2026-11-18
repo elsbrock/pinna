@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ListOption, step, typeahead } from "./listbox.ts";
+import { type ListOption, matching, step, typeahead } from "./listbox.ts";
 
 const opts = (...labels: string[]): ListOption[] =>
   labels.map((label, i) => ({ id: String(i), label: label.replace("!", ""), disabled: label.endsWith("!") }));
@@ -36,4 +36,32 @@ test("typing jumps to the next option that starts with it, and a repeated letter
   assert.equal(typeahead(o, 0, "o"), 4);
   assert.equal(typeahead(o, 0, "x"), -1);
   assert.equal(typeahead(o, 0, ""), -1);
+});
+
+test("suggestions match the id or the label, the ones that start with it first", () => {
+  const voices = [
+    { id: "JBFqnCBsd6RMkjVDRZzb", label: "George" },
+    { id: "onwK4e9ZLuTAKqWW03F9", label: "Daniel" },
+    { id: "gpt-4o-mini", label: "gpt-4o-mini" },
+    { id: "o4-mini", label: "o4-mini" },
+  ];
+  assert.deepEqual(
+    matching(voices, "geo").map((c) => c.label),
+    ["George"],
+  );
+  assert.deepEqual(
+    matching(voices, "JBF").map((c) => c.label),
+    ["George"],
+  );
+  assert.deepEqual(
+    matching(voices, "mini").map((c) => c.id),
+    ["gpt-4o-mini", "o4-mini"],
+  );
+  // One that starts with it comes before one that only contains it.
+  assert.deepEqual(
+    matching([...voices, { id: "mini-tts", label: "mini-tts" }], "mini").map((c) => c.id),
+    ["mini-tts", "gpt-4o-mini", "o4-mini"],
+  );
+  assert.equal(matching(voices, "").length, 4);
+  assert.equal(matching(voices, "", 2).length, 2);
 });

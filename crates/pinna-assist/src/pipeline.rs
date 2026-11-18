@@ -67,6 +67,7 @@ impl Speech {
         clock_synced: fn() -> bool,
     ) -> Option<Speech> {
         let (voice, connection) = resolve(cfg.tts.as_ref(), cfg)?;
+        let model = cfg.tts.as_ref().and_then(|slot| slot.speech_model.clone());
         let row = preset(connection.preset);
         if !row.slots.tts {
             return None;
@@ -79,6 +80,7 @@ impl Speech {
                 row.speech_protocol,
                 endpoint(connection, auth, read, clock_synced),
                 voice.to_owned(),
+                model,
                 language,
             ),
             preset: connection.preset,
@@ -196,6 +198,7 @@ mod tests {
             connection: connection.into(),
             model: model.into(),
             checked: 1,
+            speech_model: None,
         }
     }
 
