@@ -36,7 +36,12 @@
   };
 
   let error = $state<string | null>(null);
+  const whole = (s: string) => !s.trim() || /^\d+$/.test(s.trim());
   async function save() {
+    if (!(sized ? whole(limit) : true) || !whole(firstText)) {
+      error = "Enter whole numbers, without a decimal point.";
+      return;
+    }
     error = await assistant.update({
       brainOverride: {
         delegation: Number(delegation),
@@ -58,7 +63,7 @@
     : ''}"
   value={delegation}
   options={[
-    { id: String(Delegation.UNSPECIFIED), label: "The preset's choice" },
+    { id: String(Delegation.UNSPECIFIED), label: "Preset default" },
     { id: String(Delegation.TOOL_LOOP), label: "The satellite" },
     { id: String(Delegation.HAND_OFF), label: "The brain" },
   ]}
@@ -71,7 +76,7 @@
   hint="What the brain hears of the requests before this one."
   value={history}
   options={[
-    { id: String(History.UNSPECIFIED), label: "The preset's choice" },
+    { id: String(History.UNSPECIFIED), label: "Preset default" },
     { id: String(History.TURNS), label: "The last requests" },
     { id: String(History.BYTES), label: "Up to a size" },
     { id: String(History.NEW_TURN_ONLY), label: "Only the new request" },

@@ -115,6 +115,15 @@
           Home Assistant usually finds the satellite on its own under Settings › Devices &amp; services.
           <a href="#/assistant">How to add it by hand</a>
         </p>
+        <p>
+          {#if s.assistant?.ready}
+            Without Home Assistant, the satellite can answer by itself: its services are ready to
+            <a href="#/assistant">switch to standalone mode</a>.
+          {:else}
+            Without Home Assistant, the satellite can answer by itself with services you choose:
+            <a href="#/assistant/services">set up standalone mode</a>.
+          {/if}
+        </p>
       </div>
     </div>
   {/if}

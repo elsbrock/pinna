@@ -44,7 +44,7 @@
             class="pn-btn pn-btn-sm"
             type="button"
             disabled={!live || editing !== null}
-            aria-label="Change the {presetName(c.preset)} connection"
+            aria-label="Change the {presetName(c.preset)} connection at {connectionAddress(c, view.presets)}, {keyShown(c)}"
             onclick={() => (editing = c.id)}>Change</button
           >
         </div>

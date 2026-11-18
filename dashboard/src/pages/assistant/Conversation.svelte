@@ -14,6 +14,7 @@
     presetName,
     promptCount,
   } from "../../lib/assistant.ts";
+  import Confirm from "../../lib/Confirm.svelte";
   import { device } from "../../lib/device.svelte.ts";
   import { badge } from "../../lib/view.ts";
   import Group from "../../lib/Group.svelte";
@@ -62,6 +63,7 @@
     promptError = await assistant.update(patch);
     if (!promptError) promptTouched = false;
   }
+  let resetting = $state(false);
   async function resetPrompt() {
     promptError = await assistant.update({ defaultPrompt: true }, "Back to the voice rules");
     if (!promptError) promptTouched = false;
@@ -106,6 +108,8 @@
     outcome = failed
       ? { text: failureText(s.assistant), failed: true }
       : { text: "Answered aloud on the satellite.", failed: false };
+    // A question refused while this one ran is no longer the news.
+    askError = null;
     asking = null;
   });
   async function ask() {
@@ -261,7 +265,9 @@
         ></textarea>
         {#if promptError}<span class="pn-field-error" role="alert"><Icon name="alert" />{promptError}</span>{/if}
         <span id="prompt-hint" class="pn-field-hint">
-          {#if view.prompt === undefined}
+          {#if tooLong}
+            Too long to save: at most {PROMPT_MAX.toLocaleString("en")} characters.
+          {:else if view.prompt === undefined}
             These are the satellite's voice rules: short, plain spoken answers. Change them as you like.
           {:else if view.prompt === ""}
             Empty: the brain gets only what the satellite adds.
@@ -282,11 +288,15 @@
           class="pn-btn"
           type="button"
           disabled={!live || assistant.busy || (view.prompt === undefined && prompt === stored)}
-          onclick={resetPrompt}>Reset to the voice rules</button
+          onclick={() => (view.prompt === undefined ? resetPrompt() : (resetting = true))}
+          >Reset to the voice rules</button
         >
       </div>
     </form>
   </Group>
+  <Confirm bind:open={resetting} title="Go back to the voice rules?" action="Reset" confirm={resetPrompt}>
+    <p>Your own prompt is replaced by the satellite's voice rules. It can't be brought back.</p>
+  </Confirm>
 
   <Group title="Replies">
     <SwitchRow

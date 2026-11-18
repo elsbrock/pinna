@@ -35,6 +35,8 @@ class AssistantSetup {
   busy = $state(false);
   /** The sentence of a slot's check that failed on this page, until it passes. */
   failed = $state.raw<Partial<Record<SlotKey, string>>>({});
+  /** The connection each failed check was made with. */
+  #failedOn: Partial<Record<SlotKey, string>> = {};
 
   async load() {
     try {
@@ -70,9 +72,8 @@ class AssistantSetup {
     // no longer says anything.
     if (!refused && edit.id) {
       const view = this.view;
-      this.failed = Object.fromEntries(
-        Object.entries(this.failed).filter(([key]) => view?.[key as SlotKey]?.connection !== edit.id),
-      );
+      const stale = (key: SlotKey) => this.#failedOn[key] === edit.id || view?.[key]?.connection === edit.id;
+      this.failed = Object.fromEntries(Object.entries(this.failed).filter(([key]) => !stale(key as SlotKey)));
     }
     return refused?.sentence ?? null;
   }
@@ -92,6 +93,7 @@ class AssistantSetup {
       this.failed = others;
     } else if (refused.code === Code.FailedPrecondition) {
       this.failed = { ...this.failed, [key]: refused.sentence };
+      this.#failedOn[key] = connection;
     }
     return refused?.sentence ?? null;
   }

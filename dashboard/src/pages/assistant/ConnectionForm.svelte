@@ -175,11 +175,17 @@
         <button
           class="pn-btn pn-btn-quiet remove"
           type="button"
-          disabled={!live || assistant.busy}
+          disabled={!live || assistant.busy || (standalone && used.length > 0)}
+          aria-describedby={standalone && used.length ? `${id}-in-use` : undefined}
           onclick={() => (removing = true)}>Remove connection…</button
         >
       {/if}
     </div>
+    {#if connection && standalone && used.length}
+      <span id="{id}-in-use" class="pn-field-hint">
+        To remove it, first choose another connection for {slotWords(used)}: the satellite answers with it.
+      </span>
+    {/if}
   </div>
 </form>
 
@@ -191,10 +197,8 @@
     danger
     confirm={remove}
   >
-    <p>Its key is removed from the satellite too.</p>
-    {#if used.length && standalone}
-      <p>It is chosen for {slotWords(used)}. Choose another connection there first: the satellite needs them.</p>
-    {:else if used.length}
+    {#if connection.keySet}<p>Its key is removed from the satellite too.</p>{/if}
+    {#if used.length}
       <p>It is chosen for {slotWords(used)}, which are cleared with it.</p>
     {/if}
   </Confirm>

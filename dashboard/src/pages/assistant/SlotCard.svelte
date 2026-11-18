@@ -8,10 +8,12 @@
     connectionAddress,
     errorSlot,
     failureText,
+    keyShown,
     presetName,
     SLOTS,
     servesSlot,
     slotLines,
+    slotName,
   } from "../../lib/assistant.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
@@ -57,6 +59,17 @@
 
   let checking = $state(false);
   let error = $state<string | null>(null);
+  // A change to the chosen connection (its address or key) makes an old
+  // refusal moot: check again.
+  const revision = $derived(view?.connections.find((c) => c.id === connection)?.revision);
+  $effect(() => {
+    void revision;
+    error = null;
+  });
+  // What stays in use when a change is refused.
+  const saved = $derived(
+    choice ? slotName(choice.model, view?.connections.find((c) => c.id === choice.connection)?.preset ?? "") : "",
+  );
   async function check() {
     checking = true;
     error = await assistant.setSlot(slot.key, connection, fixedModel ? "" : model.trim());
@@ -140,7 +153,9 @@
               }}
             >
               {#each options as c (c.id)}
-                <option value={c.id}>{presetName(c.preset)} · {connectionAddress(c, view?.presets ?? [])}</option>
+                <option value={c.id}
+                  >{presetName(c.preset)} · {connectionAddress(c, view?.presets ?? [])} · {keyShown(c)}</option
+                >
               {/each}
             </select>
             <Icon name="chevron-down" class="pn-select-chev" />
@@ -179,7 +194,9 @@
           </div>
         {/if}
       </div>
-      {#if error}<span class="pn-field-error" role="alert"><Icon name="alert" />{error}</span>{/if}
+      {#if error}<span class="pn-field-error" role="alert"
+          ><Icon name="alert" />{saved && !unchanged ? `Not saved: it still uses ${saved}. ` : ""}{error}</span
+        >{/if}
       <div class="actions">
         <button
           class="pn-btn pn-btn-primary"

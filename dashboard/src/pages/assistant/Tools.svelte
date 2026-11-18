@@ -268,7 +268,7 @@
       <div class="pn-row">
         <div class="pn-row-text">
           <span class="pn-row-label">{a.name || "A client without a name"}</span>
-          <span class="pn-row-hint">From {a.address}</span>
+          <span class="pn-row-hint">From {a.address}, last called</span>
         </div>
         <span class="pn-row-value">{when(Number(a.lastSeenUnixMs), new Date(device.now))}</span>
       </div>

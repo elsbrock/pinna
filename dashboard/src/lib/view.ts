@@ -96,7 +96,7 @@ export function startBlocked(s: Status | null, link: Link): string | null {
   if (!s || link !== "live") return "The satellite is not reachable.";
   if (isStandalone(s)) {
     if (!s.assistant?.ready) return "Set up the standalone services under Assistant to start a conversation.";
-  } else if (!s.haConnected) return "Connect Home Assistant to start a conversation.";
+  } else if (!s.haConnected) return "Connect Home Assistant, or switch to standalone mode, to start a conversation.";
   else if (!s.voiceSubscribed) return "Home Assistant has no voice pipeline for this satellite yet.";
   if (s.muted) return "Turn the microphones on to start a conversation.";
   if (s.alarmRinging) return "Stop the timer alarm first.";
