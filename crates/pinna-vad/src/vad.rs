@@ -5,11 +5,15 @@
 //! estimate only adapts (slowly) while inactive.
 
 const FLOOR_RMS: u64 = 16;
+const MIN_ENERGY: u64 = FLOOR_RMS * FLOOR_RMS;
+/// A frame is speech above this many times the noise energy.
+const SPEECH_RATIO: u64 = 6;
+/// The noise estimate moves 1/32 of the way to each quiet frame.
+const NOISE_SMOOTHING: u64 = 32;
 const ONSET_FRAMES: u32 = 2;
 const HANGOVER_FRAMES: u32 = 20;
 
 pub struct Vad {
-    minimum_energy: u64,
     noise_energy: u64,
     initialized: bool,
     speech_run: u32,
@@ -20,7 +24,6 @@ pub struct Vad {
 impl Vad {
     pub fn new() -> Self {
         Self {
-            minimum_energy: FLOOR_RMS * FLOOR_RMS,
             noise_energy: 0,
             initialized: false,
             speech_run: 0,
@@ -34,8 +37,7 @@ impl Vad {
     /// clamped to it.
     pub fn with_noise(energy: u64) -> Self {
         Self {
-            minimum_energy: FLOOR_RMS * FLOOR_RMS,
-            noise_energy: energy.max(FLOOR_RMS * FLOOR_RMS),
+            noise_energy: energy.max(MIN_ENERGY),
             initialized: true,
             speech_run: 0,
             hangover: 0,
@@ -48,14 +50,8 @@ impl Vad {
         if samples.is_empty() {
             return self.active;
         }
-        let frame_energy = frame_energy(samples);
-
-        if !self.initialized {
-            self.noise_energy = frame_energy.max(self.minimum_energy);
-            self.initialized = true;
-        }
-        let threshold = (self.noise_energy * 6).max(self.minimum_energy * 6);
-        if frame_energy > threshold {
+        let energy = self.energy(samples);
+        if self.is_speech(energy) {
             self.speech_run = (self.speech_run + 1).min(ONSET_FRAMES);
             if self.speech_run >= ONSET_FRAMES {
                 self.active = true;
@@ -71,8 +67,7 @@ impl Vad {
                 }
             }
             if !self.active {
-                self.noise_energy =
-                    ((self.noise_energy * 31 + frame_energy) / 32).max(self.minimum_energy);
+                self.adapt(energy);
             }
         }
         self.active
@@ -86,18 +81,33 @@ impl Vad {
         if frame.is_empty() {
             return false;
         }
+        let energy = self.energy(frame);
+        let speech = self.is_speech(energy);
+        if !speech {
+            self.adapt(energy);
+        }
+        speech
+    }
+
+    /// A frame's energy; the first frame seeds the noise estimate.
+    fn energy(&mut self, frame: &[i16]) -> u64 {
         let energy = frame_energy(frame);
         if !self.initialized {
-            self.noise_energy = energy.max(self.minimum_energy);
+            self.noise_energy = energy.max(MIN_ENERGY);
             self.initialized = true;
         }
-        let threshold = (self.noise_energy * 6).max(self.minimum_energy * 6);
-        if energy > threshold {
-            true
-        } else {
-            self.noise_energy = ((self.noise_energy * 31 + energy) / 32).max(self.minimum_energy);
-            false
-        }
+        energy
+    }
+
+    fn is_speech(&self, energy: u64) -> bool {
+        energy > self.noise_energy.max(MIN_ENERGY) * SPEECH_RATIO
+    }
+
+    /// Move the noise estimate toward a quiet frame.
+    fn adapt(&mut self, energy: u64) {
+        self.noise_energy = ((self.noise_energy * (NOISE_SMOOTHING - 1) + energy)
+            / NOISE_SMOOTHING)
+            .max(MIN_ENERGY);
     }
 
     /// The tracked noise energy, or `None` before the VAD has seen a frame.
