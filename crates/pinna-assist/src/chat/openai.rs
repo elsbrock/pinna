@@ -84,8 +84,16 @@ impl OpenAiChat {
             "messages": messages,
             "stream": true,
             "stream_options": {"include_usage": true},
-            "max_tokens": req.max_tokens,
         });
+        // OpenAI's own API refuses `max_tokens` for its reasoning models and
+        // takes the newer name for every model; compatible servers know only
+        // the older one.
+        let limit = if self.preset == PresetId::OpenAi {
+            "max_completion_tokens"
+        } else {
+            "max_tokens"
+        };
+        body[limit] = req.max_tokens.into();
         if !req.tools.is_empty() {
             body["tools"] = req
                 .tools
@@ -293,12 +301,16 @@ mod tests {
     };
 
     fn adapter(server: &FakeServer) -> OpenAiChat {
+        adapter_for(server, PresetId::OpenRouter)
+    }
+
+    fn adapter_for(server: &FakeServer, preset: PresetId) -> OpenAiChat {
         OpenAiChat::new(
             client(ClientKind::Provider { read: None }),
             server.url("/v1"),
             "test-model",
             Some(Secret::new("sk-test")),
-            PresetId::OpenRouter,
+            preset,
             || true,
         )
     }
@@ -512,6 +524,7 @@ mod tests {
         assert_eq!(body["stream"], true);
         assert_eq!(body["stream_options"]["include_usage"], true);
         assert_eq!(body["max_tokens"], 500);
+        assert!(body.get("max_completion_tokens").is_none());
         assert_eq!(body["user"], "pinna-device");
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][1]["content"], "What is it like?");
@@ -527,5 +540,29 @@ mod tests {
             body["tools"][0]["function"]["parameters"],
             json!({"type": "object", "properties": {}})
         );
+    }
+
+    #[tokio::test]
+    async fn openai_itself_gets_the_newer_token_limit() {
+        let server = FakeServer::start().await;
+        server.script(
+            Method::POST,
+            "/v1/chat/completions",
+            FakeResponse::sse(["data: [DONE]\n\n".to_owned()], Duration::ZERO),
+        );
+        collect(
+            &adapter_for(&server, PresetId::OpenAi),
+            ChatRequest {
+                system: "Be brief.",
+                messages: &[Message::User("Hi.".into())],
+                tools: &[],
+                max_tokens: 500,
+                user: None,
+            },
+        )
+        .await;
+        let body: Value = serde_json::from_slice(&server.requests()[0].body).unwrap();
+        assert_eq!(body["max_completion_tokens"], 500);
+        assert!(body.get("max_tokens").is_none());
     }
 }
