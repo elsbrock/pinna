@@ -100,7 +100,7 @@ Check each condition with `pinnactl status`:
 | --- | --- | --- |
 | `muted` | `no` | Press the **Microphone off** button, or run `pinnactl mute off` |
 | `home assistant` | `connected, voice subscribed` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/). In standalone mode, this line doesn't matter: see [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
-| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while the device listens to a request. In standalone mode it is armed only once speech-to-text, the brain and text-to-speech have passed their check: the `mode` line says `services ready`, and so does the dashboard's **Overview** |
+| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while the device listens to a request. In standalone mode it is armed only once speech-to-text, the brain and text-to-speech have passed their check: the `mode` line says `services ready`, and the dashboard's **Overview** says **Answers in standalone mode** instead of **Services not ready** |
 | `audio` | Anything but `none` | `none` means Pinna found no audio device. Check for `microphone unavailable` in the log |
 
 If all lines look right:
@@ -189,7 +189,7 @@ The request didn't work. The log says why:
 | `Home Assistant did not answer the run start` | Home Assistant didn't start the request within 5 seconds |
 | `Assist error: …` | The pipeline reported an error, for example from speech-to-text |
 | `Assist run timed out` | Home Assistant didn't answer within 30 seconds of thinking, including the wait for the reply to start. After 15 seconds of listening, the device stops the microphone and waits for the answer |
-| `standalone request failed: …` | In standalone mode, a service failed. The line names the part that failed (`stt`, `brain`, `tts` or `tool`), the service and why, for example `brain via openrouter: HTTP 402`. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
+| `standalone request failed: …` | In standalone mode, a service failed. The line names the part that failed (`stt`, `brain` or `tts`), the service and why, for example `brain via openrouter: HTTP 402`. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
 | `no standalone request: the assistant isn't set up` | In standalone mode, speech-to-text, the brain or text-to-speech hasn't passed its check |
 
 The ring also flashes red when you press the Action button while the
@@ -205,28 +205,35 @@ Open the dashboard's **Assistant** page.
   speech-to-text, the brain and text-to-speech are each set up and have
   passed their check. **Services** shows which one isn't ready, and why its
   check failed.
-- **A request fails.** The device plays the error sound and the ring flashes
+- **A request fails.** The satellite plays the error sound and the ring flashes
   red. **Last failure** shows why, with the service and the time, until a
   request is answered again. The log has the same failure in a
   `standalone request failed` line, followed by what the service said, such
   as `; the service said: "'whisper-1' is not a valid model_id."`. A check
   that fails is logged the same way, in a line that starts with `the stt
   check failed`, `the brain check failed` or `the tts check failed`. The log
-  masks anything that looks like a key.
+  masks anything that looks like a key. These lines, the tool lines and the
+  line for each request are information, not warnings: under **System** ›
+  **Logs**, select **All** to see them.
 - **The brain says it did something, but nothing happened.** Each tool the
   brain calls leaves a line in the log, such as `request 12: tool set_timer:
   ok, 2 ms`. If there is no such line, the model only said it did it. Choose a
   model that supports tool calls, or try **Thinking** under **Services** ›
-  **Brain** › **Advanced**.
-- **The brain's check passes, but every request fails with `The service
-  answered 400`.** A local model that doesn't support tool calls refuses each
-  request, because the satellite offers it its tools. Choose a model that
-  supports them.
+  **Brain** › **Advanced**, then select **Save**. A line that ends in `error`
+  means the tool refused; the brain got the reason and usually says it. For
+  the weather, set **Place** under **Conversation**, or ask for a place by
+  name.
+- **The brain's check passes, but every request fails.** The check only lists
+  the models; a request also offers the brain the satellite's tools. A model
+  that doesn't take tools refuses each request: **Last failure** says `The
+  service refused the request (400). …` or `The service found nothing for this
+  request (404), …`, and the log line says what the service said, such as
+  OpenRouter's `No endpoints found that support tool use`. Choose a model that
+  supports tool calls. A reasoning model may need **Thinking** set instead.
 - **Replies are slow.** Each request ends with one line in the log, such as
   `request 12: speech-to-text 0.6 s (2.5 s of audio), brain 1.4 s to its first
-  words, first audio 0.4 s, 260 tokens in, 21 out, 62 characters spoken;
-  answered`. The log line `reply: first audio … after the end of speech`
-  gives the whole delay. The `pinna_standalone_stage_seconds`
+  words, text-to-speech 0.4 s for the first sentence, 260 tokens in, 21 out,
+  62 characters spoken; answered`. The `pinna_standalone_stage_seconds`
   [metric](/docs/metrics/) shows which part takes the time: speech-to-text,
   the brain's first text, or text-to-speech. A smaller or nearer model, or a
   faster speech service, helps. For an agent, the acknowledgment says it heard
@@ -239,7 +246,7 @@ A check or a request that fails gives one of these sentences:
 | `The key is wrong. Enter it again.` | Enter the key on the connection again. A key belongs to the address it was entered for: after you change the address, enter the key again too |
 | `No credit is left on this account.` | Add credit to your account with the service, or choose another connection |
 | `Nothing answered at this address. An OpenAI-compatible server's address usually ends in /v1.` | Add `/v1` to the end of your server's address |
-| `The clock isn't set yet. Connect the satellite to the network, then try again.` | The device sets its clock from a time server on the internet after it starts. Check that its network reaches the internet, wait a minute, and try again |
+| `The clock isn't set yet. Connect the satellite to the network, then try again.` | The satellite sets its clock from a time server on the internet after it starts. Check that its network reaches the internet, wait a minute, and try again |
 | `The secure connection failed. Check the address and the server's certificate.` | Pinna trusts only the certificate authorities in its image. For a server on your network with a certificate of its own, use an `http://` address for now |
 | `The service can't be reached. Check the address and that the server is running.` | Check the address, that the server runs, and that it listens on the network, not only on its own computer (for Ollama, `OLLAMA_HOST=0.0.0.0`) |
 | `The service didn't answer in time. Check the address and that the server is running.` | The server took more than 10 seconds for the check, or longer than the time limit for a request. Check that it runs and isn't busy |
@@ -247,13 +254,16 @@ A check or a request that fails gives one of these sentences:
 | `The address is wrong. Check the connection's address.` | The service answered that nothing is there. Check the address on the connection |
 | `The address is wrong. OpenClaw answers chat requests only after its chat endpoint is turned on; …` | Turn on OpenClaw's chat endpoint, and check the address and port |
 | `The service moved to another address. Enter its new address.` | The satellite doesn't follow a redirect, so a key never goes to another host. Enter the address the service gives now |
-| `The service refused the request (400). Check the model's name.` | The service didn't take a name it was sent. In a check, the sentence goes on with what the service said, such as which models it has. For a local brain, check that the model supports tool calls. For a reasoning model, see the next row |
+| `The service refused the request (400). Check the model's name.` | The service didn't take a name it was sent. In a check, the sentence goes on with what the service said, such as which models it has. For a brain, the sentence goes on: `A reasoning model may need Thinking set, such as None, …`. Check that the model supports tool calls; for a reasoning model, choose **Thinking** under **Services** › **Brain** › **Advanced** and select **Save**. OpenAI's `gpt-6-luna` uses tools only with **None** |
+| `The service found nothing for this request (404), though the check passed. …` | The brain's service took the model in its check but has nothing that answers this request, usually because the model doesn't take tool calls. The log says what the service said. Choose a model that supports tool calls |
 | `ElevenLabs has no voice with this ID. …` | Enter the voice's ID, not its name. ElevenLabs shows it in your voice library, next to each voice |
 | `The service answered …. Check the key, the address and the account.` | The service answered with a status that has no sentence of its own. The log line `the … check failed` or `standalone request failed` says what the service said |
 | `The service had an error (500). Try again later, or check the server's log.` | The service failed on its side. For your own server, its log says why |
-| `The service refused the request (400). …` | The brain refused the request. Check the model name. A reasoning model may need **Thinking** set, such as **None**, under **Services** › **Brain** › **Advanced**; OpenAI's `gpt-6-luna` uses tools only then |
 | `The brain didn't answer in time. …` | The brain took longer than its time limit. If the server runs, the model may be slow: raise **Time to answer** under **Services** › **Brain** › **Advanced** |
 | `The service didn't answer the way this check expects. Check the address and the model.` | The address points at something that isn't the service, or the model is wrong |
+| `The text-to-speech service sent no audio.` | The service answered the check without sound. Check the voice and the model |
+| `The service sent too much data to check. Check the address.` | The address points at something other than the service's API, which answered with far more than a model list |
+| `The check couldn't run. Try again.` | Something on the satellite went wrong during the check. Try again; if it stays, the log says more |
 
 For the setup, see [Use Pinna without Home Assistant](/docs/standalone/).
 

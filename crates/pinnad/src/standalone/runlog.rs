@@ -64,7 +64,7 @@ impl RunLog {
             parts.push(format!("brain {first:.1} s to its first words{rounds}"));
         }
         if let Some(s) = seen.tts {
-            parts.push(format!("first audio {s:.1} s"));
+            parts.push(format!("text-to-speech {s:.1} s for the first sentence"));
         }
         if seen.tokens != (0, 0) {
             parts.push(format!(
@@ -187,7 +187,8 @@ mod tests {
         assert_eq!(
             log.line(),
             "request 7: speech-to-text 0.6 s (2.5 s of audio), brain 1.4 s to its first words, \
-             2 rounds with words, first audio 0.4 s, 260 tokens in, 21 out, 62 characters spoken; \
+             2 rounds with words, text-to-speech 0.4 s for the first sentence, 260 tokens in, 21 out, \
+             62 characters spoken; \
              answered"
         );
     }

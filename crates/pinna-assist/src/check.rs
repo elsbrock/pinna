@@ -126,6 +126,7 @@ async fn chat_check(setup: &CheckSetup) -> Result<(), String> {
     if let Some(ids) = offered_models(&body)
         && !ids.iter().any(|id| names_model(id, model))
     {
+        tracing::info!("the brain check failed: {model} isn't in the service's model list");
         return Err(format!("The model {model} isn't offered by this service."));
     }
     Ok(())
@@ -155,6 +156,7 @@ async fn tts_check(setup: &CheckSetup) -> Result<(), String> {
             }
         }
     }
+    tracing::info!("the tts check failed: the service answered without audio");
     Err("The text-to-speech service sent no audio.".to_owned())
 }
 
@@ -229,6 +231,13 @@ pub fn request_failure(error: &ProviderError) -> String {
         (Slot::Chat, Reason::Timeout) => "The brain didn't answer in time. If the server is \
             running, the model may need more Time to answer, under Services, Brain, Advanced."
             .to_owned(),
+        // The check found the model, so a 404 now is the request itself:
+        // OpenRouter answers it when no provider of the model takes tools.
+        (Slot::Chat, Reason::Http(404)) if error.preset != PresetId::OpenClaw => {
+            "The service found nothing for this request (404), though the check passed. Check that \
+             the model supports tool calls; the log says what the service said."
+                .to_owned()
+        }
         // Some reasoning models take tools only at a set effort: gpt-6-luna
         // over Chat Completions only with `none`.
         (Slot::Chat, Reason::Http(400))
@@ -666,6 +675,10 @@ mod tests {
         assert!(request_failure(&openai).contains("Thinking"));
         let anthropic = ProviderError::new(Slot::Chat, PresetId::Anthropic, Reason::Http(400));
         assert_eq!(request_failure(&anthropic), refusal(&anthropic));
+        // A 404 after a passed check is the request, not the address.
+        let no_tools = ProviderError::new(Slot::Chat, PresetId::OpenRouter, Reason::Http(404));
+        assert!(request_failure(&no_tools).contains("supports tool calls"));
+        assert!(refusal(&no_tools).starts_with("The address is wrong"));
         // The check lists models and never sends the setting.
         assert!(!refusal(&openai).contains("Thinking"));
     }

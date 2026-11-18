@@ -58,7 +58,11 @@ Anyone who can use the dashboard can change your services and use them; see
 
 1. Open the dashboard, select **Assistant**, and then select **Services**.
 2. Under **Connections**, select **Add…** and choose the service.
-   - For a hosted service, enter its **API key**.
+   - For a hosted service, enter its **API key**. You make the key in your
+     account with the service, for ElevenLabs under its API keys. One
+     ElevenLabs connection serves both speech-to-text and text-to-speech. A
+     key with limited permissions needs speech-to-text and text-to-speech, and
+     reading voices and models for the lists below.
    - For Ollama, LM Studio or Hermes, enter the computer it runs on, such as
      `192.168.1.20`. Pinna adds the port and the path.
    - For OpenClaw, enter the computer and the port its gateway listens on,
@@ -72,11 +76,11 @@ Anyone who can use the dashboard can change your services and use them; see
    it with the arrow at its end or the arrow keys, and typing narrows the list.
    You can also type a name it doesn't list. For example:
 
-   | Part | OpenAI | ElevenLabs |
-   | --- | --- | --- |
-   | Speech-to-text | A transcription model, such as `whisper-1` or `gpt-4o-mini-transcribe` | A Scribe model, such as `scribe_v2` |
-   | Brain | A chat model, such as `gpt-4.1-mini` | (no brain) |
-   | Text-to-speech | A voice, such as `alloy` or `nova` | A voice from your library: the list shows the names and enters the ID |
+   | Part | OpenAI | ElevenLabs | OpenRouter |
+   | --- | --- | --- | --- |
+   | Speech-to-text | A transcription model, such as `whisper-1` or `gpt-4o-mini-transcribe` | A Scribe model, such as `scribe_v2`. ElevenLabs doesn't list them | (none) |
+   | Brain | A chat model, such as `gpt-4.1-mini` | (none) | A model with its provider, such as `deepseek/deepseek-v4.1-flash` |
+   | Text-to-speech | A voice, such as `alloy` or `nova`; the model is `tts-1` unless you choose another | A voice from your own voice library: the list shows the names and enters the ID. The model is `eleven_multilingual_v2` unless you choose another, such as `eleven_flash_v2_5` | (none) |
 
    The check makes the cheapest call that proves the service works: it lists
    the models, transcribes half a second of silence, or synthesises one word.
@@ -88,8 +92,8 @@ Anyone who can use the dashboard can change your services and use them; see
 
 Some reasoning models refuse requests with tools until you choose how long
 they think. OpenAI's `gpt-6-luna`, for example, uses tools only with thinking
-off. Under **Brain**, select **Advanced**, and under **Thinking** choose
-**None**. **None** also answers fastest. **Thinking** is there for OpenAI and
+off. Under **Brain**, select **Advanced**, under **Thinking** choose
+**None**, and select **Save**. **None** also answers fastest. **Thinking** is there for OpenAI and
 the other services that speak OpenAI's API; **Service default** sends nothing.
 
 A key goes to the satellite and never comes back: the page shows only that it
@@ -113,6 +117,10 @@ entered for. If you change a connection's address, enter the key again.
 
 ## Switch to standalone mode
 
+Before you switch, set the language and the place under **Conversation**
+([below](#set-up-the-conversation)): the weather needs a place unless you name
+one when you ask.
+
 1. Select **Assistant**.
 2. Under **Mode**, select **Standalone**. The button works once all three
    services have passed their check.
@@ -122,7 +130,8 @@ The satellite ends any request it is working on, stops a ringing alarm,
 cancels the timers that run and forgets the conversation. In standalone mode
 the dashboard chooses the wake words, under **Voice & sound**.
 
-To go back, select **Home Assistant** under **Mode**.
+To go back, select **Home Assistant** under **Mode**, then **Switch**. If Home
+Assistant isn't connected, nothing answers requests until it connects.
 
 If Home Assistant is connected, you can also switch there: the satellite's
 **Assistant** select has the same two choices. It stays in both modes, and
@@ -228,8 +237,9 @@ The satellite plays the error sound and the ring flashes red. **Assistant**
 shows the last failure, with what failed, the service and the time, until a
 request is answered again. **System** › **Logs** has a line for each failure,
 with what the service said, a line for each tool the brain called, and one
-line for each request with how long each part took and how it ended. The log
-never contains what was said, and it masks keys.
+line for each request with how long each part took and how it ended; select
+**All** there to see the last two. The log never contains what was said, and
+it masks keys.
 See [Standalone mode doesn't answer](/docs/troubleshooting/#standalone-mode-doesnt-answer)
 for what the messages mean.
 
