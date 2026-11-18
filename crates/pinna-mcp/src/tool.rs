@@ -59,17 +59,23 @@ pub trait ToolSet: Send + Sync {
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput>;
 }
 
+/// The name a model sees for a server's tool: `<server>_<tool>`, within the
+/// alphabet every provider accepts for tool names (`[A-Za-z0-9_-]`, at most
+/// 64 bytes). The server part is lowercase with its hyphens turned into
+/// underscores, so the `<server>_` prefix reads one way and names the server.
+/// `None` when the tool's name can't be offered.
 pub fn namespaced(server: &str, tool: &str) -> Option<String> {
-    let valid = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_';
+    let server_byte =
+        |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-';
+    let tool_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
     if server.is_empty()
         || tool.is_empty()
         || server.len().saturating_add(tool.len()) >= 64
-        || !server.bytes().all(|b| valid(b) || b == b'-')
-        || !tool.bytes().all(valid)
+        || !server.bytes().all(server_byte)
+        || !tool.bytes().all(tool_byte)
     {
         return None;
     }
-    // Server names in the configuration can contain hyphens; model tool names cannot.
     Some(format!("{}_{}", server.replace('-', "_"), tool))
 }
 
@@ -125,6 +131,15 @@ mod tests {
         assert_eq!(
             namespaced("home-2", "set_timer").as_deref(),
             Some("home_2_set_timer")
+        );
+        // Names as real servers spell them: Home Assistant's intents, Context7.
+        assert_eq!(
+            namespaced("home", "HassTurnOn").as_deref(),
+            Some("home_HassTurnOn")
+        );
+        assert_eq!(
+            namespaced("ctx", "resolve-library-id").as_deref(),
+            Some("ctx_resolve-library-id")
         );
         assert_eq!(namespaced("a", &"x".repeat(62)).unwrap().len(), 64);
         assert!(namespaced("a", &"x".repeat(63)).is_none());
