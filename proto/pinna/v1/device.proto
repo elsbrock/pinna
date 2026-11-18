@@ -825,8 +825,9 @@ message GetUpdatesResponse {
   // The release the last successful check found. Unset before one, while
   // Updates is off, and while the channel has no release.
   Release release = 10;
-  // An install started from Home Assistant has finished: pinnad restarts the
-  // satellite once it is Idle with no timer set and nothing playing.
+  // An install started from Home Assistant, or by asking the satellite, has
+  // finished: pinnad restarts the satellite once it is Idle with no timer set
+  // and nothing playing.
   bool restart_pending = 11;
   // A `just push` overlay is active (/var/lib/extensions/pinna-dev):
   // installs are refused until it is removed.

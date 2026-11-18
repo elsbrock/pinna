@@ -6,7 +6,7 @@
 
   import { Mode } from "../../gen/pinna/v1/device_pb.ts";
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { failureText, isStandalone, slotLines } from "../../lib/assistant.ts";
+  import { failureText, isStandalone, slotLines, toolsOff } from "../../lib/assistant.ts";
   import Confirm from "../../lib/Confirm.svelte";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
@@ -19,9 +19,7 @@
   const ready = $derived(!!s?.assistant?.ready);
   const lines = $derived(slotLines(s?.assistant, assistant.view));
   const brain = $derived(lines.find((l) => l.key === "brain"));
-  const offTools = $derived(
-    (assistant.view?.deviceTools ?? []).filter((t) => assistant.view?.tools[t.name] === false).length,
-  );
+  const offTools = $derived(toolsOff(assistant.view));
 
   onMount(() => void assistant.load());
 

@@ -1383,7 +1383,7 @@ impl Brain {
         }
     }
 
-    /// After an update from Home Assistant: restart once nothing would be
+    /// After an update from Home Assistant or a tool: restart once nothing would be
     /// cut off, no timer runs and nothing plays (ADR 0022).
     async fn restart_for_update(&mut self) {
         let Some(u) = self.opts.updates.clone() else {

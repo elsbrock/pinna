@@ -196,6 +196,7 @@ fn render(v: AssistantView) -> Assistant {
                 description: t.description.into(),
                 brain: t.brain,
                 mcp: t.mcp,
+                off_by_default: t.off_by_default,
                 ..Default::default()
             })
             .collect(),
@@ -1131,6 +1132,9 @@ mod tests {
         assert_eq!(names, catalogue);
         let weather = a.device_tools.iter().find(|t| t.name == "weather").unwrap();
         assert!(weather.brain && !weather.mcp && !weather.description.is_empty());
+        assert!(!weather.off_by_default);
+        let install = a.device_tools.iter().find(|t| t.name == "install_update");
+        assert!(install.is_some_and(|t| t.brain && !t.mcp && t.off_by_default));
 
         let override_ = BrainOverride {
             delegation: EnumValue::Known(pinna_api::Delegation::DELEGATION_HAND_OFF),

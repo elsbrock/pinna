@@ -7,8 +7,8 @@ use connectrpc::ConnectError;
 use pinna_api::{GetUpdatesResponse, InstallStage, ReleaseAction};
 use serde_json::{Map, Value, json};
 
-use super::DeviceTools;
-use crate::updates::{Source, Updater};
+use super::{Args, DeviceTools};
+use crate::updates::{Origin, Source, Updater};
 
 /// How long `check_for_updates` waits. A check is given up after three
 /// minutes, a tool call after 10 s (`pinna_assist::limits`): at 8 s the tool
@@ -58,6 +58,37 @@ async fn check_within(updater: &std::sync::Arc<Updater>, wait: Duration) -> Resu
                 .into(),
         ),
     }
+}
+
+/// `install_update`: installs the release the last check found.
+pub(super) async fn install(tools: &DeviceTools, args: &Args) -> Result<String, String> {
+    let updater = updater(tools)?;
+    let version = args.need_text("version")?.trim();
+    // Only to word the answer; Install decides.
+    let action = updater
+        .get_updates()
+        .await
+        .release
+        .as_option()
+        .filter(|r| r.version == version)
+        .and_then(|r| r.action.as_known());
+    updater
+        .install_release(version, false, Origin::Brain)
+        .await
+        .map_err(sentence)?;
+    Ok(match action {
+        Some(ReleaseAction::RELEASE_ACTION_START) => format!(
+            "{version} is already in the other slot. The satellite restarts into it once it is idle."
+        ),
+        Some(ReleaseAction::RELEASE_ACTION_RESTART) => {
+            format!(
+                "{version} is already installed. The satellite restarts into it once it is idle."
+            )
+        }
+        _ => format!(
+            "Installing {version}. It downloads in the background, and the satellite restarts once it is idle."
+        ),
+    })
 }
 
 async fn state(updater: &Updater, now_ms: u64) -> Value {

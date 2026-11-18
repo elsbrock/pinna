@@ -136,6 +136,9 @@ struct Param {
 struct Tool {
     name: &'static str,
     reach: Reach,
+    /// The tool is off until the owner turns it on; every other tool is on
+    /// until the owner turns it off.
+    off_by_default: bool,
     about: &'static str,
     params: &'static [Param],
     op: Op,
@@ -177,6 +180,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "set_volume",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Set the speaker volume.",
         params: &[Param {
             name: "percent",
@@ -189,6 +193,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "change_volume",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Make the speaker louder or quieter.",
         params: &[Param {
             name: "by",
@@ -204,6 +209,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "set_reply_volume",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Set how loud spoken replies play. A reply is never louder than the speaker volume.",
         params: &[Param {
             name: "percent",
@@ -216,6 +222,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "ring_light",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Switch the LED ring light on or off, or change its brightness, colour or effect.",
         params: &[
             Param {
@@ -248,6 +255,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "play_url",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Play audio from an http or https address, such as an internet radio stream.",
         params: &[Param {
             name: "url",
@@ -260,6 +268,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "pause_media",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Pause the music or radio.",
         params: &[],
         op: Op::PauseMedia,
@@ -267,6 +276,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "resume_media",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Resume paused music or radio.",
         params: &[],
         op: Op::ResumeMedia,
@@ -274,6 +284,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "stop_media",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Stop the music or radio.",
         params: &[],
         op: Op::StopMedia,
@@ -281,6 +292,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "play_station",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Play one of the owner's radio stations, found by its name.",
         params: &[Param {
             name: "name",
@@ -293,6 +305,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "list_stations",
         reach: Reach::Both,
+        off_by_default: false,
         about: "List the names of the owner's radio stations.",
         params: &[],
         op: Op::ListStations,
@@ -300,6 +313,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "search_radio",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Search the radio-browser.info directory for internet radio stations this satellite can play. Each result has the address that plays it.",
         params: &[Param {
             name: "name",
@@ -312,6 +326,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "clear_notification",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Clear the notification the light ring shows.",
         params: &[],
         op: Op::ClearNotification,
@@ -319,6 +334,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "mute_microphone",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Mute the microphone. Only a person can unmute it.",
         params: &[],
         op: Op::MuteMicrophone,
@@ -326,6 +342,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "switch_assistant",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Switch the satellite between Home Assistant and standalone mode. It switches once the satellite is idle, so the reply that confirms it still plays. Standalone is refused until speech-to-text, the brain and text-to-speech are set up.",
         params: &[Param {
             name: "mode",
@@ -338,6 +355,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "updates",
         reach: Reach::Both,
+        off_by_default: false,
         about: "The software version the satellite runs and the update state: the other slot, the update channel, what the last check found or why it failed, and the install that runs or the last one.",
         params: &[],
         op: Op::Updates,
@@ -345,13 +363,29 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "check_for_updates",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Check now for a new software release. Answers with what the check found, or says the check goes on when it takes longer than a few seconds. Refused while updates are off.",
         params: &[],
         op: Op::CheckForUpdates,
     },
     Tool {
+        name: "install_update",
+        reach: Reach::RunOnly,
+        // It ends in a restart, and a model can call a tool nobody asked for.
+        off_by_default: true,
+        about: "Install the software release the last check found. Use it only when the person asks to install the update. It downloads in the background and the satellite restarts once it is idle. It never installs an older version.",
+        params: &[Param {
+            name: "version",
+            kind: Kind::Text,
+            required: true,
+            about: "The release's version, as the updates tool shows it.",
+        }],
+        op: Op::InstallUpdate,
+    },
+    Tool {
         name: "set_timer",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Start a timer that rings on this satellite.",
         params: &[
             Param {
@@ -375,6 +409,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "list_timers",
         reach: Reach::Both,
+        off_by_default: false,
         about: "List the timers with the seconds each has left.",
         params: &[],
         op: Op::ListTimers,
@@ -382,6 +417,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "cancel_timer",
         reach: Reach::Both,
+        off_by_default: false,
         about: "Cancel a timer.",
         params: &[Param {
             name: "timer",
@@ -394,6 +430,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "time",
         reach: Reach::Both,
+        off_by_default: false,
         about: "The current local date and time where the satellite is.",
         params: &[],
         op: Op::Time,
@@ -401,6 +438,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: weather::NAME,
         reach: Reach::RunOnly,
+        off_by_default: false,
         about: "The weather now and for the next two days, at a place the person names, or else at the satellite's place.",
         params: &[Param {
             name: "place",
@@ -413,6 +451,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "speak",
         reach: Reach::McpOnly,
+        off_by_default: false,
         about: "Say a short text aloud with the satellite's voice. Refused while it handles a request, an alarm rings or it plays something else.",
         params: &[Param {
             name: "text",
@@ -425,6 +464,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "cancel_request",
         reach: Reach::McpOnly,
+        off_by_default: false,
         about: "Stop the request the satellite is handling, or silence a ringing alarm.",
         params: &[],
         op: Op::CancelRequest,
@@ -432,6 +472,7 @@ static TOOLS: &[Tool] = &[
     Tool {
         name: "status",
         reach: Reach::McpOnly,
+        off_by_default: false,
         about: "The satellite's mode, phase, volume, microphone, media, timers and alarm.",
         params: &[],
         op: Op::Status,
@@ -453,6 +494,8 @@ pub struct ToolInfo {
     pub brain: bool,
     /// `/mcp` offers it.
     pub mcp: bool,
+    /// Off until the owner turns it on.
+    pub off_by_default: bool,
 }
 
 /// Every device tool, in registry order.
@@ -462,6 +505,7 @@ pub fn catalogue() -> impl Iterator<Item = ToolInfo> {
         description: t.about,
         brain: t.reach.offers(Surface::Run),
         mcp: t.reach.offers(Surface::Mcp),
+        off_by_default: t.off_by_default,
     })
 }
 
@@ -600,9 +644,14 @@ impl DeviceTools {
         }
     }
 
-    /// The owner's switch for a tool; a tool without one is on.
+    /// The owner's switch for a tool; a tool without one is on, unless it
+    /// is off by default. An owner's MCP tool is not in the table: on.
     fn switched_on(&self, name: &str) -> bool {
-        self.live.switches.get(name).copied().unwrap_or(true)
+        self.live
+            .switches
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| !TOOLS.iter().any(|t| t.name == name && t.off_by_default))
     }
 
     /// Sends a command to the Brain and waits for its answer. A run's
@@ -768,6 +817,15 @@ impl DeviceTools {
             return (server.tools.call(name, args).await, Some(&server.name));
         };
         if !self.switched_on(name) {
+            // Never turned on: the owner didn't switch it off.
+            if tool.off_by_default && !self.live.switches.contains_key(name) {
+                return (
+                    ToolOutput::error(format!(
+                        "{name} is off until the owner turns it on under Assistant, Tools."
+                    )),
+                    None,
+                );
+            }
             return (switched_off(), None);
         }
         let result = match Args::parse(tool, args) {
@@ -1113,7 +1171,11 @@ mod tests {
 
         assert_eq!(listed.len(), TOOLS.len());
         for tool in &listed {
-            assert_eq!(tool.brain, run_names.iter().any(|n| n == tool.name));
+            // A tool that starts off is not in a list until it is turned on.
+            assert_eq!(
+                tool.brain,
+                run_names.iter().any(|n| n == tool.name) || tool.off_by_default
+            );
             assert_eq!(tool.mcp, mcp_names.iter().any(|n| n == tool.name));
             assert!(tool.brain || tool.mcp, "{}", tool.name);
             assert!(!tool.description.is_empty(), "{}", tool.name);
@@ -1409,7 +1471,8 @@ mod tests {
     async fn every_spec_is_a_closed_object_schema() {
         let (tools, _rx) = bare(Surface::Mcp, Caller::Mcp);
         let mut specs = tools.specs().await;
-        let (run, _rx) = bare(Surface::Run, Caller::Run(RunId(1)));
+        // The tool that starts off, turned on.
+        let run = with_updater(Surface::Run, None, &[("install_update", true)]);
         specs.extend(run.specs().await);
         let mut seen = HashSet::new();
         for spec in &specs {
@@ -1704,7 +1767,11 @@ mod tests {
     }
 
     /// Tools over a bare channel with an updater, as `main` builds them.
-    fn with_updater(surface: Surface, updater: Option<Arc<Updater>>) -> DeviceTools {
+    fn with_updater(
+        surface: Surface,
+        updater: Option<Arc<Updater>>,
+        switches: &[(&str, bool)],
+    ) -> DeviceTools {
         let (inputs, _rx) = mpsc::channel(64);
         let mut kit = ToolKit::new(crate::metrics::Counters::default());
         if let Some(updater) = updater {
@@ -1714,7 +1781,7 @@ mod tests {
             &kit,
             inputs,
             watch::channel(Snapshot::default()).1,
-            live(&[]),
+            live(switches),
             surface,
             match surface {
                 Surface::Run => Caller::Run(RunId(1)),
@@ -1730,7 +1797,7 @@ mod tests {
             assert!(info.brain && info.mcp, "{tool}");
             for surface in [Surface::Run, Surface::Mcp] {
                 assert!(
-                    names(&with_updater(surface, None))
+                    names(&with_updater(surface, None, &[]))
                         .await
                         .contains(&tool.to_owned())
                 );
@@ -1740,7 +1807,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_update_tools_say_when_there_is_no_updater() {
-        let tools = with_updater(Surface::Mcp, None);
+        let tools = with_updater(Surface::Mcp, None, &[]);
         for tool in ["updates", "check_for_updates"] {
             let out = tools.call(tool, json!({})).await;
             assert!(out.is_error, "{tool}");
@@ -1752,7 +1819,7 @@ mod tests {
     async fn checking_is_refused_with_the_updaters_sentence_while_updates_are_off() {
         let dir = tempfile::tempdir().unwrap();
         let updater = update::rigged_updater(dir.path(), "2.0.0", UpdateChannel::Off);
-        let tools = with_updater(Surface::Run, Some(updater));
+        let tools = with_updater(Surface::Run, Some(updater), &[]);
 
         let out = tools.call("check_for_updates", json!({})).await;
 
@@ -1769,7 +1836,7 @@ mod tests {
     async fn a_check_through_the_tool_answers_with_the_release() {
         let dir = tempfile::tempdir().unwrap();
         let updater = update::rigged_updater(dir.path(), "2.0.0", UpdateChannel::Stable);
-        let tools = with_updater(Surface::Mcp, Some(updater));
+        let tools = with_updater(Surface::Mcp, Some(updater), &[]);
 
         let out = tools.call("check_for_updates", json!({})).await;
 
@@ -1783,6 +1850,132 @@ mod tests {
         assert_eq!(shown["slot"], "a");
         assert!(shown.get("unavailable").is_none(), "{shown}");
         assert!(!out.text.contains("://"), "{}", out.text);
+    }
+
+    #[tokio::test]
+    async fn install_update_refuses_what_install_refuses() {
+        let dir = tempfile::tempdir().unwrap();
+        let updater = update::rigged_updater(dir.path(), "0.9.0", UpdateChannel::Stable);
+        let tools = with_updater(
+            Surface::Run,
+            Some(updater.clone()),
+            &[("install_update", true)],
+        );
+
+        // Before any check there is nothing to install.
+        assert_eq!(
+            tools
+                .call("install_update", json!({"version": "0.9.0"}))
+                .await,
+            ToolOutput::error("No release to install: check for updates first.")
+        );
+
+        // Never an older version: going back stays on the dashboard.
+        assert!(!tools.call("check_for_updates", json!({})).await.is_error);
+        assert_eq!(
+            tools
+                .call("install_update", json!({"version": "0.9.0"}))
+                .await,
+            ToolOutput::error("0.9.0 is older than the running 1.0.0. Confirm going back first.")
+        );
+        let after = updater.get_updates().await;
+        assert!(after.last_install.as_option().is_none() && !after.installing);
+        assert!(!updater.restart_pending());
+    }
+
+    #[tokio::test]
+    async fn only_install_update_starts_off_and_only_the_brain_gets_it() {
+        for info in catalogue() {
+            assert_eq!(
+                info.off_by_default,
+                info.name == "install_update",
+                "{}",
+                info.name
+            );
+        }
+        let info = catalogue().find(|t| t.name == "install_update").unwrap();
+        assert!(info.brain && !info.mcp);
+    }
+
+    #[tokio::test]
+    async fn install_update_is_refused_until_the_owner_turns_it_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let updater = update::rigged_updater(dir.path(), "2.0.0", UpdateChannel::Stable);
+        let run = with_updater(Surface::Run, Some(updater.clone()), &[]);
+        assert!(!names(&run).await.contains(&"install_update".to_owned()));
+        assert!(names(&run).await.contains(&"updates".to_owned()));
+
+        let out = run
+            .call("install_update", json!({"version": "2.0.0"}))
+            .await;
+
+        assert_eq!(
+            out,
+            ToolOutput::error(
+                "install_update is off until the owner turns it on under Assistant, Tools."
+            )
+        );
+        // Turned on and off again: the owner switched it off.
+        let off = with_updater(Surface::Run, Some(updater), &[("install_update", false)]);
+        assert_eq!(
+            off.call("install_update", json!({"version": "2.0.0"}))
+                .await,
+            ToolOutput::error("The owner switched install_update off under Assistant.")
+        );
+    }
+
+    #[tokio::test]
+    async fn install_update_is_never_offered_over_mcp() {
+        let dir = tempfile::tempdir().unwrap();
+        let updater = update::rigged_updater(dir.path(), "2.0.0", UpdateChannel::Stable);
+        let on = [("install_update", true)];
+        let run = with_updater(Surface::Run, Some(updater.clone()), &on);
+        let mcp = with_updater(Surface::Mcp, Some(updater), &on);
+
+        assert!(names(&run).await.contains(&"install_update".to_owned()));
+        assert!(!names(&mcp).await.contains(&"install_update".to_owned()));
+        assert_eq!(
+            mcp.call("install_update", json!({"version": "2.0.0"}))
+                .await,
+            ToolOutput::error("Unknown tool install_update.")
+        );
+    }
+
+    #[tokio::test]
+    async fn install_update_installs_the_found_release_and_restarts_once_idle() {
+        let dir = tempfile::tempdir().unwrap();
+        let updater = update::rigged_updater(dir.path(), "2.0.0", UpdateChannel::Stable);
+        let tools = with_updater(
+            Surface::Run,
+            Some(updater.clone()),
+            &[("install_update", true)],
+        );
+        assert!(!tools.call("check_for_updates", json!({})).await.is_error);
+
+        // Not the version the check found.
+        let out = tools
+            .call("install_update", json!({"version": "2.0.1"}))
+            .await;
+        assert!(
+            out.is_error && out.text.contains("found 2.0.0"),
+            "{}",
+            out.text
+        );
+        assert!(!updater.restart_pending());
+
+        let out = tools
+            .call("install_update", json!({"version": " 2.0.0 "}))
+            .await;
+
+        assert!(!out.is_error, "{}", out.text);
+        assert!(out.text.starts_with("Installing 2.0.0."), "{}", out.text);
+        for _ in 0..100 {
+            if updater.restart_pending() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        panic!("the install did not leave a restart pending");
     }
 
     #[tokio::test]

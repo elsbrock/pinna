@@ -5,7 +5,7 @@
   import { onMount } from "svelte";
 
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { delegation, isStandalone, mcpAddress, mcpStatus, toolLabel, toolReach } from "../../lib/assistant.ts";
+  import { delegation, isStandalone, mcpAddress, mcpStatus, toolLabel, toolOn, toolReach } from "../../lib/assistant.ts";
   import Confirm from "../../lib/Confirm.svelte";
   import { copyText } from "../../lib/copy.ts";
   import { device } from "../../lib/device.svelte.ts";
@@ -25,7 +25,7 @@
   onMount(() => void assistant.load());
   $effect(() => network.watch());
 
-  // A tool without a switch is on.
+  // An owner's MCP tool without a switch is on; Pinna's own, see toolOn.
   const isOn = (name: string) => view?.tools[name] ?? true;
   function setTool(name: string, on: boolean) {
     return assistant.update({ tools: { on: { ...view?.tools, [name]: on } } }, on ? "Tool on" : "Tool off");
@@ -89,7 +89,7 @@
       <SwitchRow
         id="tool-{t.name}"
         label={toolLabel(t.name)}
-        checked={isOn(t.name)}
+        checked={toolOn(view.tools, t)}
         disabled={!live}
         busy={assistant.busy}
         hint={[t.description, toolReach(t)].filter(Boolean).join(" ")}

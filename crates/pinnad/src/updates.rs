@@ -104,12 +104,23 @@ impl Source {
     }
 }
 
-/// Who started an install: one from Home Assistant restarts the satellite
-/// once it is quiet, since Home Assistant has no restart button (ADR 0022).
+/// Who started an install: one from Home Assistant, or one the satellite was
+/// asked for, restarts the satellite once it is quiet, since nobody is at a
+/// restart button (ADR 0022, ADR 0017).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
     Dashboard,
     HomeAssistant,
+    /// A tool the brain called (ADR 0017).
+    Brain,
+}
+
+impl Origin {
+    /// The satellite restarts itself after the install, the next time it is
+    /// Idle with no timer set and nothing playing.
+    fn restarts_when_idle(self) -> bool {
+        matches!(self, Origin::HomeAssistant | Origin::Brain)
+    }
 }
 
 /// Whether the system clock is set; TLS and the daily schedule need it.
@@ -156,7 +167,7 @@ pub struct UpdaterPaths {
     pub overlay: PathBuf,
     /// The minute of the day the daily check runs, picked once.
     pub check_minute: PathBuf,
-    /// An install from Home Assistant waits for a restart (in /run, so a
+    /// An install from Home Assistant or a tool waits for a restart (in /run, so a
     /// restart of pinnad keeps it and a restart of the satellite ends it).
     pub restart_mark: PathBuf,
     pub clock: Clock,
@@ -420,7 +431,7 @@ impl Updater {
                 }
             }
             let ok = child.wait().await.is_ok_and(|s| s.success());
-            if ok && origin == Origin::HomeAssistant {
+            if ok && origin.restarts_when_idle() {
                 mark_restart(&restart_mark);
             }
             let mut state = lock(&shared);
@@ -732,14 +743,14 @@ impl Updater {
                     .ok_or_else(|| ConnectError::internal("no other slot"))?;
                 tracing::info!("updates: {version} is in slot {other} already; it boots next");
                 self.set_active_inner(other, false).await?;
-                if origin == Origin::HomeAssistant {
+                if origin.restarts_when_idle() {
                     mark_restart(&self.paths.restart_mark);
                 }
                 bump(&self.changed);
                 return Ok(());
             }
             Some(ReleaseAction::RELEASE_ACTION_RESTART) => {
-                if origin == Origin::HomeAssistant {
+                if origin.restarts_when_idle() {
                     mark_restart(&self.paths.restart_mark);
                     bump(&self.changed);
                 }
@@ -759,7 +770,7 @@ impl Updater {
         self.spawn_install(args, &found.url, origin)
     }
 
-    /// An install from Home Assistant waits for the satellite to be quiet.
+    /// An install from Home Assistant or a tool waits for the satellite to be quiet.
     pub fn restart_pending(&self) -> bool {
         self.paths.restart_mark.exists()
     }

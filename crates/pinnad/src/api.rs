@@ -3120,6 +3120,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_install_a_tool_asked_for_restarts_once_quiet() {
+        let rig = release_rig("brain-install", "2.0.0");
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.check().await.unwrap();
+        updater
+            .install_release("2.0.0", false, Origin::Brain)
+            .await
+            .unwrap();
+        let (c, _) = start_device_with(updater.clone()).await;
+        let u = wait_until_idle(&c).await;
+        assert!(u.last_install.as_option().unwrap().ok);
+        assert!(u.restart_pending && updater.restart_pending());
+    }
+
+    #[tokio::test]
+    async fn a_release_in_the_other_slot_restarts_once_quiet_for_a_tool_but_not_the_dashboard() {
+        for (origin, marked) in [(Origin::Brain, true), (Origin::Dashboard, false)] {
+            // Held back in slot b, booting at the next restart; or already next.
+            for (state, action) in [
+                (
+                    st(Slot::A, (0, true), (3, false)),
+                    pinna_api::ReleaseAction::RELEASE_ACTION_START,
+                ),
+                (
+                    st(Slot::B, (0, true), (3, false)),
+                    pinna_api::ReleaseAction::RELEASE_ACTION_RESTART,
+                ),
+            ] {
+                let rig = release_rig("brain-held", "2.0.0");
+                rig.slots("a", state, "2.0.0", &slot_key());
+                let updater = Arc::new(rig.updater());
+                updater.init_source(Source::Channel(UpdateChannel::Stable));
+                updater.check().await.unwrap();
+                let shown = updater.get_updates().await;
+                assert_eq!(
+                    shown.release.as_option().unwrap().action.as_known(),
+                    Some(action)
+                );
+                updater
+                    .install_release("2.0.0", false, origin)
+                    .await
+                    .unwrap();
+                assert_eq!(updater.restart_pending(), marked, "{origin:?} {action:?}");
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn checks_say_why_they_dont_run() {
         let rig = Rig::new("checks-off", "exit 1");
         let updater = Arc::new(rig.updater());

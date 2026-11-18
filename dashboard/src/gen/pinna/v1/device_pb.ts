@@ -2218,8 +2218,9 @@ export type GetUpdatesResponse = Message<"pinna.v1.GetUpdatesResponse"> & {
   release?: Release | undefined;
 
   /**
-   * An install started from Home Assistant has finished: pinnad restarts the
-   * satellite once it is Idle with no timer set and nothing playing.
+   * An install started from Home Assistant, or by asking the satellite, has
+   * finished: pinnad restarts the satellite once it is Idle with no timer set
+   * and nothing playing.
    *
    * @generated from field: bool restart_pending = 11;
    */

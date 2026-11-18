@@ -37,7 +37,8 @@ pub struct AssistConfig {
     /// Open a follow-up window after every reply.
     pub follow_ups: bool,
     pub ack: Ack,
-    /// Per-tool switches; an absent name means on.
+    /// Per-tool switches; an absent name means on, except for a device tool
+    /// that starts off (pinnad's `install_update`, ADR 0017).
     pub tools: BTreeMap<String, bool>,
     pub stations: Vec<Station>,
     pub mcp_servers: Vec<McpServer>,

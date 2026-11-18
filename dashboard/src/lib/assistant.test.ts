@@ -28,7 +28,9 @@ import {
   slotName,
   slotWords,
   toolLabel,
+  toolOn,
   toolReach,
+  toolsOff,
   usedBy,
 } from "./assistant.ts";
 
@@ -250,6 +252,21 @@ test("tools by name and reach", () => {
   assert.equal(toolReach({ brain: true, mcp: true }), "");
   assert.equal(toolReach({ brain: true, mcp: false }), "For the brain only.");
   assert.equal(toolReach({ brain: false, mcp: true }), "For MCP clients only.");
+});
+
+test("a tool is on unless it starts off, and the owner's switch decides", () => {
+  const timer = { name: "set_timer", offByDefault: false };
+  const install = { name: "install_update", offByDefault: true };
+  assert.equal(toolOn({}, timer), true);
+  assert.equal(toolOn({}, install), false);
+  assert.equal(toolOn({ install_update: true }, install), true);
+  assert.equal(toolOn({ set_timer: false }, timer), false);
+  // The Assistant page counts a tool that starts off and was never switched.
+  const deviceTools = [timer, install];
+  assert.equal(toolsOff({ deviceTools, tools: {} }), 1);
+  assert.equal(toolsOff({ deviceTools, tools: { install_update: true } }), 0);
+  assert.equal(toolsOff({ deviceTools, tools: { set_timer: false } }), 2);
+  assert.equal(toolsOff(null), 0);
 });
 
 test("the MCP address is this page's, except over USB", () => {

@@ -137,7 +137,7 @@ message Assistant {
   bool follow_ups = 10;
   Acknowledgment ack = 11;
   // Per-tool switches, for the brain and MCP clients alike; a tool without
-  // an entry is on.
+  // an entry is on, unless its DeviceTool.off_by_default is set.
   map<string, bool> tools = 12;
   repeated Station stations = 13;
   repeated McpServer mcp_servers = 14;
@@ -292,6 +292,9 @@ message DeviceTool {
   bool brain = 3;
   // Pinna's MCP server offers it.
   bool mcp = 4;
+  // It is off until the owner turns it on: a tool without an entry in
+  // Assistant.tools is on only when this is false.
+  bool off_by_default = 5;
 }
 
 message GetAssistantRequest {}

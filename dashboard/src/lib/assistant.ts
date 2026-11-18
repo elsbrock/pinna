@@ -273,6 +273,22 @@ export function toolReach(t: Pick<DeviceTool, "brain" | "mcp">): string {
   return t.brain ? "For the brain only." : "For MCP clients only.";
 }
 
+/**
+ * Whether a device tool is on: the owner's switch, else its default (ADR
+ * 0017: a tool that ends in a restart starts off).
+ */
+export function toolOn(tools: Record<string, boolean>, t: Pick<DeviceTool, "name" | "offByDefault">): boolean {
+  return tools[t.name] ?? !t.offByDefault;
+}
+
+/** How many of Pinna's own tools are off, by the same rule as their switches. */
+export function toolsOff(
+  view: { deviceTools: Pick<DeviceTool, "name" | "offByDefault">[]; tools: Record<string, boolean> } | null | undefined,
+): number {
+  if (!view) return 0;
+  return view.deviceTools.filter((t) => !toolOn(view.tools, t)).length;
+}
+
 /** The satellite's USB address (ADR 0009): not one other computers reach. */
 const USB_HOST = "10.42.0.1";
 
