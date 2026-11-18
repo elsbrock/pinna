@@ -1065,10 +1065,16 @@ async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<String> {
                 "Only addresses that start with http:// or https:// play.".into(),
             ));
         }
-        let bytes = tokio::fs::read(path)
+        use tokio::io::AsyncReadExt;
+        let mut bytes = Vec::new();
+        tokio::fs::File::open(path)
             .await
-            .map_err(|e| Error::Other(format!("open {path}: {e}")))?;
-        Ok(String::from_utf8_lossy(&bytes[..bytes.len().min(PLAYLIST_MAX)]).into_owned())
+            .map_err(|e| Error::Other(format!("open {path}: {e}")))?
+            .take(PLAYLIST_MAX as u64)
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|e| Error::Other(format!("read {path}: {e}")))?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 }
 
@@ -1093,18 +1099,12 @@ async fn read_playlist_body(mut resp: reqwest::Response) -> Result<String> {
 
 /// Resolve a playlist URL to the address it names. One level only: an entry
 /// that is itself a playlist is returned as an address and opened as audio.
-/// A playlist that names no http(s) entry is opened as it is, which then
-/// fails as "not audio".
 async fn resolve_playlist(client: &reqwest::Client, url: &str) -> Result<String> {
     let body = fetch_playlist(client, url).await?;
-    match playlist::parse(url, &body) {
-        Ok(Some(entry)) => Ok(entry),
-        Ok(None) => Ok(url.to_string()),
-        Err(e) => {
-            tracing::debug!("media: playlist {url}: {e}");
-            Err(Error::Other(e.sentence().to_string()))
-        }
-    }
+    playlist::parse(url, &body).map_err(|e| {
+        tracing::debug!("media: playlist {url}: {e}");
+        Error::Other(e.sentence().to_string())
+    })
 }
 
 /// Open an encoded byte stream for the voice lane, resolving at its first audio.
@@ -1229,6 +1229,10 @@ impl MediaHandle {
         } else {
             url.to_string()
         };
+        // Another play may have replaced this one while the playlist loaded.
+        if self.shared.current() != gen_ {
+            return Err(Error::Other("media replaced".into()));
+        }
         let sink = TrackSink {
             gen_,
             tx: self.shared.tx.clone(),

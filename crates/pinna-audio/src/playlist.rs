@@ -16,6 +16,8 @@ pub const HLS_SENTENCE: &str =
 pub enum PlaylistError {
     /// An HLS segment playlist; Pinna plays a single stream, not segments.
     Hls,
+    /// No http(s) address in it.
+    NoEntry,
 }
 
 impl PlaylistError {
@@ -23,6 +25,7 @@ impl PlaylistError {
     pub const fn sentence(self) -> &'static str {
         match self {
             Self::Hls => HLS_SENTENCE,
+            Self::NoEntry => "This playlist names no http:// or https:// address to play.",
         }
     }
 }
@@ -40,7 +43,7 @@ impl std::error::Error for PlaylistError {}
 ///
 /// Returns `Ok(None)` when the playlist is empty or names no http(s) address,
 /// and `Err(PlaylistError::Hls)` for an HLS segment playlist.
-pub fn parse(base: &str, body: &str) -> Result<Option<String>, PlaylistError> {
+pub fn parse(base: &str, body: &str) -> Result<String, PlaylistError> {
     if is_hls(body) {
         return Err(PlaylistError::Hls);
     }
@@ -49,7 +52,7 @@ pub fn parse(base: &str, body: &str) -> Result<Option<String>, PlaylistError> {
     } else {
         parse_m3u(base, body)
     };
-    Ok(entry)
+    entry.ok_or(PlaylistError::NoEntry)
 }
 
 /// A `.pls` file marks itself with a `[playlist]` section or a `File<n>` key.
@@ -195,8 +198,13 @@ fn has_scheme(entry: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// The entry, or `None` for a playlist that names none.
     fn resolved(base: &str, body: &str) -> Option<String> {
-        parse(base, body).unwrap()
+        match parse(base, body) {
+            Ok(entry) => Some(entry),
+            Err(PlaylistError::NoEntry) => None,
+            Err(e) => panic!("{e}"),
+        }
     }
 
     #[test]
