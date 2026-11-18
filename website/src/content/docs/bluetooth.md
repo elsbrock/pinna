@@ -27,16 +27,15 @@ pairing window is open can connect.
    on a phone) and select **Media sources**, under **Sound**.
 
    If there is no **Media sources**, or no **Bluetooth** on it, the device runs
-   a Pinna from before Bluetooth. Build a new image and
-   [update the device](/docs/update/). Check that the update also installed
+   a Pinna from before Bluetooth: [update it](/docs/update/) first. Check that the update also installed
    the new boot image (see
    [Update the boot image](/docs/update/#update-the-boot-image)): with an
    older boot image, phones see every Echo under the same address.
 2. Turn on **Bluetooth**. After a few seconds the page shows **Ready as** and
    the name that phones list it under.
 
-Home Assistant has the same switch: **Bluetooth audio**, under **Configuration** on
-the device's page. A change in one shows in the other.
+If you use Home Assistant, it has the same switch: **Bluetooth audio**, under
+**Configuration** on the device's page. A change in one shows in the other.
 
 The device uses its name, the one you set in
 [Name the device](/docs/dashboard/#name-the-device).
@@ -79,11 +78,11 @@ While Bluetooth plays:
   album that the phone shares, if the phone and its music app share them.
   Anyone who can open the dashboard sees them. Home Assistant's media player
   can't show them.
-- The Home Assistant media player's volume, and **Music volume** under
-  **Now playing** on the dashboard's **Overview**, is the music's volume, and
-  changing it changes the music. The phone's slider doesn't move. When you next move
-  the slider, or pause and play on the phone, the phone's volume applies
-  again.
+- **Music volume**, under **Now playing** on the dashboard's **Overview**, is
+  the music's volume, and so is the Home Assistant media player's volume.
+  Changing it changes the music, but the phone's slider doesn't move. When you
+  next move the slider, or pause and play on the phone, the phone's volume
+  applies again.
 - **Stop** or **Pause** in Home Assistant stops the music on the device, but
   not on the phone. **Play** in Home Assistant doesn't bring it back. Pause on
   the phone, wait a few seconds, then play.

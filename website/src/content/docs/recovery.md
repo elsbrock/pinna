@@ -84,7 +84,8 @@ To go back to the other slot yourself, use **Switch…** on the dashboard's
 **System** page. See
 [Switch to the other version](/docs/update/#switch-to-the-other-version).
 
-Over SSH:
+If the dashboard doesn't open, a developer can switch over SSH (see
+[Log in to a device](/docs/development/#log-in-to-a-device)):
 
 1. Choose the slot for the next boot. Replace `a` with the slot that you want:
 
@@ -154,10 +155,12 @@ To start over on a device that still runs Pinna, use
 it keeps the installed version and needs no fastboot.
 
 If the device doesn't boot Pinna at all, install it again from fastboot.
-This erases the data partition: your Wi-Fi settings, the settings from Home
-Assistant and the encryption key. After that, set up Wi-Fi again, then remove
-the device from Home Assistant and add it again, so that Home Assistant gives
-it a new key.
+This erases the data partition: the Wi-Fi networks, every setting made on the
+dashboard or in Home Assistant, standalone mode's services and keys, and the
+Home Assistant encryption key. After that, connect the device to Wi-Fi and set
+it up on the dashboard again. If you use Home Assistant, remove the device
+from Home Assistant and add it again, so that Home Assistant gives it a new
+key.
 
 1. [Start fastboot](#start-fastboot).
 2. Check the device:
@@ -208,6 +211,6 @@ the device.
 
 - If the device starts but doesn't work as expected, see
   [Troubleshooting](/docs/troubleshooting/).
-- To report a problem, [open an issue](https://github.com/elsbrock/pinna/issues)
-  with the output of `pinna-bootctl slot-status` and `journalctl -b`. In
-  rescue mode, attach the diagnostics file from `http://10.42.0.1` instead.
+- To report a problem, see
+  [Report a problem](/docs/troubleshooting/#report-a-problem). In rescue mode,
+  attach the diagnostics file from `http://10.42.0.1`.

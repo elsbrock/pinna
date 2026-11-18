@@ -33,31 +33,37 @@ export const DOCS_NAV: DocGroup[] = [
       { slug: "requirements", title: "What you need" },
       { slug: "build", title: "Build Pinna" },
       { slug: "flash", title: "Install Pinna" },
+      { slug: "dashboard", title: "Use the dashboard" },
       { slug: "home-assistant", title: "Connect to Home Assistant" },
-      { slug: "recovery", title: "Recover a device" },
+      { slug: "standalone", title: "Use Pinna without Home Assistant" },
     ],
   },
   {
     group: "Use Pinna",
     items: [
       { slug: "ring-and-buttons", title: "Light ring and buttons" },
-      { slug: "dashboard", title: "Use the dashboard" },
-      { slug: "standalone", title: "Use Pinna without Home Assistant" },
       { slug: "airplay", title: "Play music with AirPlay" },
       { slug: "bluetooth", title: "Play music over Bluetooth" },
-      { slug: "configure", title: "Configure Pinna" },
       { slug: "update", title: "Update Pinna" },
       { slug: "troubleshooting", title: "Troubleshooting" },
+      { slug: "recovery", title: "Recover a device" },
     ],
   },
   {
     group: "Reference",
     items: [
       { slug: "entities", title: "Home Assistant entities" },
-      { slug: "control-api", title: "pinnactl and the control API" },
       { slug: "metrics", title: "Prometheus metrics" },
-      { slug: "architecture", title: "Architecture" },
       { slug: "audio", title: "Audio" },
+      { slug: "architecture", title: "Architecture" },
+    ],
+  },
+  {
+    group: "Develop",
+    items: [
+      { slug: "development", title: "Contribute" },
+      { slug: "configure", title: "Developer settings" },
+      { slug: "control-api", title: "pinnactl and the control API" },
       { slug: "crates", title: "Repository layout" },
     ],
   },
@@ -66,7 +72,6 @@ export const DOCS_NAV: DocGroup[] = [
     items: [
       { slug: "goals", title: "Goals" },
       { slug: "status", title: "Status and roadmap" },
-      { slug: "development", title: "Contribute" },
     ],
   },
 ];

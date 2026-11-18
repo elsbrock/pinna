@@ -26,12 +26,12 @@ AirPlay is off until you turn it on.
    on a phone) and select **Media sources**, under **Sound**.
 
    If there is no **Media sources**, the device runs a Pinna from before
-   AirPlay. Build a new image and [update the device](/docs/update/).
+   AirPlay: [update it](/docs/update/) first.
 2. Turn on **AirPlay**. After a few seconds the page shows **Ready as** and the
    name to choose on your iPhone or Mac.
 
-Home Assistant has the same switch: **AirPlay**, under **Configuration** on the
-device's page. A change in one shows in the other.
+If you use Home Assistant, it has the same switch: **AirPlay**, under
+**Configuration** on the device's page. A change in one shows in the other.
 
 The receiver uses the device's name, the one you set in
 [Name the device](/docs/dashboard/#name-the-device). When you rename the
@@ -56,11 +56,11 @@ While AirPlay plays:
 - **Now playing** on the dashboard's **Overview** shows the title, artist and
   album that the sender shares. Anyone who can open the dashboard sees them.
   Home Assistant's media player can't show them.
-- The Home Assistant media player's volume, and **Music volume** under
-  **Now playing** on the dashboard's **Overview**, is the music's volume, and
-  changing it changes the music. The sender's slider doesn't move. When you next move
-  the slider, or pause and play on the sender, the sender's volume applies
-  again.
+- **Music volume**, under **Now playing** on the dashboard's **Overview**, is
+  the music's volume, and so is the Home Assistant media player's volume.
+  Changing it changes the music, but the sender's slider doesn't move. When you
+  next move the slider, or pause and play on the sender, the sender's volume
+  applies again.
 - **Stop** or **Pause** in Home Assistant stops the music on the device, but
   not on the sender: the iPhone still shows it playing. **Play** in Home
   Assistant doesn't bring it back. Pause and play on the sender, skip a track

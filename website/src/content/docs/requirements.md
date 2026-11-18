@@ -1,6 +1,6 @@
 ---
 title: What you need
-description: The device, computer, files and Home Assistant setup that you need before you build and install Pinna.
+description: The device, computer and files that you need before you build and install Pinna, and what answers your requests.
 ---
 
 Collect everything on this page before you [build Pinna](/docs/build/). Only
@@ -87,8 +87,8 @@ Git ignores the folder, so they never end up in the repository.
 | `secrets/machine-id` | Not needed: each device derives its machine id from its serial number | — |
 | `secrets/authorized_keys` | Your SSH public key. Without it, you can't log in over SSH | Copy your public key, for example `~/.ssh/id_ed25519.pub` |
 | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network, so the device connects on first boot. Optional: you can also set it up on the dashboard over USB | See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi) |
-| `secrets/device/pinnad.toml` | Developer settings for this device, such as its node name. Optional | See [Configure Pinna](/docs/configure/) |
-| `secrets/device/esphome-key` | The encryption key for the Home Assistant connection. Optional | See [Connect to Home Assistant](/docs/home-assistant/) |
+| `secrets/device/pinnad.toml` | Developer settings for this device. Optional: owners set the device up on the dashboard | See [Developer settings](/docs/configure/) |
+| `secrets/device/esphome-key` | A fixed encryption key for the Home Assistant connection. Optional: Home Assistant sets a key itself | See [Developer settings](/docs/configure/#a-fixed-encryption-key) |
 
 ## Wake word models
 
@@ -101,14 +101,19 @@ names their sources and licenses. The openWakeWord models are licensed under
 CC BY-NC-SA 4.0, which doesn't allow commercial use. Okay Nabu comes from a
 repository under Apache-2.0; the model itself carries no licence of its own.
 
-## Home Assistant
+## Something that answers
 
-To use Pinna as a voice satellite, you need a Home Assistant instance on the
-same network as the device, with:
+Pinna needs something to answer your requests. You choose on the dashboard
+after you install it, and you can switch later:
 
-- The ESPHome integration, which Home Assistant includes.
-- An Assist pipeline with speech-to-text and text-to-speech. Pinna sends the
-  audio to the pipeline and plays the reply.
+- **Home Assistant**, on the same network as the device, with an Assist
+  pipeline that has speech-to-text and text-to-speech. The ESPHome
+  integration, which Home Assistant includes, adds the device. See
+  [Connect to Home Assistant](/docs/home-assistant/).
+- **Standalone mode**, without Home Assistant: a speech-to-text service, a
+  brain (a language model or an AI agent) and a text-to-speech service. They
+  can be hosted services, with a key from your account, or servers on your own
+  network. See [Use Pinna without Home Assistant](/docs/standalone/).
 
 ## What's next
 

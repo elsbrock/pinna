@@ -1,19 +1,22 @@
 ---
-title: Configure Pinna
-description: The developer settings in pinnad.toml, such as the audio and LED backends, the ports and the first-boot defaults. Owners set the name and the rest on the dashboard.
+title: Developer settings
+description: The settings in pinnad.toml for developers, such as the audio and LED backends, the ports, an update address and the first-boot defaults. Owners set up a satellite on the dashboard.
 ---
 
-You don't need this page to use Pinna. The device's name, the wake words,
-the wake sound, the volume, the sensitivity, the ring brightness, the hostname,
-the time zone and the dashboard address are on the [dashboard](/docs/dashboard/), and most of
-them are [entities in Home Assistant](/docs/entities/) too. You set up
-[standalone mode](/docs/standalone/) on the dashboard as well.
+You don't need this page to use Pinna. Owners set up and change everything on
+the [dashboard](/docs/dashboard/): the name, Wi-Fi, the wake words, the volume,
+the sensitivity, the ring, the hostname, the time zone, the dashboard address,
+the mode and the services of [standalone mode](/docs/standalone/), and the
+update channel. Most of them are [entities in Home Assistant](/docs/entities/)
+too.
 
 This page is for developers. It covers the configuration file for `pinnad`,
 the program that runs the voice satellite: the audio and LED hardware, the
-ports, and the defaults that apply until someone sets a value on the dashboard
-or in Home Assistant. The model and the speaker tuning follow the hardware, so
-they need no setting either.
+ports, an update address of your own, and the defaults that apply until
+someone sets a value on the dashboard or in Home Assistant. The model and the
+speaker tuning follow the hardware, so they need no setting. Changing a
+setting needs a login on the device; see
+[Log in to a device](/docs/development/#log-in-to-a-device).
 
 ## Where the settings are
 
@@ -74,7 +77,9 @@ settings.
 
    If the file contains a setting that Pinna doesn't know, or a value of the
    wrong type, Pinna doesn't start. The log names the problem:
-   `journalctl -u pinnad`.
+   `journalctl -u pinnad`. Fix the file and restart `pinnad` again before the
+   health check restarts the device into fastboot; if it does, see
+   [When pinnad doesn't start](/docs/development/#when-pinnad-doesnt-start).
 
 ## Settings
 
@@ -94,13 +99,40 @@ How the device introduces itself to Home Assistant.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `backend` | `"auto"` | How Pinna reaches the microphones and the speaker. Leave it at `"auto"`. See [Audio](/docs/audio/) |
+| `backend` | `"auto"` | How Pinna reaches the microphones and the speaker. Leave it at `"auto"`. See [Audio backends](#audio-backends) |
 | `volume` | `50` | The volume on the first boot, from 0 to 100. After that, Pinna keeps the last volume you set |
 | `speaker_profile` | Not set | The speaker tuning of the audio codec, `"Flat"` or `"Radar"`. Not set means the hardware's: `"Radar"` on the Echo (2nd gen), `"Flat"` otherwise |
 | `wake_sound` | `false` | Plays a short sound when the device starts listening, until someone sets **Wake sound** on the dashboard or in Home Assistant, which wins |
 | `capture_gain_db` | Not set | A fixed gain on the microphone audio before wake word detection and before it goes to Home Assistant or to a standalone request, in dB. It turns off the automatic gain. Not set means automatic gain, which starts at +12 dB on the Echo Dot with PipeWire and at 0 dB otherwise. See [Audio](/docs/audio/) |
-| `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane: a first line `s16le 44100 2` or `s16le 48000 2`, optionally followed by a name for the program (see [Audio](/docs/audio/)), then stereo samples. Empty turns it off |
+| `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane. See [The stream socket](#the-stream-socket). Empty turns it off |
 | `capture_target` | Not set | The PipeWire node to record from, with the `pipewire` backend. Not set means the default source. The virtual Echo Dot's image sets it to `"dev_mic"` |
+
+#### Audio backends
+
+`backend` chooses how `pinnad` reaches the audio hardware. `"auto"` picks the
+first that fits; [Audio](/docs/audio/) explains the audio path.
+
+| Backend | Used when |
+| --- | --- |
+| `echodot-pipewire` | On the Echo (2nd gen) and Echo Dot (2nd gen), when PipeWire runs. The normal case |
+| `echodot` | The same, without PipeWire. Microphones and speaker through ALSA |
+| `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. The virtual Echo Dot sets it in its own configuration |
+| `wav:<path>` | Reads the microphone signal from a WAV file. The speaker plays to nothing. For tests |
+| `none` | No audio. The wake word and voice requests are off |
+
+#### The stream socket
+
+[AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) play through the
+stream socket, and other programs on the device can too. A program that writes
+to the socket first sends one line with the format, `s16le 44100 2` or
+`s16le 48000 2`, then stereo samples.
+
+The line can end with a name for the program: 1 to 16 characters, each
+`a-z`, `0-9` or `-`, for example `s16le 44100 2 my-player`. AirPlay and
+Bluetooth use `airplay` and `bluetooth`. To show a track on **Now playing**,
+the program passes the same name as `source` to `SetStreamMetadata` in the
+[control API](/docs/control-api/). The track shows only while that program's
+audio plays. Audio sent without a name shows no track.
 
 ### `[wake]`
 
@@ -133,7 +165,7 @@ The connection to Home Assistant. See
 | --- | --- | --- |
 | `port` | `6053` | The port Home Assistant connects to |
 | `mdns` | `true` | Whether Pinna announces itself on the network, so Home Assistant finds it |
-| `encryption_key` | `""` | The encryption key, 32 bytes encoded as base64. Empty means none until Home Assistant sets one ([Encryption](/docs/home-assistant/#encryption)). A valid key in `key_file` takes precedence |
+| `encryption_key` | `""` | The encryption key, 32 bytes encoded as base64. Empty means none until Home Assistant sets one ([Encryption](/docs/home-assistant/#encryption)). A valid key in `key_file` takes precedence. To build a key into the image, see [A fixed encryption key](#a-fixed-encryption-key) |
 | `key_file` | `"/var/lib/pinna/esphome-key"` | The file that holds the encryption key Home Assistant set |
 
 ### `[leds]`
@@ -156,6 +188,12 @@ The connection to Home Assistant. See
 | `listen` | `""` in the code, `"[::]:80"` in the image | The address of the [dashboard](/docs/dashboard/), of the same control API and of the [metrics](/docs/metrics/), for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
 | `root` | `"/usr/share/pinna/web"` | The dashboard's files |
 | `allowed_hosts` | `[]` | More names to open the dashboard by, besides IP addresses, `localhost`, `.local` names, the hostname and the host of the dashboard address. A setting for developers: to open the dashboard by a name, [set a dashboard address](/docs/dashboard/#set-a-dashboard-address) on the **Network** page |
+
+### `[update]`
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `manifest` | Not set | A manifest address that the satellite checks instead of its update channel, such as `"http://192.168.1.20:8000/manifest.json"` for the output of `just release`. It offers the release there when its version is newer than the running one. The dashboard and Home Assistant show the address in place of the **Updates** setting. See [Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates) |
 
 ### `[dev]`
 
@@ -183,7 +221,24 @@ To start over with the values from `pinnad.toml`, delete
 values you set in Home Assistant, and switches the device back to Home
 Assistant mode. Standalone mode's files stay.
 
+## A fixed encryption key
+
+Home Assistant sets the encryption key of the ESPHome connection itself (see
+[Encryption](/docs/home-assistant/#encryption)). To build a key into the image
+instead, save 32 random bytes, encoded as base64, to
+`secrets/device/esphome-key` before the build, on your computer:
+
+```sh
+openssl rand -base64 32 > secrets/device/esphome-key
+```
+
+The image copies it to `/var/lib/pinna/esphome-key` on first boot, and Home
+Assistant asks for it when you add the device. A
+[factory reset](/docs/dashboard/#reset-the-device) keeps a key that came with
+the image.
+
 ## What's next
 
-- [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi)
-- [Troubleshooting](/docs/troubleshooting/)
+- [Log in to a device](/docs/development/#log-in-to-a-device)
+- [pinnactl and the control API](/docs/control-api/)
+- [Contribute](/docs/development/)

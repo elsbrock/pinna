@@ -3,26 +3,27 @@ title: Update Pinna
 description: Install a new version of Pinna on a running device, and how the device falls back if the new version doesn't work.
 ---
 
-Pinna keeps two copies of its system, called slots. Slot A is the boot image
-in `boot_a` and the root filesystem in `system_a`; slot B is `boot_b` and
-`system_b`. The boot image holds the kernel. An update goes into the slot that
-isn't running. The device then tries the new version, and if the new version
-doesn't work, it goes back to the old one on its own, kernel included.
+Pinna keeps two copies of its system, called slots A and B. Each holds a
+kernel and a root filesystem. An update goes into the slot that isn't running.
+The device then tries the new version, and if the new version doesn't work, it
+goes back to the old one on its own, kernel included.
+
+You install updates from the [dashboard](#install-an-update-from-the-dashboard)
+or from [Home Assistant](#install-an-update-from-home-assistant).
 
 ## How an update works
 
-1. `pinnactl update` checks the signature of the release's manifest, then
-   downloads the new boot image and root filesystem image and writes them to
-   the slot that isn't running. It checks each download against its checksum
-   in the manifest. After writing, it reads the
-   boot image back, and checks the root filesystem's signature and its hash
-   tree, which lets the device detect any changed block.
+1. The satellite checks the signature of the release, then downloads the new
+   boot image and root filesystem and writes them to the slot that isn't
+   running. It checks each download against its checksum. After writing, it
+   reads the boot image back, and checks the root filesystem's signature and
+   its hash tree, which lets the device detect any changed block.
 2. On the next boot, the bootloader starts the new slot **on trial**, with
    three attempts. The bootloader counts them itself, so a kernel that doesn't
    start uses up attempts too.
-3. When the new system is up, Pinna checks itself: `pinnad` must answer and
-   SSH must run within five minutes. If the check passes, the slot is marked
-   **good** and stays in use.
+3. When the new system is up, Pinna checks itself: its services must answer
+   within five minutes. If the check passes, the slot is marked **good** and
+   stays in use.
 4. If the check fails or doesn't finish in time, the device restarts. Each
    boot on trial uses one attempt. When no attempts are left, the bootloader
    starts the previous slot, its kernel and its root filesystem, and the new
@@ -31,11 +32,10 @@ doesn't work, it goes back to the old one on its own, kernel included.
    doesn't wait for its attempts: the device marks its slot unbootable and
    restarts into the other one straight away.
 
-Pinna only installs releases whose manifest and images are signed with the
-key whose public part is built into the device: the project key
-`keys/release.pub` in a release, `secrets/release.pub` in a build of your own.
-Build your updates with the same `secrets/release.key` that you used for the
-first installation.
+Pinna only installs releases that are signed with the key built into the
+device: the project's key in a release, your own key in a build of your own.
+Build your updates with the same signing key that you used for the first
+installation.
 
 ## How the satellite finds updates
 
@@ -64,16 +64,17 @@ yet**, and you install builds of your own as described in
 
 ## Before you begin
 
-- The device runs Pinna, and its current slot is marked `good`. Pinna refuses
-  to install an update while the running slot is still on trial. The dashboard
-  says so on **System**; on the device, `pinna-bootctl slot-status` shows it.
+- The device runs Pinna, and its current slot is marked **Good** on the
+  dashboard's **System** page. Pinna refuses to install an update while the
+  running slot is still on trial.
 - **System** has the **Updates** setting. If it doesn't, the satellite runs
   a build from before update channels: install a current build first, with
-  its **Release manifest** field or `pinnactl update`, as in
+  its **Release manifest** field, as in
   [Install a build of your own](#install-a-build-of-your-own).
 - The device runs a Pinna built on or after 17 November 2026. An older one
-  keeps its own slot record, which the new version doesn't read: move it over
-  once, as in [Move a device from an older Pinna](#move-a-device-from-an-older-pinna).
+  keeps its own slot record, which the new version doesn't read: a developer
+  moves it over once, as in
+  [Move a device from an older Pinna](/docs/development/#move-a-device-from-an-older-pinna).
 
 ## Install an update from the dashboard
 
@@ -112,9 +113,9 @@ installed:
   kernel or `pinna-init` than the one that would start it. See
   [Update the boot image](#update-the-boot-image).
 - **The running version is still on trial.** Wait until it is marked **Good**.
-- **A development overlay is active.** Programs from `just push` would hide
-  the new release's programs. Remove them with `scripts/push-dev.sh --remove`,
-  on your computer.
+- **A development overlay is active.** Programs that a developer put on the
+  device with `just push` would hide the new release's programs. Remove them
+  first, as in [Try a change on a device](/docs/development/#try-a-change-on-a-device).
 
 A release published for another model isn't offered at all: **System** says
 which models it is for, and Home Assistant shows no update.
@@ -183,9 +184,10 @@ switch to one of them, install an update to leave it.
 
 ## Install a build of your own
 
-A satellite without internet access, or one that runs your own builds, installs
-a release folder from your network. Before you begin, the device must reach
-your computer over Wi-Fi or over the USB cable.
+Until a release is published, you install builds of your own. A satellite
+without internet access installs releases the same way. You serve the release
+folder from your computer, and the satellite downloads it. Before you begin,
+the device must reach your computer over Wi-Fi or over the USB cable.
 
 1. On your computer, build the update files:
 
@@ -204,62 +206,25 @@ your computer over Wi-Fi or over the USB cable.
    python3 -m http.server 8000 --directory build/release
    ```
 
-3. Install it, in one of these ways:
-
-   - In the dashboard, open **System**, open **Install from a manifest URL**,
-     check the address, and select **Install**. The address is filled in with
-     port 8000 on the computer or phone that you opened the dashboard on, or
-     with the last address you used. When it is installed, select **Restart
-     now**.
-   - On the satellite, over SSH (`ssh root@<the satellite's address>`; a
-     release image needs your SSH key first, see
-     [Install Pinna](/docs/flash/)):
-
-     ```sh
-     pinnactl update http://192.168.1.20:8000/manifest.json --reboot
-     ```
-
-   Replace `192.168.1.20` with your computer's address. Over the USB cable,
-   use the address that your computer got from the device, in the range
-   `10.42.0.10` to `10.42.0.29`.
+3. In the dashboard, open **System**, open **Install from a manifest URL**,
+   check the address, and select **Install**. The address is filled in with
+   port 8000 on the computer or phone that you opened the dashboard on, or
+   with the last address you used, such as
+   `http://192.168.1.20:8000/manifest.json`. Over the USB cable, your
+   computer's address is in the range `10.42.0.10` to `10.42.0.29`.
 
    An install from an address installs what it is given after the signature
-   checks, an older version too, and says when it is older. `pinnactl` prints
-   each step: the slot it installs into, the boot image
-   (`kernel from … written to …`, or why the kernel stays), the root
-   filesystem download and its checksum, the signature and the hash tree,
-   and which slot the device starts next. Without `--reboot`, the update
-   waits for the next restart.
-
-4. After the device restarts, check the result, on the satellite:
-
-   ```sh
-   pinna-bootctl slot-status
-   ```
-
-   Within a few minutes, the new slot is the running slot and marked `good`:
-
-   ```text
-   state: valid
-   active: b
-   a: good attempts=0 (priority 14, tries 0), version 0.4.0
-   b: good attempts=0 (priority 15, tries 0), version 0.4.1-dev.202611170910.g1a2b3c4
-   booted: b (version 0.4.1-dev.202611170910.g1a2b3c4)
-   kernel: from boot_b
-   bootloader: loads the kernel of the slot it starts
-   ```
-
-   `active` is the slot that starts next. `attempts` counts the boots a slot
-   on trial has left; the bootloader stores one try more. `kernel` shows the
-   boot partition the running kernel came from.
-
-To give the new version more or fewer attempts than three, add
-`--tries <number>` to `pinnactl update`.
+   checks, an older version too, and says when it is older.
+4. When it is installed, select **Restart now**.
+5. Wait until **System** shows the new slot as **Good**, within 5 minutes of
+   the restart.
 
 A build of your own accepts only images signed with your key, so releases from
-`updates.getpinna.dev` don't install on it. To check a server of your own on
-the satellite's schedule, see
+`updates.getpinna.dev` don't install on it. To have the satellite find your
+builds on its own, the way it finds releases on a channel, see
 [Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates).
+To install from the satellite's command line instead, see
+[Install an update over SSH](/docs/development/#install-an-update-over-ssh).
 
 ## Update the boot image
 
@@ -278,8 +243,7 @@ whether the kernel came from `boot_b`:
   this bootloader loads boot_a whichever slot it starts`.
 
 Until Pinna knows, an update into slot A keeps the kernel in `boot_a`, because
-a new kernel there might have no other kernel to fall back to. The
-`bootloader:` line of `pinna-bootctl slot-status` shows what Pinna knows.
+a new kernel there might have no other kernel to fall back to.
 
 With an older Kaeru, install new boot images from fastboot, on your computer:
 
@@ -298,97 +262,11 @@ start the satellite in fastboot, and run `./flash-gen2.sh boot` in that
 folder, on your computer, as in [Install Pinna](/docs/flash/). Then install
 the update.
 
-## Move a device from an older Pinna
-
-A Pinna built before 17 November 2026 keeps the slot state in its own record,
-and doesn't write the boot image in updates. Move it over once. This keeps
-your settings, but the new version has no previous version to fall back to
-until its next update.
-
-1. On the device, install the update without restarting:
-
-   ```sh
-   pinnactl update http://192.168.1.20:8000/manifest.json
-   ```
-
-   Note the slot in its first line, `installing version … into slot b`.
-
-2. On the device, open fastboot:
-
-   ```sh
-   pinna-bootctl reboot-bootloader
-   ```
-
-3. On your computer, tell the bootloader to start that slot. Replace `b` with
-   the slot from step 1:
-
-   ```sh
-   fastboot set_active b
-   ```
-
-4. On your computer, write the new boot image to both boot partitions. The
-   device restarts into the new version:
-
-   ```sh
-   scripts/flash-gen2.sh boot
-   ```
-
-If the new version doesn't start, open fastboot (hold **Volume Down** while
-you plug the device in) and run `fastboot set_active a` with the other slot.
-
-## Update manifest
-
-`pinnactl update` reads a JSON manifest from an `http://`, `https://` or
-`file://` URL, or from a local path. Next to it, at its address after
-redirects, `manifest.json.sig` holds an ed25519 signature over the manifest's
-exact bytes, made with the release key. Pinna checks the signature before it
-reads anything in the manifest, and refuses a manifest without one.
-
-```json
-{
-  "version": "0.4.0",
-  "channel": "stable",
-  "summary": "Quiet speech from across the room now wakes the satellite.",
-  "notes_url": "https://github.com/elsbrock/pinna/releases/tag/v0.4.0",
-  "requires": { "boot_level": 1 },
-  "root": {
-    "url": "pinna-0.4.0.root.img",
-    "size": 157286400,
-    "sha256": "…"
-  },
-  "boot": {
-    "url": "pinna-boot.img",
-    "size": 16777216,
-    "sha256": "…"
-  }
-}
-```
-
-| Field | Meaning |
-| --- | --- |
-| `version` | The image version, a semantic version. It must match the version inside the image |
-| `channel` | `stable`, or `beta` for a version with a prerelease part such as `0.4.0-beta.1` |
-| `summary` | One line of at most 255 characters, for the dashboard and Home Assistant |
-| `notes_url` | Optional: the release notes |
-| `requires.boot_level` | The lowest boot level the root needs. Each boot image says which level it provides (`pinna.level=` in its header) |
-| `requires.models` | Optional: the models the release is for, `echo-dot-2` or `echo-2`. Without it, every model |
-| `root.url` | Where to download the root image. A relative URL is relative to the manifest's address after redirects |
-| `root.size` | The image size in bytes. It must fit into the slot (768 MiB) |
-| `root.sha256` | The SHA-256 checksum of the image |
-| `boot` | Optional: the boot image that goes with the root image. Without it, the update copies the running boot image into the other slot |
-| `boot.url`, `boot.size`, `boot.sha256` | As for `root`. The image must fit into the boot partition (16 MiB) |
-
-`just release` writes the manifest and its signature for you. Releases have
-semantic versions: `0.4.0`, or `0.4.0-beta.1` for a beta. Builds of your own
-are versioned like `0.4.1-dev.202611170910.g1a2b3c4`: the nearest release tag
-before the commit with its patch raised by one (after a beta tag such as
-`v0.5.0-beta.1`, that tag's `0.5.0`; without any tag, `0.0.1`), then the time
-of the build in UTC and the commit. So they sort after the release they build
-on and before the next one.
-
 ## What's next
 
 - If an update doesn't come up, see
   [Recover from a failed update](/docs/recovery/#recover-from-a-failed-update).
 - For the technical details of slots and verification, see
   [Architecture](/docs/architecture/).
+- For the update manifest and installing over SSH, see
+  [Contribute](/docs/development/#updates-for-developers).

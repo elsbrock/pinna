@@ -9,7 +9,8 @@ can use the same API, and so does the [dashboard](/docs/dashboard/).
 
 ## pinnactl
 
-Run `pinnactl` on the device, for example over SSH. By default, it connects to
+Run `pinnactl` on the device, for example over SSH (see
+[Log in to a device](/docs/development/#log-in-to-a-device)). By default, it connects to
 the API at `http://127.0.0.1:7470`. To use another address, add
 `--api <url>` before the command.
 
@@ -110,7 +111,7 @@ device. `pinnad` serves it in two places:
   `pinnactl` and the boot health check use this address. It serves
   `DeviceService` only.
 - On port 80, with the dashboard, for your network (`[web]` in the
-  [configuration](/docs/configure/#web)). It serves `DeviceService` and
+  [developer settings](/docs/configure/#web)). It serves `DeviceService` and
   `AssistantService`. This one only answers requests for IP
   addresses, `localhost`, `.local` names, the device's own hostname (its node name, such as `pinna-2a914e`),
   the host of the dashboard address set on the **Network** page, and the names

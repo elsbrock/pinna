@@ -34,8 +34,8 @@ microphones' native 16 kHz:
    device's own playback from that channel. As a reference, it uses a copy of
    everything `pinnad` plays.
 3. **`pinnad`** reads the result in 20 ms frames and sets its gain
-   automatically, for the wake word detection and for the requests to Home
-   Assistant.
+   automatically, for the wake word detection and for the requests it sends,
+   to Home Assistant or to your speech-to-text service.
 
 On the device, the echo cancellation lowers the device's own music by 23 to
 31 dB in the speech range, after it has adapted to the room. In the first
@@ -61,9 +61,8 @@ program can switch the amplifier on or off at the wrong moment. It mixes two
 lanes:
 
 - **Voice**: replies, announcements, the timer alarm and short sounds.
-- **Media**: music and other audio from the media player. This lane also takes
-  live audio on a Unix socket, the `stream_socket` setting.
-  [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) play through it.
+- **Media**: music and other audio from the media player, and live audio from
+  [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/).
 
 While the voice lane plays, and while the device listens or works on a
 request, the media lane gets 20 dB quieter, and returns afterwards.
@@ -71,15 +70,8 @@ request, the media lane gets 20 dB quieter, and returns afterwards.
 Live audio runs on the sender's clock, and the speaker on the device's own.
 `pinnad` converts it to 48 kHz at a rate that follows the sender, so that it
 always holds 100 ms of it: the delay stays the same however long the music
-plays. A program that writes to the socket first sends one line with the
-format, `s16le 44100 2` or `s16le 48000 2`, then the samples.
-
-The line can end with a name for the program: 1 to 16 characters, each
-`a-z`, `0-9` or `-`, for example `s16le 44100 2 my-player`. AirPlay and
-Bluetooth use `airplay` and `bluetooth`. To show a track on **Now playing**,
-the program passes the same name as `source` to `SetStreamMetadata` in the
-[control API](/docs/control-api/). The track shows only while that program's
-audio plays. Audio sent without a name shows no track.
+plays. Other programs on the device can play live audio the same way; see
+[The stream socket](/docs/configure/#the-stream-socket).
 
 Replies and announcements play while they download. If the audio arrives
 slower than it plays, the reply pauses in silence until enough audio is
@@ -104,27 +96,16 @@ appears, set to the current volume. Turning the switch back on makes replies
 follow the volume again, which Home Assistant's **Reply volume** number can't
 do.
 
-**Stream volume** lowers live audio on the stream socket the same way. It is
-the sending phone's or computer's volume, set by the program that feeds the
-socket. While a stream plays, the Home Assistant media player and
-**Music volume**, under **Now playing** on the dashboard's **Overview**, show
-and set the stream volume; the volume itself stays where it is.
-
-## Audio backends
-
-The `[audio] backend` setting in the [configuration](/docs/configure/)
-chooses how `pinnad` reaches the audio hardware. Keep it at `"auto"`:
-
-| Backend | Used when |
-| --- | --- |
-| `echodot-pipewire` | On the Echo (2nd gen) and Echo Dot (2nd gen), when PipeWire runs. The normal case |
-| `echodot` | The same, without PipeWire. Microphones and speaker through ALSA |
-| `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. The virtual Echo Dot sets it in its own configuration |
-| `wav:<path>` | Reads the microphone signal from a WAV file. The speaker plays to nothing. For tests |
-| `none` | No audio. The wake word and voice requests are off |
+**Stream volume** lowers live audio from AirPlay and Bluetooth the same way.
+It follows the sending phone's or computer's volume. While a stream plays,
+**Music volume**, under **Now playing** on the dashboard's **Overview**, and
+the Home Assistant media player show and set the stream volume; the volume
+itself stays where it is.
 
 ## What's next
 
-- [Configure Pinna](/docs/configure/)
+- [Use the dashboard](/docs/dashboard/) to set the volume and the reply volume.
+- For developers: the audio backends and the stream socket, in
+  [Developer settings](/docs/configure/#audio).
 - The full reasoning, with the alternatives that were tried, is in
   [ADR 0004](https://github.com/elsbrock/pinna/blob/main/docs/adr/0004-audio-graph.md).

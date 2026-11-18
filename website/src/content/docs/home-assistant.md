@@ -3,9 +3,11 @@ title: Connect to Home Assistant
 description: Add a Pinna device to Home Assistant, encrypt the connection, and choose the Assist pipeline it uses.
 ---
 
-Pinna talks to Home Assistant over the ESPHome native API, the same protocol
-that ESPHome devices use. Home Assistant finds the device on your network, and
-you add it like any other ESPHome device. You don't need YAML or an add-on.
+In Home Assistant mode, Home Assistant answers the satellite's requests with
+your Assist pipeline. Pinna talks to Home Assistant over the ESPHome native
+API, the same protocol that ESPHome devices use. Home Assistant finds the
+device on your network, and you add it like any other ESPHome device. You
+don't need YAML or an add-on.
 
 ## Before you begin
 
@@ -20,6 +22,9 @@ you add it like any other ESPHome device. You don't need YAML or an add-on.
   one up, see
   [Assist](https://www.home-assistant.io/voice_control/) in the Home Assistant
   documentation.
+- The satellite is in Home Assistant mode, as a new one is. If you switched
+  it to standalone mode, open **Assistant** on the dashboard, select **Home
+  Assistant** under **Mode**, and then select **Switch**.
 
 ## Encryption
 
@@ -38,10 +43,9 @@ sends it. If someone else sets one first, Home Assistant can't connect.
 [Reset the device](/docs/dashboard/#reset-the-device), which removes the key,
 and add it again.
 
-If you build Pinna yourself, you can give the device a key instead: save 32
-random bytes, encoded as base64 (`openssl rand -base64 32`), to
-`secrets/device/esphome-key` before the build. Home Assistant then asks for that
-key when you add the device.
+A developer can build the key into the image instead; then Home Assistant
+asks for it when you add the device. See
+[A fixed encryption key](/docs/configure/#a-fixed-encryption-key).
 
 ## Add the device
 
@@ -51,8 +55,9 @@ key when you add the device.
    [dashboard](/docs/dashboard/#name-the-device), or the model and the end of
    its MAC address, for example `Echo Dot 2a914e`. Name it before you add it:
    Home Assistant keeps the first name in the entity IDs.
-3. If you built the device with a key, enter it when Home Assistant asks for
-   it. Otherwise Home Assistant sets one itself; see [Encryption](#encryption).
+3. Home Assistant sets the encryption key itself; see
+   [Encryption](#encryption). It asks you for a key only when the image came
+   with one: enter that key.
 
 If the device doesn't appear, add it by hand: open the **Assistant** page
 of the [dashboard](/docs/dashboard/), copy the host and the port under **Add it

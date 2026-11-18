@@ -142,6 +142,6 @@ one does. The `node_*` names follow node_exporter.
 Like the dashboard, `/metrics` has no password. Anyone on your network can
 read it, including how often the wake word fired and, in standalone mode,
 which services you use and how much. It doesn't show what was said, or
-whether a request is running. It has no switch of its own: it is off
-only when the dashboard is off (`[web] listen = ""`, a developer setting, see
-[Configure Pinna](/docs/configure/)).
+whether a request is running. It has no switch of its own: it is off only
+when the dashboard is off, which is a
+[developer setting](/docs/configure/#web).

@@ -29,7 +29,7 @@ keep the name the device had when you added it.
 | LED brightness | `led_brightness` | Number | 0 to 100, in % | Sets the brightness of the whole ring |
 | Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
 | Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
-| Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While `[update] manifest` in `pinnad.toml` replaces the channel, its only option is that address. See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
+| Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While a developer's own update address replaces the channel, its only option is that address ([Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates)). See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
 | Assistant | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. Switching ends a request, stops an alarm, deletes every timer and reconnects Home Assistant. See [Use Pinna without Home Assistant](/docs/standalone/) |
 | Firmware | `firmware` | Update (configuration) | Installed and latest version, summary, release notes, progress | Shows a newer release on the device's channel, and installs it. After an install from Home Assistant, the device restarts on its own once it is Idle with no timer set and nothing playing. Unknown until a check has succeeded, and while **Updates** is off. See [Install an update from Home Assistant](/docs/update/#install-an-update-from-home-assistant) |
 
@@ -131,5 +131,5 @@ dashboard.
 
 - To change the device name, see
   [Name the device](/docs/dashboard/#name-the-device).
-- To control the device from its command line, see
-  [pinnactl and the control API](/docs/control-api/).
+- To use the buttons and the ring in automations, see
+  [Light ring and buttons](/docs/ring-and-buttons/).

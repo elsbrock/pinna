@@ -31,7 +31,7 @@ this table wins:
 | Solid red | The microphones are off |
 | Amber, pulsing twice a second | A timer has finished. Say the wake word or press the Action button to stop it |
 | Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch, on the dashboard under **Voice & sound** or in Home Assistant |
-| A violet light that runs around the ring | Home Assistant is working on your request |
+| A violet light that runs around the ring | Your request is being answered: by Home Assistant, or in standalone mode by your services |
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | A green arc | Wake word calibration runs. The arc shows the sensitivity, and the volume buttons tune it. It shows in place of a running timer's arc, a notification, the light and the music. See [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) |
 | Two blue lights that turn slowly around the ring | The Bluetooth pairing window is open: a phone nearby can pair now. It shows in place of a running timer's arc, a notification, the light and the music. See [Pair a phone](/docs/bluetooth/#pair-a-phone) |
@@ -44,7 +44,7 @@ Short signals appear on top of these states:
 
 | What you see | Meaning |
 | --- | --- |
-| Red, flashing three times | Something went wrong: Home Assistant isn't connected, refused the request or didn't answer it, the microphones are off when you press the Action button, or a calibration +/− press changed nothing |
+| Red, flashing three times | Something went wrong: Home Assistant isn't connected, refused the request or didn't answer it; in standalone mode, a service failed or the device heard no speech; the microphones are off when you press the Action button; or a calibration +/− press changed nothing. See [The ring flashes red three times](/docs/troubleshooting/#the-ring-flashes-red-three-times) |
 | Green, one flash | The wake word was heard while calibration runs. No request starts |
 | A light blue arc, for 1.5 seconds | The volume changed. The arc shows the new level |
 
@@ -71,11 +71,12 @@ brightness works within it.
 
 ### Notifications
 
-The ring can tell you that something happened, like the yellow ring on an
-Echo. While a notification is waiting and the device is idle, the whole ring
-slowly gets brighter and dimmer in yellow.
+The ring can tell you that something happened. While a notification is
+waiting and the device is idle, the whole ring slowly gets brighter and dimmer
+in yellow.
 
-The **Notification** switch in Home Assistant controls it. Turn it on from an
+Notifications need Home Assistant, in either mode: the **Notification** switch
+in Home Assistant controls them. Turn it on from an
 automation, for example when the washing machine finishes. The notification
 stays until one of these clears it:
 
@@ -256,8 +257,8 @@ Seen from above, with the front of the device towards you, the buttons are:
 | Volume down | Lowers the volume by 5. While calibration runs, lowers the wake word sensitivity to ignore the last wake instead | Keeps lowering the volume |
 | Microphone off | Turns the microphones off or on | Nothing |
 
-Every press also sends an event to Home Assistant, so you can use the buttons
-in automations. While calibration runs, the volume buttons tune the
+If you use Home Assistant, every press also sends it an event, so you can use
+the buttons in automations. While calibration runs, the volume buttons tune the
 sensitivity instead and don't send theirs. See
 [Home Assistant entities](/docs/entities/#events).
 
@@ -270,12 +271,12 @@ that is running stops.
 The device has a hardware switch behind the **Microphone off** button. When
 the hardware switch is present, it turns the microphones off, and Pinna
 follows it. You can also turn the microphones off with the **Microphones**
-switch on the [dashboard](/docs/dashboard/), under **Voice & sound**, from
-Home Assistant (the **Microphone mute** switch) or with `pinnactl mute on`. The microphones are off
-when either the button or the software setting says so.
+switch on the [dashboard](/docs/dashboard/), under **Voice & sound** or on
+**Overview**, or with the **Microphone mute** switch in Home Assistant. The
+microphones are off when either the button or the software setting says so.
 
 ## What's next
 
+- Change the ring brightness, the volume and the wake words on the
+  [dashboard](/docs/dashboard/), under **Voice & sound**.
 - See all entities in [Home Assistant entities](/docs/entities/).
-- Change the ring brightness, the volume and the wake word in
-  [Configure Pinna](/docs/configure/).

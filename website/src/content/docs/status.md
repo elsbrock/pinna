@@ -107,9 +107,9 @@ These plans follow the project's [goals](/docs/goals/).
 ## How you can help
 
 - **Test it on a device.** Problems show up on real hardware first. Report
-  what you see, with the image version, the output of `pinnactl status` and the
-  log (`journalctl -b -u pinnad`), in an
-  [issue](https://github.com/elsbrock/pinna/issues).
+  what you see in an [issue](https://github.com/elsbrock/pinna/issues), with
+  the version and the log from the dashboard, as
+  [Report a problem](/docs/troubleshooting/#report-a-problem) describes.
 - **Send changes.** See [Contribute](/docs/development/).
 - **Bring up a new device.** Supporting another Echo device means work on the
   device tree, clocks, audio, microphones and LED ring, and a device to test

@@ -245,6 +245,8 @@ for what the messages mean.
 
 ## What's next
 
+- Learn what the [light ring and the buttons](/docs/ring-and-buttons/) show
+  and do.
 - Watch usage and delays with the [Prometheus metrics](/docs/metrics/).
-- Set up the satellite from scripts with the control API's
+- For developers: set up the satellite from scripts with the control API's
   [AssistantService](/docs/control-api/#assistantservice).

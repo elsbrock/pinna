@@ -1,66 +1,67 @@
 ---
 title: Troubleshooting
-description: Find out why a Pinna device doesn't connect, doesn't hear the wake word or doesn't start, and what to do about it.
+description: Find out why a satellite doesn't connect, doesn't hear the wake word or doesn't start, and what to do about it.
 ---
 
-Start with the device's own view of the problem. The
-[dashboard](/docs/dashboard/) shows the state under **Overview** and the log of
-`pinnad` under **System > Logs**, without a login. If the dashboard doesn't
-open, log in over SSH or the USB serial console, and run:
+Start with the satellite's own view of the problem, on the
+[dashboard](/docs/dashboard/):
 
-```sh
-pinnactl status
-systemctl --failed
-journalctl -b -u pinnad
-```
+- **Overview** shows what the satellite is doing, whether Home Assistant or
+  your standalone services are ready, and, under the **Wake word** switch,
+  whether it listens for the wake word and why not.
+- **System > Logs** shows the log of `pinnad`, the program that runs the
+  satellite, as it is written. The sections below quote the lines to look for.
+- **System**, under **Troubleshooting**, says how the last start ended, for
+  example `restarted (update)` or `crashed: a kernel panic or oops`.
 
-`pinnad` is the program that runs the voice satellite. Its log records what
-it does and any errors. The sections below quote the lines to look for.
+If the dashboard doesn't open, start with
+[The dashboard doesn't open](#the-dashboard-doesnt-open).
 
-`pinnactl status` also says how the last start ended — `restarted (update)`,
-`crashed: a kernel panic or oops`, `reset without shutting down`, or
-`rescue mode (no-root)`. The dashboard's **System** page shows the same line
-under **Troubleshooting**.
+## The dashboard doesn't open
 
-## You can't log in
-
-- **In rescue mode:** if the USB device is named **Pinna rescue** or the ring
-  is green, Pinna couldn't start, and SSH doesn't run. See
-  [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
-- **Over USB:** check that the computer sees the USB device **Pinna (Echo Dot
-  2nd gen)** — **Pinna (Echo 2nd gen)** on an Echo. Use a cable that carries
-  data. The device is at `10.42.0.1`, and your computer gets an address
-  between `10.42.0.10` and `10.42.0.29`.
-- **Over SSH:** Pinna only accepts SSH keys, no passwords. The key comes from
-  `secrets/authorized_keys` at build time. Without it, use the serial console:
-  `picocom -b 115200 /dev/ttyACM0`.
-- **At its `.local` name**, such as `pinna-2a914e.local`: your computer needs
-  mDNS. If the name doesn't resolve, use the IP address.
-- **After a reinstall:** the device has a new SSH host key, and `ssh` refuses
-  to connect. Remove the old key from your computer:
-
-  ```sh
-  ssh-keygen -R 10.42.0.1
-  ssh-keygen -R pinna-2a914e.local   # your device's name
-  ```
+- **At its `.local` name**, such as `http://pinna-2a914e.local/`: your
+  computer or phone needs mDNS, which Android often lacks. Use the device's IP
+  address from your router instead.
+- **Over Wi-Fi at all**: the device may not be on your network. Connect it to
+  your computer with the USB cable and open `http://10.42.0.1/`. See
+  [The device has no Wi-Fi](#the-device-has-no-wi-fi).
+- **Over USB**: check that your computer sees the USB device **Pinna (Echo Dot
+  2nd gen)**, or **Pinna (Echo 2nd gen)** on an Echo. Use a cable that carries
+  data. Your computer gets an address between `10.42.0.10` and `10.42.0.29`.
+- **The USB device is named Pinna rescue, or the ring is green**: Pinna
+  couldn't start. See [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
+- **The ring flashes white, pauses and repeats**: a start-up step didn't
+  finish. The number of flashes says which; see
+  [While the device starts](/docs/ring-and-buttons/#while-the-device-starts).
 
 ## The device has no Wi-Fi
 
-1. Check the Wi-Fi hardware and the connection:
+Connect the device to your computer with the USB cable, open
+`http://10.42.0.1/` and select **Network**. The page says which of these cases
+applies:
 
-   ```sh
-   journalctl -b -u pinna-wifi -u wpa_supplicant@wlan0
-   ip addr show wlan0
-   ```
+- **Not connected to a Wi-Fi network**: join your network under **Join a
+  network**. If the password is wrong or the network gives the device no
+  address, the device goes back to the network it was on, and the page says
+  why. See [Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network).
+- **Connected to a network, but no IPv4 address yet**: the network's DHCP
+  server hasn't answered. This usually sorts itself out within a minute. If it
+  doesn't, check that your router gives addresses to new devices, or join
+  another network.
+- **No Wi-Fi interface**: powering up the Wi-Fi failed, or the Wi-Fi firmware
+  is missing from the image. The Wi-Fi chip allows one power-up attempt per
+  start, so restart the device to try again: select **Restart…** on **System**.
 
-2. If `wlan0` doesn't exist, powering up the Wi-Fi failed. The `pinna-wifi`
-   lines in the log show the step that failed, for example
-   `wlan0 did not appear`. The Wi-Fi chip allows one power-up attempt per
-   start, so restart the device to try again.
+  The dashboard's log doesn't show the Wi-Fi service yet. As a stopgap, a
+  developer can read it on the satellite, over SSH or the USB serial console
+  (see [Log in to a device](/docs/development/#log-in-to-a-device)):
 
-3. If `wlan0` exists but has no address, connect the device over USB, open
-   `http://10.42.0.1/` and join your network again on the **Network** page.
-   See [Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network).
+  ```sh
+  journalctl -b -u pinna-wifi -u wpa_supplicant@wlan0
+  ```
+
+  The `pinna-wifi` lines show the step that failed, for example
+  `wlan0 did not appear`.
 
 ## Home Assistant doesn't find the device
 
@@ -94,22 +95,28 @@ paired finds the device only while the pairing window is open. See
 
 ## The device doesn't react to the wake word
 
-Check each condition with `pinnactl status`:
+Open **Overview** on the dashboard. The hint under the **Wake word** switch
+says whether the satellite listens, and why not:
 
-| Line | Must show | If not |
-| --- | --- | --- |
-| `muted` | `no` | Press the **Microphone off** button, or run `pinnactl mute off` |
-| `home assistant` | `connected, voice subscribed` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/). In standalone mode, this line doesn't matter: see [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
-| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while the device listens to a request. In standalone mode it is armed only once speech-to-text, the brain and text-to-speech have passed their check: the `mode` line says `services ready`, and the dashboard's **Overview** says **Answers in standalone mode** instead of **Services not ready** |
-| `audio` | Anything but `none` | `none` means Pinna found no audio device. Check for `microphone unavailable` in the log |
+| Hint | What to do |
+| --- | --- |
+| `Off. Press the action button to talk.` | Turn on **Wake word** |
+| `No wake word is chosen.` | Choose a wake word. In Home Assistant mode, while Home Assistant is connected, choose it there: see [Choose the wake words](/docs/home-assistant/#choose-the-wake-words). Otherwise choose it on the dashboard, under **Voice & sound** |
+| `Not listening for "Alexa" while the microphones are off` | Press the **Microphone off** button, or turn on **Microphones** |
+| `Not listening for "Alexa" until Home Assistant has a voice pipeline for this satellite` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/). The **Home Assistant** tile on **Overview** then shows **Connected** and **Voice pipeline ready** |
+| `Not listening for "Alexa" until the standalone services pass their check` | Open **Assistant > Services**: it shows which service isn't ready, and why. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
+| `Not listening for "Alexa" during the conversation` | Wait until the request ends |
 
-If all lines look right:
+If the hint says `Listening for "Alexa"` and the device still doesn't react:
 
-- Check that the wake word model loaded. The log line
-  `wake word disabled: …` means the model files are missing. Run
-  `just models`, build the image again, and install it with
-  [Update Pinna](/docs/update/).
-- Test the wake word on the dashboard's **Wake word** page:
+- Check that the image has wake word models. If **Voice & sound** says **No
+  wake word models are installed on this satellite**, the image was built
+  without them: run `just models`, build the image again, and install it as an
+  [update](/docs/update/).
+- Check the microphones. If **System** shows **Audio backend** `none` under
+  **Details**, Pinna found no audio device, and **System > Logs** has a line
+  with `microphone unavailable`.
+- Test the wake word on the **Wake word sensitivity** page:
 
   1. Open **Voice & sound > Sensitivity** in the
      [dashboard](/docs/dashboard/#tune-the-wake-word).
@@ -148,8 +155,8 @@ If all lines look right:
 
 ## The reply starts late or pauses
 
-The log of `pinnad` has a line for each reply. Find it under **System > Logs**
-in the dashboard, or with `journalctl -b -u pinnad | grep reply:`:
+In Home Assistant mode, the log under **System > Logs** has a line for each
+reply:
 
 ```text
 reply: first audio 1.42 s after the end of speech (0.31 s after Home Assistant started it)
@@ -178,9 +185,14 @@ To fix it:
   [dashboard](/docs/dashboard/#what-the-dashboard-shows). Move the device
   closer to the access point if the signal is weak.
 
+In standalone mode, the log has one line per request with the time each
+service took; see **Replies are slow** under
+[Standalone mode doesn't answer](#standalone-mode-doesnt-answer).
+
 ## The ring flashes red three times
 
-The request didn't work. The log says why:
+The request didn't work. The log under **System > Logs** on the dashboard says
+why:
 
 | Log line | Cause |
 | --- | --- |
@@ -269,28 +281,25 @@ For the setup, see [Use Pinna without Home Assistant](/docs/standalone/).
 
 ## The device opens fastboot on its own
 
-Pinna's health check failed, so Pinna restarted the device into fastboot. See
-[The fastboot guard](/docs/recovery/#the-fastboot-guard). Common causes are an
-invalid `pinnad.toml` or encryption key file, which stop `pinnad`.
+Pinna's health check failed, so Pinna restarted the device into fastboot: its
+services didn't answer in time. See
+[The fastboot guard](/docs/recovery/#the-fastboot-guard).
 
-1. Boot Pinna again:
+1. Start Pinna again, on your computer:
 
    ```sh
    fastboot reboot
    ```
 
-2. Log in over the USB serial console right away: the health check restarts
-   the device about 40 seconds after Pinna's services start. The serial
-   console doesn't need an SSH key.
-3. Read the log of the previous boot, and fix the cause:
+2. If the dashboard opens, look at **System > Logs** for errors, and at how
+   the last start ended under **System > Troubleshooting**.
+3. If the device opens fastboot again, `pinnad` doesn't start. Install the
+   root filesystem again from fastboot, as described in
+   [Recover a device](/docs/recovery/). This erases your settings, which also
+   removes a setting that stops Pinna.
 
-   ```sh
-   journalctl -b -1 -u pinnad
-   ```
-
-If you can't fix it in time, install the root filesystem again from fastboot,
-as described in [Recover a device](/docs/recovery/). This erases your
-settings, which also removes a broken configuration.
+A developer can read why `pinnad` didn't start before reinstalling; see
+[When pinnad doesn't start](/docs/development/#when-pinnad-doesnt-start).
 
 ## The device doesn't boot Pinna
 
@@ -316,32 +325,22 @@ Otherwise, install Pinna again. This erases the data partition:
 2. Install the root filesystem and the boot image again with
    `scripts/flash-gen2.sh root` and `scripts/flash-gen2.sh boot`.
 
-## Pinna doesn't start after a configuration change
-
-`pinnad` refuses to start if `pinnad.toml` contains a setting it doesn't know,
-a value of the wrong type, or an invalid encryption key file. The log names
-the problem:
-
-```sh
-journalctl -b -u pinnad
-```
-
-Fix the file and run `systemctl restart pinnad`. See
-[Configure Pinna](/docs/configure/). If the device restarts into fastboot
-before you can fix it, see
-[The device opens fastboot on its own](#the-device-opens-fastboot-on-its-own).
-
 ## Report a problem
 
 If you can't solve it, [open an issue](https://github.com/elsbrock/pinna/issues)
 and include:
 
 - What you did, and what happened.
-- The output of `pinnactl status` and `pinna-bootctl slot-status`.
-- The log: `journalctl -b -u pinnad`.
-- The image version, from `/etc/os-release` (`IMAGE_VERSION`).
+- The version, from the **Software** tile on the dashboard's **Overview**,
+  and whether the device is an Echo Dot (2nd gen) or an Echo (2nd gen).
+- How the last start ended, from **System > Troubleshooting**.
+- The log, from **System > Logs**: select **All**, then **Copy**, and paste it
+  into the issue. Check it first: issues are public.
 
-In rescue mode, none of these commands run. Attach the file from
-**Download diagnostics** on `http://10.42.0.1` instead. Read it before you
-post it: issues are public, and the file holds the device's serial number
-and the kernel log.
+In rescue mode, the dashboard doesn't run. Attach the file from **Download
+diagnostics** on `http://10.42.0.1` instead. Read it before you post it: the
+file holds the device's serial number and the kernel log.
+
+If you can log in to the satellite, also include the output of
+`pinnactl status` and `pinna-bootctl slot-status`; see
+[Log in to a device](/docs/development/#log-in-to-a-device).

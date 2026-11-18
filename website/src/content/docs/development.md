@@ -4,7 +4,11 @@ description: Set up a development environment, run the tests, try changes on a d
 ---
 
 This page explains how to work on Pinna: how to set up the tools, which tests
-exist and what each one needs, and how to try a change on a running device.
+exist and what each one needs, how to log in to a device and try a change on
+it, and how updates work for developers. Owners set up and use a satellite on
+its [dashboard](/docs/dashboard/); the developer pages cover the rest: this
+page, the [developer settings](/docs/configure/) in `pinnad.toml`, and
+[`pinnactl` and the control API](/docs/control-api/).
 
 Pinna is a small project in early development. Before you start on something
 larger than a fix, open an issue so that the work isn't duplicated.
@@ -84,6 +88,75 @@ before you send a change that affects the image or the device.
 wake word models are missing. Run `just models` before you rely on their
 result.
 
+## Log in to a device
+
+Owners never need to log in: the [dashboard](/docs/dashboard/) has every
+setting. To debug or develop, log in on your computer in one of these ways:
+
+- **Over SSH**, with the key from `secrets/authorized_keys` that the image was
+  built with. Pinna accepts only keys, no passwords. A release image has no
+  key: add yours over the serial console first. Over the USB cable the device
+  is at `10.42.0.1`, and your computer gets an address between `10.42.0.10`
+  and `10.42.0.29`:
+
+  ```sh
+  ssh root@10.42.0.1
+  ```
+
+  Over Wi-Fi, use the device's IP address or its `.local` name, such as
+  `pinna-2a914e.local`.
+- **Over the USB serial console**, which needs no key. It also has a root
+  shell in rescue mode, where SSH doesn't run:
+
+  ```sh
+  picocom -b 115200 /dev/ttyACM0
+  ```
+
+After a reinstall the device has a new SSH host key, and `ssh` refuses to
+connect. Remove the old key, on your computer:
+
+```sh
+ssh-keygen -R 10.42.0.1
+ssh-keygen -R pinna-2a914e.local   # your device's name
+```
+
+These commands, on the satellite, show what the dashboard shows and more:
+
+```sh
+pinnactl status            # the state, as in pinnactl and the control API
+systemctl --failed         # services that failed
+journalctl -b -u pinnad    # the log of pinnad since this start
+pinna-bootctl slot-status  # the slots, their versions and states
+```
+
+Include their output when you [report a problem](/docs/troubleshooting/#report-a-problem).
+
+## When pinnad doesn't start
+
+`pinnad` refuses to start if `pinnad.toml` contains a setting it doesn't know,
+a value of the wrong type, or an invalid encryption key file. Then the health
+check fails, and the device restarts into fastboot (see
+[The fastboot guard](/docs/recovery/#the-fastboot-guard)). To find the cause:
+
+1. Start Pinna again, on your computer:
+
+   ```sh
+   fastboot reboot
+   ```
+
+2. Log in over the USB serial console right away: the health check restarts
+   the device about 40 seconds after Pinna's services start. The serial
+   console doesn't need an SSH key.
+3. Read the log of the previous start, and fix the cause:
+
+   ```sh
+   journalctl -b -1 -u pinnad
+   ```
+
+If you can't fix it in time, install the root filesystem again from fastboot,
+as described in [Recover a device](/docs/recovery/). This erases the settings,
+which also removes a broken configuration.
+
 ## Try a change on a device
 
 To test new versions of Pinna's programs on a running device without
@@ -115,7 +188,60 @@ While the extension is there, the satellite doesn't install updates: after the
 restart, the extension's programs would hide the new release's. Remove it
 first.
 
-## Offer your own builds as updates
+## Updates for developers
+
+Owners install updates from the dashboard or Home Assistant, as
+[Update Pinna](/docs/update/) describes, and builds of their own from the
+dashboard's **Install from a manifest URL**. This section covers the rest.
+
+### Install an update over SSH
+
+On the satellite, `pinnactl update` installs a release from its manifest
+address. Serve the release folder from your computer as in
+[Install a build of your own](/docs/update/#install-a-build-of-your-own), then
+run on the satellite:
+
+```sh
+pinnactl update http://192.168.1.20:8000/manifest.json --reboot
+```
+
+Replace `192.168.1.20` with your computer's address. Over the USB cable, use
+the address that your computer got from the device, in the range `10.42.0.10`
+to `10.42.0.29`.
+
+`pinnactl` prints each step: the slot it installs into, the boot image
+(`kernel from … written to …`, or why the kernel stays), the root filesystem
+download and its checksum, the signature and the hash tree, and which slot
+the device starts next. Without `--reboot`, the update waits for the next
+restart. To give the new version more or fewer attempts than three, add
+`--tries <number>`. [pinnactl](/docs/control-api/#pinnactl) lists the other
+options.
+
+After the device restarts, check the result, on the satellite:
+
+```sh
+pinna-bootctl slot-status
+```
+
+Within a few minutes, the new slot is the running slot and marked `good`:
+
+```text
+state: valid
+active: b
+a: good attempts=0 (priority 14, tries 0), version 0.4.0
+b: good attempts=0 (priority 15, tries 0), version 0.4.1-dev.202611170910.g1a2b3c4
+booted: b (version 0.4.1-dev.202611170910.g1a2b3c4)
+kernel: from boot_b
+bootloader: loads the kernel of the slot it starts
+```
+
+`active` is the slot that starts next. `attempts` counts the boots a slot on
+trial has left; the bootloader stores one try more. `kernel` shows the boot
+partition the running kernel came from. `bootloader` shows what Pinna knows
+about the bootloader: whether it loads the kernel of the slot it starts (see
+[Update the boot image](/docs/update/#update-the-boot-image)).
+
+### Offer your own builds as updates
 
 A build with your own key (`just keygen`) installs only images signed with
 that key, and starts with **Updates** off. To give a satellite your builds the
@@ -134,7 +260,8 @@ Assistant's update entity:
    than older builds of yours.
 
 2. On the satellite, over SSH, add the address to
-   `/var/lib/pinna/pinnad.toml` and restart `pinnad`:
+   `/var/lib/pinna/pinnad.toml` ([`[update]`](/docs/configure/#update)) and
+   restart `pinnad`:
 
    ```toml
    [update]
@@ -161,6 +288,94 @@ To go back to a channel, remove the lines and restart `pinnad` again.
 ```sh
 PINNA_SUMMARY="The wake word interrupts a reply." PINNA_MODELS="echo-dot-2" just release
 ```
+
+### Move a device from an older Pinna
+
+A Pinna built before 17 November 2026 keeps the slot state in its own record,
+and doesn't write the boot image in updates. Move it over once. This keeps
+your settings, but the new version has no previous version to fall back to
+until its next update.
+
+1. On the device, over SSH, install the update without restarting:
+
+   ```sh
+   pinnactl update http://192.168.1.20:8000/manifest.json
+   ```
+
+   Note the slot in its first line, `installing version … into slot b`.
+
+2. On the device, open fastboot:
+
+   ```sh
+   pinna-bootctl reboot-bootloader
+   ```
+
+3. On your computer, tell the bootloader to start that slot. Replace `b` with
+   the slot from step 1:
+
+   ```sh
+   fastboot set_active b
+   ```
+
+4. On your computer, write the new boot image to both boot partitions. The
+   device restarts into the new version:
+
+   ```sh
+   scripts/flash-gen2.sh boot
+   ```
+
+If the new version doesn't start, open fastboot (hold **Volume Down** while
+you plug the device in) and run `fastboot set_active a` with the other slot.
+
+### The update manifest
+
+`pinnactl update` reads a JSON manifest from an `http://`, `https://` or
+`file://` URL, or from a local path. Next to it, at its address after
+redirects, `manifest.json.sig` holds an ed25519 signature over the manifest's
+exact bytes, made with the release key. Pinna checks the signature before it
+reads anything in the manifest, and refuses a manifest without one.
+
+```json
+{
+  "version": "0.4.0",
+  "channel": "stable",
+  "summary": "Quiet speech from across the room now wakes the satellite.",
+  "notes_url": "https://github.com/elsbrock/pinna/releases/tag/v0.4.0",
+  "requires": { "boot_level": 1 },
+  "root": {
+    "url": "pinna-0.4.0.root.img",
+    "size": 157286400,
+    "sha256": "…"
+  },
+  "boot": {
+    "url": "pinna-boot.img",
+    "size": 16777216,
+    "sha256": "…"
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `version` | The image version, a semantic version. It must match the version inside the image |
+| `channel` | `stable`, or `beta` for a version with a prerelease part such as `0.4.0-beta.1` |
+| `summary` | One line of at most 255 characters, for the dashboard and Home Assistant |
+| `notes_url` | Optional: the release notes |
+| `requires.boot_level` | The lowest boot level the root needs. Each boot image says which level it provides (`pinna.level=` in its header) |
+| `requires.models` | Optional: the models the release is for, `echo-dot-2` or `echo-2`. Without it, every model |
+| `root.url` | Where to download the root image. A relative URL is relative to the manifest's address after redirects |
+| `root.size` | The image size in bytes. It must fit into the slot (768 MiB) |
+| `root.sha256` | The SHA-256 checksum of the image |
+| `boot` | Optional: the boot image that goes with the root image. Without it, the update copies the running boot image into the other slot |
+| `boot.url`, `boot.size`, `boot.sha256` | As for `root`. The image must fit into the boot partition (16 MiB) |
+
+`just release` writes the manifest and its signature for you. Releases have
+semantic versions: `0.4.0`, or `0.4.0-beta.1` for a beta. Builds of your own
+are versioned like `0.4.1-dev.202611170910.g1a2b3c4`: the nearest release tag
+before the commit with its patch raised by one (after a beta tag such as
+`v0.5.0-beta.1`, that tag's `0.5.0`; without any tag, `0.0.1`), then the time
+of the build in UTC and the commit. So they sort after the release they build
+on and before the next one.
 
 ## The release service
 

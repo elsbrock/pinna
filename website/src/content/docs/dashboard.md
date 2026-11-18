@@ -1,22 +1,23 @@
 ---
 title: Use the dashboard
-description: Open the device's dashboard in a browser to see its state, change settings, install updates, and read its network details and log.
+description: Open the satellite's dashboard in a browser to set it up, change its settings, install updates, and read its network details and log.
 ---
 
-The device serves a small web page, the dashboard, on port 80. It shows what
-the device is doing and lets you change what Home Assistant can change,
-except for these:
+The dashboard is a web page that the device serves on your network. It is
+where you set up and control the satellite: its name, Wi-Fi, the wake words,
+who answers requests, your services in standalone mode, music sources and
+updates. You need no app and no account, and you don't need Home Assistant. It
+works without an internet connection: the page and its fonts come from the
+device itself.
+
+If you use Home Assistant, it shows many of the same settings, and a change in
+one shows in the other. A few things belong to Home Assistant:
 
 - In Home Assistant mode, while Home Assistant is connected, it chooses the
   wake words.
 - Only Home Assistant raises a [notification](/docs/ring-and-buttons/#notifications);
   the dashboard clears it.
 - Only Home Assistant plays announcements.
-
-It also does what Home Assistant can't:
-it installs updates, restarts the device, shows the network details and the
-log, and runs the ring's test pattern. It works without an internet
-connection: the page and its fonts come from the device itself.
 
 ## Open the dashboard
 
@@ -36,6 +37,20 @@ Open one of these addresses in a browser on the same network as the device:
 
 Each device starts with its own name on the network. If you change it, give
 each device a different one.
+
+## Set up a new satellite
+
+1. [Open the dashboard](#open-the-dashboard). Over the USB cable, first
+   [connect the device to Wi-Fi](#change-the-wi-fi-network) on **Network**.
+2. [Name the device](#name-the-device) on **System**, for example `Kitchen`.
+   Do this before you add it to Home Assistant, which keeps the first name in
+   its entity IDs.
+3. [Set the time zone](#set-the-time-zone) on **System**, so that the clock
+   and the log show your time.
+4. Choose who answers requests, on **Assistant**:
+   [connect the device to Home Assistant](/docs/home-assistant/), or
+   [set up standalone mode](/docs/standalone/). Until Home Assistant connects
+   or you switch to standalone mode, **Overview** shows how to do either.
 
 ## What the dashboard shows
 
@@ -294,11 +309,9 @@ the previous version if the new one doesn't start. An install from a manifest
 URL takes an older signed release too, so someone with a copy of one can
 downgrade the device.
 
-The dashboard itself has no switch to turn it off: on a page without a login,
-anyone could turn it back on. Developers can turn it off with `listen = ""`
-under `[web]` in `pinnad.toml`, as [Configure Pinna](/docs/configure/#web)
-describes. `pinnactl` and the boot health check keep working then, because
-they use the control API on `127.0.0.1:7470`.
+The dashboard has no switch to turn it off: on a page without a login, anyone
+could turn it back on. Developers can turn it off in the
+[developer settings](/docs/configure/#web).
 
 ## Set a dashboard address
 
@@ -331,10 +344,10 @@ change the hostname.
 
 Other devices link to this address when you [switch between
 devices](#switch-between-satellites). Without one, they use the device's
-`.local` name or its IP address. Only one address fits: for a second name, such
-as your router's name next to a reverse proxy's, developers can use
-`allowed_hosts` under `[web]` in `pinnad.toml`. Anyone who can use the
-dashboard can set the address, so check it now and then.
+`.local` name or its IP address. Only one address fits; more names, such as
+your router's name next to a reverse proxy's, are a
+[developer setting](/docs/configure/#web). Anyone who can use the dashboard
+can set the address, so check it now and then.
 
 ## Switch between satellites
 
@@ -363,5 +376,6 @@ isn't on a network yet, only on USB, shows the list without others.
 
 ## What's next
 
-- [Update Pinna](/docs/update/)
-- [pinnactl and the control API](/docs/control-api/)
+- [Connect to Home Assistant](/docs/home-assistant/), or
+  [use Pinna without Home Assistant](/docs/standalone/).
+- [Update Pinna](/docs/update/) from the dashboard.
