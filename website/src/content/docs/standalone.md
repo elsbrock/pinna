@@ -138,6 +138,15 @@ once the reply has played, and listens for no follow-up after it.
 If Home Assistant is connected, you can also switch there: the satellite's
 **Assistant** select has the same two choices. It stays in both modes, and
 **Standalone** works only once the three services have passed their check.
+If the satellite is answering a request when the select changes, it switches
+once the reply has played.
+
+To switch to standalone mode by voice while Home Assistant answers, create a
+Home Assistant script that sets the satellite's **Assistant** select to
+**Standalone**, describe in the script's description when to use it, and
+expose the script to Assist. A conversation agent that uses an AI model can
+then run it when you say "switch to standalone mode". Assist has no command
+that changes a select by itself.
 
 ### If you also use Home Assistant
 
