@@ -1254,6 +1254,12 @@ fn connection_url(preset: PresetId, input: &str) -> Result<String, Refusal> {
         }
         template.to_owned()
     } else if template.contains("<host>") {
+        // Only a scheme, such as `http://`: the computer is still missing.
+        if input.split_once("://").is_some_and(|(_, rest)| rest.trim_matches('/').is_empty()) {
+            return Err(Refusal::Invalid(
+                "Enter the computer's name or address, such as 192.168.1.20.".into(),
+            ));
+        }
         local_url(template, input)
     } else {
         input.to_owned()
@@ -2115,6 +2121,13 @@ mod tests {
                 "https://user:pw@example.com/v1",
                 "Leave out the user name and password.",
             ),
+            // Only the scheme: the address still needs its host.
+            (
+                PresetId::Ollama,
+                "http://",
+                "Enter the computer's name or address, such as 192.168.1.20.",
+            ),
+            (PresetId::Custom, "https://", "The address needs a host name."),
         ] {
             assert_eq!(
                 f.service

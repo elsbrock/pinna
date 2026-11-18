@@ -193,7 +193,11 @@ pub fn http_url(s: &str, query: bool, start: &str) -> Result<url::Url, String> {
     if s.chars().any(char::is_whitespace) {
         return Err("An address has no spaces.".into());
     }
-    let url = url::Url::parse(s).map_err(|_| start.to_string())?;
+    let url = url::Url::parse(s).map_err(|error| match error {
+        // `https://` alone starts right; what is missing is the host.
+        url::ParseError::EmptyHost => "The address needs a host name.".to_string(),
+        _ => start.to_string(),
+    })?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(start.into());
     }
