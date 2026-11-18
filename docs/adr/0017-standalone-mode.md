@@ -322,9 +322,9 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   LAN trust as ADR 0005, and goals.md says so.
 - Home Assistant's timers don't carry over into standalone mode, and timers set on the device don't show
   in Home Assistant.
-- Two things are checked with `just dev-ha` before this ADR is accepted:
-  - Home Assistant removes its Assist satellite entity when the features go away;
-  - it adds the entity back when they return.
+- Home Assistant follows the features (checked 2026-11-18 with Home Assistant 2026.11.1 against a local
+  pinnad): switching to standalone removes the Assist satellite entity and both wake word selectors after
+  the reconnect, and the other entities stay; switching back adds them again.
 - Typing a question or playing a sample needs no microphone, so a setup can be tried from a laptop.
 - After a rollback, an older image reports the voice assistant features again, although the setting still
   says standalone.
