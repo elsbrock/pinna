@@ -388,7 +388,7 @@ fn addrs<T: Clone>(host: Option<&(String, u16)>, heard: &HashMap<String, Vec<T>>
 }
 
 /// A MAC's hex digits, lowercase, without separators.
-fn mac_digits(mac: &str) -> String {
+pub(crate) fn mac_digits(mac: &str) -> String {
     mac.chars()
         .filter(char::is_ascii_hexdigit)
         .map(|c| c.to_ascii_lowercase())

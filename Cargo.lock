@@ -2424,6 +2424,7 @@ dependencies = [
  "pinna-wakeword",
  "procfs",
  "prometheus-client",
+ "ring",
  "serde",
  "serde_json",
  "sha2",

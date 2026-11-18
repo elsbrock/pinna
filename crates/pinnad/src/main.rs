@@ -13,6 +13,7 @@ mod calibration;
 mod checks;
 mod clock;
 mod config;
+mod group;
 mod identity;
 mod leds;
 mod logs;

@@ -43,6 +43,9 @@ url = "2"
 prometheus-client = "0.26"
 procfs = { version = "0.18", default-features = false }
 simple-dns = "0.13"
+# HMAC-SHA256 and secure random numbers for the satellite group (ADR 0026):
+# already in the build under rustls, which doesn't expose them.
+ring = "0.17"
 
 [dev-dependencies]
 pinna-assist = { path = "../pinna-assist", features = ["testing"] }
