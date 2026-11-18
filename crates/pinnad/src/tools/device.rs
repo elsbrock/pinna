@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use super::{Args, Caller, DeviceTools, radio};
 use crate::checks::{self, TIMER_NAME_MAX};
 use crate::leds::LightEffect;
+use crate::settings::Mode;
 use crate::voice::{ApiCommand, RingLight, RingLightPatch, SettingsPatch, Snapshot, TimerSnapshot};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub(super) enum Op {
     StopMedia,
     ClearNotification,
     MuteMicrophone,
+    SwitchAssistant,
     SetTimer,
     ListTimers,
     CancelTimer,
@@ -116,6 +118,31 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
                 Caller::Mcp => "The microphone is muted. Only a person can unmute it.",
             }
             .into())
+        }
+        Op::SwitchAssistant => {
+            let mode = match args.need_text("mode")? {
+                "home_assistant" => Mode::HomeAssistant,
+                "standalone" => Mode::Standalone,
+                other => {
+                    return Err(format!(
+                        "mode must be home_assistant or standalone, not {other}."
+                    ));
+                }
+            };
+            let label = mode.label();
+            if tools.status.borrow().mode == mode {
+                // The Brain drops a switch still waiting for the other mode.
+                tools.ask(|r| ApiCommand::SwitchMode(mode, r)).await?;
+                return Ok(format!("The satellite is already in {label} mode."));
+            }
+            let snapshot = tools.ask(|r| ApiCommand::SwitchMode(mode, r)).await?;
+            Ok(match (snapshot.mode == mode, tools.caller) {
+                (true, _) => format!("Switched to {label} mode."),
+                (false, Caller::Run(_)) => {
+                    format!("Switching to {label} once this reply has played.")
+                }
+                (false, Caller::Mcp) => format!("Switching to {label} once the satellite is idle."),
+            })
         }
         Op::SetTimer => {
             // The Brain refuses a length out of range with its own sentence.

@@ -524,6 +524,8 @@ impl Brain {
             && self.ringing.is_none()
             && self.mode() == Mode::Standalone
             && self.assist_ready()
+            // The reply confirmed a switch away from this mode.
+            && self.pending_mode.is_none()
     }
 
     /// A question typed on the dashboard: a request without the microphone,
@@ -2403,6 +2405,47 @@ mod tests {
         // The next request is refused: the microphone is muted.
         device.brain.start_local_run(RunKind::Request, None).await;
         assert_eq!(device.spawner.count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_switch_the_run_asks_for_waits_until_the_reply_has_played() {
+        let mut device = TestDevice::ready();
+        let run = replying(&mut device).await;
+
+        let snapshot = device
+            .run_tool(run, |reply| {
+                ApiCommand::SwitchMode(Mode::HomeAssistant, reply)
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(snapshot.mode, Mode::Standalone, "the reply still plays");
+        assert_eq!(device.brain.pending_mode, Some(Mode::HomeAssistant));
+        device.brain.tick().await;
+        assert_eq!(device.brain.mode(), Mode::Standalone);
+
+        speak_reply(&mut device, run, true).await;
+
+        assert_eq!(device.spawner.count(), 0, "a switch ends the conversation");
+        assert_eq!(device.brain.mode(), Mode::Standalone);
+        device.brain.tick().await;
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert_eq!(device.brain.pending_mode, None);
+        let saved = std::fs::read_to_string(device.dir.path().join("settings.toml")).unwrap();
+        assert!(!saved.contains("mode"), "saved as Home Assistant: {saved}");
+    }
+
+    #[tokio::test]
+    async fn a_switch_that_became_unready_is_dropped_when_it_applies() {
+        let mut device = TestDevice::ready();
+        device.brain.settings.mode = Mode::HomeAssistant;
+        device.brain.pending_mode = Some(Mode::Standalone);
+        device.set_live(AssistLive::empty());
+
+        device.brain.tick().await;
+
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert_eq!(device.brain.pending_mode, None);
     }
 
     #[tokio::test]

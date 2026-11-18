@@ -322,6 +322,18 @@ static TOOLS: &[Tool] = &[
         op: Op::MuteMicrophone,
     },
     Tool {
+        name: "switch_assistant",
+        reach: Reach::Both,
+        about: "Switch the satellite between Home Assistant and standalone mode. It switches once the satellite is idle, so the reply that confirms it still plays. Standalone is refused until speech-to-text, the brain and text-to-speech are set up.",
+        params: &[Param {
+            name: "mode",
+            kind: Kind::Choice(&["home_assistant", "standalone"]),
+            required: true,
+            about: "The mode to switch to.",
+        }],
+        op: Op::SwitchAssistant,
+    },
+    Tool {
         name: "set_timer",
         reach: Reach::Both,
         about: "Start a timer that rings on this satellite.",
@@ -943,6 +955,61 @@ mod tests {
         );
         assert!(d.status.borrow().sw_muted);
         assert!(d.events().contains(&DeviceEvent::MuteState(true)));
+    }
+
+    #[tokio::test]
+    async fn both_surfaces_offer_switch_assistant() {
+        let info = catalogue().find(|t| t.name == "switch_assistant").unwrap();
+        assert!(info.brain && info.mcp);
+        let (run, _rx) = bare(Surface::Run, Caller::Run(RunId(1)));
+        let (mcp, _rx) = bare(Surface::Mcp, Caller::Mcp);
+        for tools in [&run, &mcp] {
+            let spec = tools
+                .specs()
+                .await
+                .into_iter()
+                .find(|s| s.name == "switch_assistant")
+                .unwrap();
+            assert_eq!(
+                spec.input_schema["properties"]["mode"]["enum"],
+                json!(["home_assistant", "standalone"])
+            );
+            assert_eq!(spec.input_schema["required"], json!(["mode"]));
+        }
+    }
+
+    #[tokio::test]
+    async fn switch_assistant_says_what_happens() {
+        let d = Device::start(Mode::Standalone).await;
+        let tools = d.tools(Surface::Mcp, &[]);
+
+        let same = tools
+            .call("switch_assistant", json!({"mode": "standalone"}))
+            .await;
+        assert_eq!(
+            same,
+            ToolOutput::ok("The satellite is already in Standalone mode.")
+        );
+        let other = tools
+            .call("switch_assistant", json!({"mode": "bluetooth"}))
+            .await;
+        assert!(other.is_error);
+    }
+
+    #[tokio::test]
+    async fn a_switched_off_switch_assistant_is_refused() {
+        let d = Device::start(Mode::Standalone).await;
+        let tools = d.tools(Surface::Mcp, &[("switch_assistant", false)]);
+
+        let out = tools
+            .call("switch_assistant", json!({"mode": "home_assistant"}))
+            .await;
+
+        assert_eq!(
+            out,
+            ToolOutput::error("The owner switched switch_assistant off under Assistant.")
+        );
+        assert_eq!(d.status.borrow().mode, Mode::Standalone);
     }
 
     #[tokio::test]

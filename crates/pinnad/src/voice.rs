@@ -122,6 +122,9 @@ pub enum ApiCommand {
     /// The track a bridge's stream plays, under its source name (ADR 0011).
     SetStreamMetadata(String, pinna_audio::Track, ApiReply),
     SetMute(bool, ApiReply),
+    /// Switch the mode once the satellite is idle, so a reply that confirms
+    /// it still plays; at once when it already is.
+    SwitchMode(Mode, ApiReply),
     StartConversation(ApiReply),
     StopConversation(ApiReply),
     LedTest(ApiReply),
@@ -165,6 +168,7 @@ impl ApiCommand {
             | Self::SetStreamVolume(_, reply)
             | Self::SetStreamMetadata(_, _, reply)
             | Self::SetMute(_, reply)
+            | Self::SwitchMode(_, reply)
             | Self::StartConversation(reply)
             | Self::StopConversation(reply)
             | Self::LedTest(reply)
@@ -598,6 +602,9 @@ pub struct Brain {
     /// and read the new voice features, once no run, alarm or voice playback
     /// is left. Media may keep playing.
     reconnect_for_mode: bool,
+    /// A switch `switch_assistant` asked for while a run, alarm or playback
+    /// was going; applied from `tick` once the satellite is idle.
+    pending_mode: Option<Mode>,
     encrypted: bool,
     /// When the restart after an update from Home Assistant was last tried.
     update_restart_tried: Option<Instant>,
@@ -734,6 +741,7 @@ impl Brain {
             reconnect_pending: false,
             update_restart_tried: None,
             reconnect_for_mode: false,
+            pending_mode: None,
             encrypted: opts.encrypted,
             opts,
         }
@@ -943,6 +951,7 @@ impl Brain {
                 self.apply_mute().await;
                 (Ok(()), reply)
             }
+            ApiCommand::SwitchMode(mode, reply) => (self.switch_mode(mode).await, reply),
             ApiCommand::StartConversation(reply) => {
                 let result = if self.ringing.is_some() || self.phase != Phase::Idle {
                     Err("a conversation or timer alarm is already active".to_string())
@@ -3000,6 +3009,18 @@ impl Brain {
             .await;
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
             self.end_calibration().await;
+        }
+        if let Some(mode) = self.pending_mode
+            && self.switch_idle()
+        {
+            self.pending_mode = None;
+            let patch = SettingsPatch {
+                mode: Some(mode),
+                ..SettingsPatch::default()
+            };
+            if let Err(why) = self.update_settings(patch).await {
+                tracing::info!("switch_assistant asked for {}: {why}", mode.label());
+            }
         }
         if self.reconnect_for_mode
             && self.phase == Phase::Idle

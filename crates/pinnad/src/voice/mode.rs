@@ -18,6 +18,8 @@ impl Brain {
     /// Home Assistant reconnects to read the new voice features once the
     /// satellite is idle. Media keeps playing. The caller saves the settings.
     pub(super) async fn set_mode(&mut self, new: Mode) -> Result<(), String> {
+        // Whoever sets a mode now has the say over a switch still waiting.
+        self.pending_mode = None;
         if new == self.mode() {
             return Ok(());
         }
@@ -44,6 +46,39 @@ impl Brain {
         self.reconnect_for_mode = self.clients > 0;
         self.refresh();
         Ok(())
+    }
+
+    /// Nothing is running, ringing or playing, and no standalone run is open:
+    /// the conditions under which Home Assistant reconnects for a new mode.
+    pub(super) fn switch_idle(&self) -> bool {
+        self.phase == Phase::Idle
+            && self.ringing.is_none()
+            && self.playback.is_none()
+            && self.local.run.is_none()
+    }
+
+    /// The `switch_assistant` tool. `set_mode` interrupts whatever runs, so
+    /// a switch asked for during a run waits for the satellite to be idle;
+    /// otherwise the run's own reply would be cut off. It is saved the way
+    /// the dashboard's and Home Assistant's switch is.
+    pub(super) async fn switch_mode(&mut self, mode: Mode) -> Result<(), String> {
+        if mode == self.mode() {
+            self.pending_mode = None;
+            return Ok(());
+        }
+        if mode == Mode::Standalone && !self.local.ready() {
+            return Err(NOT_READY.into());
+        }
+        if !self.switch_idle() {
+            tracing::info!("switching to {} once the satellite is idle", mode.label());
+            self.pending_mode = Some(mode);
+            return Ok(());
+        }
+        let patch = SettingsPatch {
+            mode: Some(mode),
+            ..SettingsPatch::default()
+        };
+        self.update_settings(patch).await
     }
 
     /// The "Assistant" select. A refusal leaves the mode as it was, and the
@@ -639,6 +674,58 @@ mod tests {
         assert!(device.events().contains(&DeviceEvent::Disconnect));
         device.brain.tick().await;
         assert!(!device.events().contains(&DeviceEvent::Disconnect));
+    }
+
+    impl Device {
+        async fn switch_mode(&mut self, mode: Mode) -> Result<Snapshot, String> {
+            let (reply, result) = oneshot::channel();
+            self.brain
+                .handle(Input::Api(ApiCommand::SwitchMode(mode, reply)))
+                .await;
+            result.await.unwrap()
+        }
+    }
+
+    #[tokio::test]
+    async fn switching_to_standalone_is_refused_until_it_is_ready() {
+        let mut device = Device::new(Mode::HomeAssistant);
+
+        assert_eq!(
+            device.switch_mode(Mode::Standalone).await.unwrap_err(),
+            NOT_READY
+        );
+
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert_eq!(device.brain.pending_mode, None);
+    }
+
+    #[tokio::test]
+    async fn an_idle_satellite_switches_at_once_and_saves_it() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.set_ready(true);
+
+        let snapshot = device.switch_mode(Mode::Standalone).await.unwrap();
+
+        assert_eq!(snapshot.mode, Mode::Standalone);
+        assert_eq!(device.brain.pending_mode, None);
+        assert!(
+            device
+                .saved("settings.toml")
+                .contains("mode = \"standalone\"")
+        );
+    }
+
+    #[tokio::test]
+    async fn asking_for_the_mode_it_is_in_changes_nothing() {
+        let mut device = Device::new(Mode::Standalone);
+        device.set_ready(true);
+        device.brain.pending_mode = Some(Mode::HomeAssistant);
+
+        device.switch_mode(Mode::Standalone).await.unwrap();
+
+        assert_eq!(device.brain.mode(), Mode::Standalone);
+        assert_eq!(device.brain.pending_mode, None);
+        assert!(device.events().is_empty());
     }
 
     #[tokio::test]
