@@ -582,6 +582,7 @@ mod tests {
             Message::Assistant {
                 text: "Done.".into(),
                 calls: Vec::new(),
+                signature: None,
             }
         );
         assert_eq!(last[22], Message::User("Question 12?".into()));

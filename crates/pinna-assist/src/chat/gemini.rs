@@ -86,18 +86,30 @@ impl GeminiChat {
                         "parts": [{"text": text}],
                     }));
                 }
-                Message::Assistant { text, calls } => {
+                Message::Assistant {
+                    text,
+                    calls,
+                    signature,
+                } => {
                     flush_function_responses(&mut contents, &mut function_responses);
                     let mut parts = Vec::new();
                     if !text.is_empty() {
                         parts.push(json!({"text": text}));
                     }
-                    parts.extend(calls.iter().map(|call| {
-                        json!({"functionCall": {
+                    parts.extend(calls.iter().enumerate().map(|(i, call)| {
+                        let mut part = json!({"functionCall": {
                             "id": call.id,
                             "name": call.name,
                             "args": call.args,
-                        }})
+                        }});
+                        // Gemini wants its signature back on the round's
+                        // first call, or refuses the request.
+                        if i == 0
+                            && let Some(signature) = signature
+                        {
+                            part["thoughtSignature"] = json!(signature);
+                        }
+                        part
                     }));
                     contents.push(json!({"role": "model", "parts": parts}));
                 }
@@ -212,6 +224,9 @@ impl Decoder {
                     deltas.push(ChatDelta::Text(text.to_owned()));
                 }
                 if let Some(call) = part.get("functionCall") {
+                    if let Some(signature) = part["thoughtSignature"].as_str() {
+                        deltas.push(ChatDelta::Signature(signature.to_owned()));
+                    }
                     let name = call["name"]
                         .as_str()
                         .ok_or_else(|| protocol_error(PresetId::Gemini))?
@@ -341,7 +356,7 @@ mod tests {
                         "id": "gemini-tool-1",
                         "name": "weather",
                         "args": {"city": "Paris"}
-                    }}
+                    }, "thoughtSignature": "c2lnbmF0dXJl"}
                 ]}}]}),
             ),
             event(json!({
@@ -375,6 +390,7 @@ mod tests {
             deltas,
             vec![
                 Ok(ChatDelta::Text("I will check.".into())),
+                Ok(ChatDelta::Signature("c2lnbmF0dXJl".into())),
                 Ok(ChatDelta::Call(ToolCall {
                     id: "gemini-tool-1".into(),
                     name: "weather".into(),
@@ -445,6 +461,7 @@ mod tests {
             Message::Assistant {
                 text: "I will check.".into(),
                 calls,
+                signature: Some("sig-1".into()),
             },
             Message::ToolResult {
                 call_id: "call-1".into(),
@@ -497,6 +514,13 @@ mod tests {
         assert_eq!(
             body["contents"][1]["parts"][1]["functionCall"]["args"],
             json!({"city": "Paris"})
+        );
+        // The signature goes back unchanged, on the round's first call only.
+        assert_eq!(body["contents"][1]["parts"][1]["thoughtSignature"], "sig-1");
+        assert!(
+            body["contents"][1]["parts"][2]
+                .get("thoughtSignature")
+                .is_none()
         );
         let responses = body["contents"][2]["parts"].as_array().unwrap();
         assert_eq!(responses.len(), 2);

@@ -306,6 +306,7 @@ fn history_messages(history: &[Turn]) -> Vec<Message> {
         messages.push(Message::Assistant {
             text: turn.assistant.clone(),
             calls: Vec::new(),
+            signature: None,
         });
     }
     messages

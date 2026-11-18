@@ -36,6 +36,8 @@ pub struct Harness {
     round: u8,
     round_text: String,
     calls: Vec<ToolCall>,
+    /// The provider token for this round's calls (Gemini).
+    signature: Option<String>,
     reply: String,
     pending: Vec<Out>,
 }
@@ -51,6 +53,7 @@ impl Harness {
             round: 1,
             round_text: String::new(),
             calls: Vec::new(),
+            signature: None,
             reply: String::new(),
             pending: Vec::new(),
         }
@@ -68,6 +71,12 @@ impl Harness {
                     self.calls.push(call);
                 }
             }
+            ChatDelta::Signature(signature) => {
+                // A parallel batch carries one, on its first call.
+                if self.tools_offered && self.signature.is_none() {
+                    self.signature = Some(signature);
+                }
+            }
             ChatDelta::Usage { input, output } => out.push(Out::Usage { input, output }),
             ChatDelta::End => self.flush(&mut out),
         }
@@ -81,10 +90,12 @@ impl Harness {
         self.reply.push_str(&self.round_text);
 
         let calls = std::mem::take(&mut self.calls);
+        let signature = self.signature.take();
         if !self.round_text.is_empty() || !calls.is_empty() {
             self.messages.push(Message::Assistant {
                 text: std::mem::take(&mut self.round_text),
                 calls: calls.clone(),
+                signature,
             });
         } else {
             self.round_text.clear();
@@ -240,11 +251,17 @@ mod tests {
     #[test]
     fn a_whole_gemini_call_is_one_tool_round() {
         let mut harness = Harness::new("Time?".into(), &RunLimits::MODEL, true);
+        harness.on_delta(ChatDelta::Signature("sig".into()));
         harness.on_delta(call("gemini-call-1", json!({"zone": "Europe/Berlin"})));
         let Step::CallTools(calls) = harness.on_stream_end() else {
             panic!("tools should run");
         };
         assert_eq!(calls[0].args, json!({"zone": "Europe/Berlin"}));
+        // The round's signature stays with its calls for the next request.
+        assert!(matches!(
+            &harness.messages()[1],
+            Message::Assistant { signature: Some(s), .. } if s == "sig"
+        ));
         harness.on_results(vec![(calls[0].clone(), ToolOutput::ok("14:03"))]);
         harness.on_delta(ChatDelta::Text("It is 14:03.".into()));
         assert!(matches!(harness.on_stream_end(), Step::Done { .. }));

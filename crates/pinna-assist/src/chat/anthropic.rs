@@ -58,7 +58,7 @@ impl AnthropicChat {
                         "content": [{"type": "text", "text": text}],
                     }));
                 }
-                Message::Assistant { text, calls } => {
+                Message::Assistant { text, calls, .. } => {
                     flush_tool_results(&mut messages, &mut tool_results);
                     let mut content = Vec::new();
                     if !text.is_empty() {
@@ -483,6 +483,7 @@ mod tests {
             Message::Assistant {
                 text: "I will check.".into(),
                 calls,
+                signature: None,
             },
             Message::ToolResult {
                 call_id: "toolu-1".into(),

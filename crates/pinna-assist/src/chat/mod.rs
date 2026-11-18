@@ -35,7 +35,13 @@ const SSE_LINE_MAX: usize = 256 * 1024;
 pub enum ChatDelta {
     Text(String),
     Call(ToolCall),
-    Usage { input: u64, output: u64 },
+    /// An opaque token the provider wants back with the round's calls
+    /// (Gemini's `thoughtSignature`).
+    Signature(String),
+    Usage {
+        input: u64,
+        output: u64,
+    },
     End,
 }
 
@@ -45,6 +51,9 @@ pub enum Message {
     Assistant {
         text: String,
         calls: Vec<ToolCall>,
+        /// What [`ChatDelta::Signature`] carried for these calls; sent back
+        /// unchanged by the adapter that asked for it.
+        signature: Option<String>,
     },
     ToolResult {
         call_id: String,

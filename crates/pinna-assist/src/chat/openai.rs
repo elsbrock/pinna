@@ -48,7 +48,7 @@ impl OpenAiChat {
         let mut messages = vec![json!({"role": "system", "content": req.system})];
         messages.extend(req.messages.iter().map(|message| match message {
             Message::User(text) => json!({"role": "user", "content": text}),
-            Message::Assistant { text, calls } => {
+            Message::Assistant { text, calls, .. } => {
                 let tool_calls: Vec<_> = calls
                     .iter()
                     .map(|call| {
@@ -476,6 +476,7 @@ mod tests {
             Message::Assistant {
                 text: "I will check.".into(),
                 calls: vec![call],
+                signature: None,
             },
             Message::ToolResult {
                 call_id: "call-1".into(),
