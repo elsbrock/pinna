@@ -39,8 +39,10 @@ each device a different one.
 
 ## What the dashboard shows
 
-On a computer the sections are in a sidebar, with the device at its foot; on a
-phone they are in a bar at the bottom.
+On a computer the sections are in a sidebar, with the device at its foot. The
+open section lists its pages under it, such as **Services**, **Conversation**
+and **Tools** under **Assistant**, and **Logs** under **System**. On a phone the
+sections are in a bar at the bottom, and a section's pages are rows on it.
 
 | Section | What you can do |
 | --- | --- |
