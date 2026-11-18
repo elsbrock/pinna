@@ -51,8 +51,10 @@ impl Reason {
             Self::Http(403) => "http_403",
             Self::Http(404) => "http_404",
             Self::Http(429) => "http_429",
+            Self::Http(300..=399) => "http_3xx",
+            Self::Http(400..=499) => "http_4xx",
             Self::Http(500..=599) => "http_5xx",
-            Self::Http(_) => "http_4xx",
+            Self::Http(_) => "http_other",
             Self::Timeout => "timeout",
             Self::Unreachable => "unreachable",
             Self::Tls => "tls",
@@ -129,6 +131,8 @@ mod tests {
         assert_eq!(Reason::Http(401).label(), "http_401");
         assert_eq!(Reason::Http(418).label(), "http_4xx");
         assert_eq!(Reason::Http(503).label(), "http_5xx");
+        assert_eq!(Reason::Http(308).label(), "http_3xx");
+        assert_eq!(Reason::Http(600).label(), "http_other");
         assert_eq!(Reason::ClockNotSet.label(), "clock");
         assert_eq!(Reason::TooLarge.label(), "too_large");
     }

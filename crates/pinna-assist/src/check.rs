@@ -300,6 +300,11 @@ pub fn refusal(error: &ProviderError) -> String {
             "The address is wrong. OpenClaw answers chat requests only after its chat endpoint is turned on; check the address, then turn it on.".to_owned()
         }
         Reason::Http(404) => "The address is wrong. Check the connection's address.".to_owned(),
+        // Provider requests don't follow redirects, so a key never reaches
+        // another host; a moved service needs its new address.
+        Reason::Http(300..=399) => {
+            "The service moved to another address. Enter its new address.".to_owned()
+        }
         Reason::Http(status) => format!(
             "The service answered {status}. Check the key, the address and the account."
         ),
