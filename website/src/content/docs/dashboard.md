@@ -282,7 +282,11 @@ address from your network, lighting the ring in any colour, the solid red of
 the muted microphones included, restarting the device,
 choosing the update channel, installing an update and switching to the version in the other slot. It also
 includes seeing what plays: the title of the music a phone sends over AirPlay
-or Bluetooth shows on **Now playing**. Only an update that
+or Bluetooth shows on **Now playing**. In
+[standalone mode](/docs/standalone/) it includes changing your services and
+the prompt, adding MCP servers, and asking questions that you pay for; the
+keys themselves never leave the device. Pinna's MCP server, `/mcp`, is open
+the same way. Only an update that
 is signed with the device's release key installs, and the device goes back to
 the previous version if the new one doesn't start. An install from a manifest
 URL takes an older signed release too, so someone with a copy of one can

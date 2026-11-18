@@ -90,7 +90,8 @@ On the devices:
   - MCP servers that need a sign-in or a token in a header can't be added.
   - The dashboard doesn't suggest model names; you type them as the service
     lists them.
-  - An **Other server** for text-to-speech always gets the model `tts-1`.
+  - Text-to-speech has no model field: OpenAI and **Other server** always get
+    the model `tts-1`, ElevenLabs `eleven_multilingual_v2`.
 
 ## Planned
 

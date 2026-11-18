@@ -17,7 +17,9 @@ whenever the device is listening. The audio
 goes to your Home Assistant, or in standalone mode to the services set up on
 the device: hosted services with your own keys, or your own servers. Pinna
 doesn't use Amazon's services, has no cloud service of its own, and never picks
-a service for you. In standalone mode, anyone who can use the dashboard can
+a service for your voice. In standalone mode the weather and the radio search
+come from Open-Meteo and radio-browser.info, and you can turn both off. Anyone
+who can use the dashboard can
 change those services; see
 [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 

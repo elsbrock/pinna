@@ -100,7 +100,7 @@ Check each condition with `pinnactl status`:
 | --- | --- | --- |
 | `muted` | `no` | Press the **Microphone off** button, or run `pinnactl mute off` |
 | `home assistant` | `connected, voice subscribed` | Add the device in Home Assistant and choose an Assist pipeline for it. See [Connect to Home Assistant](/docs/home-assistant/). In standalone mode, this line doesn't matter: see [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
-| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while the device listens to a request |
+| `wake word` | `armed` | Turn on the **Wake word** switch in Home Assistant or on the dashboard's **Voice & sound** page. The wake word is also off while the device listens to a request. In standalone mode it is armed only once speech-to-text, the brain and text-to-speech have passed their check: the `mode` line says `services ready`, and so does the dashboard's **Overview** |
 | `audio` | Anything but `none` | `none` means Pinna found no audio device. Check for `microphone unavailable` in the log |
 
 If all lines look right:
@@ -189,7 +189,7 @@ The request didn't work. The log says why:
 | `Home Assistant did not answer the run start` | Home Assistant didn't start the request within 5 seconds |
 | `Assist error: …` | The pipeline reported an error, for example from speech-to-text |
 | `Assist run timed out` | Home Assistant didn't answer within 30 seconds of thinking, including the wait for the reply to start. After 15 seconds of listening, the device stops the microphone and waits for the answer |
-| `standalone request failed: …` | In standalone mode, a service failed. The line names the slot, the preset and why, for example `brain via openrouter: HTTP 402`. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
+| `standalone request failed: …` | In standalone mode, a service failed. The line names the part that failed (`stt`, `brain`, `tts` or `tool`), the service and why, for example `brain via openrouter: HTTP 402`. See [Standalone mode doesn't answer](#standalone-mode-doesnt-answer) |
 | `no standalone request: the assistant isn't set up` | In standalone mode, speech-to-text, the brain or text-to-speech hasn't passed its check |
 
 The ring also flashes red when you press the Action button while the
@@ -205,9 +205,20 @@ Open the dashboard's **Assistant** page.
   speech-to-text, the brain and text-to-speech are each set up and have
   passed their check. **Services** shows which one isn't ready, and why its
   check failed.
-- **A request fails.** The device plays the error cue, and **Last failure**
-  shows why, with the service and the time, until a request is answered
-  again. The log has the same failure in a `standalone request failed` line.
+- **A request fails.** The device plays the error sound and the ring flashes
+  red. **Last failure** shows why, with the service and the time, until a
+  request is answered again. The log has the same failure in a
+  `standalone request failed` line.
+- **The brain's check passes, but every request fails with `The service
+  answered 400`.** A local model that doesn't support tool calls refuses each
+  request, because the satellite offers it its tools. Choose a model that
+  supports them.
+- **Replies are slow.** The log line `reply: first audio … after the end of
+  speech` gives the delay. The `pinna_standalone_stage_seconds`
+  [metric](/docs/metrics/) shows which part takes the time: speech-to-text,
+  the brain's first text, or text-to-speech. A smaller or nearer model, or a
+  faster speech service, helps. For an agent, the acknowledgment says it heard
+  you while it works.
 
 A check or a request that fails gives one of these sentences:
 
@@ -218,6 +229,14 @@ A check or a request that fails gives one of these sentences:
 | `Nothing answered at this address. An OpenAI-compatible server's address usually ends in /v1.` | Add `/v1` to the end of your server's address |
 | `The clock isn't set yet. Connect the satellite to the network, then try again.` | The device sets its clock from a time server on the internet after it starts. Check that its network reaches the internet, wait a minute, and try again |
 | `The secure connection failed. Check the address and the server's certificate.` | Pinna trusts only the certificate authorities in its image. For a server on your network with a certificate of its own, use an `http://` address for now |
+| `The service can't be reached. Check the address and that the server is running.` | Check the address, that the server runs, and that it listens on the network, not only on its own computer (for Ollama, `OLLAMA_HOST=0.0.0.0`) |
+| `The service didn't answer in time. Check the address and that the server is running.` | The server took more than 10 seconds for the check, or longer than the time limit for a request. Check that it runs and isn't busy |
+| `The model … isn't offered by this service.` | Enter the model exactly as the service lists it, for Ollama as `ollama list` shows it |
+| `The address is wrong. Check the connection's address.` | The service answered that nothing is there. Check the address on the connection |
+| `The address is wrong. OpenClaw answers chat requests only after its chat endpoint is turned on; …` | Turn on OpenClaw's chat endpoint, and check the address and port |
+| `The service moved to another address. Enter its new address.` | The satellite doesn't follow a redirect, so a key never goes to another host. Enter the address the service gives now |
+| `The service answered 400. Check the key, the address and the account.` | The service refused the request. Check the model name, and for a local model that it supports tool calls |
+| `The service didn't answer the way this check expects. Check the address and the model.` | The address points at something that isn't the service, or the model is wrong |
 
 For the setup, see [Use Pinna without Home Assistant](/docs/standalone/).
 

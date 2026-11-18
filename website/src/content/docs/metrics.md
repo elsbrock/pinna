@@ -7,7 +7,7 @@ The device serves metrics in the Prometheus text format at `/metrics`, on the
 same port as the [dashboard](/docs/dashboard/). They show how the device is
 doing (CPU, memory, temperature, Wi-Fi, its services) and how Pinna is doing
 (wakes, requests, reply times, Home Assistant's connection, and in
-[standalone mode](/docs/standalone/) your services and what they cost).
+[standalone mode](/docs/standalone/) how much you use your services).
 
 Use them if you run Prometheus or a program that reads its format. Home
 Assistant doesn't need them.
@@ -34,7 +34,7 @@ in Prometheus, open **Status > Targets**: the `pinna` job shows **UP**.
 The device answers only to the names the dashboard answers to, such as its IP
 addresses and `.local` names. If you scrape it by another DNS name, add that
 name first, as in
-[Open the dashboard by another name](/docs/dashboard/#open-the-dashboard-by-another-name),
+[Set a dashboard address](/docs/dashboard/#set-a-dashboard-address),
 or the device answers `421 Misdirected Request`.
 
 A scrape every 15 to 60 seconds is fine. The device reads the numbers when
