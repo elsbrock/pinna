@@ -8,6 +8,7 @@
 //! `<server>_<tool>`. A device tool's name is never lent to one of them.
 
 mod device;
+mod http;
 pub mod radio;
 pub mod weather;
 

@@ -11,11 +11,12 @@ use std::collections::HashSet;
 
 use pinna_assist::config::Station;
 use pinna_http::reqwest::header::USER_AGENT;
-use pinna_http::{ClientKind, NetError, classify, reqwest};
+use pinna_http::{ClientKind, reqwest};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::DeviceTools;
+use super::http::get_json;
 use crate::checks;
 use crate::voice::ApiCommand;
 
@@ -23,7 +24,6 @@ const SEARCH_URL: &str = "https://all.api.radio-browser.info/json/stations/searc
 /// radio-browser.info asks its clients to name themselves.
 const AGENT: &str = concat!("pinna/", env!("CARGO_PKG_VERSION"));
 /// A search answer is a few KiB per station.
-const BODY_CAP: usize = 256 * 1024;
 /// Stations a search returns at most.
 const RESULTS: usize = 8;
 /// Stations a search asks for: some are left out for their codec.
@@ -228,7 +228,10 @@ impl RadioBrowser {
             self.url,
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>()
         );
-        let found = self.get(&url).await.map_err(|f| f.sentence())?;
+        let request = self.http.get(&url).header(USER_AGENT, AGENT);
+        let found: Vec<Value> = get_json(request)
+            .await
+            .map_err(|f| f.sentence("The radio directory"))?;
         let mut seen = HashSet::new();
         let stations: Vec<Value> = found
             .into_iter()
@@ -239,56 +242,6 @@ impl RadioBrowser {
             .take(RESULTS)
             .collect();
         Ok(json!({ "stations": stations }).to_string())
-    }
-
-    async fn get(&self, url: &str) -> Result<Vec<Value>, Failure> {
-        let mut response = self
-            .http
-            .get(url)
-            .header(USER_AGENT, AGENT)
-            .send()
-            .await
-            .map_err(Failure::net)?;
-        if !response.status().is_success() {
-            return Err(Failure::Http(response.status().as_u16()));
-        }
-        let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(Failure::net)? {
-            if chunk.len() > BODY_CAP - body.len() {
-                return Err(Failure::Unreadable);
-            }
-            body.extend_from_slice(&chunk);
-        }
-        serde_json::from_slice(&body).map_err(|_| Failure::Unreadable)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Failure {
-    Timeout,
-    Unreachable,
-    Http(u16),
-    /// Not JSON in the expected shape, or too large to be it.
-    Unreadable,
-}
-
-impl Failure {
-    fn net(e: reqwest::Error) -> Self {
-        match classify(&e) {
-            NetError::Timeout => Self::Timeout,
-            NetError::Unreachable | NetError::Tls => Self::Unreachable,
-            NetError::Protocol => Self::Unreadable,
-        }
-    }
-
-    fn sentence(&self) -> String {
-        const SERVICE: &str = "The radio directory";
-        match self {
-            Self::Timeout => format!("{SERVICE} didn't answer in time. Try again later."),
-            Self::Unreachable => format!("{SERVICE} can't be reached. Try again later."),
-            Self::Http(status) => format!("{SERVICE} answered {status}. Try again later."),
-            Self::Unreadable => format!("{SERVICE} sent an answer that can't be read."),
-        }
     }
 }
 
@@ -627,7 +580,7 @@ mod tests {
         server.script(
             Method::GET,
             &path,
-            FakeResponse::new(StatusCode::OK, "x".repeat(BODY_CAP + 1)),
+            FakeResponse::new(StatusCode::OK, "x".repeat(super::super::http::BODY_CAP + 1)),
         );
         server.script(
             Method::GET,

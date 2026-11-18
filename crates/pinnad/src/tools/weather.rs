@@ -8,16 +8,17 @@
 
 use jiff::civil::Date;
 use pinna_assist::config::Place;
-use pinna_http::{ClientKind, NetError, classify, reqwest};
+use pinna_http::{ClientKind, reqwest};
 use pinna_mcp::ToolOutput;
 use serde::Deserialize;
+
+use super::http::get_json;
 
 pub const NAME: &str = "weather";
 
 const FORECAST_URL: &str = "https://api.open-meteo.com/v1/forecast";
 const GEOCODING_URL: &str = "https://geocoding-api.open-meteo.com/v1/search";
 /// Both answers are a few KiB.
-const BODY_CAP: usize = 256 * 1024;
 /// Today and the next two days.
 const DAYS: usize = 3;
 /// A place name to search for is at most this many characters.
@@ -85,7 +86,7 @@ impl OpenMeteo {
             place.lon,
             units.query()
         );
-        let forecast = match self.get::<Forecast>(&url).await {
+        let forecast = match get_json::<Forecast>(self.http.get(&url)).await {
             Ok(forecast) => forecast,
             Err(failure) => return ToolOutput::error(failure.sentence("The weather service")),
         };
@@ -101,8 +102,7 @@ impl OpenMeteo {
             encode(&name),
             encode(&primary_language(language)),
         );
-        let search = self
-            .get::<Search>(&url)
+        let search = get_json::<Search>(self.http.get(&url))
             .await
             .map_err(|failure| PlaceError::Unavailable(failure.sentence("The place search")))?;
         search
@@ -111,21 +111,6 @@ impl OpenMeteo {
             .next()
             .map(Found::into_place)
             .ok_or(PlaceError::NotFound)
-    }
-
-    async fn get<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<T, Failure> {
-        let mut response = self.http.get(url).send().await.map_err(Failure::net)?;
-        if !response.status().is_success() {
-            return Err(Failure::Http(response.status().as_u16()));
-        }
-        let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(Failure::net)? {
-            if chunk.len() > BODY_CAP - body.len() {
-                return Err(Failure::Unreadable);
-            }
-            body.extend_from_slice(&chunk);
-        }
-        serde_json::from_slice(&body).map_err(|_| Failure::Unreadable)
     }
 }
 
@@ -179,34 +164,6 @@ fn primary_language(language: Option<&str>) -> String {
 
 fn encode(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Failure {
-    Timeout,
-    Unreachable,
-    Http(u16),
-    /// Not JSON in the expected shape, or too large to be it.
-    Unreadable,
-}
-
-impl Failure {
-    fn net(e: reqwest::Error) -> Self {
-        match classify(&e) {
-            NetError::Timeout => Self::Timeout,
-            NetError::Unreachable | NetError::Tls => Self::Unreachable,
-            NetError::Protocol => Self::Unreadable,
-        }
-    }
-
-    fn sentence(&self, service: &str) -> String {
-        match self {
-            Self::Timeout => format!("{service} didn't answer in time. Try again later."),
-            Self::Unreachable => format!("{service} can't be reached. Try again later."),
-            Self::Http(status) => format!("{service} answered {status}. Try again later."),
-            Self::Unreadable => format!("{service} sent an answer that can't be read."),
-        }
-    }
 }
 
 #[derive(Deserialize)]
