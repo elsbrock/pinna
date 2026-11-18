@@ -334,6 +334,18 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-nav-item[aria-current="page"] { background: var(--signal-soft); color: var(--ink); }
 .pn-nav-item[aria-current="page"] .pn-icon { color: var(--signal); }
 .pn-nav-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* The open section while one of its sub-pages is shown. */
+.pn-nav-item[aria-current="true"] { color: var(--ink); }
+.pn-nav-item[aria-current="true"] .pn-icon { color: var(--signal); }
+/* A sub-page, under its open section: indented to the section's text. */
+.pn-nav-sub {
+  display: flex; align-items: center; height: 32px; padding: 0 10px 0 36px; box-sizing: border-box;
+  border-radius: var(--radius-sm); color: var(--ink-muted); font-size: 14px; line-height: 20px; font-weight: 550;
+  text-decoration: none; transition: background-color .12s, color .12s;
+}
+.pn-nav-sub:hover { background: var(--surface-sunken); color: var(--ink); }
+.pn-nav-sub[aria-current="page"] { background: var(--signal-soft); color: var(--ink); font-weight: 650; }
+.pn-nav-sub:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* ---------- Tab bar (phones) ---------- */
 .pn-tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); height: var(--tabbar-h); box-sizing: content-box; background: var(--surface-raised); border-top: 1px solid var(--line); }

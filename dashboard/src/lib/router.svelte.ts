@@ -29,7 +29,7 @@ export const SECTIONS: Section[] = [
     title: "Assistant",
     short: "Assistant",
     icon: "assistant",
-    group: "Connections",
+    group: "Satellite",
     description: "Who answers requests: Home Assistant, or services the satellite calls itself.",
   },
   {
@@ -86,6 +86,11 @@ const SUBPAGES: Omit<Page, "section">[] = [
       "What the satellite is doing, newest at the bottom. Debug lines stay on the satellite, because they can contain what was said.",
   },
 ];
+
+/** A section's sub-pages, in the order the sidebar lists them under it. */
+export function subpagesOf(section: Path): Omit<Page, "section">[] {
+  return SUBPAGES.filter((p) => p.path.startsWith(`${section}/`));
+}
 
 /** The page at `path`, with the section it belongs to (a sub-page's parent). */
 export function pageOf(path: Path): Page {

@@ -9,7 +9,7 @@
   import Logo from "./lib/Logo.svelte";
   import Ring from "./lib/Ring.svelte";
   import Satellites from "./lib/Satellites.svelte";
-  import { SECTIONS, pageOf, router } from "./lib/router.svelte.ts";
+  import { SECTIONS, pageOf, router, subpagesOf } from "./lib/router.svelte.ts";
   import Toasts from "./lib/Toasts.svelte";
   import { wifi } from "./lib/wifi.svelte.ts";
   import WifiTrial from "./lib/WifiTrial.svelte";
@@ -61,9 +61,18 @@
       {#each groups as g (g)}
         <span class="pn-nav-label">{g}</span>
         {#each SECTIONS.filter((x) => x.group === g) as x (x.path)}
-          <a class="pn-nav-item" href="#{x.path}" aria-current={page.section.path === x.path ? "page" : undefined}>
+          {@const open = page.section.path === x.path}
+          <!-- The open section: "page" on its own page, "true" while one of its sub-pages is. -->
+          <a class="pn-nav-item" href="#{x.path}" aria-current={open ? (page.path === x.path ? "page" : "true") : undefined}>
             <Icon name={x.icon} />{x.title}
           </a>
+          {#if open}
+            {#each subpagesOf(x.path) as sub (sub.path)}
+              <a class="pn-nav-sub" href="#{sub.path}" aria-current={page.path === sub.path ? "page" : undefined}>
+                {sub.title}
+              </a>
+            {/each}
+          {/if}
         {/each}
       {/each}
     </nav>
