@@ -18,7 +18,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::MethodRouter;
 use futures::future::BoxFuture;
-use pinna_mcp::jsonrpc::{self, Id, Incoming, Payload, Version};
+use pinna_mcp::jsonrpc::{self, Id, Incoming};
 use pinna_mcp::server::{self, ServerInfo};
 use pinna_mcp::{ToolOutput, ToolSet, ToolSpec};
 use serde_json::Value;
@@ -186,19 +186,7 @@ fn home_assistant_mode(body: &[u8]) -> Response {
 }
 
 fn refusal(status: StatusCode, id: Id, message: &str) -> Response {
-    let body = serde_json::to_vec(&jsonrpc::Response {
-        jsonrpc: Version::V2,
-        id,
-        payload: Payload::Failure {
-            error: jsonrpc::Error {
-                code: SERVER_ERROR,
-                message: message.into(),
-                data: None,
-            },
-        },
-    })
-    .expect("a JSON-RPC response always serializes");
-    json(status, body)
+    json(status, pinna_mcp::server::error(id, SERVER_ERROR, message))
 }
 
 fn json(status: StatusCode, body: Vec<u8>) -> Response {

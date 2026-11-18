@@ -32,7 +32,7 @@ pub async fn handle(tools: &dyn ToolSet, info: &ServerInfo, body: &[u8]) -> Hand
     let reply = match parse(body) {
         Ok(Incoming::Single(req)) => return single(tools, info, req).await,
         Err(e) => Some(encode(Payload::Failure { error: e }, Id::Null)),
-        Ok(Incoming::Batch(_)) => Some(error(Id::Null, -32600, "Batch requests are not supported")),
+        Ok(Incoming::Batch) => Some(error(Id::Null, -32600, "Batch requests are not supported")),
     };
     Handled {
         reply,
@@ -144,7 +144,8 @@ fn failure(code: i32, message: &str) -> Payload {
     }
 }
 
-fn error(id: Id, code: i32, message: &str) -> Vec<u8> {
+/// One JSON-RPC error reply body.
+pub fn error(id: Id, code: i32, message: &str) -> Vec<u8> {
     encode(failure(code, message), id)
 }
 

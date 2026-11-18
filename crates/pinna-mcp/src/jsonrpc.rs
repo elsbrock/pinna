@@ -91,7 +91,8 @@ pub enum Payload {
 #[derive(Debug, PartialEq)]
 pub enum Incoming {
     Single(Request),
-    Batch(Vec<Result<Request, Error>>),
+    /// A batch: Pinna's server refuses it whole, so its members aren't read.
+    Batch,
 }
 
 fn request(value: Value) -> Result<Request, Error> {
@@ -104,7 +105,7 @@ fn request(value: Value) -> Result<Request, Error> {
 pub fn parse(body: &[u8]) -> Result<Incoming, Error> {
     match serde_json::from_slice(body).map_err(|_| Error::parse_error())? {
         Value::Array(items) if items.is_empty() => Err(Error::invalid_request()),
-        Value::Array(items) => Ok(Incoming::Batch(items.into_iter().map(request).collect())),
+        Value::Array(_) => Ok(Incoming::Batch),
         value => request(value).map(Incoming::Single),
     }
 }
@@ -135,12 +136,9 @@ mod tests {
     }
 
     #[test]
-    fn batch_keeps_notifications_and_invalid_members_in_order() {
-        let Incoming::Batch(items) = parse(br#"[{"jsonrpc":"2.0","method":"ping","id":1},false,{"jsonrpc":"2.0","method":"notifications/initialized"}]"#).unwrap() else { panic!("expected a batch") };
-        assert_eq!(items.len(), 3);
-        assert_eq!(items[0].as_ref().unwrap().id, Some(Id::Number(1.into())));
-        assert_eq!(items[1].as_ref().unwrap_err().code, -32600);
-        assert_eq!(items[2].as_ref().unwrap().id, None);
+    fn a_non_empty_array_is_a_batch() {
+        let batch = br#"[{"jsonrpc":"2.0","method":"ping","id":1},false]"#;
+        assert_eq!(parse(batch).unwrap(), Incoming::Batch);
     }
 
     #[test]
