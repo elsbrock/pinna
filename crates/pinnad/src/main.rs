@@ -30,6 +30,7 @@ mod tools;
 mod updates;
 mod virtual_device;
 mod voice;
+mod wake_level;
 mod wakewords;
 mod web;
 mod wifi;
@@ -53,6 +54,7 @@ use crate::mic::MicRouter;
 use crate::standalone::service::{Paths, Service};
 use crate::standalone::spawn::ProdSpawner;
 use crate::voice::{Brain, Input, LocalOptions, Options, Shared, Snapshot};
+use crate::wake_level::WakeLevel;
 use crate::wakewords::{Catalogue, KeywordSet};
 
 #[derive(Parser)]
@@ -185,6 +187,17 @@ impl CaptureGain {
     }
 }
 
+/// The gain in each wake word's measurement line (ADR 0026): the automatic
+/// gain as it stands after the latest frame, or the fixed one.
+impl std::fmt::Display for CaptureGain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CaptureGain::Auto { agc, .. } => write!(f, "automatic gain {:+.1} dB", agc.gain_db()),
+            CaptureGain::Fixed(g) => write!(f, "fixed gain {:+.1} dB", 20.0 * g.log10()),
+        }
+    }
+}
+
 fn frame_bytes(frame: &[i16]) -> Bytes {
     let mut out = Vec::with_capacity(frame.len() * 2);
     for s in frame {
@@ -233,6 +246,8 @@ async fn capture_loop(
     // The newest set of wake words applied (ADR 0013).
     let mut generation = 0u64;
     let mut detected_at: Option<std::time::Instant> = None;
+    // Each wake word's level before the gain (ADR 0026).
+    let mut levels = WakeLevel::default();
     while let Some(mut frame) = stream.recv().await {
         // Newly chosen wake words, loaded outside this task.
         while let Ok(set) = keywords.try_recv() {
@@ -254,8 +269,10 @@ async fn capture_loop(
             if let Some(d) = detector.as_mut() {
                 d.reset();
             }
+            levels.reset();
             continue;
         }
+        let pre_gain = pinna_audio::agc::mean_square(&frame);
         gain.apply(&mut frame);
         let streaming = shared.streaming.load(Ordering::SeqCst);
         // The wake detector's latest noise floor seeds the shadow endpointer.
@@ -276,6 +293,7 @@ async fn capture_loop(
         {
             // The detector skipped routed audio; drop its stale history.
             d.reset();
+            levels.reset();
         }
         if routed.detect_wake {
             // Always feed the detector so it keeps its audio context (it needs
@@ -283,8 +301,10 @@ async fn capture_loop(
             if let Some(d) = detector.as_mut() {
                 let threshold = d.threshold();
                 let mut new_peak = None;
+                levels.frame(pre_gain);
                 let detections = tokio::task::block_in_place(|| {
                     d.push_with(&frame, |b| {
+                        levels.block(b);
                         if b.score > peak {
                             peak = b.score;
                             peak_reached = b.score >= threshold;
@@ -321,12 +341,29 @@ async fn capture_loop(
                     }
                     peak = 0.0;
                 }
-                if shared.wake_enabled.load(Ordering::Relaxed) {
+                if shared.wake_enabled.load(Ordering::Relaxed) && !detections.is_empty() {
+                    // The time the detector decided, taken here because
+                    // journald stamps a line only when it arrives.
+                    let at = jiff::Timestamp::now();
                     for det in detections {
-                        let id = d.keyword(det.keyword).map(|k| k.name().to_owned());
+                        let id = d
+                            .keyword(det.keyword)
+                            .map(|k| k.name().to_owned())
+                            .unwrap_or_default();
+                        // ADR 0026 measures from these lines whether the
+                        // level or the score picks the nearer satellite, before
+                        // the group's wake word arbitration is built.
+                        let level = levels.word(det.sample_index).map_or_else(
+                            || "level before the gain unknown".to_owned(),
+                            |l| l.to_string(),
+                        );
+                        tracing::info!(
+                            "wake word {id:?}: {level}, {gain}, score {:.2}, at {at:.3}",
+                            det.score
+                        );
                         let _ = inputs
                             .send(Input::Wake {
-                                id: id.unwrap_or_default(),
+                                id,
                                 score: det.score,
                             })
                             .await;
