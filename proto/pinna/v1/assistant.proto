@@ -102,6 +102,16 @@ message Assistant {
   repeated McpAgent agents = 15;
   // The presets a connection can use, in the order to offer them.
   repeated Preset presets = 16;
+  // What the satellite says while a slow agent thinks, in the current
+  // language: the owner's phrase, or while the owner keeps the default, the
+  // language's own.
+  string ack_spoken = 17;
+  // The satellite's voice rules: the prompt while `prompt` is unset, and
+  // what going back to them restores.
+  string voice_rules = 18;
+  // The satellite's own tools, which `tools` switches, in the order to show
+  // them.
+  repeated DeviceTool device_tools = 19;
 }
 
 // A provider's address and key, shared by the slots that use it.
@@ -194,6 +204,18 @@ message Preset {
   string model = 6;
   // Its brain is an agent (DELEGATION_HAND_OFF).
   bool hand_off = 7;
+}
+
+// One of the satellite's own tools.
+message DeviceTool {
+  // As the brain and MCP clients call it, such as "set_timer".
+  string name = 1;
+  // What it does, as the brain and MCP clients are told.
+  string description = 2;
+  // The brain's tool loop offers it.
+  bool brain = 3;
+  // Pinna's MCP server offers it.
+  bool mcp = 4;
 }
 
 message GetAssistantRequest {}

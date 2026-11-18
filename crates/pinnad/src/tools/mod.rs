@@ -414,6 +414,27 @@ pub fn device_tool_name(name: &str) -> Option<&'static str> {
     TOOLS.iter().map(|t| t.name).find(|t| *t == name)
 }
 
+/// A device tool as the dashboard lists it beside its switch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ToolInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+    /// The brain's tool loop offers it.
+    pub brain: bool,
+    /// `/mcp` offers it.
+    pub mcp: bool,
+}
+
+/// Every device tool, in registry order.
+pub fn catalogue() -> impl Iterator<Item = ToolInfo> {
+    TOOLS.iter().map(|t| ToolInfo {
+        name: t.name,
+        description: t.about,
+        brain: t.reach.offers(Surface::Brain),
+        mcp: t.reach.offers(Surface::Mcp),
+    })
+}
+
 /// A tool call's arguments, checked against the tool's parameters.
 struct Args {
     tool: &'static str,
@@ -934,6 +955,32 @@ mod tests {
         assert!(!Reach::BrainOnly.offers(Surface::Mcp));
         assert!(!Reach::McpOnly.offers(Surface::Brain));
         assert!(Reach::Both.offers(Surface::Brain) && Reach::Both.offers(Surface::Mcp));
+    }
+
+    #[tokio::test]
+    async fn the_catalogue_lists_each_tool_with_its_surfaces() {
+        let (brain, _rx) = bare(Surface::Brain, Caller::Run(RunId(1)));
+        let (mcp, _rx) = bare(Surface::Mcp, Caller::Mcp);
+        let brain_names = names(&brain).await;
+        let mcp_names = names(&mcp).await;
+
+        let listed: Vec<ToolInfo> = catalogue().collect();
+
+        assert_eq!(listed.len(), TOOLS.len());
+        for tool in &listed {
+            assert_eq!(tool.brain, brain_names.iter().any(|n| n == tool.name));
+            assert_eq!(tool.mcp, mcp_names.iter().any(|n| n == tool.name));
+            assert!(tool.brain || tool.mcp, "{}", tool.name);
+            assert!(!tool.description.is_empty(), "{}", tool.name);
+        }
+        let weather = listed.iter().find(|t| t.name == "weather").unwrap();
+        assert!(weather.brain && !weather.mcp);
+        let speak = listed.iter().find(|t| t.name == "speak").unwrap();
+        assert!(!speak.brain && speak.mcp);
+        assert_eq!(
+            speak.description,
+            TOOLS.iter().find(|t| t.name == "speak").unwrap().about
+        );
     }
 
     #[tokio::test]

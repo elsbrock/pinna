@@ -264,6 +264,8 @@ pub struct AssistantView {
     pub prompt: Option<String>,
     pub follow_ups: bool,
     pub ack: Ack,
+    /// The phrase the acknowledgment says in the current language.
+    pub ack_spoken: String,
     pub tools: BTreeMap<String, bool>,
     pub stations: Vec<Station>,
     pub mcp_servers: Vec<McpServerView>,
@@ -1075,6 +1077,7 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
         prompt: c.prompt.clone(),
         follow_ups: c.follow_ups,
         ack: c.ack.clone(),
+        ack_spoken: ack::phrase(&c.ack, c.language.as_deref()),
         tools: c.tools.clone(),
         stations: c.stations.clone(),
         mcp_servers: c
@@ -2029,6 +2032,36 @@ mod tests {
                 Refusal::Invalid(sentence.into())
             );
         }
+    }
+
+    #[tokio::test]
+    async fn the_view_says_the_acknowledgment_as_it_is_spoken() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        assert_eq!(f.service.view().ack_spoken, "One moment.");
+
+        let german = f
+            .service
+            .update(AssistantPatch {
+                language: Some(Some("de-AT".into())),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(german.ack.phrase, Ack::default().phrase);
+        assert_eq!(german.ack_spoken, "Einen Moment.");
+
+        let own = f
+            .service
+            .update(AssistantPatch {
+                ack: Some(Ack {
+                    enabled: false,
+                    phrase: "Moment mal.".into(),
+                }),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(own.ack_spoken, "Moment mal.");
     }
 
     #[tokio::test]

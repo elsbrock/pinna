@@ -15,13 +15,14 @@ use connectrpc::{ConnectError, RequestContext, Response, Router, ServiceRequest,
 use pinna_api::{
     Acknowledgment, AskTextRequest, AskTextResponse, Assistant, AssistantService, AssistantSlot,
     BrainOverride, DeleteConnectionRequest, DeleteConnectionResponse, DeleteMcpServerRequest,
-    DeleteMcpServerResponse, GetAssistantRequest, GetAssistantResponse, McpAgent,
+    DeleteMcpServerResponse, DeviceTool, GetAssistantRequest, GetAssistantResponse, McpAgent,
     PlaySampleRequest, PlaySampleResponse, ProviderConnection, SetConnectionRequest,
     SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse, SetSlotRequest,
     SetSlotResponse, SlotChoice, UpdateAssistantRequest, UpdateAssistantResponse,
 };
 use pinna_assist::config::{Ack, Station};
 use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId};
+use pinna_assist::prompt::VOICE_RULES;
 use pinna_http::Secret;
 
 use crate::checks;
@@ -29,6 +30,7 @@ use crate::standalone::service::{
     AssistantPatch, AssistantView, ConnectionEdit, KeyEdit, McpEdit, Refusal, Service, SlotEdit,
     SlotKind, SlotView,
 };
+use crate::tools;
 use crate::voice::{ApiCommand, Input};
 
 pub struct AssistantApi {
@@ -150,6 +152,17 @@ fn render(v: AssistantView) -> Assistant {
                 tts: p.slots.tts,
                 model: p.model.unwrap_or_default().into(),
                 hand_off: p.behaviour.delegation == Delegation::HandOff,
+                ..Default::default()
+            })
+            .collect(),
+        ack_spoken: v.ack_spoken,
+        voice_rules: VOICE_RULES.into(),
+        device_tools: tools::catalogue()
+            .map(|t| DeviceTool {
+                name: t.name.into(),
+                description: t.description.into(),
+                brain: t.brain,
+                mcp: t.mcp,
                 ..Default::default()
             })
             .collect(),
@@ -966,6 +979,13 @@ mod tests {
         assert_eq!(openclaw.model, "openclaw/default");
         assert_eq!(openclaw.base_url, "http://<host>:<port>/v1");
         assert_eq!(a.presets.len(), presets::presets().len());
+        assert_eq!(a.voice_rules, VOICE_RULES);
+        assert_eq!(a.ack_spoken, "One moment.");
+        let names: Vec<&str> = a.device_tools.iter().map(|t| t.name.as_str()).collect();
+        let catalogue: Vec<&str> = tools::catalogue().map(|t| t.name).collect();
+        assert_eq!(names, catalogue);
+        let weather = a.device_tools.iter().find(|t| t.name == "weather").unwrap();
+        assert!(weather.brain && !weather.mcp && !weather.description.is_empty());
 
         let override_ = BrainOverride {
             delegation: EnumValue::Known(pinna_api::Delegation::DELEGATION_HAND_OFF),
@@ -995,6 +1015,7 @@ mod tests {
         assert_eq!(a.prompt.as_deref(), Some("Be brief."));
         assert!(!a.follow_ups);
         assert_eq!(a.ack.as_option().unwrap().phrase, "Moment.");
+        assert_eq!(a.ack_spoken, "Moment.");
         assert_eq!(a.tools.get("weather"), Some(&false));
         assert_eq!(a.brain_override.as_option(), Some(&override_));
 
