@@ -215,6 +215,11 @@ pub fn refusal(error: &ProviderError) -> String {
         Reason::Http(404) if error.preset == PresetId::OpenClaw => {
             "The address is wrong. OpenClaw answers chat requests only after its chat endpoint is turned on; check the address, then turn it on.".to_owned()
         }
+        // An address the owner typed in full: the usual mistake is the path.
+        Reason::Http(404) if preset(error.preset).base_url.is_empty() => {
+            "Nothing answered at this address. An OpenAI-compatible server's address usually ends in /v1."
+                .to_owned()
+        }
         Reason::Http(404) => "The address is wrong. Check the connection's address.".to_owned(),
         // Provider requests don't follow redirects, so a key never reaches
         // another host; a moved service needs its new address.
@@ -526,6 +531,14 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error, "The text-to-speech service sent no audio.");
+    }
+
+    #[test]
+    fn a_missing_path_is_named_for_an_address_typed_in_full() {
+        let custom = ProviderError::new(Slot::Chat, PresetId::Custom, Reason::Http(404));
+        assert!(refusal(&custom).contains("/v1"));
+        let hosted = ProviderError::new(Slot::Chat, PresetId::OpenAi, Reason::Http(404));
+        assert!(!refusal(&hosted).contains("/v1"));
     }
 
     #[test]
