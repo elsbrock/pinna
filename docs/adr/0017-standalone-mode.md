@@ -169,20 +169,24 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   request would, without a follow-up, and the reply plays on the device. Like a spoken one, it is
   refused while the microphones are off: muted is the owner saying "not now".
 - **pinnad's own tools are the paths behind its Home Assistant entities** (ADR 0007), so Home Assistant,
-  the dashboard and the brain change the device the same way:
+  the dashboard and the brain change the device the same way, except for the mute and the mode
+  (below), which a tool applies differently from a person's switch:
   - the controls, not the configuration switches: the ring light, volume (set or change) and reply
     volume, the media player (play a URL, pause, resume, stop), and clearing the notification. Cancel
     request is an MCP tool only: the brain is the request;
   - the microphone can be muted but not turned back on. On a device with the hardware switch, the mute
     closes the switch (`privacy_trigger`), which software can't open again, so one press of the
-    **Microphone off** button turns the microphones back on;
+    **Microphone off** button turns the microphones back on. The dashboard's and Home Assistant's
+    mute stay software mutes, which they can turn off again. If closing the switch fails, the tool's
+    mute falls back to the software mute; opening the switch with the button clears that too;
   - Bluetooth pairing is left out;
   - the mode is the one configuration switch among them (`switch_assistant`), so the owner can ask a
     standalone satellite to switch back to Home Assistant: the brain or an MCP client calls it. `/mcp`
     answers in standalone mode only, so the way from Home Assistant to standalone stays the select,
     which Home Assistant can set from a script or automation. The tool follows the select's rule:
-    *Standalone* is refused until the three slots are ready. The switch waits until the satellite is
-    idle, so the reply that confirms it still plays, and that reply gets no follow-up. Anyone on the
+    *Standalone* is refused until the three slots are ready, also when a waiting switch applies (the
+    select then reports the mode it stayed in). The switch waits until the satellite is idle, so the
+    reply that confirms it still plays, and that reply gets no follow-up. Anyone on the
     network can call it over MCP, as every MCP tool, until MCP has authentication.
 
   Added to them, because Home Assistant does them itself in its mode:
