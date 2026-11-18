@@ -5,7 +5,7 @@
   import { onMount } from "svelte";
 
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { delegation, isStandalone, mcpAddress, toolLabel, toolReach } from "../../lib/assistant.ts";
+  import { delegation, isStandalone, mcpAddress, mcpStatus, toolLabel, toolReach } from "../../lib/assistant.ts";
   import { copyText } from "../../lib/copy.ts";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
@@ -88,8 +88,8 @@
   </Group>
 
   {#snippet serversFoot()}
-    The brain can call the tools of MCP servers you run, such as Home Assistant's or your own, next to Pinna's. A server
-    that doesn't answer is left out of that request. At most 8.
+    The brain can call the tools of MCP servers on your network next to Pinna's. Saving one asks it for its tools; a server
+    that doesn't answer is left out of a request. At most 8.
   {/snippet}
   <Group title="Your MCP servers" foot={agentBrain ? undefined : serversFoot}>
     {#if agentBrain}
@@ -107,7 +107,10 @@
           <div class="pn-row">
             <div class="pn-row-text">
               <label id="mcp-{srv.id}-label" class="pn-row-label server-name" for="mcp-{srv.id}">{srv.name}</label>
-              <span id="mcp-{srv.id}-hint" class="pn-row-hint">On {srv.host}</span>
+              <span id="mcp-{srv.id}-hint" class="pn-row-hint"
+                >On {srv.host} · <span class={mcpStatus(srv).failed ? "problem" : undefined}>{mcpStatus(srv).text}</span
+                ></span
+              >
             </div>
             <button
               class="pn-btn pn-btn-sm"
@@ -289,6 +292,9 @@
 {/if}
 
 <style>
+  .problem {
+    color: var(--danger);
+  }
   form {
     display: flex;
     flex-direction: column;

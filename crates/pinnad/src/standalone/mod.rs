@@ -90,6 +90,10 @@ impl OwnerMcp {
         }
     }
 
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     /// The same server under the same name and address.
     pub fn is(&self, id: &str, name: &str, url: &Secret) -> bool {
         self.id == id && self.name == name && self.url == *url

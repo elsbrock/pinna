@@ -6,7 +6,7 @@
 
   import type { McpServer } from "../../gen/pinna/v1/assistant_pb.ts";
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import type { SecretEdit } from "../../lib/assistant.ts";
+  import { mcpName, type SecretEdit } from "../../lib/assistant.ts";
   import Confirm from "../../lib/Confirm.svelte";
   import { device } from "../../lib/device.svelte.ts";
   import Icon from "../../lib/Icon.svelte";
@@ -23,14 +23,16 @@
   let url = $state<SecretEdit>({ kind: "keep" });
   let error = $state<string | null>(null);
   let removing = $state(false);
-  const ready = $derived(!!name.trim() && (!!server || url.kind === "set"));
+  // What the typed name is saved as: "Home Assistant" becomes home-assistant.
+  const saved = $derived(mcpName(name));
+  const ready = $derived(!!saved && (!!server || url.kind === "set"));
 
   async function save() {
     error = await assistant.setMcpServer(
       {
         id: server?.id ?? "",
         revision: server?.revision ?? 0n,
-        name: name.trim(),
+        name: saved,
         url: url.kind === "set" ? url.value.trim() : undefined,
         enabled: server?.enabled ?? true,
       },
@@ -71,6 +73,9 @@
         oninput={() => (error = null)}
       />
       <span id="{id}-name-hint" class="pn-field-hint">
+        {#if saved && saved !== name.trim()}
+          Saved as {saved}.
+        {/if}
         Lowercase letters, digits and hyphens, up to 24. The brain sees each of its tools under this name.
       </span>
     </div>
@@ -82,7 +87,7 @@
       bind:edit={url}
       removable={false}
       placeholder="https://example.com/mcp"
-      hint="The whole address, with any token in it. The satellite keeps it and shows only its host."
+      hint="The whole address, with any token in it. The satellite keeps it and shows only its host. Servers that ask for a sign-in or a token in a header can't be added yet."
       disabled={!live}
     />
     {#if error}<span class="pn-field-error" role="alert"><Icon name="alert" />{error}</span>{/if}

@@ -129,6 +129,12 @@ fn render(v: AssistantView) -> Assistant {
                 host: s.host,
                 enabled: s.enabled,
                 revision: s.revision,
+                tools: s
+                    .listing
+                    .as_ref()
+                    .and_then(|l| l.as_ref().ok())
+                    .map_or(0, |&n| n as u32),
+                problem: s.listing.and_then(Result::err).unwrap_or_default(),
                 ..Default::default()
             })
             .collect(),
@@ -905,7 +911,9 @@ mod tests {
     #[tokio::test]
     async fn mcp_servers_are_shown_by_host_and_never_by_address() {
         let d = Device::start().await;
-        let address = "https://mcp.example:8443/private-token?key=s3cret";
+        // A closed port on this machine: saving asks it for its tools, and
+        // it fails at once, locally.
+        let address = "http://127.0.0.1:1/private-token?key=s3cret";
 
         let (status, added) = d
             .json(
@@ -915,7 +923,11 @@ mod tests {
             .await;
 
         assert_eq!(status, 200, "{added}");
-        assert!(added.contains(r#""host":"mcp.example:8443""#), "{added}");
+        assert!(added.contains(r#""host":"127.0.0.1:1""#), "{added}");
+        assert!(
+            added.contains(r#""problem":"The MCP server is unreachable.""#),
+            "{added}"
+        );
         let (_, got) = d.json("AssistantService/GetAssistant", "{}").await;
         let bad = format!(r#"{{"name": "home-2", "url": "{address}#x", "enabled": true}}"#);
         let (status, refused) = d.json("AssistantService/SetMcpServer", &bad).await;
@@ -938,7 +950,7 @@ mod tests {
         };
         let a = assistant!(d.assistant.set_mcp_server(rename(home.revision))).unwrap();
         assert_eq!(a.mcp_servers[0].name, "house");
-        assert_eq!(a.mcp_servers[0].host, "mcp.example:8443");
+        assert_eq!(a.mcp_servers[0].host, "127.0.0.1:1");
         let stale = d
             .assistant
             .set_mcp_server(rename(home.revision))

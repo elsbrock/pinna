@@ -441,6 +441,13 @@ impl McpToolSet {
         outcome
     }
 
+    /// How the last listing went: the number of tools, or why it failed.
+    /// `None` before the first, or once it has expired.
+    pub fn last_listing(&self) -> Option<Result<usize, McpError>> {
+        self.cached()
+            .map(|outcome| outcome.map(|tools| tools.len()))
+    }
+
     /// The server's tools as the model sees them, or why it can't be listed.
     /// Both outcomes are cached, a failure for a shorter time.
     pub async fn list(&self) -> Result<Vec<ToolSpec>, McpError> {
@@ -827,8 +834,10 @@ mod tests {
             .store(MAX_TOOLS + 1, Ordering::Relaxed);
         let client = Arc::new(server.client());
         let tools = McpToolSet::new("home-2", client);
+        assert_eq!(tools.last_listing(), None);
         let specs = tools.specs().await;
         assert_eq!(specs.len(), MAX_TOOLS);
+        assert_eq!(tools.last_listing(), Some(Ok(MAX_TOOLS)));
         assert_eq!(specs[0].name, "home_2_time");
         assert_eq!(
             tools.call("home_2_time", json!({"zone": "UTC"})).await,

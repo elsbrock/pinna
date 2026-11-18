@@ -285,6 +285,9 @@ pub struct McpServerView {
     pub host: String,
     pub enabled: bool,
     pub revision: u64,
+    /// How the last listing went: its tools, or why it failed. `None` while
+    /// it is off or wasn't asked.
+    pub listing: Option<Result<usize, String>>,
 }
 
 /// An MCP client that called `/mcp` (ADR 0017 §"Pinna as an MCP server").
@@ -434,7 +437,16 @@ impl Service {
         // Published under the same lock, so it matches the configuration.
         let ready = self.committed.live.borrow().ready;
         let agents = self.agents.lock().unwrap().iter().cloned().collect();
-        view(&state.config, &state.secrets, ready, agents)
+        let mut view = view(&state.config, &state.secrets, ready, agents);
+        for server in &mut view.mcp_servers {
+            server.listing = state
+                .mcp
+                .iter()
+                .find(|live| live.id() == server.id)
+                .and_then(|live| live.tools.last_listing())
+                .map(|listing| listing.map_err(|e| e.to_string()));
+        }
+        view
     }
 
     /// Create or change a connection. Slots that use it are checked again
@@ -782,7 +794,16 @@ impl Service {
             server.revision += 1;
             Ok(())
         })
-        .await
+        .await?;
+        self.list_mcp_tools().await;
+        Ok(self.view())
+    }
+
+    /// Ask every enabled server for its tools, so the view says which work.
+    /// A server already asked recently answers from its cache.
+    async fn list_mcp_tools(&self) {
+        let servers = self.committed.state.lock().unwrap().mcp.clone();
+        join_all(servers.iter().map(|server| server.tools.list())).await;
     }
 
     /// Remove one of the owner's MCP servers and its address.
@@ -1139,6 +1160,7 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
                 host: server.host.clone(),
                 enabled: server.enabled,
                 revision: server.revision,
+                listing: None,
             })
             .collect(),
         agents,
@@ -2376,7 +2398,8 @@ mod tests {
         assert_eq!(f.live().place, None);
     }
 
-    const MCP_ADDRESS: &str = "https://mcp.example:8443/private-token?key=s3cret";
+    /// A closed port on this machine: a listing fails at once, locally.
+    const MCP_ADDRESS: &str = "http://127.0.0.1:1/private-token?key=s3cret";
 
     fn add_mcp(name: &str, url: Option<&str>) -> McpEdit {
         McpEdit {
@@ -2411,9 +2434,11 @@ mod tests {
         let home = McpServerView {
             id: "mcp-1".into(),
             name: "home".into(),
-            host: "mcp.example:8443".into(),
+            host: "127.0.0.1:1".into(),
             enabled: true,
             revision: 1,
+            // Saving asked it for its tools.
+            listing: Some(Err("The MCP server is unreachable.".into())),
         };
         assert_eq!(view.mcp_servers, std::slice::from_ref(&home));
         for text in [format!("{view:?}"), f.file("standalone.toml")] {
@@ -2434,7 +2459,7 @@ mod tests {
             .unwrap();
         let house = view.mcp_servers[0].clone();
         assert_eq!((house.name.as_str(), house.revision), ("house", 2));
-        assert_eq!(house.host, "mcp.example:8443");
+        assert_eq!(house.host, "127.0.0.1:1");
         let (_, secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
         assert_eq!(secrets.mcp("mcp-1").unwrap().expose(), MCP_ADDRESS);
         assert_eq!(f.live().mcp[0].name, "house");
@@ -2445,16 +2470,13 @@ mod tests {
             .set_mcp_server(change_mcp(
                 &house,
                 "house",
-                Some("http://192.168.1.9:9000/mcp"),
+                Some("http://127.0.0.1:2/mcp"),
                 true,
             ))
             .await
             .unwrap();
         let moved = view.mcp_servers[0].clone();
-        assert_eq!(
-            (moved.host.as_str(), moved.revision),
-            ("192.168.1.9:9000", 3)
-        );
+        assert_eq!((moved.host.as_str(), moved.revision), ("127.0.0.1:2", 3));
         assert!(!f.file("secrets.toml").contains("private-token"));
 
         // An edit made on an older revision is a conflict.

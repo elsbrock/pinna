@@ -130,6 +130,25 @@ export function failureText(a: Failure | undefined, timeZone?: string): string {
   return `${part}${service} failed${at}. ${a.lastError}`;
 }
 
+/** What an MCP server's name becomes: lowercase, words joined by hyphens. */
+export function mcpName(typed: string): string {
+  return typed
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24)
+    .replace(/-+$/, "");
+}
+
+/** How an MCP server answered when last asked for its tools. */
+export function mcpStatus(s: { enabled: boolean; tools: number; problem: string }): { text: string; failed: boolean } {
+  if (!s.enabled) return { text: "Off", failed: false };
+  if (s.problem) return { text: s.problem, failed: true };
+  if (s.tools) return { text: `${s.tools} ${s.tools === 1 ? "tool" : "tools"}`, failed: false };
+  return { text: "Not asked yet", failed: false };
+}
+
 /** A server as the page shows it: its host and port, never a path or query. */
 export function hostOf(url: string): string {
   try {

@@ -178,6 +178,13 @@ message McpServer {
   bool enabled = 4;
   // Goes up with every change; edits name the revision they were made on.
   uint64 revision = 5;
+  // How many tools it listed when last asked; 0 with `problem`, or before it
+  // was asked.
+  uint32 tools = 6;
+  // Why it couldn't be listed when last asked, as one sentence; empty when it
+  // worked or wasn't asked. A saved server is asked at once; the brain asks
+  // again before a request.
+  string problem = 7;
 }
 
 // An MCP client that called this satellite's /mcp.

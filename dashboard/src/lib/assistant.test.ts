@@ -16,6 +16,8 @@ import {
   isStandalone,
   keyFields,
   keyShown,
+  mcpName,
+  mcpStatus,
   mcpAddress,
   MODE,
   presetName,
@@ -269,4 +271,22 @@ test("a hosted service shows its host, a server the owner named its whole addres
     connectionAddress({ preset: "custom", baseUrl: "http://192.168.1.5:8000" }, presets),
     "http://192.168.1.5:8000",
   );
+});
+
+test("an MCP server's name is made a name the brain can use", () => {
+  assert.equal(mcpName(" Home Assistant "), "home-assistant");
+  assert.equal(mcpName("home_lab"), "home-lab");
+  assert.equal(mcpName("Büro 2"), "b-ro-2");
+  assert.equal(mcpName("---"), "");
+});
+
+test("an MCP server says how it answered", () => {
+  assert.deepEqual(mcpStatus({ enabled: true, tools: 12, problem: "" }), { text: "12 tools", failed: false });
+  assert.deepEqual(mcpStatus({ enabled: true, tools: 1, problem: "" }), { text: "1 tool", failed: false });
+  assert.deepEqual(mcpStatus({ enabled: true, tools: 0, problem: "The MCP server is unreachable." }), {
+    text: "The MCP server is unreachable.",
+    failed: true,
+  });
+  assert.deepEqual(mcpStatus({ enabled: true, tools: 0, problem: "" }), { text: "Not asked yet", failed: false });
+  assert.deepEqual(mcpStatus({ enabled: false, tools: 3, problem: "" }), { text: "Off", failed: false });
 });
