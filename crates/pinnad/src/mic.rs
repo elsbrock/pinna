@@ -183,7 +183,9 @@ impl MicRouter {
         let Some(tx) = &self.local else {
             return;
         };
-        if tx.try_send(frame).is_err() {
+        // A closed route means the run has stopped listening and the Brain
+        // is about to close the tap; only a full queue drops a frame.
+        if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(frame) {
             self.dropped += 1;
         }
     }
