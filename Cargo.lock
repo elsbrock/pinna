@@ -2333,6 +2333,7 @@ dependencies = [
  "prometheus-client",
  "serde",
  "serde_json",
+ "sha2",
  "simple-dns",
  "tempfile",
  "tokio",

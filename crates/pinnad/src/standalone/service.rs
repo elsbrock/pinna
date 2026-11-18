@@ -29,9 +29,11 @@ use pinna_assist::presets::{
     self, ChatOverride, ChatProtocol, HistoryPolicy, PresetId, SpeechProtocol,
 };
 use pinna_assist::secrets::Secrets;
+use pinna_assist::tts::Tts;
 use pinna_http::{ClientKind, Secret, reqwest};
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
+use super::ack::{self, AckCache};
 use super::{AssistLive, OwnerMcp};
 use crate::checks;
 use crate::settings::{self, Mode};
@@ -81,6 +83,8 @@ const MCP_URL: &str = "Enter the MCP server's whole address, starting with http:
 pub struct Paths {
     pub config: PathBuf,
     pub secrets: PathBuf,
+    /// The acknowledgment files.
+    pub cache: PathBuf,
 }
 
 impl Paths {
@@ -88,6 +92,7 @@ impl Paths {
         Self {
             config: settings_file.with_file_name("standalone.toml"),
             secrets: settings_file.with_file_name("secrets.toml"),
+            cache: settings_file.with_file_name("cache"),
         }
     }
 }
@@ -318,6 +323,7 @@ pub struct Service {
 struct Committed {
     state: Mutex<State>,
     live: watch::Sender<Arc<AssistLive>>,
+    ack: AckCache,
 }
 
 struct State {
@@ -365,8 +371,9 @@ impl Service {
             brain: None,
             mcp: Vec::new(),
         };
-        let (live, _) = watch::channel(Arc::new(state.publish()));
-        Arc::new(Self {
+        let ack = AckCache::new(paths.cache.clone());
+        let (live, _) = watch::channel(Arc::new(state.publish(&ack)));
+        let service = Arc::new(Self {
             paths,
             status,
             http: pinna_http::client(ClientKind::Provider {
@@ -377,9 +384,12 @@ impl Service {
             committed: Arc::new(Committed {
                 state: Mutex::new(state),
                 live,
+                ack,
             }),
             agents: Mutex::new(VecDeque::new()),
-        })
+        });
+        service.refresh_ack();
+        service
     }
 
     /// The snapshot the Brain reads; a new value follows every commit.
@@ -789,6 +799,21 @@ impl Service {
         self.status.borrow().mode == Mode::Standalone
     }
 
+    /// Make the acknowledgment the configuration now asks for, off the
+    /// caller's path, and publish it once it is on disk.
+    fn refresh_ack(&self) {
+        // Without a runtime (plain unit tests) there is nothing to run it on.
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let committed = self.committed.clone();
+        runtime.spawn(async move {
+            if committed.ack.refresh(|| committed.ack_wanted()).await {
+                committed.republish();
+            }
+        });
+    }
+
     /// The save-time check for one slot, or the sentence why it failed.
     async fn check(
         &self,
@@ -889,7 +914,10 @@ impl Service {
         })
         .await;
         match saved {
-            Ok(Ok(())) => Ok(self.view()),
+            Ok(Ok(())) => {
+                self.refresh_ack();
+                Ok(self.view())
+            }
             Ok(Err(e)) => {
                 tracing::warn!("saving the assistant settings: {e}");
                 Err(Refusal::Precondition(NOT_SAVED.into()))
@@ -907,14 +935,32 @@ impl Committed {
         let mut state = self.state.lock().unwrap();
         state.config = draft.config;
         state.secrets = draft.secrets;
-        let live = state.publish();
+        let live = state.publish(&self.ack);
         self.live.send_replace(Arc::new(live));
+    }
+
+    /// Publish again, with the acknowledgment that is now on disk.
+    fn republish(&self) {
+        let mut state = self.state.lock().unwrap();
+        let live = state.publish(&self.ack);
+        self.live.send_replace(Arc::new(live));
+    }
+
+    /// The acknowledgment the configuration asks for, and the voice to make
+    /// it with.
+    fn ack_wanted(&self) -> Option<(ack::Source, Arc<dyn Tts>)> {
+        let state = self.state.lock().unwrap();
+        let live = self.live.borrow();
+        let pipeline = live.pipeline.as_ref()?;
+        let tts_ready = slot_ready(&state.config, SlotKind::Tts);
+        let source = ack::Source::wanted(&state.config, Some(pipeline), tts_ready)?;
+        Some((source, pipeline.tts.clone()))
     }
 }
 
 impl State {
     /// The next snapshot for the Brain.
-    fn publish(&mut self) -> AssistLive {
+    fn publish(&mut self, cache: &AckCache) -> AssistLive {
         let brain = brain_id(&self.config);
         if brain != self.brain {
             self.chat_gen += 1;
@@ -924,6 +970,8 @@ impl State {
         let c = &self.config;
         let slots = SlotKind::ALL.map(|kind| slot_ready(c, kind));
         let pipeline = Pipeline::build(c, &self.secrets).ok().map(Arc::new);
+        let ack = ack::Source::wanted(c, pipeline.as_deref(), slot_ready(c, SlotKind::Tts))
+            .and_then(|source| cache.path(&source));
         AssistLive {
             generation: self.generation,
             chat_gen: self.chat_gen,
@@ -938,9 +986,7 @@ impl State {
             language: c.language.clone(),
             place: c.place.clone(),
             follow_ups: c.follow_ups,
-            // The acknowledgment cache (T71) and owner MCP servers (T69)
-            // fill these.
-            ack: None,
+            ack,
             switches: c.tools.clone(),
             stations: Arc::new(c.stations.clone()),
             mcp: self.owner_mcp(),
@@ -2332,6 +2378,79 @@ mod tests {
             .await
             .unwrap();
         assert!(!Arc::ptr_eq(&before, &f.live().mcp[0]));
+    }
+
+    #[tokio::test]
+    async fn an_agent_brain_gets_its_acknowledgment_in_its_language() {
+        let f = Fixture::new(Mode::HomeAssistant);
+        let server = FakeServer::start().await;
+        f.service
+            .update(AssistantPatch {
+                language: Some(Some("de".into())),
+                ..AssistantPatch::default()
+            })
+            .await
+            .unwrap();
+        let speech = f.connect(&server).await;
+        let agent = f
+            .service
+            .set_connection(ConnectionEdit {
+                preset: PresetId::Hermes,
+                ..new_connection(&server, KeyEdit::Keep)
+            })
+            .await
+            .unwrap()
+            .connections
+            .pop()
+            .unwrap();
+        for (kind, connection, model) in [
+            (SlotKind::Stt, &speech.id, "whisper-1"),
+            (SlotKind::Chat, &agent.id, "hermes-3"),
+        ] {
+            passing(&server, kind);
+            f.service
+                .set_slot(kind, slot_edit(connection, model))
+                .await
+                .unwrap();
+        }
+        assert_eq!(f.live().ack, None);
+        // The voice's check, then the acknowledgment.
+        passing(&server, SlotKind::Tts);
+        server.script(
+            Method::POST,
+            "/audio/speech",
+            FakeResponse::new(StatusCode::OK, "ack-audio"),
+        );
+
+        f.service
+            .set_slot(SlotKind::Tts, slot_edit(&speech.id, "nova"))
+            .await
+            .unwrap();
+
+        let mut live = f.service.live();
+        let path = tokio::time::timeout(
+            Duration::from_secs(10),
+            live.wait_for(|live| live.ack.is_some()),
+        )
+        .await
+        .expect("the acknowledgment was published")
+        .unwrap()
+        .ack
+        .clone()
+        .unwrap();
+        assert_eq!(path.parent(), Some(f.dir.path().join("cache").as_path()));
+        assert_eq!(fs::read(&path).unwrap(), b"ack-audio");
+        let request = server.requests().pop().unwrap();
+        let sent: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        assert_eq!(sent["input"], "Einen Moment.");
+        assert_eq!(sent["voice"], "nova");
+        assert_eq!(
+            request.header("authorization"),
+            Some(format!("Bearer {KEY}").as_str())
+        );
+
+        // A restart finds it on disk.
+        assert_eq!(f.reload().live().borrow().ack.as_ref(), Some(&path));
     }
 
     #[tokio::test]

@@ -11,6 +11,7 @@ use pinna_assist::presets::{Behaviour, PresetId, preset};
 use pinna_http::Secret;
 use pinna_mcp::client::{McpClient, McpToolSet};
 
+pub mod ack;
 pub mod service;
 pub mod spawn;
 
