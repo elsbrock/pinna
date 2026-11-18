@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::marker::PhantomData;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -46,7 +47,7 @@ pub struct Store<T> {
     path: PathBuf,
     mode: u32,
     /// Array elements and table entries that didn't deserialise, by key.
-    rejected: toml::Table,
+    rejected: Mutex<toml::Table>,
     value: PhantomData<fn() -> T>,
 }
 
@@ -55,7 +56,7 @@ impl<T: Serialize + DeserializeOwned> Store<T> {
         Self {
             path: path.to_owned(),
             mode,
-            rejected: toml::Table::new(),
+            rejected: Mutex::new(toml::Table::new()),
             value: PhantomData,
         }
     }
@@ -87,22 +88,34 @@ impl<T: Serialize + DeserializeOwned> Store<T> {
             tracing::warn!("{}: ignoring invalid key {key}", path.display());
         }
         let store = Self {
-            rejected: salvaged.rejected,
+            rejected: Mutex::new(salvaged.rejected),
             ..Self::new(path, mode)
         };
         (store, salvaged.value, salvaged.dropped)
     }
 
     pub fn try_save(&self, value: &T) -> io::Result<()> {
-        let text = if self.rejected.is_empty() {
+        self.try_save_dropping(value, &[])
+    }
+
+    /// Save `value` without the entries set aside under each key of `stale`,
+    /// and forget them once it is saved: they belonged to something `value`
+    /// no longer holds. A failed save keeps them.
+    pub fn try_save_dropping(&self, value: &T, stale: &[&str]) -> io::Result<()> {
+        let mut rejected = self.rejected.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut kept = rejected.clone();
+        kept.retain(|key, _| !stale.contains(&key));
+        let text = if kept.is_empty() {
             toml::to_string(value)
         } else {
             let mut table = toml::Table::try_from(value).map_err(io::Error::other)?;
-            put_back(&mut table, &self.rejected);
+            put_back(&mut table, &kept);
             toml::to_string(&table)
         }
         .map_err(io::Error::other)?;
-        write_durable(&self.path, text.as_bytes(), self.mode)
+        write_durable(&self.path, text.as_bytes(), self.mode)?;
+        *rejected = kept;
+        Ok(())
     }
 
     pub fn save(&self, value: &T) {
@@ -325,5 +338,34 @@ mod tests {
         let (_, again, dropped) = Store::load(&path, 0o600, Catalogue::default());
         assert_eq!(again, cat);
         assert_eq!(dropped, ["entries[1]", "named.b"]);
+    }
+
+    #[test]
+    fn set_aside_entries_that_went_stale_are_dropped_once_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("catalogue.toml");
+        let text = "[[entries]]\nname = 'one'\nkind = 'known'\n\
+                    [[entries]]\nname = 'two'\nkind = 'future'\n\
+                    [named.b]\nname = 'b'\nkind = 'future'\n";
+        fs::write(&path, text).unwrap();
+        let (store, cat, _) = Store::load(&path, 0o600, Catalogue::default());
+
+        // A save that fails keeps them.
+        fs::remove_file(&path).unwrap();
+        fs::create_dir_all(path.join("blocked")).unwrap();
+        assert!(store.try_save_dropping(&cat, &["entries"]).is_err());
+        fs::remove_dir_all(&path).unwrap();
+        store.try_save(&cat).unwrap();
+        assert!(fs::read_to_string(&path).unwrap().contains("two"));
+
+        // A save that succeeds drops them, now and in every later save.
+        store.try_save_dropping(&cat, &["entries"]).unwrap();
+        store.try_save(&cat).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("two"), "{saved}");
+        // Only the keys named.
+        assert!(saved.contains("[named.b]"), "{saved}");
+        let (_, _, dropped) = Store::load(&path, 0o600, Catalogue::default());
+        assert_eq!(dropped, ["named.b"]);
     }
 }

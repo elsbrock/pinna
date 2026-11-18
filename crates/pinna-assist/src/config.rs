@@ -1,6 +1,6 @@
 //! The standalone settings (`standalone.toml`): connections, the three slots,
 //! the prompt and place, the owner's tools, MCP servers and stations
-//! (ADR 0017 §"The pipeline").
+//! (ADR 0017 §"The pipeline"), and the satellite group (ADR 0026).
 //!
 //! The codec holds no secrets; keys live in `secrets.toml`. Unknown keys are
 //! kept in `extra`, so a rollback never drops what a newer image wrote.
@@ -42,6 +42,13 @@ pub struct AssistConfig {
     pub tools: BTreeMap<String, bool>,
     pub stations: Vec<Station>,
     pub mcp_servers: Vec<McpServer>,
+    /// The satellite group's switches and id (ADR 0026).
+    #[serde(skip_serializing_if = "GroupConfig::is_default")]
+    pub group: GroupConfig,
+    /// The group's members, each an entry of its own at the top level, so
+    /// an entry this image can't read costs that entry, not the list.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub group_member: Vec<GroupMember>,
     /// Keys a newer pinnad wrote, kept as they are.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -63,9 +70,61 @@ impl Default for AssistConfig {
             tools: BTreeMap::new(),
             stations: Vec::new(),
             mcp_servers: Vec::new(),
+            group: GroupConfig::default(),
+            group_member: Vec::new(),
             extra: toml::Table::new(),
         }
     }
+}
+
+/// The satellite group's `[group]` table (ADR 0026). Its key is in
+/// `secrets.toml`, bound to `id`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GroupConfig {
+    /// The *Satellite group* switch.
+    pub on: bool,
+    /// The group's id, 32 lowercase hex digits; empty in no group.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// The *Control from the group* switch.
+    pub control: bool,
+    /// Switches a newer pinnad keeps here, such as the arbitration's, kept
+    /// as they are.
+    #[serde(flatten)]
+    pub extra: toml::Table,
+}
+
+impl Default for GroupConfig {
+    fn default() -> Self {
+        Self {
+            on: false,
+            id: String::new(),
+            control: true,
+            extra: toml::Table::new(),
+        }
+    }
+}
+
+impl GroupConfig {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// One `[[group_member]]` entry: a member of the satellite group, this
+/// satellite included. Never its mode or when it was last seen: those
+/// change every minute and would rewrite the file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupMember {
+    /// In lowercase colon form.
+    pub mac: String,
+    /// The last friendly name the search heard.
+    #[serde(default)]
+    pub name: String,
+    pub version: u64,
+    #[serde(default)]
+    pub removed: bool,
 }
 
 /// A base URL and an optional key (in `secrets.toml`), shared by slots.
@@ -313,6 +372,23 @@ host = "mcp.example"
 enabled = true
 revision = 1
 
+[group]
+on = true
+id = "00112233445566778899aabbccddeeff"
+control = false
+answer_once = true
+
+[[group_member]]
+mac = "02:00:00:00:00:01"
+name = "Hall"
+version = 1
+
+[[group_member]]
+mac = "02:00:00:00:00:02"
+name = "Kitchen"
+version = 3
+removed = true
+
 [future_table]
 x = 1
 "#;
@@ -326,6 +402,28 @@ x = 1
         assert_eq!(c.tools.get("weather"), Some(&false));
         assert!(c.extra.contains_key("future_key"));
         assert!(c.extra.contains_key("future_table"));
+        assert!(c.group.on);
+        assert!(!c.group.control);
+        assert_eq!(c.group.id, "00112233445566778899aabbccddeeff");
+        // A switch a newer image added to [group] is kept, not dropped.
+        assert_eq!(c.group.extra["answer_once"].as_bool(), Some(true));
+        assert_eq!(
+            c.group_member,
+            [
+                GroupMember {
+                    mac: "02:00:00:00:00:01".into(),
+                    name: "Hall".into(),
+                    version: 1,
+                    removed: false,
+                },
+                GroupMember {
+                    mac: "02:00:00:00:00:02".into(),
+                    name: "Kitchen".into(),
+                    version: 3,
+                    removed: true,
+                },
+            ]
+        );
 
         let back: AssistConfig = toml::from_str(&toml::to_string(&c).unwrap()).unwrap();
         assert_eq!(back, c);
@@ -339,8 +437,19 @@ x = 1
         assert!(c.ack.enabled);
         assert!(c.stations.is_empty());
         assert!(c.mcp_servers.is_empty());
+        // The satellite group is off, in no group, and Control from the
+        // group is on (ADR 0026).
+        assert!(!c.group.on);
+        assert!(c.group.id.is_empty());
+        assert!(c.group.control);
+        assert!(c.group_member.is_empty());
         let from_empty: AssistConfig = toml::from_str("").unwrap();
         assert_eq!(from_empty, c);
+        // Nor is the group written while it is as it starts.
+        let text = toml::to_string(&c).unwrap();
+        assert!(!text.contains("group"), "{text}");
+        let from_bare: AssistConfig = toml::from_str("[group]\n").unwrap();
+        assert_eq!(from_bare, c);
     }
 
     #[test]

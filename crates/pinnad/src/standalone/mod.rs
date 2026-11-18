@@ -11,6 +11,8 @@ use pinna_assist::presets::{Behaviour, PresetId, Slots, preset};
 use pinna_http::Secret;
 use pinna_mcp::client::{McpClient, McpToolSet};
 
+use crate::group::Persisted;
+
 pub mod ack;
 mod runlog;
 pub mod service;
@@ -34,6 +36,9 @@ pub struct AssistLive {
     pub stations: Arc<Vec<Station>>,
     /// The owner's enabled MCP servers that have an address.
     pub mcp: Vec<Arc<OwnerMcp>>,
+    /// The satellite group as saved (ADR 0026). Its Debug output never
+    /// shows the key.
+    pub group: Persisted,
 }
 
 impl AssistLive {
@@ -55,6 +60,7 @@ impl AssistLive {
             switches: BTreeMap::new(),
             stations: Arc::new(Vec::new()),
             mcp: Vec::new(),
+            group: Persisted::default(),
         }
     }
 

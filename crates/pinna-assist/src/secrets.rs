@@ -4,7 +4,8 @@
 //! The file representation contains strings for TOML only. The in-memory
 //! representation wraps keys and MCP URLs in [`Secret`], and its debug output
 //! contains no credential material. MCP servers have no token yet; a `bearer`
-//! from another build stays in `extra`.
+//! from another build stays in `extra`. The satellite group's key (ADR 0026)
+//! is bound to the group's id, as a provider key is to its URL.
 
 use std::{collections::BTreeMap, fmt};
 
@@ -17,6 +18,8 @@ use serde::{Deserialize, Serialize};
 pub struct SecretsFile {
     pub connections: BTreeMap<String, ConnectionFile>,
     pub mcp: BTreeMap<String, McpFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<GroupKeyFile>,
     /// Keys written by a newer image survive a rollback and roll-forward.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -38,11 +41,31 @@ pub struct McpFile {
     pub extra: toml::Table,
 }
 
+/// The satellite group's key and the id of the group it belongs to.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GroupKeyFile {
+    pub id: String,
+    /// The 32 bytes, in standard base64.
+    pub key: String,
+    #[serde(flatten)]
+    pub extra: toml::Table,
+}
+
 impl fmt::Debug for SecretsFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SecretsFile")
             .field("connections", &self.connections)
             .field("mcp", &self.mcp)
+            .field("group", &self.group)
+            .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for GroupKeyFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GroupKeyFile")
+            .field("id", &self.id)
+            .field("key", &"<redacted>")
             .finish_non_exhaustive()
     }
 }
@@ -86,12 +109,20 @@ impl Default for Mcp {
     }
 }
 
+#[derive(Clone)]
+struct GroupKey {
+    id: String,
+    key: Secret,
+    extra: toml::Table,
+}
+
 /// Provider credentials in memory. A connection key is returned only for the
-/// exact URL it was entered with.
+/// exact URL it was entered with, and the group's key only for its group.
 #[derive(Clone, Default)]
 pub struct Secrets {
     connections: BTreeMap<String, Connection>,
     mcp: BTreeMap<String, Mcp>,
+    group: Option<GroupKey>,
     extra: toml::Table,
 }
 
@@ -144,6 +175,28 @@ impl Secrets {
         })
     }
 
+    /// The satellite group's key, only for the group it was stored with: a
+    /// crash between writing `secrets.toml` and `standalone.toml` can leave
+    /// a key without its group, never another group's key.
+    pub fn group_key(&self, id: &str) -> Option<&Secret> {
+        let group = self.group.as_ref()?;
+        (!id.is_empty() && group.id == id).then_some(&group.key)
+    }
+
+    /// Store the group's key with the group's id. There is one group at a
+    /// time, so it replaces any other.
+    pub fn set_group_key(&mut self, id: impl Into<String>, key: Secret) {
+        self.group = Some(GroupKey {
+            id: id.into(),
+            key,
+            extra: toml::Table::new(),
+        });
+    }
+
+    pub fn clear_group_key(&mut self) {
+        self.group = None;
+    }
+
     pub fn to_file(&self) -> SecretsFile {
         SecretsFile::from(self)
     }
@@ -154,6 +207,7 @@ impl fmt::Debug for Secrets {
         f.debug_struct("Secrets")
             .field("connections", &self.connections.len())
             .field("mcp", &self.mcp.len())
+            .field("group", &self.group.as_ref().map(|g| &g.id))
             .finish_non_exhaustive()
     }
 }
@@ -188,6 +242,11 @@ impl From<SecretsFile> for Secrets {
                     )
                 })
                 .collect(),
+            group: file.group.map(|group| GroupKey {
+                id: group.id,
+                key: Secret::new(group.key),
+                extra: group.extra,
+            }),
             extra: file.extra,
         }
     }
@@ -223,6 +282,11 @@ impl From<&Secrets> for SecretsFile {
                     )
                 })
                 .collect(),
+            group: secrets.group.as_ref().map(|group| GroupKeyFile {
+                id: group.id.clone(),
+                key: group.key.expose().to_owned(),
+                extra: group.extra.clone(),
+            }),
             extra: secrets.extra.clone(),
         }
     }
@@ -273,11 +337,16 @@ mod tests {
         let mut secrets = Secrets::default();
         secrets.set_key("one", "https://one.example/v1", Secret::new("key-material"));
         secrets.set_mcp("home", Secret::new("https://mcp.example/private-token"));
+        secrets.set_group_key(
+            "00112233445566778899aabbccddeeff",
+            Secret::new("group-key-b64"),
+        );
         let debug = format!("{secrets:?}");
         for secret in [
             "key-material",
             "https://mcp.example/private-token",
             "private-token",
+            "group-key-b64",
         ] {
             assert!(!debug.contains(secret), "{debug}");
         }
@@ -285,6 +354,35 @@ mod tests {
         let file_debug = format!("{:?}", secrets.to_file());
         assert!(!file_debug.contains("key-material"));
         assert!(!file_debug.contains("private-token"));
+        assert!(!file_debug.contains("group-key-b64"), "{file_debug}");
+        // The group's id isn't secret: it tells groups apart.
+        assert!(file_debug.contains("00112233445566778899aabbccddeeff"));
+    }
+
+    #[test]
+    fn the_group_key_is_bound_to_its_group() {
+        const ID: &str = "00112233445566778899aabbccddeeff";
+        let mut secrets = Secrets::default();
+        assert!(secrets.group_key(ID).is_none());
+        secrets.set_group_key(ID, Secret::new("k1"));
+        assert_eq!(secrets.group_key(ID).unwrap().expose(), "k1");
+        assert!(
+            secrets
+                .group_key("ffeeddccbbaa99887766554433221100")
+                .is_none()
+        );
+        assert!(secrets.group_key("").is_none());
+
+        // One group at a time.
+        secrets.set_group_key("ffeeddccbbaa99887766554433221100", Secret::new("k2"));
+        assert!(secrets.group_key(ID).is_none());
+        secrets.clear_group_key();
+        assert!(
+            secrets
+                .group_key("ffeeddccbbaa99887766554433221100")
+                .is_none()
+        );
+        assert!(secrets.to_file().group.is_none());
     }
 
     #[test]
@@ -301,6 +399,11 @@ future_connection_key = 7
 url = "https://mcp.example:8443/private-token"
 bearer = "bearer-secret"
 future_mcp_key = "kept"
+
+[group]
+id = "00112233445566778899aabbccddeeff"
+key = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+future_group_key = 3
 "#;
         let file: SecretsFile = toml::from_str(text).unwrap();
         let secrets = Secrets::from(file.clone());
@@ -326,6 +429,17 @@ future_mcp_key = "kept"
             decoded.mcp["home"].extra["future_mcp_key"].as_str(),
             Some("kept")
         );
+        assert_eq!(
+            secrets
+                .group_key("00112233445566778899aabbccddeeff")
+                .unwrap()
+                .expose(),
+            "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+        );
+        assert_eq!(
+            decoded.group.as_ref().unwrap().extra["future_group_key"].as_integer(),
+            Some(3)
+        );
     }
 
     #[test]
@@ -333,6 +447,7 @@ future_mcp_key = "kept"
         let file: SecretsFile = toml::from_str("").unwrap();
         assert!(file.connections.is_empty());
         assert!(file.mcp.is_empty());
+        assert!(file.group.is_none());
         let secrets = Secrets::from(file);
         assert!(secrets.last4("missing").is_none());
         assert!(secrets.mcp("missing").is_none());

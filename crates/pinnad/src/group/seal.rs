@@ -5,6 +5,8 @@
 //! an envelope, and the tag covers those bytes, the group id and the sender's
 //! MAC. The receiver checks the tag before it decodes anything.
 
+use std::fmt;
+
 use anyhow::{Context, Result};
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -31,6 +33,49 @@ pub fn new_id() -> Result<String> {
         .ok()
         .context("drawing random bytes for the group's id")?;
     Ok(id.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether `id` has the form of a group's id: 32 lowercase hex digits. The id
+/// goes into the mDNS record and names the key in `secrets.toml`, so nothing
+/// else is taken from a file or another satellite.
+pub fn is_id(id: &str) -> bool {
+    id.len() == 2 * ID_LEN && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// A group's key. Its Debug output never shows it: the key never appears in a
+/// log line, a view or a response (ADR 0026).
+#[derive(Clone, PartialEq, Eq)]
+pub struct Key([u8; KEY_LEN]);
+
+impl Key {
+    pub fn new(bytes: [u8; KEY_LEN]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn bytes(&self) -> &[u8; KEY_LEN] {
+        &self.0
+    }
+
+    /// The key as `secrets.toml` stores it: standard base64.
+    pub fn to_base64(&self) -> String {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(self.0)
+    }
+
+    /// A key stored by [`Key::to_base64`]; `None` unless it is 32 bytes.
+    pub fn from_base64(text: &str) -> Option<Self> {
+        use base64::Engine as _;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(text.trim())
+            .ok()?;
+        Some(Self(bytes.try_into().ok()?))
+    }
+}
+
+impl fmt::Debug for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Key(<redacted>)")
+    }
 }
 
 /// A new group's key: 32 random bytes from the system's secure random
@@ -218,6 +263,40 @@ mod tests {
             "{id}"
         );
         assert_ne!(id, new_id().unwrap());
+    }
+
+    #[test]
+    fn only_32_lowercase_hex_digits_are_an_id() {
+        assert!(is_id(ID));
+        assert!(is_id(&new_id().unwrap()));
+        for bad in [
+            "",
+            &ID[1..],
+            &format!("{ID}0"),
+            &ID.to_uppercase(),
+            "00112233445566778899aabbccddeefg",
+            "00112233-4455-6677-8899-aabbccddee",
+        ] {
+            assert!(!is_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_key_is_stored_in_base64_and_never_shown() {
+        let key = Key::new(key());
+        let text = key.to_base64();
+        assert_eq!(text, "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=");
+        assert_eq!(Key::from_base64(&text), Some(key.clone()));
+        assert_eq!(Key::from_base64(&format!(" {text}\n")), Some(key.clone()));
+        // Not 32 bytes, or not base64: no key.
+        assert_eq!(Key::from_base64("AAECAw=="), None);
+        assert_eq!(Key::from_base64("not base64"), None);
+        assert_eq!(Key::from_base64(""), None);
+
+        let debug = format!("{key:?}");
+        assert_eq!(debug, "Key(<redacted>)");
+        assert!(!debug.contains(&text));
+        assert!(!debug.contains(&hex(key.bytes())));
     }
 
     #[test]

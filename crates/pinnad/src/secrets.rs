@@ -31,7 +31,7 @@ pub fn save(store: &Store<SecretsFile>, secrets: &Secrets) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pinna_assist::secrets::{ConnectionFile, McpFile};
+    use pinna_assist::secrets::{ConnectionFile, GroupKeyFile, McpFile};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
@@ -75,6 +75,11 @@ mod tests {
             )]
             .into_iter()
             .collect(),
+            group: Some(GroupKeyFile {
+                id: "00112233445566778899aabbccddeeff".to_owned(),
+                key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=".to_owned(),
+                extra: toml::Table::new(),
+            }),
             extra: toml::Table::new(),
         };
         save(&Store::new(&path, FILE_MODE), &Secrets::from(file)).unwrap();
@@ -100,6 +105,13 @@ mod tests {
         );
         let url = secrets.mcp("home").unwrap();
         assert_eq!(url.expose(), "https://mcp.example:8443/private-token");
+        assert_eq!(
+            secrets
+                .group_key("00112233445566778899aabbccddeeff")
+                .unwrap()
+                .expose(),
+            "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+        );
     }
 
     #[test]

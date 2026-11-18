@@ -35,11 +35,14 @@ use tokio::sync::{Mutex as AsyncMutex, watch};
 use super::ack::{self, AckCache};
 use super::{AssistLive, OwnerMcp};
 use crate::checks;
+use crate::group::Persisted;
 use crate::settings::{self, Mode};
 use crate::store::Store;
 use crate::tools::radio;
 use crate::tools::weather::{OpenMeteo, PlaceError};
 use crate::voice::Snapshot;
+
+pub(crate) mod group;
 
 /// At most this many connections.
 pub const MAX_CONNECTIONS: usize = 16;
@@ -1007,11 +1010,12 @@ impl Service {
             }
         };
         edit(&mut draft)?;
-        let (config, secrets) = {
+        let (config, secrets, stale) = {
             let state = self.committed.state.lock().unwrap();
             (
                 (draft.config != state.config).then(|| draft.config.clone()),
                 (draft.secrets.to_file() != state.secrets.to_file()).then(|| draft.secrets.clone()),
+                group::stale_set_aside(&state.config, &draft.config),
             )
         };
         if config.is_none() && secrets.is_none() {
@@ -1028,7 +1032,7 @@ impl Service {
                 crate::secrets::save(&files.secrets, secrets)?;
             }
             if let Some(config) = &config
-                && let Err(e) = files.config.try_save(config)
+                && let Err(e) = files.config.try_save_dropping(config, stale)
             {
                 if let Some(secrets) = secrets {
                     committed.roll_back_secrets(&files, secrets);
@@ -1121,6 +1125,7 @@ impl State {
         }
         let (pipeline, speech) = self.adapters();
         let c = &self.config;
+        let group = Persisted::read(&c.group, &c.group_member, &self.secrets);
         let slots = Slots {
             stt: slot_ready(c, SlotKind::Stt),
             chat: slot_ready(c, SlotKind::Chat),
@@ -1146,6 +1151,7 @@ impl State {
             switches: c.tools.clone(),
             stations: Arc::new(c.stations.clone()),
             mcp: self.owner_mcp(),
+            group,
         }
     }
 
@@ -2284,15 +2290,50 @@ mod tests {
         let f = Fixture::new(Mode::HomeAssistant);
         let server = FakeServer::start().await;
         let connection = f.ready(&server).await;
+        // And the satellite group's key (ADR 0026).
+        f.service.set_group_switch(true).await.unwrap();
+        let own = crate::group::model::Member {
+            mac: "02:00:00:00:00:01".into(),
+            name: "Hall".into(),
+            version: 1,
+            removed: false,
+        };
+        let other = crate::group::model::Member {
+            mac: "02:00:00:00:00:02".into(),
+            name: "Kitchen".into(),
+            ..own.clone()
+        };
+        let group = crate::group::Joined::start(own.clone(), other).unwrap();
+        f.service
+            .start_group(group.clone(), &own.mac)
+            .await
+            .unwrap();
+        let group_key = group.key.to_base64();
+        let group_hex: String = group
+            .key
+            .bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
 
         let view = f.service.view();
         assert!(view.connections[0].key_set);
         assert_eq!(view.connections[0].key_last4.as_deref(), Some("3456"));
         assert!(!format!("{view:?}").contains(KEY));
         assert!(!format!("{connection:?}").contains(KEY));
-        // The key lives only in the owner-only secrets file.
+        for shown in [
+            format!("{view:?}"),
+            format!("{:?}", f.live().group),
+            format!("{group:?}"),
+        ] {
+            assert!(!shown.contains(&group_key), "{shown}");
+            assert!(!shown.contains(&group_hex), "{shown}");
+        }
+        // The keys live only in the owner-only secrets file.
         assert!(!f.file("standalone.toml").contains(KEY));
         assert!(f.file("secrets.toml").contains(KEY));
+        assert!(!f.file("standalone.toml").contains(&group_key));
+        assert!(f.file("secrets.toml").contains(&group_key));
         let mode = fs::metadata(f.dir.path().join("secrets.toml"))
             .unwrap()
             .permissions()

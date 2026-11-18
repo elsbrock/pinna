@@ -40,8 +40,8 @@ Standalone mode keeps its setup in files beside `settings.toml`:
 
 | File | Contents |
 | --- | --- |
-| `/var/lib/pinna/standalone.toml` | The connections to your services, the speech-to-text, brain and text-to-speech slots, the conversation settings, the tool switches, the radio stations and the MCP servers |
-| `/var/lib/pinna/secrets.toml` | The keys, each with the address it was entered for, and the MCP server addresses. Only its owner can read it (mode 0600) |
+| `/var/lib/pinna/standalone.toml` | The connections to your services, the speech-to-text, brain and text-to-speech slots, the conversation settings, the tool switches, the radio stations, the MCP servers, and the satellite group: its switches, its id and its members |
+| `/var/lib/pinna/secrets.toml` | The keys, each with the address it was entered for, the MCP server addresses, and the satellite group's key, with the id of its group. Only its owner can read it (mode 0600) |
 | `/var/lib/pinna/timers.toml` | The timers set in standalone mode, so that they survive a restart |
 
 You set these on the dashboard's **Assistant** page; the files are for

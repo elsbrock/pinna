@@ -16,6 +16,13 @@ use crate::tools::radio;
 /// have it.
 pub const ALL: &str = "all";
 
+/// The highest version an entry may have. `standalone.toml` keeps versions
+/// as TOML integers, which are signed 64-bit: a larger one is written but
+/// can't be read back, and the whole file would fall back to its defaults
+/// on the next start. A change that would raise a version past it is
+/// refused, never wrapped.
+pub const MAX_VERSION: u64 = i64::MAX as u64;
+
 /// One entry of the member list. The own satellite has one too.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Member {
@@ -70,12 +77,13 @@ pub fn same_mac(a: &str, b: &str) -> bool {
 /// without an entry means its sender hasn't heard of it yet, not that it was
 /// removed.
 ///
-/// An entry without a MAC is dropped: it could never match a satellite.
+/// An entry without a MAC is dropped: it could never match a satellite. So
+/// is an entry above [`MAX_VERSION`], which could never be saved.
 pub fn merge(local: &[Member], remote: &[Member]) -> Merged {
     let mut by_mac: BTreeMap<String, Member> = BTreeMap::new();
     for entry in local.iter().chain(remote) {
         let mac = mac_form(&entry.mac);
-        if mac.is_empty() {
+        if mac.is_empty() || entry.version > MAX_VERSION {
             continue;
         }
         let entry = Member {
@@ -376,6 +384,28 @@ mod tests {
         assert!(!merged.changed);
         assert!(!same_mac("", ""));
         assert!(!same_mac("zz", "zz"));
+    }
+
+    #[test]
+    fn an_entry_with_a_version_too_large_to_save_is_dropped() {
+        let local = [m(OWN, "Hall", 1, false), m(B, "Kitchen", 1, false)];
+        let remote = [
+            m(OWN, "Hall", u64::MAX, true),
+            m(B, "Kitchen", MAX_VERSION + 1, true),
+            m(C, "Office", MAX_VERSION, false),
+        ];
+        let merged = merge(&local, &remote);
+        assert_eq!(
+            merged.members,
+            [
+                m(OWN, "Hall", 1, false),
+                m(B, "Kitchen", 1, false),
+                m(C, "Office", MAX_VERSION, false),
+            ]
+        );
+        assert!(!own_removed(&merged.members, OWN));
+        // A list made of nothing else brings nothing.
+        assert!(!merge(&local, &remote[..2]).changed);
     }
 
     #[test]
