@@ -226,9 +226,13 @@ Select **Assistant**, then **Tools**.
 - **Pinna's tools** lists what a brain can do on the satellite: timers, the
   time, the weather, the volume and the reply volume, the ring light, playing,
   pausing and stopping music and radio, clearing a notification, muting the
-  microphones, and switching back to Home Assistant mode (`switch_assistant`).
-  Only a person can turn the microphones back on, with the **Microphone off**
-  button. Turn off a tool you don't want used.
+  microphones, switching back to Home Assistant mode (`switch_assistant`),
+  saying which version runs, and checking for updates. Only a person can turn
+  the microphones back on, with the **Microphone off** button. Turn off a tool
+  you don't want used. **Install update** is the one tool that starts off: turn
+  it on to let the brain install an update, as
+  [Ask the satellite to update](/docs/update/#ask-the-satellite-to-update)
+  describes.
 - **Radio stations**: add a station with its name and stream address. Then ask
   for it by name, such as "play Radio Eins". The brain can also search the
   radio directory for stations.
@@ -263,10 +267,10 @@ An agent reaches the satellite as an MCP server:
 
 The agent can then set timers, play a stream, speak a text, change the volume
 and the light, mute the microphones, switch the satellite back to Home
-Assistant, and read the satellite's status. It can't make the satellite
-listen, and it doesn't get the weather. Like the dashboard, the MCP server has
-no password: anyone on your network can use it. It answers in standalone mode
-only. The list under it shows the agents that called.
+Assistant, read the satellite's status and which version it runs, and check
+for updates. It can't install an update or make the satellite listen, and it
+doesn't get the weather. Like the dashboard, the MCP server has no password:
+anyone on your network can use it. It answers in standalone mode only. The list under it shows the agents that called.
 
 ## Use timers
 

@@ -8,8 +8,9 @@ kernel and a root filesystem. An update goes into the slot that isn't running.
 The device then tries the new version, and if the new version doesn't work, it
 goes back to the old one on its own, kernel included.
 
-You install updates from the [dashboard](#install-an-update-from-the-dashboard)
-or from [Home Assistant](#install-an-update-from-home-assistant).
+You install updates from the [dashboard](#install-an-update-from-the-dashboard),
+from [Home Assistant](#install-an-update-from-home-assistant), or in standalone
+mode [by asking the satellite](#ask-the-satellite-to-update).
 
 ## How an update works
 
@@ -50,7 +51,8 @@ The **Updates** setting chooses where the satellite looks for new releases:
 With **Stable** or **Beta**, the satellite asks `updates.getpinna.dev` for
 the newest release on its channel: once after it starts, as soon as its clock
 is set, then once a day at a time it picked at random, when you change the
-setting, and when you select **Check now**. It fetches the release's manifest
+setting, when you select **Check now**, and when you ask the satellite in
+standalone mode. It fetches the release's manifest
 and its signature, nothing else, and checks the signature. Its request carries
 no identifier. Nothing is downloaded or installed until you install it.
 
@@ -120,6 +122,37 @@ installed:
 A release published for another model isn't offered at all: **System** says
 which models it is for, and Home Assistant shows no update.
 
+## Ask the satellite to update
+
+In [standalone mode](/docs/standalone/), you can ask the satellite which
+version it runs and whether there is an update, such as "is there an update?".
+If the check takes more than a few seconds, the satellite says that it goes on:
+ask again a minute later, such as "what did the update check find?". While
+**Updates** is **Off**, the satellite still says which version runs, but it
+doesn't check: choose **Stable** or **Beta** under **System** first.
+
+The satellite can also install the release that the last check found. This is
+off until you turn it on:
+
+1. In the dashboard, select **Assistant**, then **Tools**.
+2. Under **Pinna's tools**, turn on **Install update**.
+
+Then ask, such as "install the update". The satellite installs the release into
+the other slot, as **Install** on **System** does, and restarts the next time
+it is Idle, with no timer set and nothing playing. If the new version doesn't
+work, the satellite goes back to the previous one on its own. To go back by
+hand, see [Go back to an older version](#go-back-to-an-older-version).
+
+- The brain is told to install only when you ask, but nothing else stops it
+  while **Install update** is on. Turn it off again if you don't want that.
+- It never installs an older version, and where **System** can't install the
+  release, the satellite refuses and says why. Switching to the other slot by
+  hand and going back stay on the dashboard.
+- With Hermes or OpenClaw as the brain, the agent can say the version and check
+  for updates only if it uses
+  [Pinna's MCP address](/docs/standalone/#use-an-ai-agent-as-the-brain). It
+  can't install an update: install it from the dashboard.
+
 ## Install an update from Home Assistant
 
 The **Firmware** update entity shows the running version and the newest
@@ -159,8 +192,10 @@ apply again after the next update.
 After you go back, the newer version is still in the other slot, and the next
 check offers it again: **System** shows **Start it**, and Home Assistant shows
 it as an update. Home Assistant's **Install** would start it and restart the
-satellite. To stay on the older version, select **Skip** in Home Assistant, or
-set **Updates** to **Off**.
+satellite, and so would the satellite in standalone mode if you ask it to
+install while **Install update** is on. To stay on the older version, select
+**Skip** in Home Assistant and turn off **Install update**, or set **Updates**
+to **Off**.
 
 ## Switch to the other version
 

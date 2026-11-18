@@ -43,8 +43,8 @@ These parts are covered by tests that run without hardware:
   services: a spoken or typed request goes through speech-to-text, the brain's
   tool loop or an agent, and text-to-speech that plays while it streams. The
   adapters for OpenAI-compatible services, Anthropic, Gemini and ElevenLabs,
-  the save-time checks, the MCP server and client, device timers and the
-  dashboard's setup API pass their tests.
+  the save-time checks, the MCP server and client, device timers, the update
+  tools and the dashboard's setup API pass their tests.
 - [AirPlay](/docs/airplay/) turns on and off in the x86_64 virtual machine:
   the receiver starts, publishes its AirPlay record, reports that it is ready,
   and stops again.

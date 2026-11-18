@@ -64,7 +64,7 @@ These modules of `pinnad` run [standalone mode](/docs/standalone/) (ADR 0017):
 | `voice/local.rs` | A standalone request inside the state machine: its phase and deadlines, the conversation, the reply on the voice lane, the last failure, typed questions and spoken samples |
 | `voice/mode.rs` | The switch between Home Assistant and standalone mode, and the Home Assistant commands that standalone mode ignores |
 | `voice/timers.rs` | The timers that Home Assistant sets, and the device's own, which it saves in `timers.toml` |
-| `tools/` | The tools that the brain and MCP clients call: the device's controls, timers, the time, the weather from Open-Meteo, and radio |
+| `tools/` | The tools that the brain and MCP clients call: the device's controls, timers, the time, the weather from Open-Meteo, radio, and updates |
 | `mcp.rs` | The MCP server at `/mcp` on the dashboard's listener |
 | `assistant_api.rs` | `AssistantService`, the setup API that the dashboard's **Assistant** page uses |
 | `mic.rs` | Sends the microphone audio to Home Assistant or to a standalone request, starting 200 ms before the end of the wake word |
