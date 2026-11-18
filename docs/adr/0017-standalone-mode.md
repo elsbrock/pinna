@@ -172,7 +172,9 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   Added to them, because Home Assistant does them itself in its mode:
   - set, list and cancel timers;
   - the date and time;
-  - the weather, from Open-Meteo (no key), for a place set on the dashboard;
+  - the weather, from Open-Meteo (no key), for a place the person names (found by Open-Meteo's place
+    search, first match; a country after a comma tells places apart), else for the place set on the
+    dashboard;
   - radio: the owner's own station list (play one by name, list them) and a search of the
     radio-browser.info directory. A playlist address (`.m3u`, `.pls`) plays its first entry.
 
