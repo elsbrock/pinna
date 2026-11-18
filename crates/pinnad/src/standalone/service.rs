@@ -708,7 +708,7 @@ impl Service {
                 let id = next_mcp_id(&d.config);
                 // A stale entry written by another image must not linger.
                 d.secrets.clear_mcp(&id);
-                d.secrets.set_mcp(&id, url, None);
+                d.secrets.set_mcp(&id, url);
                 d.config.mcp_servers.push(McpServer {
                     host: d.secrets.mcp_host(&id).unwrap_or_default(),
                     id,
@@ -727,7 +727,7 @@ impl Service {
             if server.revision != e.revision {
                 return Err(Refusal::Conflict(MCP_CHANGED.into()));
             }
-            let stored = d.secrets.mcp(&id).map(|(url, _)| url.clone());
+            let stored = d.secrets.mcp(&id).cloned();
             let url = match (url, stored) {
                 (Some(url), stored) => (stored.as_ref() != Some(&url)).then_some(url),
                 // secrets.toml lost the address: the server can't be on without one.
@@ -742,7 +742,7 @@ impl Service {
                 return Ok(());
             }
             if let Some(url) = url {
-                d.secrets.set_mcp(&id, url, None);
+                d.secrets.set_mcp(&id, url);
                 server.host = d.secrets.mcp_host(&id).unwrap_or_default();
             }
             server.name = name;
@@ -1020,7 +1020,7 @@ impl State {
             .iter()
             .filter(|server| server.enabled)
             .filter_map(|server| {
-                let (url, _) = self.secrets.mcp(&server.id)?;
+                let url = self.secrets.mcp(&server.id)?;
                 let kept = self
                     .mcp
                     .iter()
@@ -2316,7 +2316,7 @@ mod tests {
         assert_eq!((house.name.as_str(), house.revision), ("house", 2));
         assert_eq!(house.host, "mcp.example:8443");
         let (_, secrets, _) = crate::secrets::load(&f.dir.path().join("secrets.toml"));
-        assert_eq!(secrets.mcp("mcp-1").unwrap().0.expose(), MCP_ADDRESS);
+        assert_eq!(secrets.mcp("mcp-1").unwrap().expose(), MCP_ADDRESS);
         assert_eq!(f.live().mcp[0].name, "house");
 
         // A new address is entered whole and shows its own host.

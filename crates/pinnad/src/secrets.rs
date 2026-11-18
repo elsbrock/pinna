@@ -70,7 +70,6 @@ mod tests {
                 "home".to_owned(),
                 McpFile {
                     url: "https://mcp.example:8443/private-token".to_owned(),
-                    bearer: Some("bearer-secret".to_owned()),
                     extra: toml::Table::new(),
                 },
             )]
@@ -99,9 +98,8 @@ mod tests {
             secrets.mcp_host("home").as_deref(),
             Some("mcp.example:8443")
         );
-        let (url, bearer) = secrets.mcp("home").unwrap();
+        let url = secrets.mcp("home").unwrap();
         assert_eq!(url.expose(), "https://mcp.example:8443/private-token");
-        assert_eq!(bearer.unwrap().expose(), "bearer-secret");
     }
 
     #[test]

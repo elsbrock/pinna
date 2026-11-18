@@ -1,8 +1,10 @@
-//! The `secrets.toml` codec and URL-bound provider credentials (architecture §6).
+//! The `secrets.toml` codec and URL-bound provider credentials (ADR 0017
+//! §"Secrets").
 //!
 //! The file representation contains strings for TOML only. The in-memory
-//! representation wraps keys, bearer tokens and MCP URLs in [`Secret`], and its
-//! debug output contains no credential material.
+//! representation wraps keys and MCP URLs in [`Secret`], and its debug output
+//! contains no credential material. MCP servers have no token yet; a `bearer`
+//! from another build stays in `extra`.
 
 use std::{collections::BTreeMap, fmt};
 
@@ -32,8 +34,6 @@ pub struct ConnectionFile {
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct McpFile {
     pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bearer: Option<String>,
     #[serde(flatten)]
     pub extra: toml::Table,
 }
@@ -60,7 +60,6 @@ impl fmt::Debug for McpFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("McpFile")
             .field("url", &"<redacted>")
-            .field("bearer", &self.bearer.as_ref().map(|_| "<redacted>"))
             .finish_non_exhaustive()
     }
 }
@@ -75,7 +74,6 @@ struct Connection {
 #[derive(Clone)]
 struct Mcp {
     url: Secret,
-    bearer: Option<Secret>,
     extra: toml::Table,
 }
 
@@ -83,7 +81,6 @@ impl Default for Mcp {
     fn default() -> Self {
         Self {
             url: Secret::new(""),
-            bearer: None,
             extra: toml::Table::new(),
         }
     }
@@ -123,17 +120,14 @@ impl Secrets {
         Some(self.connections.get(connection)?.key.as_ref()?.last4())
     }
 
-    pub fn set_mcp(&mut self, id: impl Into<String>, url: Secret, bearer: Option<Secret>) {
-        let server = self.mcp.entry(id.into()).or_default();
-        server.url = url;
-        server.bearer = bearer;
+    pub fn set_mcp(&mut self, id: impl Into<String>, url: Secret) {
+        self.mcp.entry(id.into()).or_default().url = url;
     }
 
-    /// The credentials used to construct an MCP client. The URL remains a
-    /// secret and is never part of a dashboard view.
-    pub fn mcp(&self, id: &str) -> Option<(&Secret, Option<&Secret>)> {
-        let server = self.mcp.get(id)?;
-        Some((&server.url, server.bearer.as_ref()))
+    /// An MCP server's address. It remains a secret and is never part of a
+    /// dashboard view.
+    pub fn mcp(&self, id: &str) -> Option<&Secret> {
+        Some(&self.mcp.get(id)?.url)
     }
 
     pub fn clear_mcp(&mut self, id: &str) {
@@ -189,7 +183,6 @@ impl From<SecretsFile> for Secrets {
                         id,
                         Mcp {
                             url: Secret::new(server.url),
-                            bearer: server.bearer.map(Secret::new),
                             extra: server.extra,
                         },
                     )
@@ -225,10 +218,6 @@ impl From<&Secrets> for SecretsFile {
                         id.clone(),
                         McpFile {
                             url: server.url.expose().to_owned(),
-                            bearer: server
-                                .bearer
-                                .as_ref()
-                                .map(|bearer| bearer.expose().to_owned()),
                             extra: server.extra.clone(),
                         },
                     )
@@ -283,15 +272,10 @@ mod tests {
     fn debug_output_contains_no_secrets() {
         let mut secrets = Secrets::default();
         secrets.set_key("one", "https://one.example/v1", Secret::new("key-material"));
-        secrets.set_mcp(
-            "home",
-            Secret::new("https://mcp.example/private-token"),
-            Some(Secret::new("bearer-material")),
-        );
+        secrets.set_mcp("home", Secret::new("https://mcp.example/private-token"));
         let debug = format!("{secrets:?}");
         for secret in [
             "key-material",
-            "bearer-material",
             "https://mcp.example/private-token",
             "private-token",
         ] {
@@ -300,7 +284,6 @@ mod tests {
 
         let file_debug = format!("{:?}", secrets.to_file());
         assert!(!file_debug.contains("key-material"));
-        assert!(!file_debug.contains("bearer-material"));
         assert!(!file_debug.contains("private-token"));
     }
 
@@ -325,9 +308,8 @@ future_mcp_key = "kept"
             secrets.mcp_host("home").as_deref(),
             Some("mcp.example:8443")
         );
-        let (url, bearer) = secrets.mcp("home").unwrap();
+        let url = secrets.mcp("home").unwrap();
         assert_eq!(url.expose(), "https://mcp.example:8443/private-token");
-        assert_eq!(bearer.unwrap().expose(), "bearer-secret");
 
         let encoded = toml::to_string(&secrets.to_file()).unwrap();
         let decoded: SecretsFile = toml::from_str(&encoded).unwrap();
