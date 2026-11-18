@@ -799,11 +799,11 @@ impl Service {
         Ok(self.view())
     }
 
-    /// Ask every enabled server for its tools, so the view says which work.
-    /// A server already asked recently answers from its cache.
+    /// Ask every enabled server for its tools again, so the view says which
+    /// work now.
     async fn list_mcp_tools(&self) {
         let servers = self.committed.state.lock().unwrap().mcp.clone();
-        join_all(servers.iter().map(|server| server.tools.list())).await;
+        join_all(servers.iter().map(|server| server.tools.refresh())).await;
     }
 
     /// Remove one of the owner's MCP servers and its address.

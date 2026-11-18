@@ -442,10 +442,22 @@ impl McpToolSet {
     }
 
     /// How the last listing went: the number of tools, or why it failed.
-    /// `None` before the first, or once it has expired.
+    /// `None` before the first. It stays after the cache expires: it is what
+    /// the server last said.
     pub fn last_listing(&self) -> Option<Result<usize, McpError>> {
-        self.cached()
-            .map(|outcome| outcome.map(|tools| tools.len()))
+        self.cache
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|cached| cached.outcome.clone().map(|tools| tools.len()))
+    }
+
+    /// Ask the server again now, whatever the cache holds.
+    pub async fn refresh(&self) -> Result<Vec<ToolSpec>, McpError> {
+        if let Some(cached) = self.cache.lock().unwrap().as_mut() {
+            cached.fetched = Instant::now() - CACHE_TTL.max(FAILED_TTL);
+        }
+        self.list().await
     }
 
     /// The server's tools as the model sees them, or why it can't be listed.
@@ -847,8 +859,13 @@ mod tests {
         assert_eq!(server.state.list_count.load(Ordering::Relaxed), 1);
 
         tools.cache.lock().unwrap().as_mut().unwrap().fetched = Instant::now() - CACHE_TTL;
+        // What the server last said stays while the cache has expired.
+        assert_eq!(tools.last_listing(), Some(Ok(MAX_TOOLS)));
         assert_eq!(tools.specs().await.len(), MAX_TOOLS);
         assert_eq!(server.state.list_count.load(Ordering::Relaxed), 2);
+        // A refresh asks again even while the cache is fresh.
+        tools.refresh().await.unwrap();
+        assert_eq!(server.state.list_count.load(Ordering::Relaxed), 3);
         assert_eq!(
             tools.call("home_2_unknown", json!({})).await,
             ToolOutput::error("Unknown MCP tool home_2_unknown.")
