@@ -15,7 +15,7 @@ use crate::{
     audio,
     error::{ProviderError, Reason, Slot},
     http::{self, Endpoint},
-    presets::{ChatProtocol, PresetId, preset},
+    presets::{ChatProtocol, PresetId, SpeechProtocol, preset},
     reply::AudioBody,
     stt, tts,
 };
@@ -81,21 +81,30 @@ async fn models(setup: &CheckSetup, slot: Slot) -> Result<Option<Bytes>, Provide
 }
 
 async fn stt_check(setup: &CheckSetup) -> Result<(), String> {
+    // ElevenLabs lists its voice models, not Scribe: only a transcription
+    // proves the model, and a wrong one is refused with the ones it has.
+    if preset(setup.endpoint.preset).speech_protocol == SpeechProtocol::ElevenLabs {
+        return transcribe_silence(setup).await;
+    }
     match models(setup, Slot::Stt).await {
         Ok(_) => Ok(()),
         // Some self-hosted servers have no model list. A short silence is the
         // smallest transcription that still proves the key and the address.
-        Err(error) if error.reason == Reason::Http(404) => stt::adapter(
-            preset(setup.endpoint.preset).speech_protocol,
-            setup.endpoint.clone(),
-            setup.model.clone(),
-        )
-        .transcribe(silence_wav(), None)
-        .await
-        .map(|_| ())
-        .map_err(|error| refused(&error)),
+        Err(error) if error.reason == Reason::Http(404) => transcribe_silence(setup).await,
         Err(error) => Err(refused(&error)),
     }
+}
+
+async fn transcribe_silence(setup: &CheckSetup) -> Result<(), String> {
+    stt::adapter(
+        preset(setup.endpoint.preset).speech_protocol,
+        setup.endpoint.clone(),
+        setup.model.clone(),
+    )
+    .transcribe(silence_wav(), None)
+    .await
+    .map(|_| ())
+    .map_err(|error| refused(&error))
 }
 
 async fn chat_check(setup: &CheckSetup) -> Result<(), String> {
@@ -230,14 +239,21 @@ pub fn request_failure(error: &ProviderError) -> String {
 }
 
 /// The owner's sentence for a failed check, with the failure and what the
-/// service said in the log.
+/// service said in the log. A refused request (400, 422) adds the service's
+/// own words, which name what it didn't take, such as a model it doesn't
+/// have; they are masked and capped like the log's.
 fn refused(error: &ProviderError) -> String {
     tracing::info!(
         "the {} check failed: {error}{}",
         error.slot.label(),
         error.said_suffix()
     );
-    refusal(error)
+    match (error.reason, &error.said) {
+        (Reason::Http(400 | 422), Some(said)) => {
+            format!("{} The service said: “{said}”", refusal(error))
+        }
+        _ => refusal(error),
+    }
 }
 
 /// One owner sentence for a failed check. It names the cause and the fix, and
@@ -254,6 +270,11 @@ pub fn refusal(error: &ProviderError) -> String {
             "Nothing answered at this address. An OpenAI-compatible server's address usually ends in /v1."
                 .to_owned()
         }
+        Reason::Http(404) if error.slot == Slot::Tts && error.preset == PresetId::ElevenLabs => {
+            "ElevenLabs has no voice with this ID. Enter the voice's ID from your voice library, \
+             not its name."
+                .to_owned()
+        }
         Reason::Http(404) => "The address is wrong. Check the connection's address.".to_owned(),
         // Provider requests don't follow redirects, so a key never reaches
         // another host; a moved service needs its new address.
@@ -263,6 +284,11 @@ pub fn refusal(error: &ProviderError) -> String {
         // The service's own fault: no key or address is wrong.
         Reason::Http(status @ 500..=599) => format!(
             "The service had an error ({status}). Try again later, or check the server's log."
+        ),
+        // A key that is wrong is 401 or 403; a refused request is usually a
+        // name the service doesn't know.
+        Reason::Http(status @ (400 | 422)) => format!(
+            "The service refused the request ({status}). Check the model's name."
         ),
         Reason::Http(status) => format!(
             "The service answered {status}. Check the key, the address and the account."
@@ -531,6 +557,45 @@ mod tests {
         let body = String::from_utf8_lossy(&requests[1].body);
         assert!(body.contains("filename=\"audio.wav\""), "{body}");
         assert!(body.contains("RIFF"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_speech_to_text_is_checked_by_a_transcription_that_names_a_wrong_model() {
+        let server = FakeServer::start().await;
+        server.script(
+            Method::POST,
+            "/v1/speech-to-text",
+            FakeResponse::new(
+                StatusCode::BAD_REQUEST,
+                r#"{"detail": {"status": "invalid_model_id", "message": "'whisper-1' is not a valid model_id. Available models: 'scribe_v1', 'scribe_v2'"}}"#,
+            ),
+        );
+        let error = check(&setup(&server, Slot::Stt, PresetId::ElevenLabs, "whisper-1"))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            "The service refused the request (400). Check the model's name. The service said: \
+             “'whisper-1' is not a valid model_id. Available models: 'scribe_v1', 'scribe_v2'”"
+        );
+        // No model list first: ElevenLabs' doesn't have Scribe.
+        let requests = server.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path, "/v1/speech-to-text");
+    }
+
+    #[tokio::test]
+    async fn an_elevenlabs_voice_name_is_not_an_address_problem() {
+        let server = FakeServer::start().await;
+        server.script_status(
+            Method::POST,
+            "/v1/text-to-speech/Rachel/stream?output_format=mp3_44100_64",
+            StatusCode::NOT_FOUND,
+        );
+        let error = check(&setup(&server, Slot::Tts, PresetId::ElevenLabs, "Rachel"))
+            .await
+            .unwrap_err();
+        assert!(error.starts_with("ElevenLabs has no voice with this ID."), "{error}");
     }
 
     #[test]

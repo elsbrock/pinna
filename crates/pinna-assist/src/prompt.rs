@@ -8,10 +8,13 @@
 /// The owner's prompt is edited in full, at most this many characters.
 pub const PROMPT_MAX: usize = 4_000;
 
-/// pinnad's voice rules, the starting prompt. A reset brings them back.
+/// pinnad's voice rules, the starting prompt. A reset brings them back. The
+/// last sentence is for models that answer "timer set" without calling the
+/// tool, which the owner can't tell from a spoken reply.
 pub const VOICE_RULES: &str = "You are a voice assistant on a small speaker. Answer in speech: short, \
 plain text, with no markdown, lists or links. Write numbers the way they are said aloud. Ask a \
-question only when you need an answer.";
+question only when you need an answer. Do things only by calling your tools, and never say you did \
+something that no tool did; if no tool can do it, say so.";
 
 /// What pinnad appends after the owner's prompt with each request.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
