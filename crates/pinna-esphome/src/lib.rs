@@ -37,7 +37,7 @@ pub mod proto;
 mod server;
 mod types;
 
-pub use profile::echo_dot_entities;
+pub use profile::{MODE_HOME_ASSISTANT, MODE_STANDALONE, echo_dot_entities};
 pub use server::{EsphomeHandle, LIGHT_KEY, MUTE_KEY, Stopped, serve};
 pub use types::{
     ButtonConfig, DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory, EventConfig,

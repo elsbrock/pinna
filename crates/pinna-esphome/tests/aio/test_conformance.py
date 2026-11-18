@@ -173,8 +173,8 @@ async def test_entities(client):
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
     # 1 light, 9 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
-    # 1 media player, 1 select and 1 update.
-    assert len(by_key) == len(entities) == 1 + 9 + 4 + 1 + 8 + 1 + 1 + 1 + 1
+    # 1 media player, 2 selects and 1 update.
+    assert len(by_key) == len(entities) == 1 + 9 + 4 + 1 + 8 + 1 + 1 + 2 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -440,6 +440,21 @@ async def test_update_channel_select(client, demo):
     cmd = await demo.wait(demo.cmd("select"), "select command")
     assert cmd["object_id"] == "update_channel" and cmd["state"] == "beta"
     await eventually(lambda: states[sel.key].state == "beta", "echoed select state")
+
+
+@pytest.mark.asyncio
+async def test_assistant_select(client, demo):
+    sel = (await infos(client, SelectInfo))["Assistant"]
+    assert sel.object_id == "assistant" and sel.icon == "mdi:account-voice"
+    assert list(sel.options) == ["Home Assistant", "Standalone"]
+    assert int(sel.entity_category) == 1  # config
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: sel.key in states, "initial select state")
+    assert states[sel.key].state == "Home Assistant" and not states[sel.key].missing_state
+    client.select_command(sel.key, "Standalone")
+    cmd = await demo.wait(demo.cmd("select"), "select command")
+    assert cmd["object_id"] == "assistant" and cmd["state"] == "Standalone"
 
 
 @pytest.mark.asyncio

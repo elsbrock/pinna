@@ -84,6 +84,12 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
     handle
+        .send(DeviceEvent::SelectState {
+            object_id: "assistant".into(),
+            state: pinna_esphome::MODE_HOME_ASSISTANT.into(),
+        })
+        .await?;
+    handle
         .send(DeviceEvent::LightState {
             on: false,
             brightness: 1.0,

@@ -1415,6 +1415,7 @@ impl Brain {
                 tracing::info!("Home Assistant connected from {peer}");
                 self.send(DeviceEvent::MuteState(self.muted())).await;
                 self.send_update_channel().await;
+                self.send_mode().await;
                 self.send_update_state().await;
                 self.send_light().await;
                 self.send_numbers().await;
@@ -1571,6 +1572,9 @@ impl Brain {
                     // The URL from pinnad.toml, its only option: nothing to change.
                     _ => self.send_update_channel().await,
                 }
+            }
+            HaCommand::Select { object_id, state } if object_id == "assistant" => {
+                self.mode_from_ha(&state).await;
             }
             HaCommand::Update { object_id, command } if object_id == "firmware" => {
                 self.update_command(command).await;

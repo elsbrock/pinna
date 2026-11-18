@@ -17,6 +17,20 @@ impl Mode {
         *self == Self::HomeAssistant
     }
 
+    /// The Home Assistant "Assistant" select's option for this mode.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::HomeAssistant => pinna_esphome::MODE_HOME_ASSISTANT,
+            Self::Standalone => pinna_esphome::MODE_STANDALONE,
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        [Self::HomeAssistant, Self::Standalone]
+            .into_iter()
+            .find(|mode| mode.label() == label)
+    }
+
     /// The voice features the ESPHome device info advertises: none in
     /// standalone mode, so Home Assistant offers no Assist satellite.
     pub fn voice_feature_flags(self) -> u32 {

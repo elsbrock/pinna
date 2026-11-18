@@ -52,6 +52,10 @@ fn format(
 
 /// Fill `cfg` with the entities the previous firmware exposed (names are part of the HA unique id),
 /// plus Pinna's own controls.
+/// The "Assistant" select's options: the dashboard's names for the modes.
+pub const MODE_HOME_ASSISTANT: &str = "Home Assistant";
+pub const MODE_STANDALONE: &str = "Standalone";
+
 pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
     cfg.light = Some(LightConfig {
         name: "LED ring".into(),
@@ -206,15 +210,26 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             format("wav", 22050, 1, MediaPurpose::Announcement, 2),
         ],
     });
-    // The update channel (ADR 0022). When pinnad.toml sets a manifest URL,
-    // pinnad replaces these options with that URL.
-    cfg.selects = vec![SelectConfig {
-        object_id: "update_channel".into(),
-        name: "Updates".into(),
-        icon: "mdi:update".into(),
-        options: strings(&["stable", "beta", "off"]),
-        entity_category: EntityCategory::Config,
-    }];
+    cfg.selects = vec![
+        // The update channel (ADR 0022). When pinnad.toml sets a manifest URL,
+        // pinnad replaces these options with that URL.
+        SelectConfig {
+            object_id: "update_channel".into(),
+            name: "Updates".into(),
+            icon: "mdi:update".into(),
+            options: strings(&["stable", "beta", "off"]),
+            entity_category: EntityCategory::Config,
+        },
+        // Who answers requests (ADR 0017): Standalone is refused until the
+        // satellite's own services are ready, as on the dashboard.
+        SelectConfig {
+            object_id: "assistant".into(),
+            name: "Assistant".into(),
+            icon: "mdi:account-voice".into(),
+            options: strings(&[MODE_HOME_ASSISTANT, MODE_STANDALONE]),
+            entity_category: EntityCategory::Config,
+        },
+    ];
     // The release the satellite runs and the newest on its channel (ADR 0022).
     cfg.updates = vec![UpdateConfig {
         object_id: "firmware".into(),

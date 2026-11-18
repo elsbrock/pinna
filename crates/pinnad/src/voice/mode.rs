@@ -5,7 +5,7 @@ use std::time::{Instant, SystemTime};
 
 use pinna_esphome::{DeviceEvent, HaCommand};
 
-use super::{Brain, Phase};
+use super::{Brain, Phase, SettingsPatch};
 use crate::settings::Mode;
 
 /// Why standalone mode can't be switched on yet.
@@ -40,9 +40,36 @@ impl Brain {
         self.settings.mode = new;
         self.send(DeviceEvent::VoiceFeatureFlags(new.voice_feature_flags()))
             .await;
+        self.send_mode().await;
         self.reconnect_for_mode = self.clients > 0;
         self.refresh();
         Ok(())
+    }
+
+    /// The "Assistant" select. A refusal leaves the mode as it was, and the
+    /// select goes back to it.
+    pub(super) async fn mode_from_ha(&mut self, label: &str) {
+        let Some(mode) = Mode::from_label(label) else {
+            self.send_mode().await;
+            return;
+        };
+        let patch = SettingsPatch {
+            mode: Some(mode),
+            ..SettingsPatch::default()
+        };
+        if let Err(why) = self.update_settings(patch).await {
+            tracing::info!("Home Assistant asked for {label}: {why}");
+            self.send_mode().await;
+        }
+    }
+
+    /// The "Assistant" select's state.
+    pub(super) async fn send_mode(&self) {
+        self.send(DeviceEvent::SelectState {
+            object_id: "assistant".into(),
+            state: self.mode().label().into(),
+        })
+        .await;
     }
 
     pub(super) fn mode(&self) -> Mode {
@@ -256,6 +283,66 @@ mod tests {
         );
     }
 
+    fn mode_states(events: &[DeviceEvent]) -> Vec<&str> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                DeviceEvent::SelectState { object_id, state } if object_id == "assistant" => {
+                    Some(state.as_str())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    async fn ha_select(device: &mut Device, state: &str) {
+        device
+            .brain
+            .ha(HaCommand::Select {
+                object_id: "assistant".into(),
+                state: state.into(),
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn home_assistant_switches_the_mode_once_standalone_is_ready() {
+        let mut device = Device::new(Mode::HomeAssistant);
+
+        // Not ready: refused, and the select goes back.
+        ha_select(&mut device, "Standalone").await;
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert_eq!(mode_states(&device.events()), ["Home Assistant"]);
+
+        device.set_ready(true);
+        ha_select(&mut device, "Standalone").await;
+        assert_eq!(device.brain.mode(), Mode::Standalone);
+        let events = device.events();
+        assert_eq!(mode_states(&events), ["Standalone"]);
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, DeviceEvent::VoiceFeatureFlags(0)))
+        );
+        assert!(device.saved("settings.toml").contains("standalone"));
+
+        ha_select(&mut device, "Home Assistant").await;
+        assert_eq!(device.brain.mode(), Mode::HomeAssistant);
+        assert_eq!(mode_states(&device.events()), ["Home Assistant"]);
+    }
+
+    #[tokio::test]
+    async fn the_select_follows_a_dashboard_switch_and_ignores_an_unknown_option() {
+        let mut device = Device::new(Mode::HomeAssistant);
+        device.set_ready(true);
+        device.set_mode(Mode::Standalone).await.unwrap();
+        assert_eq!(mode_states(&device.events()), ["Standalone"]);
+
+        ha_select(&mut device, "Elsewhere").await;
+        assert_eq!(device.brain.mode(), Mode::Standalone);
+        assert_eq!(mode_states(&device.events()), ["Standalone"]);
+    }
+
     #[tokio::test]
     async fn standalone_ignores_voice_commands_and_refuses_an_announcement() {
         let mut device = Device::new(Mode::Standalone);
@@ -447,6 +534,10 @@ mod tests {
                 },
                 DeviceEvent::VoiceStop,
                 DeviceEvent::VoiceFeatureFlags(0),
+                DeviceEvent::SelectState {
+                    object_id: "assistant".into(),
+                    state: "Standalone".into(),
+                },
             ]
         );
         assert_eq!(snapshot.mode, Mode::Standalone);
@@ -470,8 +561,14 @@ mod tests {
         let events = device.events();
         assert!(!events.contains(&DeviceEvent::VoiceStop));
         assert_eq!(
-            events.last(),
-            Some(&DeviceEvent::VoiceFeatureFlags(VOICE_FEATURE_FLAGS))
+            events[events.len() - 2..],
+            [
+                DeviceEvent::VoiceFeatureFlags(VOICE_FEATURE_FLAGS),
+                DeviceEvent::SelectState {
+                    object_id: "assistant".into(),
+                    state: "Home Assistant".into(),
+                },
+            ]
         );
     }
 
@@ -527,7 +624,16 @@ mod tests {
         device.set_ready(true);
 
         device.set_mode(Mode::Standalone).await.unwrap();
-        assert_eq!(device.events(), [DeviceEvent::VoiceFeatureFlags(0)]);
+        assert_eq!(
+            device.events(),
+            [
+                DeviceEvent::VoiceFeatureFlags(0),
+                DeviceEvent::SelectState {
+                    object_id: "assistant".into(),
+                    state: "Standalone".into(),
+                }
+            ]
+        );
 
         device.brain.tick().await;
         assert!(device.events().contains(&DeviceEvent::Disconnect));
@@ -541,7 +647,16 @@ mod tests {
         device.set_ready(true);
 
         device.set_mode(Mode::Standalone).await.unwrap();
-        assert_eq!(device.events(), [DeviceEvent::VoiceFeatureFlags(0)]);
+        assert_eq!(
+            device.events(),
+            [
+                DeviceEvent::VoiceFeatureFlags(0),
+                DeviceEvent::SelectState {
+                    object_id: "assistant".into(),
+                    state: "Standalone".into(),
+                }
+            ]
+        );
         assert!(
             device
                 .saved("settings.toml")
@@ -551,7 +666,13 @@ mod tests {
         device.set_mode(Mode::HomeAssistant).await.unwrap();
         assert_eq!(
             device.events(),
-            [DeviceEvent::VoiceFeatureFlags(VOICE_FEATURE_FLAGS)]
+            [
+                DeviceEvent::VoiceFeatureFlags(VOICE_FEATURE_FLAGS),
+                DeviceEvent::SelectState {
+                    object_id: "assistant".into(),
+                    state: "Home Assistant".into(),
+                }
+            ]
         );
         assert!(!device.saved("settings.toml").contains("mode"));
         assert_eq!(device.brain.mode(), Mode::HomeAssistant);
