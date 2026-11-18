@@ -95,6 +95,15 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(classify(&err), NetError::Timeout);
+        // A TLS handshake against a plain HTTP listener fails in rustls the
+        // way an expired or not-yet-valid certificate does: the error the
+        // "clock not set" sentence depends on.
+        let err = client(ClientKind::Mcp)
+            .get(url.replace("http://", "https://"))
+            .send()
+            .await
+            .unwrap_err();
+        assert_eq!(classify(&err), NetError::Tls);
         server.abort();
         let _ = server.await;
         let err = client(ClientKind::Media).get(url).send().await.unwrap_err();
