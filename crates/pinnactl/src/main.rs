@@ -205,18 +205,35 @@ fn render(s: &Status) -> String {
     let _ = writeln!(out, "phase:      {}", phase_name(s));
     let _ = writeln!(out, "muted:      {}", muted_text(s));
     let _ = writeln!(out, "volume:     {}%", s.volume);
+    let standalone = s.mode.as_known() == Some(pinna_api::Mode::MODE_STANDALONE);
+    if standalone {
+        let assist = s.assistant.as_option().cloned().unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "mode:       standalone, {}",
+            if assist.ready {
+                "services ready"
+            } else {
+                "services not ready"
+            }
+        );
+        if !assist.last_error.is_empty() {
+            let _ = writeln!(out, "last failure: {}", assist.last_error);
+        }
+    }
     let _ = writeln!(
         out,
-        "home assistant: {}, voice {}",
+        "home assistant: {}{}",
         if s.ha_connected {
             "connected"
         } else {
             "not connected"
         },
-        if s.voice_subscribed {
-            "subscribed"
-        } else {
-            "not subscribed"
+        match (standalone, s.voice_subscribed) {
+            // In standalone mode it has no voice to subscribe to.
+            (true, _) => "",
+            (false, true) => ", voice subscribed",
+            (false, false) => ", voice not subscribed",
         }
     );
     let _ = writeln!(
@@ -372,5 +389,30 @@ mod tests {
         let out = render(&Status::default());
         assert!(out.contains("muted:      no"));
         assert!(out.contains("timers:     none"));
+        assert!(out.contains("home assistant: not connected, voice not subscribed"));
+        assert!(!out.contains("mode:"));
+    }
+
+    #[test]
+    fn standalone_mode_shows_its_services_not_the_voice_subscription() {
+        let s = Status {
+            mode: pinna_api::Mode::MODE_STANDALONE.into(),
+            assistant: buffa::MessageField::some(pinna_api::AssistantStatus {
+                ready: true,
+                last_error: "No credit is left on this account.".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let out = render(&s);
+        assert!(
+            out.contains("mode:       standalone, services ready"),
+            "{out}"
+        );
+        assert!(
+            out.contains("last failure: No credit is left on this account."),
+            "{out}"
+        );
+        assert!(out.contains("home assistant: not connected\n"), "{out}");
     }
 }
