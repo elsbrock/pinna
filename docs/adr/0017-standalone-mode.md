@@ -143,7 +143,11 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 - **The prompt is the owner's.**
   - The dashboard edits it in full, at most 4,000 characters. It starts as pinnad's voice rules: the
     reply is spoken, so short, plain text without markdown, lists or links; numbers as they are said; a
-    question only when an answer is wanted. A reset brings them back.
+    question only when an answer is wanted; and things are done only by calling a tool, never claimed
+    without one (a model may say "timer set" without calling the tool, which the owner can't hear). A
+    reset brings them back.
+  - An edit names the version it started from, and is refused when the prompt changed since, so a save
+    in one window doesn't silently replace another's. An edit without one, from a script, isn't checked.
   - pinnad adds the context after it with each request: the local time and time zone, the place, the
     language and the satellite's name.
   - Models and agents get the same prompt. An agent keeps its own persona; an empty prompt sends only the
@@ -198,7 +202,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
     default, in the owner's language.
   - The phrase comes from a small table with one phrase per language, falling back to English. The owner
     can change it.
-  - It is synthesised once, whenever the voice, the language or the phrase changes, and kept on disk. It
+  - It is synthesised once, whenever the voice, its text-to-speech model, the language or the phrase
+    changes, and kept on disk. It
     plays without waiting for a service.
 - **The owner's MCP servers are remote only**, for the tool loop. pinnad uses Streamable HTTP (protocol
   2025-06-18, or 2025-03-26 for an older server). stdio servers don't run on the device.
@@ -281,10 +286,10 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 - **MCP server URLs count as secrets.** Some services put the token in the path. The dashboard shows a
   server's name and host only. Changing a URL means entering it again in full.
 - **Nothing secret is logged at info or above:** no key, no URL with credentials, no response body and no
-  transcript. The one exception is what a service said when it refused: the message field of its error
-  body, on one line, at most 200 characters, with the connection's key and anything that looks like a
-  key masked. It names what the status alone can't, such as a model that takes tools only with
-  `reasoning_effort` `none`.
+  transcript. The one exception is what a service said when it answered with an error status: the
+  message field of its error body, or a short plain-text body, on one line, at most 200 characters, with
+  the connection's key and anything that looks like a key masked. It names what the status alone can't,
+  such as a model that takes tools only with `reasoning_effort` `none`.
 
 ### Errors
 
@@ -295,23 +300,24 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
     agent's and a speech model aren't.
   - A refused check (400 or 422) adds what the service said, masked and capped like the log: it names
     the model the service didn't take, and often the ones it has.
-- **The model and voice fields suggest what the service offers**, as it lists it when the field opens:
-  the brain's models, an OpenAI-compatible server's speech models, and ElevenLabs' voices (by name, for
-  their IDs) and speech models. Pinna keeps no list of its own, and any name can still be typed; the
-  check stays the proof.
-- **Text-to-speech has an optional model** besides the voice. Empty is the preset's: `tts-1` for
-  OpenAI-compatible servers, `eleven_multilingual_v2` for ElevenLabs.
   - A slot is saved only when its check passes, in either mode.
   - A connection change re-checks the slots on it. In standalone mode a change that fails is refused
     with a sentence naming each slot that failed. In Home Assistant mode it is saved, and those slots
     aren't ready until they pass again.
   - No brain is sent a prompt for the check.
+- **The model and voice fields suggest what the service offers**, as it lists it when the field opens:
+  the brain's models, an OpenAI-compatible server's speech models, and ElevenLabs' voices (by name, for
+  their IDs) and text-to-speech models. Pinna keeps no list of its own, and any name can still be typed;
+  the check stays the proof.
+- **Text-to-speech has an optional model** besides the voice. Empty is the preset's: `tts-1` for
+  OpenAI-compatible servers, `eleven_multilingual_v2` for ElevenLabs.
 - **Each request leaves its trace in the log**, without what was said:
   - one line per tool call: the request or MCP client, the tool, ok or error, and how long it took. The
     arguments and the output stay out; they can hold what was said;
   - one line when the request is over: the speech-to-text time and seconds of audio, the time to the
-    brain's first words, the time to the first audio, tokens and characters, and how it ended (answered,
-    nothing heard, an invented transcript, failed, or stopped before it ended).
+    brain's first words, how long text-to-speech took for the first sentence, tokens and characters,
+    and how it ended (answered, nothing heard, an invented transcript, failed, or stopped before it
+    ended).
 - **A request that fails gives one error cue.**
   - Its log line names the slot, the provider and the HTTP status, and what the service said. The
     dashboard's log shows it. A failed check is logged the same way.
