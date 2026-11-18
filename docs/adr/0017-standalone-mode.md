@@ -142,11 +142,12 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
     dropping the oldest first. OpenClaw gets only the new turn, with one stable `user` per device, so
     the gateway keeps the session.
 - **The owner can type a question** on the dashboard (at most 1,000 characters). It runs as a spoken
-  request would, without the microphone, and the reply plays on the device.
+  request would, without the microphone and without a follow-up, and the reply plays on the device.
 - **pinnad's own tools are the paths behind its Home Assistant entities** (ADR 0007), so Home Assistant,
   the dashboard and the brain change the device the same way:
-  - the controls, not the configuration switches: the ring light, volume and reply volume, the media
-    player (play a URL, pause, stop), the notification, and cancel request;
+  - the controls, not the configuration switches: the ring light, volume (set or change) and reply
+    volume, the media player (play a URL, pause, resume, stop), and clearing the notification. Cancel
+    request is an MCP tool only: the brain is the request;
   - the microphone can be muted but not turned back on;
   - Bluetooth pairing is left out.
 
@@ -230,7 +231,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   - cancel the request the device is handling, or silence an alarm;
   - status.
 
-  It speaks MCP 2025-06-18 and 2025-03-26 over JSON, refuses batches, and keeps room in the state
+  It speaks MCP 2025-06-18 and 2025-03-26 over JSON, refuses batches and bodies over 64 KiB, runs at
+  most two tool calls at once (another is told the device is busy), and keeps room in the state
   machine's queue for the wake word. The dashboard lists the last 8 clients that called, by the name
   each gave and its address.
 - **Access works like the dashboard: anyone on the LAN, no token.**
@@ -263,8 +265,10 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
 - **A connection is checked when it is saved.**
   - pinnad makes a cheap call: the model list, half a second of silence for a speech server without
     one, or a one-word phrase.
-  - In standalone mode a change that fails a check is refused with a sentence naming each slot that
-    failed. In Home Assistant mode it is saved, and the slot isn't ready until it passes.
+  - A slot is saved only when its check passes, in either mode.
+  - A connection change re-checks the slots on it. In standalone mode a change that fails is refused
+    with a sentence naming each slot that failed. In Home Assistant mode it is saved, and those slots
+    aren't ready until they pass again.
   - No brain is sent a prompt for the check.
 - **A request that fails gives one error cue and one log line.**
   - The line names the slot, the provider and the HTTP status. The dashboard's log shows it.
@@ -287,8 +291,8 @@ ADR 0007, ADR 0013 and ADR 0020; builds on ADR 0008, ADR 0011, ADR 0018, ADR 002
   `pinna_assist_errors` stays Home Assistant's, by its error code.
 - **Each stage has a histogram,** by slot: speech-to-text, the brain's first text, text-to-speech's
   first audio.
-- **What costs money is counted,** by slot and preset: seconds of audio uploaded, the tokens the
-  provider reports (input and output), characters synthesised.
+- **What costs money is counted,** by preset, one family for each slot: seconds of audio uploaded,
+  the tokens the provider reports (input and output), characters synthesised.
 - **The guards are counted:** wakes that uploaded nothing, transcripts dropped as invented, follow-ups,
   acknowledgments played, requests stopped by the wake word or the Action button.
 - **Tool calls are counted,** by tool, outcome and whether the brain or an MCP client called. pinnad's
