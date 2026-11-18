@@ -134,10 +134,7 @@ To go back, select **Home Assistant** under **Mode**, then **Switch**. If Home
 Assistant isn't connected, nothing answers requests until it connects.
 
 If Home Assistant is connected, you can also switch there, with the
-satellite's **Assistant** select that has the choices **Home Assistant** and
-**Standalone**. The device page in Home Assistant has a second select called
-**Assistant**: that one chooses the Assist pipeline. The mode select stays in
-both modes, and **Standalone** works only once the three services have passed
+satellite's **Voice mode** select. It stays in both modes, and **Standalone** works only once the three services have passed
 their check. If the satellite is answering a request when the select changes,
 it switches once the request has ended, after the reply and any follow-up.
 
@@ -153,15 +150,14 @@ With Hermes or OpenClaw as the brain, it works only if the agent uses
 [Pinna's MCP address](#use-an-ai-agent-as-the-brain).
 
 To switch to standalone mode while Home Assistant answers, Home Assistant needs
-something that sets the mode select, because Assist has no command that
-changes a select:
+something that sets the **Voice mode** select, because Assist has no command
+that changes a select:
 
 - **With an AI conversation agent that may control Home Assistant**: in Home
   Assistant, create a script under **Settings > Automations & scenes >
   Scripts**, and expose it under **Settings > Voice assistants > Expose**. In
   its **Description**, say when to use it. Replace the entity ID with your
-  satellite's mode select: copy it from the device page, because Home
-  Assistant's pipeline select may also end in `_assistant`.
+  satellite's: copy it from the **Voice mode** select on the device page.
 
   ```yaml
   alias: Switch the Echo Dot to standalone mode
@@ -171,7 +167,7 @@ changes a select:
   sequence:
     - action: select.select_option
       target:
-        entity_id: select.echo_dot_assistant
+        entity_id: select.echo_dot_voice_mode
       data:
         option: Standalone
   ```
