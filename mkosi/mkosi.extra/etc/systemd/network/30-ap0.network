@@ -1,0 +1,24 @@
+# The setup hotspot (ADR 0028): up while pinnad runs hostapd on ap0. Phones
+# get 10.42.1.x, with the satellite as router and DNS server: pinnad answers
+# every name with 10.42.1.1, and the dashboard there sends other names to
+# itself, so a phone's captive portal check opens it.
+[Match]
+Name=ap0
+
+[Link]
+# Being online means a network the satellite joined, never its own hotspot.
+RequiredForOnline=no
+
+[Network]
+Address=10.42.1.1/24
+DHCPServer=yes
+MulticastDNS=yes
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+
+[DHCPServer]
+PoolOffset=10
+PoolSize=40
+EmitDNS=yes
+DNS=10.42.1.1
+EmitRouter=yes

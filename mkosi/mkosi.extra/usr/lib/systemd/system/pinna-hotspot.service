@@ -1,0 +1,20 @@
+[Unit]
+Description=Setup hotspot (hostapd on ap0, ADR 0028)
+After=pinna-wifi.service systemd-networkd.service
+# pinnad starts it as often as a join fails, and paces retries itself.
+StartLimitIntervalSec=0
+
+# No [Install]: pinnad starts it while no Wi-Fi network is saved, and stops it
+# before a join. pinnad writes /run/pinna/hostapd.conf before each start, and
+# treats hostapd stopping by itself as a failed start: no Restart= here, so a
+# chip without an access point isn't asked again every few seconds.
+
+[Service]
+ExecStartPre=/usr/libexec/pinna/wifi-ap ap0
+ExecStart=/usr/sbin/hostapd /run/pinna/hostapd.conf
+RuntimeDirectory=hostapd
+RuntimeDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

@@ -1,0 +1,22 @@
+#!/bin/sh
+# Make the setup hotspot's interface exist (ADR 0028), before hostapd starts.
+# On the MT8163 the vendor driver registers ap0 when "A" is written to
+# /dev/wmtWifi, after wifi-up has powered the Wi-Fi function on. It stays
+# registered until the next boot: never write "S" or "0" here, since the
+# chip powers up once per boot. Elsewhere (simulated radios in the virtual
+# Echo Dot) the interface is already there under that name.
+#
+#   wifi-ap ap0
+set -u
+iface=${1:?usage: wifi-ap <interface>}
+log() { echo "wifi-ap: $*"; }
+
+[ -e "/sys/class/net/$iface" ] && exit 0
+if [ -c /dev/wmtWifi ]; then
+    [ -e /sys/class/net/wlan0 ] || { log "wlan0 is missing: the Wi-Fi didn't start this boot"; exit 1; }
+    timeout 15 sh -c "printf A > /dev/wmtWifi" || { log "the Wi-Fi driver refused access point mode"; exit 1; }
+fi
+i=0
+while [ "$i" -lt 15 ] && [ ! -e "/sys/class/net/$iface" ]; do sleep 1; i=$((i + 1)); done
+[ -e "/sys/class/net/$iface" ] || { log "$iface did not appear"; exit 1; }
+log "$iface is there"

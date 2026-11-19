@@ -34,6 +34,8 @@ systemctl enable \
 # ttyGS0 appear (see 90-pinna.rules), never by a static dependency on a device
 # that may not exist (QEMU, Wi-Fi bring-up failure).
 systemctl mask wpa_supplicant.service
+# pinna-hotspot.service runs hostapd for the setup hotspot (ADR 0028).
+systemctl mask hostapd.service
 
 # No VT, no package management on a read-only image, no gpt-auto.
 systemctl mask \
