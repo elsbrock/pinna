@@ -109,6 +109,23 @@ struct Observation {
     playback: bool,
 }
 
+/// What a wake word may cost per block: a tenth of the 80 ms it covers, so
+/// that two words leave the audio path enough time (ADR 0013).
+const BUDGET_MS: f32 = 8.0;
+/// Milliseconds of audio in one block.
+const BLOCK_MS: f32 = 80.0;
+/// Runs of the classifier timed; the fastest counts.
+const TIMING_RUNS: usize = 20;
+
+/// What [`test_keyword`] measured on a model it accepted.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TestReport {
+    /// The highest raw block score on the test's silence and noise.
+    pub peak_score: f32,
+    /// The classifier's time for one block, in milliseconds.
+    pub block_ms: f32,
+}
+
 /// How a classifier is stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelFormat {
@@ -177,14 +194,25 @@ fn classifier_plan(bytes: &[u8]) -> Result<Plan> {
     let shape = [1, FEATURE_FRAMES, FEATURE_BINS];
     let model = match ModelFormat::detect(bytes) {
         ModelFormat::Onnx => {
-            let model = onnx()
-                .model_for_read(&mut Cursor::new(bytes))
-                .context("not an ONNX or TFLite model")?;
+            let model = onnx().model_for_read(&mut Cursor::new(bytes)).context(
+                "not an ONNX or TFLite model; choose the wake word's .onnx or .tflite file",
+            )?;
             ensure!(
                 model.input_outlets()?.len() == 1,
                 "a wake word model has one input, this one has {}",
                 model.input_outlets()?.len()
             );
+            // openWakeWord's downloads put the shared models beside the
+            // words: the melspectrogram takes audio ([1, samples]), the
+            // embedding mel frames ([1, 76, 32, 1]). A word takes rank 3.
+            if let Some(2 | 4) = tract_onnx::tract_hir::infer::Factoid::concretize(
+                &model.input_fact(0)?.shape.rank(),
+            ) {
+                bail!(
+                    "this is one of openWakeWord's shared models (the melspectrogram or the \
+                     embedding), not a wake word; choose the file named after the word"
+                );
+            }
             model
                 .with_input_fact(0, f32::fact(shape).into())
                 .and_then(|m| m.into_typed())
@@ -209,7 +237,7 @@ fn classifier_plan(bytes: &[u8]) -> Result<Plan> {
                 if integer || got.last() == Some(&TDim::from(40)) {
                     bail!(
                         "this looks like a microWakeWord model (for ESPHome devices such as Voice PE); \
-                         Pinna runs openWakeWord models"
+                         Pinna runs openWakeWord models, .onnx or .tflite"
                     );
                 }
                 bail!(
@@ -239,6 +267,88 @@ fn classifier_plan(bytes: &[u8]) -> Result<Plan> {
     );
     ensure!(scores[0].is_finite(), "the model's score isn't a number");
     Ok(plan)
+}
+
+/// Test an uploaded classifier before the satellite keeps it (ADR 0013): it
+/// must load, cost at most 8 ms per block, and stay below `threshold` on
+/// generated silence and noise. An error is a refusal; its message is the
+/// reason an owner reads.
+pub fn test_keyword(model_dir: &Path, bytes: &[u8], threshold: f32) -> Result<TestReport> {
+    test_keyword_within(model_dir, bytes, threshold, BUDGET_MS)
+}
+
+/// [`test_keyword`] with the time budget as a parameter, for tests.
+pub fn test_keyword_within(
+    model_dir: &Path,
+    bytes: &[u8],
+    threshold: f32,
+    budget_ms: f32,
+) -> Result<TestReport> {
+    let keyword = Keyword::from_bytes("upload", bytes)?;
+
+    // The test runs at low priority, so the fastest run is the model's own cost.
+    let features = vec![0.1_f32; FEATURE_FRAMES * FEATURE_BINS];
+    let mut fastest = f32::MAX;
+    for _ in 0..TIMING_RUNS {
+        let start = std::time::Instant::now();
+        keyword.score(&features)?;
+        fastest = fastest.min(start.elapsed().as_secs_f32() * 1000.0);
+    }
+    ensure!(
+        fastest <= budget_ms,
+        "This model needs {fastest:.1} ms for each {BLOCK_MS:.0} ms of audio on this satellite; \
+         a wake word may take at most {budget_ms:.0} ms."
+    );
+
+    let mut detector = Detector::new(
+        model_dir,
+        vec![keyword],
+        WakeConfig {
+            threshold,
+            ..WakeConfig::default()
+        },
+    )?;
+    let mut peak = 0.0_f32;
+    let mut noise = Noise(0x9E37_79B9_7F4A_7C15);
+    for (seconds, dbfs) in [(2, None), (3, Some(-30.0)), (3, Some(-12.0))] {
+        let samples = noise.samples(seconds * 16_000, dbfs);
+        for chunk in samples.chunks(BLOCK_SAMPLES) {
+            detector.push_with(chunk, |b| peak = peak.max(b.score));
+        }
+    }
+    ensure!(
+        peak < threshold,
+        "This model wakes on silence or noise (score {peak:.2}; the satellite wakes at \
+         {threshold:.2}), so the satellite would wake by itself."
+    );
+    Ok(TestReport {
+        peak_score: peak,
+        block_ms: fastest,
+    })
+}
+
+/// Deterministic white noise (xorshift64), so a test gives the same answer
+/// every time without a dependency.
+struct Noise(u64);
+
+impl Noise {
+    /// Uniform samples at `dbfs` RMS, or digital silence for `None`.
+    fn samples(&mut self, count: usize, dbfs: Option<f32>) -> Vec<i16> {
+        let Some(dbfs) = dbfs else {
+            return vec![0; count];
+        };
+        // A uniform signal in +-a has an RMS of a / sqrt(3).
+        let amplitude = 32768.0 * 10f32.powf(dbfs / 20.0) * 3f32.sqrt();
+        (0..count)
+            .map(|_| {
+                self.0 ^= self.0 << 13;
+                self.0 ^= self.0 >> 7;
+                self.0 ^= self.0 << 17;
+                let unit = (self.0 >> 11) as f32 / (1u64 << 53) as f32 * 2.0 - 1.0;
+                (unit * amplitude).clamp(-32768.0, 32767.0) as i16
+            })
+            .collect()
+    }
 }
 
 struct Head {
