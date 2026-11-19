@@ -63,12 +63,13 @@ sections are in a bar at the bottom, and a section's pages are rows on it.
 | Section | What you can do |
 | --- | --- |
 | **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant (in standalone mode, whether its services are ready), Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers and how many messages from the [satellite group](/docs/standalone/#pass-messages-between-satellites) wait to be said. **Now playing** shows what plays and where it comes from, with pause, resume and stop, and **Mute music**; with nothing playing, it says how to play something. **Identify** runs the ring's test pattern, to find the device among others |
-| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected or in standalone mode, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), and turn the **Wake sound** on or off. **Ring** sets the ring brightness, turns **Listening direction** on or off, [uses the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light), runs the ring's test pattern with **Identify**, and shows what each ring state means. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them, and [plays music from a URL](#play-music-from-a-url). **Sensitivity** opens the **Wake word sensitivity** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other |
+| **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected or in standalone mode, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), and turn the **Wake sound** on or off. **Ring** sets the ring brightness, turns **Listening direction** on or off, [uses the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light), runs the ring's test pattern with **Identify**, and shows what each ring state means. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them, and [plays music from a URL](#play-music-from-a-url). **Wake words** lists the words on offer and [adds your own](#add-your-own-wake-word). **Sensitivity** opens the **Wake word sensitivity** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other |
 | **Assistant** | Choose who answers requests: Home Assistant or the satellite itself, in [standalone mode](/docs/standalone/). In Home Assistant mode, see whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted, and see the device's name and copy the host and port to add the device by hand. **Services**, **Conversation** and **Tools** set up standalone mode: the speech and language services and their keys, the language, place and prompt, a box to type a question, what the brain may do, radio stations and MCP. **Satellite group** puts satellites in a group, so that they [pass messages](/docs/standalone/#pass-messages-between-satellites) to each other and [control each other](/docs/standalone/#control-another-satellite): turn it on, add and remove members, and turn **Group messages** and **Control from the group** on or off |
 | **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. [Set a dashboard address](#set-a-dashboard-address), where else the dashboard opens |
 | **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), choose where it looks for updates (**Updates**: Stable, Beta or Off), check for one and see what the last check found, see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, see how its last start ended, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
 
-The dashboard only offers the wake words whose models the image ships.
+The dashboard offers the wake words whose models the image ships, and the
+ones you add.
 
 ## Name the device
 
@@ -177,6 +178,55 @@ doesn't, the device is reachable over USB only afterwards, at
 `http://10.42.0.1/`: [connect it to Wi-Fi](/docs/flash/#connect-to-wi-fi)
 again. If Home Assistant had set its key, Home Assistant shows it as
 unavailable until you add it again.
+
+## Add your own wake word
+
+You can add up to eight wake words of your own. Each is an openWakeWord
+model, an `.onnx` or `.tflite` file of at most 2 MiB, such as the ones Home
+Assistant users train and share. Pinna can't run microWakeWord models, which
+ESPHome devices such as Voice PE use.
+
+1. Open **Voice & sound > Wake words**.
+2. Under **Add a wake word**, enter the **Phrase**: the phrase the model was
+   trained on, 2 to 40 characters. It must be different from the phrase of
+   every other wake word on the satellite, ignoring case, spaces and
+   punctuation.
+3. Under **Model file**, select **Choose file** and choose the model.
+4. Select **Add**.
+
+The satellite tests the model before it keeps it. The test runs in a process
+of its own, with limits on memory and time, so a model that breaks the test
+doesn't stop the satellite. The model must load, take at most 8 ms for each
+80 ms of audio, and stay below the wake threshold at the current sensitivity
+on silence and noise. The test takes from a few seconds up to a minute. If
+the satellite refuses the model, the page says why, and nothing is kept. See
+[The device refuses a wake word](/docs/troubleshooting/#the-device-refuses-a-wake-word).
+
+The satellite doesn't listen for the new word yet. Choose it like the
+built-in words: in Home Assistant mode, while Home Assistant is connected, on
+the device page in Home Assistant (see
+[Choose the wake words](/docs/home-assistant/#choose-the-wake-words));
+otherwise under **Wake word** on **Voice & sound**. The test shows that the
+model stays quiet when nobody speaks, not that it hears its phrase, so try
+it:
+
+1. Choose the new word alone, without a second wake word. **Recent wakes**
+   names the word on a wake but not on a near miss.
+2. Say it from where you usually speak, and watch **Recent wakes** on the
+   **Wake word sensitivity** page. See [Tune the wake word](#tune-the-wake-word).
+
+To remove a word you added, select **Remove** next to it on the **Wake words**
+page. The satellite deletes its model and stops listening for it. If it was
+listening for the word in Home Assistant mode while Home Assistant is
+connected, choose another word in Home Assistant.
+
+A word that the satellite can't listen for shows the reason under its phrase:
+its model file is missing or changed, or its model didn't load. A model that
+passed the test runs inside the satellite's software; if loading it still
+stops that software, the satellite restarts it without the word, and the
+word stays marked. You can't choose such a word. Remove it, and add a new
+model for the phrase if you have one. A [factory reset](#reset-the-device)
+deletes the words you added.
 
 ## Tune the wake word
 

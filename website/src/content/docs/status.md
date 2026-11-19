@@ -38,7 +38,8 @@ These parts are covered by tests that run without hardware:
 - A complete voice request, from the wake word to the played reply, works
   against a simulated Home Assistant. The reply plays while it downloads, the
   wake word interrupts a reply and stops a ringing timer alarm, and changes on
-  the dashboard reach Home Assistant.
+  the dashboard reach Home Assistant. A wake word uploaded on the dashboard is
+  tested, offered to Home Assistant and wakes the device.
 - [Standalone mode](/docs/standalone/) runs a request against simulated
   services: a spoken or typed request goes through speech-to-text, the brain's
   tool loop or an agent, and text-to-speech that plays while it streams. The
@@ -72,11 +73,16 @@ On the devices:
 - **The dashboard has no login.** Anyone on your network can use it,
   including restarting and updating the device. See
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
-- **The wake words are fixed in the image.** Pinna listens for up to two of
-  Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy (openWakeWord) and Okay Nabu at
-  once, chosen in Home Assistant or on the dashboard. The openWakeWord models'
-  licence doesn't allow commercial use, and the dashboard can't accept extra
-  models yet.
+- **The built-in wake words' licence doesn't allow commercial use.** Pinna
+  listens for up to two of Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy
+  (openWakeWord) and Okay Nabu at once, and the openWakeWord models' licence
+  doesn't allow commercial use. You can
+  [add your own](/docs/dashboard/#add-your-own-wake-word).
+- **The test of an uploaded wake word doesn't say whether it hears you.** The
+  satellite checks that the model loads, keeps up and stays quiet on silence
+  and noise, not that it wakes on its phrase. Models that read more than the
+  standard 16 embeddings, which openWakeWord trains for some long phrases,
+  are refused.
 - **On a Kaeru from before 22 October 2026, updates don't change the kernel.**
   That Kaeru loads `boot_a` for both slots, and updates leave `boot_a`
   alone. Install new kernels from fastboot.
@@ -92,8 +98,9 @@ On the devices:
 
 - **Automatic installs** inside a time window that you choose, for releases
   that need nothing done by hand.
-- **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
-  model and naming its phrase (ADR 0013).
+- **A score for each wake word**: the highest score of the last thing each
+  word heard, so that you can tell a word that never wakes from one that
+  nearly does (ADR 0013).
 - **More for standalone mode**: MCP servers that need a sign-in, and several
   satellites that share one conversation (ADR 0017). In a satellite group,
   one answer when several hear the wake word (ADR 0026).

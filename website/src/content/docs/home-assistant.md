@@ -91,9 +91,16 @@ in the middle. See
 The device listens for two wake words at once, at most, and Home Assistant
 chooses which. Open the device page in **Settings > Devices & services >
 ESPHome**: under **Configuration**, the **Wake word** and **Wake word 2**
-selectors list every word the device has installed — Alexa, Hey Jarvis, Hey
-Mycroft, Hey Rhasspy and Okay Nabu on a standard image. Set one or both, or set
-both to **No wake word** to listen for none.
+selectors list every word the device can listen for — Alexa, Hey Jarvis, Hey
+Mycroft, Hey Rhasspy and Okay Nabu on a standard image — and the words you
+[added on the dashboard](/docs/dashboard/#add-your-own-wake-word), unless
+their model failed to load. Set one or
+both, or set both to **No wake word** to listen for none.
+
+Home Assistant reads the list of words when it connects. After you add or
+remove a word, the device makes Home Assistant reconnect once no request,
+reply, announcement, music or timer alarm plays, and the selectors show the
+new list.
 
 While Home Assistant is connected, it owns this choice: the device's
 [dashboard](/docs/dashboard/) shows the active words but doesn't change them.

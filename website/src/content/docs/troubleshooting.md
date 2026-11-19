@@ -111,7 +111,9 @@ says whether the satellite listens, and why not:
 If the hint says `Listening for "Alexa"` and the device still doesn't react:
 
 - Check that the wake word model loaded. A line `wake word disabled: …` in
-  **System > Logs** means the model files are there but didn't load.
+  **System > Logs** means the model files are there but didn't load. For a
+  word you added, **Voice & sound > Wake words** shows under its phrase why
+  the satellite can't listen for it.
 - Check the microphones. If **System** shows **Audio backend** `none` under
   **Details**, Pinna found no audio device, and the log has the line
   `no audio backend: wake word and speech disabled`. With another backend, a
@@ -139,6 +141,24 @@ If the hint says `Listening for "Alexa"` and the device still doesn't react:
   and `wake word near miss (Alexa): peak score …`, which names the word that
   scored. With two wake words active they share one sensitivity, so raising it
   affects both.
+
+## The device refuses a wake word
+
+When you [add a wake word](/docs/dashboard/#add-your-own-wake-word), the
+satellite tests its model first. If the model fails, **Voice & sound > Wake
+words** shows why under **Add**, and the satellite keeps nothing:
+
+| The reason starts with | What to do |
+| --- | --- |
+| `This looks like a microWakeWord model` | The model is for ESPHome devices such as Voice PE. Use an openWakeWord model of the word, `.onnx` or `.tflite` |
+| `Not an openWakeWord classifier`, `Not an ONNX or TFLite model` or `Not a readable TFLite model` | The file isn't an openWakeWord model, or the model reads more than the standard 16 embeddings, as some models of long phrases do. Pinna runs only the standard ones |
+| `This model wakes on silence or noise` | The model would wake the satellite by itself at the current sensitivity. Use a better-trained model. The test uses the sensitivity set when you add the model, and doesn't run again when you change it later |
+| `This model needs` | The model takes too long to run on the satellite. Use a smaller model |
+| `Testing this model crashed` or `Testing this model took longer` | The model is broken, or too large for the satellite |
+| `A satellite can have at most 8 custom wake words` | Remove a word you added on the same page, then add the new one |
+| `This is one of openWakeWord's shared models` | You chose `melspectrogram.onnx` or `embedding_model.onnx`, which come with every openWakeWord download. Choose the file named after the word |
+| `This satellite already has the wake word` | Choose another phrase. If the other word is one you added, you can remove it first |
+| Anything else | The file isn't a working openWakeWord model. Use another model of the word |
 
 ## The device wakes by itself
 
