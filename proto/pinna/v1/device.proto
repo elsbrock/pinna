@@ -2,9 +2,13 @@ syntax = "proto3";
 
 package pinna.v1;
 
-// Control API of pinnad, without authentication. Served on 127.0.0.1:7470 for
-// pinnactl, and with the dashboard on the LAN (`[web]`, ADR 0005): anyone who can
-// reach either listener can control the device.
+// Control API of pinnad. Served on 127.0.0.1:7470 for pinnactl, without
+// authentication: anyone who can reach it is on the device. Served with the
+// dashboard on the LAN (`[web]`, ADR 0005) too, where a dashboard password
+// (ADR 0029) makes every call except GetSecurity, StartConfirmation,
+// WatchConfirmation and SetDashboardPassword need a session cookie; without a
+// password anyone who can reach it can control the device. A call without a
+// session fails with the `unauthenticated` code.
 service DeviceService {
   // Current state of the device.
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
@@ -117,6 +121,33 @@ service DeviceService {
   rpc ControlMedia(ControlMediaRequest) returns (ControlMediaResponse);
   // Play a URL on the media player, like Home Assistant's "Play media".
   rpc PlayMedia(PlayMediaRequest) returns (PlayMediaResponse);
+  // What the dashboard needs to decide between its login form, its offer of a
+  // password and the System page (ADR 0029). Needs no session.
+  rpc GetSecurity(GetSecurityRequest) returns (GetSecurityResponse);
+  // Set or change the dashboard password. Needs no session, because it checks
+  // its own credentials: with a password set, the current one or a grant; with
+  // none set, a grant. Ends every session, so the browser signs in again
+  // afterwards with POST /auth/login.
+  rpc SetDashboardPassword(SetDashboardPasswordRequest) returns (SetDashboardPasswordResponse);
+  // Remove the dashboard password. Needs a session and the current password
+  // or a grant. Ends every session.
+  rpc RemoveDashboardPassword(RemoveDashboardPasswordRequest) returns (RemoveDashboardPasswordResponse);
+  // The owner chooses "Leave it open": stop offering a password. Fails when
+  // a password is set.
+  rpc LeaveDashboardOpen(LeaveDashboardOpenRequest) returns (LeaveDashboardOpenResponse);
+  // Ask for someone at the satellite: for 60 seconds the ring shows the
+  // confirm pattern, and the next press of the Action button confirms.
+  // Needs no session. Refused while another confirmation waits or ran in the
+  // last 60 seconds.
+  rpc StartConfirmation(StartConfirmationRequest) returns (StartConfirmationResponse);
+  // Follow a confirmation: waiting, then confirmed with a grant or expired.
+  // Needs no session.
+  rpc WatchConfirmation(WatchConfirmationRequest) returns (stream WatchConfirmationResponse);
+  // Create the token for /metrics or for /mcp. It is returned once and
+  // replaces the old one.
+  rpc CreateToken(CreateTokenRequest) returns (CreateTokenResponse);
+  // End every session, and close the streams they hold open.
+  rpc SignOutEverywhere(SignOutEverywhereRequest) returns (SignOutEverywhereResponse);
 }
 
 enum Phase {
@@ -1246,3 +1277,124 @@ message FactoryResetRequest {
 }
 
 message FactoryResetResponse {}
+
+message GetSecurityRequest {}
+
+message GetSecurityResponse {
+  Security security = 1;
+}
+
+// The dashboard's access state (ADR 0029).
+message Security {
+  // A password is set.
+  bool password_set = 1;
+  // The owner chose "Leave it open".
+  bool left_open = 2;
+  // The dashboard should offer a password: none is set and nobody left it open.
+  bool offer_pending = 3;
+  // This request carries a valid session. False without one, also while no
+  // password is set.
+  bool signed_in = 4;
+  // The last four characters of the metrics token; empty while none exists.
+  string metrics_token_last4 = 5;
+  // The last four characters of the agent token; empty while none exists.
+  string agent_token_last4 = 6;
+  // Failed logins, and wrong current passwords, since the last login.
+  uint32 failures_since_login = 7;
+  // The address of the last failure; empty when there is none.
+  string last_failure_address = 8;
+  // When it happened, in Unix milliseconds; 0 when there is none.
+  uint64 last_failure_unix_ms = 9;
+  // Seconds until a login attempt is taken again; 0 when one is.
+  uint32 login_retry_after_s = 10;
+  // Seconds until a new confirmation may start; 0 when one may.
+  uint32 confirmation_cooldown_s = 11;
+  // For the first-password form: the MCP clients that called /mcp in the last
+  // 24 hours, by the name they gave, newest first.
+  repeated string mcp_clients = 12;
+  // /metrics was read in the last 24 hours.
+  bool metrics_read = 13;
+}
+
+message SetDashboardPasswordRequest {
+  // 8 to 128 characters.
+  string new_password = 1;
+  // The current password, when one is set.
+  string current_password = 2;
+  // A grant from a confirmation, instead of the current password.
+  string grant = 3;
+}
+
+message SetDashboardPasswordResponse {
+  Security security = 1;
+}
+
+message RemoveDashboardPasswordRequest {
+  string current_password = 1;
+  string grant = 2;
+}
+
+message RemoveDashboardPasswordResponse {
+  Security security = 1;
+}
+
+message LeaveDashboardOpenRequest {}
+
+message LeaveDashboardOpenResponse {
+  Security security = 1;
+}
+
+message StartConfirmationRequest {}
+
+message StartConfirmationResponse {
+  // Pass it to WatchConfirmation.
+  string id = 1;
+  // Seconds the confirmation waits for a press.
+  uint32 seconds = 2;
+}
+
+message WatchConfirmationRequest {
+  string id = 1;
+}
+
+enum ConfirmationState {
+  CONFIRMATION_STATE_UNSPECIFIED = 0;
+  // The ring shows the confirm pattern; nobody pressed Action yet.
+  CONFIRMATION_STATE_WAITING = 1;
+  // Action was pressed; the message carries the grant.
+  CONFIRMATION_STATE_CONFIRMED = 2;
+  // Nobody pressed it in time.
+  CONFIRMATION_STATE_EXPIRED = 3;
+}
+
+message WatchConfirmationResponse {
+  ConfirmationState state = 1;
+  // Seconds left while waiting.
+  uint32 seconds_left = 2;
+  // One-time grant, valid for 5 minutes, once: with CONFIRMED only.
+  string grant = 3;
+}
+
+enum TokenKind {
+  TOKEN_KIND_UNSPECIFIED = 0;
+  // Reads /metrics.
+  TOKEN_KIND_METRICS = 1;
+  // Opens /mcp.
+  TOKEN_KIND_AGENT = 2;
+}
+
+message CreateTokenRequest {
+  TokenKind kind = 1;
+}
+
+message CreateTokenResponse {
+  // Shown once: only its SHA-256 is kept.
+  string token = 1;
+  Security security = 2;
+}
+
+message SignOutEverywhereRequest {}
+
+message SignOutEverywhereResponse {
+  Security security = 1;
+}

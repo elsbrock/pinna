@@ -350,6 +350,70 @@ impl DeviceService for Fake {
     ) -> ServiceResult<ForgetWifiResponse> {
         Err(ConnectError::unimplemented("fake"))
     }
+
+    async fn get_security(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, GetSecurityRequest>,
+    ) -> ServiceResult<GetSecurityResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn set_dashboard_password(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, SetDashboardPasswordRequest>,
+    ) -> ServiceResult<SetDashboardPasswordResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn remove_dashboard_password(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, RemoveDashboardPasswordRequest>,
+    ) -> ServiceResult<RemoveDashboardPasswordResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn leave_dashboard_open(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, LeaveDashboardOpenRequest>,
+    ) -> ServiceResult<LeaveDashboardOpenResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn start_confirmation(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StartConfirmationRequest>,
+    ) -> ServiceResult<StartConfirmationResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn watch_confirmation(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, WatchConfirmationRequest>,
+    ) -> ServiceResult<ServiceStream<WatchConfirmationResponse>> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn create_token(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, CreateTokenRequest>,
+    ) -> ServiceResult<CreateTokenResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn sign_out_everywhere(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, SignOutEverywhereRequest>,
+    ) -> ServiceResult<SignOutEverywhereResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
 }
 
 async fn pinnactl(addr: std::net::SocketAddr, args: &[&str]) -> (bool, String, String) {
