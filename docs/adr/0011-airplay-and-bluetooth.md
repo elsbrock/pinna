@@ -82,7 +82,7 @@ What was considered and rejected:
   shairport-sync receivers and falls back to AirPlay 1. Its own multi-room
   protocol, Sendspin, plays on a timeline the player must follow exactly,
   which needs the speaker's real timing inside `pinnad`, not this socket;
-  it gets its own decision record.
+  it gets its own decision record, [ADR 0027](0027-sendspin.md).
 - **Forky binaries in a trixie image.** Binary-incompatible (see above).
 - **Avahi as the one mDNS stack.** shairport-sync would advertise itself,
   but Home Assistant discovery, `.local` lookups (nss-mdns) and the image's
@@ -291,7 +291,7 @@ What was considered and rejected:
   networking; Wi-Fi goes first. Only hardware can prove it; the VM has no
   Bluetooth (the owner chose not to give it a virtual controller).
 - No AirPlay grouping with Apple speakers. Multi-room with Music Assistant
-  is Sendspin's job, decided in its own record.
+  is Sendspin's job, decided in [ADR 0027](0027-sendspin.md).
 - The dashboard has no authentication (ADR 0005): anyone on the network who can open
   it sees the title of what plays, from a phone over Bluetooth too, as
   they already see a URL that plays.
