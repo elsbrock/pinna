@@ -13,6 +13,7 @@ use buffa::MessageField;
 use connectrpc::{ConnectError, RequestContext, Response, Router, Server, ServiceRequest};
 use connectrpc::{ServiceResult, ServiceStream};
 use futures::{Stream, StreamExt};
+use pinna_api::{AddWakeWordRequest, AddWakeWordResponse};
 use pinna_api::{
     Calibration, CalibrationEvent, CalibrationEventKind, ClearNotificationRequest,
     ClearNotificationResponse, DeviceService, GetNetworkRequest, GetNetworkResponse,
@@ -44,6 +45,7 @@ use pinna_api::{
     ReportBluetoothResponse, StartBluetoothPairingRequest, StartBluetoothPairingResponse,
     StopBluetoothPairingRequest, StopBluetoothPairingResponse,
 };
+use pinna_api::{RemoveWakeWordRequest, RemoveWakeWordResponse};
 use pinna_hal::led::{Frame, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -53,6 +55,7 @@ use crate::leds::LightEffect;
 use crate::updates::UpdaterPaths;
 use crate::updates::{Event, Origin, Source, UpdateChannel, Updater, stage_of};
 use crate::voice::{ApiCommand, ApiReply, Input, RingLightPatch, SettingsPatch, Snapshot};
+use crate::wakewords::{Checker, MAX_MODEL_BYTES, Refusal};
 use crate::wifi::{Wifi, WifiPaths};
 use crate::{logs, network, satellites, wifi};
 
@@ -65,8 +68,6 @@ pub struct Info {
     pub mac: String,
     /// The IANA zones on offer (ADR 0007).
     pub time_zones: Arc<Vec<String>>,
-    /// The wake words on offer (ADR 0013).
-    pub wake_words: Arc<crate::wakewords::Catalogue>,
     pub audio_backend: String,
     pub led_backend: String,
     pub model: String,
@@ -89,6 +90,8 @@ pub struct DeviceApi {
     wifi: Arc<Wifi>,
     /// What the background search last found (satellites::run).
     satellites: watch::Receiver<satellites::Seen>,
+    /// Tests the models owners upload (ADR 0013).
+    wake_checker: Arc<Checker>,
 }
 
 /// WatchRing sends at most one frame per this interval.
@@ -115,7 +118,14 @@ impl DeviceApi {
             updater: updater.into(),
             wifi: Arc::new(Wifi::new(WifiPaths::default())),
             satellites: watch::channel(satellites::Seen::default()).1,
+            wake_checker: Arc::new(Checker::disabled()),
         }
+    }
+
+    /// Test uploaded wake word models with `checker`.
+    pub fn with_wake_checker(mut self, checker: Checker) -> Self {
+        self.wake_checker = Arc::new(checker);
+        self
     }
 
     /// A request reached the dashboard at this local address (ADR 0008: a
@@ -199,7 +209,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         ha_connected: s.ha_connected,
         voice_subscribed: s.voice_subscribed,
         wake_word: MessageField::some(WakeWord {
-            phrase: info.wake_words.phrases(&s.active_wake_words),
+            phrase: s.wake_words.phrases(&s.active_wake_words),
             enabled: s.wake_enabled,
             threshold: s.settings.wake_threshold(),
             recent: s
@@ -235,13 +245,15 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
                     ..Default::default()
                 })
             }),
-            available: info
+            available: s
                 .wake_words
                 .words()
                 .iter()
                 .map(|w| WakeWordOption {
                     id: w.id.clone(),
                     phrase: w.phrase.clone(),
+                    custom: w.custom,
+                    error: w.error.clone().unwrap_or_default(),
                     ..Default::default()
                 })
                 .collect(),
@@ -696,7 +708,8 @@ impl DeviceService for DeviceApi {
         let wake_words = match request.wake_words.as_option() {
             Some(w) => {
                 let ids: Vec<String> = w.ids.iter().map(|id| (*id).to_owned()).collect();
-                self.info
+                self.status
+                    .borrow()
                     .wake_words
                     .validate(&ids)
                     .map_err(ConnectError::invalid_argument)?;
@@ -827,6 +840,88 @@ impl DeviceService for DeviceApi {
             searched: seen.searched,
             ..Default::default()
         })
+    }
+
+    async fn add_wake_word(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, AddWakeWordRequest>,
+    ) -> ServiceResult<AddWakeWordResponse> {
+        let model: &[u8] = request.model;
+        if model.is_empty() {
+            return Err(ConnectError::invalid_argument(
+                "Choose a model file; this one is empty.",
+            ));
+        }
+        if model.len() > MAX_MODEL_BYTES {
+            return Err(ConnectError::invalid_argument(format!(
+                "A wake word model may be at most {} MiB; this one is {} MiB.",
+                MAX_MODEL_BYTES >> 20,
+                model.len().div_ceil(1 << 20)
+            )));
+        }
+        // The cheap rules first, for quick feedback; the brain checks them
+        // again before it writes anything.
+        let (threshold, phrase) = {
+            let snap = self.status.borrow();
+            let (phrase, _) = snap
+                .wake_words
+                .plan_custom(request.phrase)
+                .map_err(|r| match r {
+                    Refusal::Phrase(m) => ConnectError::invalid_argument(m),
+                    Refusal::Full(m) => ConnectError::failed_precondition(m),
+                })?;
+            (snap.settings.wake_threshold(), phrase)
+        };
+        let staged = self
+            .wake_checker
+            .check(model, threshold)
+            .await
+            .map_err(|why| {
+                if why == crate::wakewords::BUSY {
+                    ConnectError::failed_precondition(why)
+                } else {
+                    ConnectError::invalid_argument(why)
+                }
+            })?;
+        let (tx, rx) = oneshot::channel();
+        let sent = self
+            .inputs
+            .send(Input::Api(ApiCommand::AddWakeWord {
+                phrase,
+                staged: staged.clone(),
+                format: pinna_wakeword::ModelFormat::detect(model),
+                sha256: crate::wakewords::sha256_hex(model),
+                reply: tx,
+            }))
+            .await;
+        let id = match sent {
+            Ok(()) => rx
+                .await
+                .unwrap_or_else(|_| Err("pinnad is shutting down".into())),
+            Err(_) => Err("pinnad is shutting down".into()),
+        };
+        match id {
+            Ok(id) => Response::ok(AddWakeWordResponse {
+                id,
+                ..Default::default()
+            }),
+            Err(why) => {
+                // A refusal leaves nothing behind.
+                let _ = std::fs::remove_file(&staged);
+                Err(ConnectError::failed_precondition(why))
+            }
+        }
+    }
+
+    async fn remove_wake_word(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, RemoveWakeWordRequest>,
+    ) -> ServiceResult<RemoveWakeWordResponse> {
+        let id = request.id.to_owned();
+        self.command(|r| ApiCommand::RemoveWakeWord(id, r)).await?;
+        Response::ok(RemoveWakeWordResponse::default())
     }
 
     async fn start_calibration(
@@ -1302,14 +1397,19 @@ mod tests {
     }
 
     async fn start_device_with(updater: impl Into<Arc<Updater>>) -> (Client, mpsc::Sender<Input>) {
-        start_device_inner(updater, None, None).await
+        start_device_inner(updater, None, None, None).await
     }
 
     async fn start_device_inner(
         updater: impl Into<Arc<Updater>>,
         wifi: Option<crate::wifi::Wifi>,
         sats: Option<watch::Receiver<satellites::Seen>>,
+        wake: Option<(crate::wakewords::Catalogue, Checker)>,
     ) -> (Client, mpsc::Sender<Input>) {
+        let (catalogue, checker) = match wake {
+            Some((catalogue, checker)) => (Arc::new(catalogue), checker),
+            None => (crate::wakewords::test_catalogue(), Checker::disabled()),
+        };
         let mut dc = DeviceConfig::new("pinna-test", [2, 0, 0, 0xaa, 0xbb, 0xcc]);
         dc.port = 0;
         let (esp, _ha) = pinna_esphome::serve(dc).await.unwrap();
@@ -1325,7 +1425,7 @@ mod tests {
             in_tx.clone(),
             Options {
                 key_file: std::env::temp_dir().join("pinnad-api-test-key"),
-                wake_words: crate::wakewords::test_catalogue(),
+                wake_words: catalogue,
                 active_wake_words: vec!["alexa_v0.1".into()],
                 keywords: None,
                 defaults: crate::voice::Defaults {
@@ -1360,7 +1460,6 @@ mod tests {
             version: "0.1.0".into(),
             mac: "02:00:00:AA:BB:CC".into(),
             time_zones: Arc::new(vec!["Europe/Berlin".into(), "UTC".into()]),
-            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
@@ -1368,7 +1467,8 @@ mod tests {
             last_boot: boot::LastBoot::cold(),
             key_from_image: false,
         };
-        let mut api = DeviceApi::with_updater(info, status_rx, in_tx.clone(), updater);
+        let mut api = DeviceApi::with_updater(info, status_rx, in_tx.clone(), updater)
+            .with_wake_checker(checker);
         if let Some(w) = wifi {
             api = api.with_wifi(w);
         }
@@ -1659,6 +1759,175 @@ mod tests {
         assert_eq!(active(&s), ["alexa_v0.1", "hey_jarvis_v0.1"]);
     }
 
+    /// A device whose custom words live in a temporary directory, and whose
+    /// model test gives `verdict`. Returns the directory too.
+    async fn start_device_with_custom_words(
+        verdict: Result<(), String>,
+    ) -> (Client, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "pinnad-api-custom-{}-{}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        let models = root.join("models");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(models.join("alexa_v0.1.onnx"), b"").unwrap();
+        let dir = root.join("wakewords");
+        let cfg = crate::config::Wake {
+            models,
+            ..Default::default()
+        };
+        let catalogue = crate::wakewords::Catalogue::open(&cfg, &dir);
+        let checker = Checker::fake(dir.clone(), verdict, Duration::ZERO);
+        let (c, _) = start_device_inner(
+            Updater::new(UpdaterPaths::default()),
+            None,
+            None,
+            Some((catalogue, checker)),
+        )
+        .await;
+        (c, dir)
+    }
+
+    fn add_request(phrase: &str, model: &[u8]) -> pinna_api::AddWakeWordRequest {
+        pinna_api::AddWakeWordRequest {
+            phrase: phrase.into(),
+            model: model.to_vec(),
+            ..Default::default()
+        }
+    }
+
+    fn offered(s: &Status) -> Vec<(String, bool, String)> {
+        s.wake_word
+            .as_option()
+            .unwrap()
+            .available
+            .iter()
+            .map(|w| (w.id.clone(), w.custom, w.error.clone()))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_custom_wake_word_is_added_chosen_and_removed() {
+        let (c, dir) = start_device_with_custom_words(Ok(())).await;
+        let added = c
+            .add_wake_word(add_request("  Hey Custom ", b"a model"))
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        assert_eq!(added.id, "custom_hey_custom");
+        assert!(dir.join("custom_hey_custom.onnx").exists());
+        let index = std::fs::read_to_string(dir.join("index.toml")).unwrap();
+        assert!(
+            index.contains("Hey Custom") && index.contains("sha256"),
+            "{index}"
+        );
+        // Only the model and the index are left: the staged upload moved.
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        let s = status(&c).await;
+        assert_eq!(
+            offered(&s),
+            [
+                ("alexa_v0.1".into(), false, String::new()),
+                ("custom_hey_custom".into(), true, String::new())
+            ]
+        );
+
+        // The word is on offer, not active, until someone chooses it.
+        assert_eq!(s.settings.as_option().unwrap().wake_words, ["alexa_v0.1"]);
+        c.update_settings(pinna_api::UpdateSettingsRequest {
+            wake_words: MessageField::some(pinna_api::WakeWordIds {
+                ids: vec!["custom_hey_custom".into()],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let s = status(&c).await;
+        assert_eq!(s.wake_word.as_option().unwrap().phrase, "Hey Custom");
+
+        // The same phrase again, ignoring case, is refused.
+        let err = c
+            .add_wake_word(add_request("hey custom", b"a model"))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+
+        // Removing it drops it from the active words, and deletes its files.
+        c.remove_wake_word(pinna_api::RemoveWakeWordRequest {
+            id: "custom_hey_custom".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let s = status(&c).await;
+        assert_eq!(offered(&s).len(), 1);
+        assert!(s.settings.as_option().unwrap().wake_words.is_empty());
+        assert!(!dir.join("custom_hey_custom.onnx").exists());
+        assert!(
+            !std::fs::read_to_string(dir.join("index.toml"))
+                .unwrap()
+                .contains("Hey")
+        );
+
+        // Only a custom word can be removed.
+        for id in ["alexa_v0.1", "gone"] {
+            let err = c
+                .remove_wake_word(pinna_api::RemoveWakeWordRequest {
+                    id: id.into(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+            assert_eq!(
+                err.message.unwrap_or_default(),
+                format!("This satellite has no custom wake word \"{id}\".")
+            );
+        }
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_refused_upload_leaves_nothing_behind() {
+        let (c, dir) =
+            start_device_with_custom_words(Err("This model wakes on noise.".into())).await;
+        let err = c
+            .add_wake_word(add_request("Hey Custom", b"a model"))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        assert_eq!(
+            err.message.unwrap_or_default(),
+            "This model wakes on noise."
+        );
+        assert_eq!(offered(&status(&c).await).len(), 1);
+        assert!(!dir.exists() || std::fs::read_dir(&dir).unwrap().count() == 0);
+
+        let too_big = vec![0; crate::wakewords::MAX_MODEL_BYTES + 1];
+        for (phrase, model, want) in [
+            ("Hey Custom", &[][..], "empty"),
+            (
+                "Hey Custom",
+                &too_big[..],
+                "at most 2 MiB; this one is 3 MiB",
+            ),
+            ("x", b"a model", "2 to 40"),
+            ("Alexa", b"a model", "already has"),
+        ] {
+            let err = c
+                .add_wake_word(add_request(phrase, model))
+                .await
+                .unwrap_err();
+            assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+            let message = err.message.unwrap_or_default();
+            assert!(message.contains(want), "{message}");
+        }
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+    }
+
     #[tokio::test]
     async fn standalone_mode_is_refused_until_the_assistant_is_ready() {
         let (c, _inputs) = start_device().await;
@@ -1803,7 +2072,7 @@ mod tests {
     async fn satellites_come_from_the_last_search() {
         let (tx, rx) = watch::channel(satellites::Seen::default());
         let (c, _inputs) =
-            start_device_inner(Updater::new(UpdaterPaths::default()), None, Some(rx)).await;
+            start_device_inner(Updater::new(UpdaterPaths::default()), None, Some(rx), None).await;
         let list = async || {
             c.list_satellites(pinna_api::ListSatellitesRequest::default())
                 .await
@@ -2241,7 +2510,6 @@ mod tests {
             version: "0.1.0".into(),
             mac: String::new(),
             time_zones: Arc::new(vec!["UTC".into()]),
-            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
@@ -2304,7 +2572,6 @@ mod tests {
             version: "0.1.0".into(),
             mac: String::new(),
             time_zones: Arc::new(vec!["UTC".into()]),
-            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),
@@ -2791,8 +3058,13 @@ mod tests {
             Duration::from_secs(3),
             Duration::from_secs(60),
         );
-        let (c, _inputs) =
-            start_device_inner(Updater::new(UpdaterPaths::default()), Some(wifi), None).await;
+        let (c, _inputs) = start_device_inner(
+            Updater::new(UpdaterPaths::default()),
+            Some(wifi),
+            None,
+            None,
+        )
+        .await;
 
         let scan = c.scan_wifi(ScanWifiRequest::default()).await.unwrap();
         let names: Vec<String> = scan

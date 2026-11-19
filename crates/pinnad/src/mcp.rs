@@ -382,7 +382,6 @@ mod tests {
             version: "0.1.0".into(),
             mac: "02:00:00:aa:bb:cc".into(),
             time_zones: Default::default(),
-            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: String::new(),

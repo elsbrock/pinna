@@ -1220,7 +1220,6 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
             version: "1.2.3".into(),
             mac: String::new(),
             time_zones: Arc::new(vec!["UTC".into()]),
-            wake_words: crate::wakewords::test_catalogue(),
             audio_backend: "none".into(),
             led_backend: "none".into(),
             model: "echo-dot-2".into(),

@@ -199,6 +199,22 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn add_wake_word(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, AddWakeWordRequest>,
+    ) -> ServiceResult<AddWakeWordResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn remove_wake_word(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, RemoveWakeWordRequest>,
+    ) -> ServiceResult<RemoveWakeWordResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn get_network(
         &self,
         _: RequestContext,

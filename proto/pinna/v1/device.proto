@@ -46,6 +46,15 @@ service DeviceService {
   rpc StartCalibration(StartCalibrationRequest) returns (StartCalibrationResponse);
   // Stop it, keeping the sensitivity as it is; UpdateSettings undoes a change.
   rpc StopCalibration(StopCalibrationRequest) returns (StopCalibrationResponse);
+  // Add a custom wake word (ADR 0013): a phrase and an openWakeWord model,
+  // `.onnx` or `.tflite`, at most 2 MiB; at most 8 custom words. The
+  // satellite tests the model in a separate process first (on silence,
+  // noise and time) and saves it only if it passes; a refusal says why. The
+  // word is then on offer like the built-in ones. Home Assistant sees it once
+  // the satellite is quiet: pinnad asks it to reconnect.
+  rpc AddWakeWord(AddWakeWordRequest) returns (AddWakeWordResponse);
+  // Remove a custom wake word. It leaves the active words if it was one.
+  rpc RemoveWakeWord(RemoveWakeWordRequest) returns (RemoveWakeWordResponse);
   // Network interfaces, addresses and Wi-Fi link.
   rpc GetNetwork(GetNetworkRequest) returns (GetNetworkResponse);
   // pinnad's recent log lines, then new ones as they are written.
@@ -153,7 +162,32 @@ message WakeWordOption {
   string id = 1;
   // What to say, e.g. "Alexa".
   string phrase = 2;
+  // Added with AddWakeWord, so RemoveWakeWord can remove it.
+  bool custom = 3;
+  // Why the satellite can't listen for this word, e.g. its model failed to
+  // load at start; empty when it can. Such a word can't be chosen, and Home
+  // Assistant isn't offered it.
+  string error = 4;
 }
+
+message AddWakeWordRequest {
+  // What to say: 2 to 40 characters, unlike every other word's phrase
+  // (ignoring case).
+  string phrase = 1;
+  // The model file as it was uploaded.
+  bytes model = 2;
+}
+
+message AddWakeWordResponse {
+  // The new word's id, as Home Assistant will know it.
+  string id = 1;
+}
+
+message RemoveWakeWordRequest {
+  string id = 1;
+}
+
+message RemoveWakeWordResponse {}
 
 // A list of wake word ids, so that UpdateSettingsRequest can tell "unchanged"
 // from "none".

@@ -44,7 +44,7 @@ use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
 use pinna_audio::{Agc, Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
-use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle, WakeWordInfo};
+use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle};
 use pinna_hal::anim::Effect;
 use pinna_hal::led::{Is31Sysfs, LedHandle, MockLeds, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, watch};
@@ -77,6 +77,14 @@ struct Cli {
     /// in the boot; ADR 0010).
     #[arg(long)]
     set_hostname: bool,
+    /// Test the wake word model in FILE and exit: print `ok` and exit 0, or
+    /// the reason it is refused and exit 2. pinnad runs itself with this to
+    /// test an uploaded model in a process of its own (ADR 0013).
+    #[arg(long, value_name = "FILE", requires = "check_threshold")]
+    check_wake_word: Option<PathBuf>,
+    /// The wake threshold the test holds the model to.
+    #[arg(long, value_name = "SCORE", requires = "check_wake_word")]
+    check_threshold: Option<f32>,
 }
 
 /// The group that may write to the stream socket: the AirPlay and Bluetooth
@@ -107,6 +115,49 @@ fn share_stream_socket(path: &std::path::Path) {
             }
         }
         None => tracing::debug!("no group {STREAM_GROUP}: the stream socket stays root's"),
+    }
+}
+
+/// `text` as a sentence: a capital first, a full stop last.
+fn sentence(text: &str) -> String {
+    let mut chars = text.chars();
+    let first: String = chars
+        .next()
+        .into_iter()
+        .flat_map(char::to_uppercase)
+        .collect();
+    let rest = chars.as_str();
+    if rest.ends_with('.') {
+        format!("{first}{rest}")
+    } else {
+        format!("{first}{rest}.")
+    }
+}
+
+/// Test an uploaded model for [`Cli::check_wake_word`]: print one line, and
+/// return the exit code.
+fn check_wake_word(cfg: &Config, file: &Path, threshold: f32) -> i32 {
+    let result = std::fs::read(file)
+        .map_err(|e| format!("The satellite couldn't read the model to test it: {e}."))
+        .and_then(|bytes| {
+            pinna_wakeword::test_keyword(&cfg.wake.models, &bytes, threshold)
+                .map(|_| ())
+                .map_err(|e| {
+                    // The owner reads the reason; the inference engine's
+                    // detail below it goes to the log (check.rs logs stderr).
+                    eprintln!("{e:#}");
+                    sentence(&e.to_string())
+                })
+        });
+    match result {
+        Ok(()) => {
+            println!("ok");
+            0
+        }
+        Err(reason) => {
+            println!("{}", reason.replace('\n', " "));
+            2
+        }
     }
 }
 
@@ -393,6 +444,10 @@ async fn main() -> Result<()> {
     }
     let cli = Cli::parse();
     let cfg = Config::load_layered(&cli.config, &cli.local_config)?;
+    if let (Some(file), Some(threshold)) = (&cli.check_wake_word, cli.check_threshold) {
+        // Nothing else runs: no sockets, no writes (ADR 0013).
+        std::process::exit(check_wake_word(&cfg, file, threshold));
+    }
     if cli.set_hostname {
         let settings = store::Store::load(
             &cli.settings,
@@ -517,13 +572,27 @@ async fn main() -> Result<()> {
     // Standalone mode offers Home Assistant no voice assistant (ADR 0017).
     dc.voice_feature_flags = initial.mode.voice_feature_flags();
     // Wake words (ADR 0013): those installed, and the ones chosen last.
-    let catalogue = Arc::new(Catalogue::new(&cfg.wake));
-    let active_wake = catalogue.sanitize(
+    let wake_dir = cli.settings.with_file_name("wakewords");
+    let mut catalogue = Catalogue::open(&cfg.wake, &wake_dir);
+    let mut active_wake = catalogue.sanitize(
         initial
             .wake_words
             .as_deref()
             .unwrap_or(std::slice::from_ref(&cfg.wake.id)),
     );
+    // The classifiers load before Home Assistant is told the words on offer,
+    // so that a word that fails isn't offered. A custom word that crashes
+    // pinnad here is failed at the next start (the loading mark), never
+    // again: there is no crash loop.
+    let backend = audio_backend(&cfg.audio.backend);
+    let mut keywords = Vec::new();
+    if backend.is_some() && cfg.wake.enabled {
+        let loaded = catalogue.load(&active_wake);
+        keywords = loaded.keywords;
+        catalogue = catalogue.with_failed(&loaded.failed);
+        active_wake = catalogue.sanitize(&active_wake);
+    }
+    let catalogue = Arc::new(catalogue);
     tracing::info!(
         "wake words on offer: {:?}; listening for {:?}",
         catalogue.phrases(
@@ -535,15 +604,7 @@ async fn main() -> Result<()> {
         ),
         catalogue.phrases(&active_wake)
     );
-    dc.wake_words = catalogue
-        .words()
-        .iter()
-        .map(|w| WakeWordInfo {
-            id: w.id.clone(),
-            wake_word: w.phrase.clone(),
-            trained_languages: vec!["en".into()],
-        })
-        .collect();
+    dc.wake_words = catalogue.for_home_assistant();
     dc.active_wake_words = active_wake.clone();
     dc.max_active_wake_words = wakewords::MAX_ACTIVE as u32;
     pinna_esphome::echo_dot_entities(&mut dc);
@@ -625,7 +686,6 @@ async fn main() -> Result<()> {
     let (shown_tx, shown_rx) = watch::channel([Rgb::OFF; RING_PIXELS]);
 
     // Audio.
-    let backend = audio_backend(&cfg.audio.backend);
     tracing::info!("audio backend: {backend:?}");
     let audio_backend = match &backend {
         None => "none",
@@ -664,7 +724,6 @@ async fn main() -> Result<()> {
                 threshold: initial.wake_threshold(),
                 ..Default::default()
             };
-            let keywords = catalogue.load(&active_wake);
             match pinna_wakeword::Detector::new(&cfg.wake.models, keywords, wc) {
                 Ok(d) => Some(d),
                 Err(e) => {
@@ -811,7 +870,6 @@ async fn main() -> Result<()> {
             version: booted_version.clone(),
             mac: dc_mac.clone(),
             time_zones: Arc::new(timezone::zones(Path::new(timezone::ZONEINFO))),
-            wake_words: catalogue.clone(),
             audio_backend: audio_backend.into(),
             led_backend: led_backend.into(),
             model: model.into(),
@@ -829,7 +887,19 @@ async fn main() -> Result<()> {
     let device_api = Arc::new(
         device_api
             .with_ring(shown_rx)
-            .with_satellites(satellites_rx.clone()),
+            .with_satellites(satellites_rx.clone())
+            .with_wake_checker(wakewords::Checker::process(
+                wake_dir,
+                // The test reads the same configuration this run did.
+                cli.config
+                    .iter()
+                    .flat_map(|c| ["--config".into(), c.clone().into_os_string()])
+                    .chain([
+                        "--local-config".into(),
+                        cli.local_config.clone().into_os_string(),
+                    ])
+                    .collect(),
+            )),
     );
     // A Wi-Fi trial that a stopped pinnad left behind goes back (ADR 0008).
     let wifi_api = device_api.clone();

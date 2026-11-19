@@ -103,6 +103,8 @@ pub enum Input {
     /// The media lane changed state (playing, paused, ended, failed).
     Media(MediaState),
     Api(ApiCommand),
+    /// Wake words whose classifier didn't load, and why.
+    WakeWordsFailed(Vec<(String, String)>),
     Assist {
         run: RunId,
         ev: pinna_assist::run::RunEvent,
@@ -170,6 +172,18 @@ pub enum ApiCommand {
     /// A question typed on the dashboard; standalone mode only. Replies
     /// once the request has started.
     AskText(String, ApiReply),
+    /// A custom wake word (ADR 0013). `staged` is the model in the wake words
+    /// directory, already tested; the brain checks the rules again, moves it
+    /// to its place and replies with the id. The word isn't made active.
+    AddWakeWord {
+        phrase: String,
+        staged: std::path::PathBuf,
+        format: pinna_wakeword::ModelFormat,
+        sha256: String,
+        reply: oneshot::Sender<Result<String, String>>,
+    },
+    /// Remove a custom word; it leaves the active words if it was one.
+    RemoveWakeWord(String, ApiReply),
 }
 
 impl ApiCommand {
@@ -197,13 +211,14 @@ impl ApiCommand {
             | Self::ControlMedia(_, _, reply)
             | Self::PlayMedia(_, reply)
             | Self::CancelTimer(_, reply)
+            | Self::RemoveWakeWord(_, reply)
             | Self::AskText(_, reply) => {
                 let _ = reply.send(Err(why.into()));
             }
             Self::PlayMediaChecked(_, reply) | Self::Speak(_, reply) => {
                 let _ = reply.send(Err(why.into()));
             }
-            Self::SetTimer { reply, .. } => {
+            Self::SetTimer { reply, .. } | Self::AddWakeWord { reply, .. } => {
                 let _ = reply.send(Err(why.into()));
             }
         }
@@ -369,6 +384,8 @@ pub struct Snapshot {
     pub calibration: Option<CalibrationSnapshot>,
     /// The ids of the words listening now (ADR 0013).
     pub active_wake_words: Vec<String>,
+    /// The words on offer, custom ones and failed ones included.
+    pub wake_words: Arc<Catalogue>,
     /// The ESPHome node name, which is also the hostname (ADR 0010).
     pub name: String,
     /// The name Home Assistant shows, and whether it is still the default.
@@ -418,6 +435,7 @@ impl Default for Snapshot {
             recent_wakes: Vec::new(),
             calibration: None,
             active_wake_words: Vec::new(),
+            wake_words: Arc::default(),
             name: String::new(),
             friendly_name: String::new(),
             default_name: true,
@@ -957,6 +975,7 @@ impl Brain {
             }
             Input::Ha(cmd) => self.ha(cmd).await,
             Input::Api(cmd) => self.api(cmd).await,
+            Input::WakeWordsFailed(failed) => self.wake_words_failed(failed).await,
             Input::Assist { run, ev } => self.assist_event(run, ev).await,
             Input::RunTool { run, cmd } => self.run_tool(run, cmd).await,
             Input::Message(delivery) => self.take_message(delivery, Instant::now()),
@@ -1129,6 +1148,19 @@ impl Brain {
                 return;
             }
             ApiCommand::AskText(question, reply) => (self.ask_text(question).await, reply),
+            ApiCommand::AddWakeWord {
+                phrase,
+                staged,
+                format,
+                sha256,
+                reply,
+            } => {
+                let result = self.add_wake_word(&phrase, &staged, format, sha256).await;
+                self.refresh();
+                let _ = reply.send(result);
+                return;
+            }
+            ApiCommand::RemoveWakeWord(id, reply) => (self.remove_wake_word(&id).await, reply),
         };
         self.refresh();
         let _ = reply.send(result.map(|()| self.snapshot()));
@@ -1176,6 +1208,7 @@ impl Brain {
                 events: c.events.iter().copied().collect(),
             }),
             active_wake_words: self.active_wake.clone(),
+            wake_words: self.opts.wake_words.clone(),
             name: self.node_name(),
             friendly_name: self.friendly_name(),
             default_name: self.settings.friendly_name.is_none() && self.opts.defaults.default_name,
@@ -2323,13 +2356,111 @@ impl Brain {
         self.keyword_generation += 1;
         let generation = self.keyword_generation;
         let catalogue = self.opts.wake_words.clone();
+        let inputs = self.self_tx.clone();
         tokio::task::spawn_blocking(move || {
-            let keywords = catalogue.load(&ids);
+            let loaded = catalogue.load(&ids);
             let _ = tx.send(KeywordSet {
                 generation,
-                keywords,
+                keywords: loaded.keywords,
             });
+            if !loaded.failed.is_empty() {
+                let _ = inputs.blocking_send(Input::WakeWordsFailed(loaded.failed));
+            }
         });
+    }
+
+    /// Tell Home Assistant the words on offer changed, and ask it to
+    /// reconnect once the satellite is quiet: it reads the list only when it
+    /// connects (ADR 0013).
+    async fn wake_words_changed(&mut self) {
+        self.send(DeviceEvent::WakeWords(
+            self.opts.wake_words.for_home_assistant(),
+        ))
+        .await;
+        self.reconnect_pending = self.clients > 0;
+    }
+
+    /// Words whose classifier didn't load can't listen: say so in the status
+    /// and to Home Assistant, and stop listening for them.
+    async fn wake_words_failed(&mut self, failed: Vec<(String, String)>) {
+        self.opts.wake_words = Arc::new(self.opts.wake_words.with_failed(&failed));
+        self.wake_words_changed().await;
+        self.set_wake_words(self.active_wake.clone(), false).await;
+    }
+
+    /// Add a custom word (ADR 0013). The API tested the model; the rules are
+    /// checked again here, where adding and removing are one at a time.
+    async fn add_wake_word(
+        &mut self,
+        phrase: &str,
+        staged: &std::path::Path,
+        format: pinna_wakeword::ModelFormat,
+        sha256: String,
+    ) -> Result<String, String> {
+        let (phrase, id) = self
+            .opts
+            .wake_words
+            .plan_custom(phrase)
+            .map_err(crate::wakewords::Refusal::into_message)?;
+        let ext = match format {
+            pinna_wakeword::ModelFormat::Onnx => "onnx",
+            pinna_wakeword::ModelFormat::Tflite => "tflite",
+        };
+        let file = format!("{id}.{ext}");
+        let next = self.opts.wake_words.with_added(crate::wakewords::Entry {
+            id: id.clone(),
+            phrase,
+            file: file.clone(),
+            sha256,
+            failed: None,
+        });
+        let saved =
+            std::fs::rename(staged, next.dir().join(&file)).and_then(|()| next.save_index());
+        if let Err(e) = saved {
+            tracing::error!("saving custom wake word {id}: {e}");
+            let _ = std::fs::remove_file(next.dir().join(&file));
+            return Err(
+                "The satellite couldn't save the wake word. Logs, under System, says why.".into(),
+            );
+        }
+        tracing::info!("custom wake word {id} added");
+        self.opts.wake_words = Arc::new(next);
+        self.wake_words_changed().await;
+        Ok(id)
+    }
+
+    /// Remove a custom word, and stop listening for it if it was chosen.
+    async fn remove_wake_word(&mut self, id: &str) -> Result<(), String> {
+        let word = self
+            .opts
+            .wake_words
+            .find(id)
+            .filter(|w| w.custom)
+            .ok_or_else(|| format!("This satellite has no custom wake word \"{id}\"."))?;
+        let file = word.file.clone();
+        let next = self.opts.wake_words.without(id);
+        next.save_index().map_err(|e| {
+            tracing::error!("removing custom wake word {id}: {e}");
+            "The satellite couldn't save the change. Logs, under System, says why.".to_string()
+        })?;
+        if let Err(e) = std::fs::remove_file(&file) {
+            tracing::warn!("removing {}: {e}", file.display());
+        }
+        tracing::info!("custom wake word {id} removed");
+        self.opts.wake_words = Arc::new(next);
+        // Home Assistant's server learns the new list first, so that the
+        // change of the active words that follows is known to it.
+        self.wake_words_changed().await;
+        if self.active_wake.iter().any(|a| a == id) {
+            let rest = self
+                .active_wake
+                .iter()
+                .filter(|a| *a != id)
+                .cloned()
+                .collect();
+            self.set_wake_words(rest, false).await;
+        }
+        Ok(())
     }
 
     /// AirPlay as it is: saved on, and the device can play streams.
@@ -3135,7 +3266,7 @@ impl Brain {
         if self.reconnect_pending && self.quiet() {
             self.reconnect_pending = false;
             if self.clients > 0 {
-                tracing::info!("asking Home Assistant to reconnect for the new name");
+                tracing::info!("asking Home Assistant to reconnect to read what changed");
                 self.send(DeviceEvent::Disconnect).await;
             }
         }
