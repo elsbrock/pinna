@@ -1,0 +1,9 @@
+# The setup hotspot test (ADR 0028) boots the virtual Echo Dot with simulated
+# radios (mac80211_hwsim). The second one is the hotspot's interface, ap0, as
+# the vendor driver names it on the MT8163. Without simulated radios this
+# matches nothing.
+[Match]
+MACAddress=02:00:00:00:01:00
+
+[Link]
+Name=ap0

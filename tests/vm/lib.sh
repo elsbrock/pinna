@@ -79,6 +79,7 @@ slot_status() {
 }
 
 # qemu_start ARCH KERNEL INITRD DISK CONSOLE PIDFILE NETDEV
+# QEMU_APPEND: appended to the x86_64 kernel's own command line.
 qemu_start() {
   local arch=$1 kernel=$2 initrd=$3 disk=$4 console=$5 pidfile=$6 netdev=$7
   if [ "$arch" = armhf ]; then
@@ -97,6 +98,7 @@ qemu_start() {
     qemu-system-x86_64 \
       -M q35,accel="$accel" -cpu max -smp 2 -m 1024 \
       -kernel "$kernel" -initrd "$initrd" \
+      ${QEMU_APPEND:+-append "$QEMU_APPEND"} \
       -drive if=none,file="$disk",format=raw,id=hd0 \
       -device virtio-blk-pci,drive=hd0 \
       -netdev "$netdev" -device virtio-net-pci,netdev=n0 \

@@ -187,6 +187,10 @@ kernel-x86:
 vm-test-x86: initramfs-x86
     ARCH=x86_64 tests/vm/boot-test.sh
 
+# the setup hotspot on x86_64 with simulated radios, driven over ssh (ADR 0028; needs: just kernel-x86 image-x86, SSH_KEY)
+vm-hotspot-test: initramfs-x86
+    tests/vm/hotspot-test.sh
+
 # kernel config assertions for every variant (no build)
 kernel-config:
     for v in device qemu x86; do CHECK_ONLY=1 kernel/build.sh $v; done
