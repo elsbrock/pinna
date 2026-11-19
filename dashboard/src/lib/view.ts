@@ -614,6 +614,15 @@ export function channelName(value: number | undefined): ChannelName {
   return (Object.keys(CHANNEL) as ChannelName[]).find((k) => CHANNEL[k] === value) ?? "off";
 }
 
+/** pinna.v1.InstallUpdates values, by the setting's names. */
+export const INSTALL = { manually: 1, automatically: 2 } as const;
+export type InstallName = keyof typeof INSTALL;
+
+/** The "Install updates" choice for a pinna.v1.InstallUpdates value; manually until set. */
+export function installName(value: number | undefined): InstallName {
+  return (Object.keys(INSTALL) as InstallName[]).find((k) => INSTALL[k] === value) ?? "manually";
+}
+
 type CheckLike = { checking: boolean; finishedUnixMs: bigint; error: string; noRelease: boolean };
 
 /** Where the update checks stand, in one sentence. */

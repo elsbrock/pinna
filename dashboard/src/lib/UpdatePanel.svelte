@@ -22,6 +22,9 @@
     checkStatus,
     DOCS,
     downloadProgress,
+    INSTALL,
+    type InstallName,
+    installName,
     installSteps,
     slotWord,
     switchTarget,
@@ -53,6 +56,9 @@
   let checkError = $state<string | null>(null);
   let confirmingOlder = $state(false);
   let switchButton = $state<HTMLButtonElement>();
+  let startInput = $state<HTMLInputElement>();
+  let endInput = $state<HTMLInputElement>();
+  let windowError = $state<string | null>(null);
   let watching: AbortController | null = null;
   // The install whose output is on screen, by when it finished.
   let shown: bigint | null = null;
@@ -160,6 +166,24 @@
     else await refresh();
   }
 
+  async function setInstall(id: string) {
+    const name = id as InstallName;
+    const failed = await device.saveSettings(
+      { installUpdates: INSTALL[name] },
+      name === "automatically" ? "Updates install automatically" : "Updates install when you ask",
+    );
+    if (failed) toasts.show(failed, "danger");
+  }
+
+  // Both times go together: pinnad checks the window as a whole, so a swap works.
+  async function setWindow() {
+    if (!startInput?.value || !endInput?.value) return;
+    windowError = await device.saveSettings(
+      { installWindowStart: startInput.value, installWindowEnd: endInput.value },
+      "Install window saved",
+    );
+  }
+
   async function install() {
     const url = manifest.trim();
     if (!/^https?:\/\/\S+$/.test(url)) {
@@ -259,12 +283,18 @@
   const ucfirst = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   const channel = $derived(channelName(device.status?.settings?.updateChannel));
   const off = $derived(!u?.manifestOverride && channel === "off");
+  const installMode = $derived(installName(device.status?.settings?.installUpdates));
+  const zone = $derived(device.status?.settings?.timeZone || "UTC");
   const channelLabel = $derived(channel === "beta" ? "Beta" : "Stable");
   const release = $derived(u?.release);
   // Going back: start the other slot when it holds that version, else install it.
   const olderInSlot = $derived(
     release && other?.version === release.version && other.state !== "unbootable" ? other : undefined,
   );
+  const INSTALL_CHOICES = [
+    { id: "manually", label: "Manually" },
+    { id: "automatically", label: "Automatically" },
+  ];
   const CHANNELS = [
     { id: "stable", label: "Stable" },
     { id: "beta", label: "Beta" },
@@ -316,12 +346,61 @@
         label="Updates"
         hint={u.developmentBuild
           ? "This development build installs only images signed with your own key: releases from the channels don't install on it."
-          : "Stable has finished releases. Beta also has releases before they are finished. The satellite checks updates.getpinna.dev once a day and installs nothing without you."}
+          : "Stable has finished releases. Beta also has releases before they are finished. The satellite checks updates.getpinna.dev once a day."}
         value={channel}
         options={CHANNELS}
         disabled={!live || device.busy}
         choose={setChannel}
       />
+      <Select
+        id="install-updates"
+        label="Install updates"
+        hint="Manually: the satellite installs a release when you ask. Automatically: it installs a new release at a random time in the window below and restarts when it is idle, in the window. A release that needs a new boot image never installs by itself.{channel === 'off' ? ' Updates is off, so nothing installs by itself.' : ''}"
+        value={installMode}
+        options={INSTALL_CHOICES}
+        disabled={!live || device.busy}
+        choose={setInstall}
+      />
+      {#if installMode === "automatically"}
+        <div class="pn-row">
+          <div class="pn-row-text">
+            <span id="install-window-label" class="pn-row-label">Install window</span>
+            <span id="install-window-hint" class="pn-row-hint">
+              Local time, in the time zone {zone}. The window may cross midnight, for example 23:00 to 01:00.
+            </span>
+          </div>
+          <div class="times" role="group" aria-labelledby="install-window-label" aria-describedby="install-window-hint">
+            <input
+              bind:this={startInput}
+              id="install-window-start"
+              class="pn-input is-mono time"
+              type="time"
+              step="60"
+              aria-label="Window start"
+              value={device.status?.settings?.installWindowStart ?? "03:00"}
+              disabled={!live || device.busy}
+              onchange={setWindow}
+            />
+            <span aria-hidden="true">to</span>
+            <input
+              bind:this={endInput}
+              id="install-window-end"
+              class="pn-input is-mono time"
+              type="time"
+              step="60"
+              aria-label="Window end"
+              value={device.status?.settings?.installWindowEnd ?? "05:00"}
+              disabled={!live || device.busy}
+              onchange={setWindow}
+            />
+          </div>
+        </div>
+        {#if windowError}
+          <div class="pn-row">
+            <p class="pn-field-error" role="alert"><Icon name="alert" />{windowError}</p>
+          </div>
+        {/if}
+      {/if}
     {/if}
     <div class="pn-row">
       <div class="pn-row-text">
@@ -659,6 +738,14 @@
   .url {
     overflow-wrap: anywhere;
     max-width: 50%;
+  }
+  .times {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .time {
+    width: auto;
   }
   .note {
     display: flex;

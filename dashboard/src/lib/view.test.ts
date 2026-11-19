@@ -40,6 +40,9 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   mode: 0,
   groupMessages: true,
   sendspin: false,
+  installUpdates: 1,
+  installWindowStart: "03:00",
+  installWindowEnd: "05:00",
   ...over,
 });
 import {
@@ -685,6 +688,14 @@ test("update checks in words", async () => {
   assert.equal(checkStatus(check({ finishedUnixMs: at, error: "x" }), false, now), "Last check failed at 14:02.");
   assert.equal(channelName(CHANNEL.beta), "beta");
   assert.equal(channelName(0), "off");
+});
+
+test("install updates is manual until the satellite says otherwise", async () => {
+  const { installName, INSTALL } = await import("./view.ts");
+  assert.equal(installName(INSTALL.automatically), "automatically");
+  assert.equal(installName(INSTALL.manually), "manually");
+  assert.equal(installName(0), "manually");
+  assert.equal(installName(undefined), "manually");
 });
 
 test("held messages from the satellite group are counted only when there are some", () => {
