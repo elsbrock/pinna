@@ -25,12 +25,12 @@ Both values live in `site.config.mjs` and can be overridden per build:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `SITE_URL` | `https://elsbrock.github.io` | Used for canonical URLs and the sitemap |
-| `SITE_BASE` | `/pinna` | Project page path; use `/` for a custom domain |
+| `SITE_URL` | `https://getpinna.dev` | Used for canonical URLs and the sitemap |
+| `SITE_BASE` | `/` | The path the site is served under, such as `/pinna` for a project page |
 
 ```sh
-# custom domain served from the root:
-SITE_URL=https://pinna.example SITE_BASE=/ npm run build
+# a GitHub Pages project page under /pinna:
+SITE_URL=https://elsbrock.github.io SITE_BASE=/pinna npm run build
 ```
 
 Publishing requires **Settings → Pages → Source: GitHub Actions** in the

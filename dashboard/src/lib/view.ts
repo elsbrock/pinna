@@ -329,7 +329,7 @@ export function when(unixMs: number, now: Date): string {
 }
 
 /** The project's documentation (the dashboard works offline; these are plain links). */
-export const DOCS = "https://elsbrock.github.io/pinna/docs/";
+export const DOCS = "https://getpinna.dev/docs/";
 
 // pinna.v1.WifiSecurity and JoinStage values (TS enums node --test can't load).
 const SECURITY_WORDS: Record<number, string> = {

@@ -185,7 +185,7 @@ jobs:
             echo
             echo "## Files"
             echo
-            echo "Install: https://elsbrock.github.io/pinna/docs/flash/"
+            echo "Install: https://getpinna.dev/docs/flash/"
             echo "Signed with keys/release.pub: $(tr -d '[:space:]' < keys/release.pub)"
             echo
             echo '```'

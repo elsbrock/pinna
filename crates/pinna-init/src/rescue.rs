@@ -116,7 +116,7 @@ impl Reason {
 pub const FASTBOOT: &str =
     "Open fastboot: unplug the device, hold Volume Down, and plug it in again.";
 /// Where the docs describe rescue mode.
-pub const DOCS: &str = "https://elsbrock.github.io/pinna/docs/recovery/#rescue-mode";
+pub const DOCS: &str = "https://getpinna.dev/docs/recovery/#rescue-mode";
 
 impl std::fmt::Display for Reason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
