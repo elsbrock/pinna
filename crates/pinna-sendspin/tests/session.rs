@@ -352,30 +352,32 @@ fn a_rehandshake_must_be_finished_in_time() {
 }
 
 #[test]
-fn a_legacy_server_is_recognised_and_closed() {
+fn a_server_that_closes_before_server_init_is_probably_too_old() {
+    // A server of the unencrypted wire format, as aiosendspin 6 runs, expects the player's
+    // client/hello first: it closes the WebSocket on client/init and connects again.
     let identity = Identity::generate().unwrap();
     let mut conn = Connection::new(config(identity), &store(), 0).unwrap();
-    // The old wire format starts with the server's hello in clear text.
-    conn.on_text(
-        &json!({"type": "server/hello", "payload": {"server_id": "ma", "name": "Music Assistant",
-            "version": 1, "active_roles": ["player@v1"], "connection_reason": "playback"}})
-        .to_string(),
-        0,
-    );
-    let events: Vec<Event> = std::iter::from_fn(|| conn.poll_event()).collect();
-    assert_eq!(
-        events,
-        [
-            Event::LegacyServer,
-            Event::Closed(CloseReason::LegacyServer)
-        ]
-    );
     assert!(matches!(conn.poll_transmit(), Some(Transmit::Text(_))));
-    assert_eq!(
-        conn.poll_transmit(),
-        Some(Transmit::Close(CloseReason::LegacyServer))
-    );
+    conn.on_peer_closed();
     assert!(conn.is_closed());
+    assert_eq!(
+        std::iter::from_fn(|| conn.poll_event()).collect::<Vec<_>>(),
+        [Event::Closed(CloseReason::ClosedBeforeServerInit)]
+    );
+    assert_eq!(conn.poll_transmit(), None, "the socket is gone");
+    assert_eq!(conn.next_wakeup(), None);
+
+    // A close at any later point is only a close, and nothing queued is left to send.
+    let store = store();
+    let mut s = start(&store, &SENTINEL_PSK, "sn");
+    s.conn.set_player_state(player_state()).unwrap();
+    s.send(activate(json!(["playback"]), all_roles()));
+    s.events();
+    s.conn.on_peer_closed();
+    assert_eq!(s.events(), [Event::Closed(CloseReason::PeerClosed)]);
+    assert_eq!(s.conn.poll_transmit(), None);
+    s.conn.on_peer_closed();
+    assert_eq!(s.events(), []);
 }
 
 /// A name, and the text messages a server sends.
@@ -412,6 +414,10 @@ fn handshake_failures_close_without_a_message() {
             }),
         ),
         ("not JSON", Box::new(|_| vec!["hello".to_string()])),
+        (
+            "server/hello first",
+            Box::new(|_| vec![hello().to_string()]),
+        ),
         (
             "message 1 first",
             Box::new(|_| {

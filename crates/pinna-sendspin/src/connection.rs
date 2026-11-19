@@ -2,7 +2,8 @@
 //!
 //! `pinnad` accepts the WebSocket, makes a [`Connection`] and then only moves bytes and time:
 //! it passes every text and binary message in with [`Connection::on_text`] and
-//! [`Connection::on_binary`], calls [`Connection::on_tick`] at [`Connection::next_wakeup`],
+//! [`Connection::on_binary`], and the server's close with [`Connection::on_peer_closed`],
+//! calls [`Connection::on_tick`] at [`Connection::next_wakeup`],
 //! sends what [`Connection::poll_transmit`] returns, in order and at once, and acts on
 //! [`Connection::poll_event`]. Times are µs on the monotonic clock, the one the speaker's
 //! timestamps use. A message's time is when it arrived, as close to the socket as possible.
@@ -349,9 +350,6 @@ pub enum Event {
     Unpaired(String),
     /// This server is now the last one to have played: keep it.
     LastPlaybackServer(String),
-    /// The server spoke the unencrypted wire format from before 1.0.0-rc1, as Music Assistant
-    /// before 2.10.7 does.
-    LegacyServer,
     Closed(CloseReason),
 }
 
@@ -365,8 +363,16 @@ pub enum CloseReason {
     ConcurrentPairing,
     #[error("the server refused client/init: {0}")]
     ServerError(String),
-    #[error("the server speaks the unencrypted protocol from before 1.0.0-rc1")]
-    LegacyServer,
+    /// Probably a server of the unencrypted wire format from before 1.0.0-rc1, as Music
+    /// Assistant before 2.10.7 runs: it expects the player's `client/hello` first, and closes
+    /// on `client/init` (ADR 0027 §2).
+    #[error(
+        "the server closed the connection before server/init, as one that speaks only the \
+         unencrypted protocol from before 1.0.0-rc1 does"
+    )]
+    ClosedBeforeServerInit,
+    #[error("the server closed the connection")]
+    PeerClosed,
     /// What the specification calls a silent failure: a failed handshake, or a message that
     /// does not decrypt. Nothing more is sent.
     #[error("{0}")]
@@ -731,6 +737,22 @@ impl Connection {
         self.pump(now_us);
     }
 
+    /// The server closed the WebSocket, or the connection broke. Nothing more can be sent, so
+    /// nothing is queued, not even [`Transmit::Close`].
+    pub fn on_peer_closed(&mut self) {
+        if self.is_closed() {
+            return;
+        }
+        let reason = match self.phase {
+            Phase::Init => CloseReason::ClosedBeforeServerInit,
+            _ => CloseReason::PeerClosed,
+        };
+        self.phase = Phase::Closed;
+        self.transport = None;
+        self.out.clear();
+        self.events.push_back(Event::Closed(reason));
+    }
+
     /// Time passed: timeouts, scheduled metadata, and the clock's bursts.
     pub fn on_tick(&mut self, now_us: i64) {
         if self.is_closed() {
@@ -903,14 +925,6 @@ impl Connection {
         let Ok(envelope) = messages::envelope(text.as_bytes()) else {
             return self.close(CloseReason::Silent("server/init is not a valid message"));
         };
-        if !matches!(
-            envelope.kind.as_str(),
-            "server/init" | "server/error" | "noise/handshake"
-        ) {
-            // A message from the old protocol, which starts with server/hello in clear text.
-            self.events.push_back(Event::LegacyServer);
-            return self.close(CloseReason::LegacyServer);
-        }
         let init = match ServerMessage::from_envelope(envelope) {
             Ok(ServerMessage::Init(init)) => init,
             Ok(ServerMessage::Error(e)) => {

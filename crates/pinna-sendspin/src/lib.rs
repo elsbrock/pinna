@@ -13,7 +13,8 @@
 //! loop {
 //!     while let Some(t) = conn.poll_transmit() { /* send Text, Binary, or Close */ }
 //!     while let Some(e) = conn.poll_event() { /* act on it */ }
-//!     // then: conn.on_text / on_binary for each message, conn.on_tick at next_wakeup()
+//!     // then: conn.on_text / on_binary for each message, conn.on_tick at next_wakeup(),
+//!     // conn.on_peer_closed when the server closes the socket
 //! }
 //! ```
 
