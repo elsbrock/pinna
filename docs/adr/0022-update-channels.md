@@ -108,6 +108,9 @@ marked *default* are not confirmed by the owner yet.
 - Every comparison uses semantic version precedence: in the updater, in the
   release service's channels and in Home Assistant's update entity. Cargo's
   crate versions are unrelated; the image version is the version owners see.
+  The binaries report the version the build sets in `PINNA_VERSION`, as the
+  release workflow does, in their logs, `--version` and the names they give
+  other services; a build without it reports the crate version.
 - A booted version that isn't a semantic version, a development build from
   before this change (`2026.11.17.1405-abc1234`), comes before every release.
 
