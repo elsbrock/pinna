@@ -1598,5 +1598,40 @@ mod tests {
             (MediaPhase::Paused, Some("http://x/a.mp3")),
             "the URL pauses"
         );
+
+        // A pause ends a waiting timed source whatever plays, also a timed
+        // source or a live stream: it doesn't start when its audio is due.
+        for live in [false, true] {
+            let mut sim = playing(0.0, 0.0, 48_000, 0.6);
+            sim.streaming = false;
+            if live {
+                let q = Arc::new(crate::media::LiveQueue::default());
+                sim.lane.begin_stream(4, "airplay".into());
+                sim.lane.attach(4, Decoder::live_detached(q));
+            }
+            let q = TimedQueue::new(sim.clock.clone());
+            sim.lane
+                .begin_timed(8, "sendspin".into(), Decoder::timed(q.clone()));
+            let waiting = TimedSink::new(q);
+            sim.lane.pause();
+            assert_eq!(
+                *waiting.state().borrow(),
+                TimedState::Ended(EndReason::Paused),
+                "live: {live}"
+            );
+            assert_eq!(sim.lane.phase(), MediaPhase::Idle);
+            let due = sim.heard_us() + 100_000.0;
+            assert_eq!(
+                waiting.push(due as i64, 48_000, sim.chunk_pcm(due, 14_400)),
+                Err(Refused::Ended)
+            );
+            let mark = sim.amp.len();
+            sim.run(0.3);
+            assert!(
+                sim.amp[mark + 2 * CHUNK..].iter().all(|&a| a < 1.0),
+                "live: {live}: it played after the pause"
+            );
+            assert_eq!(sim.lane.phase(), MediaPhase::Idle);
+        }
     }
 }

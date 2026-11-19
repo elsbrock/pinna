@@ -1961,6 +1961,12 @@ impl MediaLane {
     }
 
     pub fn pause(&mut self) {
+        if let Some((gen_, _)) = &self.next_timed {
+            // It couldn't hold back once due: it ends, whatever plays now.
+            let gen_ = *gen_;
+            self.drop_next_timed(EndReason::Paused);
+            self.next.take_if(|n| n.gen_ == gen_);
+        }
         let timed = self
             .decoder
             .as_ref()
@@ -1975,12 +1981,6 @@ impl MediaLane {
             self.error = None;
             self.error_url = None;
             return;
-        }
-        if let Some((gen_, _)) = &self.next_timed {
-            // It couldn't hold back once due: it ends, and what plays pauses.
-            let gen_ = *gen_;
-            self.drop_next_timed(EndReason::Paused);
-            self.next.take_if(|n| n.gen_ == gen_);
         }
         if self.decoder.is_some() {
             self.paused = true;
