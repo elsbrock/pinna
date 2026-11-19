@@ -21,17 +21,17 @@ keep the name the device had when you added it.
 | AirPlay | `airplay` | Switch (configuration) | On, off | Turns the AirPlay receiver on or off. While it is on, iPhones, Macs and Music Assistant on your network can play music to the device, without a password. Off by default. The dashboard has the same switch, under **Voice & sound > Media sources** |
 | Bluetooth audio | `bluetooth` | Switch (configuration) | On, off | Turns Bluetooth on or off. While it is on, phones paired with the device can play music to it. Off by default. The dashboard has the same switch, under **Voice & sound > Media sources** |
 | Bluetooth pairing | `bluetooth_pairing` | Switch | On, off | Turn it on to open the Bluetooth pairing window for two minutes, like **Pair a phone** on the dashboard; turn it off to close it. It turns itself off when the window closes, and stays off unless **Bluetooth audio** is on and ready. See [Pair a phone](/docs/bluetooth/#pair-a-phone) |
-| Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
+| Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/wake-words/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | Notification | `notification` | Switch | On, off | Turn it on to show a waiting notification on the ring. It turns off when someone clears it on the device or the dashboard. See [Notifications](/docs/ring-and-buttons/#notifications) |
-| Group messages | `group_messages` | Switch | On, off | Lets the device take messages from the other satellites of its group in standalone mode. On by default. Turn it off to refuse new messages; messages the device already holds still play. Pinna has no schedule for it: to turn it off at night, use an automation. It does nothing in Home Assistant mode or outside a group. See [Pass messages between satellites](/docs/standalone/#pass-messages-between-satellites) |
+| Group messages | `group_messages` | Switch | On, off | Lets the device take messages from the other satellites of its group in standalone mode. On by default. Turn it off to refuse new messages; messages the device already holds still play. Pinna has no schedule for it: to turn it off at night, use an automation. It does nothing in Home Assistant mode or outside a group. See [Pass messages between satellites](/docs/satellite-groups/#pass-messages-between-satellites) |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
 | Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements, on the same scale as **Volume** and never louder than it. Until it is set, it follows **Volume**; the dashboard's **Replies follow Volume** switch makes it follow again. See [Volume](/docs/audio/#volume) |
-| Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68. The dashboard's [Wake word page](/docs/dashboard/#tune-the-wake-word) shows which setting catches or ignores each recent wake and near miss |
+| Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68. The dashboard's [Wake word page](/docs/wake-words/#tune-the-wake-word) shows which setting catches or ignores each recent wake and near miss |
 | LED brightness | `led_brightness` | Number | 0 to 100, in % | Sets the brightness of the whole ring |
 | Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
 | Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
-| Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While a developer's own update address replaces the channel, its only option is that address ([Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates)). See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
-| Voice mode | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. A change while the satellite answers a request (with its follow-up), plays an announcement or rings an alarm waits until that has ended. Switching deletes every timer and reconnects Home Assistant. See [Use Pinna without Home Assistant](/docs/standalone/) |
+| Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While a developer's own update address replaces the channel, its only option is that address ([Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates)). See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
+| Voice mode | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. A change while the satellite answers a request (with its follow-up), plays an announcement or rings an alarm waits until that has ended. Switching deletes every timer and reconnects Home Assistant. See [Set up standalone mode](/docs/standalone/) |
 | Firmware | `firmware` | Update (configuration) | Installed and latest version, summary, release notes, progress | Shows a newer release on the device's channel, and installs it. After an install from Home Assistant, the device restarts on its own once it is Idle with no timer set and nothing playing. Unknown until a check has succeeded, and while **Updates** is off. See [Install an update from Home Assistant](/docs/update/#install-an-update-from-home-assistant) |
 
 Pinna saves the switch and number values on the device, so they survive a
@@ -88,7 +88,7 @@ While [AirPlay](/docs/airplay/#play-music) or
 [Bluetooth](/docs/bluetooth/#play-music) plays, the media player's volume is
 the music's own, and pause stops the music.
 
-The [dashboard](/docs/dashboard/#play-music-from-a-url) shows the same media
+The [dashboard](/docs/music/#play-music-from-a-url) shows the same media
 player and plays a URL too. Its **Now playing** shows media that Home Assistant
 plays as **From Home Assistant**, without a title or a station's name: Home
 Assistant converts the media for the device first, and that removes them. A
@@ -133,6 +133,6 @@ the dashboard.
 ## What's next
 
 - To change the device name, see
-  [Name the device](/docs/dashboard/#name-the-device).
+  [Name the device](/docs/settings/#name-the-device).
 - To use the buttons and the ring in automations, see
   [Light ring and buttons](/docs/ring-and-buttons/).

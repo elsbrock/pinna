@@ -151,7 +151,7 @@ Writing a boot image keeps your settings. Writing a root filesystem with
 ## Recover a device that doesn't start
 
 To start over on a device that still runs Pinna, use
-[Factory reset](/docs/dashboard/#reset-the-device) on the dashboard instead:
+[Factory reset](/docs/settings/#reset-the-device) on the dashboard instead:
 it keeps the installed version and needs no fastboot.
 
 If the device doesn't boot Pinna at all, install it again from fastboot.

@@ -48,7 +48,7 @@ You set these on the dashboard's **Assistant** page; the files are for
 developers. Pinna writes them itself, like `settings.toml`, and reads them
 entry by entry: an entry it can't read, such as one that a newer version
 wrote, is kept and written back, and doesn't reset the rest. A
-[factory reset](/docs/dashboard/#reset-the-device) deletes them with the other
+[factory reset](/docs/settings/#reset-the-device) deletes them with the other
 settings.
 
 ## Change a setting
@@ -90,7 +90,7 @@ How the device introduces itself to Home Assistant.
 | Setting | Default | Description |
 | --- | --- | --- |
 | `name` | `""` | The node name: the device's ID in the ESPHome connection and in mDNS discovery, shown as **Node name** under **System** on the dashboard. Home Assistant shows `friendly_name` instead. It is also the device's hostname, so `name = "kitchen-dot"` makes it `kitchen-dot.local`. The hostname that someone sets on the dashboard's **Network** page wins over it, so `name` is the developer default. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
-| `friendly_name` | Not set | The name that Home Assistant shows, until someone [names the device on the dashboard](/docs/dashboard/#name-the-device), which wins. Not set means the model and the last six characters of the MAC address, for example `Echo Dot 2a914e` |
+| `friendly_name` | Not set | The name that Home Assistant shows, until someone [names the device on the dashboard](/docs/settings/#name-the-device), which wins. Not set means the model and the last six characters of the MAC address, for example `Echo Dot 2a914e` |
 | `model` | Not set | The model that the device reports. Not set means the hardware's: `Echo Dot (2nd Gen)` or `Echo (2nd Gen)` |
 | `manufacturer` | `"Pinna"` | The manufacturer that Home Assistant shows |
 | `suggested_area` | Not set | The area that Home Assistant suggests when you add the device |
@@ -187,13 +187,13 @@ The connection to Home Assistant. See
 | --- | --- | --- |
 | `listen` | `""` in the code, `"[::]:80"` in the image | The address of the [dashboard](/docs/dashboard/), of the same control API and of the [metrics](/docs/metrics/), for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
 | `root` | `"/usr/share/pinna/web"` | The dashboard's files |
-| `allowed_hosts` | `[]` | More names to open the dashboard by, besides IP addresses, `localhost`, `.local` names, the hostname and the host of the dashboard address. A setting for developers: to open the dashboard by a name, [set a dashboard address](/docs/dashboard/#set-a-dashboard-address) on the **Network** page |
+| `allowed_hosts` | `[]` | More names to open the dashboard by, besides IP addresses, `localhost`, `.local` names, the hostname and the host of the dashboard address. A setting for developers: to open the dashboard by a name, [set a dashboard address](/docs/settings/#set-a-dashboard-address) on the **Network** page |
 
 ### `[update]`
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `manifest` | Not set | A manifest address that the satellite checks instead of its update channel, such as `"http://192.168.1.20:8000/manifest.json"` for the output of `just release`. It offers the release there when its version is newer than the running one. The dashboard and Home Assistant show the address in place of the **Updates** setting. See [Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates) |
+| `manifest` | Not set | A manifest address that the satellite checks instead of its update channel, such as `"http://192.168.1.20:8000/manifest.json"` for the output of `just release`. It offers the release there when its version is newer than the running one. The dashboard and Home Assistant show the address in place of the **Updates** setting. See [Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates) |
 
 ### `[dev]`
 
@@ -234,7 +234,7 @@ openssl rand -base64 32 > secrets/device/esphome-key
 
 The image copies it to `/var/lib/pinna/esphome-key` on first boot, and Home
 Assistant asks for it when you add the device. A
-[factory reset](/docs/dashboard/#reset-the-device) keeps a key that came with
+[factory reset](/docs/settings/#reset-the-device) keeps a key that came with
 the image.
 
 ## What's next

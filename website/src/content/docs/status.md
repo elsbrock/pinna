@@ -46,7 +46,7 @@ These parts are covered by tests that run without hardware:
   adapters for OpenAI-compatible services, Anthropic, Gemini and ElevenLabs,
   the save-time checks, the MCP server and client, device timers, the update
   tools and the dashboard's setup API pass their tests.
-- In a [satellite group](/docs/standalone/#pass-messages-between-satellites),
+- In a [satellite group](/docs/satellite-groups/#pass-messages-between-satellites),
   satellites add and remove each other, pass messages and act on each other
   in tests that run several satellites in one process. No test has run on two
   devices yet.
@@ -77,7 +77,7 @@ On the devices:
   listens for up to two of Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy
   (openWakeWord) and Okay Nabu at once, and the openWakeWord models' licence
   doesn't allow commercial use. You can
-  [add your own](/docs/dashboard/#add-your-own-wake-word).
+  [add your own](/docs/wake-words/#add-your-own-wake-word).
 - **The test of an uploaded wake word doesn't say whether it hears you.** The
   satellite checks that the model loads, keeps up and stays quiet on silence
   and noise, not that it wakes on its phrase. Models that read more than the

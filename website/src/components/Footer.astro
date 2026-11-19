@@ -1,5 +1,6 @@
 ---
 import Logo from "./Logo.astro";
+import ThemeToggle from "./ThemeToggle.astro";
 import { docHref, SITE } from "../lib/site";
 
 // Set by astro.config.mjs from git at build time.
@@ -10,9 +11,9 @@ const docs = [
   { slug: "", title: "Overview" },
   { slug: "requirements", title: "What you need" },
   { slug: "flash", title: "Install Pinna" },
-  { slug: "dashboard", title: "Use the dashboard" },
+  { slug: "dashboard", title: "Set up the satellite" },
   { slug: "home-assistant", title: "Connect to Home Assistant" },
-  { slug: "standalone", title: "Use Pinna without Home Assistant" },
+  { slug: "standalone", title: "Set up standalone mode" },
   { slug: "goals", title: "Goals" },
 ];
 
@@ -99,11 +100,12 @@ const project = [
           )
         }
       </p>
-      <p>
+      <div class="flex items-center gap-4">
         <a class="text-ink-muted hover:text-ink" href={docHref("status")}
           >Status and roadmap</a
         >
-      </p>
+        <ThemeToggle />
+      </div>
     </div>
   </div>
 </footer>

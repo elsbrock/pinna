@@ -1,25 +1,27 @@
 ---
 title: Install Pinna
-description: Install Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen) over fastboot, check that it works, and connect it to Wi-Fi.
+description: Install Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen), from the browser or from a terminal over fastboot, and connect it to Wi-Fi.
 ---
 
-This guide installs Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen) over
-fastboot. You install the root filesystem first, then the boot image. Every
-step says what it writes, and [Recover a device](/docs/recovery/) explains how
-to undo it.
+You can install Pinna in two ways. Both write the same partitions:
+
+- **From the browser**, with the [installer](/install/). It downloads the
+  newest release, checks its signature and installs it over USB, from
+  Chrome, Edge, Brave or Opera.
+- **From a terminal**, with `scripts/flash-gen2.sh` and fastboot. Use this
+  when the browser can't use the device.
+
+Every step says what it writes, and [Recover a device](/docs/recovery/)
+explains how to undo it.
 
 ## Before you begin
 
-- Get the images: from a [release](https://github.com/elsbrock/pinna/releases)
-  (download all its files into one folder) or by building them, as described
-  in [Build Pinna](/docs/build/).
-- Back up the device, as described in
+- The device's bootloader is unlocked, with Kaeru. See
+  [What you need](/docs/requirements/#device).
+- If you want to go back to the previous firmware later, back up the device
+  first, as described in
   [What you need](/docs/requirements/#backup-of-the-device). Installing Pinna
-  erases the data partition.
-- Run the commands on your computer, from the repository's root folder — in
-  `nix develop`, if you built the images with it. The examples say
-  `scripts/flash-gen2.sh`; in a release folder, run `./flash-gen2.sh` next to
-  the images instead.
+  replaces the previous firmware and erases the data partition.
 
 ## What gets written
 
@@ -43,7 +45,32 @@ Pinna never writes these partitions:
 - `persist`, which holds the device's identity, calibration data and MAC
   address.
 
-## Start fastboot
+## Install from the browser
+
+1. Open the [installer](/install/) in Chrome, Edge, Brave or Opera, on a
+   computer.
+2. Follow its steps: choose your device, get Pinna, start the device in
+   fastboot, connect, and install. The installer checks the device and asks
+   you to confirm before it writes anything.
+3. When it says **Pinna is installed**,
+   [connect the device to Wi-Fi](#connect-to-wi-fi).
+
+If the installer can't use the device, it says why and how to fix it. You can
+also install from a terminal instead.
+
+## Install from a terminal
+
+You install the root filesystem first, then the boot image.
+
+- Get the images: from a [release](https://github.com/elsbrock/pinna/releases)
+  (download all its files into one folder) or by building them, as described
+  in [Build Pinna](/docs/build/).
+- Run the commands on your computer, from the repository's root folder — in
+  `nix develop`, if you built the images with it. The examples say
+  `scripts/flash-gen2.sh`; in a release folder, run `./flash-gen2.sh` next to
+  the images instead.
+
+### Start fastboot
 
 On an Echo Dot (2nd gen), the micro-USB cable also powers the device and
 connects it to your computer. On an Echo (2nd gen), the USB connection is on
@@ -72,7 +99,7 @@ and the device uses its own power adapter.
    `RADAR` on an Echo (2nd gen) — the partition sizes, and the checksums of
    the two images. This step writes nothing.
 
-## Install the root filesystem
+### Install the root filesystem
 
 1. Write the root filesystem:
 
@@ -97,7 +124,7 @@ and the device uses its own power adapter.
    The script can't check the signature of a sparse image. Convert only the
    image that you built and that passed the check in step 1.
 
-## Install the boot image
+### Install the boot image
 
 The device is still in fastboot after the previous step. Write the boot image:
 
@@ -109,7 +136,7 @@ The script asks you to confirm, writes `boot_a` and `boot_b`, and restarts the
 device. From now on, the device starts Pinna. Until this step, the previous
 firmware doesn't boot properly.
 
-## Check the device
+### Check the device
 
 1. Wait about 20 seconds. Your computer sees a new USB device named
    **Pinna (Echo Dot 2nd gen)** — **Pinna (Echo 2nd gen)** on an Echo — which
@@ -167,13 +194,13 @@ Set up Wi-Fi on the device's dashboard, over the USB cable:
 4. Select **Join**. The device tries the network for up to a minute. If the
    password is wrong, or the network gives it no address, the page says so.
 5. When it is on the network, the page asks **Keep** followed by the
-   network's name, with the device's new address. Select **Keep**. Until you
+   network's name, with the device's new address. Select **Keep it**. Until you
    do, the device goes back after 5 minutes, or when it restarts.
 
 The device joins open networks and WPA2 networks, WPA2/WPA3 networks
 included. Its Wi-Fi chip can't join networks that allow only WPA3, enterprise
 (802.1X) networks or WEP networks. See
-[Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network).
+[Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network).
 
 If you build Pinna yourself, you can give every device that you install the
 same network: put a standard wpa_supplicant configuration file into
@@ -183,10 +210,9 @@ dashboard saves the networks you join into the same file, and updates keep it.
 
 ## Check that the installation is healthy
 
-Pinna has two copies of its system, called slots: slot A (`boot_a` and
-`system_a`) and slot B (`boot_b` and `system_b`). After each boot, Pinna checks itself: `pinnad` must answer and SSH
-must run. When the check passes, Pinna marks the slot as good. To see the
-result, run:
+After each boot, Pinna checks itself: `pinnad` must answer and SSH must run. When the check passes, Pinna marks the slot as good. The
+dashboard's **System** page shows whether the running slot is **Good**. To
+see the result from a terminal, run this on the satellite:
 
 ```sh
 pinna-bootctl slot-status
@@ -199,4 +225,4 @@ If the check fails, the device restarts and opens fastboot. See
 
 ## What's next
 
-[Connect the device to Home Assistant](/docs/home-assistant/).
+[Set up the satellite](/docs/dashboard/) on its dashboard.

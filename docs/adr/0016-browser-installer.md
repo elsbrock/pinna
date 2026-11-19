@@ -64,8 +64,10 @@ confirmed by the owner yet.
   3. **Backup and restore** (optional for the user, offered before any write).
   4. **Unlock a stock device.**
 - Browsers without WebUSB get a notice and a link to the terminal guide.
-- The page is linked from the docs once stage 2 runs and ADRs 0007–0009 have
-  shipped, so that a user without a terminal can finish the setup. *(default)*
+- The page is linked from the docs since stage 2 runs (owner, 2026-11-19):
+  Install Pinna offers it first and the terminal guide second. A user without
+  a terminal finishes the setup on the dashboard over USB, where ADR 0008
+  joins the Wi-Fi; ADR 0009 isn't needed for that.
 
 ### Files
 

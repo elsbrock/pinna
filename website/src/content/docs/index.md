@@ -10,8 +10,8 @@ word, and the device sends your request to your own
 the speech services and the language model or AI agent you choose. The wake
 word detection runs on the device, and Pinna doesn't use Amazon's services.
 
-> **Early development.** Pinna works, but you install it yourself over
-> fastboot. See [Status and roadmap](/docs/status/).
+> **Early development.** Pinna works, but it installs only on a device whose
+> bootloader is unlocked. See [Status and roadmap](/docs/status/).
 
 ## How it works
 
@@ -35,7 +35,7 @@ switch at any time.
 | What you need | Home Assistant on your network | An account with a hosted service, or your own servers on your network |
 | Timers | Home Assistant's, shown on the ring | The satellite's own, shown on the ring |
 | Automations | The ring, the buttons, mute, volume, timers and a media player are Home Assistant entities | Your AI agent can use the satellite over MCP. Home Assistant can stay connected for its entities |
-| Set it up | [Connect to Home Assistant](/docs/home-assistant/) | [Use Pinna without Home Assistant](/docs/standalone/) |
+| Set it up | [Connect to Home Assistant](/docs/home-assistant/) | [Set up standalone mode](/docs/standalone/) |
 
 A new satellite starts in Home Assistant mode.
 
@@ -48,15 +48,15 @@ doesn't start.
 
 To install and set up Pinna, follow these pages in order:
 
-1. [What you need](/docs/requirements/): the device, the files and the tools.
-2. Get the images: download them from a
-   [release](https://github.com/elsbrock/pinna/releases), or
-   [build them](/docs/build/).
-3. [Install Pinna](/docs/flash/): install them over fastboot, and connect the
+1. [What you need](/docs/requirements/): the device, the computer and a
+   backup.
+2. [Install Pinna](/docs/flash/): from the browser with the
+   [installer](/install/), or from a terminal over fastboot. Then connect the
    device to Wi-Fi.
-4. [Use the dashboard](/docs/dashboard/): open it, and name the device.
-5. Choose who answers: [connect to Home Assistant](/docs/home-assistant/), or
-   [use Pinna without Home Assistant](/docs/standalone/).
+3. [Set up the satellite](/docs/dashboard/): open its dashboard, and name
+   it.
+4. Choose who answers: [connect to Home Assistant](/docs/home-assistant/), or
+   [set up standalone mode](/docs/standalone/).
 
 If something goes wrong, see [Troubleshooting](/docs/troubleshooting/) and
 [Recover a device](/docs/recovery/).
@@ -66,4 +66,5 @@ If something goes wrong, see [Troubleshooting](/docs/troubleshooting/) and
 - [Goals](/docs/goals/): what Pinna sets out to do, and what it doesn't.
 - [Architecture](/docs/architecture/): how the system starts and runs.
 - [Contribute](/docs/development/): work on Pinna. The developer pages cover
-  the configuration file, `pinnactl` and the control API.
+  building, the configuration file, `pinnactl`, the control API and
+  releases.

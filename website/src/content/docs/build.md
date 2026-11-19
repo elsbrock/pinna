@@ -57,7 +57,7 @@ The command writes two files:
   the project key `keys/release.pub` when it exists, so a device accepts only
   images signed with your private key. Such a build starts with **Updates**
   off, because the project's releases don't install on it. See
-  [Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates).
+  [Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates).
 
 If `secrets/release.key` already exists, `just keygen` keeps it and only
 writes the public key again.
@@ -72,13 +72,17 @@ the root filesystem again from fastboot.
 
 ## Add your own files
 
-1. Put your own files into `secrets/`, as described in
-   [What you need](/docs/requirements/#your-own-files):
+1. Put your own files into `secrets/`. Git ignores the folder, so they never
+   end up in the repository.
 
-   | Path | Contents |
-   | --- | --- |
-   | `secrets/authorized_keys` | Your SSH public key, for logging in to the device |
-   | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network (optional) |
+   | File | What it's for | How to create it |
+   | --- | --- | --- |
+   | `secrets/release.key` | Signs your own root filesystem images. Only to sign your own builds | `just keygen` (writes `secrets/release.pub` too; the build compiles it in) |
+   | `secrets/machine-id` | Not needed: each device derives its machine id from its serial number | — |
+   | `secrets/authorized_keys` | Your SSH public key. Without it, you can't log in over SSH | Copy your public key, for example `~/.ssh/id_ed25519.pub` |
+   | `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network, so the device connects on first boot. Optional: you can also set it up on the dashboard over USB | See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi) |
+   | `secrets/device/pinnad.toml` | Developer settings for this device. Optional: owners set the device up on the dashboard | See [Developer settings](/docs/configure/) |
+   | `secrets/device/esphome-key` | A fixed encryption key for the Home Assistant connection. Optional: Home Assistant sets a key itself | See [Developer settings](/docs/configure/#a-fixed-encryption-key) |
 
 2. Download the wake word models:
 
@@ -91,6 +95,17 @@ the root filesystem again from fastboot.
 The build stops if the signing key is missing. For the other files, it
 prints a warning and continues. Read the warnings: without `authorized_keys`
 you can't log in over SSH.
+
+## Wake word models
+
+Pinna ships the openWakeWord models for **Alexa**, **Hey Jarvis**, **Hey
+Mycroft** and **Hey Rhasspy** (v0.5.1), and **Okay Nabu** from
+[`rhasspy/pyopen-wakeword`](https://github.com/rhasspy/pyopen-wakeword), pinned
+to a commit. `just models` downloads them during the build; they aren't part of
+the repository. Release images include them with a `NOTICE` next to them that
+names their sources and licenses. The openWakeWord models are licensed under
+CC BY-NC-SA 4.0, which doesn't allow commercial use. Okay Nabu comes from a
+repository under Apache-2.0; the model itself carries no licence of its own.
 
 ## Build the images
 

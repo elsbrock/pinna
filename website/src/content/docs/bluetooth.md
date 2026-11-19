@@ -38,7 +38,7 @@ If you use Home Assistant, it has the same switch: **Bluetooth audio**, under
 **Configuration** on the device's page. A change in one shows in the other.
 
 The device uses its name, the one you set in
-[Name the device](/docs/dashboard/#name-the-device).
+[Name the device](/docs/settings/#name-the-device).
 
 ## Pair a phone
 

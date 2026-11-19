@@ -104,7 +104,7 @@ itself stays where it is.
 
 ## What's next
 
-- [Use the dashboard](/docs/dashboard/) to set the volume and the reply volume.
+- Set the volume and the reply volume on the [dashboard](/docs/dashboard/#what-the-dashboard-shows).
 - For developers: the audio backends and the stream socket, in
   [Developer settings](/docs/configure/#audio).
 - The full reasoning, with the alternatives that were tried, is in

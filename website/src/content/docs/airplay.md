@@ -34,7 +34,7 @@ If you use Home Assistant, it has the same switch: **AirPlay**, under
 **Configuration** on the device's page. A change in one shows in the other.
 
 The receiver uses the device's name, the one you set in
-[Name the device](/docs/dashboard/#name-the-device). When you rename the
+[Name the device](/docs/settings/#name-the-device). When you rename the
 device, AirPlay restarts under the new name, which stops any music that plays.
 
 ## Play music

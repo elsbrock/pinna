@@ -43,7 +43,7 @@ applies:
 - **Not connected to a Wi-Fi network**: join your network under **Join a
   network**. If the password is wrong or the network gives the device no
   address, the device goes back to the network it was on, and the page says
-  why. See [Change the Wi-Fi network](/docs/dashboard/#change-the-wi-fi-network).
+  why. See [Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network).
 - **Connected to a network, but no IPv4 address yet**: the network's DHCP
   server hasn't answered. This usually sorts itself out within a minute. If it
   doesn't, check that your router gives addresses to new devices, or join
@@ -78,7 +78,7 @@ applies:
    **Assistant** page shows whether the device has a key. Remove the
    device from Home Assistant and add it again; if the device has a key that
    Home Assistant doesn't know,
-   [reset the device](/docs/dashboard/#reset-the-device) first.
+   [reset the device](/docs/settings/#reset-the-device) first.
 
 ## AirPlay doesn't show the device
 
@@ -121,7 +121,7 @@ If the hint says `Listening for "Alexa"` and the device still doesn't react:
 - Test the wake word on the **Wake word sensitivity** page:
 
   1. Open **Voice & sound > Sensitivity** in the
-     [dashboard](/docs/dashboard/#tune-the-wake-word).
+     [dashboard](/docs/wake-words/#tune-the-wake-word).
   2. Say the wake word from where you usually speak. Wait until the ring is
      off between tries.
   3. Each try shows in **Recent wakes**. A try that wakes the device shows at
@@ -134,7 +134,7 @@ If the hint says `Listening for "Alexa"` and the device still doesn't react:
   You can tune with feedback at the device too: select **Calibrate** on the
   same page, then press **+** when it missed you and **−** when it woke by
   itself, as
-  [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device)
+  [Calibrate at the device](/docs/wake-words/#calibrate-at-the-device)
   describes. The ring flashes green on every wake while it runs.
 
   The log shows the scores too, in the lines `wake word "Alexa" detected (score …)`
@@ -144,7 +144,7 @@ If the hint says `Listening for "Alexa"` and the device still doesn't react:
 
 ## The device refuses a wake word
 
-When you [add a wake word](/docs/dashboard/#add-your-own-wake-word), the
+When you [add a wake word](/docs/wake-words/#add-your-own-wake-word), the
 satellite tests its model first. If the model fails, **Voice & sound > Wake
 words** shows why under **Add**, and the satellite keeps nothing:
 
@@ -163,7 +163,7 @@ words** shows why under **Add**, and the satellite keeps nothing:
 ## The device wakes by itself
 
 1. Soon after it happens, open **Voice & sound > Sensitivity** in the
-   [dashboard](/docs/dashboard/#tune-the-wake-word). **Recent wakes** keeps
+   [dashboard](/docs/wake-words/#tune-the-wake-word). **Recent wakes** keeps
    only the last 20 entries, and it starts again when `pinnad` or the device
    restarts.
 2. Find the wake in **Recent wakes** by its time, and select its **Set to**
@@ -297,7 +297,7 @@ A check or a request that fails gives one of these sentences:
 | `The service sent too much data to check. Check the address.` | The address points at something other than the service's API, which answered with far more than a model list |
 | `The check couldn't run. Try again.` | Something on the satellite went wrong during the check. Try again; if it stays, the log says more |
 
-For the setup, see [Use Pinna without Home Assistant](/docs/standalone/).
+For the setup, see [Set up standalone mode](/docs/standalone/).
 
 ## The device opens fastboot on its own
 

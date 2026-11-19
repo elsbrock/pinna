@@ -58,7 +58,22 @@ const NEXT: Record<Assessment["state"], string> = {
   stop: "Unplug the device; it starts as before. If the result looks wrong, open an issue with the report below.",
 };
 
+/** Open the help entry (a <details>) that the address's #fragment names. */
+function openHelp(): void {
+  const target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+  if (target instanceof HTMLDetailsElement) target.open = true;
+}
+
 export function startInstallPage(): void {
+  openHelp();
+  window.addEventListener("hashchange", openHelp);
+  // A second click on the same link changes no hash, so open it on click too.
+  document.addEventListener("click", (event) => {
+    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#"]');
+    const target = link ? document.getElementById(decodeURIComponent(link.hash.slice(1))) : null;
+    if (target instanceof HTMLDetailsElement) target.open = true;
+  });
+
   const form = $<HTMLFormElement>("install-form");
   const files = $<HTMLInputElement>("install-files");
   const connect = $<HTMLButtonElement>("install-connect");
@@ -76,6 +91,8 @@ export function startInstallPage(): void {
   const usb = webUsb();
   if (!usb) {
     $("install-unsupported").hidden = false;
+    // Nothing on the page works without WebUSB: don't offer it.
+    for (const el of form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) el.disabled = true;
     connect.disabled = true;
     status.textContent = "This browser can't connect to the device.";
     return;
@@ -86,6 +103,14 @@ export function startInstallPage(): void {
   let release: Release | null = null;
   let device: UsbDevice | null = null;
   let checked: { report: DeviceReport; assessment: Assessment; model: ModelId } | null = null;
+  // Where the last attempt stopped: marks that step as failed.
+  let failedAt: "check" | "install" | null = null;
+  // Whether `release` came from Download (and so from the chosen channel).
+  let downloaded = false;
+
+  // The five steps on the page, in order, and what each one waits for.
+  const STEPS = ["model", "release", "fastboot", "connect", "install"].map((name) => $(`install-step-${name}`));
+  type StepState = "done" | "current" | "pending" | "failed";
 
   const chosenModel = (): ModelId | null => {
     // Not FormData: it leaves out the radios while they are disabled.
@@ -104,11 +129,31 @@ export function startInstallPage(): void {
     agree.disabled = busy;
     start.disabled = busy || !ready || !release || !agree.checked;
     startHint.textContent = !ready || busy ? "" : !release ? "Get Pinna in step 2 first." : !agree.checked ? "Tick the box first." : "";
+
+    // The first step that isn't done is the one to do now.
+    const installed = !done.hidden;
+    const isDone = [model !== null, release !== null, checked !== null, ready, installed].map((d) => installed || d);
+    const isFailed = [false, false, false, failedAt === "check" || (checked !== null && !ready), failedAt === "install"];
+    // Steps after a failed one wait until it is fixed.
+    let current = false;
+    let failed = false;
+    STEPS.forEach((step, i) => {
+      let state: StepState = "pending";
+      if (isDone[i]) state = "done";
+      else if (isFailed[i]) state = "failed";
+      else if (!current && !failed) {
+        state = "current";
+        current = true;
+      }
+      if (state === "failed") failed = true;
+      step.dataset.state = state;
+    });
   };
 
   const clearOutcome = () => {
     for (const el of [problem, result, reportBox, done]) el.hidden = true;
     checked = null;
+    failedAt = null;
     agree.checked = false;
     $("install-progress-box").hidden = true;
   };
@@ -137,6 +182,10 @@ export function startInstallPage(): void {
     $("install-copy-status").textContent = "";
     reportBox.hidden = false;
   };
+  /** Show the report open after a failure, folded away after a good check. */
+  const reportOpen = (open: boolean) => {
+    (reportBox as HTMLDetailsElement).open = open;
+  };
 
   const failureReport = (model: ModelId | null, stage: string, step: string, error: unknown, report: DeviceReport | null) =>
     [
@@ -149,6 +198,9 @@ export function startInstallPage(): void {
 
   /** Explain a failure, with a report to paste. */
   const explain = (error: unknown, model: ModelId | null, stage: string, step: string, report: DeviceReport | null) => {
+    failedAt = stage === "install" ? "install" : "check";
+    $(`install-outcome-${failedAt}`).append(problem, reportBox);
+    reportOpen(true);
     const os = platform();
     const gone = error instanceof FastbootError && (error.kind === "timeout" || (error.kind === "transport" && /disconnect/i.test(error.message)));
     if (error instanceof ConnectError && (os === "windows" && error.problem !== "not-fastboot")) {
@@ -210,17 +262,26 @@ export function startInstallPage(): void {
       }),
     );
     result.hidden = false;
+    $("install-outcome-check").append(reportBox);
+    reportOpen(assessment.state !== "ready");
     showReport(formatReport(report, model, assessment, browserName()), `Device check: ${report.product}, ${assessment.state}`);
     $("install-agree-text").textContent = `I want to erase this ${MODELS[model].name} (${maskSerial(report.serial)}) and install Pinna on it.`;
   };
 
   form.addEventListener("change", (event) => {
-    if (busy) return;
-    if (event.target !== files) {
+    // The confirmation box sits in the form too; it has its own listener.
+    if (busy || event.target === agree) return;
+    const name = (event.target as HTMLInputElement).name;
+    if (name === "model") {
       // Another model: what the page found no longer applies.
       clearOutcome();
       device = null;
       status.textContent = "";
+    } else if (name === "channel" && downloaded) {
+      // The release downloaded is from the other channel.
+      release = null;
+      downloaded = false;
+      $("install-download-status").replaceChildren();
     }
     sync();
   });
@@ -248,6 +309,7 @@ export function startInstallPage(): void {
         progress: (text) => list.replaceChildren(line(text, "muted")),
       });
       release = got;
+      downloaded = true;
       list.replaceChildren(
         line(`Pinna ${got.version}, signed with Pinna's release key`, "ok"),
         ...(got.summary ? [line(got.summary, "muted")] : []),
@@ -280,6 +342,7 @@ export function startInstallPage(): void {
     try {
       const match = await matchRelease([...files.files], (name) => list.replaceChildren(item(`Checking ${name}`, "muted")));
       release = match.release;
+      downloaded = false;
       if (release) {
         list.replaceChildren(
           item(`Pinna ${release.version ?? ""}`.trim() + ", checked against SHA256SUMS", "ok"),
@@ -338,6 +401,7 @@ export function startInstallPage(): void {
     const { model, report: before } = checked;
     const images = { boot: release.boot.bytes, root: release.root.bytes };
     problem.hidden = true;
+    failedAt = null;
     busy = true;
     sync();
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();

@@ -72,7 +72,7 @@ satellite on **Stable** never installs a beta.
 - The device runs a Pinna built on or after 17 November 2026. An older one
   keeps its own slot record, which the new version doesn't read: a developer
   moves it over once, as in
-  [Move a device from an older Pinna](/docs/development/#move-a-device-from-an-older-pinna).
+  [Move a device from an older Pinna](/docs/releases/#move-a-device-from-an-older-pinna).
 
 ## Install an update from the dashboard
 
@@ -146,7 +146,7 @@ hand, see [Go back to an older version](#go-back-to-an-older-version).
   hand and going back stay on the dashboard.
 - With Hermes or OpenClaw as the brain, the agent can say the version and check
   for updates only if it uses
-  [Pinna's MCP address](/docs/standalone/#use-an-ai-agent-as-the-brain). It
+  [Pinna's MCP address](/docs/ai-agents/#connect-an-agent-over-mcp). It
   can't install an update: install it from the dashboard.
 
 ## Install an update from Home Assistant
@@ -253,9 +253,9 @@ the device must reach your computer over Wi-Fi or over the USB cable.
 A build of your own accepts only images signed with your key, so releases from
 `updates.getpinna.dev` don't install on it. To have the satellite find your
 builds on its own, the way it finds releases on a channel, see
-[Offer your own builds as updates](/docs/development/#offer-your-own-builds-as-updates).
+[Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates).
 To install from the satellite's command line instead, see
-[Install an update over SSH](/docs/development/#install-an-update-over-ssh).
+[Install an update over SSH](/docs/releases/#install-an-update-over-ssh).
 
 ## Update the boot image
 
@@ -300,4 +300,4 @@ the update.
 - For the technical details of slots and verification, see
   [Architecture](/docs/architecture/).
 - For the update manifest and installing over SSH, see
-  [Contribute](/docs/development/#updates-for-developers).
+  [Releases and updates](/docs/releases/).

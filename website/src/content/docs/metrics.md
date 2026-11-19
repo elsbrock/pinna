@@ -34,7 +34,7 @@ in Prometheus, open **Status > Targets**: the `pinna` job shows **UP**.
 The device answers only to the names the dashboard answers to, such as its IP
 addresses and `.local` names. If you scrape it by another DNS name, add that
 name first, as in
-[Set a dashboard address](/docs/dashboard/#set-a-dashboard-address),
+[Set a dashboard address](/docs/settings/#set-a-dashboard-address),
 or the device answers `421 Misdirected Request`.
 
 A scrape every 15 to 60 seconds is fine. The device reads the numbers when
@@ -114,7 +114,7 @@ there in either mode.
 | `pinna_standalone_tokens_total{preset,direction}` | Tokens that the brain's service reports it read (`input`) and wrote (`output`) |
 | `pinna_standalone_characters_total{preset}` | Characters sent to text-to-speech |
 | `pinna_standalone_guards_total{guard}` | Times a guard against spending acted: `no_speech` (a request or follow-up heard no speech, so nothing was uploaded), `invented` (a transcript that speech-to-text invents on silence was dropped), `follow_up` (a follow-up heard speech), `ack` (a slow agent's acknowledgment played), `stopped_by_wake` and `stopped_by_button` (the wake word or the Action button stopped a request) |
-| `pinna_tool_calls_total{tool,outcome,via}` | Tool calls. `tool` is the device tool's name, such as `set_timer`; for a tool of one of your MCP servers, the server's name; and `other` for any other name. `outcome` is `ok` or `error`. `via` is `brain` (the brain's tool loop), `mcp` (a client of the device's MCP server) or `peer` (another satellite of its [satellite group](/docs/standalone/#control-another-satellite), for its brain) |
+| `pinna_tool_calls_total{tool,outcome,via}` | Tool calls. `tool` is the device tool's name, such as `set_timer`; for a tool of one of your MCP servers, the server's name; and `other` for any other name. `outcome` is `ok` or `error`. `via` is `brain` (the brain's tool loop), `mcp` (a client of the device's MCP server) or `peer` (another satellite of its [satellite group](/docs/satellite-groups/#control-another-satellite), for its brain) |
 | `pinna_mic_frames_dropped_total` | Microphone frames that a standalone request didn't take in time |
 
 `preset` is the preset of the connection that served the slot: `openai`,

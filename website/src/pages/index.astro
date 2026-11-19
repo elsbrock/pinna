@@ -391,24 +391,26 @@ const gaps = [
   <section id="start" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
       <p class="eyebrow">Get started</p>
-      <h2 class="section-title">Build, install, set up</h2>
+      <h2 class="section-title">Install from your browser</h2>
 
       <div class="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <ol class="space-y-5">
           <li class="flex gap-4">
             <span class="text-signal font-mono text-sm">1</span>
             <p class="text-ink-muted text-body">
-              <span class="text-ink block font-medium">Build the images</span>
-              The development shell has every tool. <code class="font-mono text-sm">just all</code>
-              builds the kernel, the root filesystem and the boot image.
+              <span class="text-ink block font-medium">Unlock and back up the device</span>
+              Pinna installs on an Echo whose bootloader is unlocked. Back it
+              up first if you want to go back to the previous firmware later.
             </p>
           </li>
           <li class="flex gap-4">
             <span class="text-signal font-mono text-sm">2</span>
             <p class="text-ink-muted text-body">
-              <span class="text-ink block font-medium">Install over fastboot</span>
-              <code class="font-mono text-sm">scripts/flash-gen2.sh</code> writes
-              the images, and can restore your backup later.
+              <span class="text-ink block font-medium">Install from the browser</span>
+              The installer downloads the newest release, checks its signature
+              and writes it over USB. From a terminal,
+              <code class="font-mono text-sm">scripts/flash-gen2.sh</code> does
+              the same.
             </p>
           </li>
           <li class="flex gap-4">
@@ -422,22 +424,25 @@ const gaps = [
         </ol>
 
         <div>
-          <div class="border-line bg-surface-sunken overflow-x-auto rounded-md border px-4 py-3.5">
-            <pre class="text-ink font-mono text-[0.8125rem] leading-6"><span
-                class="text-ink-muted"># Build (nix develop optional; it sets up every tool)</span>
-nix develop
-just keygen
-just models
-just all
-
-<span class="text-ink-muted"># Install: hold Volume Down and plug in the device</span>
-scripts/flash-gen2.sh check
-scripts/flash-gen2.sh root
-scripts/flash-gen2.sh boot</pre>
+          <div class="card p-6">
+            <p class="text-ink font-semibold">The installer</p>
+            <p class="text-ink-muted text-body mt-2">
+              Choose your device, plug it in, and install. The page checks the
+              device first and asks you before it writes anything. It runs in
+              Chrome, Edge, Brave or Opera on a computer.
+            </p>
+            <a class="pn-btn pn-btn-primary pn-btn-lg mt-5" href={href("/install/")}>
+              Open the installer
+              <Icon name="arrow" size={16} />
+            </a>
           </div>
-          <p class="mt-4 text-sm">
+          <p class="mt-4 flex flex-col gap-2 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("requirements")}>
               Read the full guide, including what you need first
+              <Icon name="arrow" size={14} />
+            </a>
+            <a class="link inline-flex items-center gap-1.5" href={docHref("build")}>
+              Build Pinna yourself
               <Icon name="arrow" size={14} />
             </a>
           </p>

@@ -1,10 +1,10 @@
 ---
 title: What you need
-description: The device, computer and files that you need before you build and install Pinna, and what answers your requests.
+description: The device, the computer and the backup that you need before you install Pinna, and what answers your requests.
 ---
 
-Collect everything on this page before you [build Pinna](/docs/build/). Only
-the backup comes from your own device. Pinna includes the device's Wi-Fi
+Collect everything on this page before you [install Pinna](/docs/flash/).
+Only the backup comes from your own device. Pinna includes the device's Wi-Fi
 firmware, unmodified, in `firmware/`.
 
 ## Device
@@ -25,10 +25,14 @@ firmware, unmodified, in `firmware/`.
 
 ## Backup of the device
 
-Before you install Pinna, back up the device. Pinna can restore the backup.
+Back up the device before you install Pinna if you want to go back to the
+previous firmware later: installing Pinna replaces it, and only a backup
+brings it back. Pinna can restore the backup.
 
-Run `scripts/backup-gen2.sh` while the previous firmware still runs on the
-device and `adb` can reach it. It needs about 8 GB of free space:
+The backup script is in Pinna's repository. Get it on your computer with
+`git clone https://github.com/elsbrock/pinna.git`, and run the commands below
+in that folder. Run `scripts/backup-gen2.sh` while the previous firmware still
+runs on the device and `adb` can reach it. It needs about 8 GB of free space:
 
 ```sh
 scripts/backup-gen2.sh ~/echo-backups/echodot2-$(date +%F)
@@ -61,45 +65,23 @@ sha256sum *.img > SHA256SUMS
 
 ## Computer
 
-To install a release: any Linux computer with `fastboot`, `adb` and
-`sha256sum` (on Debian/Ubuntu, `android-tools` has the first two). To build:
-an x86_64 Linux computer. [Nix](https://nixos.org/download/) with flakes
-enabled is the easiest way: `nix develop` provides the build tools and
-`fastboot` at versions the build is known to work with. Nix is optional;
-without it, install the tools that `flake.nix` lists yourself.
+To install from the browser: a computer with Chrome, Edge, Brave or Opera.
+Firefox and Safari can't talk to USB devices. On Linux the browser needs a
+udev rule, and on Windows the WinUSB driver; the [installer](/install/) says
+how.
+
+To install from a terminal, and to make the backup: a Linux computer with
+`fastboot`, `adb` and `sha256sum` (on Debian/Ubuntu, `android-tools` has the
+first two), and:
 
 - Permission to use the device over USB without `sudo`. On most
   distributions, install the Android udev rules (often packaged as
   `android-udev-rules`) for fastboot, and add yourself to the `dialout` group
   for the serial console.
 - `picocom`, or another serial terminal, from your distribution's packages.
-- Network access during the build, for the toolchain, the Debian packages, the
-  kernel source and the wake word models.
 
-## Your own files
-
-These files are only for building your own images. Put them into `secrets/`.
-Git ignores the folder, so they never end up in the repository.
-
-| File | What it's for | How to create it |
-| --- | --- | --- |
-| `secrets/release.key` | Signs your own root filesystem images. Only to sign your own builds | `just keygen` (writes `secrets/release.pub` too; the build compiles it in) |
-| `secrets/machine-id` | Not needed: each device derives its machine id from its serial number | — |
-| `secrets/authorized_keys` | Your SSH public key. Without it, you can't log in over SSH | Copy your public key, for example `~/.ssh/id_ed25519.pub` |
-| `secrets/wifi/wpa_supplicant-wlan0.conf` | Your Wi-Fi network, so the device connects on first boot. Optional: you can also set it up on the dashboard over USB | See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi) |
-| `secrets/device/pinnad.toml` | Developer settings for this device. Optional: owners set the device up on the dashboard | See [Developer settings](/docs/configure/) |
-| `secrets/device/esphome-key` | A fixed encryption key for the Home Assistant connection. Optional: Home Assistant sets a key itself | See [Developer settings](/docs/configure/#a-fixed-encryption-key) |
-
-## Wake word models
-
-Pinna ships the openWakeWord models for **Alexa**, **Hey Jarvis**, **Hey
-Mycroft** and **Hey Rhasspy** (v0.5.1), and **Okay Nabu** from
-[`rhasspy/pyopen-wakeword`](https://github.com/rhasspy/pyopen-wakeword), pinned
-to a commit. `just models` downloads them during the build; they aren't part of
-the repository. Release images include them with a `NOTICE` next to them that
-names their sources and licenses. The openWakeWord models are licensed under
-CC BY-NC-SA 4.0, which doesn't allow commercial use. Okay Nabu comes from a
-repository under Apache-2.0; the model itself carries no licence of its own.
+To build Pinna yourself, you need an x86_64 Linux computer; see
+[Build Pinna](/docs/build/).
 
 ## Something that answers
 
@@ -113,8 +95,8 @@ after you install it, and you can switch later:
 - **Standalone mode**, without Home Assistant: a speech-to-text service, a
   brain (a language model or an AI agent) and a text-to-speech service. They
   can be hosted services, with a key from your account, or servers on your own
-  network. See [Use Pinna without Home Assistant](/docs/standalone/).
+  network. See [Set up standalone mode](/docs/standalone/).
 
 ## What's next
 
-[Build Pinna](/docs/build/).
+[Install Pinna](/docs/flash/).

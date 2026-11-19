@@ -31,39 +31,55 @@ export const DOCS_NAV: DocGroup[] = [
     items: [
       { slug: "", title: "Overview" },
       { slug: "requirements", title: "What you need" },
-      { slug: "build", title: "Build Pinna" },
       { slug: "flash", title: "Install Pinna" },
-      { slug: "dashboard", title: "Use the dashboard" },
-      { slug: "home-assistant", title: "Connect to Home Assistant" },
-      { slug: "standalone", title: "Use Pinna without Home Assistant" },
+      { slug: "dashboard", title: "Set up the satellite" },
     ],
   },
   {
-    group: "Use Pinna",
+    group: "With Home Assistant",
+    items: [
+      { slug: "home-assistant", title: "Connect to Home Assistant" },
+      { slug: "entities", title: "Home Assistant entities" },
+    ],
+  },
+  {
+    group: "Without Home Assistant",
+    items: [
+      { slug: "standalone", title: "Set up standalone mode" },
+      { slug: "ai-agents", title: "Use an AI agent" },
+      { slug: "satellite-groups", title: "Satellite groups" },
+    ],
+  },
+  {
+    group: "Use your satellite",
     items: [
       { slug: "ring-and-buttons", title: "Light ring and buttons" },
+      { slug: "wake-words", title: "Wake words" },
+      { slug: "music", title: "Play music" },
       { slug: "airplay", title: "Play music with AirPlay" },
       { slug: "bluetooth", title: "Play music over Bluetooth" },
+      { slug: "settings", title: "Satellite settings" },
+    ],
+  },
+  {
+    group: "Keep it running",
+    items: [
       { slug: "update", title: "Update Pinna" },
       { slug: "troubleshooting", title: "Troubleshooting" },
       { slug: "recovery", title: "Recover a device" },
-    ],
-  },
-  {
-    group: "Reference",
-    items: [
-      { slug: "entities", title: "Home Assistant entities" },
       { slug: "metrics", title: "Prometheus metrics" },
-      { slug: "audio", title: "Audio" },
-      { slug: "architecture", title: "Architecture" },
     ],
   },
   {
     group: "Develop",
     items: [
       { slug: "development", title: "Contribute" },
+      { slug: "build", title: "Build Pinna" },
       { slug: "configure", title: "Developer settings" },
       { slug: "control-api", title: "pinnactl and the control API" },
+      { slug: "releases", title: "Releases and updates" },
+      { slug: "architecture", title: "Architecture" },
+      { slug: "audio", title: "Audio" },
       { slug: "crates", title: "Repository layout" },
     ],
   },
