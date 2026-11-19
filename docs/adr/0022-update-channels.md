@@ -233,11 +233,14 @@ download fails.
   install at a random minute inside the window. It restarts the satellite when
   it is Idle with no timer set and nothing playing, inside the window. If the
   window ends first, the restart waits for the next window.
-- Never installed automatically: a new major version (before 1.0, a new minor
-  version), a release that needs a higher boot level, and a version that
-  failed its trial boot. Nothing installs automatically while the clock isn't
-  synchronized or while the running slot is still on trial. Such releases are
-  shown and wait for the owner.
+- Never installed automatically: a release that needs a higher boot level, and
+  a version that failed its trial boot. Nothing installs automatically while
+  the clock isn't synchronized or while the running slot is still on trial.
+  Such releases are shown and wait for the owner.
+- The version number doesn't decide: a major or, before 1.0, a minor version
+  installs like a patch. What a release needs by hand is in its manifest's
+  `requires`, and a release signed with another key fails verification on any
+  satellite.
 - An install the owner starts ignores the window: from the dashboard, with
   Home Assistant's Install button, from a Home Assistant automation, or by
   asking the satellite.
