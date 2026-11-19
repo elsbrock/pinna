@@ -22,9 +22,11 @@ If the dashboard doesn't open, start with
 - **At its `.local` name**, such as `http://pinna-2a914e.local/`: your
   computer or phone needs mDNS, which Android often lacks. Use the device's IP
   address from your router instead.
-- **Over Wi-Fi at all**: the device may not be on your network. Connect it to
-  your computer with the USB cable and open `http://10.42.0.1/`. See
-  [The device has no Wi-Fi](#the-device-has-no-wi-fi).
+- **Over Wi-Fi at all**: the device may not be on your network. If it has no
+  saved network, it runs its setup hotspot: join **Pinna setup** followed by
+  its name, with the password `pinnasetup`, and open `http://10.42.1.1/`.
+  Otherwise connect it to your computer with the USB cable and open
+  `http://10.42.0.1/`. See [The device has no Wi-Fi](#the-device-has-no-wi-fi).
 - **Over USB**: check that your computer sees the USB device **Pinna (Echo Dot
   2nd gen)**, or **Pinna (Echo 2nd gen)** on an Echo. Use a cable that carries
   data. Your computer gets an address between `10.42.0.10` and `10.42.0.29`.
@@ -36,14 +38,17 @@ If the dashboard doesn't open, start with
 
 ## The device has no Wi-Fi
 
-Connect the device to your computer with the USB cable, open
-`http://10.42.0.1/` and select **Network**. The page says which of these cases
-applies:
+If the device has no saved network, join its
+[setup hotspot](/docs/flash/#over-the-setup-hotspot) and open
+`http://10.42.1.1/`. If the hotspot doesn't appear, connect the USB cable and
+open `http://10.42.0.1/`. Select **Network**. The page says which of these
+cases applies:
 
 - **Not connected to a Wi-Fi network**: join your network under **Join a
   network**. If the password is wrong or the network gives the device no
-  address, the device goes back to the network it was on, and the page says
-  why. See [Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network).
+  address, the device goes back to the network it was on, or, with no saved
+  network, runs its setup hotspot again; the page says why. See
+  [Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network).
 - **Connected to a network, but no IPv4 address yet**: the network's DHCP
   server hasn't answered. This usually sorts itself out within a minute. If it
   doesn't, check that your router gives addresses to new devices, or join
@@ -62,6 +67,27 @@ applies:
 
   The `pinna-wifi` lines show the step that failed, for example
   `wlan0 did not appear`.
+
+## The setup hotspot doesn't appear
+
+A device runs its setup hotspot, **Pinna setup** followed by its hostname, only
+while it has no saved Wi-Fi network, no join runs and no network is on trial.
+Releases up to 0.4.0-beta.3 don't have it.
+
+1. Wait two minutes after the ring fills and fades out at start-up.
+2. Look at the ring. If it flashes white and pauses, count the flashes: 5
+   means the Wi-Fi driver didn't start, and the device has no hotspot this
+   time. If it is green, see
+   [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
+3. Restart the device: unplug its power adapter and plug it in again. The
+   Wi-Fi chip powers up once per start.
+4. A device with a saved network never runs the hotspot, even when that
+   network is out of range. An image you built with
+   `secrets/wifi/wpa_supplicant-wlan0.conf` has one.
+5. If none of this helps, connect the USB cable and open `http://10.42.0.1/`.
+   **Network** says whether the device has a hotspot: after a start that
+   failed, it says the device is reachable over USB only, and tries again
+   every 5 minutes.
 
 ## Home Assistant doesn't find the device
 

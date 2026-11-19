@@ -50,6 +50,11 @@ These parts are covered by tests that run without hardware:
   satellites add and remove each other, pass messages and act on each other
   in tests that run several satellites in one process. No test has run on two
   devices yet.
+- The [setup hotspot](/docs/flash/#connect-to-wi-fi) runs in the x86_64
+  virtual machine with simulated Wi-Fi radios: a phone joins it, gets an
+  address, is sent to the dashboard and scans for networks there; a join
+  turns it off, a wrong password brings it back and the phone reads why, and
+  a kept network keeps it off.
 - [AirPlay](/docs/airplay/) turns on and off in the x86_64 virtual machine:
   the receiver starts, publishes its AirPlay record, reports that it is ready,
   and stops again.
@@ -86,6 +91,10 @@ On the devices:
 - **On a Kaeru from before 22 October 2026, updates don't change the kernel.**
   That Kaeru loads `boot_a` for both slots, and updates leave `boot_a`
   alone. Install new kernels from fastboot.
+- **The setup hotspot hasn't run on an Echo yet**, and its password,
+  `pinnasetup`, is the same on every device. While a device has no saved
+  network, anyone in range who knows the password can join its hotspot, use
+  its dashboard, and see what you type there.
 - **No automated test runs.** The tests run when contributors run them; there
   is no CI for them yet. The release workflow builds the images but doesn't
   run the tests.
@@ -104,6 +113,8 @@ On the devices:
 - **More for standalone mode**: MCP servers that need a sign-in, and several
   satellites that share one conversation (ADR 0017). In a satellite group,
   one answer when several hear the wake word (ADR 0026).
+- **A setup hotspot password that only the owner can learn**, instead of one
+  that every device shares (ADR 0028).
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 - **Multi-room with Music Assistant** through its own protocol, Sendspin: the
   device would play in step with other speakers in a group.

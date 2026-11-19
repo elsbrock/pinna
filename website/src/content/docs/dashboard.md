@@ -34,14 +34,17 @@ Open one of these addresses in a browser on the same network as the device:
 - In Home Assistant, open the device under **Settings > Devices & services >
   ESPHome** and select **Visit**.
 - Over the USB cable: `http://10.42.0.1/`. This works when the Wi-Fi doesn't.
+- Over its setup hotspot, while the device has no saved Wi-Fi network:
+  `http://10.42.1.1/`. See [Connect to Wi-Fi](/docs/flash/#connect-to-wi-fi).
 
 Each device starts with its own name on the network. If you change it, give
 each device a different one.
 
 ## Set up a new satellite
 
-1. [Open the dashboard](#open-the-dashboard). Over the USB cable, first
-   [connect the device to Wi-Fi](/docs/settings/#change-the-wi-fi-network) on **Network**.
+1. [Open the dashboard](#open-the-dashboard). Over the USB cable or the setup
+   hotspot, first [connect the device to Wi-Fi](/docs/flash/#connect-to-wi-fi)
+   on **Network**.
 2. [Name the device](/docs/settings/#name-the-device) on **System**, for example `Kitchen`.
    Do this before you add it to Home Assistant, which keeps the first name in
    its entity IDs.

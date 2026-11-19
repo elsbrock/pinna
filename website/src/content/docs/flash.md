@@ -184,7 +184,52 @@ firmware doesn't boot properly.
 
 ## Connect to Wi-Fi
 
-Set up Wi-Fi on the device's dashboard, over the USB cable:
+Set up Wi-Fi on the device's dashboard. You reach it in one of two ways:
+
+- **Over its setup hotspot**, from a phone or computer. While the device has
+  no saved Wi-Fi network, it runs its own network, **Pinna setup** followed by
+  its hostname, for example `Pinna setup pinna-2a914e`. This needs no cable,
+  which helps on the Echo (2nd gen), whose USB is in its base.
+- **Over the USB cable**, at `http://10.42.0.1/`.
+
+The setup hotspot is in the releases after 0.4.0-beta.3. It is tested in the
+virtual machine, not yet on an Echo. If your phone doesn't find it within two
+minutes of the ring fading out, see
+[The setup hotspot doesn't appear](/docs/troubleshooting/#the-setup-hotspot-doesnt-appear),
+or use the USB cable.
+
+The hotspot's password is the same on every device and published here. While a
+device waits for a network, anyone in range can join its hotspot, use its
+dashboard, and see what you type there, the password of your Wi-Fi included. A
+password that only you can learn is planned.
+
+### Over the setup hotspot
+
+1. On your phone or computer, join the Wi-Fi network whose name starts with
+   **Pinna setup**. The password is `pinnasetup`.
+2. Most phones then open the dashboard by themselves. If yours doesn't, or
+   says the network has no internet, stay connected and open
+   `http://10.42.1.1/` in a browser.
+3. Open **Network**. Under **Join a network**, select **Scan**. The list can
+   be the one from when the hotspot started; if your network is missing,
+   select **Join a hidden network** and type its name.
+4. Select your network and enter its password.
+5. Before you select **Join**, note the address the page gives, such as
+   `http://pinna-2a914e.local/`: it is the hotspot's name without
+   `Pinna setup`. Note the device's MAC address too.
+6. Select **Join**. The page shows **Turning the setup hotspot off to try**
+   followed by your network's name, and then loses the device.
+7. Wait about two minutes:
+   - If **Pinna setup** is back in your phone's Wi-Fi list, the join failed.
+     Join the hotspot again and open **Network**, which says why.
+   - Otherwise the device is on your network. Within 5 minutes, connect your
+     phone to your network and open the address you noted. If it doesn't open,
+     which is common on Android, find the MAC address in your router's list of
+     devices and open the IP address listed next to it. Opening the dashboard
+     at either address keeps the network. If nobody opens it in time, the
+     device runs its hotspot again.
+
+### Over the USB cable
 
 1. Connect the device to your computer and open `http://10.42.0.1/` in a
    browser.

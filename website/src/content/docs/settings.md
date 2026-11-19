@@ -66,8 +66,10 @@ other name for a while.
 
 Open **Network**. **Saved networks** lists the networks that the device
 joins: the first one it finds, from the top. **Forget** removes one. Forgetting
-the network in use disconnects the device, and if it was the only one, the
-device is reachable over USB only.
+the network in use disconnects the device. If it was the only one, the device
+runs its [setup hotspot](/docs/flash/#over-the-setup-hotspot), with the
+dashboard at `http://10.42.1.1/`, and stays reachable over USB at
+`http://10.42.0.1/`.
 
 To join another network, select **Scan** under **Join a network**, select the
 network and enter its password. For a network that doesn't show its name,
@@ -81,7 +83,7 @@ can't reach, such as a guest network that keeps its devices apart:
 
 1. The device tries the network for up to a minute. If the password is wrong,
    or the network gives it no address, it goes back to the network it was on,
-   and the page says why.
+   or, with no saved network, runs its setup hotspot again. The page says why.
 2. Once it is on the new network, it keeps the network as soon as someone
    opens the dashboard at its new address: connect a phone or computer to that
    network and open the device's `.local` address, which the page shows before
@@ -90,11 +92,11 @@ can't reach, such as a guest network that keeps its devices apart:
    USB.
 3. Until then, every page shows the network on trial and the time left. After
    5 minutes, on **Go back**, or when the device restarts, it goes back to its
-   saved networks.
+   saved networks, or runs its setup hotspot again if it has none.
 
-If you open the dashboard over Wi-Fi, the page loses the device when it
-switches networks. Before you select **Join**, the page says where to find it,
-including its MAC address to look for in your router.
+If you open the dashboard over Wi-Fi or over the setup hotspot, the page loses
+the device when it switches networks. Before you select **Join**, the page says
+where to find it, including its MAC address to look for in your router.
 
 ## Set a dashboard address
 
@@ -146,9 +148,9 @@ The device forgets:
 
 It then restarts as it was installed. Its log stays, and so does the version
 of Pinna it runs. If its image doesn't set up Wi-Fi, which a prebuilt release
-doesn't, the device is reachable over USB only afterwards, at
-`http://10.42.0.1/`: [connect it to Wi-Fi](#change-the-wi-fi-network)
-again. If Home Assistant had set its key, Home Assistant shows it as
+doesn't, the device runs its setup hotspot afterwards, with the dashboard at
+`http://10.42.1.1/`, and stays reachable over USB at `http://10.42.0.1/`:
+[connect it to Wi-Fi](/docs/flash/#connect-to-wi-fi) again. If Home Assistant had set its key, Home Assistant shows it as
 unavailable until you add it again.
 
 ## What's next
