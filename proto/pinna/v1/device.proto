@@ -320,6 +320,8 @@ message Status {
   // (ADR 0026): they play once the satellite is idle and not muted. At most
   // 5, kept in memory only.
   uint32 held_messages = 31;
+  // The Sendspin player as it is, not only as switched (ADR 0027).
+  Sendspin sendspin = 32;
 }
 
 // Whether standalone mode can run, and how its last request ended. Set up
@@ -459,6 +461,35 @@ enum AirPlayState {
   AIRPLAY_STATE_UNAVAILABLE = 5;
 }
 
+message Sendspin {
+  SendspinState state = 1;
+  // The name Music Assistant lists it under, while it is on.
+  string name = 2;
+  // The name of the server it is connected to, while one is.
+  string server = 3;
+  // Why it failed, e.g. "port 8928 is in use"; or, while it is Ready, why
+  // the last server was turned away, e.g. that Music Assistant must be
+  // 2.10.7 or later.
+  string reason = 4;
+  // The speaker's hardware clock is read, so it plays in step with the
+  // group. False on a virtual device or a laptop: it plays, not in step.
+  bool exact_timing = 5;
+}
+
+enum SendspinState {
+  SENDSPIN_STATE_UNSPECIFIED = 0;
+  SENDSPIN_STATE_OFF = 1;
+  // Switched on and listening; no server is connected.
+  SENDSPIN_STATE_READY = 2;
+  // A server is connected; nothing plays.
+  SENDSPIN_STATE_CONNECTED = 3;
+  // A server is connected and its stream plays.
+  SENDSPIN_STATE_PLAYING = 4;
+  SENDSPIN_STATE_FAILED = 5;
+  // No working speaker: the switch is refused.
+  SENDSPIN_STATE_UNAVAILABLE = 6;
+}
+
 // How the previous boot ended, as pinnad read it back from the pstore records
 // of the boot before this one.
 enum LastBootOutcome {
@@ -529,6 +560,9 @@ message Settings {
   // group (ADR 0026), Home Assistant's "Group messages" switch. On by
   // default. It does nothing in Home Assistant mode or outside a group.
   bool group_messages = 18;
+  // The Sendspin player for Music Assistant on or off (ADR 0027). Off by
+  // default.
+  bool sendspin = 19;
 }
 
 // Where the satellite looks for releases (ADR 0022).
@@ -669,6 +703,8 @@ message UpdateSettingsRequest {
   // Off: messages from the satellite group are refused. Messages already
   // held still play.
   optional bool group_messages = 19;
+  // Refused on a device without a working speaker.
+  optional bool sendspin = 20;
 }
 
 // Only the fields that are set change.
