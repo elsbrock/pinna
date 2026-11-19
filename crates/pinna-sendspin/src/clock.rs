@@ -711,10 +711,9 @@ mod tests {
         b.start(0);
         // pinnad's timer fires 7 ms after each deadline, and every reply takes 1 ms.
         let late = 7_000;
-        let mut now = 0;
         let mut starts = Vec::new();
         while starts.len() < 5 {
-            now = b.next_wakeup().unwrap() + late;
+            let mut now = b.next_wakeup().unwrap() + late;
             let mut step = b.poll(now);
             if b.current.as_ref().is_some_and(|burst| burst.sent == 1) {
                 starts.push(now);
