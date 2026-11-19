@@ -95,7 +95,7 @@
 .pn-switch-control[aria-checked="true"] { background: var(--signal); border-color: var(--signal); }
 .pn-switch-control[aria-checked="true"]::after { transform: translateX(16px); background: var(--on-signal); }
 .pn-switch-control:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.pn-switch-control:disabled { opacity: .45; cursor: not-allowed; }
+.pn-switch-control:disabled, .pn-switch-control[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .pn-switch-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 1px; }
 .pn-switch-label { font-weight: 650; cursor: pointer; }
 .pn-switch-hint { font-size: 13px; line-height: 18px; color: var(--ink-muted); }
