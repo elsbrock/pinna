@@ -20,7 +20,9 @@
 //! - pinnad -> browser, binary: speaker audio, S16LE mono at 48 kHz.
 //!
 //! One browser at a time: a new connection closes the previous one with code
-//! 4000. While the microphone switch is on, microphone audio is dropped.
+//! 4000. With a dashboard password (ADR 0029) the socket needs a session, and
+//! ends with code 4002 when every session ends. While the microphone switch is
+//! on, microphone audio is dropped.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,8 +32,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use axum::extract::State;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
+use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
@@ -59,6 +61,8 @@ const QUEUE: usize = 25;
 const CLOSE_REPLACED: u16 = 4000;
 /// Close code when the VM's audio graph is not there.
 const CLOSE_NO_AUDIO: u16 = 4001;
+/// Close code when the session that opened the socket ended (ADR 0029).
+const CLOSE_SIGNED_OUT: u16 = 4002;
 /// A browser that takes longer than this to accept a message is gone.
 const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -138,7 +142,7 @@ impl VirtualDevice {
         }
     }
 
-    async fn serve(self: Arc<Self>, socket: WebSocket) {
+    async fn serve(self: Arc<Self>, socket: WebSocket, mut ended: Option<watch::Receiver<u64>>) {
         let mut me = 0;
         self.session.send_modify(|n| {
             *n += 1;
@@ -163,6 +167,18 @@ impl VirtualDevice {
         let mut odd_frames = 0u32;
         loop {
             tokio::select! {
+                // Every session ended: this one's with it (ADR 0029).
+                _ = async {
+                    match ended.as_mut() {
+                        Some(ended) => {
+                            let _ = ended.changed().await;
+                        }
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    send(&mut tx, close(CLOSE_SIGNED_OUT, "signed out")).await;
+                    break;
+                }
                 _ = session.changed() => {
                     if *session.borrow() != me {
                         send(&mut tx, close(CLOSE_REPLACED, "opened in another tab")).await;
@@ -361,13 +377,14 @@ pub fn origin_allowed(headers: &HeaderMap) -> bool {
 pub async fn socket(
     State(device): State<Arc<VirtualDevice>>,
     headers: HeaderMap,
+    end: Option<Extension<crate::auth::layer::SessionEnd>>,
     ws: WebSocketUpgrade,
 ) -> Response {
     if !origin_allowed(&headers) {
         return (StatusCode::FORBIDDEN, "cross-site WebSocket refused\n").into_response();
     }
     ws.max_message_size(MAX_MESSAGE)
-        .on_upgrade(move |s| device.serve(s))
+        .on_upgrade(move |s| device.serve(s, end.map(|Extension(e)| e.0)))
 }
 
 #[cfg(test)]

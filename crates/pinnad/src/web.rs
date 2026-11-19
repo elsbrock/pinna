@@ -3,10 +3,11 @@
 //! (ADR 0017), on one origin, for the LAN. The satellite group's
 //! `PeerService` (ADR 0026) is here too, for other satellites to call.
 //!
-//! No authentication. A Host allowlist keeps other web sites from reaching the
-//! API through DNS rebinding; cross-site requests are already stopped by the
-//! Connect protocol (JSON and proto bodies need a CORS preflight, which this
-//! server never grants).
+//! No authentication until the owner sets a password (ADR 0029), when
+//! `auth::layer` wraps every route. A Host allowlist keeps other web sites from
+//! reaching the API through DNS rebinding; cross-site requests are already
+//! stopped by the Connect protocol (JSON and proto bodies need a CORS
+//! preflight, which this server never grants).
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
@@ -23,6 +24,7 @@ use tower_http::services::ServeDir;
 
 use crate::api::{self, DeviceApi};
 use crate::assistant_api::{self, AssistantApi};
+use crate::auth::{self, Auth};
 use crate::config::Web;
 use crate::group::peer::{self, PeerApi};
 use crate::mcp::{self, McpServer};
@@ -118,8 +120,8 @@ const PEER_ROUTES: &str = "/pinna.v1.PeerService/";
 /// The routes: Connect procedures under `/pinna.v1.DeviceService/`,
 /// `/pinna.v1.AssistantService/` and `/pinna.v1.PeerService/`, `/metrics`
 /// (ADR 0020), the virtual Echo Dot's socket in the development VM
-/// (ADR 0014), Pinna's MCP server (ADR 0017), the dashboard's files for
-/// everything else.
+/// (ADR 0014), Pinna's MCP server (ADR 0017), `/auth/login` and
+/// `/auth/logout` (ADR 0029), the dashboard's files for everything else.
 #[allow(clippy::too_many_arguments)]
 pub fn app(
     api: Arc<DeviceApi>,
@@ -130,27 +132,43 @@ pub fn app(
     virt: Option<Arc<VirtualDevice>>,
     mcp: Arc<McpServer>,
     registry: Arc<Registry>,
+    auth: Arc<Auth>,
 ) -> axum::Router {
+    let routes = auth::layer::Routes {
+        auth: auth.clone(),
+        hosts: hosts.clone(),
+    };
     let files = axum::Router::new()
         .fallback_service(ServeDir::new(root))
         .layer(middleware::from_fn(cache_control));
     let mut router = axum::Router::new()
         .route_service(
-            "/pinna.v1.DeviceService/{method}",
+            auth::layer::DEVICE_ROUTE,
             api::router(api.clone()).into_axum_service(),
         )
         .route_service(
-            "/pinna.v1.AssistantService/{method}",
+            auth::layer::ASSISTANT_ROUTE,
             assistant_api::router(assistant).into_axum_service(),
         )
         .route_service(
-            "/pinna.v1.PeerService/{method}",
+            auth::layer::PEER_ROUTE,
             peer::router(peer)
                 .into_axum_service()
                 .with_limits(peer::limits()),
         )
         .route(mcp::ROUTE, mcp::route(mcp, hosts.clone()))
-        .route("/metrics", axum::routing::get(scrape).with_state(registry));
+        .route(
+            auth::layer::METRICS,
+            axum::routing::get(scrape).with_state(registry),
+        )
+        .route(
+            auth::layer::LOGIN,
+            axum::routing::post(auth::layer::login).with_state(routes.clone()),
+        )
+        .route(
+            auth::layer::LOGOUT,
+            axum::routing::post(auth::layer::logout).with_state(routes),
+        );
     if let Some(v) = virt {
         router = router.route(
             virtual_device::ROUTE,
@@ -159,6 +177,9 @@ pub fn app(
     }
     router
         .fallback_service(files)
+        // Innermost of the three: the Host allowlist and a Wi-Fi trial's
+        // confirmation come first (ADR 0029).
+        .layer(middleware::from_fn_with_state(auth, auth::layer::guard))
         .layer(middleware::from_fn_with_state(hosts, check_host))
         .layer(middleware::from_fn_with_state(api, connection))
 }
@@ -322,6 +343,7 @@ async fn cache_control(req: Request, next: Next) -> Response {
 }
 
 /// Bind `[web] listen` and serve in the background. `None` when it is off.
+#[allow(clippy::too_many_arguments)]
 pub async fn start(
     api: Arc<DeviceApi>,
     assistant: Arc<AssistantApi>,
@@ -330,6 +352,7 @@ pub async fn start(
     virt: Option<Arc<VirtualDevice>>,
     mcp: Arc<McpServer>,
     counters: &Counters,
+    auth: Arc<Auth>,
 ) -> Result<Option<SocketAddr>> {
     if cfg.listen.is_empty() {
         return Ok(None);
@@ -361,6 +384,7 @@ pub async fn start(
         virt,
         mcp,
         Arc::new(registry),
+        auth,
     );
     tokio::spawn(async move {
         if let Err(e) =
@@ -449,6 +473,7 @@ mod tests {
 
     struct Fixture {
         app: axum::Router,
+        auth: Arc<Auth>,
         _inputs: mpsc::Receiver<crate::voice::Input>,
         dir: std::path::PathBuf,
     }
@@ -494,12 +519,12 @@ mod tests {
             last_boot: boot::LastBoot::cold(),
             key_from_image: false,
         };
-        let mut api = DeviceApi::new(info, status_rx.clone(), in_tx);
+        let (assistant, peer, mcp, auth) = assistant(&dir, status_rx.clone(), in_tx.clone());
+        let mut api = DeviceApi::new(info, status_rx, in_tx).with_auth(auth.clone());
         if let Some(wifi) = wifi {
             api = api.with_wifi(wifi);
         }
         let api = Arc::new(api);
-        let (assistant, peer, mcp) = assistant(&dir, status_rx);
         Fixture {
             app: app(
                 api,
@@ -510,7 +535,9 @@ mod tests {
                 None,
                 mcp,
                 Arc::new(registry()),
+                auth.clone(),
             ),
+            auth,
             _inputs: in_rx,
             dir,
         }
@@ -521,9 +548,9 @@ mod tests {
     fn assistant(
         dir: &Path,
         status: watch::Receiver<Snapshot>,
-    ) -> (Arc<AssistantApi>, Arc<PeerApi>, Arc<McpServer>) {
+        inputs: mpsc::Sender<crate::voice::Input>,
+    ) -> (Arc<AssistantApi>, Arc<PeerApi>, Arc<McpServer>, Arc<Auth>) {
         let service = Service::load(Paths::beside(&dir.join("settings.toml")), status.clone());
-        let inputs = tokio::sync::mpsc::channel(1).0;
         let mcp = McpServer::new(
             service.clone(),
             inputs.clone(),
@@ -539,10 +566,12 @@ mod tests {
             watch::channel(crate::satellites::Seen::default()).1,
             crate::group::Limits::default(),
         );
+        let auth = Auth::new(service.clone(), "02:00:00:aa:bb:cc", inputs.clone());
         (
             Arc::new(AssistantApi::new(service, inputs)),
             Arc::new(PeerApi::new(Arc::new(group))),
             Arc::new(mcp),
+            auth,
         )
     }
 
@@ -596,6 +625,79 @@ mod tests {
             .header(header::CONTENT_TYPE, content_type)
             .body(Body::from(body))
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_password_closes_the_api_to_everyone_without_a_session() {
+        let mut f = fixture("password", true);
+        let post = |procedure: &str, body: &str| {
+            call(
+                "pinna.local",
+                procedure,
+                "application/json",
+                body.as_bytes().to_vec(),
+            )
+        };
+        let (status, _, body) = send(&f, post("DeviceService/GetSecurity", "{}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("\"offerPending\":true"), "{body}");
+        let (status, ..) = send(&f, post("DeviceService/GetStatus", "{}")).await;
+        assert_eq!(status, StatusCode::OK, "open until a password is set");
+
+        // Someone presses Action: the grant sets the first password.
+        let (id, _) = f.auth.start_confirmation().unwrap();
+        let mut progress = f.auth.watch_confirmation(&id).unwrap();
+        let Some(crate::voice::Input::Presence(presence)) = f._inputs.recv().await else {
+            panic!("no presence")
+        };
+        presence.pressed.send(()).unwrap();
+        progress.changed().await.unwrap();
+        let auth::ConfirmProgress::Confirmed(grant) = progress.borrow().clone() else {
+            panic!("not confirmed")
+        };
+        let set = format!(r#"{{"newPassword":"correct horse","grant":"{grant}"}}"#);
+        let (status, _, body) = send(&f, post("DeviceService/SetDashboardPassword", &set)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // Now the dashboard's files and the login are all a stranger gets.
+        let (status, _, body) = send(&f, post("DeviceService/GetStatus", "{}")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body.contains("\"code\":\"unauthenticated\""), "{body}");
+        let (status, ..) = send(&f, post("AssistantService/GetAssistant", "{}")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, ..) = send(&f, get("pinna.local", "/")).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, ..) = send(&f, get("pinna.local", "/metrics")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let login = axum::http::Request::post("/auth/login")
+            .header(header::HOST, "pinna.local")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"password":"correct horse"}"#))
+            .unwrap();
+        let (status, headers, _) = send(&f, login).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let cookie = headers[header::SET_COOKIE].to_str().unwrap();
+        let cookie = cookie.split_once(';').unwrap().0.to_owned();
+
+        let with_session = |procedure: &str| {
+            let mut r = post(procedure, "{}");
+            r.headers_mut()
+                .insert(header::COOKIE, cookie.parse().unwrap());
+            r
+        };
+        let (status, ..) = send(&f, with_session("DeviceService/GetStatus")).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, body) = send(&f, with_session("DeviceService/GetSecurity")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("\"signedIn\":true"), "{body}");
+        assert!(body.contains("\"passwordSet\":true"), "{body}");
+
+        // Signing out everywhere ends that session.
+        let (status, ..) = send(&f, with_session("DeviceService/SignOutEverywhere")).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, ..) = send(&f, with_session("DeviceService/GetStatus")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -865,8 +967,8 @@ mod tests {
             last_boot: boot::LastBoot::cold(),
             key_from_image: false,
         };
-        let api = Arc::new(DeviceApi::new(info, rx.clone(), tx));
-        let (assistant, peer, mcp) = assistant(&f.dir, rx);
+        let api = Arc::new(DeviceApi::new(info, rx.clone(), tx.clone()));
+        let (assistant, peer, mcp, auth) = assistant(&f.dir, rx, tx.clone());
         let cfg = Web {
             listen: String::new(),
             root: f.dir.clone(),
@@ -881,7 +983,8 @@ mod tests {
                 &cfg,
                 None,
                 mcp.clone(),
-                &counters
+                &counters,
+                auth.clone()
             )
             .await
             .unwrap(),
@@ -893,7 +996,7 @@ mod tests {
             ..cfg
         };
         assert!(
-            start(api, assistant, peer, &cfg, None, mcp, &counters)
+            start(api, assistant, peer, &cfg, None, mcp, &counters, auth)
                 .await
                 .is_err()
         );

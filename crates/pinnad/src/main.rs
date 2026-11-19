@@ -7,6 +7,7 @@
 mod airplay;
 mod api;
 mod assistant_api;
+mod auth;
 mod bluetooth;
 mod boot;
 mod calibration;
@@ -879,6 +880,10 @@ async fn main() -> Result<()> {
     let has_hotspot = hotspot::available(&hotspot_paths);
     let (hotspot_tx, hotspot_rx) = watch::channel(hotspot::State::default());
 
+    // The dashboard password and who may reach what (ADR 0029). Only the web
+    // listener checks it; the loopback API below stays open.
+    let auth = auth::Auth::new(assistant.clone(), &dc_mac, in_tx.clone());
+
     // Local control API.
     let device_api = api::DeviceApi::with_updater(
         api::Info {
@@ -902,6 +907,7 @@ async fn main() -> Result<()> {
     tokio::spawn(updater.clone().run_automatic());
     let device_api = Arc::new(
         device_api
+            .with_auth(auth.clone())
             .with_ring(shown_rx)
             .with_satellites(satellites_rx.clone())
             .with_hotspot(has_hotspot, hotspot_rx)
@@ -997,6 +1003,7 @@ async fn main() -> Result<()> {
         virt,
         mcp_server,
         &shared.counters,
+        auth,
     )
     .await
     {

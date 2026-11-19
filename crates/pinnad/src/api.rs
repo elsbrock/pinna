@@ -1,8 +1,10 @@
 //! Local control API: ConnectRPC `pinna.v1.DeviceService`, served over plain HTTP.
 //!
-//! No authentication — bind it to loopback only. The service holds no state of
-//! its own: reads come from the brain's status `watch`, commands go to the brain
-//! as inputs and are answered with the state right after they were applied.
+//! No authentication here — bind it to loopback only. On the dashboard listener
+//! `auth::layer` checks a session in front of it once the owner sets a password
+//! (ADR 0029). The service holds no state of its own beyond that: reads come
+//! from the brain's status `watch`, commands go to the brain as inputs and are
+//! answered with the state right after they were applied.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -31,6 +33,14 @@ use pinna_api::{
 };
 use pinna_api::{CheckForUpdatesRequest, CheckForUpdatesResponse};
 use pinna_api::{
+    ConfirmationState, CreateTokenRequest, CreateTokenResponse, GetSecurityRequest,
+    GetSecurityResponse, LeaveDashboardOpenRequest, LeaveDashboardOpenResponse,
+    RemoveDashboardPasswordRequest, RemoveDashboardPasswordResponse, SetDashboardPasswordRequest,
+    SetDashboardPasswordResponse, SignOutEverywhereRequest, SignOutEverywhereResponse,
+    StartConfirmationRequest, StartConfirmationResponse, WatchConfirmationRequest,
+    WatchConfirmationResponse,
+};
+use pinna_api::{
     ControlMediaRequest, ControlMediaResponse, Media, MediaCommand, MediaState, PlayMediaRequest,
     PlayMediaResponse, RingLight, SetRingLightRequest, SetRingLightResponse,
 };
@@ -49,6 +59,7 @@ use pinna_api::{RemoveWakeWordRequest, RemoveWakeWordResponse};
 use pinna_hal::led::{Frame, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::auth::{Auth, ConfirmProgress, TokenKind, layer::Session};
 use crate::boot;
 use crate::leds::LightEffect;
 #[cfg(test)]
@@ -97,6 +108,8 @@ pub struct DeviceApi {
     /// (ADR 0028).
     has_hotspot: bool,
     hotspot: watch::Receiver<crate::hotspot::State>,
+    /// The dashboard password, tokens and confirmation (ADR 0029).
+    auth: Option<Arc<Auth>>,
 }
 
 /// WatchRing sends at most one frame per this interval.
@@ -126,6 +139,7 @@ impl DeviceApi {
             wake_checker: Arc::new(Checker::disabled()),
             has_hotspot: false,
             hotspot: watch::channel(crate::hotspot::State::default()).1,
+            auth: None,
         }
     }
 
@@ -142,6 +156,18 @@ impl DeviceApi {
     /// The Wi-Fi the dashboard drives, for the setup hotspot (ADR 0028).
     pub fn wifi(&self) -> Arc<Wifi> {
         self.wifi.clone()
+    }
+
+    /// Answer the calls about the dashboard password with `auth`.
+    pub fn with_auth(mut self, auth: Arc<Auth>) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
+    fn auth(&self) -> Result<&Arc<Auth>, ConnectError> {
+        self.auth
+            .as_ref()
+            .ok_or_else(|| ConnectError::unavailable("This satellite has no dashboard security."))
     }
 
     /// Test uploaded wake word models with `checker`.
@@ -1449,6 +1475,173 @@ impl DeviceService for DeviceApi {
             .map_err(|e| ConnectError::internal(format!("factory reset: {e:#}")))?;
         Response::ok(FactoryResetResponse::default())
     }
+
+    async fn get_security(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, GetSecurityRequest>,
+    ) -> ServiceResult<GetSecurityResponse> {
+        Response::ok(GetSecurityResponse {
+            security: MessageField::some(self.auth()?.security(signed_in(&ctx))),
+            ..Default::default()
+        })
+    }
+
+    async fn set_dashboard_password(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SetDashboardPasswordRequest>,
+    ) -> ServiceResult<SetDashboardPasswordResponse> {
+        let auth = self.auth()?;
+        auth.set_password(
+            caller(&ctx),
+            request.new_password.to_owned(),
+            request.current_password.to_owned(),
+            request.grant.to_owned(),
+        )
+        .await?;
+        Response::ok(SetDashboardPasswordResponse {
+            // Every session ended, this caller's too: it signs in again.
+            security: MessageField::some(auth.security(false)),
+            ..Default::default()
+        })
+    }
+
+    async fn remove_dashboard_password(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RemoveDashboardPasswordRequest>,
+    ) -> ServiceResult<RemoveDashboardPasswordResponse> {
+        let auth = self.auth()?;
+        auth.remove_password(
+            caller(&ctx),
+            request.current_password.to_owned(),
+            request.grant.to_owned(),
+        )
+        .await?;
+        Response::ok(RemoveDashboardPasswordResponse {
+            security: MessageField::some(auth.security(false)),
+            ..Default::default()
+        })
+    }
+
+    async fn leave_dashboard_open(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, LeaveDashboardOpenRequest>,
+    ) -> ServiceResult<LeaveDashboardOpenResponse> {
+        let auth = self.auth()?;
+        auth.leave_open().await?;
+        Response::ok(LeaveDashboardOpenResponse {
+            security: MessageField::some(auth.security(signed_in(&ctx))),
+            ..Default::default()
+        })
+    }
+
+    async fn start_confirmation(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, StartConfirmationRequest>,
+    ) -> ServiceResult<StartConfirmationResponse> {
+        let (id, seconds) = self.auth()?.start_confirmation()?;
+        Response::ok(StartConfirmationResponse {
+            id,
+            seconds,
+            ..Default::default()
+        })
+    }
+
+    async fn watch_confirmation(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, WatchConfirmationRequest>,
+    ) -> ServiceResult<ServiceStream<WatchConfirmationResponse>> {
+        let rx = self.auth()?.watch_confirmation(request.id)?;
+        let started = std::time::Instant::now();
+        // The state now, then once more when it changes, which ends it.
+        let stream =
+            futures::stream::unfold((rx, true, false), move |(mut rx, first, done)| async move {
+                if done {
+                    return None;
+                }
+                if !first {
+                    rx.changed().await.ok()?;
+                }
+                let progress = rx.borrow_and_update().clone();
+                let msg = match &progress {
+                    ConfirmProgress::Waiting => WatchConfirmationResponse {
+                        state: ConfirmationState::CONFIRMATION_STATE_WAITING.into(),
+                        seconds_left: crate::auth::CONFIRM_WINDOW
+                            .saturating_sub(started.elapsed())
+                            .as_secs() as u32,
+                        ..Default::default()
+                    },
+                    ConfirmProgress::Confirmed(grant) => WatchConfirmationResponse {
+                        state: ConfirmationState::CONFIRMATION_STATE_CONFIRMED.into(),
+                        grant: grant.clone(),
+                        ..Default::default()
+                    },
+                    ConfirmProgress::Expired => WatchConfirmationResponse {
+                        state: ConfirmationState::CONFIRMATION_STATE_EXPIRED.into(),
+                        ..Default::default()
+                    },
+                };
+                let done = !matches!(progress, ConfirmProgress::Waiting);
+                Some((Ok(msg), (rx, false, done)))
+            });
+        Response::ok(Box::pin(stream))
+    }
+
+    async fn create_token(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreateTokenRequest>,
+    ) -> ServiceResult<CreateTokenResponse> {
+        let kind = match request.kind.as_known() {
+            Some(pinna_api::TokenKind::TOKEN_KIND_METRICS) => TokenKind::Metrics,
+            Some(pinna_api::TokenKind::TOKEN_KIND_AGENT) => TokenKind::Agent,
+            _ => {
+                return Err(ConnectError::invalid_argument(
+                    "kind must be metrics or agent.",
+                ));
+            }
+        };
+        let auth = self.auth()?;
+        let token = auth.create_token(kind).await?;
+        Response::ok(CreateTokenResponse {
+            token,
+            security: MessageField::some(auth.security(signed_in(&ctx))),
+            ..Default::default()
+        })
+    }
+
+    async fn sign_out_everywhere(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, SignOutEverywhereRequest>,
+    ) -> ServiceResult<SignOutEverywhereResponse> {
+        let auth = self.auth()?;
+        auth.sign_out_everywhere().await?;
+        Response::ok(SignOutEverywhereResponse {
+            security: MessageField::some(auth.security(false)),
+            ..Default::default()
+        })
+    }
+}
+
+/// Where a call came from, for the failed-login record.
+fn caller(ctx: &RequestContext) -> IpAddr {
+    ctx.peer_addr()
+        .map_or(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), |a| {
+            a.ip().to_canonical()
+        })
+}
+
+/// The call carries a valid session (the web listener's check says so).
+fn signed_in(ctx: &RequestContext) -> bool {
+    ctx.extensions()
+        .get::<Session>()
+        .is_some_and(|s| s.signed_in)
 }
 
 /// The ConnectRPC routes; shared by the loopback API and the dashboard listener.

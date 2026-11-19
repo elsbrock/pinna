@@ -27,7 +27,7 @@ use pinna_assist::error::Slot;
 use pinna_assist::http::Endpoint;
 use pinna_assist::pipeline::{Pipeline, Speech};
 use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, PresetId, Slots};
-use pinna_assist::secrets::{Secrets, SecretsFile};
+use pinna_assist::secrets::{DashboardFile, Secrets, SecretsFile};
 use pinna_assist::tts::Tts;
 use pinna_http::{ClientKind, Secret, reqwest};
 use tokio::sync::{Mutex as AsyncMutex, watch};
@@ -926,6 +926,36 @@ impl Service {
             last_seen: SystemTime::now(),
         });
         agents.truncate(MAX_AGENTS);
+    }
+
+    /// The MCP clients seen, newest first (at most [`MAX_AGENTS`]).
+    pub fn agents(&self) -> Vec<AgentSeen> {
+        self.agents.lock().unwrap().iter().cloned().collect()
+    }
+
+    /// The dashboard's credentials as committed (ADR 0029).
+    pub fn dashboard(&self) -> DashboardFile {
+        let state = self.committed.state.lock().unwrap();
+        state.secrets.dashboard().cloned().unwrap_or_default()
+    }
+
+    /// Change the dashboard's credentials through the same writer as every
+    /// other edit of `secrets.toml`, so none of them overwrites another.
+    /// Nothing changes unless the file is written.
+    pub async fn edit_dashboard(
+        &self,
+        edit: impl FnOnce(&mut DashboardFile),
+    ) -> Result<DashboardFile, Refusal> {
+        let mut after = DashboardFile::default();
+        self.commit(|d| {
+            let mut dashboard = d.secrets.dashboard().cloned().unwrap_or_default();
+            edit(&mut dashboard);
+            after = dashboard.clone();
+            d.secrets.set_dashboard(dashboard);
+            Ok(())
+        })
+        .await?;
+        Ok(after)
     }
 
     fn standalone(&self) -> bool {

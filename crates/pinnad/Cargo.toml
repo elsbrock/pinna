@@ -35,7 +35,9 @@ bytes = "1"
 fastrand = "2"
 pinna-api = { path = "../pinna-api" }
 connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "server", "axum", "client"] }
-axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "http2", "ws"] }
+# matched-path: the dashboard password check tells a route from the file
+# fallback by the route the router matched (ADR 0029).
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "http2", "ws", "matched-path"] }
 tower-http = { version = "0.6", features = ["fs"] }
 buffa = "0.9"
 futures = "0.3"

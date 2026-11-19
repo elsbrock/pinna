@@ -1,8 +1,10 @@
 //! Pinna's MCP server, `/mcp` on the dashboard listener (ADR 0017
 //! §"Pinna as an MCP server").
 //!
-//! It trusts the LAN as the dashboard does: no token, and the dashboard's Host
-//! allowlist applies. On top of that a browser `Origin` must be one the
+//! It trusts the LAN as the dashboard does: no token until the owner sets a
+//! dashboard password, which makes it need the agent token (ADR 0029, checked
+//! in front of this route by `auth::layer`). The dashboard's Host allowlist
+//! applies. On top of that a browser `Origin` must be one the
 //! dashboard answers to, and only `application/json` bodies are taken, so a
 //! web page can't post a form here. Replies are JSON; there is no event
 //! stream, so GET is refused.
@@ -166,7 +168,7 @@ async fn serve(State(endpoint): State<Endpoint>, req: Request) -> Response {
 
 /// Every Origin header, if any, names a host the dashboard answers to.
 /// Clients outside a browser send none.
-fn origin_allowed(hosts: &Hosts, headers: &HeaderMap) -> bool {
+pub(crate) fn origin_allowed(hosts: &Hosts, headers: &HeaderMap) -> bool {
     headers.get_all(header::ORIGIN).iter().all(|origin| {
         origin
             .to_str()
@@ -177,7 +179,7 @@ fn origin_allowed(hosts: &Hosts, headers: &HeaderMap) -> bool {
     })
 }
 
-fn is_json(headers: &HeaderMap) -> bool {
+pub(crate) fn is_json(headers: &HeaderMap) -> bool {
     headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -198,7 +200,7 @@ fn home_assistant_mode(body: &[u8]) -> Response {
     refusal(StatusCode::OK, id, HOME_ASSISTANT_MODE)
 }
 
-fn refusal(status: StatusCode, id: Id, message: &str) -> Response {
+pub(crate) fn refusal(status: StatusCode, id: Id, message: &str) -> Response {
     json(status, pinna_mcp::server::error(id, SERVER_ERROR, message))
 }
 
@@ -299,6 +301,7 @@ mod tests {
                 None,
                 Arc::new(server),
                 Arc::new(Registry::default()),
+                crate::auth::Auth::new(service.clone(), "02:00:00:aa:bb:cc", inputs.clone()),
             );
             Self {
                 app,
