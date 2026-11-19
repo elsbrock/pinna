@@ -752,6 +752,12 @@ impl TimedPlayer {
             if b.front_off < c.frames() {
                 let i = 2 * b.front_off;
                 if b.front_off == 0 {
+                    // A format change in place: the rest of this render
+                    // reads the new rate at the same speed, not 8 % off
+                    // until the next one steers.
+                    if c.rate != self.rate {
+                        self.step *= f64::from(c.rate) / f64::from(self.rate);
+                    }
                     // Each chunk sets its own time: rounding in the server's
                     // timestamps never adds up.
                     self.rate = c.rate;
@@ -890,6 +896,7 @@ mod tests {
         arrival: Instant,
         ts: f64,
         frames: usize,
+        rate: u32,
     }
 
     /// A lane with a timed source, mixed chunk by chunk by a speaker whose
@@ -1006,7 +1013,11 @@ mod tests {
         }
 
         fn chunk_pcm(&self, ts: f64, frames: usize) -> Vec<i16> {
-            let upf = 1e6 / f64::from(self.rate);
+            self.pcm_at(self.rate, ts, frames)
+        }
+
+        fn pcm_at(&self, rate: u32, ts: f64, frames: usize) -> Vec<i16> {
+            let upf = 1e6 / f64::from(rate);
             (0..frames)
                 .flat_map(|k| self.signal(ts + k as f64 * upf))
                 .collect()
@@ -1026,6 +1037,7 @@ mod tests {
                         arrival,
                         ts: self.next_ts,
                         frames,
+                        rate: self.rate,
                     });
                     self.next_ts += frames as f64 * 1e6 / f64::from(self.rate);
                 }
@@ -1035,9 +1047,9 @@ mod tests {
                 let Some(p) = self.next.take() else { return };
                 self.last_arrival = p.arrival;
                 self.sent.push(p.ts);
-                let pcm = self.chunk_pcm(p.ts, p.frames);
+                let pcm = self.pcm_at(p.rate, p.ts, p.frames);
                 self.sink
-                    .push(p.ts.round() as i64, self.rate, pcm)
+                    .push(p.ts.round() as i64, p.rate, pcm)
                     .expect("queued");
             }
         }
@@ -1258,6 +1270,29 @@ mod tests {
             sim.clock.shift(sign * (jump_us() + 200.0) - err(&sim));
             sim.run(0.5);
             assert_eq!(sim.sink.stats().jumps, 2, "{spk_ppm} ppm: slewed");
+        }
+    }
+
+    #[test]
+    fn a_format_change_in_place_keeps_time_and_speed() {
+        // The server changes rate between two chunks of one timeline; where
+        // the change falls in the speaker's 20 ms chunks varies.
+        for (from, to) in [(48_000, 44_100), (44_100, 48_000)] {
+            for k in 0..12 {
+                let mut sim = playing(0.0, 0.0, from, 2.0 + 0.04 * f64::from(k));
+                sim.rate = to;
+                let mark = sim.err.len();
+                sim.run(1.5);
+                let at = format!("{from} to {to} Hz, {k}");
+                assert!(sim.err[mark..].iter().all(|e| !e.is_nan()), "{at}: a break");
+                assert!(sim.max_err(mark) < 300.0, "{at}: {} µs", sim.max_err(mark));
+                assert!(
+                    sim.max_speed(mark) < 0.005,
+                    "{at}: speed {}",
+                    sim.max_speed(mark)
+                );
+                assert_eq!(sim.sink.stats().jumps, 1, "{at}");
+            }
         }
     }
 
