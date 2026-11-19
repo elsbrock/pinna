@@ -104,7 +104,15 @@ impl Window {
         end: 5 * 60,
     };
 
+    /// `start` and `end` are minutes after midnight. A minute past 23:59 is
+    /// refused here as well as by the callers: `instances` builds civil
+    /// times from it, and jiff panics on an hour out of range.
     pub fn new(start: u16, end: u16) -> Result<Self, WindowError> {
+        for t in [start, end] {
+            if t >= 24 * 60 {
+                return Err(WindowError::NotATime(format!("{}:{:02}", t / 60, t % 60)));
+            }
+        }
         if start == end {
             return Err(WindowError::Empty(format_time(start)));
         }
@@ -283,6 +291,19 @@ mod tests {
     fn at(day: i8, hm: &str) -> DateTime {
         let m = parse_time(hm).unwrap();
         date(2026, 11, day).at((m / 60) as i8, (m % 60) as i8, 0, 0)
+    }
+
+    #[test]
+    fn a_window_refuses_a_minute_past_the_day() {
+        assert!(matches!(
+            Window::new(24 * 60, 60),
+            Err(WindowError::NotATime(t)) if t == "24:00"
+        ));
+        assert!(matches!(
+            Window::new(60, 6000),
+            Err(WindowError::NotATime(_))
+        ));
+        assert!(Window::new(0, 24 * 60 - 1).is_ok());
     }
 
     #[test]
