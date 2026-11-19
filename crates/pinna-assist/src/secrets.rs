@@ -5,7 +5,9 @@
 //! representation wraps keys and MCP URLs in [`Secret`], and its debug output
 //! contains no credential material. MCP servers have no token yet; a `bearer`
 //! from another build stays in `extra`. The satellite group's key (ADR 0026)
-//! is bound to the group's id, as a provider key is to its URL.
+//! is bound to the group's id, as a provider key is to its URL. The dashboard
+//! password's hash, session key and token digests (ADR 0029) are one more
+//! table; this crate only carries them, `pinnad` interprets them.
 
 use std::{collections::BTreeMap, fmt};
 
@@ -20,6 +22,10 @@ pub struct SecretsFile {
     pub mcp: BTreeMap<String, McpFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<GroupKeyFile>,
+    /// The dashboard password and tokens (ADR 0029). An image from before it
+    /// keeps the table in `extra` and doesn't check it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dashboard: Option<DashboardFile>,
     /// Keys written by a newer image survive a rollback and roll-forward.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -51,12 +57,53 @@ pub struct GroupKeyFile {
     pub extra: toml::Table,
 }
 
+/// The dashboard's credentials as `secrets.toml` holds them (ADR 0029). Binary
+/// values are standard base64; the tokens are kept only as SHA-256 digests in
+/// lowercase hex. Every field defaults, so a table that lost one still reads.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DashboardFile {
+    /// PBKDF2-HMAC-SHA256 output of the password; empty while no password is set.
+    pub hash: String,
+    /// The 16-byte salt.
+    pub salt: String,
+    /// PBKDF2 iterations the hash was made with.
+    pub iterations: u32,
+    /// The 32-byte key the session cookies are signed with.
+    pub session_key: String,
+    pub metrics_sha256: String,
+    pub metrics_last4: String,
+    pub agent_sha256: String,
+    pub agent_last4: String,
+    /// The owner chose "Leave it open".
+    pub left_open: bool,
+    #[serde(flatten)]
+    pub extra: toml::Table,
+}
+
+impl DashboardFile {
+    /// Nothing stored: the table can be left out of the file.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl fmt::Debug for DashboardFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DashboardFile")
+            .field("password", &!self.hash.is_empty())
+            .field("left_open", &self.left_open)
+            .finish_non_exhaustive()
+    }
+}
+
 impl fmt::Debug for SecretsFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SecretsFile")
             .field("connections", &self.connections)
             .field("mcp", &self.mcp)
             .field("group", &self.group)
+            .field("dashboard", &self.dashboard)
             .finish_non_exhaustive()
     }
 }
@@ -123,6 +170,7 @@ pub struct Secrets {
     connections: BTreeMap<String, Connection>,
     mcp: BTreeMap<String, Mcp>,
     group: Option<GroupKey>,
+    dashboard: Option<DashboardFile>,
     extra: toml::Table,
 }
 
@@ -197,6 +245,16 @@ impl Secrets {
         self.group = None;
     }
 
+    /// The dashboard's credentials (ADR 0029), if any are stored.
+    pub fn dashboard(&self) -> Option<&DashboardFile> {
+        self.dashboard.as_ref()
+    }
+
+    /// Store the dashboard's credentials; an empty set removes the table.
+    pub fn set_dashboard(&mut self, dashboard: DashboardFile) {
+        self.dashboard = (!dashboard.is_empty()).then_some(dashboard);
+    }
+
     pub fn to_file(&self) -> SecretsFile {
         SecretsFile::from(self)
     }
@@ -208,6 +266,7 @@ impl fmt::Debug for Secrets {
             .field("connections", &self.connections.len())
             .field("mcp", &self.mcp.len())
             .field("group", &self.group.as_ref().map(|g| &g.id))
+            .field("dashboard", &self.dashboard)
             .finish_non_exhaustive()
     }
 }
@@ -247,6 +306,7 @@ impl From<SecretsFile> for Secrets {
                 key: Secret::new(group.key),
                 extra: group.extra,
             }),
+            dashboard: file.dashboard,
             extra: file.extra,
         }
     }
@@ -287,6 +347,7 @@ impl From<&Secrets> for SecretsFile {
                 key: group.key.expose().to_owned(),
                 extra: group.extra.clone(),
             }),
+            dashboard: secrets.dashboard.clone(),
             extra: secrets.extra.clone(),
         }
     }
@@ -383,6 +444,44 @@ mod tests {
                 .is_none()
         );
         assert!(secrets.to_file().group.is_none());
+    }
+
+    #[test]
+    fn the_dashboard_table_round_trips_and_is_never_shown() {
+        let text = r#"
+[dashboard]
+hash = "aGFzaA=="
+salt = "c2FsdA=="
+iterations = 100000
+session_key = "a2V5"
+agent_sha256 = "ab12"
+agent_last4 = "wxyz"
+left_open = false
+future_dashboard_key = 5
+"#;
+        let secrets = Secrets::from(toml::from_str::<SecretsFile>(text).unwrap());
+        let dashboard = secrets.dashboard().unwrap();
+        assert_eq!(dashboard.iterations, 100_000);
+        assert_eq!(dashboard.agent_last4, "wxyz");
+        assert!(
+            dashboard.metrics_sha256.is_empty(),
+            "missing fields default"
+        );
+        let again = toml::to_string(&secrets.to_file()).unwrap();
+        assert!(again.contains("future_dashboard_key = 5"), "{again}");
+        let debug = format!("{secrets:?} {:?}", secrets.to_file());
+        for secret in ["aGFzaA==", "c2FsdA==", "a2V5", "ab12"] {
+            assert!(!debug.contains(secret), "{debug}");
+        }
+
+        // Nothing stored leaves the table out of the file.
+        let mut empty = Secrets::default();
+        empty.set_dashboard(DashboardFile::default());
+        assert!(
+            !toml::to_string(&empty.to_file())
+                .unwrap()
+                .contains("dashboard")
+        );
     }
 
     #[test]

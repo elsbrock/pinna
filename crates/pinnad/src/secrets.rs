@@ -1,4 +1,5 @@
-//! Provider keys and MCP credentials (`secrets.toml`, mode 0600; ADR 0017).
+//! Provider keys, MCP credentials and the dashboard's password hash, session
+//! key and token digests (`secrets.toml`, mode 0600; ADR 0017, ADR 0029).
 //!
 //! The file is a [`pinna_assist::secrets::SecretsFile`]: plain strings for TOML.
 //! Loading salvages it key by key through [`Store`], so a value written by a
@@ -80,6 +81,7 @@ mod tests {
                 key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=".to_owned(),
                 extra: toml::Table::new(),
             }),
+            dashboard: None,
             extra: toml::Table::new(),
         };
         save(&Store::new(&path, FILE_MODE), &Secrets::from(file)).unwrap();
