@@ -931,7 +931,7 @@ impl Actor {
                 &proto::HelloResponse {
                     api_version_major: API_VERSION.0,
                     api_version_minor: API_VERSION.1,
-                    server_info: format!("Pinna {}", env!("CARGO_PKG_VERSION")),
+                    server_info: format!("Pinna {}", pinna_version::VERSION),
                     name: self.cfg.name.clone(),
                 },
             );

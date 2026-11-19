@@ -22,7 +22,9 @@ use crate::voice::ApiCommand;
 
 const SEARCH_URL: &str = "https://all.api.radio-browser.info/json/stations/search";
 /// radio-browser.info asks its clients to name themselves.
-const AGENT: &str = concat!("pinna/", env!("CARGO_PKG_VERSION"));
+fn agent() -> String {
+    format!("pinna/{}", pinna_version::VERSION)
+}
 /// A search answer is a few KiB per station.
 /// Stations a search returns at most.
 const RESULTS: usize = 8;
@@ -228,7 +230,7 @@ impl RadioBrowser {
             self.url,
             url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>()
         );
-        let request = self.http.get(&url).header(USER_AGENT, AGENT);
+        let request = self.http.get(&url).header(USER_AGENT, agent());
         let found: Vec<Value> = get_json(request)
             .await
             .map_err(|f| f.sentence("The radio directory"))?;
@@ -544,7 +546,7 @@ mod tests {
             ]})
         );
         let request = &server.requests()[0];
-        assert_eq!(request.header("user-agent"), Some(AGENT));
+        assert_eq!(request.header("user-agent"), Some(agent().as_str()));
     }
 
     #[tokio::test]

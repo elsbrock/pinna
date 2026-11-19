@@ -429,7 +429,7 @@ async fn main() -> Result<()> {
         pinna_bootctl::slot::booted_version(std::path::Path::new(pinna_bootctl::slot::RUN_DIR))
             .ok()
             .flatten()
-            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into());
+            .unwrap_or_else(|| pinna_version::VERSION.into());
     let updater = Arc::new(updates::Updater::new(updates::UpdaterPaths::default()));
     let default_channel = updates::default_channel(updater.development_build(), &booted_version);
     updater.init_source(match &cfg.update.manifest {
@@ -533,7 +533,7 @@ async fn main() -> Result<()> {
     );
     tracing::info!(
         "pinnad {} as {} ({})",
-        env!("CARGO_PKG_VERSION"),
+        pinna_version::VERSION,
         dc.name,
         dc.mac_string()
     );

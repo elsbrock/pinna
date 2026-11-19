@@ -20,7 +20,7 @@ fn builder(kind: ClientKind, tls: rustls::ClientConfig) -> ClientBuilder {
             .connect_timeout(secs(10))
             .read_timeout(secs(20)),
         ClientKind::Update => b
-            .user_agent(concat!("pinna-update/", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("pinna-update/{}", pinna_version::VERSION))
             .connect_timeout(secs(30)),
         ClientKind::Provider { .. } | ClientKind::Mcp => {
             let b = b

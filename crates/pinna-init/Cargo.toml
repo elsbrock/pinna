@@ -7,6 +7,7 @@ version.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+pinna-version = { path = "../pinna-version" }
 pinna-image = { path = "../pinna-image" }
 pinna-bootctl = { path = "../pinna-bootctl" }
 anyhow.workspace = true

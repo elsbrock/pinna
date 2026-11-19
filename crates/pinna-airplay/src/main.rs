@@ -20,7 +20,7 @@ use tokio::process::Command;
 use metadata::{Item, pvol_percent};
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version = pinna_version::VERSION, about)]
 struct Cli {
     /// shairport-sync configuration, written by pinnad.
     #[arg(long, default_value = "/run/pinna/airplay/shairport-sync.conf")]

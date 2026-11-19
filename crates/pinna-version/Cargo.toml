@@ -1,0 +1,7 @@
+[package]
+name = "pinna-version"
+description = "The release version the binaries report"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true

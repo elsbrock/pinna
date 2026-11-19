@@ -274,7 +274,7 @@ pub fn diagnostics(info: &Info, src: &Sources) -> String {
     let _ = writeln!(out, "Pinna rescue diagnostics");
     let _ = writeln!(out, "reason: {}", info.reason);
     let _ = writeln!(out, "detail: {}", info.detail);
-    let _ = writeln!(out, "pinna-init: {}", env!("CARGO_PKG_VERSION"));
+    let _ = writeln!(out, "pinna-init: {}", pinna_version::VERSION);
     // Which key this boot image trusts: a root signed with another one
     // doesn't boot.
     let _ = writeln!(

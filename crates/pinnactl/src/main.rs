@@ -14,7 +14,7 @@ use pinna_api::{
 type Client = DeviceServiceClient<HttpClient>;
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version = pinna_version::VERSION, about)]
 struct Cli {
     /// pinnad control API.
     #[arg(long, default_value = "http://127.0.0.1:7470", global = true)]

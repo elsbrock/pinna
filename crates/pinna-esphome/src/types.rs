@@ -256,7 +256,7 @@ impl DeviceConfig {
             model: "pinna".into(),
             manufacturer: "Pinna".into(),
             project_name: "pinna.satellite".into(),
-            project_version: env!("CARGO_PKG_VERSION").into(),
+            project_version: pinna_version::VERSION.into(),
             suggested_area: None,
             port: 6053,
             bind: IpAddr::V6(Ipv6Addr::UNSPECIFIED),

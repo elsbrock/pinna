@@ -27,7 +27,7 @@ use zbus::zvariant::{ObjectPath, OwnedFd, Value};
 use objects::{ADAPTER, Objects};
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version = pinna_version::VERSION, about)]
 struct Cli {
     /// pinnad's stream socket.
     #[arg(long, default_value = "/run/pinna/stream.sock")]

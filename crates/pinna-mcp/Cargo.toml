@@ -6,6 +6,7 @@ version.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+pinna-version = { path = "../pinna-version" }
 futures-core = "0.3"
 pinna-http = { path = "../pinna-http" }
 serde.workspace = true

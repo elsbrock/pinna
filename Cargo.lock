@@ -2130,6 +2130,7 @@ dependencies = [
  "clap",
  "libc",
  "pinna-bridge",
+ "pinna-version",
  "tokio",
  "tracing",
 ]
@@ -2237,6 +2238,7 @@ dependencies = [
  "clap",
  "pinna-api",
  "pinna-bridge",
+ "pinna-version",
  "tokio",
  "tracing",
  "zbus",
@@ -2250,6 +2252,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "heck",
+ "pinna-version",
  "prost 0.14.6",
  "prost-build",
  "prost-reflect",
@@ -2278,6 +2281,7 @@ name = "pinna-http"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "pinna-version",
  "reqwest",
  "rustls",
  "tokio",
@@ -2305,6 +2309,7 @@ dependencies = [
  "libc",
  "pinna-bootctl",
  "pinna-image",
+ "pinna-version",
  "sha2",
  "tempfile",
 ]
@@ -2325,6 +2330,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "pinna-http",
+ "pinna-version",
  "serde",
  "serde_json",
  "thiserror",
@@ -2355,6 +2361,10 @@ name = "pinna-vad"
 version = "0.1.0"
 
 [[package]]
+name = "pinna-version"
+version = "0.1.0"
+
+[[package]]
 name = "pinna-wakeword"
 version = "0.1.0"
 dependencies = [
@@ -2379,6 +2389,7 @@ dependencies = [
  "pinna-bootctl",
  "pinna-hal",
  "pinna-update",
+ "pinna-version",
  "serde_json",
  "tokio",
 ]
@@ -2409,6 +2420,7 @@ dependencies = [
  "pinna-image",
  "pinna-mcp",
  "pinna-vad",
+ "pinna-version",
  "pinna-wakeword",
  "procfs",
  "prometheus-client",

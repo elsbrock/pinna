@@ -199,7 +199,7 @@ impl McpClient {
                 json!({
                     "protocolVersion": crate::PROTOCOL_VERSIONS[0],
                     "capabilities": {},
-                    "clientInfo": {"name": "pinna", "version": env!("CARGO_PKG_VERSION")},
+                    "clientInfo": {"name": "pinna", "version": pinna_version::VERSION},
                 }),
                 None,
                 None,
