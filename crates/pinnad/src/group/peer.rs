@@ -11,17 +11,25 @@
 //! A message this satellite won't take is a signed answer with the reason,
 //! for the sender's brain to say; only a call that fails the checks above
 //! is a Connect error.
+//!
+//! `Call` runs one of the device tools that act on the satellite, as this
+//! satellite's `/mcp` would, within a time limit that keeps the answer
+//! inside the caller's. It never passes a call on. A tool it won't run is a
+//! signed result with the reason, as for a message.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use buffa::MessageField;
 use connectrpc::{ConnectError, RequestContext, Response, Router, ServiceRequest, ServiceResult};
 use pinna_api::peer_delivery::Outcome;
 use pinna_api::{
     PeerDelivery, PeerEnvelope, PeerHello, PeerJoinRequest, PeerJoinResponse, PeerMemberList,
-    PeerMessage, PeerSender, PeerService,
+    PeerMessage, PeerSender, PeerService, PeerToolCall, PeerToolResult,
 };
+use pinna_mcp::ToolOutput;
+use serde_json::{Map, Value};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot};
 
@@ -31,8 +39,10 @@ use super::model::same_mac;
 use super::persisted::Joined;
 use super::runtime::{Change, Group, from_wire, is_member, to_wire};
 use super::seal::{KEY_LEN, Key};
+use crate::mcp::McpServer;
 use crate::settings::Mode;
 use crate::standalone::service::Refusal;
+use crate::tools::{self, SATELLITE};
 use crate::voice::{Delivery, Input, Taken, messages};
 
 /// The refusal of a call for a group this satellite isn't in. A member reads
@@ -45,8 +55,8 @@ const NOT_A_MEMBER: &str = "The caller isn't a member of this group.";
 const BAD_KEY: &str = "The group's key isn't 32 bytes.";
 const ADDING: &str = "This satellite is adding another one. Try again in a moment.";
 const JOINING: &str = "This satellite is joining a group. Try again in a moment.";
-const NO_CALLS: &str = "This satellite doesn't run tools for the group yet.";
 const EMPTY: &str = "The message is empty.";
+const NOT_JSON: &str = "The call's arguments aren't JSON.";
 
 /// Requests and messages are a member list at most: far below the default
 /// 4 MiB, and `Join` is open to anyone on the LAN.
@@ -56,11 +66,17 @@ pub struct PeerApi {
     group: Arc<Group>,
     /// The Brain's queue, for the messages it says.
     brain: Option<mpsc::Sender<Input>>,
+    /// The device tools as `/mcp` runs them, for the other members' calls.
+    tools: Option<Arc<McpServer>>,
 }
 
 impl PeerApi {
     pub fn new(group: Arc<Group>) -> Self {
-        Self { group, brain: None }
+        Self {
+            group,
+            brain: None,
+            tools: None,
+        }
     }
 
     /// Hand messages from the other members to the Brain on `inputs`.
@@ -68,6 +84,61 @@ impl PeerApi {
     pub fn with_brain(mut self, inputs: mpsc::Sender<Input>) -> Self {
         self.brain = Some(inputs);
         self
+    }
+
+    /// Run the other members' tool calls as `/mcp` runs its own. Without
+    /// it, every call is refused.
+    pub fn with_tools(mut self, tools: Arc<McpServer>) -> Self {
+        self.tools = Some(tools);
+        self
+    }
+
+    /// What this satellite does with a call of `tool` from the member named
+    /// `from`, which may take `within`: the tool's result, or why it won't
+    /// run it. The checks come in the order the owner can act on them.
+    async fn run(&self, from: &str, tool: &str, arguments: &str, within: Duration) -> ToolOutput {
+        let name = self.group.own_name();
+        // A name from the wire is repeated only when it is a tool's.
+        let shown = tools::device_tool_name(tool).unwrap_or("that tool");
+        let refused = |why: String| {
+            tracing::info!("satellite group: {from} asked for {shown}: refused: {why}");
+            ToolOutput::error(why)
+        };
+        let mode = self.group.status().mode;
+        if mode != Mode::Standalone {
+            return refused(format!("{name} is in Home Assistant mode, out of reach."));
+        }
+        if !self.group.service().group().control {
+            return refused(format!("Control from the group is off on {name}."));
+        }
+        if !tools::runs_for_group(tool) {
+            return refused(format!("{name} doesn't run {shown} for another satellite."));
+        }
+        let args = if arguments.trim().is_empty() {
+            Value::Object(Map::new())
+        } else {
+            match serde_json::from_str::<Value>(arguments) {
+                Ok(args) => args,
+                Err(_) => return refused(NOT_JSON.into()),
+            }
+        };
+        // A member acts on itself only: a call is never passed on.
+        if args.get(SATELLITE).is_some() {
+            return refused(format!(
+                "{name} doesn't pass calls on to another satellite."
+            ));
+        }
+        let Some(tools) = &self.tools else {
+            return refused(format!("{name} can't run tools for the group now."));
+        };
+        // Even a tool that times out at once may have reached the Brain.
+        if within.is_zero() {
+            return refused(format!(
+                "{name} didn't run {shown}: checking that {from} is in the group took too long. \
+                 Try again."
+            ));
+        }
+        tools.call_for_group(tool, args, within).await
     }
 
     /// What this satellite does with a message from the member named
@@ -156,6 +227,25 @@ impl PeerApi {
         envelope::seal(joined, self.group.own_mac(), rpc.answer(), body)
     }
 
+    /// The group, once the signed call from `caller` with `sender`'s facts
+    /// came from a member: a caller this satellite doesn't list is learnt
+    /// first, and refused if it still isn't one.
+    async fn verified_member(
+        &self,
+        joined: Joined,
+        caller: &str,
+        sender: &PeerSender,
+        from: Option<SocketAddr>,
+    ) -> Result<Joined, ConnectError> {
+        self.group.heard(caller, sender, from.map(|a| a.ip()));
+        if is_member(&joined, caller) {
+            return Ok(joined);
+        }
+        self.learn_caller(&joined, caller, sender, from).await?;
+        // The merge brought the caller's entry, with its name.
+        Ok(self.group.service().group().joined.unwrap_or(joined))
+    }
+
     /// A caller this satellite doesn't list as a member may be a newcomer
     /// whose Add hasn't reached it: fetch the caller's list once, at the
     /// address the call came from, and merge it. The fetch is a `GetGroup`,
@@ -201,6 +291,25 @@ pub fn limits() -> connectrpc::Limits {
     connectrpc::Limits::default()
         .with_max_request_body_size(MAX_BODY)
         .with_max_message_size(MAX_BODY)
+}
+
+/// The name `group`'s list has for the member `mac`, or its MAC.
+fn name_in(group: &Joined, mac: &str) -> String {
+    group
+        .members
+        .iter()
+        .find(|m| same_mac(&m.mac, mac))
+        .map(|m| m.name.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(mac)
+        .to_owned()
+}
+
+/// `limit` to the nearest tenth of a second, as a result that ran out of
+/// time says it.
+fn tenths(limit: Duration) -> Duration {
+    let tenths = (limit.as_millis() + 50) / 100;
+    Duration::from_millis(u64::try_from(tenths * 100).unwrap_or(u64::MAX))
 }
 
 /// The sender's facts in a body; a body without them reads as Home
@@ -323,28 +432,13 @@ impl PeerService for PeerApi {
             body: request.body,
             tag: request.tag,
         };
-        let (mut joined, message): (_, PeerMessage) = self.open(Rpc::Deliver, parts)?;
+        let (joined, message): (_, PeerMessage) = self.open(Rpc::Deliver, parts)?;
         let caller = request.sender_mac.to_owned();
         let sender = &sender_of(message.sender.as_option());
-        self.group
-            .heard(&caller, sender, ctx.peer_addr().map(|a| a.ip()));
-        if !is_member(&joined, &caller) {
-            self.learn_caller(&joined, &caller, sender, ctx.peer_addr())
-                .await?;
-            // The merge brought the caller's entry, with its name.
-            if let Some(now) = self.group.service().group().joined {
-                joined = now;
-            }
-        }
-        // The sender is named as this satellite's list names it.
-        let from = joined
-            .members
-            .iter()
-            .find(|m| same_mac(&m.mac, &caller))
-            .map(|m| m.name.trim())
-            .filter(|name| !name.is_empty())
-            .unwrap_or(caller.as_str())
-            .to_owned();
+        let joined = self
+            .verified_member(joined, &caller, sender, ctx.peer_addr())
+            .await?;
+        let from = name_in(&joined, &caller);
         let taken = self.take(&from, &message.text).await;
         let (outcome, reason) = match taken {
             Taken::Played => (Outcome::OUTCOME_PLAYED, String::new()),
@@ -368,9 +462,36 @@ impl PeerService for PeerApi {
 
     async fn call(
         &self,
-        _ctx: RequestContext,
-        _request: ServiceRequest<'_, PeerEnvelope>,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, PeerEnvelope>,
     ) -> ServiceResult<PeerEnvelope> {
-        Err(ConnectError::unimplemented(NO_CALLS))
+        // The call-back for a caller this satellite doesn't list counts
+        // against the tool's limit, so the answer is still back inside the
+        // caller's (ADR 0026).
+        let started = Instant::now();
+        let parts = Parts {
+            group_id: request.group_id,
+            sender_mac: request.sender_mac,
+            body: request.body,
+            tag: request.tag,
+        };
+        let (joined, call): (_, PeerToolCall) = self.open(Rpc::Call, parts)?;
+        let caller = request.sender_mac.to_owned();
+        let sender = &sender_of(call.sender.as_option());
+        let joined = self
+            .verified_member(joined, &caller, sender, ctx.peer_addr())
+            .await?;
+        let from = name_in(&joined, &caller);
+        let left = self.group.limits().run.saturating_sub(started.elapsed());
+        let output = self
+            .run(&from, &call.tool, &call.arguments_json, tenths(left))
+            .await;
+        let result = PeerToolResult {
+            sender: MessageField::some(self.group.sender()),
+            text: output.text,
+            is_error: output.is_error,
+            ..Default::default()
+        };
+        Response::ok(self.answer(&joined, Rpc::Call, &result))
     }
 }

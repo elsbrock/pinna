@@ -945,6 +945,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_request_from_another_member_drops_it() {
+        let mut d = Device::new();
+        d.says(Says::Wav(3_000));
+        assert_eq!(
+            d.deliver("Kitchen", "dinner is ready.").await,
+            Taken::Played
+        );
+        assert_eq!(d.deliver("Office", "call me.").await, Taken::Held);
+
+        d.api(ApiCommand::CancelForGroup).await;
+
+        // The held one is next: only the one playing is dropped.
+        assert_eq!(d.playing(), Some("Office"));
+        assert!(d.held().is_empty());
+        d.api(ApiCommand::CancelForGroup).await;
+        assert_eq!(d.playing(), None);
+        assert!(d.held().is_empty());
+        assert!(d.brain.local.run.is_none(), "no request starts");
+    }
+
+    #[tokio::test]
     async fn a_message_whose_speech_fails_is_tried_once_more_after_the_wait() {
         let mut d = Device::new();
         d.says(Says::Fails);

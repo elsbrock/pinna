@@ -11,6 +11,7 @@
 //! microphone.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequest, Request, State};
@@ -82,15 +83,27 @@ impl McpServer {
     }
 
     /// The tools as the owner switched them now.
-    fn tools(&self) -> DeviceTools {
+    fn tools(&self, caller: Caller) -> DeviceTools {
         DeviceTools::new(
             &self.kit,
             self.inputs.clone(),
             self.status.clone(),
             self.live.borrow().clone(),
             Surface::Mcp,
-            Caller::Mcp,
+            caller,
         )
+    }
+
+    /// Run `name` for another member of the satellite group (ADR 0026) as
+    /// a call to `/mcp` would run: the owner's tool switches apply, and the
+    /// limit of two calls at once, shared with `/mcp`'s own. `/mcp` has no
+    /// time limit of its own; such a call ends after `within`.
+    pub async fn call_for_group(&self, name: &str, args: Value, within: Duration) -> ToolOutput {
+        let tools = Limited {
+            tools: self.tools(Caller::Peer).within(within),
+            calls: &self.calls,
+        };
+        tools.call(name, args).await
     }
 }
 
@@ -138,7 +151,7 @@ async fn serve(State(endpoint): State<Endpoint>, req: Request) -> Response {
     }
 
     let tools = Limited {
-        tools: server.tools(),
+        tools: server.tools(Caller::Mcp),
         calls: &server.calls,
     };
     let handled = server::handle(&tools, &server.info, &body).await;

@@ -119,7 +119,9 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
                 Caller::Run(_) => {
                     "The microphone mutes when this reply ends. Only a person can unmute it."
                 }
-                Caller::Mcp => "The microphone is muted. Only a person can unmute it.",
+                Caller::Mcp | Caller::Peer => {
+                    "The microphone is muted. Only a person can unmute it."
+                }
             }
             .into())
         }
@@ -145,7 +147,9 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
                 (false, Caller::Run(_)) => {
                     format!("Switching to {label} once this reply has played.")
                 }
-                (false, Caller::Mcp) => format!("Switching to {label} once the satellite is idle."),
+                (false, Caller::Mcp | Caller::Peer) => {
+                    format!("Switching to {label} once the satellite is idle.")
+                }
             })
         }
         Op::Updates => update::updates(tools).await,
@@ -178,7 +182,13 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
             Ok("The timer is cancelled.".into())
         }
         Op::CancelRequest => {
-            tools.ask(ApiCommand::StopConversation).await?;
+            match tools.caller {
+                // For another member it also stops a message or `speak`
+                // (ADR 0026); `/mcp`'s stops the request and the alarm only
+                // (ADR 0017).
+                Caller::Peer => tools.ask(ApiCommand::CancelForGroup).await?,
+                Caller::Run(_) | Caller::Mcp => tools.ask(ApiCommand::StopConversation).await?,
+            };
             Ok("Stopped.".into())
         }
         Op::Speak => {

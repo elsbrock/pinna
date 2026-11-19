@@ -62,6 +62,11 @@ pub struct Limits {
     /// take it, well inside the caller's limit: the Brain answers at once
     /// unless its queue is stuck.
     pub deliver: Duration,
+    /// How long a member takes, from a call's arrival, to run a tool
+    /// another member asked for, so its answer is back inside the caller's
+    /// limit: the call-back for a caller it doesn't list counts too. `/mcp`
+    /// has no limit of its own.
+    pub run: Duration,
 }
 
 impl Default for Limits {
@@ -71,6 +76,7 @@ impl Default for Limits {
             call: Duration::from_millis(9500),
             exchange: Duration::from_secs(5),
             deliver: Duration::from_secs(2),
+            run: Duration::from_secs(7),
         }
     }
 }

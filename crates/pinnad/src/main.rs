@@ -863,7 +863,6 @@ async fn main() -> Result<()> {
         group::Limits::default(),
     ));
     tokio::spawn(group::exchange::run(group.clone()));
-    let peer_api = Arc::new(group::peer::PeerApi::new(group.clone()).with_brain(in_tx.clone()));
 
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
     let assistant_api = Arc::new(
@@ -882,6 +881,12 @@ async fn main() -> Result<()> {
         tool_kit.clone(),
         booted_version.clone(),
     ));
+    // The other members' tool calls run as /mcp's do, sharing its limit.
+    let peer_api = Arc::new(
+        group::peer::PeerApi::new(group.clone())
+            .with_brain(in_tx.clone())
+            .with_tools(mcp_server.clone()),
+    );
     match web::start(
         device_api,
         assistant_api,

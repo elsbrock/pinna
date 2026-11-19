@@ -142,6 +142,7 @@ impl Client {
                         Rpc::GetGroup => client.get_group_with_options(call, options).await,
                         Rpc::PutGroup => client.put_group_with_options(call, options).await,
                         Rpc::Deliver => client.deliver_with_options(call, options).await,
+                        Rpc::Call => client.call_with_options(call, options).await,
                     }?;
                     Ok(answer.into_view().to_owned_message())
                 }

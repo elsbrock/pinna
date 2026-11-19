@@ -122,6 +122,8 @@ pub enum Via {
     Run,
     /// A client of Pinna's MCP server.
     Mcp,
+    /// Another member of the satellite group (ADR 0026).
+    Peer,
 }
 
 impl Counters {
@@ -145,6 +147,7 @@ impl Counters {
                 via: match via {
                     Via::Run => "brain",
                     Via::Mcp => "mcp",
+                    Via::Peer => "peer",
                 },
             })
             .inc();
@@ -1451,6 +1454,7 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         c.tool_call("set_volume", None, Via::Run, true);
         c.tool_call("set_volume", None, Via::Run, true);
         c.tool_call("play_url", None, Via::Mcp, false);
+        c.tool_call("set_volume", None, Via::Peer, true);
         c.mic_dropped(3);
         let s = Snapshot {
             mode: Mode::Standalone,
@@ -1522,6 +1526,10 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         has(
             &t,
             "pinna_tool_calls_total{tool=\"play_url\",outcome=\"error\",via=\"mcp\"} 1",
+        );
+        has(
+            &t,
+            "pinna_tool_calls_total{tool=\"set_volume\",outcome=\"ok\",via=\"peer\"} 1",
         );
         has(&t, "pinna_mic_frames_dropped_total 3");
         has(&t, "pinna_standalone_mode 1.0");

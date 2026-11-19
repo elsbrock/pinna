@@ -16,7 +16,7 @@ pub mod weather;
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures::future::{BoxFuture, join_all};
 use pinna_assist::presets::Delegation;
@@ -39,6 +39,9 @@ use weather::OpenMeteo;
 /// group, leaves for the wake word and buttons.
 pub(crate) const BRAIN_RESERVE: usize = 16;
 pub const BUSY: &str = "The satellite is busy. Try again in a moment.";
+/// The argument that names another member of the satellite group
+/// (ADR 0026).
+pub const SATELLITE: &str = "satellite";
 const SHUTTING_DOWN: &str = "pinnad is shutting down.";
 
 /// Where a tool list is offered.
@@ -58,6 +61,9 @@ pub enum Caller {
     Run(RunId),
     /// An MCP client.
     Mcp,
+    /// Another member of the satellite group (ADR 0026). Its calls run as
+    /// an MCP client's do.
+    Peer,
 }
 
 /// The surfaces that offer a tool.
@@ -75,6 +81,17 @@ impl Reach {
             (Reach::Both, _) | (Reach::RunOnly, Surface::Run) | (Reach::McpOnly, Surface::Mcp)
         )
     }
+}
+
+/// Whether a tool acts on another member of the satellite group
+/// (ADR 0026): the brain names the member, and the member runs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Remote {
+    No,
+    /// On this satellite or on another member.
+    Also,
+    /// On another member only.
+    Only,
 }
 
 /// An argument's JSON type. Bounds and words are hints for the caller; the
@@ -142,6 +159,7 @@ struct Tool {
     /// The tool is off until the owner turns it on; every other tool is on
     /// until the owner turns it off.
     off_by_default: bool,
+    remote: Remote,
     about: &'static str,
     params: &'static [Param],
     op: Op,
@@ -184,6 +202,7 @@ static TOOLS: &[Tool] = &[
         name: "set_volume",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Set the speaker volume.",
         params: &[Param {
             name: "percent",
@@ -197,6 +216,7 @@ static TOOLS: &[Tool] = &[
         name: "change_volume",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Make the speaker louder or quieter.",
         params: &[Param {
             name: "by",
@@ -213,6 +233,7 @@ static TOOLS: &[Tool] = &[
         name: "set_reply_volume",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Set how loud spoken replies play. A reply is never louder than the speaker volume.",
         params: &[Param {
             name: "percent",
@@ -226,6 +247,7 @@ static TOOLS: &[Tool] = &[
         name: "ring_light",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Switch the LED ring light on or off, or change its brightness, colour or effect.",
         params: &[
             Param {
@@ -259,6 +281,7 @@ static TOOLS: &[Tool] = &[
         name: "play_url",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Play audio from an http or https address, such as an internet radio stream.",
         params: &[Param {
             name: "url",
@@ -272,6 +295,7 @@ static TOOLS: &[Tool] = &[
         name: "pause_media",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Pause the music or radio.",
         params: &[],
         op: Op::PauseMedia,
@@ -280,6 +304,7 @@ static TOOLS: &[Tool] = &[
         name: "resume_media",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Resume paused music or radio.",
         params: &[],
         op: Op::ResumeMedia,
@@ -288,6 +313,7 @@ static TOOLS: &[Tool] = &[
         name: "stop_media",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Stop the music or radio.",
         params: &[],
         op: Op::StopMedia,
@@ -296,6 +322,7 @@ static TOOLS: &[Tool] = &[
         name: "play_station",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Play one of the owner's radio stations, found by its name.",
         params: &[Param {
             name: "name",
@@ -309,6 +336,7 @@ static TOOLS: &[Tool] = &[
         name: "list_stations",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "List the names of the owner's radio stations.",
         params: &[],
         op: Op::ListStations,
@@ -317,6 +345,7 @@ static TOOLS: &[Tool] = &[
         name: "search_radio",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::No,
         about: "Search the radio-browser.info directory for internet radio stations this satellite can play. Each result has the address that plays it.",
         params: &[Param {
             name: "name",
@@ -330,6 +359,7 @@ static TOOLS: &[Tool] = &[
         name: "clear_notification",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::No,
         about: "Clear the notification the light ring shows.",
         params: &[],
         op: Op::ClearNotification,
@@ -338,6 +368,7 @@ static TOOLS: &[Tool] = &[
         name: "mute_microphone",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::No,
         about: "Mute the microphone. Only a person can unmute it.",
         params: &[],
         op: Op::MuteMicrophone,
@@ -346,6 +377,7 @@ static TOOLS: &[Tool] = &[
         name: "switch_assistant",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::No,
         about: "Switch the satellite between Home Assistant and standalone mode. It switches once the satellite is idle, so the reply that confirms it still plays. Standalone is refused until speech-to-text, the brain and text-to-speech are set up.",
         params: &[Param {
             name: "mode",
@@ -359,6 +391,7 @@ static TOOLS: &[Tool] = &[
         name: "updates",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::No,
         about: "The software version the satellite runs and the update state: the other slot, the update channel, what the last check found or why it failed, and the install that runs or the last one.",
         params: &[],
         op: Op::Updates,
@@ -367,6 +400,7 @@ static TOOLS: &[Tool] = &[
         name: "check_for_updates",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::No,
         about: "Check now for a new software release. Answers with what the check found, or says the check goes on when it takes longer than a few seconds. Refused while updates are off.",
         params: &[],
         op: Op::CheckForUpdates,
@@ -376,6 +410,7 @@ static TOOLS: &[Tool] = &[
         reach: Reach::RunOnly,
         // It ends in a restart, and a model can call a tool nobody asked for.
         off_by_default: true,
+        remote: Remote::No,
         about: "Install the software release the last check found. Use it only when the person asks to install the update. It downloads in the background and the satellite restarts once it is idle. It never installs an older version.",
         params: &[Param {
             name: "version",
@@ -389,6 +424,7 @@ static TOOLS: &[Tool] = &[
         name: "set_timer",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Start a timer that rings on this satellite.",
         params: &[
             Param {
@@ -413,6 +449,7 @@ static TOOLS: &[Tool] = &[
         name: "list_timers",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "List the timers with the seconds each has left.",
         params: &[],
         op: Op::ListTimers,
@@ -421,6 +458,7 @@ static TOOLS: &[Tool] = &[
         name: "cancel_timer",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::Also,
         about: "Cancel a timer.",
         params: &[Param {
             name: "timer",
@@ -434,6 +472,7 @@ static TOOLS: &[Tool] = &[
         name: "time",
         reach: Reach::Both,
         off_by_default: false,
+        remote: Remote::No,
         about: "The current local date and time where the satellite is.",
         params: &[],
         op: Op::Time,
@@ -442,6 +481,7 @@ static TOOLS: &[Tool] = &[
         name: weather::NAME,
         reach: Reach::RunOnly,
         off_by_default: false,
+        remote: Remote::No,
         about: "The weather now and for the next two days, at a place the person names, or else at the satellite's place.",
         params: &[Param {
             name: "place",
@@ -455,6 +495,7 @@ static TOOLS: &[Tool] = &[
         name: message::NAME,
         reach: Reach::RunOnly,
         off_by_default: false,
+        remote: Remote::No,
         about: "Send a message to another satellite of this one's group, or to all of them, to be said there in its voice. It plays at once, or waits until that satellite is free. The result says, for each, whether it played, waits, was refused and why, or couldn't be reached.",
         params: &[
             Param {
@@ -476,6 +517,7 @@ static TOOLS: &[Tool] = &[
         name: "speak",
         reach: Reach::McpOnly,
         off_by_default: false,
+        remote: Remote::No,
         about: "Say a short text aloud with the satellite's voice. Refused while it handles a request, an alarm rings or it plays something else.",
         params: &[Param {
             name: "text",
@@ -489,6 +531,7 @@ static TOOLS: &[Tool] = &[
         name: "cancel_request",
         reach: Reach::McpOnly,
         off_by_default: false,
+        remote: Remote::Only,
         about: "Stop the request the satellite is handling, or silence a ringing alarm.",
         params: &[],
         op: Op::CancelRequest,
@@ -497,6 +540,7 @@ static TOOLS: &[Tool] = &[
         name: "status",
         reach: Reach::McpOnly,
         off_by_default: false,
+        remote: Remote::No,
         about: "The satellite's mode, phase, volume, microphone, media, timers and alarm.",
         params: &[],
         op: Op::Status,
@@ -507,6 +551,15 @@ static TOOLS: &[Tool] = &[
 /// `None` for any other name.
 pub fn device_tool_name(name: &str) -> Option<&'static str> {
     TOOLS.iter().map(|t| t.name).find(|t| *t == name)
+}
+
+/// Whether a member runs `name` when another member of the satellite group
+/// asks (ADR 0026): the tools that act on the satellite, `cancel_request`
+/// among them.
+pub fn runs_for_group(name: &str) -> bool {
+    TOOLS
+        .iter()
+        .any(|t| t.name == name && t.remote != Remote::No)
 }
 
 /// A device tool as the dashboard lists it beside its switch.
@@ -612,6 +665,8 @@ pub struct DeviceTools {
     surface: Surface,
     caller: Caller,
     kit: ToolKit,
+    /// How long a call may take; none without it.
+    within: Option<Duration>,
 }
 
 /// What every [`DeviceTools`] shares, built once: the network tools' HTTP
@@ -679,7 +734,15 @@ impl DeviceTools {
             surface,
             caller,
             kit: kit.clone(),
+            within: None,
         }
+    }
+
+    /// End each call after `limit`. Whatever reached the Brain by then may
+    /// still take effect.
+    pub fn within(mut self, limit: Duration) -> Self {
+        self.within = Some(limit);
+        self
     }
 
     /// The owner's switch for a tool; a tool without one is on, unless it
@@ -714,7 +777,7 @@ impl DeviceTools {
                 .send(Input::RunTool { run, cmd })
                 .await
                 .map_err(|_| SHUTTING_DOWN.to_owned())?,
-            Caller::Mcp => {
+            Caller::Mcp | Caller::Peer => {
                 if self.inputs.capacity() < BRAIN_RESERVE {
                     return Err(BUSY.into());
                 }
@@ -796,10 +859,17 @@ impl ToolSet for DeviceTools {
     fn call<'a>(&'a self, name: &'a str, args: Value) -> BoxFuture<'a, ToolOutput> {
         Box::pin(async move {
             let started = Instant::now();
-            let (output, server) = self.dispatch(name, args).await;
-            let via = match self.surface {
-                Surface::Run => Via::Run,
-                Surface::Mcp => Via::Mcp,
+            let dispatched = self.dispatch(name, args);
+            let (output, server) = match self.within {
+                None => dispatched.await,
+                Some(limit) => tokio::time::timeout(limit, dispatched)
+                    .await
+                    .unwrap_or_else(|_| (ToolOutput::error(too_slow(name, limit)), None)),
+            };
+            let via = match (self.caller, self.surface) {
+                (Caller::Peer, _) => Via::Peer,
+                (_, Surface::Run) => Via::Run,
+                (_, Surface::Mcp) => Via::Mcp,
             };
             self.kit
                 .counters
@@ -810,19 +880,23 @@ impl ToolSet for DeviceTools {
     }
 }
 
+/// Why a call with a time limit ended without its result.
+fn too_slow(name: &str, limit: Duration) -> String {
+    let tool = device_tool_name(name).unwrap_or("The tool");
+    format!(
+        "{tool} didn't finish within {} seconds. It may still take effect.",
+        limit.as_secs_f64()
+    )
+}
+
 /// One line per tool call (ADR 0017): who called, which tool, whether it
 /// worked and how long it took. Never the arguments or the output, which can
 /// hold what was said. A name the model made up is not repeated either.
-fn log_call(
-    caller: Caller,
-    name: &str,
-    server: Option<&str>,
-    output: &ToolOutput,
-    took: std::time::Duration,
-) {
+fn log_call(caller: Caller, name: &str, server: Option<&str>, output: &ToolOutput, took: Duration) {
     let who = match caller {
         Caller::Run(run) => format!("request {}", run.0),
         Caller::Mcp => "an MCP client".to_owned(),
+        Caller::Peer => "another satellite of the group".to_owned(),
     };
     let name = if pinna_mcp::tool_name(name) {
         name

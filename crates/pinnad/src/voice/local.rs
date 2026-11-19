@@ -1635,6 +1635,7 @@ mod tests {
         Action,
         Mute,
         StopConversation,
+        CancelForGroup,
         CancelRequest,
         TimerFinish,
         MediaAnnounce,
@@ -1656,6 +1657,9 @@ mod tests {
             StopPath::Mute => device.brain.handle(Input::Privacy(true)).await,
             StopPath::StopConversation => {
                 device.api(ApiCommand::StopConversation).await.unwrap();
+            }
+            StopPath::CancelForGroup => {
+                device.api(ApiCommand::CancelForGroup).await.unwrap();
             }
             StopPath::CancelRequest => {
                 device
@@ -1706,6 +1710,7 @@ mod tests {
             StopPath::Action,
             StopPath::Mute,
             StopPath::StopConversation,
+            StopPath::CancelForGroup,
             StopPath::CancelRequest,
             StopPath::TimerFinish,
             StopPath::MediaAnnounce,
@@ -2790,6 +2795,25 @@ mod tests {
         assert_eq!(device.brain.phase, Phase::Idle);
         assert_eq!(device.spawner.count(), 0);
         speaker_idle(&speaker).await;
+    }
+
+    #[tokio::test]
+    async fn cancel_request_from_another_member_stops_a_speak_and_an_alarm() {
+        let mut device = TestDevice::with_voice(Mode::Standalone, Voice::Wav(2_000));
+        let answer = device.speak("A long story.").await;
+        assert_eq!(answered(answer).await, Ok(()));
+        let speaker = device.brain.speaker.clone().unwrap();
+
+        device.api(ApiCommand::CancelForGroup).await.unwrap();
+
+        assert!(device.brain.playback.is_none());
+        assert_eq!(device.brain.phase, Phase::Idle);
+        assert_eq!(device.spawner.count(), 0);
+        speaker_idle(&speaker).await;
+
+        device.brain.ringing = Some(("tea".into(), Instant::now()));
+        device.api(ApiCommand::CancelForGroup).await.unwrap();
+        assert!(device.brain.ringing.is_none());
     }
 
     #[tokio::test]

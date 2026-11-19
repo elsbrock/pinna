@@ -134,6 +134,10 @@ pub enum ApiCommand {
     SwitchMode(Mode, ApiReply),
     StartConversation(ApiReply),
     StopConversation(ApiReply),
+    /// `cancel_request` from another member of the satellite group
+    /// (ADR 0026): silence the alarm, end the request, or stop a message or
+    /// `speak` that plays. Music plays on.
+    CancelForGroup(ApiReply),
     LedTest(ApiReply),
     UpdateSettings(SettingsPatch, ApiReply),
     ClearNotification(ApiReply),
@@ -179,6 +183,7 @@ impl ApiCommand {
             | Self::SwitchMode(_, reply)
             | Self::StartConversation(reply)
             | Self::StopConversation(reply)
+            | Self::CancelForGroup(reply)
             | Self::LedTest(reply)
             | Self::UpdateSettings(_, reply)
             | Self::ClearNotification(reply)
@@ -1014,6 +1019,25 @@ impl Brain {
                     self.stop_playback();
                 } else if self.phase != Phase::Idle {
                     self.abort_run(true).await;
+                }
+                (Ok(()), reply)
+            }
+            ApiCommand::CancelForGroup(reply) => {
+                if self.ringing.is_some() {
+                    tracing::info!("timer alarm dismissed by the satellite group");
+                    self.ringing = None;
+                    self.stop_playback();
+                } else if self.phase != Phase::Idle {
+                    tracing::info!("run cancelled by the satellite group");
+                    self.abort_run(true).await;
+                } else if matches!(
+                    self.playback,
+                    Some((_, PlaybackKind::Speak | PlaybackKind::Message, _))
+                ) {
+                    // A person asked for it to stop, as with the Action
+                    // button: a message is dropped, not held again.
+                    self.message_stopped("the satellite group");
+                    self.stop_playback();
                 }
                 (Ok(()), reply)
             }

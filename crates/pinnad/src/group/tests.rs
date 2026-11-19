@@ -14,8 +14,8 @@ use pinna_api::peer_delivery::Outcome;
 use pinna_api::{
     AddGroupMemberRequest, AssistantServiceClient, GetSatelliteGroupRequest, PeerDelivery,
     PeerEnvelope, PeerHello, PeerJoinRequest, PeerJoinResponse, PeerMemberList, PeerMessage,
-    PeerSender, PeerService, PeerServiceClient, RemoveGroupMemberRequest, SatelliteGroupView,
-    SetSatelliteGroupRequest,
+    PeerSender, PeerService, PeerServiceClient, PeerToolCall, PeerToolResult,
+    RemoveGroupMemberRequest, SatelliteGroupView, SetSatelliteGroupRequest,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -26,13 +26,15 @@ use super::runtime::{Change, to_wire};
 use super::seal::Key;
 use super::{Group, Joined, Limits, exchange};
 use crate::assistant_api::AssistantApi;
+use crate::mcp::McpServer;
+use crate::metrics::Counters;
 use crate::satellites::{Found, Seen};
 use crate::settings::Mode;
 use crate::standalone::AssistLive;
 use crate::standalone::service::{Paths, Service};
 use crate::tools::message::NO_ONE;
 use crate::tools::{Caller, DeviceTools, Surface, ToolKit};
-use crate::voice::{AssistStatus, Input, RunId, Snapshot, Taken};
+use crate::voice::{ApiCommand, AssistStatus, Input, RunId, Snapshot, Taken};
 use pinna_mcp::{ToolOutput, ToolSet};
 use serde_json::{Value, json};
 
@@ -42,14 +44,17 @@ fn limits() -> Limits {
         call: Duration::from_secs(3),
         exchange: Duration::from_secs(2),
         deliver: Duration::from_millis(300),
+        run: Duration::from_millis(300),
     }
 }
 
-/// The Brain a satellite hands its messages to: it records each one and
-/// answers as told, or never.
+/// The Brain a satellite hands its messages and device commands to: it
+/// records each one and answers messages as told, or never.
 struct FakeBrain {
     /// The messages it took, as `(from, text)`.
     took: Mutex<Vec<(String, String)>>,
+    /// The device commands it got, by name.
+    commands: Mutex<Vec<String>>,
     /// Its answer; `None` keeps every message without answering.
     answer: Mutex<Option<Taken>>,
     /// While false, it reads nothing from its queue.
@@ -64,6 +69,7 @@ impl FakeBrain {
         let (reading, mut reads) = watch::channel(true);
         let brain = Arc::new(Self {
             took: Mutex::default(),
+            commands: Mutex::default(),
             answer: Mutex::new(Some(Taken::Played)),
             reading,
             inputs,
@@ -76,8 +82,14 @@ impl FakeBrain {
                     return;
                 }
                 let Some(input) = rx.recv().await else { return };
-                let (Input::Message(delivery), Some(me)) = (input, me.upgrade()) else {
-                    continue;
+                let Some(me) = me.upgrade() else { return };
+                let delivery = match input {
+                    Input::Message(delivery) => delivery,
+                    Input::Api(cmd) => {
+                        me.command(cmd);
+                        continue;
+                    }
+                    _ => continue,
                 };
                 me.took
                     .lock()
@@ -98,6 +110,55 @@ impl FakeBrain {
         *self.answer.lock().unwrap() = taken;
     }
 
+    /// Record a device command and answer it as a Brain would, for the
+    /// commands the tests use; any other is dropped unanswered.
+    fn command(&self, cmd: ApiCommand) {
+        let (name, reply, snapshot) = match cmd {
+            ApiCommand::SetVolume(volume, reply) => (
+                format!("SetVolume({volume})"),
+                reply,
+                Snapshot {
+                    volume,
+                    ..Snapshot::default()
+                },
+            ),
+            ApiCommand::CancelForGroup(reply) => {
+                ("CancelForGroup".into(), reply, Snapshot::default())
+            }
+            ApiCommand::StopConversation(reply) => {
+                ("StopConversation".into(), reply, Snapshot::default())
+            }
+            ApiCommand::SetTimer { seconds, reply, .. } => {
+                self.commands
+                    .lock()
+                    .unwrap()
+                    .push(format!("SetTimer({seconds})"));
+                let _ = reply.send(Ok("local-1".into()));
+                return;
+            }
+            other => {
+                self.commands.lock().unwrap().push(format!("{other:?}"));
+                return;
+            }
+        };
+        self.commands.lock().unwrap().push(name);
+        let _ = reply.send(Ok(snapshot));
+    }
+
+    fn commands(&self) -> Vec<String> {
+        self.commands.lock().unwrap().clone()
+    }
+
+    /// Stop reading the queue: what comes next waits there.
+    async fn pause(&self) {
+        self.reading.send_replace(false);
+        // It may wait for an input already: hand it one to pass over.
+        self.inputs.try_send(Input::Privacy(false)).unwrap();
+        while self.inputs.capacity() < self.inputs.max_capacity() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+
     fn took(&self) -> Vec<(String, String)> {
         self.took.lock().unwrap().clone()
     }
@@ -115,12 +176,19 @@ struct Sat {
     seen: watch::Sender<Seen>,
     status: watch::Sender<Snapshot>,
     brain: Arc<FakeBrain>,
+    /// Its `/mcp`, which runs the other members' calls.
+    mcp: Arc<McpServer>,
+    counters: Counters,
     _inputs: mpsc::Receiver<Input>,
     _dir: tempfile::TempDir,
 }
 
 impl Sat {
     async fn start(n: u8, name: &str) -> Self {
+        Self::start_with(n, name, limits()).await
+    }
+
+    async fn start_with(n: u8, name: &str, limits: Limits) -> Self {
         let dir = tempfile::tempdir().unwrap();
         // Standalone, with a checked voice: it takes messages.
         let (status, status_rx) = watch::channel(Snapshot {
@@ -144,17 +212,27 @@ impl Sat {
             service.clone(),
             &mac,
             port,
-            status_rx,
+            status_rx.clone(),
             seen_rx.clone(),
-            limits(),
+            limits,
         ));
         let (inputs, inputs_rx) = mpsc::channel(8);
         let assistant = AssistantApi::new(service.clone(), inputs)
             .with_satellites(seen_rx, mac.clone())
             .with_group(group.clone());
         let brain = FakeBrain::start();
+        let counters = Counters::default();
+        let mcp = Arc::new(McpServer::new(
+            service.clone(),
+            brain.inputs.clone(),
+            status_rx,
+            ToolKit::new(counters.clone()).with_group(group.clone()),
+            "0.4.0",
+        ));
         let router = crate::assistant_api::router(Arc::new(assistant)).add_service(Arc::new(
-            PeerApi::new(group.clone()).with_brain(brain.inputs.clone()),
+            PeerApi::new(group.clone())
+                .with_brain(brain.inputs.clone())
+                .with_tools(mcp.clone()),
         ));
         tokio::spawn(async move { server.serve(router).await });
         let url = format!("http://127.0.0.1:{port}");
@@ -170,6 +248,8 @@ impl Sat {
             seen,
             status,
             brain,
+            mcp,
+            counters,
             _inputs: inputs_rx,
             _dir: dir,
         }
@@ -321,6 +401,43 @@ impl Sat {
             .to_owned_message();
         assert!(same_mac(&answer.sender_mac, &self.mac));
         envelope::open(group, Rpc::Deliver.answer(), (&answer).into()).unwrap()
+    }
+
+    /// `from`'s call of `tool` to this satellite, signed with `group`'s
+    /// key, and this satellite's signed result, opened.
+    async fn called(
+        &self,
+        group: &Joined,
+        from: &Sat,
+        tool: &str,
+        arguments: &str,
+    ) -> PeerToolResult {
+        let call = PeerToolCall {
+            sender: hello(from).sender,
+            tool: tool.into(),
+            arguments_json: arguments.into(),
+            ..Default::default()
+        };
+        let answer = self
+            .peer
+            .call(Self::sealed(group, from, Rpc::Call, &call))
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        assert!(same_mac(&answer.sender_mac, &self.mac));
+        envelope::open(group, Rpc::Call.answer(), (&answer).into()).unwrap()
+    }
+
+    /// Switch this satellite's own tool `name` on or off.
+    async fn switch_tool(&self, name: &str, on: bool) {
+        self.service
+            .update(crate::standalone::service::AssistantPatch {
+                tools: Some([(name.to_owned(), on)].into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
     }
 }
 
@@ -1266,16 +1383,453 @@ async fn a_call_must_be_signed_with_the_key_for_this_group() {
     assert_eq!(a.current(), macs(&[a, b]));
 }
 
+/// A tool's result as `(text, is_error)`.
+fn result(result: &PeerToolResult) -> (&str, bool) {
+    (result.text.as_str(), result.is_error)
+}
+
 #[tokio::test]
-async fn call_is_not_taken_yet() {
+async fn a_member_runs_a_tool_from_the_group_as_its_mcp_would() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+
+    let volume = b
+        .called(&group, a, "set_volume", r#"{"percent": 40}"#)
+        .await;
+    assert_eq!(result(&volume), ("The volume is 40%.", false));
+    // The answer carries Kitchen's facts.
+    assert_eq!(
+        volume.sender.as_option().unwrap().web_port,
+        u32::from(b.port)
+    );
+    let timer = b
+        .called(&group, a, "set_timer", r#"{"seconds": 300, "name": "Tea"}"#)
+        .await;
+    assert_eq!(
+        result(&timer),
+        ("Timer \"Tea\" set for 5 minutes (id local-1).", false)
+    );
+    // No arguments are none.
+    let stopped = b.called(&group, a, "cancel_request", "").await;
+    assert_eq!(result(&stopped), ("Stopped.", false));
+    // A tool that needs no Brain runs too.
+    let stations = b.called(&group, a, "list_stations", "{}").await;
+    assert!(!stations.is_error, "{}", stations.text);
+    assert_eq!(
+        b.brain.commands(),
+        ["SetVolume(40)", "SetTimer(300)", "CancelForGroup"]
+    );
+    // Arguments are checked as /mcp checks them.
+    let wrong = b
+        .called(&group, a, "set_volume", r#"{"percent": "loud"}"#)
+        .await;
+    assert_eq!(result(&wrong), ("percent must be a whole number.", true));
+
+    // Kitchen's own switch for a tool applies.
+    b.switch_tool("set_volume", false).await;
+    let off = b
+        .called(&group, a, "set_volume", r#"{"percent": 10}"#)
+        .await;
+    assert_eq!(
+        result(&off),
+        ("The owner switched set_volume off under Assistant.", true)
+    );
+    assert_eq!(b.brain.commands().len(), 3);
+
+    // Each call counts as one from the group.
+    let text = b.counters.tool_calls_text();
+    for line in [
+        "pinna_tool_calls_total{tool=\"set_volume\",outcome=\"ok\",via=\"peer\"} 1",
+        "pinna_tool_calls_total{tool=\"set_volume\",outcome=\"error\",via=\"peer\"} 2",
+        "pinna_tool_calls_total{tool=\"cancel_request\",outcome=\"ok\",via=\"peer\"} 1",
+    ] {
+        assert!(text.lines().any(|l| l == line), "no {line:?} in\n{text}");
+    }
+}
+
+#[tokio::test]
+async fn a_member_refuses_a_call_with_a_signed_reason_in_the_owners_order() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    let refused = async |tool: &str, arguments: &str| {
+        let answer = b.called(&group, a, tool, arguments).await;
+        assert!(answer.is_error, "{tool}: {}", answer.text);
+        answer.text
+    };
+    let volume = r#"{"percent": 40}"#;
+
+    // Everything wrong at once: the mode comes first.
+    b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+    b.service.set_group_control(false).await.unwrap();
+    assert_eq!(
+        refused("speak", r#"{"satellite": "Office"}"#).await,
+        "Kitchen is in Home Assistant mode, out of reach."
+    );
+    b.status.send_modify(|s| s.mode = Mode::Standalone);
+    assert_eq!(
+        refused("set_volume", volume).await,
+        "Control from the group is off on Kitchen."
+    );
+    b.service.set_group_control(true).await.unwrap();
+    // Only the tools that act on the satellite.
+    for tool in [
+        "speak",
+        "mute_microphone",
+        "clear_notification",
+        "switch_assistant",
+        "send_message",
+        "status",
+        "time",
+        "weather",
+        "search_radio",
+    ] {
+        assert_eq!(
+            refused(tool, "{}").await,
+            format!("Kitchen doesn't run {tool} for another satellite.")
+        );
+    }
+    assert_eq!(
+        refused("made_up", "{}").await,
+        "Kitchen doesn't run that tool for another satellite."
+    );
+    // A call is never passed on.
+    for satellite in [r#""Office""#, r#""Kitchen""#, r#""""#, "null"] {
+        assert_eq!(
+            refused(
+                "set_volume",
+                &format!(r#"{{"percent": 40, "satellite": {satellite}}}"#)
+            )
+            .await,
+            "Kitchen doesn't pass calls on to another satellite."
+        );
+    }
+    assert_eq!(
+        refused("set_volume", "{percent: 40").await,
+        "The call's arguments aren't JSON."
+    );
+    assert!(b.brain.commands().is_empty(), "the Brain never saw them");
+}
+
+#[tokio::test]
+async fn a_call_from_the_group_ends_after_the_members_limit_and_may_still_take_effect() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    b.brain.pause().await;
+
+    let slow = b
+        .called(&group, a, "set_volume", r#"{"percent": 40}"#)
+        .await;
+
+    assert_eq!(
+        result(&slow),
+        (
+            "set_volume didn't finish within 0.3 seconds. It may still take effect.",
+            true
+        )
+    );
+    b.brain.reading.send_replace(true);
+    for _ in 0..100 {
+        if !b.brain.commands().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(b.brain.commands(), ["SetVolume(40)"]);
+    let text = b.counters.tool_calls_text();
+    let line = "pinna_tool_calls_total{tool=\"set_volume\",outcome=\"error\",via=\"peer\"} 1";
+    assert!(text.lines().any(|l| l == line), "no {line:?} in\n{text}");
+}
+
+#[tokio::test]
+async fn calls_from_the_group_share_the_busy_rule_of_mcp() {
+    use tower::ServiceExt;
+
     let s = Sat::switched_on(&["Hall"]).await;
-    let e = s[0]
+    let a = &s[0];
+    let b = Sat::start_with(
+        2,
+        "Kitchen",
+        Limits {
+            run: Duration::from_secs(5),
+            ..limits()
+        },
+    )
+    .await;
+    b.service.set_group_switch(true).await.unwrap();
+    grouped(&[a, &b]).await;
+    let group = a.joined().unwrap();
+    let volume = r#"{"percent": 40}"#;
+
+    // Two calls to /mcp itself wait for the Brain: a call from the group is
+    // a third one.
+    let app = axum::Router::new().route(
+        crate::mcp::ROUTE,
+        crate::mcp::route(b.mcp.clone(), crate::web::Hosts::new(Some("pinna"), &[])),
+    );
+    let mcp_call = |id: u64| {
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {"name": "set_volume", "arguments": {"percent": 40}},
+        });
+        let request = axum::http::Request::post(crate::mcp::ROUTE)
+            .header(axum::http::header::HOST, "pinna.local")
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        let app = app.clone();
+        tokio::spawn(async move { app.oneshot(request).await.unwrap().status() })
+    };
+    b.brain.pause().await;
+    let free = b.brain.inputs.capacity();
+    let waiting = [mcp_call(1), mcp_call(2)];
+    while b.brain.inputs.capacity() > free - 2 {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+
+    let busy = b.called(&group, a, "set_volume", volume).await;
+
+    assert_eq!(result(&busy), (crate::tools::BUSY, true));
+    b.brain.reading.send_replace(true);
+    for call in waiting {
+        assert_eq!(call.await.unwrap(), axum::http::StatusCode::OK);
+    }
+    assert_eq!(b.brain.commands(), ["SetVolume(40)", "SetVolume(40)"]);
+
+    // And a call that would leave the Brain's queue too full.
+    b.brain.pause().await;
+    while b.brain.inputs.capacity() >= crate::tools::BRAIN_RESERVE {
+        b.brain.inputs.try_send(Input::Privacy(false)).unwrap();
+    }
+    let full = b.called(&group, a, "set_volume", volume).await;
+    assert_eq!(result(&full), (crate::tools::BUSY, true));
+}
+
+#[tokio::test]
+async fn a_call_from_a_newcomer_runs_once_its_list_is_merged() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    // B added C, but A hasn't heard of it yet.
+    let mut members = group.members.clone();
+    members.push(Member {
+        mac: c.mac.clone(),
+        name: "Office".into(),
+        version: 1,
+        removed: false,
+    });
+    c.service
+        .join_group(
+            Joined {
+                members,
+                ..group.clone()
+            },
+            &c.mac,
+            "Office",
+        )
+        .await
+        .unwrap();
+
+    let volume = a
+        .called(&group, c, "set_volume", r#"{"percent": 40}"#)
+        .await;
+
+    assert_eq!(result(&volume), ("The volume is 40%.", false));
+    assert_eq!(a.current(), macs(&[a, b, c]));
+}
+
+/// A door to `port` on 127.0.0.1 that lets each connection through after
+/// `delay`, as a satellite slow to answer.
+async fn slow_door(port: u16, delay: Duration) -> u16 {
+    let door = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let at = door.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut inbound, _)) = door.accept().await {
+            tokio::spawn(async move {
+                tokio::time::sleep(delay).await;
+                let mut outbound = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                    .await
+                    .unwrap();
+                let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+            });
+        }
+    });
+    at
+}
+
+#[tokio::test]
+async fn a_call_from_a_newcomer_whose_list_is_slow_ends_inside_the_callers_limit() {
+    // Hall runs a tool with 1.5 s; the caller waits 2 s.
+    let caller = Duration::from_secs(2);
+    let a = Sat::start_with(
+        1,
+        "Hall",
+        Limits {
+            run: Duration::from_millis(1500),
+            ..limits()
+        },
+    )
+    .await;
+    let b = Sat::start(2, "Kitchen").await;
+    let c = Sat::start(3, "Office").await;
+    let d = Sat::start(4, "Porch").await;
+    for sat in [&a, &b, &c, &d] {
+        sat.service.set_group_switch(true).await.unwrap();
+    }
+    grouped(&[&a, &b]).await;
+    let group = a.joined().unwrap();
+    // Kitchen added Office and Porch, but Hall hasn't heard of them yet.
+    for sat in [&c, &d] {
+        let mut members = group.members.clone();
+        members.push(Member {
+            mac: sat.mac.clone(),
+            name: sat.name.clone(),
+            version: 1,
+            removed: false,
+        });
+        sat.service
+            .join_group(
+                Joined {
+                    members,
+                    ..group.clone()
+                },
+                &sat.mac,
+                &sat.name,
+            )
+            .await
+            .unwrap();
+    }
+    // Hall's call-back for the caller's list goes through a slow door.
+    let ask = async |from: &Sat, delay: Duration| {
+        let call = PeerToolCall {
+            sender: MessageField::some(PeerSender {
+                web_port: slow_door(from.port, delay).await.into(),
+                mode: pinna_api::Mode::MODE_STANDALONE.into(),
+                ..Default::default()
+            }),
+            tool: "set_volume".into(),
+            arguments_json: r#"{"percent": 40}"#.into(),
+            ..Default::default()
+        };
+        let started = std::time::Instant::now();
+        let answer = a
+            .peer
+            .call(Sat::sealed(&group, from, Rpc::Call, &call))
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        let result: PeerToolResult =
+            envelope::open(&group, Rpc::Call.answer(), (&answer).into()).unwrap();
+        (result, started.elapsed())
+    };
+
+    // The list takes 0.8 s: the tool gets the rest of Hall's limit.
+    a.brain.pause().await;
+    let (slow, took) = ask(&c, Duration::from_millis(800)).await;
+    assert!(took < caller, "{took:?}");
+    assert!(slow.is_error, "{}", slow.text);
+    assert!(
+        slow.text.starts_with("set_volume didn't finish within 0.")
+            && slow.text.ends_with(" seconds. It may still take effect."),
+        "{}",
+        slow.text
+    );
+    assert!(a.current().contains(&c.mac));
+    a.brain.reading.send_replace(true);
+    for _ in 0..100 {
+        if !a.brain.commands().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(a.brain.commands(), ["SetVolume(40)"]);
+
+    // The list takes longer than Hall's limit: the tool isn't run.
+    let (late, took) = ask(&d, Duration::from_millis(1600)).await;
+    assert!(took < caller, "{took:?}");
+    assert_eq!(
+        result(&late),
+        (
+            "Hall didn't run set_volume: checking that Porch is in the group took too long. \
+             Try again.",
+            true
+        )
+    );
+    assert!(a.current().contains(&d.mac));
+    assert_eq!(a.brain.commands(), ["SetVolume(40)"]);
+}
+
+#[tokio::test]
+async fn a_call_from_no_member_or_not_signed_for_a_call_is_refused() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    let call = |from: &Sat| PeerToolCall {
+        sender: hello(from).sender,
+        tool: "set_volume".into(),
+        arguments_json: r#"{"percent": 40}"#.into(),
+        ..Default::default()
+    };
+    // C holds the key, but A's list says it was removed.
+    let mut members = group.members.clone();
+    members.push(Member {
+        mac: c.mac.clone(),
+        name: "Office".into(),
+        version: 1,
+        removed: false,
+    });
+    c.service
+        .join_group(
+            Joined {
+                members,
+                ..group.clone()
+            },
+            &c.mac,
+            "Office",
+        )
+        .await
+        .unwrap();
+    let removed = Member {
+        mac: c.mac.clone(),
+        name: "Office".into(),
+        version: 2,
+        removed: true,
+    };
+    a.service
+        .merge_members(&group.id, &[removed], &a.mac)
+        .await
+        .unwrap();
+    let e = a
         .peer
-        .call(PeerEnvelope::default())
+        .call(Sat::sealed(&group, c, Rpc::Call, &call(c)))
         .await
         .map(|_| ())
         .unwrap_err();
-    assert_eq!(e.code, ErrorCode::Unimplemented);
+    assert_eq!(e.code, ErrorCode::PermissionDenied, "{e}");
+
+    let forged = Joined {
+        key: Key::new([7; 32]),
+        ..group.clone()
+    };
+    for sealed in [
+        Sat::sealed(&forged, b, Rpc::Call, &call(b)),
+        // Signed right, but for another call.
+        Sat::sealed(&group, b, Rpc::Deliver, &call(b)),
+    ] {
+        let e = a.peer.call(sealed).await.map(|_| ()).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Unauthenticated, "{e}");
+    }
+    assert!(a.brain.commands().is_empty());
 }
 
 #[tokio::test]
