@@ -5,7 +5,13 @@ import type { Satellite, Settings, Status, Timer, WakeWord, WakeWordOption } fro
 
 // node's type stripping can't run the generated module (it holds a TS enum),
 // so the tests build message shapes by hand.
-const word = (id: string, phrase: string): WakeWordOption => ({ $typeName: "pinna.v1.WakeWordOption", id, phrase });
+const word = (id: string, phrase: string): WakeWordOption => ({
+  $typeName: "pinna.v1.WakeWordOption",
+  id,
+  phrase,
+  custom: false,
+  error: "",
+});
 const wakeWord = (over: Partial<WakeWord> = {}): WakeWord => ({
   $typeName: "pinna.v1.WakeWord",
   phrase: "",
@@ -36,6 +42,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   ...over,
 });
 import {
+  addedNextStep,
   badge,
   byline,
   CAL_KIND,
@@ -43,7 +50,13 @@ import {
   calibrationBlocked,
   canStop,
   clock,
+  customWordCount,
   displayName,
+  fileSize,
+  modelFileProblem,
+  phraseProblem,
+  removeWordEffects,
+  wordHint,
   joinDone,
   joinTone,
   mediaFrom,
@@ -377,6 +390,7 @@ test("routeOf: sections, sub-pages, moved paths and unknowns", () => {
   assert.equal(routeOf("#/voice"), "/voice");
   assert.equal(routeOf("#/system/logs"), "/system/logs");
   assert.equal(routeOf("#/voice/wake-word"), "/voice/wake-word");
+  assert.equal(routeOf("#/voice/wake-words"), "/voice/wake-words");
   assert.equal(routeOf("#/voice/media-sources"), "/voice/media-sources");
   assert.equal(routeOf("#/settings"), "/voice");
   assert.equal(routeOf("#/updates"), "/system");
@@ -658,4 +672,66 @@ test("held messages from the satellite group are counted only when there are som
 test("held messages name the microphones while they are off: they play once the microphones are on", () => {
   assert.equal(heldText(1, true), "1 message held · it plays once the microphones are on");
   assert.equal(heldText(3, true), "3 messages held · they play once the microphones are on");
+});
+
+test("custom wake words: the phrase and the model file are checked before the upload", () => {
+  assert.equal(phraseProblem("Hey Pinna"), null);
+  assert.match(phraseProblem("a") ?? "", /2 to 40 characters/);
+  assert.match(phraseProblem("  x  ") ?? "", /2 to 40 characters/);
+  assert.match(phraseProblem("x".repeat(41)) ?? "", /2 to 40 characters/);
+  assert.equal(phraseProblem("é".repeat(40)), null);
+  assert.equal(modelFileProblem("hey_pinna.onnx", 1000), null);
+  assert.equal(modelFileProblem("Hey.TFLITE", 2 * 1024 * 1024), null);
+  assert.match(modelFileProblem("hey.bin", 1000) ?? "", /\.onnx or \.tflite/);
+  assert.match(modelFileProblem("hey.onnx", 0) ?? "", /empty/);
+  assert.match(modelFileProblem("hey.onnx", 3 * 1024 * 1024) ?? "", /3\.0 MiB.*at most 2 MiB/);
+  assert.equal(fileSize(800), "800 bytes");
+  assert.equal(fileSize(120 * 1024), "120 KiB");
+  assert.equal(fileSize(1.5 * 1024 * 1024), "1.5 MiB");
+});
+
+test("custom wake words: each word's hint says where it came from and whether it listens", () => {
+  const mine = { ...word("hey_pinna", "Hey Pinna"), custom: true };
+  const broken = { ...word("bad", "Bad"), custom: true, error: "The model failed to load." };
+  const s = status({
+    wakeWord: wakeWord({ available: [word("alexa_v0.1", "Alexa"), mine, broken] }),
+    settings: settings({ wakeWords: ["hey_pinna"] }),
+  });
+  assert.equal(customWordCount(s), 2);
+  assert.equal(wordHint(s, s.wakeWord!.available[0]), "Built in.");
+  assert.equal(wordHint(s, mine), "Added on this satellite. Chosen.");
+  assert.equal(wordHint(s, broken), "The model failed to load.");
+});
+
+test("removing a wake word says what happens", () => {
+  const withWords = (over: Partial<Status>) =>
+    status({
+      wakeWord: wakeWord({ available: [word("a", "A"), word("b", "B")] }),
+      settings: settings({ wakeWords: ["a"] }),
+      ...over,
+    });
+  assert.deepEqual(removeWordEffects(withWords({ haConnected: false }), "b"), [
+    "It deletes the model from this satellite.",
+  ]);
+  // The only chosen word: the satellite is left without one.
+  const only = removeWordEffects(withWords({ haConnected: false }), "a");
+  assert.equal(only.length, 3);
+  assert.match(only[1], /stops listening/);
+  assert.match(only[2], /no wake word/);
+  const twoChosen = withWords({ haConnected: false, settings: settings({ wakeWords: ["a", "b"] }) });
+  assert.equal(removeWordEffects(twoChosen, "a").length, 2);
+  const ha = removeWordEffects(withWords({ haConnected: true }), "a");
+  assert.equal(ha.length, 4);
+  assert.match(ha[3], /choose another one there/);
+  // A word that isn't chosen needs no replacement.
+  assert.equal(removeWordEffects(withWords({ haConnected: true }), "b").length, 1);
+  // Standalone mode: the dashboard chooses, even with Home Assistant connected.
+  assert.equal(removeWordEffects(standalone(true, { haConnected: true }), "b").length, 1);
+});
+
+test("after adding a wake word the next step follows who chooses", () => {
+  assert.match(addedNextStep(status({ haConnected: true })), /device page in Home Assistant.*once the satellite is idle/);
+  assert.match(addedNextStep(status({ haConnected: false })), /Voice & sound/);
+  assert.match(addedNextStep(standalone(true, { haConnected: true })), /Voice & sound/);
+  assert.match(addedNextStep(null), /recent wakes under Sensitivity/);
 });

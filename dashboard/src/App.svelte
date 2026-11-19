@@ -26,6 +26,7 @@
   import MediaSources from "./pages/MediaSources.svelte";
   import Voice from "./pages/Voice.svelte";
   import WakeWord from "./pages/WakeWord.svelte";
+  import WakeWords from "./pages/WakeWords.svelte";
 
   const s = $derived(device.status);
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
@@ -206,6 +207,7 @@
         <WifiTrial />
         {#if page.path === "/voice"}<Voice />
         {:else if page.path === "/voice/wake-word"}<WakeWord />
+        {:else if page.path === "/voice/wake-words"}<WakeWords />
         {:else if page.path === "/voice/media-sources"}<MediaSources />
         {:else if page.path === "/voice/ring"}<LightRing />
         {:else if page.path === "/assistant"}<Assistant />

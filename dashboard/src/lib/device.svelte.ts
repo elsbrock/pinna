@@ -34,6 +34,8 @@ class Device {
   link = $state<Link>("connecting");
   offlineSince = $state<Date | null>(null);
   busy = $state(false);
+  /** AddWakeWord is running: the satellite is testing the model. */
+  addingWakeWord = $state(false);
   /** Identify was pressed a moment ago: more presses wait. */
   identifying = $state(false);
   /** The step of the ring's test pattern while `status.ledTest`, for ringEffect. */
@@ -270,6 +272,29 @@ class Device {
   }
   forgetBluetoothDevice(address: string, name: string) {
     return this.#command(() => client.forgetBluetoothDevice({ address }), `Forgot ${name}`);
+  }
+  /** Add a custom wake word (ADR 0013). The satellite tests the model first,
+   *  which can take up to a minute, so this has its own pending state, not
+   *  `busy`: the rest of the page keeps working. Resolves to the new id or
+   *  throws the satellite's sentence. */
+  async addWakeWord(phrase: string, file: File): Promise<string> {
+    const model = new Uint8Array(await file.arrayBuffer());
+    this.addingWakeWord = true;
+    try {
+      return (await client.addWakeWord({ phrase, model })).id;
+    } catch (e) {
+      if (unreachable(e)) void this.#ping();
+      throw new Error(errorSentence(e));
+    } finally {
+      this.addingWakeWord = false;
+    }
+  }
+  removeWakeWord(id: string, phrase: string) {
+    // The reply has no Status: WatchStatus brings the new list.
+    return this.#command(async () => {
+      await client.removeWakeWord({ id });
+      return {};
+    }, `Removed “${phrase}”`);
   }
   stopCalibration() {
     return this.#command(() => client.stopCalibration({}), "Calibration done");

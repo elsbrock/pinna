@@ -69,6 +69,14 @@
       disabled={locked}
       choose={(id) => chooseWords("second", id)}
     />
+    <a class="pn-row" href="#/voice/wake-words">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Wake words</span>
+        <span class="pn-row-hint">Add your own wake word, or remove one</span>
+      </span>
+      <span class="pn-row-value is-mono">{words.length}</span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
     <a class="pn-row" href="#/voice/wake-word">
       <span class="pn-row-text">
         <span class="pn-row-label">Sensitivity</span>

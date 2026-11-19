@@ -59,6 +59,11 @@ const SUBPAGES: Omit<Page, "section">[] = [
     description: "How easily the satellite wakes, and its recent wakes and near misses.",
   },
   {
+    path: "/voice/wake-words",
+    title: "Wake words",
+    description: "The wake words on offer, and adding your own.",
+  },
+  {
     path: "/voice/media-sources",
     title: "Media sources",
     description: "What may play music to the satellite from phones and computers.",

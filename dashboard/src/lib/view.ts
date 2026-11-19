@@ -1,7 +1,7 @@
 // What the page shows, derived from Status: words, tones, disabled reasons and
 // ticking numbers. No Svelte and no runtime imports, so `node --test` runs it.
 import type { Effect } from "../../../design/ring.ts";
-import type { CalibrationEvent, Satellite, Status, Timer, WakeEvent } from "../gen/pinna/v1/device_pb.ts";
+import type { CalibrationEvent, Satellite, Status, Timer, WakeEvent, WakeWordOption } from "../gen/pinna/v1/device_pb.ts";
 import { isStandalone } from "./assistant.ts";
 
 /** The connection to the satellite's WatchStatus stream. */
@@ -186,6 +186,77 @@ export function wakeWordsHint(s: Status): string | undefined {
     return "No wake word models are installed on this satellite.";
   if (s.haConnected && !isStandalone(s)) return "Home Assistant chooses the wake words while it is connected.";
   return undefined;
+}
+
+/** Home Assistant, in Home Assistant mode and connected, chooses the wake words. */
+export function haChooses(s: Status): boolean {
+  return s.haConnected && !isStandalone(s);
+}
+
+/** Custom wake words: at most this many, each model at most this large (ADR 0013). */
+export const MAX_CUSTOM_WORDS = 8;
+export const MAX_MODEL_BYTES = 2 * 1024 * 1024;
+export const PHRASE_MIN = 2;
+export const PHRASE_MAX = 40;
+
+export function customWordCount(s: Status): number {
+  return (s.wakeWord?.available ?? []).filter((w) => w.custom).length;
+}
+
+/** `1.4 MiB`, `120 KiB`, `800 bytes`. */
+export function fileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${bytes} bytes`;
+}
+
+/** Why a phrase can't be added, or null. Counts characters, not UTF-16 units. */
+export function phraseProblem(phrase: string): string | null {
+  const n = [...phrase.trim()].length;
+  if (n < PHRASE_MIN || n > PHRASE_MAX) return `The phrase must be ${PHRASE_MIN} to ${PHRASE_MAX} characters.`;
+  return null;
+}
+
+/** Why a model file can't be added, or null. The satellite checks again. */
+export function modelFileProblem(name: string, size: number): string | null {
+  if (!/\.(onnx|tflite)$/i.test(name)) return "The model must be an openWakeWord file, .onnx or .tflite.";
+  if (size === 0) return "The file is empty.";
+  if (size > MAX_MODEL_BYTES) return `The file is ${fileSize(size)}. A model can be at most 2 MiB.`;
+  return null;
+}
+
+/** Whether the satellite listens for this word now. */
+export function wordChosen(s: Status, id: string): boolean {
+  return (s.settings?.wakeWords ?? []).includes(id);
+}
+
+/** A word's hint on the Wake words page: its error, or where it came from and whether it listens. */
+export function wordHint(s: Status, w: Pick<WakeWordOption, "id" | "custom" | "error">): string {
+  if (w.error) return w.error;
+  const origin = w.custom ? "Added on this satellite" : "Built in";
+  // Chosen, not "listening": whether the satellite listens right now is the
+  // Wake word switch's hint (wakeHint), and depends on more than the choice.
+  return wordChosen(s, w.id) ? `${origin}. Chosen.` : `${origin}.`;
+}
+
+/** What Remove does, one sentence each, for the Confirm. */
+export function removeWordEffects(s: Status, id: string): string[] {
+  const out = ["It deletes the model from this satellite."];
+  if (!wordChosen(s, id)) return out;
+  out.push("It is chosen, so the satellite stops listening for it.");
+  if ((s.settings?.wakeWords ?? []).length === 1) out.push("The satellite then has no wake word.");
+  // Only Home Assistant can choose the replacement then (ADR 0013).
+  if (haChooses(s))
+    out.push("Home Assistant is connected, so it chooses the wake words: choose another one there.");
+  return out;
+}
+
+/** What to do after a word was added. */
+export function addedNextStep(s: Status | null): string {
+  const then = "Then say it and watch the recent wakes under Sensitivity.";
+  if (s && haChooses(s))
+    return `Choose it on this satellite's device page in Home Assistant. It appears there once the satellite is idle. ${then}`;
+  return `Choose it under Wake word on the Voice & sound page. ${then}`;
 }
 
 /** A near miss's suggestion sits this far above the lowest setting that catches it. */
@@ -492,6 +563,7 @@ export const PATHS = [
   "/",
   "/voice",
   "/voice/wake-word",
+  "/voice/wake-words",
   "/voice/media-sources",
   "/voice/ring",
   "/assistant",
