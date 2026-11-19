@@ -62,9 +62,9 @@ sections are in a bar at the bottom, and a section's pages are rows on it.
 
 | Section | What you can do |
 | --- | --- |
-| **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant (in standalone mode, whether its services are ready), Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers. **Now playing** shows what plays and where it comes from, with pause, resume and stop, and **Mute music**; with nothing playing, it says how to play something. **Identify** runs the ring's test pattern, to find the device among others |
+| **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant (in standalone mode, whether its services are ready), Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers and how many messages from the [satellite group](/docs/standalone/#pass-messages-between-satellites) wait to be said. **Now playing** shows what plays and where it comes from, with pause, resume and stop, and **Mute music**; with nothing playing, it says how to play something. **Identify** runs the ring's test pattern, to find the device among others |
 | **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected or in standalone mode, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), and turn the **Wake sound** on or off. **Ring** sets the ring brightness, turns **Listening direction** on or off, [uses the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light), runs the ring's test pattern with **Identify**, and shows what each ring state means. **Media sources** turns [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/) on or off, shows whether they run, pairs phones and forgets them, and [plays music from a URL](#play-music-from-a-url). **Sensitivity** opens the **Wake word sensitivity** page, where you [tune the wake word](#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other |
-| **Assistant** | Choose who answers requests: Home Assistant or the satellite itself, in [standalone mode](/docs/standalone/). In Home Assistant mode, see whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted, and see the device's name and copy the host and port to add the device by hand. **Services**, **Conversation** and **Tools** set up standalone mode: the speech and language services and their keys, the language, place and prompt, a box to type a question, what the brain may do, radio stations and MCP |
+| **Assistant** | Choose who answers requests: Home Assistant or the satellite itself, in [standalone mode](/docs/standalone/). In Home Assistant mode, see whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted, and see the device's name and copy the host and port to add the device by hand. **Services**, **Conversation** and **Tools** set up standalone mode: the speech and language services and their keys, the language, place and prompt, a box to type a question, what the brain may do, radio stations and MCP. **Satellite group** puts satellites in a group, so that they [pass messages](/docs/standalone/#pass-messages-between-satellites) to each other and [control each other](/docs/standalone/#control-another-satellite): turn it on, add and remove members, and turn **Group messages** and **Control from the group** on or off |
 | **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](#change-the-hostname). [Change the Wi-Fi network](#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. [Set a dashboard address](#set-a-dashboard-address), where else the dashboard opens |
 | **System** | [Name the device](#name-the-device), [set its time zone](#set-the-time-zone), [reset it](#reset-the-device), choose where it looks for updates (**Updates**: Stable, Beta or Off), check for one and see what the last check found, see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, see how its last start ended, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
 
@@ -88,6 +88,11 @@ IDs, such as `switch.echo_dot_2a914e_wake_sound`, and the entry under
 **Settings > Devices & services > ESPHome** keep the name that the device had
 when you added it. A name that you give the device in Home Assistant itself
 wins over the device's.
+
+In a [satellite group](/docs/standalone/#pass-messages-between-satellites),
+the brain calls the satellite by this name, so choose one that is easy to
+say. The other members use a new name after their next search, within about
+a minute.
 
 ## Set the time zone
 
@@ -304,7 +309,11 @@ or Bluetooth shows on **Now playing**. In
 [standalone mode](/docs/standalone/) it includes changing your services and
 the prompt, adding MCP servers, and asking questions that you pay for; the
 keys themselves never leave the device. Pinna's MCP server, `/mcp`, is open
-the same way. Only an update that
+the same way. In a
+[satellite group](/docs/standalone/#pass-messages-between-satellites), it
+includes adding any satellite whose **Satellite group** switch is on and
+that is in no group, removing members, and turning **Group messages** and **Control from the
+group** on or off. Only an update that
 is signed with the device's release key installs, and the device goes back to
 the previous version if the new one doesn't start. An install from a manifest
 URL takes an older signed release too, so someone with a copy of one can

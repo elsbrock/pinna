@@ -45,6 +45,10 @@ These parts are covered by tests that run without hardware:
   adapters for OpenAI-compatible services, Anthropic, Gemini and ElevenLabs,
   the save-time checks, the MCP server and client, device timers, the update
   tools and the dashboard's setup API pass their tests.
+- In a [satellite group](/docs/standalone/#pass-messages-between-satellites),
+  satellites add and remove each other, pass messages and act on each other
+  in tests that run several satellites in one process. No test has run on two
+  devices yet.
 - [AirPlay](/docs/airplay/) turns on and off in the x86_64 virtual machine:
   the receiver starts, publishes its AirPlay record, reports that it is ready,
   and stops again.
@@ -91,7 +95,8 @@ On the devices:
 - **Custom wake words from the dashboard**: uploading an `.onnx` or `.tflite`
   model and naming its phrase (ADR 0013).
 - **More for standalone mode**: MCP servers that need a sign-in, and several
-  satellites that share one conversation (ADR 0017).
+  satellites that share one conversation (ADR 0017). In a satellite group,
+  one answer when several hear the wake word (ADR 0026).
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 - **Multi-room with Music Assistant** through its own protocol, Sendspin: the
   device would play in step with other speakers in a group.
