@@ -756,26 +756,45 @@ export function satelliteModel(board: string): string {
   return board === "Echo (2nd Gen)" ? "echo-2" : "echo-dot-2";
 }
 
-// A stream's source as its header names it (ADR 0011).
-const STREAM_SOURCES: Record<string, string> = { airplay: "AirPlay", bluetooth: "Bluetooth" };
+// A stream's source as its header names it (ADR 0011), or `sendspin`, which
+// pinnad plays itself (ADR 0027). A Map: the name comes from the network, and
+// an object would answer for "constructor".
+const STREAM_SOURCES = new Map([
+  ["airplay", "AirPlay"],
+  ["bluetooth", "Bluetooth"],
+  ["sendspin", "Music Assistant"],
+]);
 
 /**
- * Where the media on Now playing comes from: a stream's source (AirPlay and
- * Bluetooth by their names, another program by the name its header gives), a
- * radio station, or Home Assistant, which plays everything through its ffmpeg
- * proxy (ADR 0011). Otherwise the address itself, shown as code (`url`).
+ * Where the media on Now playing comes from: a stream's source (AirPlay,
+ * Bluetooth and Sendspin by their names, another program by the name its
+ * header gives), a radio station, or Home Assistant, which plays everything
+ * through its ffmpeg proxy (ADR 0011). Otherwise the address itself, shown as
+ * code (`url`).
  */
 export function mediaFrom(m: { stream: boolean; source: string; station: string; url: string }): {
   text: string;
   url: boolean;
 } {
-  if (m.stream) {
-    const name = STREAM_SOURCES[m.source] ?? (m.source || "AirPlay or Bluetooth");
-    return { text: `From ${name}`, url: false };
-  }
+  // A paused Sendspin group streams nothing, yet keeps its source (ADR 0027 §14).
+  const known = STREAM_SOURCES.get(m.source);
+  if (known) return { text: `From ${known}`, url: false };
+  if (m.stream) return { text: `From ${m.source || "AirPlay, Bluetooth or Music Assistant"}`, url: false };
   if (m.station) return { text: `From ${m.station}`, url: false };
   if (m.url.includes("/api/esphome/ffmpeg_proxy/")) return { text: "From Home Assistant", url: false };
   return { text: m.url, url: true };
+}
+
+// pinna.v1.MediaState.ANNOUNCING (a generated TS enum, which `node --test` cannot load).
+const ANNOUNCING = 4;
+
+/**
+ * Now playing offers Pause and Resume. An announcement can't pause, and nor
+ * can AirPlay or Bluetooth: pausing ends their session, as Stop does.
+ * Sendspin's pause and play go to its group, which waits paused (ADR 0027 §14).
+ */
+export function mediaPauses(m: { state: number; stream: boolean; source: string }): boolean {
+  return m.state !== ANNOUNCING && (!m.stream || m.source === "sendspin");
 }
 
 /** The line under a track's title: its artist and album, where known. */

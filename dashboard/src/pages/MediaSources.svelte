@@ -1,8 +1,8 @@
 <!-- Voice & sound › Media sources: what may play music to the satellite
-     (ADR 0011). Each source is off until switched on here or in Home
+     (ADR 0011, ADR 0027). Each source is off until switched on here or in Home
      Assistant; while it is on, the page says whether it actually runs. -->
 <script lang="ts">
-  import { AirPlayState, BluetoothState, MediaState } from "../gen/pinna/v1/device_pb.ts";
+  import { AirPlayState, BluetoothState, MediaState, SendspinState } from "../gen/pinna/v1/device_pb.ts";
   import Confirm from "../lib/Confirm.svelte";
   import { device } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
@@ -70,6 +70,24 @@
     if (device.busy || now - lastPress < 1000) return;
     lastPress = now;
     void (pairing ? device.stopBluetoothPairing() : device.startBluetoothPairing());
+  }
+  const ss = $derived(s?.sendspin);
+  const ssUnavailable = $derived(ss?.state === SendspinState.UNAVAILABLE);
+  const ssHint = $derived(
+    ssUnavailable
+      ? "This satellite has no working speaker, so it can't play from Music Assistant. Logs, under System, says why."
+      : "Play from Music Assistant 2.10.7 or later, in step with the other speakers in a group. While it is on, anyone on your network can play to it, and replace what it is playing.",
+  );
+  // Without a hardware clock to follow, it plays, but not in step (ADR 0027 §12).
+  const ssNotInStep = $derived(
+    !!ss &&
+      !ss.exactTiming &&
+      (ss.state === SendspinState.READY || ss.state === SendspinState.CONNECTED || ss.state === SendspinState.PLAYING),
+  );
+  // pinnad's reasons ("port 8928 is in use") start in lower case, without a full stop.
+  function sentence(r: string): string {
+    const t = r.charAt(0).toUpperCase() + r.slice(1);
+    return /[.!?]$/.test(t) ? t : `${t}.`;
   }
   // Play a URL, as Home Assistant's "Play media" does.
   let url = $state("");
@@ -231,6 +249,70 @@
           </button>
         </div>
       {/each}
+    {/if}
+  </Group>
+
+  <Group title="Sendspin">
+    {#snippet aside()}Experimental{/snippet}
+    {#snippet foot()}
+      It stays experimental while the Sendspin specification is a draft. Music Assistant connects without pairing, so
+      someone who can intercept your network's traffic could read or change the music. Music Assistant sets the music's
+      volume; Volume, on Voice &amp; sound, sets how loud the satellite is overall. Sendspin is also a switch in Home
+      Assistant, on this satellite's device page.
+    {/snippet}
+    <SwitchRow
+      id="sendspin"
+      label="Sendspin"
+      checked={set.sendspin}
+      disabled={!live || ssUnavailable}
+      busy={device.busy}
+      hint={ssHint}
+      toggle={(on) => device.updateSettings({ sendspin: on })}
+    />
+    {#if set.sendspin && ss}
+      <div class="pn-row" aria-live="polite">
+        <div class="pn-row-text">
+          {#if ss.state === SendspinState.READY}
+            <span class="pn-row-label">Ready as “{ss.name}”</span>
+            {#if ss.reason}
+              <span class="pn-row-hint">Music Assistant lists it as “{ss.name}”.</span>
+              <span class="pn-row-hint is-danger">A server couldn't connect. {sentence(ss.reason)}</span>
+            {:else}
+              <span class="pn-row-hint">
+                Music Assistant lists it as “{ss.name}”. Not in the list? Music Assistant has to be on the same network
+                as the satellite: a guest Wi-Fi or a separate VLAN hides it.
+              </span>
+            {/if}
+          {:else if ss.state === SendspinState.CONNECTED}
+            <span class="pn-row-label">Connected to {ss.server || "Music Assistant"}</span>
+            <span class="pn-row-hint">Nothing plays. In Music Assistant, play to “{ss.name}”.</span>
+          {:else if ss.state === SendspinState.PLAYING}
+            <span class="pn-row-label">Playing</span>
+            <span class="pn-row-hint">
+              From {ss.server || "Music Assistant"}. Now playing, on the Overview, shows what plays.
+            </span>
+          {:else if ss.state === SendspinState.FAILED}
+            <span class="pn-row-label">Not running</span>
+            <span class="pn-row-hint is-danger">
+              {ss.reason ? sentence(ss.reason) : "Sendspin didn't start."} Logs, under System, says more.
+            </span>
+          {:else}
+            <span class="pn-row-label">Starting…</span>
+            <span class="pn-row-hint">The player takes a moment to start.</span>
+          {/if}
+        </div>
+      </div>
+      {#if ssNotInStep}
+        <div class="pn-row">
+          <div class="pn-row-text">
+            <span class="pn-row-label">Not in step</span>
+            <span class="pn-row-hint">
+              It plays, but not in step with the other speakers in a group: on a virtual device or a computer, there is
+              no hardware clock to follow.
+            </span>
+          </div>
+        </div>
+      {/if}
     {/if}
   </Group>
   <Group title="Play a URL">

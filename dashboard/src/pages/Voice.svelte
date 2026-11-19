@@ -146,7 +146,9 @@
         <span class="pn-row-hint">Let phones and computers play music on this satellite, or play a URL</span>
       </span>
       <span class="pn-row-value"
-        >{[set.airplay && "AirPlay", set.bluetooth && "Bluetooth"].filter(Boolean).join(", ") || "Off"}</span
+        >{[set.airplay && "AirPlay", set.bluetooth && "Bluetooth", set.sendspin && "Sendspin"]
+          .filter(Boolean)
+          .join(", ") || "Off"}</span
       >
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>

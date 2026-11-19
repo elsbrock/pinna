@@ -9,7 +9,7 @@
   import Group from "./Group.svelte";
   import Slider from "./Slider.svelte";
   import SwitchRow from "./SwitchRow.svelte";
-  import { byline, mediaFrom, shortUrl } from "./view.ts";
+  import { byline, mediaFrom, mediaPauses, shortUrl } from "./view.ts";
 
   const m = $derived(device.status?.media);
   const set = $derived(device.status?.settings);
@@ -60,8 +60,9 @@
           >
         </div>
         <div class="actions">
-          <!-- A stream can't pause: pausing ends its session, as Stop does. -->
-          {#if !m.stream && m.state !== MediaState.ANNOUNCING}
+          <!-- A stream can't pause: pausing ends its session, as Stop does.
+               Sendspin's pause pauses its group (ADR 0027 §14). -->
+          {#if mediaPauses(m)}
             <button
               class="pn-btn"
               disabled={!live}
@@ -102,12 +103,14 @@
       <div class="pn-empty">
         <span class="pn-empty-title">Not playing</span>
         <p>
-          {#if set?.airplay || set?.bluetooth}
+          {#if set?.airplay || set?.bluetooth || set?.sendspin}
             Play to this satellite from a phone or computer, or play a URL under <a href="#/voice/media-sources"
               >Media sources</a
             >.
           {:else}
-            Turn on AirPlay or Bluetooth, or play a URL, under <a href="#/voice/media-sources">Media sources</a>.
+            Turn on AirPlay, Bluetooth or Sendspin, or play a URL, under <a href="#/voice/media-sources"
+              >Media sources</a
+            >.
           {/if}
         </p>
       </div>
@@ -118,7 +121,9 @@
           label="Music volume"
           value={m.volume}
           disabled={!live}
-          hint="How loud this music plays here; the phone's own slider doesn't move. Volume sets how loud the satellite is overall."
+          hint={m.source === "sendspin"
+            ? "How loud this music plays here; Music Assistant's slider follows. Volume sets how loud the satellite is overall."
+            : "How loud this music plays here; the phone's own slider doesn't move. Volume sets how loud the satellite is overall."}
           commit={(v) => device.setMediaVolume(v)}
         />
       </div>

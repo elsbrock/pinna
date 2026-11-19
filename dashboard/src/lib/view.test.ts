@@ -39,6 +39,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   updateChannel: 1,
   mode: 0,
   groupMessages: true,
+  sendspin: false,
   ...over,
 });
 import {
@@ -60,6 +61,7 @@ import {
   joinDone,
   joinTone,
   mediaFrom,
+  mediaPauses,
   shortUrl,
   mmss,
   securityWord,
@@ -616,7 +618,9 @@ test("now playing says where media comes from: a stream's source, a station, Hom
   const m = { stream: false, source: "", station: "", url: "" };
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "airplay" }), { text: "From AirPlay", url: false });
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "bluetooth" }), { text: "From Bluetooth", url: false });
-  assert.deepEqual(mediaFrom({ ...m, stream: true }), { text: "From AirPlay or Bluetooth", url: false });
+  assert.deepEqual(mediaFrom({ ...m, stream: true, source: "sendspin" }), { text: "From Music Assistant", url: false });
+  assert.deepEqual(mediaFrom({ ...m, stream: true }), { text: "From AirPlay, Bluetooth or Music Assistant", url: false });
+  assert.deepEqual(mediaFrom({ ...m, stream: true, source: "constructor" }), { text: "From constructor", url: false });
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "my-player" }), { text: "From my-player", url: false });
   const radio = "http://radio.example/live.mp3";
   assert.deepEqual(mediaFrom({ ...m, url: radio, station: "Radio One" }), { text: "From Radio One", url: false });
@@ -625,6 +629,26 @@ test("now playing says where media comes from: a stream's source, a station, Hom
     url: false,
   });
   assert.deepEqual(mediaFrom({ ...m, url: radio }), { text: radio, url: true });
+});
+
+test("a paused Sendspin group reads as paused from Music Assistant, and can resume", () => {
+  // MediaState: PLAYING 2, PAUSED 3, ANNOUNCING 4.
+  const paused = { state: 3, stream: false, source: "sendspin", station: "", url: "" };
+  assert.deepEqual(mediaFrom(paused), { text: "From Music Assistant", url: false });
+  assert.deepEqual(mediaFrom({ ...paused, stream: true }), { text: "From Music Assistant", url: false });
+  assert.equal(mediaPauses(paused), true);
+  assert.equal(mediaPauses({ ...paused, stream: true }), true);
+  assert.equal(mediaPauses({ ...paused, state: 2, stream: true }), true);
+});
+
+test("Pause shows for a URL and Sendspin, not for AirPlay, Bluetooth or an announcement", () => {
+  const url = { state: 2, stream: false, source: "" };
+  assert.equal(mediaPauses(url), true);
+  assert.equal(mediaPauses({ ...url, state: 4 }), false);
+  assert.equal(mediaPauses({ ...url, stream: true, source: "airplay" }), false);
+  assert.equal(mediaPauses({ ...url, stream: true, source: "bluetooth" }), false);
+  assert.equal(mediaPauses({ ...url, stream: true, source: "" }), false);
+  assert.equal(mediaPauses({ ...url, state: 4, stream: true, source: "sendspin" }), false);
 });
 
 test("a track's byline joins the artist and album it has", () => {
