@@ -1,0 +1,493 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 19 Nov 2026 23:40:00 +0100
+Subject: [PATCH 30/30] feat(wlan): build the MT8163 access point for Linux 6.12
+
+The vendor driver's access point lives in its Wi-Fi Direct part: writing
+"A" to /dev/wmtWifi registers ap0, whose wiphy offers NL80211_IFTYPE_AP
+with the AP SME in the driver (WIPHY_FLAG_HAVE_AP_SME), so hostapd drives
+it over nl80211 and only does the 4-way handshake. The stock build had
+CFG_ENABLE_WIFI_DIRECT on for ARM, with the P2P objects in the Makefile;
+the import turned it off and dropped them. ADR 0028 needs it for the
+setup hotspot.
+
+CONFIG_MTK_MT8163_WIFI_AP builds it, off by default. It also turns on
+Wi-Fi Display (CFG_SUPPORT_WFD): the vendor code doesn't build Wi-Fi
+Direct without it, and the stock build had both. Enabling Wi-Fi Direct
+also compiles P2P branches into shared station code, as in the stock
+build, so a station regression can be ruled out by turning the symbol
+off.
+
+Ported to the 6.12 cfg80211 API, after the station side:
+- change_virtual_intf loses the flags; add_key, get_key, del_key and
+  set_default_key, stop_ap and set_bitrate_mask take a link id;
+  change_beacon takes cfg80211_ap_update; del_station takes
+  station_del_parameters; set_monitor_channel takes the net_device.
+- mgmt_frame_register is update_mgmt_frame_registrations, which
+  carries the subtype set; the driver still filters probe requests and
+  action frames only.
+- start_ap takes the channel from its settings (preset_chandef is gone),
+  and converts the width to a channel type instead of passing one enum
+  for the other.
+- cfg80211_scan_done takes cfg80211_scan_info, cfg80211_disconnected
+  takes locally_generated, ndo_select_queue takes sb_dev, and the MAC
+  address is set with eth_hw_addr_set.
+- The station_info for a new client is zeroed: it has grown pointers
+  since 3.18, and assoc_req_ies needs no flag any more.
+- The testmode prototypes are optional, as on wlan0, instead of an
+  #error without CONFIG_NL80211_TESTMODE.
+- p2p_fsm.h's ASSERT_BREAK, empty when DBG is 0, no longer replaces
+  compat/legacy_time.h's, which the station code was built and tested
+  with. Its one use outside a loop becomes ASSERT.
+
+Compiled only (zImage for the Echo family); not run on a device yet.
+
+diff --git a/drivers/misc/mediatek/Kconfig b/drivers/misc/mediatek/Kconfig
+index 68fb5ca4b..2794cebc3 100644
+--- a/drivers/misc/mediatek/Kconfig
++++ b/drivers/misc/mediatek/Kconfig
+@@ -74,6 +74,17 @@ config MTK_COMBO_WIFI
+ 	bool
+ 	default y if MTK_MT8163_CONSYS
+ 
++config MTK_MT8163_WIFI_AP
++	bool "MT8163 Wi-Fi access point (vendor Wi-Fi Direct)"
++	depends on MTK_MT8163_CONSYS
++	default n
++	help
++	  Build the vendor driver's Wi-Fi Direct part, which provides the
++	  access point interface: writing "A" to /dev/wmtWifi registers ap0,
++	  which hostapd drives over nl80211. It also enables Wi-Fi Display,
++	  which the vendor code requires with Wi-Fi Direct, as the stock
++	  build did. Without it the driver is station only.
++
+ config MTK_WIFI_ANTENNA_SWITCH
+ 	bool "MT8163 manual Wi-Fi antenna switching"
+ 	depends on MTK_MT8163_CONSYS
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/compat/legacy_time.h b/drivers/misc/mediatek/mt8163-connectivity/compat/legacy_time.h
+index 62cfe29bf..4cfbd4728 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/compat/legacy_time.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/compat/legacy_time.h
+@@ -16,6 +16,7 @@
+ #define STATION_INFO_SIGNAL BIT_ULL(NL80211_STA_INFO_SIGNAL)
+ #define STATION_INFO_TX_PACKETS BIT_ULL(NL80211_STA_INFO_TX_PACKETS)
+ #define STATION_INFO_TX_FAILED BIT_ULL(NL80211_STA_INFO_TX_FAILED)
++#define STATION_INFO_INACTIVE_TIME BIT_ULL(NL80211_STA_INFO_INACTIVE_TIME)
+ #define WIPHY_FLAG_SUPPORTS_SCHED_SCAN 0
+ #define ASSERT_BREAK(_exp)						\
+ 	{								\
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/Makefile b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/Makefile
+index 0b6d37dae..73cb39fa3 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/Makefile
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/Makefile
+@@ -181,6 +181,27 @@ MGMT_OBJS += $(MGMT_DIR)stats.o
+ # P2P Objects List
+ # ---------------------------------------------------
+ 
++ifeq ($(CONFIG_MTK_MT8163_WIFI_AP), y)
++COMMON_OBJS += $(COMMON_DIR)wlan_p2p.o
++
++NIC_OBJS += $(NIC_DIR)p2p_nic.o
++
++OS_OBJS += $(OS_DIR)gl_p2p.o \
++           $(OS_DIR)gl_p2p_cfg80211.o \
++           $(OS_DIR)gl_p2p_init.o \
++           $(OS_DIR)gl_p2p_kal.o
++
++MGMT_OBJS += $(MGMT_DIR)p2p_assoc.o \
++             $(MGMT_DIR)p2p_bss.o \
++             $(MGMT_DIR)p2p_fsm.o \
++             $(MGMT_DIR)p2p_func.o \
++             $(MGMT_DIR)p2p_rlm.o \
++             $(MGMT_DIR)p2p_rlm_obss.o \
++             $(MGMT_DIR)p2p_scan.o \
++             $(MGMT_DIR)p2p_ie.o \
++             $(MGMT_DIR)p2p_state.o
++endif
++
+ ifeq ($(CONFIG_MTK_WAPI_SUPPORT), y)
+ MGMT_OBJS += $(MGMT_DIR)wapi.o
+ endif
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/config.h b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/config.h
+index b0a3fe6cf..27f2fc2e7 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/config.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/config.h
+@@ -1378,7 +1378,11 @@
+  * Flags of Wi-Fi Direct support
+  *------------------------------------------------------------------------------
+  */
++#ifdef CONFIG_MTK_MT8163_WIFI_AP
++#define CFG_ENABLE_WIFI_DIRECT          1
++#else
+ #define CFG_ENABLE_WIFI_DIRECT          0
++#endif
+ #define CFG_SUPPORT_802_11W             0
+ 
+ #define CFG_SUPPORT_PERSISTENT_GROUP     0
+@@ -1517,7 +1521,8 @@
+ 
+ #define CFG_STRICT_CHECK_CAPINFO_PRIVACY    0
+ 
+-#define CFG_SUPPORT_WFD                     0
++/* The Wi-Fi Direct code only builds with Wi-Fi Display, as in the stock build. */
++#define CFG_SUPPORT_WFD                     CFG_ENABLE_WIFI_DIRECT
+ 
+ #define CFG_SUPPORT_WFD_COMPOSE_IE          1
+ 
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/mgmt/p2p_fsm.h b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/mgmt/p2p_fsm.h
+index bce4574d1..8d21f27ae 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/mgmt/p2p_fsm.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/include/mgmt/p2p_fsm.h
+@@ -1775,7 +1775,10 @@ do { \
+ 	for ((_u2Offset) = 0; ((_u2Offset) < (_u2AttriBufLen)); \
+ 		(_u2Offset) += WFD_ATTRI_SIZE(_pucAttriBuf), ((_pucAttriBuf) += WFD_ATTRI_SIZE(_pucAttriBuf)))
+ 
+-#if DBG
++/* Keep compat/legacy_time.h's definition, which the station code was built
++ * and tested with; this one is empty when DBG is 0. */
++#ifdef ASSERT_BREAK
++#elif DBG
+ #define ASSERT_BREAK(_exp) \
+ 	{ \
+ 	    if (!(_exp)) { \
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_fsm.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_fsm.c
+index 64f148ad3..e5374e405 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_fsm.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_fsm.c
+@@ -2275,7 +2275,8 @@ VOID p2pFsmRunEventJoinComplete(IN P_ADAPTER_T prAdapter, IN P_MSG_HDR_T prMsgHd
+ 	P_SW_RFB_T prAssocRspSwRfb = (P_SW_RFB_T) NULL;
+ 	P_BSS_INFO_T prP2pBssInfo = (P_BSS_INFO_T) NULL;
+ 
+-	ASSERT_BREAK((prAdapter != NULL) && (prMsgHdr != NULL));
++	/* Not in a loop: ASSERT_BREAK can't break here (it was empty in the stock build). */
++	ASSERT((prAdapter != NULL) && (prMsgHdr != NULL));
+ 	DBGLOG(P2P, TRACE, "P2P Join Complete\n");
+ 
+ 	prP2pFsmInfo = prAdapter->rWifiVar.prP2pFsmInfo;
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p.c
+index 48d2581dc..672cd94fa 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p.c
+@@ -742,9 +742,9 @@ static struct cfg80211_ops mtk_p2p_config_ops = {
+ 	.stop_ap = mtk_p2p_cfg80211_stop_ap,
+ 	.set_wiphy_params = mtk_p2p_cfg80211_set_wiphy_params,
+ 	.del_station = mtk_p2p_cfg80211_del_station,
+-	.set_monitor_channel = mtk_p2p_cfg80211_set_channel,
++	.set_monitor_channel = mtk_p2p_cfg80211_set_monitor_channel,
+ 	.set_bitrate_mask = mtk_p2p_cfg80211_set_bitrate_mask,
+-	.mgmt_frame_register = mtk_p2p_cfg80211_mgmt_frame_register,
++	.update_mgmt_frame_registrations = mtk_p2p_cfg80211_update_mgmt_frame_registrations,
+ 	.get_station = mtk_p2p_cfg80211_get_station,
+ 	/* ================ */
+ 	.add_key = mtk_p2p_cfg80211_add_key,
+@@ -1014,8 +1014,8 @@ unsigned int _p2p_cfg80211_classify8021d(struct sk_buff *skb)
+ 
+ static const UINT_16 au16Wlan1dToQueueIdx[8] = { 1, 0, 0, 1, 2, 2, 3, 3 };
+ 
+-static UINT_16 p2pSelectQueue(struct net_device *dev, struct sk_buff *skb,
+-				void *accel_priv, select_queue_fallback_t fallback)
++static u16 p2pSelectQueue(struct net_device *dev, struct sk_buff *skb,
++			  struct net_device *sb_dev)
+ {
+ 	skb->priority = _p2p_cfg80211_classify8021d(skb);
+ 
+@@ -1606,8 +1606,8 @@ BOOLEAN glRegisterP2P(P_GLUE_INFO_T prGlueInfo, const char *prDevName, BOOLEAN f
+ 	/* 4.2 fill hardware address */
+ 	COPY_MAC_ADDR(rMacAddr, prAdapter->rMyMacAddr);
+ 	rMacAddr[0] ^= 0x2;	/* change to local administrated address */
+-	ether_addr_copy(prDevHandler->dev_addr, rMacAddr);
+-	ether_addr_copy(prDevHandler->perm_addr, prDevHandler->dev_addr);
++	eth_hw_addr_set(prDevHandler, rMacAddr);
++	ether_addr_copy(prDevHandler->perm_addr, rMacAddr);
+ 
+ 	/* 4.3 register callback functions */
+ 	prDevHandler->netdev_ops = &p2p_netdev_ops;
+@@ -1822,7 +1822,8 @@ static int p2pStop(IN struct net_device *prDev)
+ 	GLUE_RELEASE_SPIN_LOCK(prGlueInfo, SPIN_LOCK_NET_DEV);
+ 
+ 	if (prScanRequest)
+-		cfg80211_scan_done(prScanRequest, TRUE);
++		cfg80211_scan_done(prScanRequest,
++			&(struct cfg80211_scan_info) { .aborted = true });
+ #if 0
+ 
+ 	/* 1. stop TX queue */
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_cfg80211.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_cfg80211.c
+index c936782b6..a51ee6e7f 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_cfg80211.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_cfg80211.c
+@@ -150,7 +150,7 @@
+ */
+ 
+ int mtk_p2p_cfg80211_add_key(struct wiphy *wiphy,
+-			     struct net_device *ndev,
++			     struct net_device *ndev, int link_id,
+ 			     u8 key_index, bool pairwise, const u8 *mac_addr, struct key_params *params)
+ {
+ 	P_GLUE_INFO_T prGlueInfo = NULL;
+@@ -209,7 +209,7 @@ int mtk_p2p_cfg80211_add_key(struct wiphy *wiphy,
+ }
+ 
+ int mtk_p2p_cfg80211_get_key(struct wiphy *wiphy,
+-			     struct net_device *ndev,
++			     struct net_device *ndev, int link_id,
+ 			     u8 key_index,
+ 			     bool pairwise,
+ 			     const u8 *mac_addr, void *cookie, void (*callback) (void *cookie, struct key_params *)
+@@ -227,7 +227,7 @@ int mtk_p2p_cfg80211_get_key(struct wiphy *wiphy,
+ }
+ 
+ int mtk_p2p_cfg80211_del_key(struct wiphy *wiphy,
+-			     struct net_device *ndev, u8 key_index, bool pairwise, const u8 *mac_addr)
++			     struct net_device *ndev, int link_id, u8 key_index, bool pairwise, const u8 *mac_addr)
+ {
+ 	P_GLUE_INFO_T prGlueInfo = NULL;
+ 	PARAM_REMOVE_KEY_T prRemoveKey;
+@@ -262,7 +262,7 @@ int mtk_p2p_cfg80211_del_key(struct wiphy *wiphy,
+ 
+ int
+ mtk_p2p_cfg80211_set_default_key(struct wiphy *wiphy,
+-				 struct net_device *netdev, u8 key_index, bool unicast, bool multicast)
++				 struct net_device *netdev, int link_id, u8 key_index, bool unicast, bool multicast)
+ {
+ 	P_GLUE_INFO_T prGlueInfo = NULL;
+ 
+@@ -573,8 +573,7 @@ int mtk_p2p_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev, struc
+ 	PUINT_8 pucBuffer = (PUINT_8) NULL;
+ 	/* P_IE_SSID_T prSsidIE = (P_IE_SSID_T)NULL; */
+ 
+-	struct wireless_dev *wdev = dev->ieee80211_ptr;
+-	struct cfg80211_chan_def *chandef = &wdev->preset_chandef;
++	struct cfg80211_chan_def *chandef = settings ? &settings->chandef : NULL;
+ 
+ 	do {
+ 		if ((wiphy == NULL) || (settings == NULL))
+@@ -717,8 +716,9 @@ int mtk_p2p_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev, struc
+ 	return i4Rslt;
+ }				/* mtk_p2p_cfg80211_start_ap */
+ 
+-int mtk_p2p_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev, struct cfg80211_beacon_data *info)
++int mtk_p2p_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev, struct cfg80211_ap_update *upd)
+ {
++	struct cfg80211_beacon_data *info = upd ? &upd->beacon : NULL;
+ 	P_GLUE_INFO_T prGlueInfo = (P_GLUE_INFO_T) NULL;
+ 	INT_32 i4Rslt = -EINVAL;
+ 	P_MSG_P2P_BEACON_UPDATE_T prP2pBcnUpdateMsg = (P_MSG_P2P_BEACON_UPDATE_T) NULL;
+@@ -828,7 +828,7 @@ int mtk_p2p_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev,
+ 	return i4Rslt;
+ }				/* mtk_p2p_cfg80211_change_beacon */
+ 
+-int mtk_p2p_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev)
++int mtk_p2p_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev, unsigned int link_id)
+ {
+ 	P_GLUE_INFO_T prGlueInfo = (P_GLUE_INFO_T) NULL;
+ 	INT_32 i4Rslt = -EINVAL;
+@@ -1100,8 +1100,9 @@ int mtk_p2p_cfg80211_change_bss(struct wiphy *wiphy, struct net_device *dev, str
+ 	return i4Rslt;
+ }				/* mtk_p2p_cfg80211_change_bss */
+ 
+-int mtk_p2p_cfg80211_del_station(struct wiphy *wiphy, struct net_device *dev, const u8 *mac)
++int mtk_p2p_cfg80211_del_station(struct wiphy *wiphy, struct net_device *dev, struct station_del_parameters *params)
+ {
++	const u8 *mac = params ? params->mac : NULL;
+ 	P_GLUE_INFO_T prGlueInfo = (P_GLUE_INFO_T) NULL;
+ 	INT_32 i4Rslt = -EINVAL;
+ 	P_MSG_P2P_CONNECTION_ABORT_T prDisconnectMsg = (P_MSG_P2P_CONNECTION_ABORT_T) NULL;
+@@ -1233,7 +1234,7 @@ int mtk_p2p_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev, u16
+ int
+ mtk_p2p_cfg80211_change_iface(IN struct wiphy *wiphy,
+ 			      IN struct net_device *ndev,
+-			      IN enum nl80211_iftype type, IN u32 *flags, IN struct vif_params *params)
++			      IN enum nl80211_iftype type, IN struct vif_params *params)
+ {
+ 	P_GLUE_INFO_T prGlueInfo = (P_GLUE_INFO_T) NULL;
+ 	INT_32 i4Rslt = -EINVAL;
+@@ -1308,7 +1309,8 @@ int mtk_p2p_cfg80211_set_channel(IN struct wiphy *wiphy,
+ 		DBGLOG(P2P, TRACE, "mtk_p2p_cfg80211_set_channel.\n");
+ 
+ 		prGlueInfo = *((P_GLUE_INFO_T *) wiphy_priv(wiphy));
+-		mtk_p2p_cfg80211func_channel_format_switch(chandef->chan, chandef->width, &rRfChnlInfo, NULL);
++		mtk_p2p_cfg80211func_channel_format_switch(chandef->chan, cfg80211_get_chandef_type(chandef),
++							   &rRfChnlInfo, NULL);
+ 		p2pFuncSetChannel(prGlueInfo->prAdapter, &rRfChnlInfo);
+ 
+ 		i4Rslt = 0;
+@@ -1320,9 +1322,15 @@ int mtk_p2p_cfg80211_set_channel(IN struct wiphy *wiphy,
+ 
+ /* mtk_p2p_cfg80211_set_channel */
+ 
++int mtk_p2p_cfg80211_set_monitor_channel(IN struct wiphy *wiphy, IN struct net_device *dev,
++					 struct cfg80211_chan_def *chandef)
++{
++	return mtk_p2p_cfg80211_set_channel(wiphy, chandef);
++}
++
+ int
+ mtk_p2p_cfg80211_set_bitrate_mask(IN struct wiphy *wiphy,
+-				  IN struct net_device *dev,
++				  IN struct net_device *dev, IN unsigned int link_id,
+ 				  IN const u8 *peer, IN const struct cfg80211_bitrate_mask *mask)
+ {
+ 	INT_32 i4Rslt = -EINVAL;
+@@ -1421,6 +1429,20 @@ void mtk_p2p_cfg80211_mgmt_frame_register(IN struct wiphy *wiphy,
+ 
+ }				/* mtk_p2p_cfg80211_mgmt_frame_register */
+ 
++/* Linux 5.8 replaced mgmt_frame_register with one call carrying the full set
++ * of registered subtypes; the driver filters only probe requests and action
++ * frames. */
++void mtk_p2p_cfg80211_update_mgmt_frame_registrations(struct wiphy *wiphy, struct wireless_dev *wdev,
++						      struct mgmt_frame_regs *upd)
++{
++	if (upd == NULL)
++		return;
++	mtk_p2p_cfg80211_mgmt_frame_register(wiphy, wdev, MAC_FRAME_PROBE_REQ,
++					     !!(upd->interface_stypes & BIT(IEEE80211_STYPE_PROBE_REQ >> 4)));
++	mtk_p2p_cfg80211_mgmt_frame_register(wiphy, wdev, MAC_FRAME_ACTION,
++					     !!(upd->interface_stypes & BIT(IEEE80211_STYPE_ACTION >> 4)));
++}
++
+ BOOLEAN
+ mtk_p2p_cfg80211func_channel_format_switch(IN struct ieee80211_channel *channel,
+ 					   IN enum nl80211_channel_type channel_type,
+@@ -1479,7 +1501,7 @@ mtk_p2p_cfg80211func_channel_format_switch(IN struct ieee80211_channel *channel,
+ 
+ /* mtk_p2p_cfg80211func_channel_format_switch */
+ 
+-#if CONFIG_NL80211_TESTMODE
++#ifdef CONFIG_NL80211_TESTMODE
+ int mtk_p2p_cfg80211_testmode_cmd(IN struct wiphy *wiphy, IN struct wireless_dev *wdev, IN void *data, IN int len)
+ {
+ 	P_GLUE_INFO_T prGlueInfo = NULL;
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_kal.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_kal.c
+index dc515eabd..be2c3cc64 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_kal.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/gl_p2p_kal.c
+@@ -906,7 +906,8 @@ VOID kalP2PIndicateScanDone(IN P_GLUE_INFO_T prGlueInfo, IN BOOLEAN fgIsAbort)
+ 			scanReportBss2Cfg80211(prGlueInfo->prAdapter, BSS_TYPE_P2P_DEVICE, NULL);
+ 
+ 			DBGLOG(INIT, TRACE, "DBG:p2p_cfg_scan_done\n");
+-			cfg80211_scan_done(prScanRequest, fgIsAbort);
++			cfg80211_scan_done(prScanRequest,
++				&(struct cfg80211_scan_info) { .aborted = fgIsAbort });
+ 		}
+ 
+ 	} while (FALSE);
+@@ -1054,7 +1055,7 @@ kalP2PGCIndicateConnectionStatus(IN P_GLUE_INFO_T prGlueInfo,
+ 		} else {
+ 			/* Disconnect, what if u2StatusReason == 0? */
+ 			cfg80211_disconnected(prGlueP2pInfo->prDevHandler,	/* struct net_device * dev, */
+-					      u2StatusReason, pucRxIEBuf, u2RxIELen, GFP_KERNEL);
++					      u2StatusReason, pucRxIEBuf, u2RxIELen, false, GFP_KERNEL);
+ 		}
+ 
+ 	} while (FALSE);
+@@ -1073,7 +1074,7 @@ VOID kalP2PGOStationUpdate(IN P_GLUE_INFO_T prGlueInfo, IN P_STA_RECORD_T prCliS
+ 		prP2pGlueInfo = prGlueInfo->prP2PInfo;
+ 
+ 		if (fgIsNew) {
+-			rStationInfo.filled = STATION_INFO_ASSOC_REQ_IES;
++			memset(&rStationInfo, 0, sizeof(rStationInfo));
+ 			rStationInfo.generation = ++prP2pGlueInfo->i4Generation;
+ 
+ 			rStationInfo.assoc_req_ies = prCliStaRec->pucAssocReqIe;
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_ioctl.h b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_ioctl.h
+index cad48ca36..a167fff31 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_ioctl.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_ioctl.h
+@@ -501,25 +501,25 @@ typedef struct iw_p2p_version {
+ #if (CFG_ENABLE_WIFI_DIRECT_CFG_80211 != 0)
+ int mtk_p2p_cfg80211_change_iface(struct wiphy *wiphy,
+ 				  struct net_device *ndev,
+-				  enum nl80211_iftype type, u32 *flags, struct vif_params *params);
++				  enum nl80211_iftype type, struct vif_params *params);
+ 
+ int mtk_p2p_cfg80211_add_key(struct wiphy *wiphy,
+-			     struct net_device *ndev,
++			     struct net_device *ndev, int link_id,
+ 			     u8 key_index, bool pairwise, const u8 *mac_addr, struct key_params *params);
+ 
+ int mtk_p2p_cfg80211_get_key(struct wiphy *wiphy,
+-			     struct net_device *ndev,
++			     struct net_device *ndev, int link_id,
+ 			     u8 key_index,
+ 			     bool pairwise,
+ 			     const u8 *mac_addr, void *cookie, void (*callback) (void *cookie, struct key_params *)
+ );
+ 
+ int mtk_p2p_cfg80211_del_key(struct wiphy *wiphy,
+-			     struct net_device *ndev, u8 key_index, bool pairwise, const u8 *mac_addr);
++			     struct net_device *ndev, int link_id, u8 key_index, bool pairwise, const u8 *mac_addr);
+ 
+ int
+ mtk_p2p_cfg80211_set_default_key(struct wiphy *wiphy,
+-				 struct net_device *netdev, u8 key_index, bool unicast, bool multicast);
++				 struct net_device *netdev, int link_id, u8 key_index, bool unicast, bool multicast);
+ 
+ int mtk_p2p_cfg80211_get_station(struct wiphy *wiphy, struct net_device *ndev,
+ 					const u8 *mac, struct station_info *sinfo);
+@@ -557,21 +557,26 @@ int mtk_p2p_cfg80211_disassoc(struct wiphy *wiphy, struct net_device *dev, struc
+ 
+ int mtk_p2p_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *dev, struct cfg80211_ap_settings *settings);
+ 
+-int mtk_p2p_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev, struct cfg80211_beacon_data *info);
++int mtk_p2p_cfg80211_change_beacon(struct wiphy *wiphy, struct net_device *dev, struct cfg80211_ap_update *upd);
+ 
+ int mtk_p2p_cfg80211_mgmt_tx(struct wiphy *wiphy,
+ 			     struct wireless_dev *wdev,
+ 			     struct cfg80211_mgmt_tx_params *params,
+ 			     u64 *cookie);
+ 
+-int mtk_p2p_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev);
++int mtk_p2p_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev, unsigned int link_id);
+ 
+-int mtk_p2p_cfg80211_del_station(struct wiphy *wiphy, struct net_device *dev, const u8 *mac);
++int mtk_p2p_cfg80211_del_station(struct wiphy *wiphy, struct net_device *dev, struct station_del_parameters *params);
+ 
+ int mtk_p2p_cfg80211_set_channel(struct wiphy *wiphy, struct cfg80211_chan_def *chandef);
+ 
++int mtk_p2p_cfg80211_set_monitor_channel(struct wiphy *wiphy, struct net_device *dev, struct cfg80211_chan_def *chandef);
++
+ void mtk_p2p_cfg80211_mgmt_frame_register(struct wiphy *wiphy, struct wireless_dev *wdev, u16 frame_type, bool reg);
+ 
++void mtk_p2p_cfg80211_update_mgmt_frame_registrations(struct wiphy *wiphy, struct wireless_dev *wdev,
++						      struct mgmt_frame_regs *upd);
++
+ BOOLEAN
+ mtk_p2p_cfg80211func_channel_format_switch(IN struct ieee80211_channel *channel,
+ 					   IN enum nl80211_channel_type channel_type,
+@@ -579,10 +584,10 @@ mtk_p2p_cfg80211func_channel_format_switch(IN struct ieee80211_channel *channel,
+ 
+ int
+ mtk_p2p_cfg80211_set_bitrate_mask(IN struct wiphy *wiphy,
+-				  IN struct net_device *dev,
++				  IN struct net_device *dev, IN unsigned int link_id,
+ 				  IN const u8 *peer, IN const struct cfg80211_bitrate_mask *mask);
+ 
+-#if CONFIG_NL80211_TESTMODE
++#ifdef CONFIG_NL80211_TESTMODE
+ int mtk_p2p_cfg80211_testmode_cmd(IN struct wiphy *wiphy, IN struct wireless_dev *wdev, IN void *data, IN int len);
+ int mtk_p2p_cfg80211_testmode_p2p_sigma_pre_cmd(IN struct wiphy *wiphy, IN void *data, IN int len);
+ int mtk_p2p_cfg80211_testmode_p2p_sigma_cmd(IN struct wiphy *wiphy, IN void *data, IN int len);
+@@ -592,8 +597,6 @@ int mtk_p2p_cfg80211_testmode_wfd_update_cmd(IN struct wiphy *wiphy, IN void *da
+ #endif
+ 
+ int mtk_p2p_cfg80211_testmode_hotspot_block_cmd(IN struct wiphy *wiphy, IN void *data, IN int len);
+-#else
+-#error "Please ENABLE kernel config (CONFIG_NL80211_TESTMODE) to support Wi-Fi Direct"
+ #endif
+ 
+ #endif
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_os.h b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_os.h
+index c5eb25629..3aa24a1c3 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_os.h
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/os/linux/include/gl_p2p_os.h
+@@ -130,7 +130,7 @@ struct _GL_P2P_INFO_T {
+ #endif
+ };
+ 
+-#if CONFIG_NL80211_TESTMODE
++#ifdef CONFIG_NL80211_TESTMODE
+ typedef struct _NL80211_DRIVER_TEST_PRE_PARAMS {
+ 	UINT_16 idx_mode;
+ 	UINT_16 idx;
