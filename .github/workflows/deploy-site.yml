@@ -36,6 +36,9 @@ jobs:
         run: npm ci
       - name: Build
         working-directory: website
+        env:
+          SITE_URL: https://getpinna.dev
+          SITE_BASE: /
         run: npm run build
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
