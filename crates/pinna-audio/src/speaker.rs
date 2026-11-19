@@ -14,6 +14,7 @@
 //! streamed URL, see [`crate::media`]). Media is ducked under the voice lane
 //! and while [`Speaker::duck`] is held.
 
+use crate::clock::{PointerAnchor, monotonic_now, parse_boundary, parse_pointer};
 use crate::decode::{OUT_RATE, Pcm};
 use crate::media::{
     Decoder, MediaHandle, MediaLane, MediaPhase, MediaState, Pull, VoiceSource, open_voice,
@@ -749,9 +750,59 @@ struct Session {
     chain: Option<crate::chain::SpeakerChain>,
     /// Echo-cancellation reference into PipeWire (EchoDotPipeWire).
     reference: Option<crate::refsink::RefTap>,
+    /// Corrects `anchor_t` from the playback PCM's hardware pointer (the
+    /// Echo backends, ADR 0027 §10).
+    pointer: Option<PointerAnchor>,
+}
+
+/// `a - b` in seconds, negative when `a` is earlier.
+fn signed_secs(a: Instant, b: Instant) -> f64 {
+    if a >= b {
+        (a - b).as_secs_f64()
+    } else {
+        -(b - a).as_secs_f64()
+    }
 }
 
 impl Session {
+    /// Move the frame-to-time mapping `secs` later (earlier if negative).
+    fn shift(&mut self, secs: f64) {
+        let d = Duration::from_secs_f64(secs.abs());
+        self.anchor_t = if secs >= 0.0 {
+            self.anchor_t + d
+        } else {
+            self.anchor_t.checked_sub(d).unwrap_or(self.anchor_t)
+        };
+    }
+
+    /// Correct the mapping from a speaker status sample. `mono_now` and
+    /// `now` were read together: they convert the PCM's monotonic timestamps
+    /// into [`Instant`]s.
+    fn follow_pointer(&mut self, status: &str, sw_params: &Path, mono_now: f64, now: Instant) {
+        let Some(sample) = parse_pointer(status) else {
+            return;
+        };
+        let written = self.frames_written;
+        let Some(p) = self.pointer.as_mut() else {
+            return;
+        };
+        if sample.running && p.needs_boundary() {
+            // Read once: without it, a wrap counts as a restart.
+            p.set_boundary(
+                std::fs::read_to_string(sw_params)
+                    .ok()
+                    .and_then(|t| parse_boundary(&t)),
+            );
+        }
+        // `time_of`, in monotonic seconds.
+        let anchor = mono_now + signed_secs(self.anchor_t, now);
+        let (anchor_frame, rate) = (self.anchor_frame as f64, self.rate);
+        let predicted = |f: u64| anchor + (f as f64 - anchor_frame) / rate;
+        if let Some(secs) = p.update(&sample, mono_now, written, predicted) {
+            self.shift(secs);
+        }
+    }
+
     fn time_of(&self, frame: u64) -> Instant {
         let df = frame as f64 - self.anchor_frame as f64;
         if df >= 0.0 {
@@ -874,6 +925,9 @@ struct Clocks {
     d_spk: f64,
     d_mic: f64,
     logged: Instant,
+    /// The speaker's latest status, with `CLOCK_MONOTONIC` and the
+    /// [`Instant`] read together after it (for [`Session::follow_pointer`]).
+    spk_status: Option<(String, f64, Instant)>,
 }
 
 impl Clocks {
@@ -885,7 +939,13 @@ impl Clocks {
             d_spk: 0.0,
             d_mic: 0.0,
             logged: Instant::now(),
+            spk_status: None,
         }
+    }
+
+    /// The speaker PCM's `sw_params` (its pointer boundary), next to its status.
+    fn spk_sw_params(&self) -> PathBuf {
+        self.spk.path().with_file_name("sw_params")
     }
 
     /// Sample both clocks (every 200 ms) and update the estimates.
@@ -894,7 +954,10 @@ impl Clocks {
             return false;
         }
         self.last = now;
-        self.spk.sample(now);
+        self.spk_status = self
+            .spk
+            .sample_text(now)
+            .map(|text| (text, monotonic_now(), Instant::now()));
         self.mic.sample(now);
         let mut changed = false;
         if let Some(d) = self.spk.deviation() {
@@ -1142,6 +1205,12 @@ impl Actor {
                     r.set_step(c.ref_step());
                 }
             }
+            if let Some(c) = self.clocks.as_mut()
+                && let Some((status, mono, at)) = c.spk_status.take()
+                && let Some(s) = self.session.as_mut()
+            {
+                s.follow_pointer(&status, &c.spk_sw_params(), mono, at);
+            }
             // Complete clips whose last frame has sounded.
             while let Some((end, _)) = self.finishing.front() {
                 if self
@@ -1271,6 +1340,11 @@ impl Actor {
             frames_written: 0,
             chain: echo.then(crate::chain::SpeakerChain::new),
             reference,
+            // The PCM just opened: its pointer counts this session's frames.
+            pointer: self
+                .clocks
+                .is_some()
+                .then(|| PointerAnchor::new(f64::from(OUT_RATE))),
         };
         let result: Result<()> = async {
             // Pre-roll: twice the lead of silence. The player starts the PCM
@@ -1792,6 +1866,53 @@ mod tests {
         tx.send(Item::Data(vec![7; 1920])).unwrap();
         assert_eq!(left(&mut f, 2), [7, 7]);
         assert_eq!(f.media.phase(), MediaPhase::Playing);
+    }
+
+    /// A session without a player, whose frame 0 is mapped to `anchor`.
+    fn null_session(anchor: Instant, written: u64) -> Session {
+        Session {
+            sink: Sink::Null,
+            anchor_t: anchor,
+            anchor_frame: 0,
+            rate: 48_000.0,
+            frames_written: written,
+            chain: None,
+            reference: None,
+            pointer: Some(PointerAnchor::new(48_000.0)),
+        }
+    }
+
+    #[test]
+    fn the_session_follows_the_hardware_pointer() {
+        let now = Instant::now();
+        let mono = 1000.0;
+        let mut s = null_session(now - Duration::from_millis(300), 20_000);
+        // The pointer says frame 14400 played 8 ms ago, on the monotonic
+        // clock; the mapping put it at now.
+        let status = |hw: u64, tstamp: f64| {
+            format!(
+                "state: RUNNING\ntstamp      : {tstamp:.9}\nhw_ptr      : {hw}\nappl_ptr    : {}\n",
+                hw + 4800
+            )
+        };
+        let none = Path::new("/nonexistent/sw_params");
+        s.follow_pointer(&status(14_400, mono - 0.008), none, mono, now);
+        let err = signed_secs(s.time_of(14_400), now) + 0.008;
+        assert!(err.abs() < 1e-6, "{err}");
+        // A stopped PCM or a closed one changes nothing.
+        let before = s.anchor_t;
+        s.follow_pointer(
+            &status(14_400, mono).replace("RUNNING", "XRUN"),
+            none,
+            mono,
+            now,
+        );
+        s.follow_pointer("closed\n", none, mono, now);
+        assert_eq!(s.anchor_t, before);
+        // Without a pointer (PipeWire), nothing either.
+        s.pointer = None;
+        s.follow_pointer(&status(14_400, mono - 0.5), none, mono, now);
+        assert_eq!(s.anchor_t, before);
     }
 
     #[test]
