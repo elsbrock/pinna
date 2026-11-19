@@ -1,6 +1,8 @@
 # ADR 0013: Several wake words, two at a time, custom ones from the dashboard
 
-Status: proposed (2026-11-15), accepted in part (2026-11-17). Amends ADR 0007; builds on ADR 0005.
+Status: proposed (2026-11-15), accepted in part (2026-11-17), amended (2026-11-19): an uploaded model
+is tested in a separate process, on silence, noise and time, and Home Assistant reconnects after a
+word is added or removed. Amends ADR 0007; builds on ADR 0005.
 
 Built: several words with at most two active, the built-in table, `wake_words`
 in `settings.toml`, the dashboard choosing only while Home Assistant isn't
@@ -67,10 +69,22 @@ the near-miss log line names the word that scored instead.
   - Accepted: `.onnx` and `.tflite`, recognised by their content, at most 2 MiB, at most 8 custom words.
   - The phrase is 2 to 40 characters and unique (ignoring case). Home Assistant maps phrases to ids, so
     two words with the same phrase would collide there.
-  - The model has to load as a classifier from `[1,N,96]` floats to one score and run once. A model that
-    fails is rejected with a sentence the dashboard shows, naming a microWakeWord model as such, and
-    nothing is written.
+  - **An upload is tested in a separate process before anything is written.** pinnad runs itself
+    (`pinnad --check-wake-word FILE`) at the lowest CPU priority, with at most 256 MiB of address
+    space, 30 s of CPU time and 60 s in all. The test:
+    - loads the model as a classifier from `[1,N,96]` floats to one score;
+    - runs it in the whole detector (mel, embedding, classifier) on silence and on generated noise. A
+      model whose score reaches the wake threshold at the satellite's current sensitivity is refused:
+      it would wake the satellite by itself;
+    - times the classifier. One that needs more than 8 ms per 80 ms block, a tenth of the block, is
+      refused: two such words would leave the audio path too little time. The time is the fastest of
+      20 runs, so the test's low priority doesn't count against the model.
+  - A refusal is a sentence the dashboard shows, naming a microWakeWord model as such. A test that a
+    limit stops, or that crashes, is refused too. Only a test that passes lets pinnad write the model.
   - Adding and removing go through one task, so two dashboards can't overshoot the limit or lose a write.
+  - After a word is added or removed, pinnad asks Home Assistant to reconnect once the satellite is quiet,
+    as after a rename. Home Assistant reads the list of words only when it connects and never reconnects
+    by itself; dropping the connection at once would cut off a request, an announcement or music.
   - Each word reports the peak score of the last utterance it heard, so an owner can tell a word that
     never fires from one that nearly does.
 - **A custom word never stops pinnad from starting.**
@@ -93,9 +107,11 @@ the near-miss log line names the word that scored instead.
 ## Consequences
 
 - Okay Nabu and most community models work without converting anything.
-- The checks on an uploaded model run in pinnad, in a blocking task that catches a panic. A model built to
-  exhaust memory could still take pinnad down. Running the check in a separate process is left out: under
-  ADR 0005, anyone on the LAN can already control the satellite.
+- The test runs outside pinnad, so a model built to exhaust memory or to crash tract takes down only the
+  test. A model that passes runs inside pinnad, like the built-in words; the loading mark covers one that
+  still crashes it. The test holds a second copy of the shared models in memory for a few seconds.
+- A word that passes the test can still be a poor word: the test shows that it stays quiet on silence and
+  noise, not that it wakes on the phrase.
 - A word chosen on the dashboard while Home Assistant was away shows as "No wake word" in Home Assistant
   until someone chooses there. Fixing that needs Home Assistant's dropdowns to adopt the device's words.
 - `wake_words` needs `settings.toml` to ignore keys it doesn't know (ADR 0007), released first, so a
