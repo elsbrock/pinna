@@ -296,6 +296,7 @@ pub struct SettingsPatch {
     pub listening_direction: Option<bool>,
     /// Never set while pinnad.toml sets `[update] manifest` (the API refuses it).
     pub update_channel: Option<crate::updates::UpdateChannel>,
+    pub group_messages: Option<bool>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -1210,6 +1211,18 @@ impl Brain {
         .await;
     }
 
+    /// The *Group messages* switch (ADR 0026): whether `Deliver` takes
+    /// messages from the other members. Messages already held still play.
+    async fn set_group_messages(&mut self, on: bool) {
+        tracing::info!("group messages: {on}");
+        self.settings.group_messages = Some(on);
+        self.send(DeviceEvent::SwitchState {
+            object_id: "group_messages".into(),
+            on,
+        })
+        .await;
+    }
+
     /// Rename (ADR 0007): the device info and the mDNS record at once; Home
     /// Assistant reads the name when it reconnects, once the satellite is idle.
     async fn set_friendly_name(&mut self, name: String) {
@@ -1482,6 +1495,11 @@ impl Brain {
                     on: self.wake_sound(),
                 })
                 .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "group_messages".into(),
+                    on: self.settings.group_messages(),
+                })
+                .await;
                 self.send_calibration_switch(self.calibration.is_some())
                     .await;
                 self.send_media_state().await;
@@ -1575,6 +1593,10 @@ impl Brain {
             }
             HaCommand::Switch { object_id, on } if object_id == "wake_sound" => {
                 self.set_wake_sound(on).await;
+                self.store.save(&self.settings);
+            }
+            HaCommand::Switch { object_id, on } if object_id == "group_messages" => {
+                self.set_group_messages(on).await;
                 self.store.save(&self.settings);
             }
             HaCommand::Switch { object_id, on } if object_id == "airplay" => {
@@ -1931,6 +1953,9 @@ impl Brain {
         }
         if let Some(c) = patch.update_channel {
             self.set_update_channel(c).await;
+        }
+        if let Some(on) = patch.group_messages {
+            self.set_group_messages(on).await;
         }
         // Applied, but a restart would undo it: say so (ADR 0007).
         self.store.try_save(&self.settings).map_err(|e| {

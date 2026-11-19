@@ -119,6 +119,10 @@ pub struct Settings {
     /// `None`: `updates::default_channel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_channel: Option<crate::updates::UpdateChannel>,
+    /// Messages from the other members of the satellite group ("Group
+    /// messages" switch, ADR 0026). `None`: on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_messages: Option<bool>,
     /// Keys a newer pinnad wrote, kept as they are.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -145,6 +149,7 @@ impl Default for Settings {
             airplay: false,
             bluetooth: false,
             update_channel: None,
+            group_messages: None,
             extra: toml::Table::new(),
         }
     }
@@ -157,6 +162,12 @@ impl Settings {
 
     pub fn wake_threshold(&self) -> f32 {
         pinna_wakeword::WakeConfig::threshold_for_sensitivity(self.wake_sensitivity)
+    }
+
+    /// Whether the satellite takes messages from the group: on until the
+    /// owner switches it off.
+    pub fn group_messages(&self) -> bool {
+        self.group_messages.unwrap_or(true)
     }
 }
 
@@ -486,16 +497,20 @@ mod tests {
                 && !text.contains("time_zone")
                 && !text.contains("wake_sound")
                 && !text.contains("url")
+                && !text.contains("group_messages")
         );
+        assert!(rolled_back.group_messages());
         let named = Settings {
             friendly_name: Some("Küche".into()),
             hostname: Some("kueche".into()),
             time_zone: Some("Europe/Berlin".into()),
             wake_sound: Some(true),
             url: Some("https://dot.example.com/".into()),
+            group_messages: Some(false),
             ..Default::default()
         };
         store.try_save(&named).unwrap();
+        assert!(!named.group_messages());
         assert_eq!(Store::load(&path, FILE_MODE, Settings::default()).1, named);
         // The old host names are no setting any more, but stay in the file.
         std::fs::write(&path, "allowed_hosts = [\"x\"]\n").unwrap();

@@ -288,6 +288,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             listening_direction: s.settings.listening_direction,
             update_channel: proto_channel(s.update_channel).into(),
             mode: api_mode(s.settings.mode).into(),
+            group_messages: s.settings.group_messages(),
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
@@ -777,6 +778,7 @@ impl DeviceService for DeviceApi {
             reply_volume: percent("reply_volume", request.reply_volume)?,
             reply_follows_volume: request.reply_follows_volume,
             listening_direction: request.listening_direction,
+            group_messages: request.group_messages,
         };
         if patch.reply_follows_volume == Some(true) && patch.reply_volume.is_some() {
             return Err(ConnectError::invalid_argument(
@@ -2038,6 +2040,25 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(follows.reply_volume, None);
+    }
+
+    #[tokio::test]
+    async fn group_messages_is_on_until_switched_off() {
+        let (c, _inputs) = start_device().await;
+        let settings = |s: Status| s.settings.into_option().unwrap();
+        assert!(settings(status(&c).await).group_messages);
+
+        let off = c
+            .update_settings(pinna_api::UpdateSettingsRequest {
+                group_messages: Some(false),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        assert!(!settings(off.status.into_option().unwrap()).group_messages);
+        assert!(!settings(status(&c).await).group_messages);
     }
 
     #[tokio::test]

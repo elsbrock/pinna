@@ -32,6 +32,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   // UPDATE_CHANNEL_STABLE
   updateChannel: 1,
   mode: 0,
+  groupMessages: true,
   ...over,
 });
 import {

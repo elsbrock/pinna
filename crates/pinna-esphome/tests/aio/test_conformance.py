@@ -172,9 +172,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    # 1 light, 9 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
+    # 1 light, 10 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
     # 1 media player, 2 selects and 1 update.
-    assert len(by_key) == len(entities) == 1 + 9 + 4 + 1 + 8 + 1 + 1 + 2 + 1
+    assert len(by_key) == len(entities) == 1 + 10 + 4 + 1 + 8 + 1 + 1 + 2 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -423,6 +423,22 @@ async def test_notification_switch(client, demo):
     cmd = await demo.wait(demo.cmd("switch"), "switch command")
     assert cmd["object_id"] == "notification" and cmd["state"] is True
     await eventually(lambda: states[n.key].state is True, "echoed notification switch")
+
+
+@pytest.mark.asyncio
+async def test_group_messages_switch(client, demo):
+    switches = await infos(client, SwitchInfo)
+    g = switches["Group messages"]
+    assert g.object_id == "group_messages" and g.icon == "mdi:message-text-outline"
+    assert int(g.entity_category) == 0  # a control, not config
+    assert g.key not in (MUTE_KEY, switches["Notification"].key)
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: g.key in states, "initial group messages switch state")
+    client.switch_command(g.key, True)
+    cmd = await demo.wait(demo.cmd("switch"), "switch command")
+    assert cmd["object_id"] == "group_messages" and cmd["state"] is True
+    await eventually(lambda: states[g.key].state is True, "echoed group messages switch")
 
 
 @pytest.mark.asyncio

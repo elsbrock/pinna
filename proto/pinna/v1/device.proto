@@ -487,6 +487,10 @@ message Settings {
   UpdateChannel update_channel = 16;
   // Which service runs voice requests (ADR 0017).
   Mode mode = 17;
+  // The satellite takes messages from the other members of its satellite
+  // group (ADR 0026), Home Assistant's "Group messages" switch. On by
+  // default. It does nothing in Home Assistant mode or outside a group.
+  bool group_messages = 18;
 }
 
 // Where the satellite looks for releases (ADR 0022).
@@ -624,6 +628,9 @@ message UpdateSettingsRequest {
   optional UpdateChannel update_channel = 17;
   // Standalone mode is refused until its services are configured (ADR 0017).
   optional Mode mode = 18;
+  // Off: messages from the satellite group are refused. Messages already
+  // held still play.
+  optional bool group_messages = 19;
 }
 
 // Only the fields that are set change.

@@ -441,3 +441,33 @@ async fn the_run_loop_rewrites_the_record_when_the_group_changes() {
         } => {}
     }
 }
+
+/// Home Assistant's *Group messages* switch (ADR 0026): it reports the
+/// setting when Home Assistant connects, and a change is saved and echoed.
+#[tokio::test]
+async fn group_messages_is_a_home_assistant_switch() {
+    let mut d = Device::new();
+    let state = |on| DeviceEvent::SwitchState {
+        object_id: "group_messages".into(),
+        on,
+    };
+    d.ha(HaCommand::ClientConnected {
+        peer: "192.0.2.1:6053".into(),
+    })
+    .await;
+    let mut events = Vec::new();
+    while let Ok(event) = d.events.try_recv() {
+        events.push(event);
+    }
+    assert!(events.contains(&state(true)), "{events:?}");
+
+    d.ha(HaCommand::Switch {
+        object_id: "group_messages".into(),
+        on: false,
+    })
+    .await;
+    d.expect(&[state(false)]);
+    assert!(!d.brain.settings.group_messages());
+    let saved = std::fs::read_to_string(d._dir.path().join("settings.toml")).unwrap();
+    assert!(saved.contains("group_messages = false"), "{saved}");
+}

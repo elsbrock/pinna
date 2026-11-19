@@ -122,6 +122,15 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             icon: "mdi:bell-ring".into(),
             entity_category: EntityCategory::None,
         },
+        // Messages from the other members of the satellite group (ADR 0026).
+        // A control, not configuration: an automation turns it off at night.
+        // Listed in both modes, like the Voice mode select.
+        SwitchConfig {
+            object_id: "group_messages".into(),
+            name: "Group messages".into(),
+            icon: "mdi:message-text-outline".into(),
+            entity_category: EntityCategory::None,
+        },
     ];
     cfg.numbers = vec![
         number("volume", "Volume", Some("%"), "mdi:volume-high"),
