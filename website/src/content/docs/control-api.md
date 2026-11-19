@@ -272,8 +272,7 @@ other call and answer is signed with the group's key: `GetGroup` returns the
 member list, and `PutGroup` hands one over. A call with a wrong signature
 returns `unauthenticated`, a call for a group this satellite isn't in returns
 `failed_precondition`, and a caller that isn't a member returns
-`permission_denied`. `Call`, for control, is planned and returns
-`unimplemented`.
+`permission_denied`.
 
 `Deliver` hands the satellite a message to say in its own voice, such as
 "Message from Kitchen: dinner is ready.". Its signed answer, a
@@ -286,6 +285,26 @@ text-to-speech has passed its check, without a working speaker, when the text
 is empty or longer than 500 characters, and when it is busy: its queue is
 nearly full, or it doesn't take the message within 2 seconds. A message it
 didn't take in time never plays later.
+
+`Call` has the satellite run one of its device tools for another member's
+brain, as a `PeerToolCall` with the tool's name and its arguments as a JSON
+object. Its signed answer, a `PeerToolResult`, is the tool's text and whether
+it failed. The tools are the volume (`set_volume`, `change_volume`), the reply
+volume, the ring light, the media player (`play_url`, `pause_media`,
+`resume_media`, `stop_media`), radio (`play_station`, `list_stations`),
+timers (`set_timer`, `list_timers`, `cancel_timer`) and `cancel_request`. A
+tool runs as an [MCP](#mcp-server) call would: a tool switched off with
+`UpdateAssistant` is refused, and the call counts among the two that run at
+once. A call that takes longer than 7 seconds ends with an error, though what
+it started may still happen. The member that called waits 9.5 seconds in all,
+so the answer reaches it in time. The 7 seconds count from the call's arrival.
+For a call from a member it doesn't list yet, the satellite first fetches that
+member's list. When that takes all 7 seconds, the tool doesn't run.
+`cancel_request` from another member also stops a
+message or `speak` that plays, and drops the message. The satellite refuses,
+as a result with `is_error` set and one sentence, in Home Assistant mode, with
+`control` off in `SetSatelliteGroup`, for any other tool, and for arguments
+that name a `satellite`: it never passes a call on.
 
 After each search for the other satellites, which runs once a minute, a member
 asks every other member that the search lists for its member list, and merges
@@ -313,7 +332,9 @@ authentication, like the dashboard, and answers only to the same names.
   `cancel_request` and `status`. `install_update` is for the brain only and
   isn't offered over MCP. A tool switched off with `UpdateAssistant` isn't
   offered. No tool turns the microphones on or makes the device listen.
-- It runs two tool calls at once. Another call is told the device is busy.
+- It runs two tool calls at once, those from the other members of a
+  [satellite group](#satellite-group) included. Another call is told the
+  device is busy.
 
 ## What's next
 

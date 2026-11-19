@@ -231,10 +231,11 @@ Select **Assistant**, then **Tools**.
   microphones, switching back to Home Assistant mode (`switch_assistant`),
   saying which version runs, checking for updates, and
   [passing messages](#pass-messages-between-satellites) to other satellites
-  (`send_message`). Only a person can turn the microphones back on, with the
-  **Microphone off** button. Turn off a tool you don't want used. **Install
-  update** is the one tool that starts off: turn it on to let the brain install
-  an update, as
+  (`send_message`). In a satellite group, the brain can also
+  [control another satellite](#control-another-satellite). Only a person can
+  turn the microphones back on, with the **Microphone off** button. Turn off a
+  tool you don't want used. **Install update** is the one tool that starts off:
+  turn it on to let the brain install an update, as
   [Ask the satellite to update](/docs/update/#ask-the-satellite-to-update)
   describes.
 - **Radio stations**: add a station with its name and stream address. Then ask
@@ -287,6 +288,40 @@ Until then, as a stopgap, a group is set up with the control API's
 - To stop a satellite from taking messages, for example at night, turn off
   its **Group messages** switch in Home Assistant. A switch on the dashboard
   is planned. Messages it already holds still play.
+
+## Control another satellite
+
+In a satellite group, you can ask one satellite to act on another by its name,
+such as "turn the kitchen down" or "set a 10 minute timer in the office". The
+group is set up as for
+[passing messages](#pass-messages-between-satellites).
+
+- Once another satellite of the group is in standalone mode, the brain can
+  name it for these tools: the volume and the reply volume, the ring light,
+  playing a stream, pausing, resuming and stopping music and radio, playing
+  and listing radio stations, and setting, listing and cancelling timers. It
+  can also stop another satellite's request, its ringing alarm, or a message
+  or `speak` that it is saying (`cancel_request`). A message stopped this way
+  doesn't play again. Without a name, a tool acts on the satellite you are
+  talking to.
+- A timer set on another satellite rings there, and that satellite lists and
+  cancels it.
+- Radio stations are the other satellite's own: it plays a station from its
+  own list.
+- The other satellite runs the tool as if an MCP client had called it: its
+  own tool switches apply, and it is busy while it runs two tool calls
+  already. A tool switched off on the satellite you are talking to isn't
+  offered for any satellite.
+- The brain says when another satellite can't do it: it is in Home Assistant
+  mode, the search doesn't find it, it doesn't answer within 9.5 seconds (what
+  it was asked may still happen), or it refused.
+- To stop the others from acting on a satellite, turn off its **Control from
+  the group** switch. A switch on the dashboard is planned. Until then, as a
+  stopgap, use the control API's `SetSatelliteGroup` call with `control` set
+  to false; see [Satellite group](/docs/control-api/#satellite-group).
+- An agent such as Hermes or OpenClaw gets no device tools, so it can't act
+  on another satellite. Your MCP clients can't either: Pinna's MCP server
+  offers this satellite's tools only.
 
 ## Use an AI agent as the brain
 
