@@ -353,10 +353,16 @@ impl Session {
     /// Answers `client/time` until the filter takes a measurement. Returns everything else
     /// the player sent meanwhile. Each exchange takes 400 µs, 10 µs of it in the server.
     pub fn sync(&mut self) -> Vec<Out> {
+        self.sync_with(|t| t + OFFSET)
+    }
+
+    /// [`Session::sync`] with a server whose clock reads `server_time(t)` at the player's time
+    /// `t`. Stops early if the connection closes.
+    pub fn sync_with(&mut self, server_time: impl Fn(i64) -> i64) -> Vec<Out> {
         let before = self.conn.clock().count();
         let mut other = Vec::new();
         for _ in 0..100 {
-            if self.conn.clock().count() > before {
+            if self.conn.clock().count() > before || self.conn.is_closed() {
                 other.extend(self.recv());
                 return other;
             }
@@ -368,8 +374,8 @@ impl Session {
                         self.now = t1 + 400;
                         self.send(json!({"type": "server/time", "payload": {
                             "client_transmitted": t1,
-                            "server_received": t1 + 200 + OFFSET,
-                            "server_transmitted": t1 + 210 + OFFSET}}));
+                            "server_received": server_time(t1 + 200),
+                            "server_transmitted": server_time(t1 + 210)}}));
                         answered = true;
                     }
                     _ => other.push(out),

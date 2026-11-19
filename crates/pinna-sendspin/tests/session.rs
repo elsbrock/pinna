@@ -588,6 +588,34 @@ fn clock_bursts_through_the_connection() {
 }
 
 #[test]
+fn a_server_clock_drifting_beyond_one_percent_closes_the_connection() {
+    let store = store();
+    // 0.5 % fast, as fast as the media lane follows: kept, and the drift is used.
+    let mut s = playing(&store);
+    for _ in 0..10 {
+        s.sync_with(|t| t + t / 200 + OFFSET);
+    }
+    assert!(s.conn.clock().uses_drift());
+    assert!((s.conn.clock().drift() - 0.005).abs() < 1e-4);
+    assert!(!s.conn.is_closed());
+    // 2 % slow.
+    let mut s = playing(&store);
+    for _ in 0..10 {
+        s.sync_with(|t| t - t / 50 + OFFSET);
+    }
+    let drifts = |events: &[Event]| matches!(closed(events), Some(CloseReason::Protocol(r)) if r.contains("drifts"));
+    assert!(drifts(&s.events()));
+    // Running backward: the filter's drift goes to -2, where audio due later would map to
+    // earlier server times.
+    let mut s = playing(&store);
+    for _ in 0..10 {
+        s.sync_with(|t| 1_000 * S - t);
+    }
+    assert!(drifts(&s.events()));
+    assert!(s.conn.clock().drift() < -1.0);
+}
+
+#[test]
 fn client_state_is_sent_only_when_allowed_and_changed() {
     let store = store();
     let mut s = playing(&store);
