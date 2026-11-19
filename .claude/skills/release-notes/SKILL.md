@@ -28,8 +28,7 @@ git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-*' --exclude v<ve
 git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude v<version> HEAD
 ```
 
-No tag means the first release: the range is the whole history. Otherwise
-it is `<previous>..HEAD`.
+The range is `<previous>..HEAD`.
 
 ## 2. Read what changed
 
@@ -94,8 +93,7 @@ website, design system, docs, tests, ADRs, chores, CI.
   scope in parentheses: `- The wake word stops a ringing timer alarm
   (pinnad)`. Capitalise the first letter. Leave out the scopes that don't
   ship: `website`, `design`, `adr`, `vm`, `release`, `models`, `dev`. Start
-  the section with the range in one line: "Changes since 0.3.2." or "The
-  first release."
+  the section with the range in one line: "Changes since 0.3.0."
 
 Leave out empty sections. The language rules are `AGENTS.md`, "Language":
 plain, short sentences, no hype, exclamation marks or emoji; the project's
@@ -110,14 +108,32 @@ hardware named exactly; never the name of the previous firmware's project.
 - "All changes" lists every `feat` and `fix` subject in the range that
   ships, and nothing else.
 
-Show the owner the file. When they're happy, on their computer:
+Show the owner the file. If the build or the release workflow changed since
+the last release, suggest a dry run first: `gh workflow run release.yml`
+builds the same on main with a throwaway key. A tag whose build fails has to
+be moved.
+
+When they're happy, on their computer, on main:
 
 ```sh
 git add releases/<version>.md
 git commit -m "docs(release): notes for <version>"
 git tag v<version>
-git push origin HEAD v<version>
+git push origin main v<version>
 ```
 
+Main has to contain the tag: development versions and the next release's
+range come from `git describe`. A release prepared on a branch is merged into
+main with a merge commit, not copied over commit by commit.
+
 The release workflow builds the release with these notes and leaves it as a
-draft on GitHub, a beta as a prerelease. The owner publishes it.
+draft on GitHub, a beta as a prerelease.
+
+- Until it is published, the notes can still change: commit the new
+  `releases/<version>.md`, and replace the draft's text above its `## Files`
+  section with the file without its title line
+  (`gh release edit v<version> --notes-file <file>`). The summary is signed
+  into the manifest, so a new summary needs a new build.
+- The owner publishes it. Within five minutes the release service offers it:
+  `curl -sI https://updates.getpinna.dev/v1/channels/stable` (or `beta`)
+  redirects to its `manifest.json`.
