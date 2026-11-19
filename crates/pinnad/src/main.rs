@@ -869,10 +869,12 @@ async fn main() -> Result<()> {
     let assistant_api = Arc::new(
         assistant_api::AssistantApi::new(assistant.clone(), in_tx.clone())
             .with_satellites(satellites_rx, dc_mac)
-            .with_group(group),
+            .with_group(group.clone()),
     );
     // The tools' HTTP clients, counters and updater, shared by every run and /mcp call.
-    let tool_kit = tools::ToolKit::new(shared.counters.clone()).with_updater(updater.clone());
+    let tool_kit = tools::ToolKit::new(shared.counters.clone())
+        .with_updater(updater.clone())
+        .with_group(group.clone());
     let mcp_server = Arc::new(mcp::McpServer::new(
         assistant.clone(),
         in_tx.clone(),

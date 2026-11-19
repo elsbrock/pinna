@@ -28,8 +28,13 @@ use super::{Group, Joined, Limits, exchange};
 use crate::assistant_api::AssistantApi;
 use crate::satellites::{Found, Seen};
 use crate::settings::Mode;
+use crate::standalone::AssistLive;
 use crate::standalone::service::{Paths, Service};
-use crate::voice::{AssistStatus, Input, Snapshot, Taken};
+use crate::tools::message::NO_ONE;
+use crate::tools::{Caller, DeviceTools, Surface, ToolKit};
+use crate::voice::{AssistStatus, Input, RunId, Snapshot, Taken};
+use pinna_mcp::{ToolOutput, ToolSet};
+use serde_json::{Value, json};
 
 fn limits() -> Limits {
     Limits {
@@ -317,6 +322,36 @@ impl Sat {
         assert!(same_mac(&answer.sender_mac, &self.mac));
         envelope::open(group, Rpc::Deliver.answer(), (&answer).into()).unwrap()
     }
+}
+
+/// The device tools `sat`'s brain gets, on `surface`.
+fn tools_on(sat: &Sat, surface: Surface) -> DeviceTools {
+    let caller = match surface {
+        Surface::Run => Caller::Run(RunId(1)),
+        Surface::Mcp => Caller::Mcp,
+    };
+    DeviceTools::new(
+        &ToolKit::new(crate::metrics::Counters::default()).with_group(sat.group.clone()),
+        mpsc::channel(64).0,
+        sat.status.subscribe(),
+        Arc::new(AssistLive::empty()),
+        surface,
+        caller,
+    )
+}
+
+/// Whether `sat`'s brain is offered `send_message`.
+async fn offered(sat: &Sat) -> bool {
+    tools_on(sat, Surface::Run)
+        .specs()
+        .await
+        .iter()
+        .any(|s| s.name == "send_message")
+}
+
+/// `sat`'s brain calls `send_message`.
+async fn send(sat: &Sat, args: Value) -> ToolOutput {
+    tools_on(sat, Surface::Run).call("send_message", args).await
 }
 
 /// A delivery's outcome and reason.
@@ -1568,6 +1603,10 @@ async fn neither_the_key_nor_a_message_leaves_in_a_view_an_answer_or_a_log_line(
         texts.push(format!("{answer:?}"));
         texts.push(String::from_utf8_lossy(&answer.encode_to_vec()).into_owned());
     }
+    // And through the brain's tool.
+    let sent = send(a, json!({"to": "Kitchen", "text": SECRET_TEXT})).await;
+    assert!(sent.text.starts_with("Kitchen: refused"), "{sent:?}");
+    texts.push(format!("{sent:?}"));
     a.remove(c).await.unwrap();
     a.group.set_switch(false).await.unwrap();
 
@@ -1578,6 +1617,10 @@ async fn neither_the_key_nor_a_message_leaves_in_a_view_an_answer_or_a_log_line(
     );
     assert!(
         logs.contains("a message from Hall, 42 characters, refused"),
+        "{logs}"
+    );
+    assert!(
+        logs.contains("a message, 42 characters. Kitchen: refused"),
         "{logs}"
     );
     texts.push(logs);
@@ -1594,4 +1637,141 @@ async fn neither_the_key_nor_a_message_leaves_in_a_view_an_answer_or_a_log_line(
             .windows(32)
             .any(|w| w == group.key.bytes().as_slice())
     );
+}
+
+#[tokio::test]
+async fn send_message_is_offered_only_with_another_member_in_standalone_mode() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    assert!(!offered(a).await, "in no group");
+    grouped(&[a, b]).await;
+    // Kitchen's mode isn't known before its first signed answer.
+    assert!(!offered(a).await);
+    let out = send(a, json!({"to": "Kitchen", "text": "dinner is ready."})).await;
+    assert_eq!(out, ToolOutput::error(NO_ONE));
+
+    b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+    a.exchange(None).await;
+    assert_eq!(
+        a.group.peer(&b.mac).unwrap().mode,
+        Some(Mode::HomeAssistant)
+    );
+    assert!(!offered(a).await);
+
+    b.status.send_modify(|s| s.mode = Mode::Standalone);
+    a.exchange(None).await;
+    assert!(offered(a).await);
+    // Never on /mcp.
+    let mcp = tools_on(a, Surface::Mcp);
+    assert!(!mcp.specs().await.iter().any(|s| s.name == "send_message"));
+    let out = mcp
+        .call("send_message", json!({"to": "Kitchen", "text": "hi"}))
+        .await;
+    assert_eq!(out, ToolOutput::error("Unknown tool send_message."));
+    assert!(b.brain.took().is_empty());
+}
+
+#[tokio::test]
+async fn send_message_to_one_member_says_it_there() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    a.exchange(None).await;
+
+    let out = send(a, json!({"to": " kitchen ", "text": " dinner is ready. "})).await;
+    assert_eq!(out, ToolOutput::ok("Kitchen: played now."));
+    assert_eq!(b.brain.took(), [("Hall".into(), "dinner is ready.".into())]);
+    assert!(c.brain.took().is_empty());
+
+    // Once the search no longer lists it, it isn't called.
+    a.finds(&[c]);
+    let out = send(a, json!({"to": "Kitchen", "text": "call me."})).await;
+    assert_eq!(out, ToolOutput::ok("Kitchen: unreachable."));
+    assert_eq!(b.brain.took().len(), 1);
+}
+
+#[tokio::test]
+async fn send_message_to_all_says_what_each_member_did() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office", "Porch", "Attic", "Cellar"]).await;
+    let all: Vec<&Sat> = s.iter().collect();
+    let (a, b, c, d, e, f) = (&s[0], &s[1], &s[2], &s[3], &s[4], &s[5]);
+    grouped(&all).await;
+    c.brain.answers(Some(Taken::Held));
+    d.status
+        .send_modify(|s| s.settings.group_messages = Some(false));
+    e.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+    a.exchange(None).await;
+    // The search lists Cellar without an address.
+    let mut nowhere = f.found();
+    nowhere.ipv4.clear();
+    a.finds_as(vec![b.found(), c.found(), d.found(), e.found(), nowhere]);
+
+    let out = send(a, json!({"to": "All", "text": "dinner is ready."})).await;
+    assert_eq!(
+        out,
+        ToolOutput::ok(
+            "Kitchen: played now.\n\
+             Office: held until it is free.\n\
+             Porch: refused: Porch has Group messages switched off.\n\
+             Attic is in Home Assistant mode, out of reach.\n\
+             Cellar: unreachable."
+        )
+    );
+    assert_eq!(b.brain.took().len(), 1);
+    assert_eq!(c.brain.took().len(), 1);
+    for sat in [d, e, f] {
+        assert!(sat.brain.took().is_empty(), "{}", sat.name);
+    }
+}
+
+#[tokio::test]
+async fn send_message_refuses_an_unknown_name_and_a_long_text() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    a.exchange(None).await;
+    for to in ["Garage", "Hall"] {
+        let out = send(a, json!({"to": to, "text": "dinner is ready."})).await;
+        assert_eq!(
+            out,
+            ToolOutput::error(format!(
+                "No satellite of this one's group is named {to}. Its other members are \
+                 Kitchen, Office."
+            ))
+        );
+    }
+    let out = send(a, json!({"to": "Kitchen", "text": "a".repeat(501)})).await;
+    assert_eq!(
+        out,
+        ToolOutput::error("The text to say is at most 500 characters.")
+    );
+    let out = send(a, json!({"to": "Kitchen"})).await;
+    assert_eq!(out, ToolOutput::error("send_message needs text."));
+    let out = send(a, json!({"to": " ", "text": "dinner is ready."})).await;
+    assert_eq!(
+        out,
+        ToolOutput::error("send_message needs to: a satellite's name, or all.")
+    );
+    assert!(b.brain.took().is_empty() && c.brain.took().is_empty());
+}
+
+#[tokio::test]
+async fn send_message_names_two_members_that_share_a_name_by_host_name() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    // Office was renamed Kitchen, and the search heard it.
+    let mut renamed = c.found();
+    renamed.friendly_name = "Kitchen".into();
+    a.finds_as(vec![b.found(), renamed]);
+    a.exchange(None).await;
+    let out = send(a, json!({"to": "Kitchen", "text": "dinner is ready."})).await;
+    assert_eq!(
+        out,
+        ToolOutput::error(
+            "2 satellites of this one's group are named Kitchen: kitchen, office. Rename one \
+             on its dashboard first."
+        )
+    );
+    assert!(b.brain.took().is_empty() && c.brain.took().is_empty());
 }

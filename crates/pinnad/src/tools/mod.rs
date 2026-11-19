@@ -9,6 +9,7 @@
 
 mod device;
 mod http;
+pub mod message;
 pub mod radio;
 mod update;
 pub mod weather;
@@ -24,6 +25,7 @@ use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::group::Group;
 use crate::leds::LightEffect;
 use crate::metrics::{Counters, Via};
 use crate::standalone::{AssistLive, OwnerMcp};
@@ -450,6 +452,27 @@ static TOOLS: &[Tool] = &[
         op: Op::Weather,
     },
     Tool {
+        name: message::NAME,
+        reach: Reach::RunOnly,
+        off_by_default: false,
+        about: "Send a message to another satellite of this one's group, or to all of them, to be said there in its voice. It plays at once, or waits until that satellite is free. The result says, for each, whether it played, waits, was refused and why, or couldn't be reached.",
+        params: &[
+            Param {
+                name: "to",
+                kind: Kind::Text,
+                required: true,
+                about: "The satellite's name, or all for every other satellite of the group.",
+            },
+            Param {
+                name: "text",
+                kind: Kind::Text,
+                required: true,
+                about: "What to say, at most 500 characters.",
+            },
+        ],
+        op: Op::SendMessage,
+    },
+    Tool {
         name: "speak",
         reach: Reach::McpOnly,
         off_by_default: false,
@@ -592,7 +615,8 @@ pub struct DeviceTools {
 }
 
 /// What every [`DeviceTools`] shares, built once: the network tools' HTTP
-/// clients, so connections are reused across requests, and the counters.
+/// clients, so connections are reused across requests, the counters, and
+/// the satellite group.
 #[derive(Clone)]
 pub struct ToolKit {
     weather: OpenMeteo,
@@ -600,6 +624,7 @@ pub struct ToolKit {
     counters: Counters,
     /// What the update tools use; without one they answer with an error.
     updater: Option<Arc<Updater>>,
+    group: Option<Arc<Group>>,
 }
 
 impl ToolKit {
@@ -609,6 +634,7 @@ impl ToolKit {
             radio: RadioBrowser::default(),
             counters,
             updater: None,
+            group: None,
         }
     }
 
@@ -616,6 +642,17 @@ impl ToolKit {
     pub fn with_updater(mut self, updater: Arc<Updater>) -> Self {
         self.updater = Some(updater);
         self
+    }
+
+    /// The satellite group (ADR 0026), for `send_message` and the request's
+    /// context. Without it, the brain gets neither.
+    pub fn with_group(mut self, group: Arc<Group>) -> Self {
+        self.group = Some(group);
+        self
+    }
+
+    pub fn group(&self) -> Option<&Arc<Group>> {
+        self.group.as_ref()
     }
 
     /// The weather from another address, for tests.
@@ -653,6 +690,13 @@ impl DeviceTools {
             .get(name)
             .copied()
             .unwrap_or_else(|| !TOOLS.iter().any(|t| t.name == name && t.off_by_default))
+    }
+
+    /// Whether this surface offers `tool` now. `send_message` needs another
+    /// member of the group in standalone mode.
+    fn offers(&self, tool: &Tool) -> bool {
+        tool.reach.offers(self.surface)
+            && (tool.name != message::NAME || self.kit.group().is_some_and(|g| message::offered(g)))
     }
 
     /// Sends a command to the Brain and waits for its answer. A run's
@@ -740,10 +784,7 @@ impl DeviceTools {
 impl ToolSet for DeviceTools {
     fn specs(&self) -> BoxFuture<'_, Vec<ToolSpec>> {
         Box::pin(async move {
-            let device = TOOLS
-                .iter()
-                .filter(|t| t.reach.offers(self.surface))
-                .map(Tool::spec);
+            let device = TOOLS.iter().filter(|t| self.offers(t)).map(Tool::spec);
             let owner = self.owner_tools(None).await.into_iter().map(|(_, s)| s);
             device
                 .chain(owner)
@@ -828,6 +869,10 @@ impl DeviceTools {
                 );
             }
             return (switched_off(), None);
+        }
+        // Offered when the run's tool list was made, but not now.
+        if !self.offers(tool) {
+            return (ToolOutput::error(message::NO_ONE), None);
         }
         let result = match Args::parse(tool, args) {
             Ok(args) => device::run(self, tool.op, &args).await,
@@ -1173,10 +1218,12 @@ mod tests {
         assert_eq!(listed.len(), TOOLS.len());
         for tool in &listed {
             // A tool that starts off is not in a list until it is turned on.
-            assert_eq!(
-                tool.brain,
-                run_names.iter().any(|n| n == tool.name) || tool.off_by_default
-            );
+            // send_message is the brain's, but offered only in a group with
+            // another member in standalone mode.
+            let offered = run_names.iter().any(|n| n == tool.name)
+                || tool.off_by_default
+                || tool.name == message::NAME;
+            assert_eq!(tool.brain, offered, "{}", tool.name);
             assert_eq!(tool.mcp, mcp_names.iter().any(|n| n == tool.name));
             assert!(tool.brain || tool.mcp, "{}", tool.name);
             assert!(!tool.description.is_empty(), "{}", tool.name);
@@ -1475,6 +1522,9 @@ mod tests {
         // The tool that starts off, turned on.
         let run = with_updater(Surface::Run, None, &[("install_update", true)]);
         specs.extend(run.specs().await);
+        // Offered only in a group.
+        let send = TOOLS.iter().find(|t| t.name == message::NAME).unwrap();
+        specs.push(send.spec());
         let mut seen = HashSet::new();
         for spec in &specs {
             let schema = &spec.input_schema;

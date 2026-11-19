@@ -7,7 +7,7 @@ use std::time::Instant;
 use pinna_esphome::{MediaPlayerCommand, MediaPlayerStateKind};
 use serde_json::{Value, json};
 
-use super::{Args, Caller, DeviceTools, radio, update};
+use super::{Args, Caller, DeviceTools, message, radio, update};
 use crate::checks::{self, TIMER_NAME_MAX};
 use crate::leds::LightEffect;
 use crate::settings::Mode;
@@ -34,6 +34,7 @@ pub(super) enum Op {
     CancelTimer,
     CancelRequest,
     Speak,
+    SendMessage,
     Status,
     Time,
     Weather,
@@ -185,6 +186,10 @@ pub(super) async fn run(tools: &DeviceTools, op: Op, args: &Args) -> Result<Stri
             // The Brain answers once the text sounds.
             tools.ask(|r| ApiCommand::Speak(text, r)).await?;
             Ok("Speaking.".into())
+        }
+        Op::SendMessage => {
+            let group = tools.kit.group().ok_or(message::NO_ONE)?;
+            message::send(group, args.need_text("to")?, args.need_text("text")?).await
         }
         Op::Status => Ok(status(&tools.status.borrow(), Instant::now()).to_string()),
     }

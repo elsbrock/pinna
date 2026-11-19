@@ -14,7 +14,9 @@ use std::time::{Duration, SystemTime};
 
 use buffa::MessageField;
 use futures::future::join_all;
-use pinna_api::{PeerHello, PeerJoinRequest, PeerMember, PeerMemberList, PeerSender};
+use pinna_api::{
+    PeerDelivery, PeerHello, PeerJoinRequest, PeerMember, PeerMemberList, PeerMessage, PeerSender,
+};
 use tokio::sync::watch;
 
 use super::client::{Client, Failed, To};
@@ -85,8 +87,9 @@ pub struct Peer {
     /// a `GetGroup` as not in this group.
     pub outside: u32,
     /// Where its last signed call came from, and the dashboard port it named.
-    /// Nothing reads them yet: they are kept for the messages and control
-    /// between members that come next (ADR 0026).
+    /// Nothing reads them yet: they are kept for the control between
+    /// members that comes next (ADR 0026). Messages go to the addresses the
+    /// search heard.
     pub address: Option<IpAddr>,
     pub web_port: Option<u16>,
     /// A call to it failed and that was logged: the next failure isn't,
@@ -375,6 +378,62 @@ impl Group {
             None,
         );
         Ok(())
+    }
+
+    /// Hand `text` to the member `peer_mac` at `to`, to say. Its signed
+    /// answer says whether it plays now, is held or is refused.
+    pub async fn deliver(
+        &self,
+        to: &To,
+        group: &Joined,
+        peer_mac: &str,
+        text: &str,
+        deadline: Duration,
+    ) -> Result<PeerDelivery, Failed> {
+        let message = PeerMessage {
+            sender: MessageField::some(self.sender()),
+            text: text.to_owned(),
+            ..Default::default()
+        };
+        let delivery: PeerDelivery = self
+            .client
+            .signed(
+                to,
+                Rpc::Deliver,
+                group,
+                &self.own_mac,
+                peer_mac,
+                &message,
+                deadline,
+            )
+            .await?;
+        self.heard(
+            peer_mac,
+            delivery
+                .sender
+                .as_option()
+                .unwrap_or(&PeerSender::default()),
+            None,
+        );
+        Ok(delivery)
+    }
+
+    /// The other members of the group this satellite is in now, not
+    /// removed, each with the mode its last signed call or answer named;
+    /// empty in no group.
+    pub fn other_members(&self) -> Vec<(Member, Option<Mode>)> {
+        let Some(joined) = self.service.group().joined else {
+            return Vec::new();
+        };
+        joined
+            .members
+            .into_iter()
+            .filter(|m| !m.removed && !same_mac(&m.mac, &self.own_mac))
+            .map(|m| {
+                let mode = self.peer(&m.mac).and_then(|p| p.mode);
+                (m, mode)
+            })
+            .collect()
     }
 
     /// Tell the members with these MACs of `group`'s list, all at once, at
