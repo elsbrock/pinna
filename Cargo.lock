@@ -2338,6 +2338,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinna-sendspin"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "snow",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "pinna-update"
 version = "0.1.0"
 dependencies = [
