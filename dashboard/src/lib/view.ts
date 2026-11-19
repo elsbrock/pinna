@@ -592,6 +592,17 @@ export function since(now: Date, uptimeSeconds: number): string {
   return `${d.toLocaleDateString("en", { weekday: "short" })} ${hhmm(d)}`;
 }
 
+/** The Overview's count of the satellite group's held messages (ADR 0026);
+ *  null when none waits. They play once the satellite is idle and its
+ *  microphones are on: only the microphones are the owner's to change, so
+ *  only they are named, and only while they are off. */
+export function heldText(count: number, muted: boolean): string | null {
+  if (count <= 0) return null;
+  const held = count === 1 ? "1 message held" : `${count} messages held`;
+  if (!muted) return held;
+  return `${held} · ${count === 1 ? "it plays" : "they play"} once the microphones are on`;
+}
+
 /** The Microphones switch's hint when the hardware button is involved. */
 export function micHint(s: Status): string | undefined {
   if (!s.hardwareMuted) return undefined;

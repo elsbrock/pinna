@@ -18,6 +18,7 @@
     band,
     displayName,
     health,
+    heldText,
     ringEffect,
     signalWord,
     since,
@@ -32,6 +33,8 @@
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
   const modelName = $derived(drawingFor(s?.model ?? "")?.name);
   const standalone = $derived(isStandalone(s));
+  // Messages from the satellite group that wait to be said (ADR 0026).
+  const held = $derived(heldText(s?.heldMessages ?? 0, !!s?.muted));
   // Uptime only arrives with a change; count on between messages.
   const up = $derived(s ? Number(s.uptimeSeconds) + Math.floor((device.now - device.receivedAt) / 1000) : 0);
 
@@ -85,6 +88,9 @@
       <div class="state">
         {#if live}<PhaseBadge badge={badge(s)} />{/if}
         <span class="pn-health" data-tone={line.tone}>{line.text}</span>
+        {#if live && held}
+          <span class="held">{held}</span>
+        {/if}
       </div>
       <span class="meta">{address} · Pinna {s.version}</span>
       <div>
@@ -267,6 +273,10 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-2) var(--space-4);
+  }
+  .held {
+    color: var(--ink-muted);
+    font-weight: 650;
   }
   .meta {
     font-family: var(--font-mono);

@@ -55,6 +55,7 @@ import {
   bitrate,
   health,
   healthWord,
+  heldText,
   installSteps,
   ringEffect,
   routeOf,
@@ -645,4 +646,16 @@ test("update checks in words", async () => {
   assert.equal(checkStatus(check({ finishedUnixMs: at, error: "x" }), false, now), "Last check failed at 14:02.");
   assert.equal(channelName(CHANNEL.beta), "beta");
   assert.equal(channelName(0), "off");
+});
+
+test("held messages from the satellite group are counted only when there are some", () => {
+  assert.equal(heldText(0, false), null);
+  assert.equal(heldText(1, false), "1 message held");
+  assert.equal(heldText(5, false), "5 messages held");
+  assert.equal(heldText(0, true), null);
+});
+
+test("held messages name the microphones while they are off: they play once the microphones are on", () => {
+  assert.equal(heldText(1, true), "1 message held · it plays once the microphones are on");
+  assert.equal(heldText(3, true), "3 messages held · they play once the microphones are on");
 });
