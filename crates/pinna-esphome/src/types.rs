@@ -413,6 +413,11 @@ pub enum DeviceEvent {
     /// The device chose its active wake words itself (ids from
     /// `DeviceConfig::wake_words`); Home Assistant reads them when it next asks.
     ActiveWakeWords(Vec<String>),
+    /// The words on offer changed (a custom word was added or removed, ADR
+    /// 0013). Active words the new list doesn't know are dropped. Home
+    /// Assistant reads the list when it connects;
+    /// [`DeviceEvent::Disconnect`] makes it reconnect.
+    WakeWords(Vec<WakeWordInfo>),
     /// The device was renamed. Home Assistant reads the name when it connects;
     /// [`DeviceEvent::Disconnect`] makes it reconnect.
     FriendlyName(String),

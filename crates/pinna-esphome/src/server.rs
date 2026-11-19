@@ -766,6 +766,13 @@ impl Actor {
             DeviceEvent::ActiveWakeWords(ids) => {
                 self.active_wake = self.known_wake_words(ids);
             }
+            DeviceEvent::WakeWords(words) => {
+                // A word that left the list was removed on purpose: drop it
+                // without the warning `known_wake_words` gives Home Assistant.
+                self.active_wake
+                    .retain(|id| words.iter().any(|w| w.id == *id));
+                self.cfg.wake_words = words;
+            }
             DeviceEvent::FriendlyName(name) => self.cfg.friendly_name = name,
             DeviceEvent::NodeName(name) => {
                 if let Ok(mut shared) = self.name.lock() {
@@ -1531,6 +1538,28 @@ mod tests {
             device_info_message(&actor.cfg).voice_assistant_feature_flags,
             VOICE_FEATURE_FLAGS
         );
+    }
+
+    #[test]
+    fn a_new_wake_word_list_drops_active_words_it_lacks() {
+        use crate::WakeWordInfo;
+        let word = |id: &str| WakeWordInfo {
+            id: id.into(),
+            wake_word: id.into(),
+            trained_languages: Vec::new(),
+        };
+        let mut cfg = DeviceConfig::new("dot", [0; 6]);
+        cfg.wake_words = vec![word("a"), word("b")];
+        cfg.active_wake_words = vec!["a".into(), "b".into()];
+        cfg.max_active_wake_words = 2;
+        let (cmd, _commands) = mpsc::channel(8);
+        let mut actor = Actor::new(cfg, cmd, Default::default(), Default::default());
+        assert_eq!(actor.active_wake, ["a", "b"]);
+        actor.device_event(DeviceEvent::WakeWords(vec![word("b"), word("custom_x")]));
+        assert_eq!(actor.active_wake, ["b"]);
+        assert_eq!(actor.cfg.wake_words, [word("b"), word("custom_x")]);
+        actor.device_event(DeviceEvent::ActiveWakeWords(vec!["custom_x".into()]));
+        assert_eq!(actor.active_wake, ["custom_x"]);
     }
 
     #[test]
