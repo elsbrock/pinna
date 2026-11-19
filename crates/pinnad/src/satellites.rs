@@ -284,10 +284,6 @@ pub struct Seen {
 impl Seen {
     /// The satellite with this MAC, in any separator or case. An empty MAC
     /// matches none.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the group reads it (ADR 0026), in a later change")
-    )]
     pub fn by_mac(&self, mac: &str) -> Option<&Found> {
         let mac = mac_digits(mac);
         if mac.is_empty() {

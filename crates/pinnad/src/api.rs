@@ -175,7 +175,7 @@ impl DeviceApi {
     }
 }
 
-fn api_mode(mode: crate::settings::Mode) -> pinna_api::Mode {
+pub(crate) fn api_mode(mode: crate::settings::Mode) -> pinna_api::Mode {
     match mode {
         crate::settings::Mode::HomeAssistant => pinna_api::Mode::MODE_HOME_ASSISTANT,
         crate::settings::Mode::Standalone => pinna_api::Mode::MODE_STANDALONE,

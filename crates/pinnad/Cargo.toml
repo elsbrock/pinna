@@ -33,7 +33,7 @@ base64 = "0.23.1"
 bytes = "1"
 fastrand = "2"
 pinna-api = { path = "../pinna-api" }
-connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "server", "axum"] }
+connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip", "server", "axum", "client"] }
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "http2", "ws"] }
 tower-http = { version = "0.6", features = ["fs"] }
 buffa = "0.9"

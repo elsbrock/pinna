@@ -53,13 +53,6 @@ impl Key {
         Self(bytes)
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the calls between members sign with it (ADR 0026), in a later change"
-        )
-    )]
     pub fn bytes(&self) -> &[u8; KEY_LEN] {
         &self.0
     }
@@ -104,13 +97,6 @@ pub fn new_key() -> Result<[u8; KEY_LEN]> {
 /// The purpose names the call and its direction (`GetGroup/call`,
 /// `GetGroup/answer`), so a signed answer can't be sent back as a call, nor
 /// one call's body as another's.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the calls between members sign with it (ADR 0026), in a later change"
-    )
-)]
 pub fn sign(
     key: &[u8; KEY_LEN],
     purpose: &str,
@@ -131,13 +117,6 @@ pub fn sign(
 /// A purpose, group id or MAC with a zero byte in it never verifies: the zero
 /// bytes separate the parts of the input, and one inside a part would let two
 /// different envelopes share a tag.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the calls between members sign with it (ADR 0026), in a later change"
-    )
-)]
 pub fn verify(
     key: &[u8; KEY_LEN],
     purpose: &str,

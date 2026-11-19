@@ -51,8 +51,24 @@ service AssistantService {
   // satellites the search found. The group's key is never returned.
   rpc GetSatelliteGroup(GetSatelliteGroupRequest) returns (GetSatelliteGroupResponse);
   // Turn Satellite group or Control from the group on or off. Turning
-  // Satellite group off leaves the group.
+  // Satellite group off leaves the group: the other members are told first.
   rpc SetSatelliteGroup(SetSatelliteGroupRequest) returns (SetSatelliteGroupResponse);
+  // Add a satellite the search found to this satellite's group, or start a
+  // group of the two. The satellite added takes the group first, which it
+  // does only while its Satellite group switch is on and it is in no group;
+  // the other members hear of it after. A refusal is `failed_precondition`
+  // with the reason, `aborted` when the group changed meanwhile,
+  // `invalid_argument` when the satellite's entry in the member list can't
+  // change any more, and `unavailable` while the satellite group isn't
+  // running.
+  rpc AddGroupMember(AddGroupMemberRequest) returns (AddGroupMemberResponse);
+  // Remove a member from the group. Every member is told, the removed one
+  // too, so it forgets the group. A group left with one member ends.
+  // Refused with `invalid_argument` for this satellite's own MAC or when the
+  // member's entry can't change any more, `failed_precondition` when this
+  // satellite is in no group or the satellite isn't a member, and
+  // `unavailable` while the satellite group isn't running.
+  rpc RemoveGroupMember(RemoveGroupMemberRequest) returns (RemoveGroupMemberResponse);
 }
 
 // What a ListChoices request asks for.
@@ -448,6 +464,25 @@ message SetSatelliteGroupRequest {
 }
 
 message SetSatelliteGroupResponse {
+  SatelliteGroupView group = 1;
+}
+
+message AddGroupMemberRequest {
+  // The satellite's MAC, as SatelliteGroupCandidate.satellite has it.
+  string mac = 1;
+}
+
+message AddGroupMemberResponse {
+  SatelliteGroupView group = 1;
+}
+
+message RemoveGroupMemberRequest {
+  // The member's MAC, as SatelliteGroupMember has it. Not this satellite's:
+  // it leaves by switching Satellite group off.
+  string mac = 1;
+}
+
+message RemoveGroupMemberResponse {
   SatelliteGroupView group = 1;
 }
 

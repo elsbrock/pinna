@@ -1,6 +1,7 @@
 //! Dashboard listener (ADR 0005): the built Svelte dashboard and the same
 //! ConnectRPC `DeviceService`, with standalone mode's `AssistantService`
-//! (ADR 0017), on one origin, for the LAN.
+//! (ADR 0017), on one origin, for the LAN. The satellite group's
+//! `PeerService` (ADR 0026) is here too, for other satellites to call.
 //!
 //! No authentication. A Host allowlist keeps other web sites from reaching the
 //! API through DNS rebinding; cross-site requests are already stopped by the
@@ -23,6 +24,7 @@ use tower_http::services::ServeDir;
 use crate::api::{self, DeviceApi};
 use crate::assistant_api::{self, AssistantApi};
 use crate::config::Web;
+use crate::group::peer::{self, PeerApi};
 use crate::mcp::{self, McpServer};
 use crate::metrics::{self, Counters};
 use crate::virtual_device::{self, VirtualDevice};
@@ -110,14 +112,19 @@ fn normalise(name: &str) -> String {
     name.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 
-/// The routes: Connect procedures under `/pinna.v1.DeviceService/` and
-/// `/pinna.v1.AssistantService/`, `/metrics` (ADR 0020), the virtual Echo
-/// Dot's socket in the development VM (ADR 0014), Pinna's MCP server
-/// (ADR 0017), the dashboard's files for
+/// Where the satellite group's calls between satellites arrive (ADR 0026).
+const PEER_ROUTES: &str = "/pinna.v1.PeerService/";
+
+/// The routes: Connect procedures under `/pinna.v1.DeviceService/`,
+/// `/pinna.v1.AssistantService/` and `/pinna.v1.PeerService/`, `/metrics`
+/// (ADR 0020), the virtual Echo Dot's socket in the development VM
+/// (ADR 0014), Pinna's MCP server (ADR 0017), the dashboard's files for
 /// everything else.
+#[allow(clippy::too_many_arguments)]
 pub fn app(
     api: Arc<DeviceApi>,
     assistant: Arc<AssistantApi>,
+    peer: Arc<PeerApi>,
     root: &Path,
     hosts: Hosts,
     virt: Option<Arc<VirtualDevice>>,
@@ -135,6 +142,12 @@ pub fn app(
         .route_service(
             "/pinna.v1.AssistantService/{method}",
             assistant_api::router(assistant).into_axum_service(),
+        )
+        .route_service(
+            "/pinna.v1.PeerService/{method}",
+            peer::router(peer)
+                .into_axum_service()
+                .with_limits(peer::limits()),
         )
         .route(mcp::ROUTE, mcp::route(mcp, hosts.clone()))
         .route("/metrics", axum::routing::get(scrape).with_state(registry));
@@ -171,11 +184,15 @@ impl
 
 /// `axum::serve` knows the peer, but only connectrpc's own `Server` hands it to
 /// handlers (`ctx.peer_addr()`); pass it on. A request that reached a Wi-Fi
-/// network's address on trial keeps that network (ADR 0008).
+/// network's address on trial keeps that network (ADR 0008), unless another
+/// satellite of the group made it: only the owner opening the dashboard
+/// counts (ADR 0026).
 async fn connection(State(api): State<Arc<DeviceApi>>, mut req: Request, next: Next) -> Response {
     if let Some(ConnectInfo(c)) = req.extensions().get::<ConnectInfo<Conn>>().copied() {
         req.extensions_mut().insert(connectrpc::PeerAddr(c.peer));
-        if let Some(local) = c.local {
+        if let Some(local) = c.local
+            && !req.uri().path().starts_with(PEER_ROUTES)
+        {
             api.reached(local.ip());
         }
     }
@@ -296,6 +313,7 @@ async fn cache_control(req: Request, next: Next) -> Response {
 pub async fn start(
     api: Arc<DeviceApi>,
     assistant: Arc<AssistantApi>,
+    peer: Arc<PeerApi>,
     cfg: &Web,
     virt: Option<Arc<VirtualDevice>>,
     mcp: Arc<McpServer>,
@@ -325,6 +343,7 @@ pub async fn start(
     let app = app(
         api,
         assistant,
+        peer,
         &cfg.root,
         hosts,
         virt,
@@ -431,6 +450,11 @@ mod tests {
     /// The web routes over a status channel whose sender is already gone, so
     /// `WatchStatus` sends the current state once and ends.
     fn fixture(name: &str, with_files: bool) -> Fixture {
+        fixture_with(name, with_files, None)
+    }
+
+    /// The same, with Wi-Fi run through `wifi`.
+    fn fixture_with(name: &str, with_files: bool, wifi: Option<crate::wifi::Wifi>) -> Fixture {
         let dir = std::env::temp_dir().join(format!("pinnad-web-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         if with_files {
@@ -459,12 +483,17 @@ mod tests {
             last_boot: boot::LastBoot::cold(),
             key_from_image: false,
         };
-        let api = Arc::new(DeviceApi::new(info, status_rx.clone(), in_tx));
-        let (assistant, mcp) = assistant(&dir, status_rx);
+        let mut api = DeviceApi::new(info, status_rx.clone(), in_tx);
+        if let Some(wifi) = wifi {
+            api = api.with_wifi(wifi);
+        }
+        let api = Arc::new(api);
+        let (assistant, peer, mcp) = assistant(&dir, status_rx);
         Fixture {
             app: app(
                 api,
                 assistant,
+                peer,
                 &dir,
                 hosts(),
                 None,
@@ -476,21 +505,34 @@ mod tests {
         }
     }
 
-    /// The setup API and `/mcp` over files in `dir`.
+    /// The setup API, the satellite group's calls and `/mcp` over files in
+    /// `dir`.
     fn assistant(
         dir: &Path,
         status: watch::Receiver<Snapshot>,
-    ) -> (Arc<AssistantApi>, Arc<McpServer>) {
+    ) -> (Arc<AssistantApi>, Arc<PeerApi>, Arc<McpServer>) {
         let service = Service::load(Paths::beside(&dir.join("settings.toml")), status.clone());
         let inputs = tokio::sync::mpsc::channel(1).0;
         let mcp = McpServer::new(
             service.clone(),
             inputs.clone(),
-            status,
+            status.clone(),
             crate::tools::ToolKit::new(Counters::default()),
             "0.1.0",
         );
-        (Arc::new(AssistantApi::new(service, inputs)), Arc::new(mcp))
+        let group = crate::group::Group::new(
+            service.clone(),
+            "02:00:00:aa:bb:cc",
+            80,
+            status,
+            watch::channel(crate::satellites::Seen::default()).1,
+            crate::group::Limits::default(),
+        );
+        (
+            Arc::new(AssistantApi::new(service, inputs)),
+            Arc::new(PeerApi::new(Arc::new(group))),
+            Arc::new(mcp),
+        )
     }
 
     fn registry() -> Registry {
@@ -629,6 +671,100 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn other_satellites_reach_the_peer_service_by_ip_address_only() {
+        let f = fixture("peer-service", false);
+        let call = |host| {
+            call(
+                host,
+                "PeerService/GetGroup",
+                "application/json",
+                b"{}".to_vec(),
+            )
+        };
+        // This satellite is in no group: the call arrives and is refused.
+        for host in ["192.168.1.5", "[fd00::5]:80"] {
+            let (status, _, body) = send(&f, call(host)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{host}: {body}");
+            assert!(body.contains("failed_precondition"), "{body}");
+            assert!(
+                body.contains(crate::group::peer::NOT_IN_THIS_GROUP),
+                "{body}"
+            );
+        }
+        assert_eq!(
+            send(&f, call("evil.example")).await.0,
+            StatusCode::MISDIRECTED_REQUEST
+        );
+    }
+
+    /// During a Wi-Fi trial (ADR 0008), only the owner opening the dashboard
+    /// on the new network keeps it: a call from another satellite of the
+    /// group doesn't (ADR 0026).
+    #[tokio::test]
+    async fn a_satellites_call_does_not_keep_a_wifi_trial() {
+        use crate::wifi::fake::{Fake, Outcome};
+        use crate::wifi::{Join, Wifi};
+        use pinna_api::{JoinStage, WifiSecurity};
+        use std::time::Duration;
+
+        let fake = Fake::start(Outcome::Joins);
+        let wifi = Wifi::with_timeouts(
+            fake.paths(),
+            Duration::from_secs(3),
+            Duration::from_secs(60),
+        );
+        let mut live = wifi
+            .join(Join {
+                ssid: "Café".into(),
+                security: WifiSecurity::WIFI_SECURITY_WPA_PSK,
+                passphrase: "secret passphrase".into(),
+                hidden: false,
+            })
+            .unwrap();
+        loop {
+            let step = tokio::time::timeout(Duration::from_secs(60), live.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if step.stage.as_known() == Some(JoinStage::JOIN_STAGE_TRIAL) {
+                break;
+            }
+        }
+        // The join task finishes right after its last step.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let f = fixture_with("peer-trial", false, Some(wifi));
+        let at_the_new_address = |procedure: &str| {
+            let mut req = call(
+                "192.168.1.20",
+                procedure,
+                "application/json",
+                b"{}".to_vec(),
+            );
+            req.extensions_mut().insert(ConnectInfo(Conn {
+                peer: "192.168.1.30:40000".parse().unwrap(),
+                local: Some("192.168.1.20:80".parse().unwrap()),
+            }));
+            req
+        };
+        let saved = || fake.log().iter().any(|c| c == "SAVE_CONFIG");
+
+        for procedure in ["PeerService/GetGroup", "PeerService/Join"] {
+            send(&f, at_the_new_address(procedure)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!saved(), "a satellite's call kept the trial");
+
+        send(&f, at_the_new_address("DeviceService/GetStatus")).await;
+        for _ in 0..100 {
+            if saved() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(saved(), "the dashboard opened at the new address keeps it");
+    }
+
+    #[tokio::test]
     async fn watch_status_streams_over_the_web_listener() {
         let f = fixture("watch", true);
         // One Connect envelope: flags 0, length 2, `{}`.
@@ -697,7 +833,7 @@ mod tests {
             key_from_image: false,
         };
         let api = Arc::new(DeviceApi::new(info, rx.clone(), tx));
-        let (assistant, mcp) = assistant(&f.dir, rx);
+        let (assistant, peer, mcp) = assistant(&f.dir, rx);
         let cfg = Web {
             listen: String::new(),
             root: f.dir.clone(),
@@ -708,6 +844,7 @@ mod tests {
             start(
                 api.clone(),
                 assistant.clone(),
+                peer.clone(),
                 &cfg,
                 None,
                 mcp.clone(),
@@ -723,7 +860,7 @@ mod tests {
             ..cfg
         };
         assert!(
-            start(api, assistant, &cfg, None, mcp, &counters)
+            start(api, assistant, peer, &cfg, None, mcp, &counters)
                 .await
                 .is_err()
         );

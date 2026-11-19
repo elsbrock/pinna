@@ -14,17 +14,21 @@ use crate::group::view::{self, GroupView};
 use crate::group::{Joined, Persisted, seal};
 use crate::satellites::Seen;
 
-const OFF_HERE: &str = "Satellite group is off on this satellite. Switch it on first.";
+pub(crate) const OFF_HERE: &str = "Satellite group is off on this satellite. Switch it on first.";
 const IN_A_GROUP_HERE: &str =
     "This satellite is in a group already. Reload the page, then add the satellite to that group.";
-const OFF_THERE: &str =
+pub(crate) const OFF_THERE: &str =
     "Satellite group is off on the satellite being added. Switch it on there first.";
-const IN_A_GROUP_THERE: &str = "The satellite being added is in a group already. Remove it from \
+pub(crate) const IN_A_GROUP_THERE: &str = "The satellite being added is in a group already. Remove it from \
      that group first, or switch Satellite group off and on there.";
 const NOT_AN_ID: &str = "The group's id isn't 32 lowercase hex digits.";
 const NOT_LISTED: &str = "The group's member list doesn't name the satellite being added.";
 const NO_OTHER: &str = "The group's member list has no other member.";
 const CHANGED: &str = "The satellite group changed meanwhile. Reload and try again.";
+const IN_NO_GROUP: &str = "This satellite is in no group. Reload the page.";
+const NOT_A_MEMBER: &str = "The satellite isn't a member of this group. Reload the page.";
+const TOO_MANY_CHANGES: &str =
+    "The satellite's entry in the member list can't change any more. Start a new group.";
 
 /// What merging another member's list did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,10 +109,6 @@ impl Service {
     /// Save a group this satellite started by adding another one, after that
     /// one took it ([`Joined::start`] makes it). Refused unless the switch
     /// is on and this satellite is in no group.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Add starts a group (ADR 0026), in a later change")
-    )]
     pub(crate) async fn start_group(&self, started: Joined, own_mac: &str) -> Result<(), Refusal> {
         let started = valid(started, own_mac)?;
         let (id, members) = (started.id.clone(), started.members.len());
@@ -120,10 +120,6 @@ impl Service {
     /// Join the group another member adds this satellite to. Refused unless
     /// the switch is on and this satellite is in no group: its switch is its
     /// owner's consent. Returns this satellite's own entry, under its name.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Join (ADR 0026), in a later change")
-    )]
     pub(crate) async fn join_group(
         &self,
         group: Joined,
@@ -167,13 +163,6 @@ impl Service {
     /// this satellite removed, or leaves it no other member, ends the group
     /// here in the same commit. Refused as a conflict when this satellite is
     /// no longer in group `id`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the minute's exchange merges (ADR 0026), in a later change"
-        )
-    )]
     pub(crate) async fn merge_members(
         &self,
         id: &str,
@@ -211,6 +200,47 @@ impl Service {
             );
         }
         Ok(outcome)
+    }
+
+    /// Remove the member with `mac` from the group: its entry is marked
+    /// removed at the next version, so the removal wins wherever it goes.
+    /// Returns the group as it is after the change, with its key, so every
+    /// member, the removed one included, can be told. A group left with this
+    /// satellite alone ends here.
+    pub(crate) async fn remove_member(&self, mac: &str, own_mac: &str) -> Result<Joined, Refusal> {
+        let mut changed = None;
+        let mut ended = false;
+        self.commit(|d| {
+            let mut group = d.group();
+            let joined = group
+                .joined
+                .as_mut()
+                .ok_or_else(|| Refusal::Precondition(IN_NO_GROUP.into()))?;
+            let entry = joined
+                .members
+                .iter_mut()
+                .find(|m| !m.removed && model::same_mac(&m.mac, mac))
+                .ok_or_else(|| Refusal::Precondition(NOT_A_MEMBER.into()))?;
+            entry.version = next_version(entry.version)?;
+            entry.removed = true;
+            changed = Some(joined.clone());
+            if model::alone(&joined.members, own_mac) {
+                group.joined = None;
+                ended = true;
+            }
+            d.put_group(&group);
+            Ok(())
+        })
+        .await?;
+        let changed = changed.ok_or_else(|| Refusal::Conflict(CHANGED.into()))?;
+        tracing::info!("removed {mac} from the satellite group {}", changed.id);
+        if ended {
+            tracing::info!(
+                "the satellite group {} ended here: this satellite is its last member",
+                changed.id
+            );
+        }
+        Ok(changed)
     }
 
     /// Forget group `id` and its key. Refused as a conflict when this
@@ -254,6 +284,15 @@ pub(super) fn stale_set_aside(
     } else {
         &["group_member"]
     }
+}
+
+/// The version an entry takes at its next change. Refused, never wrapped,
+/// past the highest version `standalone.toml` can keep.
+pub(crate) fn next_version(version: u64) -> Result<u64, Refusal> {
+    version
+        .checked_add(1)
+        .filter(|v| *v <= model::MAX_VERSION)
+        .ok_or_else(|| Refusal::Invalid(TOO_MANY_CHANGES.into()))
 }
 
 /// A group from Add or Join as it may be saved: a real id, the member list

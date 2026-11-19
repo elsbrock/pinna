@@ -268,9 +268,19 @@ mod tests {
                 service.clone(),
                 inputs.clone(),
             ));
+            let group = crate::group::Group::new(
+                service.clone(),
+                "02:00:00:aa:bb:cc",
+                80,
+                status.clone(),
+                watch::channel(crate::satellites::Seen::default()).1,
+                crate::group::Limits::default(),
+            );
+            let peer = Arc::new(crate::group::peer::PeerApi::new(Arc::new(group)));
             let app = web::app(
                 api,
                 assistant,
+                peer,
                 Path::new("/nonexistent"),
                 hosts,
                 None,

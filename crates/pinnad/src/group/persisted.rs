@@ -52,10 +52,6 @@ pub struct Joined {
 impl Joined {
     /// A new group of this satellite and `other`: a new id and key from the
     /// secure random generator, and both entries at their first version.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Add starts a group (ADR 0026), in a later change")
-    )]
     pub fn start(own: Member, other: Member) -> anyhow::Result<Self> {
         let first = |m: Member| Member {
             version: 1,

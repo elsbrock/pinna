@@ -68,7 +68,7 @@ These modules of `pinnad` run [standalone mode](/docs/standalone/) (ADR 0017):
 | `tools/` | The tools that the brain and MCP clients call: the device's controls, timers, the time, the weather from Open-Meteo, radio, and updates |
 | `mcp.rs` | The MCP server at `/mcp` on the dashboard's listener |
 | `assistant_api.rs` | `AssistantService`, the setup API that the dashboard's **Assistant** page uses |
-| `group/` | The satellite group (ADR 0026): the member list's rules (`model.rs`), the group's id, key and signatures (`seal.rs`), the group as `standalone.toml` and `secrets.toml` keep it (`persisted.rs`), and what the **Assistant** page shows of it (`view.rs`) |
+| `group/` | The satellite group (ADR 0026): the member list's rules (`model.rs`), the group's id, key and signatures (`seal.rs`), the group as `standalone.toml` and `secrets.toml` keep it (`persisted.rs`), what the **Assistant** page shows of it (`view.rs`), the signed calls between members (`envelope.rs`, `client.rs`, and `peer.rs`, which serves `PeerService`), and what is known of the other members while `pinnad` runs, with Add, Remove and leaving (`runtime.rs`) |
 | `mic.rs` | Sends the microphone audio to Home Assistant or to a standalone request, starting 200 ms before the end of the wake word |
 | `checks.rs` | The checks on a command's values that the control API and the tools share |
 | `store.rs` | Writes `settings.toml` and the standalone files durably, and keeps the entries this version can't read |

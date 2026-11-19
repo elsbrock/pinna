@@ -112,7 +112,8 @@ device. `pinnad` serves it in two places:
   `DeviceService` only.
 - On port 80, with the dashboard, for your network (`[web]` in the
   [developer settings](/docs/configure/#web)). It serves `DeviceService` and
-  `AssistantService`. This one only answers requests for IP
+  `AssistantService`, and `PeerService`, which the other satellites of a
+  [satellite group](#satellite-group) call. This one only answers requests for IP
   addresses, `localhost`, `.local` names, the device's own hostname (its node name, such as `pinna-2a914e`),
   the host of the dashboard address set on the **Network** page, and the names
   in `[web] allowed_hosts`. Other names get `421 Misdirected Request`.
@@ -254,8 +255,28 @@ with one of these codes:
 | `PlaySample` | `text` (at most 500 characters) | Says the text with the text-to-speech slot, in either mode, and answers once it sounds, or with why it couldn't. Music gets quieter under it. Returns `failed_precondition` while a request runs, a timer alarm rings or the device already says something, before text-to-speech is set up, and on a device without a working speaker |
 | `AskText` | `text` (at most 1,000 characters) | Asks the brain a typed question, as if it was spoken. The reply plays on the device, and no follow-up comes after it. Returns `failed_precondition` in Home Assistant mode, while a request runs or a timer alarm rings, while the microphones are off, and until all three slots have passed their check |
 | `ListChoices` | `slot`, `connection`, and `kind` (`CHOICE_KIND_MODEL` or `CHOICE_KIND_VOICE`) | What the connection's service lists for the slot now, as `choices` with an `id` (what goes into the field) and a `label`: the brain's models, an OpenAI-compatible server's speech models, ElevenLabs' voices and the models that speak them. At most 500. Empty when the service lists none for the slot. A list that fails returns `failed_precondition` with the check's sentence |
-| `GetSatelliteGroup` | Empty | Returns the satellite group (ADR 0026) as a `SatelliteGroupView`: `on` (the *Satellite group* switch, off by default), `in_group`, `control` (the *Control from the group* switch, on by default), the `members` with their `mac`, `name` and `this_satellite`, and while the switch is on, the `candidates`: the other satellites the search found, except members whose record says they are in this group (a member that left the group is listed in both `members` and `candidates`), each with its `satellite` as `ListSatellites` returns it, a `state` (`STATE_ADDABLE`, `STATE_IN_ANOTHER_GROUP`, `STATE_OFF_OR_OLDER` or `STATE_LEFT_THE_GROUP`), `addable`, `default_name`, and `name_refusal`, the sentence why its name can't be added. The group's key is never returned. A member's `mode` and `last_seen_unix_ms` are planned, and unset for now |
-| `SetSatelliteGroup` | Any of `on` and `control` (bool) | Turns the switches on or off and returns the `SatelliteGroupView`. Turning `on` off leaves the group on this satellite. Telling the other members is planned |
+| `GetSatelliteGroup` | Empty | Returns the satellite group (ADR 0026) as a `SatelliteGroupView`: `on` (the *Satellite group* switch, off by default), `in_group`, `control` (the *Control from the group* switch, on by default), the `members` with their `mac`, `name` and `this_satellite`, and while the switch is on, the `candidates`: the other satellites the search found, except members whose record says they are in this group (a member that left the group is listed in both `members` and `candidates`), each with its `satellite` as `ListSatellites` returns it, a `state` (`STATE_ADDABLE`, `STATE_IN_ANOTHER_GROUP`, `STATE_OFF_OR_OLDER` or `STATE_LEFT_THE_GROUP`), `addable`, `default_name`, and `name_refusal`, the sentence why its name can't be added. The group's key is never returned. Each other member has its `mode` from its last signed call or answer, unset until one came, and `last_seen_unix_ms`, when its last signed call or answer came since `pinnad` started, 0 until then |
+| `SetSatelliteGroup` | Any of `on` and `control` (bool) | Turns the switches on or off and returns the `SatelliteGroupView`. Turning `on` off leaves the group: the other members the search lists are told first, then this satellite forgets the group |
+| `AddGroupMember` | `mac` (a candidate's `satellite.mac`) | Adds a candidate that the search lists as addable to the group, or starts a group of the two, and returns the `SatelliteGroupView`. The satellite added takes the group first, and only while its *Satellite group* switch is on and it is in no group; then this satellite saves it, and the other members are told. If this satellite can't save it, the satellite added is told to forget the group. A refusal is `failed_precondition` with the reason: the switch is off on either satellite, the satellite is in another group, its name can't be added (`name_refusal`), it doesn't answer, or it is adding a satellite itself. Returns `aborted` when this satellite's group changed meanwhile, `invalid_argument` when the satellite's entry in the member list can't change any more, and `unavailable` while the satellite group isn't running |
+| `RemoveGroupMember` | `mac` (a member's `mac`, not this satellite's) | Removes the member and returns the `SatelliteGroupView`. Every member the search lists is told, the removed one too, so it forgets the group. A group left with one member ends. To take this satellite out, turn the *Satellite group* switch off: its own `mac` returns `invalid_argument`, as does a member whose entry can't change any more. Returns `failed_precondition` when this satellite is in no group or the satellite isn't a member, and `unavailable` while the satellite group isn't running |
+
+### Satellite group
+
+`pinna.v1.PeerService`, defined in
+[`proto/pinna/v1/peer.proto`](https://github.com/elsbrock/pinna/blob/main/proto/pinna/v1/peer.proto),
+is how the satellites of a group (ADR 0026) call each other, by IP address,
+on the dashboard's port. Browsers and scripts don't need it. `Join` hands a
+satellite the group's id, key and member list during `AddGroupMember`. Every
+other call and answer is signed with the group's key: `GetGroup` returns the
+member list, and `PutGroup` hands one over. A call with a wrong signature
+returns `unauthenticated`, a call for a group this satellite isn't in returns
+`failed_precondition`, and a caller that isn't a member returns
+`permission_denied`. `Deliver` and `Call`, for messages and control, are
+planned and return `unimplemented`.
+
+A member that is told it was removed forgets the group. A call from another
+satellite doesn't keep a new Wi-Fi network on trial: only opening the
+dashboard does.
 
 ## MCP server
 

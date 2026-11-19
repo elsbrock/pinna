@@ -594,6 +594,7 @@ async fn main() -> Result<()> {
         tokio::spawn(identity::watch_name());
     }
     let dc_mac = dc.mac_string();
+    let web_port = dc.webserver_port;
     let mdns = cfg.esphome.mdns.then(|| dc.clone());
     let encrypted = dc.encryption_key.is_some();
     let (esp, mut ha) = pinna_esphome::serve(dc).await?;
@@ -851,10 +852,23 @@ async fn main() -> Result<()> {
         boot,
     ));
 
+    // The satellite group (ADR 0026): its calls to the other members, and
+    // the calls they make here.
+    let group = Arc::new(group::Group::new(
+        assistant.clone(),
+        &dc_mac,
+        web_port,
+        status_rx.clone(),
+        satellites_rx.clone(),
+        group::Limits::default(),
+    ));
+    let peer_api = Arc::new(group::peer::PeerApi::new(group.clone()));
+
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
     let assistant_api = Arc::new(
         assistant_api::AssistantApi::new(assistant.clone(), in_tx.clone())
-            .with_satellites(satellites_rx, dc_mac),
+            .with_satellites(satellites_rx, dc_mac)
+            .with_group(group),
     );
     // The tools' HTTP clients, counters and updater, shared by every run and /mcp call.
     let tool_kit = tools::ToolKit::new(shared.counters.clone()).with_updater(updater.clone());
@@ -868,6 +882,7 @@ async fn main() -> Result<()> {
     match web::start(
         device_api,
         assistant_api,
+        peer_api,
         &cfg.web,
         virt,
         mcp_server,

@@ -13,11 +13,12 @@ use tokio::sync::{mpsc, oneshot, watch};
 use buffa::{EnumValue, Inline, MessageField};
 use connectrpc::{ConnectError, RequestContext, Response, Router, ServiceRequest, ServiceResult};
 use pinna_api::{
-    Acknowledgment, AskTextRequest, AskTextResponse, Assistant, AssistantService, AssistantSlot,
-    BrainOverride, ChoiceKind, DeleteConnectionRequest, DeleteConnectionResponse,
-    DeleteMcpServerRequest, DeleteMcpServerResponse, DeviceTool, GetAssistantRequest,
-    GetAssistantResponse, GetSatelliteGroupRequest, GetSatelliteGroupResponse, ListChoicesRequest,
-    ListChoicesResponse, McpAgent, PlaySampleRequest, PlaySampleResponse, ProviderConnection,
+    Acknowledgment, AddGroupMemberRequest, AddGroupMemberResponse, AskTextRequest, AskTextResponse,
+    Assistant, AssistantService, AssistantSlot, BrainOverride, ChoiceKind, DeleteConnectionRequest,
+    DeleteConnectionResponse, DeleteMcpServerRequest, DeleteMcpServerResponse, DeviceTool,
+    GetAssistantRequest, GetAssistantResponse, GetSatelliteGroupRequest, GetSatelliteGroupResponse,
+    ListChoicesRequest, ListChoicesResponse, McpAgent, PlaySampleRequest, PlaySampleResponse,
+    ProviderConnection, RemoveGroupMemberRequest, RemoveGroupMemberResponse,
     SatelliteGroupCandidate, SatelliteGroupMember, SatelliteGroupView, SetConnectionRequest,
     SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse, SetSatelliteGroupRequest,
     SetSatelliteGroupResponse, SetSlotRequest, SetSlotResponse, SlotChoice, UpdateAssistantRequest,
@@ -32,6 +33,7 @@ use pinna_assist::prompt::VOICE_RULES;
 use pinna_http::Secret;
 
 use crate::checks;
+use crate::group::Group;
 use crate::group::view::{CandidateState, GroupView};
 use crate::satellites::Seen;
 use crate::standalone::service::{
@@ -50,6 +52,9 @@ pub struct AssistantApi {
     satellites: watch::Receiver<Seen>,
     /// This satellite's MAC, to find its own entry in the group.
     own_mac: String,
+    /// The satellite group's calls to the other members, and what is known
+    /// of them.
+    group: Option<Arc<Group>>,
 }
 
 impl AssistantApi {
@@ -59,6 +64,7 @@ impl AssistantApi {
             inputs,
             satellites: watch::channel(Seen::default()).1,
             own_mac: String::new(),
+            group: None,
         }
     }
 
@@ -70,9 +76,23 @@ impl AssistantApi {
         self
     }
 
+    /// Calls to the other members of the satellite group: Add, Remove and
+    /// leaving tell them, and the view shows what they last said (ADR 0026).
+    pub fn with_group(mut self, group: Arc<Group>) -> Self {
+        self.group = Some(group);
+        self
+    }
+
     fn group_view(&self) -> MessageField<SatelliteGroupView, Inline<SatelliteGroupView>> {
         let seen = self.satellites.borrow().clone();
-        MessageField::some(render_group(self.service.group_view(&self.own_mac, &seen)))
+        let view = self.service.group_view(&self.own_mac, &seen);
+        MessageField::some(render_group(view, self.group.as_deref()))
+    }
+
+    fn group(&self) -> Result<&Arc<Group>, ConnectError> {
+        self.group
+            .as_ref()
+            .ok_or_else(|| ConnectError::unavailable("The satellite group isn't running."))
     }
 
     /// Hand a command to the Brain and wait for its answer. A refusal is a
@@ -97,7 +117,7 @@ pub fn router(api: Arc<AssistantApi>) -> Router {
     Router::new().add_service(api)
 }
 
-fn refused(r: Refusal) -> ConnectError {
+pub(crate) fn refused(r: Refusal) -> ConnectError {
     match r {
         Refusal::Invalid(s) => ConnectError::invalid_argument(s),
         Refusal::Precondition(s) => ConnectError::failed_precondition(s),
@@ -231,8 +251,9 @@ fn render(v: AssistantView) -> Assistant {
     }
 }
 
-/// The group as the dashboard shows it. The key isn't part of the view.
-fn render_group(v: GroupView) -> SatelliteGroupView {
+/// The group as the dashboard shows it, with each other member's mode and
+/// when it was last seen from `group`. The key isn't part of the view.
+fn render_group(v: GroupView, group: Option<&Group>) -> SatelliteGroupView {
     use pinna_api::satellite_group_candidate::State;
     SatelliteGroupView {
         on: v.on,
@@ -241,11 +262,19 @@ fn render_group(v: GroupView) -> SatelliteGroupView {
         members: v
             .members
             .into_iter()
-            .map(|m| SatelliteGroupMember {
-                mac: m.mac,
-                name: m.name,
-                this_satellite: m.this_satellite,
-                ..Default::default()
+            .map(|m| {
+                let peer = group
+                    .filter(|_| !m.this_satellite)
+                    .and_then(|g| g.peer(&m.mac))
+                    .unwrap_or_default();
+                SatelliteGroupMember {
+                    mode: peer.mode.map(|mode| crate::api::api_mode(mode).into()),
+                    last_seen_unix_ms: peer.last_seen.map_or(0, unix_ms),
+                    mac: m.mac,
+                    name: m.name,
+                    this_satellite: m.this_satellite,
+                    ..Default::default()
+                }
             })
             .collect(),
         candidates: v
@@ -613,9 +642,12 @@ impl AssistantService for AssistantApi {
         request: ServiceRequest<'_, SetSatelliteGroupRequest>,
     ) -> ServiceResult<SetSatelliteGroupResponse> {
         if let Some(on) = request.on {
-            // Telling the members that this satellite left comes with the
-            // calls between members (ADR 0026).
-            self.service.set_group_switch(on).await.map_err(refused)?;
+            // Off leaves the group, and tells the other members first.
+            match &self.group {
+                Some(group) => group.set_switch(on).await,
+                None => self.service.set_group_switch(on).await.map(|_| ()),
+            }
+            .map_err(refused)?;
         }
         if let Some(control) = request.control {
             self.service
@@ -624,6 +656,30 @@ impl AssistantService for AssistantApi {
                 .map_err(refused)?;
         }
         Response::ok(SetSatelliteGroupResponse {
+            group: self.group_view(),
+            ..Default::default()
+        })
+    }
+
+    async fn add_group_member(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, AddGroupMemberRequest>,
+    ) -> ServiceResult<AddGroupMemberResponse> {
+        self.group()?.add(request.mac).await.map_err(refused)?;
+        Response::ok(AddGroupMemberResponse {
+            group: self.group_view(),
+            ..Default::default()
+        })
+    }
+
+    async fn remove_group_member(
+        &self,
+        _ctx: RequestContext,
+        request: ServiceRequest<'_, RemoveGroupMemberRequest>,
+    ) -> ServiceResult<RemoveGroupMemberResponse> {
+        self.group()?.remove(request.mac).await.map_err(refused)?;
+        Response::ok(RemoveGroupMemberResponse {
             group: self.group_view(),
             ..Default::default()
         })
