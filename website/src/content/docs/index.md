@@ -49,8 +49,9 @@ doesn't start.
 To install and set up Pinna, follow these pages in order:
 
 1. [What you need](/docs/requirements/): the device, the files and the tools.
-2. [Build Pinna](/docs/build/): build the images. Once a release is
-   published, you can download them from it instead.
+2. Get the images: download them from a
+   [release](https://github.com/elsbrock/pinna/releases), or
+   [build them](/docs/build/).
 3. [Install Pinna](/docs/flash/): install them over fastboot, and connect the
    device to Wi-Fi.
 4. [Use the dashboard](/docs/dashboard/): open it, and name the device.

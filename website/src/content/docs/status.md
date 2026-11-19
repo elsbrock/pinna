@@ -68,12 +68,6 @@ On the devices:
 - **The dashboard has no login.** Anyone on your network can use it,
   including restarting and updating the device. See
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
-- **No release is published yet.** The release workflow builds and signs the
-  images and the manifest for a
-  [release](https://github.com/elsbrock/pinna/releases), and
-  `updates.getpinna.dev` serves them, but none has been published. Until then,
-  devices report that there is no release yet, and you
-  [build your own](/docs/build/).
 - **The wake words are fixed in the image.** Pinna listens for up to two of
   Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy (openWakeWord) and Okay Nabu at
   once, chosen in Home Assistant or on the dashboard. The openWakeWord models'
