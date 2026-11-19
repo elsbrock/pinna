@@ -14,6 +14,17 @@
 //! silently, on everything the specification calls a failure, and on a server that sends more
 //! audio than `buffer_capacity` or takes longer than 30 s for a step of the handshake or the
 //! first activation (ADR 0027 §6).
+//!
+//! A second server may connect while one is admitted (ADR 0027 §3). Its connection stays
+//! provisional until its first `server/activate`, which is judged against the admitted
+//! connection. Before passing a message to a connection that is not yet activated, `pinnad`
+//! calls [`Connection::set_rival`] with the admitted connection's [`Connection::as_rival`] and the
+//! last-playback server from its own store: the admitted connection's activities and pairing
+//! attempt change without an event (a pairing that times out, the server's `pair/abort`), and
+//! the last-playback server changes when the admitted connection plays. Running every
+//! connection in one task keeps the two in step. `pinnad` also keeps fewer paired connections
+//! open than [`crate::pairing::MAX_PAIRINGS`], so a new pairing never has to evict the record
+//! of an open one.
 
 use std::collections::VecDeque;
 
@@ -532,6 +543,8 @@ pub struct Connection {
     activities: Activities,
     roles: ActiveRoles,
     rival: Option<Rival>,
+    /// `pinnad`'s last-playback server, as of the last [`Connection::set_rival`].
+    last_playback_server: Option<String>,
     filter: TimeFilter,
     bursts: Bursts,
     player_state: Option<PlayerState>,
@@ -581,6 +594,7 @@ impl Connection {
             activities: Activities::default(),
             roles: ActiveRoles::default(),
             rival: None,
+            last_playback_server: None,
             filter: TimeFilter::new(),
             bursts: Bursts::new(),
             player_state: None,
@@ -790,10 +804,15 @@ impl Connection {
         }
     }
 
-    /// The admitted connection, if any, that this one's first activation competes with. The
-    /// player admits one connection at a time (ADR 0027 §3).
-    pub fn set_rival(&mut self, rival: Option<Rival>) {
+    /// The admitted connection, if any, that this one's first activation competes with, and the
+    /// last-playback server from `pinnad`'s store, which decides between two idle connections.
+    /// The player admits one connection at a time (ADR 0027 §3). Both change while this
+    /// connection waits, so `pinnad` sets them again before each message it passes in until
+    /// this connection is activated. This connection's own copy of the store is not consulted:
+    /// it is as old as the connection.
+    pub fn set_rival(&mut self, rival: Option<Rival>, last_playback_server: Option<&str>) {
         self.rival = rival;
+        self.last_playback_server = last_playback_server.map(str::to_string);
     }
 
     /// This connection as a rival for a newcomer, once admitted.
@@ -1118,7 +1137,7 @@ impl Connection {
             return false;
         }
         if mine.rank() == 0 && rival.activities.rank() == 0 {
-            let last = self.store.last_playback_server();
+            let last = self.last_playback_server.as_deref();
             return last == Some(self.server_id.as_str()) && last != Some(rival.server_id.as_str());
         }
         mine.rank() >= rival.activities.rank()

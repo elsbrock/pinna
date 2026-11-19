@@ -1188,7 +1188,7 @@ fn a_newcomer_against_the_admitted_connection() {
 
     // Lower rank loses.
     let mut newcomer = start(&store, &SENTINEL_PSK, "sn");
-    newcomer.conn.set_rival(Some(rival.clone()));
+    newcomer.conn.set_rival(Some(rival.clone()), None);
     newcomer.send(activate(json!([]), json!([])));
     let outs = newcomer.recv();
     assert_eq!(
@@ -1199,7 +1199,7 @@ fn a_newcomer_against_the_admitted_connection() {
 
     // A rejected pairing gets pair/abort instead.
     let mut newcomer = start(&store, store.pairing_psk(), "pr");
-    newcomer.conn.set_rival(Some(rival.clone()));
+    newcomer.conn.set_rival(Some(rival.clone()), None);
     newcomer.send(
         json!({"type": "server/activate", "payload": {"activities": ["pairing"],
         "active_roles": [], "pairing": {"method": "pairing_psk"}}}),
@@ -1213,7 +1213,7 @@ fn a_newcomer_against_the_admitted_connection() {
 
     // Equal rank wins, and the admitted connection is displaced.
     let mut newcomer = start(&store, &SENTINEL_PSK, "sn");
-    newcomer.conn.set_rival(Some(rival));
+    newcomer.conn.set_rival(Some(rival), None);
     newcomer.send(activate(json!(["playback"]), json!(["player@v1"])));
     assert_eq!(
         activated(&newcomer.events()).map(|a| a.3),
@@ -1236,7 +1236,7 @@ fn a_newcomer_against_the_admitted_connection() {
     let rival = pairing.conn.as_rival().unwrap();
     assert!(rival.pairing_attempt);
     let mut newcomer = start(&store, &SENTINEL_PSK, "sn");
-    newcomer.conn.set_rival(Some(rival));
+    newcomer.conn.set_rival(Some(rival), None);
     newcomer.send(activate(json!(["playback"]), json!(["player@v1"])));
     assert!(newcomer.conn.is_closed());
     // Displacing it aborts the pairing.
@@ -1252,21 +1252,33 @@ fn a_newcomer_against_the_admitted_connection() {
 fn between_idle_connections_the_last_playback_server_wins() {
     let identity = Identity::generate().unwrap();
     let server = Server::new(&identity);
-    let mut store = store();
-    store.set_last_playback_server(&server.id());
+    let id = server.id();
+    let store = store();
     let idle = Rival {
         server_id: "other".into(),
         activities: Activities::default(),
         pairing_attempt: false,
     };
     let mut newcomer = connect(identity, server, &store, &SENTINEL_PSK, "sn", |_| {});
-    newcomer.conn.set_rival(Some(idle.clone()));
+    newcomer.conn.set_rival(Some(idle.clone()), Some(&id));
     newcomer.send(activate(json!([]), json!([])));
     assert_eq!(activated(&newcomer.events()).map(|a| a.3), Some(true));
 
     // Any other server loses against an idle connection.
     let mut stranger = start(&store, &SENTINEL_PSK, "sn");
-    stranger.conn.set_rival(Some(idle));
+    stranger.conn.set_rival(Some(idle.clone()), Some(&id));
     stranger.send(activate(json!([]), json!([])));
     assert!(stranger.conn.is_closed());
+
+    // What counts is pinnad's last-playback server when the activation arrives, not the store
+    // the connection started with: the admitted connection played and went idle meanwhile.
+    let identity = Identity::generate().unwrap();
+    let server = Server::new(&identity);
+    let mut old = store.clone();
+    old.set_last_playback_server(&server.id());
+    let mut newcomer = connect(identity, server, &old, &SENTINEL_PSK, "sn", |_| {});
+    newcomer.conn.set_rival(Some(idle), Some("other"));
+    newcomer.send(activate(json!([]), json!([])));
+    assert!(activated(&newcomer.events()).is_none());
+    assert!(newcomer.conn.is_closed());
 }
