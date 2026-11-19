@@ -7,7 +7,7 @@
 //! `event <object_id> <type>` fires an event, `text <object_id> <value>` sets a text sensor,
 //! `rename <friendly name>` renames the device and disconnects every client, `quit` exits.
 //! Pressing the `Cancel request` button emits the `action` press event and sets `Last wake word` to Alexa.
-//! The Updates select starts on `stable` and echoes channel changes. Firmware starts unknown;
+//! The Updates select starts on `stable` and echoes channel changes; the install window is 03:00 to 05:00. Firmware starts unknown;
 //! checking shows a sample release and installing reports 50% progress.
 
 use std::time::Duration;
@@ -90,6 +90,21 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
     handle
+        .send(DeviceEvent::SelectState {
+            object_id: "install_updates".into(),
+            state: pinna_esphome::INSTALL_MANUALLY.into(),
+        })
+        .await?;
+    for (object_id, hour) in [("install_window_start", 3), ("install_window_end", 5)] {
+        handle
+            .send(DeviceEvent::TimeState {
+                object_id: object_id.into(),
+                hour,
+                minute: 0,
+            })
+            .await?;
+    }
+    handle
         .send(DeviceEvent::LightState {
             on: false,
             brightness: 1.0,
@@ -171,6 +186,10 @@ async fn main() -> anyhow::Result<()> {
                     HaCommand::Select { object_id, state } => {
                         out(json!({"command": "select", "object_id": object_id, "state": state}));
                         handle.send(DeviceEvent::SelectState { object_id, state }).await?;
+                    }
+                    HaCommand::TimeOfDay { object_id, hour, minute, second } => {
+                        out(json!({"command": "time", "object_id": object_id, "hour": hour, "minute": minute, "second": second}));
+                        handle.send(DeviceEvent::TimeState { object_id, hour, minute }).await?;
                     }
                     HaCommand::Update { object_id, command } => {
                         let action = match command {

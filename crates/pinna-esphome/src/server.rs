@@ -76,6 +76,7 @@ fn check_keys(cfg: &DeviceConfig) -> anyhow::Result<()> {
             cfg.switches.iter().map(|e| &e.object_id).collect(),
         ),
         ("select", cfg.selects.iter().map(|e| &e.object_id).collect()),
+        ("time", cfg.times.iter().map(|e| &e.object_id).collect()),
         ("update", cfg.updates.iter().map(|e| &e.object_id).collect()),
     ] {
         for id in ids {
@@ -458,6 +459,7 @@ struct Actor {
     texts: HashMap<String, String>,
     switches: HashMap<String, bool>,
     selects: HashMap<String, String>,
+    times: HashMap<String, (u32, u32)>,
     updates: HashMap<String, UpdateState>,
     media: (MediaPlayerStateKind, f32, bool),
     active_wake: Vec<String>,
@@ -485,6 +487,7 @@ impl Actor {
             texts: HashMap::new(),
             switches: HashMap::new(),
             selects: HashMap::new(),
+            times: HashMap::new(),
             updates: HashMap::new(),
             media: (MediaPlayerStateKind::Idle, 0.0, false),
             active_wake,
@@ -635,6 +638,17 @@ impl Actor {
         }
     }
 
+    fn time_state_msg(&self, object_id: &str) -> proto::TimeStateResponse {
+        let state = self.times.get(object_id);
+        proto::TimeStateResponse {
+            key: entity_key("time", object_id),
+            missing_state: state.is_none(),
+            hour: state.map_or(0, |t| t.0),
+            minute: state.map_or(0, |t| t.1),
+            ..Default::default()
+        }
+    }
+
     fn update_state_msg(&self, object_id: &str) -> proto::UpdateStateResponse {
         let state = self.updates.get(object_id).cloned().unwrap_or_default();
         proto::UpdateStateResponse {
@@ -740,6 +754,22 @@ impl Actor {
                 }
                 self.selects.insert(object_id.clone(), state);
                 self.broadcast(&self.select_state_msg(&object_id), true);
+            }
+            DeviceEvent::TimeState {
+                object_id,
+                hour,
+                minute,
+            } => {
+                if !self.cfg.times.iter().any(|t| t.object_id == object_id) {
+                    warn!(%object_id, "state for unknown time entity dropped");
+                    return;
+                }
+                if hour > 23 || minute > 59 {
+                    warn!(%object_id, hour, minute, "invalid time dropped");
+                    return;
+                }
+                self.times.insert(object_id.clone(), (hour, minute));
+                self.broadcast(&self.time_state_msg(&object_id), true);
             }
             DeviceEvent::UpdateState { object_id, state } => {
                 if !self.cfg.updates.iter().any(|u| u.object_id == object_id) {
@@ -1026,6 +1056,10 @@ impl Actor {
                     let m = self.select_state_msg(&self.cfg.selects[i].object_id);
                     self.send(id, &m);
                 }
+                for i in 0..self.cfg.times.len() {
+                    let m = self.time_state_msg(&self.cfg.times[i].object_id);
+                    self.send(id, &m);
+                }
                 for i in 0..self.cfg.updates.len() {
                     let m = self.update_state_msg(&self.cfg.updates[i].object_id);
                     self.send(id, &m);
@@ -1152,6 +1186,29 @@ impl Actor {
                 self.command(HaCommand::Select {
                     object_id: s.object_id.clone(),
                     state: r.state,
+                });
+            }
+            proto::TimeCommandRequest::ID => {
+                let r = parse!(proto::TimeCommandRequest);
+                let Some(t) = self
+                    .cfg
+                    .times
+                    .iter()
+                    .find(|t| entity_key("time", &t.object_id) == r.key)
+                else {
+                    return Err(format!("time command for unknown key {}", r.key));
+                };
+                if r.hour > 23 || r.minute > 59 || r.second > 59 {
+                    return Err(format!(
+                        "invalid time {}:{}:{} for {}",
+                        r.hour, r.minute, r.second, t.object_id
+                    ));
+                }
+                self.command(HaCommand::TimeOfDay {
+                    object_id: t.object_id.clone(),
+                    hour: r.hour,
+                    minute: r.minute,
+                    second: r.second,
                 });
             }
             proto::UpdateCommandRequest::ID => {
@@ -1351,6 +1408,19 @@ impl Actor {
                     icon: s.icon,
                     options: s.options,
                     entity_category: cat(s.entity_category),
+                    ..Default::default()
+                },
+            );
+        }
+        for t in self.cfg.times.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesTimeResponse {
+                    key: entity_key("time", &t.object_id),
+                    object_id: t.object_id,
+                    name: t.name,
+                    icon: t.icon,
+                    entity_category: cat(t.entity_category),
                     ..Default::default()
                 },
             );

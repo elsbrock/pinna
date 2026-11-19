@@ -42,6 +42,8 @@ from aioesphomeapi.model import (
     SwitchState,
     TextSensorInfo,
     TextSensorState,
+    TimeInfo,
+    TimeState,
     UpdateCommand,
     UpdateInfo,
     UpdateState,
@@ -173,8 +175,8 @@ async def test_entities(client):
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
     # 1 light, 11 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
-    # 1 media player, 2 selects and 1 update.
-    assert len(by_key) == len(entities) == 1 + 11 + 4 + 1 + 8 + 1 + 1 + 2 + 1
+    # 1 media player, 3 selects, 2 times and 1 update.
+    assert len(by_key) == len(entities) == 1 + 11 + 4 + 1 + 8 + 1 + 1 + 3 + 2 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -472,6 +474,48 @@ async def test_update_channel_select(client, demo):
     cmd = await demo.wait(demo.cmd("select"), "select command")
     assert cmd["object_id"] == "update_channel" and cmd["state"] == "beta"
     await eventually(lambda: states[sel.key].state == "beta", "echoed select state")
+
+
+@pytest.mark.asyncio
+async def test_install_updates_select(client, demo):
+    sel = (await infos(client, SelectInfo))["Install updates"]
+    assert sel.object_id == "install_updates" and sel.icon == "mdi:calendar-clock"
+    assert list(sel.options) == ["Manually", "Automatically"]
+    assert int(sel.entity_category) == 1  # config
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: sel.key in states, "initial select state")
+    assert states[sel.key].state == "Manually" and not states[sel.key].missing_state
+    client.select_command(sel.key, "Automatically")
+    cmd = await demo.wait(demo.cmd("select"), "select command")
+    assert cmd["object_id"] == "install_updates" and cmd["state"] == "Automatically"
+    await eventually(lambda: states[sel.key].state == "Automatically", "echoed select state")
+
+
+@pytest.mark.asyncio
+async def test_install_window_times(client, demo):
+    times = await infos(client, TimeInfo)
+    assert set(times) == {"Install window start", "Install window end"}
+    start, end = times["Install window start"], times["Install window end"]
+    assert start.object_id == "install_window_start" and start.icon == "mdi:clock-start"
+    assert end.object_id == "install_window_end" and end.icon == "mdi:clock-end"
+    assert int(start.entity_category) == 1 and int(end.entity_category) == 1  # config
+    assert start.key != end.key
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: start.key in states and end.key in states, "initial time states")
+    assert isinstance(states[start.key], TimeState)
+    assert (states[start.key].hour, states[start.key].minute) == (3, 0)
+    assert (states[end.key].hour, states[end.key].minute) == (5, 0)
+    assert not states[start.key].missing_state
+    client.time_command(end.key, 6, 30, 0)
+    cmd = await demo.wait(demo.cmd("time"), "time command")
+    assert cmd["object_id"] == "install_window_end"
+    assert (cmd["hour"], cmd["minute"]) == (6, 30)
+    await eventually(
+        lambda: (states[end.key].hour, states[end.key].minute) == (6, 30),
+        "echoed time state",
+    )
 
 
 @pytest.mark.asyncio

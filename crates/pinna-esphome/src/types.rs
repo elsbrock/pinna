@@ -105,6 +105,15 @@ pub struct SelectConfig {
     pub entity_category: EntityCategory,
 }
 
+/// A time entity: a time of day without a date.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimeConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    pub entity_category: EntityCategory,
+}
+
 /// An update entity (Home Assistant's update card).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateConfig {
@@ -222,6 +231,7 @@ pub struct DeviceConfig {
     pub text_sensors: Vec<TextSensorConfig>,
     pub switches: Vec<SwitchConfig>,
     pub selects: Vec<SelectConfig>,
+    pub times: Vec<TimeConfig>,
     pub updates: Vec<UpdateConfig>,
     pub media_player: Option<MediaPlayerConfig>,
     /// Noise pre-shared key. `None` serves the plaintext API.
@@ -278,6 +288,7 @@ impl DeviceConfig {
             text_sensors: Vec::new(),
             switches: Vec::new(),
             selects: Vec::new(),
+            times: Vec::new(),
             updates: Vec::new(),
             media_player: None,
             encryption_key: None,
@@ -400,6 +411,12 @@ pub enum DeviceEvent {
         object_id: String,
         state: String,
     },
+    /// State of a configured time entity.
+    TimeState {
+        object_id: String,
+        hour: u32,
+        minute: u32,
+    },
     UpdateState {
         object_id: String,
         state: UpdateState,
@@ -464,6 +481,13 @@ pub enum HaCommand {
     Select {
         object_id: String,
         state: String,
+    },
+    /// A configured time entity was set; Home Assistant sends seconds too.
+    TimeOfDay {
+        object_id: String,
+        hour: u32,
+        minute: u32,
+        second: u32,
     },
     Update {
         object_id: String,

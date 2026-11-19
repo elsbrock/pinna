@@ -3,7 +3,7 @@
 use crate::types::{
     ButtonConfig, DeviceConfig, EntityCategory, EventConfig, LightConfig, MediaFormat,
     MediaPlayerConfig, MediaPurpose, NumberConfig, NumberMode, SelectConfig, SwitchConfig,
-    TextSensorConfig, UpdateConfig, media_feature,
+    TextSensorConfig, TimeConfig, UpdateConfig, media_feature,
 };
 
 fn strings(v: &[&str]) -> Vec<String> {
@@ -55,6 +55,9 @@ fn format(
 /// The "Voice mode" select's options: the dashboard's names for the modes.
 pub const MODE_HOME_ASSISTANT: &str = "Home Assistant";
 pub const MODE_STANDALONE: &str = "Standalone";
+/// The "Install updates" select's options (ADR 0022).
+pub const INSTALL_MANUALLY: &str = "Manually";
+pub const INSTALL_AUTOMATICALLY: &str = "Automatically";
 
 pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
     cfg.light = Some(LightConfig {
@@ -246,6 +249,28 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             name: "Voice mode".into(),
             icon: "mdi:account-voice".into(),
             options: strings(&[MODE_HOME_ASSISTANT, MODE_STANDALONE]),
+            entity_category: EntityCategory::Config,
+        },
+        // Automatic installs and their window (ADR 0022).
+        SelectConfig {
+            object_id: "install_updates".into(),
+            name: "Install updates".into(),
+            icon: "mdi:calendar-clock".into(),
+            options: strings(&[INSTALL_MANUALLY, INSTALL_AUTOMATICALLY]),
+            entity_category: EntityCategory::Config,
+        },
+    ];
+    cfg.times = vec![
+        TimeConfig {
+            object_id: "install_window_start".into(),
+            name: "Install window start".into(),
+            icon: "mdi:clock-start".into(),
+            entity_category: EntityCategory::Config,
+        },
+        TimeConfig {
+            object_id: "install_window_end".into(),
+            name: "Install window end".into(),
+            icon: "mdi:clock-end".into(),
             entity_category: EntityCategory::Config,
         },
     ];
