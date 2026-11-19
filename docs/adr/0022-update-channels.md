@@ -1,10 +1,10 @@
 # ADR 0022: Update channels, served from updates.getpinna.dev
 
-Status: proposed (2026-11-17). Amends ADR 0003 (the manifest is signed,
+Status: proposed (2026-11-17), accepted (2026-11-19): the owner confirmed the
+points that were marked *default*. Amends ADR 0003 (the manifest is signed,
 describes the whole release, and a channel install never goes back in
 version), ADR 0015 (where satellites find releases; prereleases; the version
-scheme) and ADR 0016 (the installer downloads the release itself). Points
-marked *default* are not confirmed by the owner yet. Built: the channels, the
+scheme) and ADR 0016 (the installer downloads the release itself). Built: the channels, the
 release service, the scheduled check and installing a release. Not built
 yet: automatic installs.
 
@@ -53,8 +53,7 @@ yet: automatic installs.
 
 - `https://updates.getpinna.dev` is the one address of the project that
   satellites and the installer use. It is a Cloudflare Worker in
-  `services/updates/`, TypeScript without runtime dependencies. *(default:
-  the folder)*
+  `services/updates/`, TypeScript without runtime dependencies.
 - GitHub releases stay the source. The Worker reads the release list through
   GitHub's API and caches it for 5 minutes. The Worker holds a
   fine-grained, read-only token as a Worker secret: while the repository is
@@ -77,7 +76,6 @@ yet: automatic installs.
   into a draft: its web interface can't, and nothing can for an immutable
   release. Satellites that already installed a withdrawn release stay on it,
   because channels never go back in version; a newer release fixes them.
-  *(default)*
 - The Worker is not trusted. Whoever controls it can withhold updates, but
   can't make a satellite install anything the release key didn't sign, or go
   back in version.
@@ -126,7 +124,7 @@ yet: automatic installs.
   moves on to a stable release that is newer.
 - Each satellite has the setting **Updates**: `stable`, `beta` or `off`.
   `off` checks nothing. Release images start on `stable`; development builds
-  (ADR 0025) start on `off`. *(default)* Until ADR 0025 is built, a
+  (ADR 0025) start on `off`. Until ADR 0025 is built, a
   development build is one that compiles in `secrets/release.pub`
   (ADR 0015). A release image whose version has a prerelease part, a beta
   from the browser installer, starts on `beta`, so it stays on the track it
@@ -153,7 +151,6 @@ yet: automatic installs.
   start, once the clock is synchronized, and when the owner asks: "Check now"
   on the dashboard, Home Assistant's check (`UPDATE_COMMAND_CHECK`), or the
   satellite itself in standalone mode (ADR 0017).
-  *(default)*
 - A check fetches the channel's manifest and its signature, nothing else.
   pinnad runs it as `pinnactl update --check`, as it runs installs through
   pinnactl: the signature code is the updater's, and pinnad has no HTTP
@@ -171,9 +168,9 @@ yet: automatic installs.
   release copied to the LAN, through the manifest URL on the dashboard.
 - Nothing else waits for the release service: the voice path, the health
   check and rescue mode never contact it.
-- The scheduled check carries the counts of ADR 0023, unless the owner turned
-  them off. Not built: it waits for ADR 0023, and until then a check carries
-  nothing but its request for the channel.
+- A check carries nothing but its request for the channel. Counting
+  satellites through the check was proposed in ADR 0023 and withdrawn
+  (2026-11-19).
 
 ### Installing
 
@@ -225,7 +222,7 @@ download fails.
 - The setting **Install updates** is `manually` or `automatically`. With
   `automatically` it has a window: a start and an end time in the satellite's
   time zone (ADR 0007), 03:00 to 05:00 unless the owner changes it. A window
-  may cross midnight. Satellites start on `manually` until 1.0. *(default)*
+  may cross midnight. Satellites start on `manually` until 1.0.
 - It is a setting like the others (ADR 0007): fields of `UpdateSettings`,
   controls on the dashboard's Updates page, and in Home Assistant a `select`
   entity for the mode and two `time` entities for the window (category
@@ -343,13 +340,15 @@ download fails.
   Assistant included, signed with the developer's key.
 - The Worker runs locally with `npx wrangler dev`. Its tests run with
   `node --test` against recorded GitHub answers, without a Cloudflare or
-  GitHub account. *(default)*
+  GitHub account.
 
 ## Consequences
 
 - Satellites contact a service of the project by default, once a day and
-  after each start. The goals page rules that out today ("no cloud service").
-  ADR 0023 says what the project learns from it and how the page changes.
+  after each start. The service learns what any web server learns: the
+  address a request comes from, when, and the channel it asks for. The
+  Worker's logs keep these for a few days at Cloudflare (`observability` in
+  `wrangler.toml`), and the goals page says so.
 - Owners see a new release on the dashboard and in Home Assistant and install
   it with one button. Nothing installs without them.
 - The project runs a Worker and keeps a Cloudflare account and the domain. If

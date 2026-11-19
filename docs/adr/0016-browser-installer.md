@@ -1,9 +1,9 @@
 # ADR 0016: Install from the browser, over WebUSB fastboot
 
-Status: proposed (2026-11-16). Builds on ADR 0015 (prebuilt releases); the
+Status: proposed (2026-11-16), accepted (2026-11-19): the owner confirmed the
+points that were marked *default*. Builds on ADR 0015 (prebuilt releases); the
 setup ends on the dashboard over USB (ADR 0007, ADR 0008), since ADR 0009 was
-withdrawn. Points marked *default* are not confirmed by the owner yet.
-Built: stages 1 and 2, at `/install/`, linked from the docs. Not built yet:
+withdrawn. Built: stages 1 and 2, at `/install/`, linked from the docs. Not built yet:
 stage 3 (backup and restore, which ADR 0019 moves to the recovery image) and
 stage 4 (unlock).
 
@@ -77,7 +77,8 @@ stage 4 (unlock).
 - The user downloads the release files and hands them to the page. The page
   identifies each file by its SHA-256 against the release's `SHA256SUMS`, not
   by its name, because browsers rename repeated downloads. Root and boot image
-  must come from the same `SHA256SUMS`. *(default: no hosting yet)*
+  must come from the same `SHA256SUMS`. Since ADR 0022 the page downloads the
+  release through the release service; handing it the files stays possible.
 - `SHA256SUMS` proves the download is intact, not who made it. The device
   checks the root image's signature (pinna-init); nothing checks the boot
   image, as with the terminal install.
@@ -142,7 +143,7 @@ stage 4 (unlock).
   device reports when it reconnects: Kaeru answers, or it does not.
 - Stage 4 stays hidden (not linked, behind a URL parameter) until a stock unit
   of that model has been unlocked through the page. The project has none, so
-  that first unit is a user's, who knows the risk. *(default)*
+  that first unit is a user's, who knows the risk.
 
 ## Consequences
 

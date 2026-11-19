@@ -1,9 +1,9 @@
 # ADR 0015: Prebuilt releases, signed with the project key, without owner data
 
-Status: proposed (2026-11-15). Amends ADR 0003 (who holds the signing key, and
-which public key a build compiles in) and ADR 0010 (SSH keys are no longer
-baked into release images). Points marked *default* are not confirmed by the
-owner yet.
+Status: proposed (2026-11-15), accepted (2026-11-19): the owner confirmed the
+points that were marked *default*. Amends ADR 0003 (who holds the signing
+key, and which public key a build compiles in) and ADR 0010 (SSH keys are no
+longer baked into release images).
 
 Built (noted 2026-11-17): the key handling, `.github/workflows/release.yml`,
 `PINNA_RELEASE=1`, the checks in `flash-gen2.sh`, the machine id from the
@@ -46,10 +46,9 @@ images also carry the Okay Nabu `.tflite` model (ADR 0013), listed in the same
 
 - `keys/release.pub` is the project's key. It is the key it holds today, so
   Dots that run it need no new boot image. `just keygen` no longer rewrites it.
-  *(default)*
 - Its secret half is a GitHub Actions secret, `PINNA_RELEASE_KEY`, in a
   protected `release` environment. Only a `v*` tag runs the job that can read
-  it. *(default)*
+  it.
 - A developer without that key runs `just keygen`. It writes
   `secrets/release.key` and `secrets/release.pub`. The build compiles in
   `secrets/release.pub` when it exists, else `keys/release.pub`. Flashing such
@@ -69,9 +68,8 @@ images also carry the Okay Nabu `.tflite` model (ADR 0013), listed in the same
   - `SHA256SUMS`
   - `flash-gen2.sh`
 
-  The owner publishes the draft. *(default: GitHub Releases. The browser
-  installer needs a host that allows cross-origin downloads; that is decided
-  with it.)*
+  The owner publishes the draft. Releases live on GitHub; satellites and the
+  browser installer reach them through the release service (ADR 0022).
 - Started by hand (`workflow_dispatch`), the workflow builds the same with a
   throwaway key and keeps the files as workflow artifacts. They are for
   testing the workflow, not for devices.
@@ -93,20 +91,21 @@ images also carry the Okay Nabu `.tflite` model (ADR 0013), listed in the same
   `/etc/machine-id` in the root. Without a serial number (the VMs), the
   image's machine id stays. A failure is logged and never stops the boot.
   `secrets/machine-id` becomes optional; without it, mkosi writes
-  `uninitialized`. *(default: the idme serial, the same identity the gadget
-  uses, rather than the eMMC CID)*
+  `uninitialized`. The idme serial is the same identity the USB gadget uses,
+  which the eMMC CID isn't.
 - **SSH keys.** sshd also reads `/var/lib/pinna/ssh/authorized_keys`. Release
   images carry no key. An owner adds one there from the USB serial console,
   which logs in as root already; a later installer writes it. Builds with
-  `secrets/authorized_keys` keep baking it in. *(default)*
+  `secrets/authorized_keys` keep baking it in.
 - **Wi-Fi, node name and API key** are not in release images. Wi-Fi and the
   name Home Assistant shows come from the dashboard (ADRs 0007–0009); the
   node name follows the MAC; Home Assistant sets the API key (ADR 0018).
   Builds with `secrets/` keep seeding them as today.
 - **Wake word models.** Release images carry the openWakeWord v0.5.1 `.onnx`
   models, unchanged, with a `NOTICE` that names their source and licence.
-  Releases are free of charge, which the non-commercial term requires.
-  *(default)* The `.tflite` models of ADR 0013 are not decided here.
+  Releases are free of charge, which the non-commercial term requires. Okay
+  Nabu, the `.tflite` model of ADR 0013, ships the same way, in the same
+  `NOTICE`.
 
 ## Consequences
 
