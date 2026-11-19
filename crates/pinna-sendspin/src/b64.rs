@@ -1,8 +1,8 @@
-//! The base64 form Sendspin uses for keys and identifiers (ADR 0027): base64url without
-//! padding.
+//! The two base64 forms Sendspin uses (ADR 0027): base64url without padding for keys and
+//! identifiers, standard base64 with padding for `codec_header`.
 
 use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 
 /// Characters in the base64url form of 32 bytes, without padding.
 pub(crate) const KEY_CHARS: usize = 43;
@@ -30,4 +30,8 @@ pub(crate) fn is_url_chars(text: &str, len: usize) -> bool {
         && text
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+pub(crate) fn decode_standard(text: &str) -> Option<Vec<u8>> {
+    STANDARD.decode(text).ok()
 }
