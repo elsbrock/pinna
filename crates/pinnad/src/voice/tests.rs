@@ -258,6 +258,79 @@ async fn timer_finish_interrupts_and_action_dismisses() {
 }
 
 #[tokio::test]
+async fn a_confirmation_takes_the_action_press_for_itself() {
+    let mut d = Device::new();
+    d.listen().await;
+    d.ha(HaCommand::Timer {
+        event: TimerEventType::Finished,
+        id: "tea".into(),
+        name: "Tea".into(),
+        total_seconds: 10,
+        seconds_left: 0,
+        is_active: true,
+    })
+    .await;
+    while d.events.try_recv().is_ok() {}
+    assert!(d.brain.snapshot().alarm_ringing);
+    d.brain.sw_muted = true;
+    d.brain.boot_done = true;
+
+    let (pressed, press) = oneshot::channel();
+    d.brain
+        .handle(Input::Presence(Presence {
+            until: Instant::now() + Duration::from_secs(60),
+            pressed,
+        }))
+        .await;
+    d.brain.refresh();
+    // The ring shows it, above the muted ring.
+    assert_eq!(d.brain.leds.borrow().base, Effect::Confirm);
+
+    d.brain
+        .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+        .await;
+    press.await.expect("the press reached the confirmation");
+    // It stopped no alarm and told Home Assistant nothing.
+    assert!(d.brain.snapshot().alarm_ringing);
+    d.expect(&[]);
+    d.brain.refresh();
+    assert_ne!(d.brain.leds.borrow().base, Effect::Confirm);
+
+    // The next press is the satellite's again.
+    d.brain
+        .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+        .await;
+    d.expect(&[event("action", "press")]);
+}
+
+#[tokio::test]
+async fn a_confirmation_nobody_presses_ends_on_its_own() {
+    let mut d = Device::new();
+    let (pressed, press) = oneshot::channel();
+    d.brain
+        .handle(Input::Presence(Presence {
+            until: Instant::now() + Duration::from_secs(60),
+            pressed,
+        }))
+        .await;
+    assert!(d.brain.presence.is_some());
+    // The asker went away: nothing waits for the press any more.
+    drop(press);
+    d.brain.tick().await;
+    assert!(d.brain.presence.is_none());
+
+    let (pressed, _press) = oneshot::channel();
+    d.brain
+        .handle(Input::Presence(Presence {
+            until: Instant::now(),
+            pressed,
+        }))
+        .await;
+    d.brain.tick().await;
+    assert!(d.brain.presence.is_none(), "the minute is over");
+}
+
+#[tokio::test]
 async fn announcement_reports_completion() {
     let mut d = Device::new();
     d.ha(HaCommand::Announce {

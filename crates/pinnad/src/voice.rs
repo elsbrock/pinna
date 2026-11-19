@@ -75,6 +75,16 @@ pub struct Shared {
     pub counters: crate::metrics::Counters,
 }
 
+/// Someone must press Action (ADR 0029): the dashboard asked for presence at
+/// the device. The Brain takes the next Action press for it.
+#[derive(Debug)]
+pub struct Presence {
+    /// When the wait ends.
+    pub until: Instant,
+    /// Answered by the press.
+    pub pressed: oneshot::Sender<()>,
+}
+
 #[derive(Debug)]
 pub enum Input {
     Ha(HaCommand),
@@ -115,6 +125,8 @@ pub enum Input {
     },
     /// A message from another member of the satellite group (ADR 0026).
     Message(Delivery),
+    /// The dashboard waits for a press of Action (ADR 0029).
+    Presence(Presence),
 }
 
 /// Answer to an API command: the state right after it was applied, or why it was refused.
@@ -656,6 +668,8 @@ pub struct Brain {
     recent_wakes: VecDeque<WakeRecord>,
     /// The sensitivity tuning with the device's buttons, while it runs.
     calibration: Option<Calibration>,
+    /// A confirmation waiting for the Action button (ADR 0029).
+    presence: Option<Presence>,
     /// Renamed while Home Assistant was connected: make it reconnect, and read
     /// the new name, once the satellite is idle.
     reconnect_pending: bool,
@@ -812,6 +826,7 @@ impl Brain {
             sendspin_track: pinna_audio::Track::default(),
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
+            presence: None,
             reconnect_pending: false,
             update_restart_tried: None,
             reconnect_for_mode: false,
@@ -1039,6 +1054,10 @@ impl Brain {
             Input::Assist { run, ev } => self.assist_event(run, ev).await,
             Input::RunTool { run, cmd } => self.run_tool(run, cmd).await,
             Input::Message(delivery) => self.take_message(delivery, Instant::now()),
+            Input::Presence(presence) => {
+                tracing::info!("waiting for a press of Action to confirm a change");
+                self.presence = Some(presence);
+            }
         }
         self.tend_messages(Instant::now());
     }
@@ -2328,6 +2347,16 @@ impl Brain {
     // --- buttons --------------------------------------------------------------
 
     async fn button(&mut self, ev: ButtonEvent) {
+        // A confirmation takes the press for itself, whatever the ring shows
+        // and with the microphone muted: it stops no alarm, starts no
+        // request and reaches Home Assistant as no event (ADR 0029).
+        if matches!(ev, ButtonEvent::Press(Button::Action))
+            && let Some(presence) = self.presence.take()
+            && presence.pressed.send(()).is_ok()
+        {
+            tracing::info!("Action pressed to confirm a change");
+            return;
+        }
         // Home Assistant event entities: press / double_press / long_press.
         match ev {
             ButtonEvent::Press(b) => {
@@ -3554,6 +3583,13 @@ impl Brain {
         if self.calibration.as_ref().is_some_and(|c| c.expired(now)) {
             self.end_calibration().await;
         }
+        if self
+            .presence
+            .as_ref()
+            .is_some_and(|p| now >= p.until || p.pressed.is_closed())
+        {
+            self.presence = None;
+        }
         if let Some(mode) = self.pending_mode
             && self.switch_idle()
         {
@@ -3657,6 +3693,9 @@ impl Brain {
             effect
         } else if !self.boot_done {
             Effect::Boot
+        } else if self.presence.is_some() {
+            // Above Muted: someone who has to press Action needs to see it.
+            Effect::Confirm
         } else if muted {
             Effect::Muted
         } else if self.ringing.is_some() {
