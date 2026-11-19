@@ -6,10 +6,13 @@ word is added or removed. Amends ADR 0007; builds on ADR 0005.
 
 Built: several words with at most two active, the built-in table, `wake_words`
 in `settings.toml`, the dashboard choosing only while Home Assistant isn't
-connected, the detection rules and the patched `vendor/tract-tflite`. Not
-built yet: custom words from the dashboard (`AddWakeWord`, `RemoveWakeWord`,
-`/var/lib/pinna/wakewords/`, the loading mark) and the per-word peak score;
-the near-miss log line names the word that scored instead.
+connected, the detection rules, the patched `vendor/tract-tflite`, and custom
+words from the dashboard (`AddWakeWord`, `RemoveWakeWord`, the test in its own
+process, `/var/lib/pinna/wakewords/`, the loading mark). Not built yet: the
+per-word peak score (the near-miss log line names the word that scored
+instead), and windows other than 16 embeddings: a model that reads `[1,N,96]`
+with N other than 16 is refused. All 118 `.tflite` models in the Home
+Assistant community's wake word collection read 16 (2026-11-19).
 
 ## Context
 
@@ -47,7 +50,8 @@ the near-miss log line names the word that scored instead.
 ## Decision
 
 - **Several words, at most two active.** pinnad offers every built-in word whose model file is in the
-  image, plus the custom ones. `max_active_wake_words` is 2.
+  image, plus the custom ones that can listen: a custom word whose model failed shows on the dashboard
+  with the reason and isn't offered to Home Assistant. `max_active_wake_words` is 2.
 - **The device keeps the active words.** They are a setting in `settings.toml` (`wake_words`, a list of
   ids), so the satellite keeps listening for the same words without Home Assistant.
 - **Home Assistant chooses while it is connected; the dashboard otherwise.**
@@ -65,11 +69,16 @@ the near-miss log line names the word that scored instead.
 - **Built-in words are a table in pinnad** (id, phrase, file). A word whose file is missing isn't offered.
 - **Custom words come from the dashboard.**
   - `AddWakeWord` stores the model in `/var/lib/pinna/wakewords/` with an `index.toml` (id, phrase, file,
-    sha256). `RemoveWakeWord` deletes it, and the word leaves the active list.
+    sha256, and `failed` for a word that can't listen any more). `RemoveWakeWord` deletes it, and the
+    word leaves the active list, even while Home Assistant is connected: there is nothing left to
+    listen for.
+  - A model is loaded only if its sha256 matches the index; one whose file changed fails.
   - Accepted: `.onnx` and `.tflite`, recognised by their content, at most 2 MiB, at most 8 custom words.
-  - The phrase is 2 to 40 characters and unique (ignoring case). Home Assistant maps phrases to ids, so
-    two words with the same phrase would collide there.
-  - **An upload is tested in a separate process before anything is written.** pinnad runs itself
+  - The phrase is 2 to 40 characters, saved with single spaces, and unique ignoring case, spaces and
+    punctuation. Home Assistant maps phrases to ids, so two words with the same phrase would collide
+    there, and its dropdowns would show "Hey Custom" and "hey custom." as the same word.
+  - **An upload is tested in a separate process before it is kept.** pinnad stages it in the wake words
+    directory and runs itself
     (`pinnad --check-wake-word FILE`) at the lowest CPU priority, with at most 256 MiB of address
     space, 30 s of CPU time and 60 s in all. The test:
     - loads the model as a classifier from `[1,N,96]` floats to one score;
@@ -80,18 +89,24 @@ the near-miss log line names the word that scored instead.
       refused: two such words would leave the audio path too little time. The time is the fastest of
       20 runs, so the test's low priority doesn't count against the model.
   - A refusal is a sentence the dashboard shows, naming a microWakeWord model as such. A test that a
-    limit stops, or that crashes, is refused too. Only a test that passes lets pinnad write the model.
+    limit stops, or that crashes, is refused too. A refused upload is deleted, and an upload a stopped
+    test left behind is deleted at the next start. Only a model that passes goes into the index.
+  - One upload is tested at a time; a second one meanwhile is refused with a sentence, so two tests
+    never hold the memory at once.
   - Adding and removing go through one task, so two dashboards can't overshoot the limit or lose a write.
-  - After a word is added or removed, pinnad asks Home Assistant to reconnect once the satellite is quiet,
-    as after a rename. Home Assistant reads the list of words only when it connects and never reconnects
-    by itself; dropping the connection at once would cut off a request, an announcement or music.
+  - After a word is added, removed or fails to load, pinnad asks Home Assistant to reconnect once the
+    satellite is quiet, as after a rename. Home Assistant reads the list of words only when it connects
+    and never reconnects by itself; dropping the connection at once would cut off a request, an
+    announcement or music.
   - Each word reports the peak score of the last utterance it heard, so an owner can tell a word that
     never fires from one that nearly does.
 - **A custom word never stops pinnad from starting.**
-  - A model that fails to load at start is logged, reported as failed, and dropped from the active words.
+  - A model that fails to load is logged, reported as failed, and dropped from the active words. At
+    start, the models load before Home Assistant is told the words, so a failed one is never offered.
     `pinna-boot-ok` doesn't depend on it.
   - pinnad marks a model as loading before it loads it and clears the mark after. A mark left behind
-    means the load crashed pinnad (out of memory, an abort), so the next start skips that model.
+    means the load crashed pinnad (out of memory, an abort), so the next start records the word as
+    failed in `index.toml`. It stays failed, and is never loaded again, until the owner removes it.
   - A corrupt `index.toml` means no custom words, logged; a missing model file means that word failed.
 - **Detection:**
   - Each active word has its own three-block window, and the detection rule doesn't change.
