@@ -44,8 +44,11 @@ export type PeerEnvelope = Message<"pinna.v1.PeerEnvelope"> & {
   body: Uint8Array;
 
   /**
-   * HMAC-SHA256 under the group's key over "pinna-group-v1", the group id,
-   * the sender's MAC and the body, joined by zero bytes.
+   * HMAC-SHA256 under the group's key over "pinna-group-v1", the purpose,
+   * the group id, the sender's MAC and the body, joined by zero bytes. The
+   * purpose is the method's name and "call" or "answer", as in
+   * "GetGroup/call", so an answer can't be sent back as a call, nor one
+   * call's body as another's.
    *
    * @generated from field: bytes tag = 4;
    */

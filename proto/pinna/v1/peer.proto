@@ -53,8 +53,11 @@ message PeerEnvelope {
   // The inner message, protobuf-encoded. The tag covers these exact bytes,
   // so a JSON caller's re-encoding can't break it.
   bytes body = 3;
-  // HMAC-SHA256 under the group's key over "pinna-group-v1", the group id,
-  // the sender's MAC and the body, joined by zero bytes.
+  // HMAC-SHA256 under the group's key over "pinna-group-v1", the purpose,
+  // the group id, the sender's MAC and the body, joined by zero bytes. The
+  // purpose is the method's name and "call" or "answer", as in
+  // "GetGroup/call", so an answer can't be sent back as a call, nor one
+  // call's body as another's.
   bytes tag = 4;
 }
 

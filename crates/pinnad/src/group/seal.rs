@@ -2,8 +2,9 @@
 //!
 //! A Connect handler sees the decoded message, not the bytes that were sent,
 //! so every call and answer but `Join` carries its inner message as bytes in
-//! an envelope, and the tag covers those bytes, the group id and the sender's
-//! MAC. The receiver checks the tag before it decodes anything.
+//! an envelope, and the tag covers those bytes, what they are for, the group
+//! id and the sender's MAC. The receiver checks the tag before it decodes
+//! anything.
 
 use std::fmt;
 
@@ -97,8 +98,12 @@ pub fn new_key() -> Result<[u8; KEY_LEN]> {
 }
 
 /// The tag of an envelope: HMAC-SHA256 under the group's key over
-/// `pinna-group-v1`, the group id, the sender's MAC and the body, joined by
-/// zero bytes.
+/// `pinna-group-v1`, the purpose, the group id, the sender's MAC and the
+/// body, joined by zero bytes.
+///
+/// The purpose names the call and its direction (`GetGroup/call`,
+/// `GetGroup/answer`), so a signed answer can't be sent back as a call, nor
+/// one call's body as another's.
 #[cfg_attr(
     not(test),
     expect(
@@ -106,18 +111,25 @@ pub fn new_key() -> Result<[u8; KEY_LEN]> {
         reason = "the calls between members sign with it (ADR 0026), in a later change"
     )
 )]
-pub fn sign(key: &[u8; KEY_LEN], group_id: &str, sender_mac: &str, body: &[u8]) -> [u8; TAG_LEN] {
+pub fn sign(
+    key: &[u8; KEY_LEN],
+    purpose: &str,
+    group_id: &str,
+    sender_mac: &str,
+    body: &[u8],
+) -> [u8; TAG_LEN] {
     let key = hmac::Key::new(hmac::HMAC_SHA256, key);
-    let tag = hmac::sign(&key, &input(group_id, sender_mac, body));
+    let tag = hmac::sign(&key, &input(purpose, group_id, sender_mac, body));
     let mut out = [0u8; TAG_LEN];
     out.copy_from_slice(tag.as_ref());
     out
 }
 
-/// Whether `tag` is the envelope's tag, compared in constant time.
+/// Whether `tag` is the envelope's tag for `purpose`, compared in constant
+/// time.
 ///
-/// A group id or MAC with a zero byte in it never verifies: the zero bytes
-/// separate the parts of the input, and one inside a part would let two
+/// A purpose, group id or MAC with a zero byte in it never verifies: the zero
+/// bytes separate the parts of the input, and one inside a part would let two
 /// different envelopes share a tag.
 #[cfg_attr(
     not(test),
@@ -128,26 +140,31 @@ pub fn sign(key: &[u8; KEY_LEN], group_id: &str, sender_mac: &str, body: &[u8]) 
 )]
 pub fn verify(
     key: &[u8; KEY_LEN],
+    purpose: &str,
     group_id: &str,
     sender_mac: &str,
     body: &[u8],
     tag: &[u8],
 ) -> bool {
-    if group_id.contains('\0') || sender_mac.contains('\0') {
+    if [purpose, group_id, sender_mac]
+        .iter()
+        .any(|part| part.contains('\0'))
+    {
         return false;
     }
     let key = hmac::Key::new(hmac::HMAC_SHA256, key);
-    hmac::verify(&key, &input(group_id, sender_mac, body), tag).is_ok()
+    hmac::verify(&key, &input(purpose, group_id, sender_mac, body), tag).is_ok()
 }
 
-fn input(group_id: &str, sender_mac: &str, body: &[u8]) -> Vec<u8> {
-    let mut data =
-        Vec::with_capacity(CONTEXT.len() + group_id.len() + sender_mac.len() + body.len() + 3);
+fn input(purpose: &str, group_id: &str, sender_mac: &str, body: &[u8]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(
+        CONTEXT.len() + purpose.len() + group_id.len() + sender_mac.len() + body.len() + 4,
+    );
     data.extend_from_slice(CONTEXT);
-    data.push(0);
-    data.extend_from_slice(group_id.as_bytes());
-    data.push(0);
-    data.extend_from_slice(sender_mac.as_bytes());
+    for part in [purpose, group_id, sender_mac] {
+        data.push(0);
+        data.extend_from_slice(part.as_bytes());
+    }
     data.push(0);
     data.extend_from_slice(body);
     data
@@ -157,6 +174,7 @@ fn input(group_id: &str, sender_mac: &str, body: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    const FOR: &str = "GetGroup/call";
     const ID: &str = "00112233445566778899aabbccddeeff";
     const MAC: &str = "aa:bb:cc:dd:ee:ff";
     /// A PeerHello whose sender's web port is 2000.
@@ -172,20 +190,20 @@ mod tests {
 
     #[test]
     fn a_signed_envelope_verifies() {
-        let tag = sign(&key(), ID, MAC, BODY);
-        assert!(verify(&key(), ID, MAC, BODY, &tag));
-        let empty = sign(&key(), ID, MAC, &[]);
-        assert!(verify(&key(), ID, MAC, &[], &empty));
+        let tag = sign(&key(), FOR, ID, MAC, BODY);
+        assert!(verify(&key(), FOR, ID, MAC, BODY, &tag));
+        let empty = sign(&key(), FOR, ID, MAC, &[]);
+        assert!(verify(&key(), FOR, ID, MAC, &[], &empty));
     }
 
     #[test]
     fn the_tag_is_hmac_sha256_over_the_documented_input() {
         // Computed independently with Python's hmac module:
-        // hmac.new(bytes(range(32)), b"pinna-group-v1\0" + id + b"\0" + mac
-        //          + b"\0" + body, hashlib.sha256).hexdigest()
+        // hmac.new(bytes(range(32)), b"pinna-group-v1\0GetGroup/call\0" + id
+        //          + b"\0" + mac + b"\0" + body, hashlib.sha256).hexdigest()
         assert_eq!(
-            hex(&sign(&key(), ID, MAC, BODY)),
-            "b3eff07b5852301604a04d199baef3b80759704051104789f18fa23e1c78d11b"
+            hex(&sign(&key(), FOR, ID, MAC, BODY)),
+            "c63f272d7c4c96d6d56a5b3b021432a1f9fd316cfe9f6ead330adf4d35d2b884"
         );
     }
 
@@ -202,76 +220,109 @@ mod tests {
 
     #[test]
     fn any_changed_byte_of_the_group_id_fails() {
-        let tag = sign(&key(), ID, MAC, BODY);
+        let tag = sign(&key(), FOR, ID, MAC, BODY);
         for i in 0..ID.len() {
             let mut id = ID.as_bytes().to_vec();
             id[i] = if id[i] == b'f' { b'e' } else { b'f' };
             let id = String::from_utf8(id).unwrap();
-            assert!(!verify(&key(), &id, MAC, BODY, &tag), "byte {i}");
+            assert!(!verify(&key(), FOR, &id, MAC, BODY, &tag), "byte {i}");
         }
-        assert!(!verify(&key(), &ID[1..], MAC, BODY, &tag));
-        assert!(!verify(&key(), &format!("{ID}0"), MAC, BODY, &tag));
+        assert!(!verify(&key(), FOR, &ID[1..], MAC, BODY, &tag));
+        assert!(!verify(&key(), FOR, &format!("{ID}0"), MAC, BODY, &tag));
     }
 
     #[test]
     fn any_changed_byte_of_the_sender_mac_fails() {
-        let tag = sign(&key(), ID, MAC, BODY);
+        let tag = sign(&key(), FOR, ID, MAC, BODY);
         for i in 0..MAC.len() {
             let mut mac = MAC.as_bytes().to_vec();
             mac[i] = if mac[i] == b'0' { b'1' } else { b'0' };
             let mac = String::from_utf8(mac).unwrap();
-            assert!(!verify(&key(), ID, &mac, BODY, &tag), "byte {i}");
+            assert!(!verify(&key(), FOR, ID, &mac, BODY, &tag), "byte {i}");
         }
         // The same MAC in upper case is another input: the sender signs the
         // form it stores, the lowercase colon one.
-        assert!(!verify(&key(), ID, &MAC.to_uppercase(), BODY, &tag));
+        assert!(!verify(&key(), FOR, ID, &MAC.to_uppercase(), BODY, &tag));
     }
 
     #[test]
     fn any_changed_byte_of_the_body_fails() {
-        let tag = sign(&key(), ID, MAC, BODY);
+        let tag = sign(&key(), FOR, ID, MAC, BODY);
         for i in 0..BODY.len() {
             for bit in 0..8 {
                 let mut body = BODY.to_vec();
                 body[i] ^= 1 << bit;
-                assert!(!verify(&key(), ID, MAC, &body, &tag), "byte {i} bit {bit}");
+                assert!(
+                    !verify(&key(), FOR, ID, MAC, &body, &tag),
+                    "byte {i} bit {bit}"
+                );
             }
         }
-        assert!(!verify(&key(), ID, MAC, &BODY[..4], &tag));
-        assert!(!verify(&key(), ID, MAC, &[BODY, &[0]].concat(), &tag));
+        assert!(!verify(&key(), FOR, ID, MAC, &BODY[..4], &tag));
+        assert!(!verify(&key(), FOR, ID, MAC, &[BODY, &[0]].concat(), &tag));
     }
 
     #[test]
     fn any_changed_byte_of_the_tag_fails() {
-        let tag = sign(&key(), ID, MAC, BODY);
+        let tag = sign(&key(), FOR, ID, MAC, BODY);
         for i in 0..TAG_LEN {
             for bit in 0..8 {
                 let mut bad = tag;
                 bad[i] ^= 1 << bit;
-                assert!(!verify(&key(), ID, MAC, BODY, &bad), "byte {i} bit {bit}");
+                assert!(
+                    !verify(&key(), FOR, ID, MAC, BODY, &bad),
+                    "byte {i} bit {bit}"
+                );
             }
         }
-        assert!(!verify(&key(), ID, MAC, BODY, &tag[..TAG_LEN - 1]));
-        assert!(!verify(&key(), ID, MAC, BODY, &[&tag[..], &[0]].concat()));
-        assert!(!verify(&key(), ID, MAC, BODY, &[]));
+        assert!(!verify(&key(), FOR, ID, MAC, BODY, &tag[..TAG_LEN - 1]));
+        assert!(!verify(
+            &key(),
+            FOR,
+            ID,
+            MAC,
+            BODY,
+            &[&tag[..], &[0]].concat()
+        ));
+        assert!(!verify(&key(), FOR, ID, MAC, BODY, &[]));
     }
 
     #[test]
     fn another_key_fails() {
-        let tag = sign(&key(), ID, MAC, BODY);
+        let tag = sign(&key(), FOR, ID, MAC, BODY);
         let mut other = key();
         other[31] ^= 1;
-        assert!(!verify(&other, ID, MAC, BODY, &tag));
+        assert!(!verify(&other, FOR, ID, MAC, BODY, &tag));
+    }
+
+    #[test]
+    fn a_tag_is_good_for_its_purpose_only() {
+        // An answer sent back as a call, or one call's body as another's.
+        let tag = sign(&key(), "GetGroup/answer", ID, MAC, BODY);
+        assert!(verify(&key(), "GetGroup/answer", ID, MAC, BODY, &tag));
+        for other in ["GetGroup/call", "PutGroup/call", "PutGroup/answer", ""] {
+            assert!(!verify(&key(), other, ID, MAC, BODY, &tag), "{other}");
+        }
     }
 
     #[test]
     fn the_parts_cannot_trade_bytes() {
         // Moving the boundary between the MAC and the body changes the input,
         // since a MAC may not hold the zero byte that separates them.
-        let tag = sign(&key(), ID, "aa", b"b\0c");
-        assert!(!verify(&key(), ID, "aa\0b", b"c", &tag));
-        let tag = sign(&key(), "a\0b", MAC, BODY);
-        assert!(!verify(&key(), "a\0b", MAC, BODY, &tag));
+        let tag = sign(&key(), FOR, ID, "aa", b"b\0c");
+        assert!(!verify(&key(), FOR, ID, "aa\0b", b"c", &tag));
+        let tag = sign(&key(), FOR, "a\0b", MAC, BODY);
+        assert!(!verify(&key(), FOR, "a\0b", MAC, BODY, &tag));
+        // The same bytes split another way, from the purpose on.
+        let tag = sign(&key(), FOR, ID, "aa", b"b\0c");
+        assert!(!verify(
+            &key(),
+            &format!("{FOR}\0{ID}"),
+            "aa",
+            "b",
+            b"c",
+            &tag
+        ));
     }
 
     #[test]
