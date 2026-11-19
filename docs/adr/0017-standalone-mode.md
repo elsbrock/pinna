@@ -1,7 +1,8 @@
 # ADR 0017: Standalone mode runs the voice request on services the owner picks
 
-Status: proposed (2026-11-16), built on its branch (2026-11-18), not yet on `main`. Amends ADR 0005,
-ADR 0007, ADR 0013, ADR 0020 and ADR 0022; builds on ADR 0008, ADR 0011, ADR 0018 and ADR 0021.
+Status: proposed (2026-11-16), accepted and built (2026-11-18), released in v0.3.0. Amends
+ADR 0005, ADR 0007, ADR 0013, ADR 0020 and ADR 0022; builds on ADR 0008, ADR 0011, ADR 0018 and
+ADR 0021.
 
 ## Context
 
@@ -398,8 +399,8 @@ ADR 0007, ADR 0013, ADR 0020 and ADR 0022; builds on ADR 0008, ADR 0011, ADR 001
 - An Echo works without Home Assistant, as a voice assistant on its own: timers, the weather, radio and
   questions to a model. An agent such as Hermes or OpenClaw can use it as its voice and speaker.
 - Owners without Home Assistant can set up a release image over USB, with no file and no SSH (ADR 0007,
-  ADR 0008). The guided setup in ADR 0009, not built yet, ends by saying how Home Assistant finds the
-  satellite. It needs a step that offers standalone mode instead.
+  ADR 0008). There is no guided setup (ADR 0009 was withdrawn): the Assistant page offers standalone
+  mode, and the Home Assistant page says how Home Assistant finds the satellite.
 - A device backup (ADR 0019) copies `userdata`, keys included. It is as sensitive as the keys. The
   settings backup ADR 0019 leaves to the settings needs to decide whether keys go into it.
 - A satellite that never meets Home Assistant keeps a plaintext ESPHome API, and anyone on the LAN can set

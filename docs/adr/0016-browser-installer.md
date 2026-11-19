@@ -1,8 +1,11 @@
 # ADR 0016: Install from the browser, over WebUSB fastboot
 
-Status: proposed (2026-11-16). Builds on ADR 0015 (prebuilt releases) and ends
-in ADR 0009 (first-time setup over USB). Points marked *default* are not
-confirmed by the owner yet.
+Status: proposed (2026-11-16). Builds on ADR 0015 (prebuilt releases); the
+setup ends on the dashboard over USB (ADR 0007, ADR 0008), since ADR 0009 was
+withdrawn. Points marked *default* are not confirmed by the owner yet.
+Built: stages 1 and 2, at `/install/`, linked from the docs. Not built yet:
+stage 3 (backup and restore, which ADR 0019 moves to the recovery image) and
+stage 4 (unlock).
 
 ## Context
 

@@ -7,8 +7,10 @@ owner yet.
 
 Built (noted 2026-11-17): the key handling, `.github/workflows/release.yml`,
 `PINNA_RELEASE=1`, the checks in `flash-gen2.sh`, the machine id from the
-serial number and the SSH keys under `/var`. No release has been published
-yet, so the `releases/latest` manifest URL below doesn't resolve. Release
+serial number and the SSH keys under `/var`. Releases are published since
+v0.3.0 (2026-11-18). The repository is private, so the `releases/latest`
+manifest URL below doesn't resolve; satellites find releases through the
+release service instead (ADR 0022). Release
 images also carry the Okay Nabu `.tflite` model (ADR 0013), listed in the same
 `NOTICE`.
 

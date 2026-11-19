@@ -4,7 +4,9 @@ Status: proposed (2026-11-17). Amends ADR 0003 (the manifest is signed,
 describes the whole release, and a channel install never goes back in
 version), ADR 0015 (where satellites find releases; prereleases; the version
 scheme) and ADR 0016 (the installer downloads the release itself). Points
-marked *default* are not confirmed by the owner yet.
+marked *default* are not confirmed by the owner yet. Built: the channels, the
+release service, the scheduled check and installing a release. Not built
+yet: automatic installs.
 
 ## Context
 

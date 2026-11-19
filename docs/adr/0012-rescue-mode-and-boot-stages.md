@@ -4,11 +4,14 @@ Status: proposed (2026-11-15), accepted in part (2026-11-17). Amends ADR 0003:
 when nothing can be booted, pinna-init enters rescue mode instead of rebooting
 in a loop.
 
-Built: phases 1 and 2 of "Order of work". Not built yet: phase 3 (the boot
-record at `misc` + 0x41000, the reasons `failed-boots`, `button` and
-`requested`, `pinna-bootctl reboot-rescue`, the 10-minute way out, and every
-action on the rescue page except restart) and phase 4 (the panic frame). The
-rescue page's restart and "Download diagnostics" are built.
+Built: phases 1 and 2 of "Order of work". The rescue page's restart and
+"Download diagnostics" are built. Phase 3 (the boot record at `misc` +
+0x41000, the reasons `failed-boots`, `button` and `requested`,
+`pinna-bootctl reboot-rescue`, the 10-minute way out, and the page's other
+actions) is not built, and ADR 0019 replaces it: the bootloader counts failed
+boots, rescue mode moves to the recovery image, which has the page's actions,
+and Action held at start or a request from the dashboard boots that image.
+Not built yet: phase 4 (the panic frame).
 
 ## Context
 

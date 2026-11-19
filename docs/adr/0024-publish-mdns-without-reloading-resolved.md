@@ -1,7 +1,8 @@
 # ADR 0024: Publish mDNS records without reloading systemd-resolved
 
-Status: proposed (2026-11-17). Amends ADR 0010 (a rename) and ADR 0011 (how
-the `_raop._tcp` record is published). Builds on ADR 0021.
+Status: proposed (2026-11-17), accepted and built (2026-11-17). Amends ADR
+0010 (a rename) and ADR 0011 (how the `_raop._tcp` record is published).
+Builds on ADR 0021.
 
 ## Context
 

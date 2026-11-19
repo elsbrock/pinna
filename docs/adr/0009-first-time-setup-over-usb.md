@@ -1,12 +1,13 @@
 # ADR 0009: First-time setup in the dashboard, over USB
 
-Status: proposed (2026-11-15). Needs ADR 0007 and ADR 0008; it is built after both.
+Status: proposed (2026-11-15), withdrawn (2026-11-19), never built. A
+satellite without a saved Wi-Fi network opens on the Overview, and the steps
+stay in their normal sections: the name on System, Wi-Fi on Network, and
+adding it to Home Assistant on the Overview's notice and the Home Assistant
+page. A user without a terminal finishes the setup there after the browser
+installer (ADR 0016), over USB or the setup hotspot.
 Amended 2026-11-19 by ADR 0028 (proposed): a satellite without a saved Wi-Fi
 network also offers a setup hotspot, so USB isn't the only setup channel.
-Not built yet (2026-11-17): ADR 0007 and ADR 0008 are built, but a satellite
-without a saved Wi-Fi network still opens on the Overview. Its steps are in
-their normal sections: the name on System, Wi-Fi on Network, and adding it to
-Home Assistant on the Overview's notice and the Home Assistant page.
 
 ## Context
 
