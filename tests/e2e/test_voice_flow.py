@@ -16,6 +16,7 @@ Run: just e2e   (needs `just models`)
 
 import array
 import asyncio
+import base64
 import functools
 import http.server
 import json
@@ -27,6 +28,7 @@ import struct
 import subprocess
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 import wave
 from pathlib import Path
@@ -775,4 +777,110 @@ def test_dashboard_changes_reach_home_assistant(pinnad_with_api):
         asyncio.run(dashboard_flow(port, api, url))
     finally:
         server.shutdown()
+    assert proc.poll() is None, "pinnad exited"
+
+
+def rpc_refused(api: int, method: str, body: dict) -> tuple[int, dict]:
+    """A DeviceService call that the satellite refuses: the HTTP status and the error."""
+    try:
+        rpc(api, method, body)
+    except urllib.error.HTTPError as e:
+        return e.code, json.load(e)
+    raise AssertionError(f"{method} was not refused")
+
+
+async def custom_word_flow(port: int, api: int):
+    async def call(method: str, body: dict) -> dict:
+        return await asyncio.to_thread(rpc, api, method, body)
+
+    async def refused(method: str, body: dict) -> tuple[int, dict]:
+        return await asyncio.to_thread(rpc_refused, api, method, body)
+
+    async def connect(on_stop) -> APIClient:
+        client = APIClient("127.0.0.1", port, None)
+        for _ in range(50):
+            try:
+                await client.connect(on_stop=on_stop, login=True)
+                return client
+            except Exception:
+                await asyncio.sleep(0.1)
+        raise AssertionError("no connection")
+
+    async def offered() -> list[dict]:
+        return (await call("GetStatus", {}))["status"]["wakeWord"]["available"]
+
+    dropped = asyncio.Event()
+
+    async def on_stop(expected: bool):
+        dropped.set()
+
+    # The control API starts a moment after the ESPHome one.
+    for _ in range(50):
+        try:
+            await offered()
+            break
+        except urllib.error.URLError:
+            await asyncio.sleep(0.1)
+
+    client = await connect(on_stop)
+    config = await client.get_voice_assistant_configuration(5)
+    assert not any(w.id.startswith("custom_") for w in config.available_wake_words)
+
+    # Bytes that are not a model are refused with a reason, by the test's own process.
+    garbage = base64.b64encode(b"this is not a wake word model").decode()
+    code, error = await refused("AddWakeWord", {"phrase": "Hey Garbage", "model": garbage})
+    assert code == 400 and error["code"] == "invalid_argument", (code, error)
+    assert "Not an ONNX or TFLite model" in error["message"], error
+    assert not any(w.get("custom") for w in await offered())
+
+    # A model that passes is added; Home Assistant is asked to reconnect once
+    # the satellite is quiet, and reads the new word then.
+    model = base64.b64encode((MODELS / "alexa_v0.1.onnx").read_bytes()).decode()
+    added = await call("AddWakeWord", {"phrase": "Hey Custom", "model": model})
+    assert added["id"] == "custom_hey_custom", added
+    word = next(w for w in await offered() if w["id"] == "custom_hey_custom")
+    assert word["phrase"] == "Hey Custom" and word["custom"], word
+    await asyncio.wait_for(dropped.wait(), timeout=10)
+    await client.disconnect()
+
+    starts: list[str] = []
+    started = asyncio.Event()
+
+    async def handle_start(conversation_id, flags, audio_settings, wake_word_phrase):
+        starts.append(wake_word_phrase)
+        started.set()
+        return 0
+
+    async def handle_stop(abort):
+        pass
+
+    async def handle_audio(data: bytes, data2: bytes = b""):
+        pass
+
+    dropped.clear()
+    client = await connect(on_stop)
+    config = await client.get_voice_assistant_configuration(5)
+    assert "custom_hey_custom" in {w.id for w in config.available_wake_words}
+    unsub = client.subscribe_voice_assistant(
+        handle_start=handle_start, handle_stop=handle_stop, handle_audio=handle_audio
+    )
+    await client.set_voice_assistant_configuration(["custom_hey_custom"])
+    config = await client.get_voice_assistant_configuration(5)
+    assert list(config.active_wake_words) == ["custom_hey_custom"]
+
+    # The model is Alexa's, so the fixture's "Alexa" wakes the custom word, by its phrase.
+    await asyncio.wait_for(started.wait(), timeout=15)
+    assert starts == ["Hey Custom"], starts
+    unsub()
+    await client.disconnect()
+
+    await call("RemoveWakeWord", {"id": "custom_hey_custom"})
+    assert not any(w.get("custom") for w in await offered())
+    code, error = await refused("RemoveWakeWord", {"id": "custom_hey_custom"})
+    assert code == 400 and error["code"] == "failed_precondition" and "no custom wake word" in error["message"], (code, error)
+
+
+def test_a_custom_wake_word_is_tested_added_used_and_removed(pinnad_with_api):
+    port, api, proc = pinnad_with_api
+    asyncio.run(custom_word_flow(port, api))
     assert proc.poll() is None, "pinnad exited"
