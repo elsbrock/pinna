@@ -6,11 +6,16 @@
 //!
 //! A tool-loop brain also gets the tools of the owner's MCP servers, as
 //! `<server>_<tool>`. A device tool's name is never lent to one of them.
+//!
+//! In a satellite group (ADR 0026), the brain's tools that act on the
+//! satellite take another member's name as `satellite`, and that member
+//! runs them. `/mcp`'s tools stay as they are.
 
 mod device;
 mod http;
 pub mod message;
 pub mod radio;
+mod remote;
 mod update;
 pub mod weather;
 
@@ -33,6 +38,7 @@ use crate::updates::Updater;
 use crate::voice::{ApiCommand, Input, RunId, Snapshot};
 use device::Op;
 use radio::RadioBrowser;
+use remote::Target;
 use weather::OpenMeteo;
 
 /// Free Brain queue slots an MCP call, or a message from the satellite
@@ -90,9 +96,19 @@ enum Remote {
     No,
     /// On this satellite or on another member.
     Also,
-    /// On another member only.
-    Only,
+    /// On another member only, with what it does there as the brain sees
+    /// it.
+    Only(&'static str),
 }
+
+/// `satellite` as the brain sees it, for a tool it may run here too.
+const ANOTHER: &str =
+    "Another satellite of this one's group to do it on, by its name. Leave it out for this one.";
+/// `satellite` for a tool the brain runs on another member only.
+const WHICH: &str = "The other satellite of this one's group, by its name.";
+/// What the dashboard adds to the description of a tool the brain runs on
+/// another member only, so no owner reads it as the brain's on this one.
+const ELSEWHERE: &str = "The brain does this only on another satellite of its group.";
 
 /// An argument's JSON type. Bounds and words are hints for the caller; the
 /// tool's checks decide.
@@ -192,6 +208,27 @@ impl Tool {
                 "additionalProperties": false,
             }),
         }
+    }
+
+    /// The tool as a brain in a satellite group sees it (ADR 0026): one
+    /// that acts on the satellite takes `satellite`, which one offered for
+    /// another member only needs.
+    fn grouped_spec(&self) -> ToolSpec {
+        let mut spec = self.spec();
+        let about = match self.remote {
+            Remote::No => return spec,
+            Remote::Also => ANOTHER,
+            Remote::Only(there) => {
+                spec.description = there.into();
+                if let Some(required) = spec.input_schema["required"].as_array_mut() {
+                    required.push(SATELLITE.into());
+                }
+                WHICH
+            }
+        };
+        spec.input_schema["properties"][SATELLITE] =
+            json!({"type": "string", "description": about});
+        spec
     }
 }
 
@@ -531,7 +568,9 @@ static TOOLS: &[Tool] = &[
         name: "cancel_request",
         reach: Reach::McpOnly,
         off_by_default: false,
-        remote: Remote::Only,
+        remote: Remote::Only(
+            "Stop the request another satellite of the group is handling, silence its ringing alarm, or stop a message or speak it is saying.",
+        ),
         about: "Stop the request the satellite is handling, or silence a ringing alarm.",
         params: &[],
         op: Op::CancelRequest,
@@ -563,10 +602,10 @@ pub fn runs_for_group(name: &str) -> bool {
 }
 
 /// A device tool as the dashboard lists it beside its switch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolInfo {
     pub name: &'static str,
-    pub description: &'static str,
+    pub description: String,
     /// The brain's tool loop offers it.
     pub brain: bool,
     /// `/mcp` offers it.
@@ -579,8 +618,12 @@ pub struct ToolInfo {
 pub fn catalogue() -> impl Iterator<Item = ToolInfo> {
     TOOLS.iter().map(|t| ToolInfo {
         name: t.name,
-        description: t.about,
-        brain: t.reach.offers(Surface::Run),
+        description: match t.remote {
+            Remote::Only(_) => format!("{} {ELSEWHERE}", t.about),
+            Remote::No | Remote::Also => t.about.into(),
+        },
+        // Its switch decides for another member too (ADR 0026).
+        brain: t.reach.offers(Surface::Run) || matches!(t.remote, Remote::Only(_)),
         mcp: t.reach.offers(Surface::Mcp),
         off_by_default: t.off_by_default,
     })
@@ -755,11 +798,20 @@ impl DeviceTools {
             .unwrap_or_else(|| !TOOLS.iter().any(|t| t.name == name && t.off_by_default))
     }
 
-    /// Whether this surface offers `tool` now. `send_message` needs another
-    /// member of the group in standalone mode.
-    fn offers(&self, tool: &Tool) -> bool {
-        tool.reach.offers(self.surface)
-            && (tool.name != message::NAME || self.kit.group().is_some_and(|g| message::offered(g)))
+    /// Whether these are a brain's tools, and its satellite is in a group
+    /// with another member in standalone mode (ADR 0026): then the brain
+    /// gets `send_message`, and acts on the other members.
+    fn grouped(&self) -> bool {
+        self.surface == Surface::Run && self.kit.group().is_some_and(|g| message::offered(g))
+    }
+
+    /// Whether this surface offers `tool` now, `grouped` as
+    /// [`Self::grouped`] says.
+    fn offers(&self, tool: &Tool, grouped: bool) -> bool {
+        match (self.surface, tool.remote) {
+            (Surface::Run, Remote::Only(_)) => grouped,
+            _ => tool.reach.offers(self.surface) && (tool.name != message::NAME || grouped),
+        }
     }
 
     /// Sends a command to the Brain and waits for its answer. A run's
@@ -847,7 +899,11 @@ impl DeviceTools {
 impl ToolSet for DeviceTools {
     fn specs(&self) -> BoxFuture<'_, Vec<ToolSpec>> {
         Box::pin(async move {
-            let device = TOOLS.iter().filter(|t| self.offers(t)).map(Tool::spec);
+            let grouped = self.grouped();
+            let device = TOOLS
+                .iter()
+                .filter(|t| self.offers(t, grouped))
+                .map(|t| if grouped { t.grouped_spec() } else { t.spec() });
             let owner = self.owner_tools(None).await.into_iter().map(|(_, s)| s);
             device
                 .chain(owner)
@@ -914,16 +970,68 @@ fn log_call(caller: Caller, name: &str, server: Option<&str>, output: &ToolOutpu
 }
 
 impl DeviceTools {
+    /// Where the brain runs `tool`, and its arguments without `satellite`:
+    /// on another member when `satellite` names one (ADR 0026). Only the
+    /// brain names one; `/mcp` and the group refuse `satellite` as an
+    /// argument the tool doesn't take. The run's tool list may have offered
+    /// `satellite` while another member was in standalone mode, so it is
+    /// taken out even once none is: no name, or this satellite's, runs
+    /// here, and another member's name hears why that member is out of
+    /// reach.
+    fn target(&self, tool: &Tool, args: Value) -> Result<(Value, Target), String> {
+        let group = match self.kit.group() {
+            Some(group) if self.surface == Surface::Run && tool.remote != Remote::No => group,
+            _ => return Ok((args, Target::Here)),
+        };
+        let mut given = match args {
+            Value::Object(given) => given,
+            Value::Null => Map::new(),
+            _ => {
+                return Err(format!(
+                    "The arguments for {} must be a JSON object.",
+                    tool.name
+                ));
+            }
+        };
+        let satellite = match given.remove(SATELLITE) {
+            None | Some(Value::Null) => None,
+            Some(Value::String(name)) => Some(name),
+            Some(_) => return Err(format!("{SATELLITE} must be text.")),
+        };
+        let (own, host) = {
+            let status = self.status.borrow();
+            (status.friendly_name.clone(), status.name.clone())
+        };
+        let target = remote::target(group, &own, &host, tool.name, satellite.as_deref())?;
+        if matches!(tool.remote, Remote::Only(_)) && matches!(target, Target::Here) {
+            // In no group now: there is no satellite for the brain to name.
+            if group.other_members().is_empty() {
+                return Err(remote::NO_GROUP.into());
+            }
+            return Err(match satellite.as_deref().map(str::trim) {
+                None | Some("") => format!("{} needs {SATELLITE}.", tool.name),
+                Some(_) => remote::not_here(group, tool.name),
+            });
+        }
+        Ok((Value::Object(given), target))
+    }
+
     /// Run a device tool, or an owner MCP server's for a tool-loop brain.
     /// Returns the output and, for an MCP server's tool, the server that
     /// answered.
     async fn dispatch(&self, name: &str, args: Value) -> (ToolOutput, Option<&str>) {
         let switched_off =
             || ToolOutput::error(format!("The owner switched {name} off under Assistant."));
-        let Some(tool) = TOOLS
-            .iter()
-            .find(|t| t.name == name && t.reach.offers(self.surface))
-        else {
+        let grouped = self.grouped();
+        let Some(tool) = TOOLS.iter().find(|t| {
+            t.name == name
+                && (t.reach.offers(self.surface)
+                    // The run's tool list may have offered it for another
+                    // member: target() says why that one is out of reach.
+                    || (matches!(t.remote, Remote::Only(_))
+                        && self.surface == Surface::Run
+                        && self.kit.group().is_some()))
+        }) else {
             let Some((server, _)) = self.owner_tools(Some(name)).await.pop() else {
                 return (ToolOutput::error(format!("Unknown tool {name}.")), None);
             };
@@ -944,13 +1052,26 @@ impl DeviceTools {
             }
             return (switched_off(), None);
         }
-        // Offered when the run's tool list was made, but not now.
-        if !self.offers(tool) {
+        // Offered when the run's tool list was made, but not now. A tool
+        // that acts on another member says instead why that one is out of
+        // reach.
+        if tool.remote == Remote::No && !self.offers(tool, grouped) {
             return (ToolOutput::error(message::NO_ONE), None);
         }
-        let result = match Args::parse(tool, args) {
-            Ok(args) => device::run(self, tool.op, &args).await,
+        let result = match self.target(tool, args) {
             Err(why) => Err(why),
+            Ok((args, Target::Here)) => match Args::parse(tool, args) {
+                Ok(args) => device::run(self, tool.op, &args).await,
+                Err(why) => Err(why),
+            },
+            // Checked here too, so a wrong argument costs no call.
+            Ok((args, Target::Member(member, mode))) => match Args::parse(tool, args.clone()) {
+                Ok(_) => match self.kit.group() {
+                    Some(group) => remote::call(group, &member, mode, tool.name, args).await,
+                    None => Err(remote::NO_GROUP.into()),
+                },
+                Err(why) => Err(why),
+            },
         };
         let output = match result {
             Ok(text) => ToolOutput::ok(text),
@@ -1293,10 +1414,11 @@ mod tests {
         for tool in &listed {
             // A tool that starts off is not in a list until it is turned on.
             // send_message is the brain's, but offered only in a group with
-            // another member in standalone mode.
+            // another member in standalone mode; cancel_request is the
+            // brain's there too, for another member only.
             let offered = run_names.iter().any(|n| n == tool.name)
                 || tool.off_by_default
-                || tool.name == message::NAME;
+                || [message::NAME, "cancel_request"].contains(&tool.name);
             assert_eq!(tool.brain, offered, "{}", tool.name);
             assert_eq!(tool.mcp, mcp_names.iter().any(|n| n == tool.name));
             assert!(tool.brain || tool.mcp, "{}", tool.name);
@@ -1306,6 +1428,15 @@ mod tests {
         assert!(weather.brain && !weather.mcp);
         let speak = listed.iter().find(|t| t.name == "speak").unwrap();
         assert!(!speak.brain && speak.mcp);
+        let cancel = listed.iter().find(|t| t.name == "cancel_request").unwrap();
+        assert!(cancel.brain && cancel.mcp);
+        // The owner reads what /mcp does, and that the brain does it only
+        // elsewhere (ADR 0017, ADR 0026).
+        assert_eq!(
+            cancel.description,
+            "Stop the request the satellite is handling, or silence a ringing alarm. The brain \
+             does this only on another satellite of its group."
+        );
         assert_eq!(
             speak.description,
             TOOLS.iter().find(|t| t.name == "speak").unwrap().about
@@ -1596,9 +1727,10 @@ mod tests {
         // The tool that starts off, turned on.
         let run = with_updater(Surface::Run, None, &[("install_update", true)]);
         specs.extend(run.specs().await);
-        // Offered only in a group.
+        // Offered only in a group, where the brain's take `satellite`.
         let send = TOOLS.iter().find(|t| t.name == message::NAME).unwrap();
         specs.push(send.spec());
+        specs.extend(TOOLS.iter().map(Tool::grouped_spec));
         let mut seen = HashSet::new();
         for spec in &specs {
             let schema = &spec.input_schema;

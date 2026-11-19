@@ -310,7 +310,7 @@ message Preset {
 message DeviceTool {
   // As the brain and MCP clients call it, such as "set_timer".
   string name = 1;
-  // What it does, as the brain and MCP clients are told.
+  // What it does, as the owner reads it beside its switch.
   string description = 2;
   // The brain's tool loop offers it.
   bool brain = 3;

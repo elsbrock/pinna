@@ -2284,16 +2284,22 @@ async fn send_message_refuses_an_unknown_name_and_a_long_text() {
     let (a, b, c) = (&s[0], &s[1], &s[2]);
     grouped(&[a, b, c]).await;
     a.exchange(None).await;
-    for to in ["Garage", "Hall"] {
-        let out = send(a, json!({"to": to, "text": "dinner is ready."})).await;
-        assert_eq!(
-            out,
-            ToolOutput::error(format!(
-                "No satellite of this one's group is named {to}. Its other members are \
-                 Kitchen, Office."
-            ))
-        );
-    }
+    let out = send(a, json!({"to": "Garage", "text": "dinner is ready."})).await;
+    assert_eq!(
+        out,
+        ToolOutput::error(
+            "No satellite of this one's group is named Garage. Its other members are Kitchen, \
+             Office."
+        )
+    );
+    let out = send(a, json!({"to": " hall ", "text": "dinner is ready."})).await;
+    assert_eq!(
+        out,
+        ToolOutput::error(
+            "Hall is this satellite, and it can't send a message to itself. The other members \
+             of its group are Kitchen, Office."
+        )
+    );
     let out = send(a, json!({"to": "Kitchen", "text": "a".repeat(501)})).await;
     assert_eq!(
         out,
@@ -2331,6 +2337,28 @@ async fn send_message_names_two_members_that_share_a_name_by_host_name() {
 }
 
 #[tokio::test]
+async fn send_message_names_a_member_that_shares_this_ones_name_by_host_name() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    a.status.send_modify(|s| s.name = "hall".into());
+    // Kitchen was renamed Hall, and the search heard it.
+    let mut renamed = b.found();
+    renamed.friendly_name = "Hall".into();
+    a.finds_as(vec![renamed]);
+    a.exchange(None).await;
+    let out = send(a, json!({"to": "Hall", "text": "dinner is ready."})).await;
+    assert_eq!(
+        out,
+        ToolOutput::error(
+            "2 satellites of this one's group are named Hall: hall, kitchen. Rename one on its \
+             dashboard first."
+        )
+    );
+    assert!(b.brain.took().is_empty());
+}
+
+#[tokio::test]
 async fn the_request_context_names_the_other_members_with_their_modes() {
     use pinna_assist::prompt::{GroupMember, MemberMode};
 
@@ -2361,4 +2389,489 @@ async fn the_request_context_names_the_other_members_with_their_modes() {
         ]
     );
     assert!(crate::standalone::spawn::group_context(None).is_empty());
+}
+
+/// `sat`'s brain's tools with its owner's `switches`, over a queue the test
+/// reads, and the counters they count in.
+fn brain(sat: &Sat, switches: &[(&str, bool)]) -> (DeviceTools, mpsc::Receiver<Input>, Counters) {
+    let (inputs, rx) = mpsc::channel(64);
+    let counters = Counters::default();
+    let mut live = AssistLive::empty();
+    live.switches = switches
+        .iter()
+        .map(|&(name, on)| (name.to_owned(), on))
+        .collect();
+    let tools = DeviceTools::new(
+        &ToolKit::new(counters.clone()).with_group(sat.group.clone()),
+        inputs,
+        sat.status.subscribe(),
+        Arc::new(live),
+        Surface::Run,
+        Caller::Run(RunId(1)),
+    );
+    (tools, rx, counters)
+}
+
+/// The tools that act on the satellite, which another member runs.
+const ON_THE_SATELLITE: [&str; 13] = [
+    "set_volume",
+    "change_volume",
+    "set_reply_volume",
+    "ring_light",
+    "play_url",
+    "pause_media",
+    "resume_media",
+    "stop_media",
+    "play_station",
+    "list_stations",
+    "set_timer",
+    "list_timers",
+    "cancel_timer",
+];
+
+/// The specs on `tools`, by name.
+async fn specs(tools: &DeviceTools) -> std::collections::BTreeMap<String, pinna_mcp::ToolSpec> {
+    tools
+        .specs()
+        .await
+        .into_iter()
+        .map(|s| (s.name.clone(), s))
+        .collect()
+}
+
+#[tokio::test]
+async fn the_brain_names_another_member_only_in_a_group_and_mcp_stays_as_it_is() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    let mcp = async || serde_json::to_string(&tools_on(a, Surface::Mcp).specs().await).unwrap();
+    let alone = mcp().await;
+    let plain = specs(&tools_on(a, Surface::Run)).await;
+    let takes_satellite = |specs: &std::collections::BTreeMap<String, pinna_mcp::ToolSpec>| {
+        specs
+            .values()
+            .filter(|s| s.input_schema["properties"].get("satellite").is_some())
+            .map(|s| s.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert!(takes_satellite(&plain).is_empty());
+    assert!(!plain.contains_key("cancel_request"));
+
+    grouped(&[a, b, c]).await;
+    a.exchange(None).await;
+
+    let in_group = specs(&tools_on(a, Surface::Run)).await;
+    let mut expected: Vec<String> = ON_THE_SATELLITE
+        .iter()
+        .chain(&["cancel_request"])
+        .map(|n| (*n).to_owned())
+        .collect();
+    expected.sort();
+    assert_eq!(takes_satellite(&in_group), expected);
+    for name in ON_THE_SATELLITE {
+        let schema = &in_group[name].input_schema;
+        // Optional, and the rest of the tool as it was.
+        assert!(
+            !schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("satellite"))
+        );
+        let mut without = schema.clone();
+        without["properties"]
+            .as_object_mut()
+            .unwrap()
+            .remove("satellite");
+        assert_eq!(without, plain[name].input_schema, "{name}");
+        assert_eq!(in_group[name].description, plain[name].description);
+    }
+    let cancel = &in_group["cancel_request"];
+    assert_eq!(cancel.input_schema["required"], json!(["satellite"]));
+    assert!(
+        cancel.description.contains("another satellite"),
+        "{cancel:?}"
+    );
+    // One tool per action, whatever the number of members: the brain's
+    // limit of 64 holds.
+    let mut names: Vec<&String> = in_group.keys().collect();
+    names.retain(|n| !plain.contains_key(*n));
+    assert_eq!(names, ["cancel_request", "send_message"]);
+
+    // /mcp's tools are byte for byte what they were, in or out of a group.
+    assert_eq!(mcp().await, alone);
+    assert!(!alone.contains(r#""satellite""#), "{alone}");
+
+    // With no other member in standalone mode, the brain is as before.
+    for sat in [b, c] {
+        sat.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+    }
+    a.exchange(None).await;
+    assert_eq!(specs(&tools_on(a, Surface::Run)).await, plain);
+    assert_eq!(mcp().await, alone);
+}
+
+#[tokio::test]
+async fn a_tool_switched_off_here_is_offered_for_no_satellite() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    a.exchange(None).await;
+    let (tools, mut rx, _) = brain(a, &[("set_volume", false), ("cancel_request", false)]);
+
+    let offered = specs(&tools).await;
+    assert!(!offered.contains_key("set_volume"));
+    assert!(!offered.contains_key("cancel_request"));
+    assert!(offered.contains_key("change_volume"));
+
+    for (tool, args) in [
+        ("set_volume", json!({"percent": 40, "satellite": "Kitchen"})),
+        ("set_volume", json!({"percent": 40})),
+        ("cancel_request", json!({"satellite": "Kitchen"})),
+    ] {
+        assert_eq!(
+            tools.call(tool, args).await,
+            ToolOutput::error(format!("The owner switched {tool} off under Assistant."))
+        );
+    }
+    assert!(b.brain.commands().is_empty());
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn the_brain_runs_a_tool_on_the_member_it_names() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    a.exchange(None).await;
+    let (tools, mut rx, counters) = brain(a, &[]);
+
+    let out = tools
+        .call(
+            "set_volume",
+            json!({"percent": 40, "satellite": " kitchen "}),
+        )
+        .await;
+    assert_eq!(out, ToolOutput::ok("Kitchen: The volume is 40%."));
+    // A timer set there rings there.
+    let out = tools
+        .call(
+            "set_timer",
+            json!({"seconds": 300, "name": "Tea", "satellite": "Kitchen"}),
+        )
+        .await;
+    assert_eq!(
+        out,
+        ToolOutput::ok("Kitchen: Timer \"Tea\" set for 5 minutes (id local-1).")
+    );
+    let out = tools
+        .call("cancel_request", json!({"satellite": "Kitchen"}))
+        .await;
+    assert_eq!(out, ToolOutput::ok("Kitchen: Stopped."));
+    // The member got the calls without `satellite`, or it would have
+    // refused them.
+    assert_eq!(
+        b.brain.commands(),
+        ["SetVolume(40)", "SetTimer(300)", "CancelForGroup"]
+    );
+    assert!(c.brain.commands().is_empty());
+    assert!(rx.try_recv().is_err(), "nothing ran here");
+    // The member's refusal and errors come back as errors.
+    b.service.set_group_control(false).await.unwrap();
+    let out = tools
+        .call("stop_media", json!({"satellite": "Kitchen"}))
+        .await;
+    assert_eq!(
+        out,
+        ToolOutput::error("Kitchen: Control from the group is off on Kitchen.")
+    );
+    // Each counts here as the brain's call, and there as the group's.
+    let line = "pinna_tool_calls_total{tool=\"set_volume\",outcome=\"ok\",via=\"brain\"} 1";
+    let text = counters.tool_calls_text();
+    assert!(text.lines().any(|l| l == line), "no {line:?} in\n{text}");
+    let line = "pinna_tool_calls_total{tool=\"set_volume\",outcome=\"ok\",via=\"peer\"} 1";
+    let text = b.counters.tool_calls_text();
+    assert!(text.lines().any(|l| l == line), "no {line:?} in\n{text}");
+}
+
+#[tokio::test]
+async fn no_satellite_or_this_ones_name_runs_the_tool_here() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    a.exchange(None).await;
+    let (tools, mut rx, _) = brain(a, &[]);
+
+    for satellite in [json!(null), json!(""), json!(" hall "), json!("HALL")] {
+        let call = tools.call(
+            "set_volume",
+            json!({"percent": 30, "satellite": satellite.clone()}),
+        );
+        let answer = async {
+            match rx.recv().await.unwrap() {
+                Input::RunTool {
+                    cmd: ApiCommand::SetVolume(30, reply),
+                    ..
+                } => reply
+                    .send(Ok(Snapshot {
+                        volume: 30,
+                        ..Snapshot::default()
+                    }))
+                    .unwrap(),
+                other => panic!("unexpected input {other:?}"),
+            }
+        };
+        let (out, ()) = tokio::join!(call, answer);
+        assert_eq!(out, ToolOutput::ok("The volume is 30%."), "{satellite}");
+    }
+    assert!(b.brain.commands().is_empty());
+
+    // cancel_request is for another member only.
+    assert_eq!(
+        tools.call("cancel_request", json!({})).await,
+        ToolOutput::error("cancel_request needs satellite.")
+    );
+    assert_eq!(
+        tools
+            .call("cancel_request", json!({"satellite": "Hall"}))
+            .await,
+        ToolOutput::error(
+            "cancel_request acts on another satellite of the group, not this one. Its other \
+             members are Kitchen."
+        )
+    );
+    assert!(rx.try_recv().is_err());
+    assert!(b.brain.commands().is_empty());
+}
+
+#[tokio::test]
+async fn a_run_whose_tools_named_members_still_takes_satellite_once_none_is_in_reach() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    a.exchange(None).await;
+    let (tools, mut rx, _) = brain(a, &[]);
+    let offered = specs(&tools).await;
+    assert!(offered["set_volume"].input_schema["properties"]["satellite"].is_object());
+    assert!(offered.contains_key("cancel_request"));
+    // /mcp's tools never take it.
+    assert_eq!(
+        tools_on(a, Surface::Mcp)
+            .call("set_volume", json!({"percent": 30, "satellite": "Hall"}))
+            .await,
+        ToolOutput::error("set_volume has no argument satellite.")
+    );
+
+    // Kitchen switches to Home Assistant mode while the request runs.
+    b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+    a.exchange(None).await;
+
+    for (tool, args) in [
+        ("set_volume", json!({"percent": 30, "satellite": "Kitchen"})),
+        ("cancel_request", json!({"satellite": "Kitchen"})),
+    ] {
+        assert_eq!(
+            tools.call(tool, args).await,
+            ToolOutput::error("Kitchen is in Home Assistant mode, out of reach."),
+            "{tool}"
+        );
+    }
+    // No name, or this satellite's, runs here, also once the group is gone.
+    let id = a.joined().unwrap().id;
+    for gone in [false, true] {
+        if gone {
+            a.service.forget_group(&id).await.unwrap();
+        }
+        for satellite in [json!(null), json!(""), json!("Hall")] {
+            let call = tools.call(
+                "set_volume",
+                json!({"percent": 30, "satellite": satellite.clone()}),
+            );
+            let answer = async {
+                match rx.recv().await.unwrap() {
+                    Input::RunTool {
+                        cmd: ApiCommand::SetVolume(30, reply),
+                        ..
+                    } => reply
+                        .send(Ok(Snapshot {
+                            volume: 30,
+                            ..Snapshot::default()
+                        }))
+                        .unwrap(),
+                    other => panic!("unexpected input {other:?}"),
+                }
+            };
+            let (out, ()) = tokio::join!(call, answer);
+            assert_eq!(out, ToolOutput::ok("The volume is 30%."), "{satellite}");
+        }
+    }
+    for (tool, args) in [
+        ("set_volume", json!({"percent": 30, "satellite": "Kitchen"})),
+        ("cancel_request", json!({"satellite": "Kitchen"})),
+        ("cancel_request", json!({"satellite": "Hall"})),
+        ("cancel_request", json!({})),
+    ] {
+        assert_eq!(
+            tools.call(tool, args).await,
+            ToolOutput::error("This satellite is in no satellite group now."),
+            "{tool}"
+        );
+    }
+    assert!(rx.try_recv().is_err());
+    assert!(b.brain.commands().is_empty());
+}
+
+#[tokio::test]
+async fn the_brain_is_told_why_a_member_isnt_called() {
+    let captured = capture_logs();
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office", "Porch"]).await;
+    let (a, b, c, d) = (&s[0], &s[1], &s[2], &s[3]);
+    grouped(&[a, b, c, d]).await;
+    c.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+    a.exchange(None).await;
+    // The search lists Porch no more.
+    a.finds(&[b, c]);
+    let (tools, mut rx, _) = brain(a, &[]);
+    let refused = async |args: Value| {
+        let out = tools.call("set_volume", args).await;
+        assert!(out.is_error, "{out:?}");
+        out.text
+    };
+
+    assert_eq!(
+        refused(json!({"percent": 40, "satellite": "Garage"})).await,
+        "No satellite of this one's group is named Garage. Its other members are Kitchen, \
+         Office, Porch."
+    );
+    assert_eq!(
+        refused(json!({"percent": 40, "satellite": "all"})).await,
+        "set_volume acts on one satellite at a time. Call it once for each of Kitchen, \
+         Office, Porch."
+    );
+    assert_eq!(
+        refused(json!({"percent": 40, "satellite": 2})).await,
+        "satellite must be text."
+    );
+    assert_eq!(
+        refused(json!({"percent": "loud", "satellite": "Kitchen"})).await,
+        "percent must be a whole number."
+    );
+    assert_eq!(
+        refused(json!({"percent": 40, "satellite": "Office"})).await,
+        "Office is in Home Assistant mode, out of reach."
+    );
+    assert_eq!(
+        refused(json!({"percent": 40, "satellite": "Porch"})).await,
+        "Porch is unreachable."
+    );
+    // The search lists Porch again, with no address.
+    let mut porch = d.found();
+    porch.ipv4.clear();
+    porch.ipv6.clear();
+    a.finds_as(vec![b.found(), c.found(), porch]);
+    assert_eq!(
+        refused(json!({"percent": 40, "satellite": "Porch"})).await,
+        "Porch is unreachable."
+    );
+    // Neither time was Porch called: a failed call logs why.
+    let logs = String::from_utf8_lossy(&captured.lock().unwrap()).into_owned();
+    assert!(!logs.contains("running a tool on Porch"), "{logs}");
+    // Kitchen's Satellite group went off without Hall hearing of it.
+    b.service.set_group_switch(false).await.unwrap();
+    assert_eq!(
+        refused(json!({"percent": 40, "satellite": "Kitchen"})).await,
+        format!("Kitchen: refused: {NOT_IN_THIS_GROUP}")
+    );
+    for sat in [b, c, d] {
+        assert!(sat.brain.commands().is_empty(), "{} was called", sat.name);
+    }
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn two_satellites_that_share_this_ones_name_are_named_by_host_name() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    a.status.send_modify(|s| s.name = "hall".into());
+    // Kitchen was renamed Hall, and the search heard it.
+    let mut renamed = b.found();
+    renamed.friendly_name = "Hall".into();
+    a.finds_as(vec![renamed]);
+    a.exchange(None).await;
+    let (tools, mut rx, _) = brain(a, &[]);
+
+    let out = tools
+        .call("set_volume", json!({"percent": 40, "satellite": "Hall"}))
+        .await;
+
+    assert_eq!(
+        out,
+        ToolOutput::error(
+            "2 satellites of this one's group are named Hall: hall, kitchen. Rename one on its \
+             dashboard first."
+        )
+    );
+    assert!(rx.try_recv().is_err());
+    assert!(b.brain.commands().is_empty());
+}
+
+#[tokio::test]
+async fn a_member_that_doesnt_answer_in_time_may_still_do_it() {
+    let a = Sat::start_with(
+        1,
+        "Hall",
+        Limits {
+            call: Duration::from_millis(500),
+            ..limits()
+        },
+    )
+    .await;
+    let b = Sat::start(2, "Kitchen").await;
+    for sat in [&a, &b] {
+        sat.service.set_group_switch(true).await.unwrap();
+    }
+    grouped(&[&a, &b]).await;
+    a.exchange(None).await;
+    // Porch takes the connection and never answers.
+    let hung = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = hung.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = hung.accept().await {
+            held.push(stream);
+        }
+    });
+    let porch = "02:00:00:00:00:09";
+    let id = a.joined().unwrap().id;
+    let entry = Member {
+        mac: porch.into(),
+        name: "Porch".into(),
+        version: 1,
+        removed: false,
+    };
+    a.service
+        .merge_members(&id, &[entry], &a.mac)
+        .await
+        .unwrap();
+    let found = Found {
+        name: "porch".into(),
+        host: "porch".into(),
+        friendly_name: "Porch".into(),
+        mac: porch.into(),
+        web_port: port,
+        group: Some(id),
+        ..b.found()
+    };
+    a.finds_as(vec![b.found(), found]);
+    let (tools, _rx, _) = brain(&a, &[]);
+
+    let started = std::time::Instant::now();
+    let out = tools
+        .call("set_volume", json!({"percent": 40, "satellite": "Porch"}))
+        .await;
+
+    assert_eq!(
+        out,
+        ToolOutput::error("Porch didn't answer within 0.5 seconds. It may still do it.")
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
 }

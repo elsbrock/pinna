@@ -86,41 +86,89 @@ fn targets(
     if key == name_key(ALL) {
         return Ok(members.to_vec());
     }
+    // This satellite's name: a member that shares it after a rename is
+    // refused as the control tools refuse it (ADR 0026), not taken for the
+    // one meant.
+    let own = group.own_name();
+    if key == name_key(&own) {
+        let others: Vec<&Member> = members
+            .iter()
+            .map(|(m, _)| m)
+            .filter(|m| name_key(&m.name) == key)
+            .collect();
+        if others.is_empty() {
+            return Err(format!(
+                "{} is this satellite, and it can't send a message to itself. The other members \
+                 of its group are {}.",
+                own.trim(),
+                names(members)
+            ));
+        }
+        let own_host = group.status().name.clone();
+        return Err(shared(group, &own, others.into_iter(), Some(&own_host)));
+    }
+    named(group, members, to).map(|one| vec![one])
+}
+
+/// The one other member of `members` named `name`. Another tool that names
+/// a member finds it the same way (ADR 0026).
+pub(super) fn named(
+    group: &Group,
+    members: &[(Member, Option<Mode>)],
+    name: &str,
+) -> Result<(Member, Option<Mode>), String> {
+    let key = name_key(name);
     let named: Vec<_> = members
         .iter()
         .filter(|(m, _)| name_key(&m.name) == key)
-        .cloned()
         .collect();
     match named.as_slice() {
-        [] => {
-            let names: Vec<&str> = members.iter().map(|(m, _)| m.name.as_str()).collect();
-            Err(format!(
-                "No satellite of this one's group is named {}. Its other members are {}.",
-                to.trim(),
-                names.join(", ")
-            ))
-        }
-        [_] => Ok(named),
-        // A rename made two members share a name (ADR 0026): name them by
-        // their host names, which are unique on the network.
-        _ => {
-            let seen = group.seen();
-            let hosts: Vec<String> = named
-                .iter()
-                .map(|(m, _)| {
-                    seen.by_mac(&m.mac)
-                        .map_or_else(|| m.mac.clone(), |f| f.host.clone())
-                })
-                .collect();
-            Err(format!(
-                "{} satellites of this one's group are named {}: {}. Rename one on its \
-                 dashboard first.",
-                named.len(),
-                named[0].0.name,
-                hosts.join(", ")
-            ))
-        }
+        [] => Err(format!(
+            "No satellite of this one's group is named {}. Its other members are {}.",
+            name.trim(),
+            names(members)
+        )),
+        [one] => Ok((*one).clone()),
+        _ => Err(shared(
+            group,
+            &named[0].0.name,
+            named.iter().map(|(m, _)| m),
+            None,
+        )),
     }
+}
+
+/// The names of `members`, for a sentence.
+pub(super) fn names(members: &[(Member, Option<Mode>)]) -> String {
+    let names: Vec<&str> = members.iter().map(|(m, _)| m.name.as_str()).collect();
+    names.join(", ")
+}
+
+/// Why `name` is refused when a rename made several satellites of the
+/// group share it (ADR 0026): it names them by their host names, which are
+/// unique on the network, this satellite's (`own_host`) first when it is
+/// one of them.
+pub(super) fn shared<'a>(
+    group: &Group,
+    name: &str,
+    named: impl Iterator<Item = &'a Member>,
+    own_host: Option<&str>,
+) -> String {
+    let seen = group.seen();
+    let hosts: Vec<String> = own_host
+        .map(str::to_owned)
+        .into_iter()
+        .chain(named.map(|m| {
+            seen.by_mac(&m.mac)
+                .map_or_else(|| m.mac.clone(), |f| f.host.clone())
+        }))
+        .collect();
+    format!(
+        "{} satellites of this one's group are named {name}: {}. Rename one on its dashboard \
+         first.",
+        hosts.len(),
+        hosts.join(", ")
+    )
 }
 
 /// One member's answer as a line for the brain.

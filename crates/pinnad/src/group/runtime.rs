@@ -16,6 +16,7 @@ use buffa::MessageField;
 use futures::future::join_all;
 use pinna_api::{
     PeerDelivery, PeerHello, PeerJoinRequest, PeerMember, PeerMemberList, PeerMessage, PeerSender,
+    PeerToolCall, PeerToolResult,
 };
 use tokio::sync::watch;
 
@@ -93,9 +94,9 @@ pub struct Peer {
     /// a `GetGroup` as not in this group.
     pub outside: u32,
     /// Where its last signed call came from, and the dashboard port it named.
-    /// Nothing reads them yet: they are kept for the control between
-    /// members that comes next (ADR 0026). Messages go to the addresses the
-    /// search heard.
+    /// Nothing reads them: messages and tool calls go to the addresses the
+    /// search heard, and a member it no longer lists isn't called
+    /// (ADR 0026).
     pub address: Option<IpAddr>,
     pub web_port: Option<u16>,
     /// A call to it failed and that was logged: the next failure isn't,
@@ -422,6 +423,44 @@ impl Group {
             None,
         );
         Ok(delivery)
+    }
+
+    /// Have the member `peer_mac` at `to` run the device tool `tool` with
+    /// `arguments`, a JSON object, as its `/mcp` would. Its signed answer is
+    /// the tool's result.
+    pub async fn call(
+        &self,
+        to: &To,
+        group: &Joined,
+        peer_mac: &str,
+        tool: &str,
+        arguments: &str,
+        deadline: Duration,
+    ) -> Result<PeerToolResult, Failed> {
+        let call = PeerToolCall {
+            sender: MessageField::some(self.sender()),
+            tool: tool.to_owned(),
+            arguments_json: arguments.to_owned(),
+            ..Default::default()
+        };
+        let result: PeerToolResult = self
+            .client
+            .signed(
+                to,
+                Rpc::Call,
+                group,
+                &self.own_mac,
+                peer_mac,
+                &call,
+                deadline,
+            )
+            .await?;
+        self.heard(
+            peer_mac,
+            result.sender.as_option().unwrap_or(&PeerSender::default()),
+            None,
+        );
+        Ok(result)
     }
 
     /// The other members of the group this satellite is in now, not

@@ -243,7 +243,7 @@ fn render(v: AssistantView) -> Assistant {
         device_tools: tools::catalogue()
             .map(|t| DeviceTool {
                 name: t.name.into(),
-                description: t.description.into(),
+                description: t.description,
                 brain: t.brain,
                 mcp: t.mcp,
                 off_by_default: t.off_by_default,

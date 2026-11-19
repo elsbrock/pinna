@@ -673,7 +673,7 @@ export type DeviceTool = Message<"pinna.v1.DeviceTool"> & {
   name: string;
 
   /**
-   * What it does, as the brain and MCP clients are told.
+   * What it does, as the owner reads it beside its switch.
    *
    * @generated from field: string description = 2;
    */
