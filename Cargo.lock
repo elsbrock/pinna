@@ -2369,6 +2369,7 @@ name = "pinna-wakeword"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "flatbuffers",
  "hound",
  "pinna-vad",
  "prost 0.11.9",

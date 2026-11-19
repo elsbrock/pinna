@@ -6,6 +6,7 @@ mod common;
 use common::*;
 use pinna_wakeword::{test_keyword, test_keyword_within};
 use prost::Message;
+use std::path::Path;
 use tract_onnx::pb::{
     AttributeProto, GraphProto, ModelProto, NodeProto, OperatorSetIdProto, TensorProto,
     TensorShapeProto, TypeProto, ValueInfoProto,
@@ -115,6 +116,89 @@ fn the_shared_models_are_named_as_such() {
             "{name}: {err}"
         );
     }
+}
+
+/// A streaming microWakeWord model as microwakeword.com ships it, cut down to
+/// what made tract panic: an int8 `[1, 3, 40]` input and a CALL_ONCE operator
+/// without outputs.
+fn micro_wake_word() -> Vec<u8> {
+    use tract_tflite::tflite::*;
+    let mut b = flatbuffers::FlatBufferBuilder::new();
+    let shape = b.create_vector(&[1, 3, 40]);
+    let input = Tensor::create(
+        &mut b,
+        &TensorArgs {
+            shape: Some(shape),
+            type_: TensorType::INT8,
+            ..Default::default()
+        },
+    );
+    let shape = b.create_vector(&[1, 1]);
+    let output = Tensor::create(
+        &mut b,
+        &TensorArgs {
+            shape: Some(shape),
+            type_: TensorType::UINT8,
+            ..Default::default()
+        },
+    );
+    let tensors = b.create_vector(&[input, output]);
+    let none = b.create_vector::<i32>(&[]);
+    let call_once = Operator::create(
+        &mut b,
+        &OperatorArgs {
+            opcode_index: 0,
+            inputs: Some(none),
+            outputs: Some(none),
+            ..Default::default()
+        },
+    );
+    let operators = b.create_vector(&[call_once]);
+    let inputs = b.create_vector(&[0]);
+    let outputs = b.create_vector(&[1]);
+    let graph = SubGraph::create(
+        &mut b,
+        &SubGraphArgs {
+            tensors: Some(tensors),
+            inputs: Some(inputs),
+            outputs: Some(outputs),
+            operators: Some(operators),
+            ..Default::default()
+        },
+    );
+    let graphs = b.create_vector(&[graph]);
+    let code = OperatorCode::create(
+        &mut b,
+        &OperatorCodeArgs {
+            deprecated_builtin_code: BuiltinOperator::PLACEHOLDER_FOR_GREATER_OP_CODES.0 as i8,
+            builtin_code: BuiltinOperator::CALL_ONCE,
+            ..Default::default()
+        },
+    );
+    let codes = b.create_vector(&[code]);
+    let empty = Buffer::create(&mut b, &BufferArgs::default());
+    let buffers = b.create_vector(&[empty]);
+    let model = Model::create(
+        &mut b,
+        &ModelArgs {
+            version: 3,
+            operator_codes: Some(codes),
+            subgraphs: Some(graphs),
+            buffers: Some(buffers),
+            ..Default::default()
+        },
+    );
+    finish_model_buffer(&mut b, model);
+    b.finished_data().to_vec()
+}
+
+#[test]
+fn a_streaming_micro_wake_word_model_is_named_as_such() {
+    // The refusal comes before the classifier runs: no models needed.
+    let err = test_keyword(Path::new("/nonexistent"), &micro_wake_word(), THRESHOLD)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("looks like a microWakeWord model"), "{err}");
 }
 
 #[test]

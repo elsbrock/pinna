@@ -219,6 +219,14 @@ fn classifier_plan(bytes: &[u8]) -> Result<Plan> {
                 .context("not an openWakeWord classifier: it doesn't take [1, 16, 96] floats")?
         }
         ModelFormat::Tflite => {
+            // Before tract reads it: tract panics on the streaming
+            // microWakeWord models, whose CALL_ONCE operator has no outputs.
+            if is_micro_wake_word(bytes) {
+                bail!(
+                    "this looks like a microWakeWord model (for ESPHome devices such as Voice PE); \
+                     Pinna runs openWakeWord models, .onnx or .tflite"
+                );
+            }
             let model = tract_tflite::tflite()
                 .model_for_read(&mut Cursor::new(bytes))
                 .context("not a readable TFLite model")?;
@@ -231,15 +239,6 @@ fn classifier_plan(bytes: &[u8]) -> Result<Plan> {
             let got = input.shape.to_tvec();
             let want: TVec<TDim> = shape.iter().map(|&d| d.into()).collect();
             if input.datum_type != f32::datum_type() || got != want {
-                // microWakeWord (ESPHome, Voice PE) streams quantized 40-bin
-                // spectrogram slices; say so instead of quoting shapes.
-                let integer = !input.datum_type.is_float();
-                if integer || got.last() == Some(&TDim::from(40)) {
-                    bail!(
-                        "this looks like a microWakeWord model (for ESPHome devices such as Voice PE); \
-                         Pinna runs openWakeWord models, .onnx or .tflite"
-                    );
-                }
                 bail!(
                     "not an openWakeWord classifier: it takes {:?} {:?}, not [1, 16, 96] floats",
                     input.datum_type,
@@ -267,6 +266,32 @@ fn classifier_plan(bytes: &[u8]) -> Result<Plan> {
     );
     ensure!(scores[0].is_finite(), "the model's score isn't a number");
     Ok(plan)
+}
+
+/// Whether a TFLite file's input is a microWakeWord model's (ESPHome, Voice
+/// PE): quantized 40-bin spectrogram slices, `[1, 3, 40]` int8 in the models
+/// from microwakeword.com, where openWakeWord takes float embeddings. Read
+/// from the flatbuffer itself, checked, so it also works where tract can't
+/// read the model. A file it can't read is left to tract.
+fn is_micro_wake_word(bytes: &[u8]) -> bool {
+    use tract_tflite::tflite::{TensorType, root_as_model};
+    let Ok(model) = root_as_model(bytes) else {
+        return false;
+    };
+    let input = (|| {
+        let graph = model.subgraphs()?.iter().next()?;
+        let tensors = graph.tensors()?;
+        let id = usize::try_from(graph.inputs()?.iter().next()?).ok()?;
+        (id < tensors.len()).then(|| tensors.get(id))
+    })();
+    let Some(input) = input else {
+        return false;
+    };
+    let float = matches!(
+        input.type_(),
+        TensorType::FLOAT32 | TensorType::FLOAT16 | TensorType::FLOAT64
+    );
+    !float || input.shape().and_then(|s| s.iter().next_back()) == Some(40)
 }
 
 /// Test an uploaded classifier before the satellite keeps it (ADR 0013): it
