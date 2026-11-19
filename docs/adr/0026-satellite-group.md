@@ -81,8 +81,10 @@ the mDNS record).
   on, the Assistant page lists the satellites the search found (ADR 0021):
   - members of this group: name, mode, and when it was last seen (kept in
     RAM, not written to disk every minute);
-  - a member that answers the search in no group: "Left the group", with
-    **Add** while its switch is on;
+  - a member that answers the search in no group and then refuses its
+    `GetGroup` with "not in this group": "Left the group", with **Add**
+    while its switch is on. Its record alone isn't enough, since the
+    search may have heard it before its Add;
   - satellites with the switch on and in no group: **Add**;
   - the others, without an action, with the reason: "In another group" (and
     a link to one of its members' dashboards), or "Satellite group is off
