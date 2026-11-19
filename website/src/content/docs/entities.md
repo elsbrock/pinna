@@ -23,6 +23,7 @@ keep the name the device had when you added it.
 | Bluetooth pairing | `bluetooth_pairing` | Switch | On, off | Turn it on to open the Bluetooth pairing window for two minutes, like **Pair a phone** on the dashboard; turn it off to close it. It turns itself off when the window closes, and stays off unless **Bluetooth audio** is on and ready. See [Pair a phone](/docs/bluetooth/#pair-a-phone) |
 | Wake word calibration | `wake_word_calibration` | Switch (configuration) | On, off | Starts tuning the wake word sensitivity with the + and − buttons on the device, as [Calibrate at the device](/docs/dashboard/#calibrate-at-the-device) describes. It turns itself off when calibration ends. It won't turn on while the microphones or the wake word are off, or while a request or a timer alarm is active |
 | Notification | `notification` | Switch | On, off | Turn it on to show a waiting notification on the ring. It turns off when someone clears it on the device or the dashboard. See [Notifications](/docs/ring-and-buttons/#notifications) |
+| Group messages | `group_messages` | Switch | On, off | Lets the device take messages from the other satellites of its group in standalone mode. On by default. Turn it off to refuse new messages; messages the device already holds still play. Pinna has no schedule for it: to turn it off at night, use an automation. It does nothing in Home Assistant mode or outside a group. See [Pass messages between satellites](/docs/standalone/#pass-messages-between-satellites) |
 | Volume | `volume` | Number | 0 to 100, in % | Sets the speaker volume. 0 is silent |
 | Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements, on the same scale as **Volume** and never louder than it. Until it is set, it follows **Volume**; the dashboard's **Replies follow Volume** switch makes it follow again. See [Volume](/docs/audio/#volume) |
 | Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68. The dashboard's [Wake word page](/docs/dashboard/#tune-the-wake-word) shows which setting catches or ignores each recent wake and near miss |
@@ -124,8 +125,10 @@ chooses the wake words. Switching the mode deletes every timer, Home
 Assistant's included.
 
 The **Voice mode** select stays, so you can switch back to Home Assistant from
-there, or say "switch to Home Assistant" to the satellite. Standalone mode's other settings have no entities. You set them on the
-dashboard.
+there, or say "switch to Home Assistant" to the satellite. **Group messages**
+stays too, so an automation can turn messages from the other satellites off
+and on. Standalone mode's other settings have no entities. You set them on
+the dashboard.
 
 ## What's next
 

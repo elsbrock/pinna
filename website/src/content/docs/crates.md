@@ -65,7 +65,8 @@ These modules of `pinnad` run [standalone mode](/docs/standalone/) (ADR 0017):
 | `voice/local.rs` | A standalone request inside the state machine: its phase and deadlines, the conversation, the reply on the voice lane, the last failure, typed questions and spoken samples |
 | `voice/mode.rs` | The switch between Home Assistant and standalone mode, and the Home Assistant commands that standalone mode ignores |
 | `voice/timers.rs` | The timers that Home Assistant sets, and the device's own, which it saves in `timers.toml` |
-| `tools/` | The tools that the brain and MCP clients call: the device's controls, timers, the time, the weather from Open-Meteo, radio, and updates |
+| `voice/messages.rs` | Messages from the other members of the satellite group (ADR 0026): said at once or held, at most 5 for 12 hours each, and tried once more after their speech fails |
+| `tools/` | The tools that the brain and MCP clients call: the device's controls, timers, the time, the weather from Open-Meteo, radio, updates, and, for the brain only, messages to the other members of the satellite group (`send_message`) |
 | `mcp.rs` | The MCP server at `/mcp` on the dashboard's listener |
 | `assistant_api.rs` | `AssistantService`, the setup API that the dashboard's **Assistant** page uses |
 | `group/` | The satellite group (ADR 0026): the member list's rules (`model.rs`), the group's id, key and signatures (`seal.rs`), the group as `standalone.toml` and `secrets.toml` keep it (`persisted.rs`), what the **Assistant** page shows of it (`view.rs`), the signed calls between members (`envelope.rs`, `client.rs`, and `peer.rs`, which serves `PeerService`), what is known of the other members while `pinnad` runs, with Add, Remove and leaving (`runtime.rs`), and the exchange of member lists after every search (`exchange.rs`) |

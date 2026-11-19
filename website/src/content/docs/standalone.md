@@ -203,7 +203,9 @@ Select **Assistant**, then **Conversation**.
 - **What the brain is told**: the prompt, at most 4,000 characters. It starts
   as the satellite's voice rules: short, plain spoken answers. **Reset to the
   voice rules** brings them back. With each request the satellite adds the
-  local time, the place, the language and its name.
+  local time, the place, the language and its name, and in a satellite group
+  the other satellites' names, with those in Home Assistant mode named as out
+  of reach.
 - **Follow-ups**: on at first. After each reply, the satellite listens for 4
   seconds more, without the wake word, so you can answer. If you say nothing,
   it stops listening.
@@ -227,10 +229,12 @@ Select **Assistant**, then **Tools**.
   time, the weather, the volume and the reply volume, the ring light, playing,
   pausing and stopping music and radio, clearing a notification, muting the
   microphones, switching back to Home Assistant mode (`switch_assistant`),
-  saying which version runs, and checking for updates. Only a person can turn
-  the microphones back on, with the **Microphone off** button. Turn off a tool
-  you don't want used. **Install update** is the one tool that starts off: turn
-  it on to let the brain install an update, as
+  saying which version runs, checking for updates, and
+  [passing messages](#pass-messages-between-satellites) to other satellites
+  (`send_message`). Only a person can turn the microphones back on, with the
+  **Microphone off** button. Turn off a tool you don't want used. **Install
+  update** is the one tool that starts off: turn it on to let the brain install
+  an update, as
   [Ask the satellite to update](/docs/update/#ask-the-satellite-to-update)
   describes.
 - **Radio stations**: add a station with its name and stream address. Then ask
@@ -242,6 +246,47 @@ Select **Assistant**, then **Tools**.
   reached. **Its tools** under a server lists them, each with a switch: turn
   off the ones the brain shouldn't call. A server that needs a sign-in or a
   token in a header can't be added yet.
+
+## Pass messages between satellites
+
+With more than one satellite in standalone mode, you can ask one to pass a
+message to another, such as "tell the kitchen that dinner is ready". The
+satellite in the kitchen says "Message from Hall: dinner is ready." in its
+own voice. The opening is in the receiving satellite's **Language**, under
+**Conversation**. With no **Language** set, or one that Pinna has no wording
+for, it is in English.
+
+If two satellites hear the wake word, both answer. Choosing one is planned.
+
+The satellites must be in one satellite group. The **Satellite group** switch
+and the group's members are planned for the dashboard's **Assistant** page.
+Until then, as a stopgap, a group is set up with the control API's
+`SetSatelliteGroup` and `AddGroupMember` calls; see
+[Satellite group](/docs/control-api/#satellite-group).
+
+- The brain gets the `send_message` tool once another satellite of the group
+  is in standalone mode. It sends a message to one satellite by its name, or
+  to all of them, and tells you what each one did: it played the message, it
+  holds it, it refused it and why, or it couldn't be reached. An agent such as
+  Hermes or OpenClaw gets no device tools, so it can't send messages.
+- A satellite says a message at once when it is idle or plays only music,
+  which gets quieter under it. While it answers a request or listens for a
+  follow-up, plays something else, rings an alarm or runs a calibration, or
+  while its microphones are off, it holds the message. Held messages play by
+  themselves, oldest first, once it is idle and its microphones are on.
+- A satellite holds at most 5 messages, each for 12 hours at most. It forgets
+  them when it restarts, when it switches to Home Assistant mode, and when its
+  **Satellite group** switch is turned off. Showing how many are held is
+  planned for the dashboard's **Overview**.
+- The wake word stops a message, which plays again later. The Action button
+  stops it for good.
+- A satellite in Home Assistant mode stays in its group, but takes no
+  messages: the brain says it is out of reach.
+- A satellite takes messages only once its text-to-speech has passed its
+  check.
+- To stop a satellite from taking messages, for example at night, turn off
+  its **Group messages** switch in Home Assistant. A switch on the dashboard
+  is planned. Messages it already holds still play.
 
 ## Use an AI agent as the brain
 
