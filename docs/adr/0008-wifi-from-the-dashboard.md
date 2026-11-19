@@ -3,7 +3,10 @@
 Status: accepted (2026-11-16; proposed 2026-11-15), amended 2026-11-16: hidden
 networks, the security types, who prepares the file, a join that outlives the
 page, and a trial that is kept only once the satellite is reached on the new
-network. Builds on ADR 0005 and ADR 0007.
+network. Builds on ADR 0005 and ADR 0007. Amended 2026-11-19 by ADR 0028
+(proposed): with no saved network a satellite runs a setup hotspot, so after
+the last network is forgotten the hotspot is a way back besides USB, and a
+join stops the hotspot first.
 
 ## Context
 

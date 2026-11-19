@@ -274,9 +274,9 @@ Already checked on one healthy 6.12 boot:
     doesn't flash.
   - Failures before pinna-init (LK, the kernel) show no stages. A kernel crash
     leaves `dmesg-ramoops` after a warm reset.
-- Later, not decided: a Wi-Fi setup hotspot as a last resort when neither USB
-  nor Wi-Fi works (ADR 0009 keeps no access point mode), and pacing the arc by
-  the previous boot's timings.
+- Later, not decided: pacing the arc by the previous boot's timings. A Wi-Fi
+  setup hotspot is ADR 0028: pinnad offers it while no network is saved, not
+  in rescue mode.
 - Separate work: the support bundle (the rescue page's "Download diagnostics"
   is built), the kernel
   config parity and hardware smoke gates, and the script that tries a new
