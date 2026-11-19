@@ -29,6 +29,8 @@ pub const NOTIFICATION: Rgb = Rgb::new(255, 215, 0);
 pub const CALIBRATION: Rgb = Rgb::new(120, 230, 170);
 /// Bluetooth pairing window: Bluetooth's blue, deeper than the listening ring.
 pub const PAIRING: Rgb = Rgb::new(0, 90, 255);
+/// Presence confirmation (ADR 0029): white, no colour of any other state.
+pub const CONFIRM: Rgb = Rgb::new(255, 255, 255);
 
 /// How long the volume meter is held.
 pub const VOLUME_HOLD: Duration = Duration::from_millis(1500);
@@ -78,6 +80,9 @@ pub enum Effect {
     /// The Bluetooth pairing window is open (ADR 0011): two heads half a ring
     /// apart, turning slowly.
     Pairing,
+    /// Someone must press Action to confirm a change (ADR 0029): one white
+    /// head with a tail, circling slowly.
+    Confirm,
     Boot,
     /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
     Equalizer([f32; RING_PIXELS]),
@@ -175,6 +180,7 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
             spin(LISTENING, t, 0.6, 6.0)
         }
         Effect::Equalizer(bands) => equalizer(&bands),
+        Effect::Confirm => spin(CONFIRM, t, 3.0, 4.0),
         Effect::Pairing => {
             let a = spin(PAIRING, t, 2.4, 4.0);
             let b = spin(PAIRING, t + Duration::from_secs_f32(1.2), 2.4, 4.0);
@@ -288,6 +294,17 @@ mod tests {
             f,
             "it turns"
         );
+    }
+
+    #[test]
+    fn confirm_circles_one_white_head_slowly() {
+        let f = render(Effect::Confirm, Duration::ZERO);
+        let heads: Vec<usize> = (0..RING_PIXELS).filter(|&i| f[i] == CONFIRM).collect();
+        assert_eq!(heads, [0], "{f:?}");
+        assert!(!Effect::Confirm.is_finished(Duration::from_secs(600)));
+        // One head moves a pixel every 250 ms and is back after 3 s.
+        assert_eq!(render(Effect::Confirm, ms(250))[1], CONFIRM);
+        assert_eq!(f, render(Effect::Confirm, ms(3000)));
     }
 
     #[test]

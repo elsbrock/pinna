@@ -110,6 +110,14 @@ test("pairing turns two heads half a ring apart", () => {
   assert.notDeepEqual(ringFrame("pairing", 400), f);
 });
 
+test("confirm circles one white head slowly", () => {
+  const f = ringFrame("confirm", 0);
+  const heads = f.flatMap((p, i) => (p.c === LED.confirm && p.level === 1 ? [i] : []));
+  assert.deepEqual(heads, [0]);
+  assert.ok(full(ringFrame("confirm", 250), 1, LED.confirm));
+  assert.deepEqual(ringFrame("confirm", 3000), f);
+});
+
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);

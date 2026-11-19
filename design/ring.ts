@@ -21,6 +21,7 @@ export const LED = {
   notification: [255, 215, 0],
   calibration: [120, 230, 170],
   pairing: [0, 90, 255],
+  confirm: [255, 255, 255],
 } as const satisfies Record<string, Rgb>;
 
 export type Effect =
@@ -40,7 +41,8 @@ export type Effect =
   | "calibration-heard"
   | "boot"
   | "equalizer"
-  | "pairing";
+  | "pairing"
+  | "confirm";
 
 /** Music equalizer, bass to treble. */
 export const EQUALIZER: readonly Rgb[] = [
@@ -175,6 +177,9 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
       const b = spin(LED.pairing, t + 1.2, 2.4, 4);
       return a.map((p, i) => (p.level >= b[i].level ? p : b[i]));
     }
+    case "confirm":
+      // One white head, circling slowly (ADR 0029).
+      return spin(LED.confirm, t, 3, 4);
     default:
       return dark();
   }
