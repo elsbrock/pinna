@@ -22,8 +22,12 @@ const MAX_ERROR_SCALE: f64 = 0.5;
 
 /// Requests in one burst: the specification's minimum.
 pub const BURST_LEN: u32 = 8;
-/// From the start of one burst to the start of the next: the specification's maximum.
-pub const BURST_INTERVAL_US: i64 = 10_000_000;
+/// The specification's limit on the time from the start of one burst to the start of the next.
+pub const BURST_INTERVAL_MAX_US: i64 = 10_000_000;
+/// From the start of one burst to the start of the next. A timer fires at or after its deadline,
+/// and the next start is counted from when this one actually began, so the second under
+/// [`BURST_INTERVAL_MAX_US`] absorbs that lateness.
+pub const BURST_INTERVAL_US: i64 = 9_000_000;
 /// How long a request waits for its reply before the next one goes out.
 pub const REPLY_TIMEOUT_US: i64 = 500_000;
 
@@ -692,13 +696,38 @@ mod tests {
         assert_eq!(best.max_error, 495);
         assert_eq!(best.measurement, 50_000);
         assert_eq!(best.time_added, 1000 + 2000 + 1000);
-        // The next burst starts 10 s after this one started.
+        // The next burst starts BURST_INTERVAL_US after this one started.
         assert_eq!(b.next_wakeup(), Some(1000 + BURST_INTERVAL_US));
         assert_eq!(b.poll(1000 + BURST_INTERVAL_US - 1), BurstStep::default());
         assert_eq!(
             b.poll(1000 + BURST_INTERVAL_US).send,
             Some(1000 + BURST_INTERVAL_US)
         );
+    }
+
+    #[test]
+    fn bursts_start_within_the_limit_when_every_wakeup_is_late() {
+        let mut b = Bursts::new();
+        b.start(0);
+        // pinnad's timer fires 7 ms after each deadline, and every reply takes 1 ms.
+        let late = 7_000;
+        let mut now = 0;
+        let mut starts = Vec::new();
+        while starts.len() < 5 {
+            now = b.next_wakeup().unwrap() + late;
+            let mut step = b.poll(now);
+            if b.current.as_ref().is_some_and(|burst| burst.sent == 1) {
+                starts.push(now);
+            }
+            while let Some(t1) = step.send {
+                now += 1_000;
+                b.on_reply(&reply(t1, 0, 450), now);
+                step = b.poll(now);
+            }
+        }
+        for pair in starts.windows(2) {
+            assert!(pair[1] - pair[0] <= BURST_INTERVAL_MAX_US, "{starts:?}");
+        }
     }
 
     #[test]

@@ -567,7 +567,8 @@ fn clock_bursts_through_the_connection() {
     assert!(s.events().contains(&Event::ClockUpdated));
     assert_eq!(s.conn.clock().offset_us(), (OFFSET + 5) as f64);
     assert_eq!(s.conn.next_wakeup(), Some(BURST_INTERVAL_US));
-    // The next burst, 10 s after the first began. Without replies, one request every 500 ms.
+    // The next burst, BURST_INTERVAL_US after the first began. Without replies, one request
+    // every 500 ms.
     s.tick(BURST_INTERVAL_US);
     assert_eq!(kinds(&s.recv()), ["client/time"]);
     s.tick(BURST_INTERVAL_US + REPLY_TIMEOUT_US - 1);
