@@ -1,6 +1,7 @@
 <!-- Assistant: who answers requests (ADR 0017). The mode card first; then, in
      Home Assistant mode, how Home Assistant reaches the satellite, and in
-     standalone mode, what answers and how the last request went. -->
+     standalone mode, what answers and how the last request went. The
+     satellite group (ADR 0026) comes last, in both modes. -->
 <script lang="ts">
   import { onMount } from "svelte";
 
@@ -12,6 +13,7 @@
   import Group from "../../lib/Group.svelte";
   import Icon from "../../lib/Icon.svelte";
   import HomeAssistant from "../HomeAssistant.svelte";
+  import SatelliteGroup from "./SatelliteGroup.svelte";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -178,6 +180,8 @@
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
   </Group>
+
+  <SatelliteGroup />
 
   <Confirm
     bind:open={confirming}
