@@ -53,6 +53,7 @@ This page helps you find your way around the
 | `pinna-mcp` | The MCP protocol (ADR 0017): JSON-RPC messages and tool types, the server logic behind `pinnad`'s `/mcp`, and the Streamable HTTP client for your own MCP servers |
 | `pinna-vad` | The energy VAD and the end-of-speech detector, without dependencies. The wake word detection and standalone requests use it (ADR 0017) |
 | `pinna-http` | The HTTP clients that the updater, the media player and standalone mode share, with one TLS setup: rustls on ring, trusting the image's CA certificates (ADR 0017) |
+| `pinna-version` | The version the binaries report: `PINNA_VERSION` at build time, which the release workflow sets to the release's version (ADR 0022) |
 
 ### Standalone mode in `pinnad`
 
