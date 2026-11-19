@@ -1015,6 +1015,36 @@ fn audio_and_stream_checks() {
 }
 
 #[test]
+fn audio_counts_against_buffer_capacity_until_due_on_the_players_clock() {
+    let store = store();
+    let identity = Identity::generate().unwrap();
+    let server = Server::new(&identity);
+    let mut s = connect(identity, server, &store, &SENTINEL_PSK, "sn", |c| {
+        c.buffer_capacity = 70_000;
+    });
+    s.send(activate(json!(["playback"]), json!(["player@v1"])));
+    s.sync();
+    s.send(flac_start());
+    // Four chunks due in about 20 s: 120 052 bytes, within the capacity and the slack.
+    let ts = s.conn.clock().compute_server_time(s.now) + 20 * S;
+    for i in 0..4 {
+        s.send_plain(&audio(ts + i * 150 * MS, 1, &[0; 30_000]));
+    }
+    assert!(!s.conn.is_closed());
+    // At the next burst the server's clock reads 15 s later than before. The chunks are
+    // still 11 s from due on the player's clock, as placed when they arrived, and stay
+    // counted.
+    s.sync_with(|t| t + OFFSET + 15 * S);
+    assert!(!s.conn.is_closed());
+    let ts = s.conn.clock().compute_server_time(s.now) + 5 * S;
+    s.send_plain(&audio(ts, 1, &[0; 30_000]));
+    assert!(matches!(
+        closed(&s.events()),
+        Some(CloseReason::Protocol(_))
+    ));
+}
+
+#[test]
 fn fragmented_audio_is_reassembled() {
     let store = store();
     let mut s = playing(&store);

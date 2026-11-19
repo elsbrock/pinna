@@ -289,7 +289,9 @@ pub struct PlayerStream {
     pub server_transmitted_us: i64,
 }
 
-/// One chunk of encoded audio.
+/// One chunk of encoded audio. The player's count against `buffer_capacity` drops a chunk once
+/// its first sample is due, so `pinnad` bounds how long a chunk lasts when it decodes it: the
+/// specification says 15 to 150 ms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioChunk {
     /// Server time in µs at which the first sample is to be heard. Convert it with
@@ -1357,12 +1359,10 @@ impl Connection {
             return;
         }
         body.drain(..AUDIO_HEADER_LEN - 1);
-        let server_now = self.filter.compute_server_time(now);
-        if !self.budget.add(
-            header.timestamp_us,
-            AUDIO_HEADER_LEN + body.len(),
-            server_now,
-        ) {
+        if !self
+            .budget
+            .add(header.timestamp_us, due, AUDIO_HEADER_LEN + body.len(), now)
+        {
             return self.close(CloseReason::Protocol(
                 "the server sent more audio than buffer_capacity".into(),
             ));
