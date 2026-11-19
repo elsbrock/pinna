@@ -1066,6 +1066,43 @@ fn audio_and_stream_checks() {
 }
 
 #[test]
+fn audio_that_comes_due_makes_room_under_buffer_capacity() {
+    let store = store();
+    let identity = Identity::generate().unwrap();
+    let server = Server::new(&identity);
+    let mut s = connect(identity, server, &store, &SENTINEL_PSK, "sn", |c| {
+        c.buffer_capacity = 70_000;
+    });
+    s.send(activate(json!(["playback"]), json!(["player@v1"])));
+    s.sync();
+    s.send(flac_start());
+    // A chunk of 30 013 bytes every 500 ms, each due 1 s after it arrives: three times the
+    // capacity in all, never more than two chunks outstanding. The server's clock is 7 s
+    // ahead (OFFSET), so a count that mixes up server and player time either never releases
+    // a chunk or releases every one at once.
+    let chunk = |s: &mut Session| {
+        let ts = s.conn.clock().compute_server_time(s.now) + S;
+        s.send_plain(&audio(ts, 1, &[0; 30_000]));
+    };
+    for i in 0..7 {
+        chunk(&mut s);
+        assert!(!s.conn.is_closed(), "chunk {i}");
+        s.now += 500 * MS;
+    }
+    // Sent faster than they come due, they build up past the capacity and the slack: the
+    // fifth outstanding chunk is one too many.
+    for i in 0..3 {
+        chunk(&mut s);
+        assert!(!s.conn.is_closed(), "chunk {i}");
+    }
+    chunk(&mut s);
+    assert!(matches!(
+        closed(&s.events()),
+        Some(CloseReason::Protocol(_))
+    ));
+}
+
+#[test]
 fn audio_counts_against_buffer_capacity_until_due_on_the_players_clock() {
     let store = store();
     let identity = Identity::generate().unwrap();
