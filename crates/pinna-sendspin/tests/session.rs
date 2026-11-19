@@ -121,10 +121,13 @@ fn a_stored_long_term_key_makes_a_paired_session() {
     let server = Server::new(&identity);
     let mut store = store();
     let long_term = Psk::random().unwrap();
-    store.insert(PairingRecord {
-        server_id: server.id(),
-        long_term_psk: long_term.clone(),
-    });
+    store.insert(
+        PairingRecord {
+            server_id: server.id(),
+            long_term_psk: long_term.clone(),
+        },
+        &[],
+    );
     let mut s = connect(identity, server, &store, &long_term, "lt", |c| {
         c.unpaired_access = false;
     });
@@ -142,10 +145,13 @@ fn a_pairing_bound_to_another_server_fails_the_handshake_silently() {
     let mut server = Server::new(&identity);
     let mut store = store();
     let long_term = Psk::random().unwrap();
-    store.insert(PairingRecord {
-        server_id: "someone-else".into(),
-        long_term_psk: long_term.clone(),
-    });
+    store.insert(
+        PairingRecord {
+            server_id: "someone-else".into(),
+            long_term_psk: long_term.clone(),
+        },
+        &[],
+    );
     let mut conn = Connection::new(config(identity), &store, 0).unwrap();
     assert!(!server.handshake_as(&mut conn, &long_term, "lt", &long_term, 0));
     let events: Vec<Event> = std::iter::from_fn(|| conn.poll_event()).collect();
@@ -1062,10 +1068,13 @@ fn admission_through_the_connection() {
     let server = Server::new(&identity);
     let mut paired = store.clone();
     let long_term = Psk::random().unwrap();
-    paired.insert(PairingRecord {
-        server_id: server.id(),
-        long_term_psk: long_term.clone(),
-    });
+    paired.insert(
+        PairingRecord {
+            server_id: server.id(),
+            long_term_psk: long_term.clone(),
+        },
+        &[],
+    );
     let mut s = connect(identity, server, &paired, &long_term, "lt", |_| {});
     s.send(
         json!({"type": "server/activate", "payload": {"activities": ["pairing"],
@@ -1100,10 +1109,13 @@ fn unpairing() {
     let server = Server::new(&identity);
     let mut store = store();
     let long_term = Psk::random().unwrap();
-    store.insert(PairingRecord {
-        server_id: server.id(),
-        long_term_psk: long_term.clone(),
-    });
+    store.insert(
+        PairingRecord {
+            server_id: server.id(),
+            long_term_psk: long_term.clone(),
+        },
+        &[],
+    );
     let mut s = connect(identity, server, &store, &long_term, "lt", |_| {});
     s.send(activate(json!(["playback"]), json!(["player@v1"])));
     s.events();

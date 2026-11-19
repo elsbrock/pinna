@@ -2,8 +2,8 @@
 //!
 //! The player's own pairing key lives as long as its identity: an owner hands it to a server
 //! as a token, and the two then hold a long-term key of their own. Up to eight such pairings are
-//! kept; a ninth evicts the oldest. A server whose pairing was evicted lands on the Sentinel
-//! key at its next handshake and can offer re-pairing.
+//! kept; a ninth evicts the oldest that no open connection uses. A server whose pairing was
+//! evicted lands on the Sentinel key at its next handshake and can offer re-pairing.
 
 use serde::{Deserialize, Serialize};
 
@@ -61,15 +61,27 @@ impl PairingStore {
         &self.pairings
     }
 
-    /// Stores `record`, replacing the server's earlier one. At capacity the oldest record goes
-    /// and is returned. The player holds one connection at a time (ADR 0027 §3), and that
-    /// connection's server is the one whose record is replaced, so no record of an open
-    /// connection is evicted.
-    pub fn insert(&mut self, record: PairingRecord) -> Option<PairingRecord> {
+    /// Stores `record`, replacing the server's earlier one. At capacity the oldest records whose
+    /// server is not in `open` go, and are returned.
+    ///
+    /// `open` holds the server of every open connection, provisional or admitted: the
+    /// specification forbids evicting a record that backs one. A provisional connection can be
+    /// keyed with the oldest record while the admitted one completes a pairing. The
+    /// specification also has `pinnad` keep fewer paired connections open than
+    /// [`MAX_PAIRINGS`], so there is always a record to evict. If there is none, the store
+    /// goes over capacity rather than evict a record in use or fail the pairing.
+    pub fn insert(&mut self, record: PairingRecord, open: &[&str]) -> Vec<PairingRecord> {
         self.pairings.retain(|r| r.server_id != record.server_id);
-        let mut evicted = None;
+        let mut evicted = Vec::new();
         while self.pairings.len() >= MAX_PAIRINGS {
-            evicted = Some(self.pairings.remove(0));
+            let Some(i) = self
+                .pairings
+                .iter()
+                .position(|r| !open.contains(&r.server_id.as_str()))
+            else {
+                break;
+            };
+            evicted.push(self.pairings.remove(i));
         }
         self.pairings.push(record);
         evicted
@@ -299,15 +311,15 @@ mod tests {
     fn keeps_eight_and_evicts_the_oldest() {
         let mut store = PairingStore::with_pairing_psk(Psk::new([1; 32]));
         for i in 0..MAX_PAIRINGS {
-            assert_eq!(store.insert(record(&format!("s{i}"), i as u8)), None);
+            assert_eq!(store.insert(record(&format!("s{i}"), i as u8), &[]), []);
         }
         assert_eq!(store.pairings().len(), MAX_PAIRINGS);
         // Pairing again with a known server replaces its record and moves it to the end.
-        assert_eq!(store.insert(record("s0", 50)), None);
+        assert_eq!(store.insert(record("s0", 50), &["s0"]), []);
         assert_eq!(store.pairings().last(), Some(&record("s0", 50)));
         assert_eq!(store.pairings().len(), MAX_PAIRINGS);
         // A ninth server evicts the oldest, now s1.
-        assert_eq!(store.insert(record("s9", 9)), Some(record("s1", 1)));
+        assert_eq!(store.insert(record("s9", 9), &[]), [record("s1", 1)]);
         assert_eq!(store.pairings().len(), MAX_PAIRINGS);
         assert!(store.remove("s9"));
         assert!(!store.remove("s9"));
@@ -315,9 +327,39 @@ mod tests {
     }
 
     #[test]
+    fn never_evicts_the_record_of_an_open_connection() {
+        let mut store = PairingStore::with_pairing_psk(Psk::new([1; 32]));
+        for i in 0..MAX_PAIRINGS {
+            store.insert(record(&format!("s{i}"), i as u8), &[]);
+        }
+        // A provisional connection keyed with the oldest record (s0) is open while the admitted
+        // connection, from a ninth server, completes a pairing: s1 goes instead.
+        assert_eq!(
+            store.insert(record("s9", 9), &["s0", "s9"]),
+            [record("s1", 1)]
+        );
+        assert!(store.pairings().contains(&record("s0", 0)));
+        // With every record in use, the store goes over capacity instead.
+        let all: Vec<String> = store
+            .pairings()
+            .iter()
+            .map(|r| r.server_id.clone())
+            .collect();
+        let all: Vec<&str> = all.iter().map(String::as_str).collect();
+        assert_eq!(store.insert(record("s10", 10), &all), []);
+        assert_eq!(store.pairings().len(), MAX_PAIRINGS + 1);
+        // Once they close, the next pairing brings it back to capacity.
+        assert_eq!(
+            store.insert(record("s11", 11), &[]),
+            [record("s0", 0), record("s2", 2)]
+        );
+        assert_eq!(store.pairings().len(), MAX_PAIRINGS);
+    }
+
+    #[test]
     fn candidates_always_hold_the_pairing_and_sentinel_keys() {
         let mut store = PairingStore::with_pairing_psk(Psk::new([1; 32]));
-        store.insert(record("a", 2));
+        store.insert(record("a", 2), &[]);
         let c = store.candidates();
         assert_eq!(c.len(), 3);
         assert_eq!(c[0].category, PskCategory::LongTerm);
@@ -329,8 +371,8 @@ mod tests {
     #[test]
     fn store_round_trips_through_toml_without_showing_keys_in_debug() {
         let mut store = PairingStore::generate().unwrap();
-        store.insert(record("a", 2));
-        store.insert(record("b", 3));
+        store.insert(record("a", 2), &[]);
+        store.insert(record("b", 3), &[]);
         assert!(store.set_last_playback_server("b"));
         assert!(!store.set_last_playback_server("b"));
         let text = toml::to_string(&store).unwrap();

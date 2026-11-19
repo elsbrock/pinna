@@ -321,7 +321,8 @@ pub enum Event {
     Group(GroupUpdate),
     /// The clock filter took a new measurement.
     ClockUpdated,
-    /// A pairing completed: keep the record.
+    /// A pairing completed: keep the record, with [`PairingStore::insert`] given the servers of
+    /// every open connection.
     PairingAdded(PairingRecord),
     /// The server removed its pairing: drop its record.
     Unpaired(String),
@@ -1357,7 +1358,10 @@ impl Connection {
                     server_id: self.server_id.clone(),
                     long_term_psk: psk,
                 };
-                self.store.insert(record.clone());
+                // This copy only answers this server's re-handshakes, so which other record it
+                // evicts does not matter. pinnad applies the event to its own store, keeping the
+                // records of every open connection.
+                self.store.insert(record.clone(), &[]);
                 self.events.push_back(Event::PairingAdded(record));
                 Ok(())
             }
