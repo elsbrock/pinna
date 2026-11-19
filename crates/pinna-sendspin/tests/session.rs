@@ -1189,6 +1189,42 @@ fn without_playback_the_player_stream_is_ignored() {
 }
 
 #[test]
+fn removing_a_role_ends_what_it_left_running() {
+    let store = store();
+    // The player role removed while playback stays declared, without stream/end: the stream
+    // ends.
+    let mut s = playing(&store);
+    s.sync();
+    s.send(flac_start());
+    s.events();
+    s.send(activate(json!(["playback"]), json!(["metadata@v1"])));
+    assert_eq!(s.events()[0], Event::StreamEnd);
+    let ts = s.conn.clock().compute_server_time(s.now) + S;
+    s.send_plain(&audio(ts, 1, b"after"));
+    assert_eq!(s.events(), []);
+
+    // The metadata role removed while an update waits for its time: the update is dropped.
+    let mut s = playing(&store);
+    s.sync();
+    s.events();
+    let due = s.conn.clock().compute_server_time(s.now) + 2 * S;
+    s.send(
+        json!({"type": "server/state", "payload": {"metadata": {"timestamp": due,
+            "title": "Later", "progress": {"track_progress": 0, "track_duration": 0,
+            "playback_speed": 1000}}}}),
+    );
+    assert_eq!(s.events(), []);
+    s.send(activate(json!(["playback"]), json!(["player@v1"])));
+    assert!(s.events().contains(&Event::Metadata(None)));
+    s.tick(s.conn.clock().compute_client_time(due) + S);
+    assert!(
+        !s.events()
+            .iter()
+            .any(|e| matches!(e, Event::Metadata(Some(_))))
+    );
+}
+
+#[test]
 fn admission_through_the_connection() {
     let store = store();
     // Unpaired access off: playback on an unpaired session needs pairing.
