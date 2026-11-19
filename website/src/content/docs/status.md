@@ -28,6 +28,11 @@ These parts are covered by tests that run without hardware:
   the dashboard and in Home Assistant, and installs the release it showed
   (tested against a simulated release service and in the x86_64 virtual
   machine).
+- With **Install updates** set to **Automatically**, the satellite installs a
+  release by itself at a random minute in a window that you choose, and
+  restarts in the window once it is Idle. Releases that need something by hand
+  wait for you. Its tests run against a simulated release service; no device
+  has installed a release this way yet.
 - The release service's channels and downloads pass their tests against
   recorded GitHub answers. The browser installer checks a release's signature
   and files in its tests.
@@ -118,8 +123,6 @@ On the devices:
 
 ## Planned
 
-- **Automatic installs** inside a time window that you choose, for releases
-  that need nothing done by hand.
 - **A score for each wake word**: the highest score of the last thing each
   word heard, so that you can tell a word that never wakes from one that
   nearly does (ADR 0013).

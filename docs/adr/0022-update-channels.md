@@ -4,9 +4,10 @@ Status: proposed (2026-11-17), accepted (2026-11-19): the owner confirmed the
 points that were marked *default*. Amends ADR 0003 (the manifest is signed,
 describes the whole release, and a channel install never goes back in
 version), ADR 0015 (where satellites find releases; prereleases; the version
-scheme) and ADR 0016 (the installer downloads the release itself). Built: the channels, the
-release service, the scheduled check and installing a release. Not built
-yet: automatic installs.
+scheme) and ADR 0016 (the installer downloads the release itself). Built:
+the channels, the release service, the scheduled check, installing a
+release, and automatic installs (2026-11-20), which no satellite has run
+yet.
 
 ## Context
 
@@ -214,10 +215,8 @@ yet: automatic installs.
 
 ### Automatic installs
 
-Not built yet. It follows in a separate change, once a release has reached a
-satellite through the release service; until then every install is started
-by the owner. That change also decides what happens after an unattended
-download fails.
+Built. Its tests run against a simulated release service; no satellite has
+installed a release this way yet.
 
 - The setting **Install updates** is `manually` or `automatically`. With
   `automatically` it has a window: a start and an end time in the satellite's
@@ -226,16 +225,36 @@ download fails.
 - It is a setting like the others (ADR 0007): fields of `UpdateSettings`,
   controls on the dashboard's Updates page, and in Home Assistant a `select`
   entity for the mode and two `time` entities for the window (category
-  config). pinna-esphome has no select or time entities yet; the ESPHome API
-  defines both.
-- With `automatically`, when a check has found a release, pinnad starts the
-  install at a random minute inside the window. It restarts the satellite when
-  it is Idle with no timer set and nothing playing, inside the window. If the
-  window ends first, the restart waits for the next window.
+  config), in both voice modes. The settings are `install_updates`,
+  `install_window_start` and `install_window_end` in settings.toml, each
+  optional. A window whose start equals its end is refused, with a sentence
+  that says why.
+- With `automatically`, when a check has found a release (the scheduled check,
+  the one after start, or one the owner asks for), pinnad picks a random
+  minute inside the window: in the window that is open now if the minute is
+  still ahead, otherwise in the next one. The window is local wall-clock time
+  in the satellite's time zone, so a daylight saving change moves it with the
+  clock. pinnad starts the install at that minute, as an install with its own
+  origin, after it checks again that the release may install.
+  Switching to `manually` cancels an install that has not started; one that
+  runs finishes like the owner's, and the owner restarts. When the install has
+  succeeded, pinnad restarts the satellite when it is Idle with no timer set
+  and nothing playing, inside the window. If the window ends first, the
+  restart waits for the next window. The dashboard's Restart now works at
+  any time. pinnad keeps the pending restart in `/run`, marked as one that
+  waits for the window.
 - Never installed automatically: a release that needs a higher boot level, and
   a version that failed its trial boot. Nothing installs automatically while
-  the clock isn't synchronized or while the running slot is still on trial.
-  Such releases are shown and wait for the owner.
+  the clock isn't synchronized, while the running slot is still on trial,
+  while an install runs, while Updates is `off`, or while pinnad.toml's
+  `[update] manifest` replaces the channel. Such releases are shown and wait
+  for the owner.
+- After an unattended download fails, the failure is logged and shown as the
+  last install's failure, as for any install. The next window tries again, at
+  a new random minute. After 3 failed automatic attempts of one version in a
+  row, automatic installs skip that version, and log that they do, until the
+  owner installs it by hand or a newer version is found. The count lives in
+  memory: a restart of pinnad begins again.
 - The version number doesn't decide: a major or, before 1.0, a minor version
   installs like a patch. What a release needs by hand is in its manifest's
   `requires`, and a release signed with another key fails verification on any

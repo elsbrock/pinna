@@ -32,11 +32,14 @@ keep the name the device had when you added it.
 | Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm. With none of them, it stops the music; with Sendspin, the whole group |
 | Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
 | Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While a developer's own update address replaces the channel, its only option is that address ([Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates)). See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
+| Install updates | `install_updates` | Select (configuration) | `Manually`, `Automatically` | Whether the device installs a new release by itself, inside the install window. `Manually` is the default. The dashboard has the same setting, under **System > Updates**. See [Install updates automatically](/docs/update/#install-updates-automatically) |
+| Install window start | `install_window_start` | Time (configuration) | A time of day, 03:00 by default | When the install window opens, in the device's time zone. Used only while **Install updates** is `Automatically` |
+| Install window end | `install_window_end` | Time (configuration) | A time of day, 05:00 by default | When the install window closes. It may be earlier than the start, for a window that crosses midnight. The device refuses an end that equals the start, and the entity shows the old time again |
 | Voice mode | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. A change while the satellite answers a request (with its follow-up), plays an announcement or rings an alarm waits until that has ended. Switching deletes every timer and reconnects Home Assistant. See [Set up standalone mode](/docs/standalone/) |
 | Firmware | `firmware` | Update (configuration) | Installed and latest version, summary, release notes, progress | Shows a newer release on the device's channel, and installs it. After an install from Home Assistant, the device restarts on its own once it is Idle with no timer set and nothing playing. Unknown until a check has succeeded, and while **Updates** is off. See [Install an update from Home Assistant](/docs/update/#install-an-update-from-home-assistant) |
 
-Pinna saves the switch and number values on the device, so they survive a
-restart.
+Pinna saves the switch, number, select and time values on the device, so they
+survive a restart.
 
 ## Sensors
 
@@ -136,7 +139,7 @@ Assistant's included.
 The **Voice mode** select stays, so you can switch back to Home Assistant from
 there, or say "switch to Home Assistant" to the satellite. **Group messages**
 stays too, so an automation can turn messages from the other satellites off
-and on. Standalone mode's other settings have no entities. You set them on
+and on. **Install updates** and the install window stay as well. Standalone mode's other settings have no entities. You set them on
 the dashboard.
 
 ## What's next

@@ -10,7 +10,9 @@ goes back to the old one on its own, kernel included.
 
 You install updates from the [dashboard](#install-an-update-from-the-dashboard),
 from [Home Assistant](#install-an-update-from-home-assistant), or in standalone
-mode [by asking the satellite](#ask-the-satellite-to-update).
+mode [by asking the satellite](#ask-the-satellite-to-update). The satellite
+can also [install updates by itself](#install-updates-automatically), in a
+window that you choose.
 
 ## How an update works
 
@@ -54,7 +56,9 @@ is set, then once a day at a time it picked at random, when you change the
 setting, when you select **Check now**, and when you ask the satellite in
 standalone mode. It fetches the release's manifest
 and its signature, nothing else, and checks the signature. Its request carries
-no identifier. Nothing is downloaded or installed until you install it.
+no identifier. Nothing is downloaded or installed until you install it, or
+until your install window, if you chose
+[automatic installs](#install-updates-automatically).
 
 A newer release then shows on the dashboard's **System** page and in Home
 Assistant. The satellite never goes back to an older version on its own, and a
@@ -170,6 +174,69 @@ progress.
 - The **Updates** select in Home Assistant is the same setting as on the
   dashboard.
 
+## Install updates automatically
+
+With **Install updates** set to **Automatically**, the satellite installs a
+new release by itself, at a time inside a window that you choose. The setting
+is **Manually** until you change it.
+
+1. In the [dashboard](/docs/dashboard/), open **System**. Under **Updates**,
+   set **Install updates** to **Automatically**.
+2. Set the **Install window**: a start and an end time. The times are local
+   time in the satellite's time zone ([Set the time zone](/docs/settings/#set-the-time-zone)).
+   The window is 03:00 to 05:00 until you change it, and it may cross
+   midnight, for example 23:00 to 01:00. The satellite doesn't accept a window
+   whose start and end are the same time.
+
+Home Assistant has the same settings: the **Install updates** select, and the
+**Install window start** and **Install window end** times. See
+[Home Assistant entities](/docs/entities/#controls).
+
+When a check has found a release, the satellite:
+
+1. Picks a random minute inside the window, so that satellites don't all
+   install at once. It uses the window that is open now, if the minute is still
+   ahead, and the next window otherwise.
+2. Checks again at that minute that the release can still be installed, then
+   installs it into the other slot, as **Install** does.
+3. Restarts when it is Idle, with no timer set and nothing playing, and only
+   inside the window. If the window ends first, the restart waits for the next
+   window. **Restart now** on the dashboard works at any time.
+
+The new version starts on trial, and the satellite goes back to the previous
+one if it doesn't start, as for any update.
+
+### What never installs automatically
+
+- A release that needs a new boot image. **System** shows it with **Needs a
+  new boot image: install it over USB**, and it waits for you.
+- A version that failed to start and was rolled back.
+- A version whose automatic install failed three times in a row, for example
+  because the download failed. The satellite logs that it skips the version.
+  It tries again when you install that version by hand, or when a newer
+  release appears.
+
+Nothing installs automatically while the satellite's clock isn't set, while the
+running version is still on trial, while another install runs, while
+**Updates** is **Off**, or while a developer's own update address replaces the
+channel ([Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates)).
+The version number doesn't decide: a new major version, or before 1.0 a new
+minor version, installs like any other.
+
+If an automatic download fails, **System** shows the failure under **Last
+install**, as for an install that you started. The next window tries again.
+
+An install that you start yourself ignores the window: from the dashboard,
+with Home Assistant's **Install** button, from a Home Assistant automation, or
+by asking the satellite.
+
+### Turn automatic installs off
+
+Set **Install updates** to **Manually**, on the dashboard or in Home
+Assistant. An install that was planned and hasn't started is cancelled. An
+install that is already running finishes, and then waits for you to select
+**Restart now**, as an install from the dashboard does.
+
 ## Go back to an older version
 
 Going back is your choice; the satellite never does it on its own. Your
@@ -191,7 +258,9 @@ it as an update. Home Assistant's **Install** would start it and restart the
 satellite, and so would the satellite in standalone mode if you ask it to
 install while **Install update** is on. To stay on the older version, select
 **Skip** in Home Assistant and turn off **Install update**, or set **Updates**
-to **Off**.
+to **Off**. With **Install updates** set to **Automatically**, the satellite
+installs the channel's release again in its next window, so set it to
+**Manually** too.
 
 ## Switch to the other version
 
