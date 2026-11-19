@@ -115,9 +115,12 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
    speaker refuses the switch. `Status` reports Off, Ready (listening),
    Connected (with the server's name), Playing, Failed (with the reason,
    such as the port being taken) or Unavailable, and whether this speaker
-   can play in exact step (§12). A server that opens with the older
-   unencrypted handshake is answered with a close, and the status says that
-   Music Assistant must be 2.10.7 or later.
+   can play in exact step (§12). In the older unencrypted wire format the
+   player speaks first, with `client/hello`, so a server of that format
+   (Music Assistant before 2.10.7, `aiosendspin` 6) closes the connection
+   when `client/init` arrives, and connects again. A server that closes
+   before `server/init` is taken to be one, and the status says that Music
+   Assistant must be 2.10.7 or later.
 3. **One connection at a time.** A second server is admitted or turned away
    by the specification's rules for several servers (playback ranks above
    pairing, pairing above nothing); the server that last played is
