@@ -21,11 +21,16 @@
 //! The same decode feeds the speaker's *voice* lane ([`open_voice`]): replies
 //! and announcements sound as they arrive, and a stream that runs dry waits
 //! in silence instead of skipping speech (see [`VoiceSource`]).
+//!
+//! And it plays *timed sources* ([`MediaHandle::begin_timed`], ADR 0027):
+//! decoded audio stamped in a server's time, which sounds when that clock
+//! says (see [`crate::timed`]).
 
 use crate::decode::{OUT_RATE, StreamResampler, VarResampler};
 use crate::mix::{FADE, Ramp};
 use crate::playlist;
 use crate::speaker::Cmd;
+use crate::timed::{EndReason, ServerClock, TimedPlayer, TimedQueue, TimedSink, Timing};
 use crate::track::{self, IcyDemux, Track};
 use crate::{Error, Result};
 use bytes::Bytes;
@@ -149,6 +154,8 @@ enum Src {
     Decoded(Receiver<Item>),
     /// A live stream from the stream socket.
     Live(Arc<LiveQueue>),
+    /// Audio that sounds when a server's clock says (ADR 0027).
+    Timed(Box<TimedPlayer>),
 }
 
 /// A running decode of one stream. Dropping it tears everything down.
@@ -229,8 +236,33 @@ impl Decoder {
         }
     }
 
+    /// A timed source's lane end, fed through `q`.
+    pub(crate) fn timed(q: Arc<TimedQueue>) -> Decoder {
+        Decoder {
+            src: Src::Timed(Box::new(TimedPlayer::new(q))),
+            cancel: Arc::new(AtomicBool::new(false)),
+            pump: None,
+            conn: None,
+            alive: Arc::new(()),
+        }
+    }
+
     fn is_live(&self) -> bool {
         matches!(self.src, Src::Live(_))
+    }
+
+    fn timed_queue(&self) -> Option<&Arc<TimedQueue>> {
+        match &self.src {
+            Src::Timed(p) => Some(p.queue()),
+            _ => None,
+        }
+    }
+
+    /// A timed source is let go, and why: its state says so.
+    fn end_timed(&self, why: EndReason) {
+        if let Some(q) = self.timed_queue() {
+            q.finish(why);
+        }
     }
 }
 
@@ -1311,6 +1343,32 @@ impl MediaHandle {
         let _ = self.shared.tx.send(Cmd::MediaAttach { gen_, decoder });
     }
 
+    /// Begin a timed source from `source` (a name as for a stream: `a-z`,
+    /// `0-9` and `-`, such as "sendspin"), on `clock` (ADR 0027 §11). It
+    /// replaces whatever the lane plays once its first audio is due, and
+    /// fades in; until then what plays plays on. The media state shows it as
+    /// a stream from `source`, with the track [`Speaker::set_stream_track`]
+    /// names for `source`. Pause and stop through the lane end it, as they
+    /// end a stream.
+    ///
+    /// [`Speaker::set_stream_track`]: crate::Speaker::set_stream_track
+    pub fn begin_timed(&self, source: &str, clock: Arc<dyn ServerClock>) -> TimedSink {
+        let q = TimedQueue::new(clock);
+        let source = if is_source_name(source) {
+            source.to_string()
+        } else {
+            tracing::warn!("timed source: {source:?} is not a source name, shown without one");
+            String::new()
+        };
+        let decoder = Decoder::timed(q.clone());
+        self.shared.send_gen(|gen_| Cmd::TimedBegin {
+            gen_,
+            source,
+            decoder,
+        });
+        TimedSink::new(q)
+    }
+
     /// Pause; a live stream cannot be paused (yet) and ends instead.
     pub fn pause(&self) {
         let _ = self.shared.tx.send(Cmd::MediaPause);
@@ -1483,7 +1541,10 @@ impl Outgoing {
             return None;
         }
         if self.pos + 1 >= self.cur.len() {
-            self.cur = self.more.then(|| self.decoder.take_ready()).flatten()?;
+            if !self.more {
+                return None;
+            }
+            self.cur = self.decoder.take_ready()?;
             self.pos = 0;
         }
         let l = f32::from(self.cur[self.pos]) * g;
@@ -1495,8 +1556,8 @@ impl Outgoing {
 
 impl Decoder {
     /// The next chunk if one is ready now; never waits and never ends anything.
-    fn take_ready(&self) -> Option<Vec<i16>> {
-        match &self.src {
+    fn take_ready(&mut self) -> Option<Vec<i16>> {
+        match &mut self.src {
             Src::Decoded(rx) => loop {
                 match rx.try_recv() {
                     Ok(Item::Data(v)) if v.len() >= 2 => return Some(v),
@@ -1505,6 +1566,13 @@ impl Decoder {
                 }
             },
             Src::Live(q) => q.inner.lock().unwrap().chunks.pop_front(),
+            // What follows, at the speed it had: enough for the fade.
+            Src::Timed(p) if p.sounding() => {
+                let mut v = Vec::with_capacity(CHUNK_FRAMES * 2);
+                p.render(None, CHUNK_FRAMES, &mut v);
+                Some(v)
+            }
+            Src::Timed(_) => None,
         }
     }
 }
@@ -1529,9 +1597,12 @@ impl Decoder {
 /// | a stream ends (EOF, read error, [`STREAM_IDLE`]) | last chunk fades out, then dropped |
 /// | a stream runs dry | fades out, rebuffers 100 ms, fades in |
 /// | the speaker fails | dropped at once (nothing plays any more) |
+/// | a timed source begins | plays on until the timed source's first audio is due |
+/// | pause, timed source | as stop, and its state says it was paused |
 ///
 /// A new URL starts at full level: it begins at its own beginning. A new
-/// stream fades in: it is joined mid-signal. Ducking, volume and the echo
+/// stream fades in: it is joined mid-signal. A timed source fades in and
+/// handles its own timeline ([`crate::timed`]). Ducking, volume and the echo
 /// reference are applied after the lane (`speaker::Feeder`).
 pub(crate) struct MediaLane {
     decoder: Option<Decoder>,
@@ -1565,6 +1636,14 @@ pub(crate) struct MediaLane {
     /// sessions, so a pause that ends one doesn't lose it; a source's track
     /// shows only while that source's stream plays.
     stream_tracks: HashMap<String, Track>,
+    /// A timed source that has begun (it is `next`), waiting for its first
+    /// audio to be due.
+    next_timed: Option<(u64, Decoder)>,
+    /// The chunk being mixed: when its first frame is heard, its length,
+    /// and how much of it has been pulled.
+    timing: Option<Timing>,
+    chunk_frames: usize,
+    pulled: usize,
 }
 
 /// A play that is opening.
@@ -1601,11 +1680,59 @@ impl Default for MediaLane {
             track: Track::default(),
             source: String::new(),
             stream_tracks: HashMap::new(),
+            next_timed: None,
+            timing: None,
+            chunk_frames: 0,
+            pulled: 0,
         }
     }
 }
 
 impl MediaLane {
+    /// The speaker is about to mix `frames` frames, the first heard as
+    /// `timing` says. A timed source whose first audio is due in them
+    /// replaces what plays; one whose sink ended fades out.
+    pub(crate) fn set_timing(&mut self, timing: Timing, frames: usize) {
+        self.timing = Some(timing);
+        self.chunk_frames = frames;
+        self.pulled = 0;
+        if let Some((gen_, d)) = &self.next_timed {
+            let q = d.timed_queue().cloned();
+            if q.as_ref().is_some_and(|q| q.ended()) {
+                let gen_ = *gen_;
+                self.drop_next_timed(EndReason::Ended);
+                self.next.take_if(|n| n.gen_ == gen_);
+            } else if q.is_some_and(|q| q.due(timing.at(frames)))
+                && let Some((gen_, d)) = self.next_timed.take()
+            {
+                self.attach(gen_, d);
+            }
+        }
+        if self
+            .decoder
+            .as_ref()
+            .and_then(Decoder::timed_queue)
+            .is_some_and(|q| q.ended())
+        {
+            self.retire(EndReason::Ended);
+            self.clear();
+        }
+    }
+
+    /// A timed source begins: what plays plays on until its first audio is
+    /// due ([`set_timing`](Self::set_timing)).
+    pub(crate) fn begin_timed(&mut self, gen_: u64, source: String, decoder: Decoder) {
+        self.begin_next(gen_, STREAM_URL.to_string(), source);
+        self.next_timed = Some((gen_, decoder));
+    }
+
+    /// Let go of a timed source that hasn't started.
+    fn drop_next_timed(&mut self, why: EndReason) {
+        if let Some((_, d)) = self.next_timed.take() {
+            d.end_timed(why);
+        }
+    }
+
     /// Gain of live streams (the sender's volume): applies to the stream
     /// playing now and is held by one that fades out.
     pub fn set_stream_gain(&mut self, gain: f32) {
@@ -1715,11 +1842,13 @@ impl MediaLane {
 
     /// Stop the current source without cutting into it: if it is sounding it
     /// moves to `outgoing` and fades out from its current level, otherwise it
-    /// is dropped now. Either way its stream closes.
-    fn retire(&mut self) {
+    /// is dropped now. Either way its stream closes; a timed source's state
+    /// says `why`.
+    fn retire(&mut self, why: EndReason) {
         let Some(decoder) = self.decoder.take() else {
             return;
         };
+        decoder.end_timed(why);
         let level = self.play.value();
         let mid_chunk = self.pos + 1 < self.cur.len();
         if level <= 0.0 || (self.starved && !mid_chunk) {
@@ -1755,6 +1884,7 @@ impl MediaLane {
     }
 
     fn begin_next(&mut self, gen_: u64, url: String, source: String) {
+        self.drop_next_timed(EndReason::Replaced);
         self.gen_ = gen_;
         self.next = Some(Next {
             gen_,
@@ -1775,7 +1905,7 @@ impl MediaLane {
         if decoder.is_live() && next.paused {
             return; // paused while starting: a stream cannot pause
         }
-        self.retire();
+        self.retire(EndReason::Replaced);
         self.clear();
         self.cur_gen = gen_;
         self.url = Some(next.url);
@@ -1785,8 +1915,9 @@ impl MediaLane {
         // What the old source ended with is no longer news.
         self.error = None;
         self.error_url = None;
-        // A live stream buffers first, then fades in (see `refill_live`).
-        self.starved = decoder.is_live();
+        // A live stream buffers first, then fades in (see `refill_live`); a
+        // timed source waits for its audio to be due.
+        self.starved = decoder.is_live() || decoder.timed_queue().is_some();
         self.decoder = Some(decoder);
         self.play.jump(if self.paused { 0.0 } else { 1.0 });
         self.mute.jump(if self.muted { 0.0 } else { 1.0 });
@@ -1804,8 +1935,14 @@ impl MediaLane {
     /// Playback broke under us (e.g. the speaker died): nothing can sound,
     /// so everything is dropped at once.
     pub fn fail(&mut self, msg: &str) {
-        self.outgoing.clear();
+        for o in self.outgoing.drain(..) {
+            o.decoder.end_timed(EndReason::SpeakerFailed);
+        }
+        self.drop_next_timed(EndReason::SpeakerFailed);
         let url = self.shown().0.map(str::to_string);
+        if let Some(d) = &self.decoder {
+            d.end_timed(EndReason::SpeakerFailed);
+        }
         if self.next.take().is_some() | self.decoder.is_some() {
             self.clear();
             self.error = Some(msg.to_string());
@@ -1814,8 +1951,9 @@ impl MediaLane {
     }
 
     pub fn stop(&mut self, gen_: u64) {
-        self.retire();
+        self.retire(EndReason::Stopped);
         self.clear();
+        self.drop_next_timed(EndReason::Stopped);
         self.next = None;
         self.gen_ = gen_;
         self.error = None;
@@ -1823,14 +1961,26 @@ impl MediaLane {
     }
 
     pub fn pause(&mut self) {
-        if self.decoder.as_ref().is_some_and(Decoder::is_live) {
-            // The sender keeps sending: holding its audio back would only
-            // replay it late. End the session (closes the connection).
-            self.retire();
+        let timed = self
+            .decoder
+            .as_ref()
+            .and_then(Decoder::timed_queue)
+            .is_some();
+        if timed || self.decoder.as_ref().is_some_and(Decoder::is_live) {
+            // The sender keeps sending, and a timed source's timeline runs
+            // on: holding audio back would only replay it late. End it (a
+            // stream's connection closes, a timed source's state says so).
+            self.retire(EndReason::Paused);
             self.clear();
             self.error = None;
             self.error_url = None;
             return;
+        }
+        if let Some((gen_, _)) = &self.next_timed {
+            // It couldn't hold back once due: it ends, and what plays pauses.
+            let gen_ = *gen_;
+            self.drop_next_timed(EndReason::Paused);
+            self.next.take_if(|n| n.gen_ == gen_);
         }
         if self.decoder.is_some() {
             self.paused = true;
@@ -1867,6 +2017,7 @@ impl MediaLane {
             }
             None => false, // dropping it closes its stream
         });
+        self.pulled += 1;
         (l * mg, r * mg)
     }
 
@@ -1899,6 +2050,7 @@ impl MediaLane {
                 let q = q.clone();
                 return self.refill_live(&q);
             }
+            Some(Src::Timed(_)) => return self.refill_timed(),
             Some(Src::Decoded(rx)) => rx,
         };
         loop {
@@ -1924,6 +2076,34 @@ impl MediaLane {
                 }
             }
         }
+    }
+
+    /// Timed source: render the rest of the chunk being mixed, from the
+    /// frame pulled next. Without the speaker's timing (tests), a chunk of
+    /// what follows.
+    fn refill_timed(&mut self) -> bool {
+        let left = self.chunk_frames.saturating_sub(self.pulled);
+        let (timing, n) = match self.timing {
+            Some(t) if left > 0 => (
+                Some(Timing {
+                    first: t.at(self.pulled),
+                    ..t
+                }),
+                left,
+            ),
+            _ => (None, CHUNK_FRAMES),
+        };
+        let Some(Decoder {
+            src: Src::Timed(p), ..
+        }) = self.decoder.as_mut()
+        else {
+            return false;
+        };
+        self.cur.clear();
+        p.render(timing, n, &mut self.cur);
+        self.pos = 0;
+        self.starved = !p.sounding();
+        !self.cur.is_empty()
     }
 
     /// Live stream: play only from a jitter buffer. Waits for

@@ -110,6 +110,12 @@ pub struct SpeakerProfile {
     pub codec_flat: bool,
     /// Codec "HP Driver Gain Volume" index (the previous firmware's default, 6).
     pub hp_driver_gain: u32,
+    /// How long a frame takes from the playback PCM's hardware pointer to
+    /// the air: the AFE's FIFO, I2S, the codec and the amplifier. A timed
+    /// source adds it to the time a frame is heard (ADR 0027 §10). It is to
+    /// be measured on each model, against a reference player, and recorded
+    /// with that evidence; until then it is 0.
+    pub output_delay: std::time::Duration,
 }
 
 impl Default for SpeakerProfile {
@@ -117,6 +123,7 @@ impl Default for SpeakerProfile {
         SpeakerProfile {
             codec_flat: true,
             hp_driver_gain: 6,
+            output_delay: std::time::Duration::ZERO,
         }
     }
 }
@@ -318,6 +325,7 @@ mod tests {
         let cmds = playback_arm(&SpeakerProfile {
             codec_flat: false,
             hp_driver_gain: 9,
+            ..Default::default()
         });
         let prof = cmds
             .iter()

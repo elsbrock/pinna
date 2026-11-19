@@ -469,9 +469,147 @@ impl VarResampler {
     }
 }
 
+/// Stereo resampler pulled one output frame at a time, at a step that may
+/// change on every frame: a timed source follows its clock with it (ADR
+/// 0027 §11). Same kernel as [`resample`] at unity cutoff, which covers
+/// 44.1 and 48 kHz into 48 kHz.
+///
+/// The kernel is symmetric, so an output frame sits exactly at its input
+/// position [`pos`](Self::pos): it needs [`HALF`](Self::HALF) input frames
+/// beyond it, but adds no delay.
+pub(crate) struct PullResampler {
+    table: Vec<f32>,
+    buf: std::collections::VecDeque<[f32; 2]>,
+    /// Position of the next output frame, in input frames from `buf[0]`.
+    pos: f64,
+}
+
+impl PullResampler {
+    /// Input frames the kernel reaches on each side of an output frame.
+    pub const HALF: usize = ZEROS as usize;
+
+    pub fn new() -> PullResampler {
+        PullResampler {
+            table: kernel_table(),
+            buf: std::collections::VecDeque::with_capacity(4 * Self::HALF),
+            pos: 0.0,
+        }
+    }
+
+    /// Start again at fractional position `frac` (0 <= frac < 1) past
+    /// [`HALF`](Self::HALF) frames of silence: the next input frame pushed
+    /// is the one the output starts at.
+    pub fn restart(&mut self, frac: f64) {
+        self.buf.clear();
+        self.buf.extend(std::iter::repeat_n([0.0; 2], Self::HALF));
+        self.pos = Self::HALF as f64 + frac;
+    }
+
+    pub fn clear(&mut self) {
+        self.buf.clear();
+        self.pos = 0.0;
+    }
+
+    /// Input frames held (`buf[0]` is the earliest).
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
+
+    pub fn pos(&self) -> f64 {
+        self.pos
+    }
+
+    /// Input frames still needed before [`frame`](Self::frame) can run.
+    pub fn wants(&self) -> usize {
+        ((self.pos + Self::HALF as f64).floor() as usize + 1).saturating_sub(self.buf.len())
+    }
+
+    pub fn push(&mut self, frame: [f32; 2]) {
+        self.buf.push_back(frame);
+    }
+
+    /// The output frame at the current position; silence where input is
+    /// missing.
+    pub fn frame(&self) -> [f32; 2] {
+        let x = self.pos;
+        let first = (x - Self::HALF as f64).ceil().max(0.0) as usize;
+        let last = ((x + Self::HALF as f64).floor() as usize).min(self.buf.len().saturating_sub(1));
+        let mut acc = [0.0f32; 2];
+        for k in first..=last {
+            let pos = (x - k as f64).abs() * TABLE_RES as f64;
+            let i = pos as usize;
+            let frac = (pos - i as f64) as f32;
+            let w = match (self.table.get(i), self.table.get(i + 1)) {
+                (Some(a), Some(b)) => a + (b - a) * frac,
+                _ => 0.0,
+            };
+            let s = self.buf[k];
+            acc[0] += w * s[0];
+            acc[1] += w * s[1];
+        }
+        acc
+    }
+
+    /// Move `step` input frames on; returns how many input frames no later
+    /// output reaches, which are let go.
+    pub fn advance(&mut self, step: f64) -> usize {
+        self.pos += step;
+        let drop = ((self.pos - Self::HALF as f64).ceil().max(0.0) as usize).min(self.buf.len());
+        self.buf.drain(..drop);
+        self.pos -= drop as f64;
+        drop
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pull_resampler_at_unity_passes_samples_through() {
+        let mut rs = PullResampler::new();
+        rs.restart(0.0);
+        let input: Vec<[f32; 2]> = (0..200).map(|i| [i as f32, -(i as f32)]).collect();
+        let mut out = Vec::new();
+        let mut next = input.iter();
+        for _ in 0..150 {
+            while rs.wants() > 0 {
+                rs.push(*next.next().unwrap());
+            }
+            out.push(rs.frame());
+            rs.advance(1.0);
+        }
+        for (i, f) in out.iter().enumerate() {
+            assert!(
+                (f[0] - i as f32).abs() < 0.01 && (f[1] + i as f32).abs() < 0.01,
+                "{i}: {f:?}"
+            );
+        }
+        assert!(rs.len() <= 2 * PullResampler::HALF + 1);
+    }
+
+    #[test]
+    fn pull_resampler_matches_the_one_shot_kernel() {
+        // 44.1 kHz into 48 kHz, pulled frame by frame, against `resample`.
+        let l = sine(440.0, 44_100, 4410, 8000.0);
+        let want = resample(&l, 44_100, OUT_RATE);
+        let mut rs = PullResampler::new();
+        rs.restart(0.0);
+        let mut next = l.iter();
+        let step = 44_100.0 / 48_000.0;
+        for (j, w) in want.iter().enumerate().take(4500) {
+            while rs.wants() > 0 {
+                let s = f32::from(*next.next().unwrap());
+                rs.push([s, s]);
+            }
+            let got = rs.frame()[0].round();
+            assert!(
+                (got - f32::from(*w)).abs() <= 2.0,
+                "frame {j}: {got} vs {w}"
+            );
+            rs.advance(step);
+        }
+    }
 
     fn wav_bytes(rate: u32, channels: u16, samples: &[i16], unknown_sizes: bool) -> Vec<u8> {
         let data_len = (samples.len() * 2) as u32;

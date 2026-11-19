@@ -19,6 +19,7 @@ pub mod playlist;
 pub mod refsink;
 pub mod speaker;
 pub mod spectrum;
+pub mod timed;
 pub mod tone;
 pub mod track;
 pub mod volume;
@@ -31,6 +32,7 @@ pub use decode::{Pcm, decode};
 pub use media::{MediaHandle, MediaPhase, MediaState, STREAM_URL};
 pub use speaker::{PlaybackState, Speaker, SpeakerConfig, VoiceLevel, VoicePlayback};
 pub use spectrum::{Bands, Spectrum};
+pub use timed::{EndReason, Refused, ServerClock, TimedSink, TimedState, TimedStats};
 pub use track::Track;
 
 #[derive(Debug, thiserror::Error)]

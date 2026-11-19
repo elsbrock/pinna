@@ -14,6 +14,7 @@
 //! streamed URL, see [`crate::media`]). Media is ducked under the voice lane
 //! and while [`Speaker::duck`] is held.
 
+use crate::chain::LOOKAHEAD;
 use crate::clock::{PointerAnchor, monotonic_now, parse_boundary, parse_pointer};
 use crate::decode::{OUT_RATE, Pcm};
 use crate::media::{
@@ -23,6 +24,7 @@ use crate::media::{
 use crate::mix::{Ducker, FADE, Ramp};
 use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
 use crate::spectrum::{Analyzer, Spectrum};
+use crate::timed::Timing;
 use crate::track::Track;
 use crate::volume::{stream_gain, top_boost_db, volume_gain};
 use crate::{Backend, Error, Result, decode};
@@ -299,6 +301,12 @@ pub(crate) enum Cmd {
     StreamBegin {
         gen_: u64,
         source: String,
+    },
+    /// A timed source begins (ADR 0027).
+    TimedBegin {
+        gen_: u64,
+        source: String,
+        decoder: Decoder,
     },
     MediaAttach {
         gen_: u64,
@@ -753,6 +761,9 @@ struct Session {
     /// Corrects `anchor_t` from the playback PCM's hardware pointer (the
     /// Echo backends, ADR 0027 §10).
     pointer: Option<PointerAnchor>,
+    /// From the time a frame passes the hardware pointer to the time it is
+    /// heard: the speaker chain's look-ahead and the model's output delay.
+    heard_delay: Duration,
 }
 
 /// `a - b` in seconds, negative when `a` is earlier.
@@ -765,6 +776,17 @@ fn signed_secs(a: Instant, b: Instant) -> f64 {
 }
 
 impl Session {
+    /// When frame `frame` of what the session is given is heard (ADR 0027
+    /// §10).
+    fn heard_at(&self, frame: u64) -> Instant {
+        self.time_of(frame) + self.heard_delay
+    }
+
+    /// Whether [`heard_at`](Self::heard_at) follows the hardware pointer.
+    fn exact(&self) -> bool {
+        self.pointer.as_ref().is_some_and(PointerAnchor::exact)
+    }
+
     /// Move the frame-to-time mapping `secs` later (earlier if negative).
     fn shift(&mut self, secs: f64) {
         let d = Duration::from_secs_f64(secs.abs());
@@ -1080,6 +1102,11 @@ impl Actor {
         match cmd {
             Cmd::MediaBegin { gen_, url } => media.begin(gen_, url),
             Cmd::StreamBegin { gen_, source } => media.begin_stream(gen_, source),
+            Cmd::TimedBegin {
+                gen_,
+                source,
+                decoder,
+            } => media.begin_timed(gen_, source, decoder),
             Cmd::MediaAttach { gen_, decoder } => media.attach(gen_, decoder),
             Cmd::MediaFail { gen_, msg } => media.open_failed(gen_, msg),
             Cmd::MediaStop { gen_ } => media.stop(gen_),
@@ -1256,6 +1283,15 @@ impl Actor {
                 .media
                 .set_stream_gain(stream_gain(self.stream_volume.load(Ordering::Relaxed)));
             self.feeder.held_duck = self.held_duck.load(Ordering::Relaxed);
+            // A timed source reads the audio due when this chunk is heard.
+            self.feeder.media.set_timing(
+                Timing {
+                    first: s.heard_at(s.frames_written),
+                    rate: s.rate,
+                    exact: s.exact(),
+                },
+                CHUNK_FRAMES,
+            );
             let marks = self.feeder.next_chunk(CHUNK_FRAMES, gain, &mut chunk);
             let base = s.frames_written;
             if self.feeder.media.phase() == MediaPhase::Playing {
@@ -1345,6 +1381,12 @@ impl Actor {
                 .clocks
                 .is_some()
                 .then(|| PointerAnchor::new(f64::from(OUT_RATE))),
+            heard_delay: self.cfg.profile.output_delay
+                + if echo {
+                    Duration::from_secs_f64(LOOKAHEAD as f64 / f64::from(OUT_RATE))
+                } else {
+                    Duration::ZERO
+                },
         };
         let result: Result<()> = async {
             // Pre-roll: twice the lead of silence. The player starts the PCM
@@ -1879,6 +1921,7 @@ mod tests {
             chain: None,
             reference: None,
             pointer: Some(PointerAnchor::new(48_000.0)),
+            heard_delay: Duration::ZERO,
         }
     }
 
