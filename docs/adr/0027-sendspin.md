@@ -159,9 +159,11 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
    Bluetooth (ADR 0011). Each chunk is decoded when it arrives; 44.1 kHz
    is converted to 48 kHz. `buffer_capacity` is 1 MiB (about 5 s of PCM,
    10 s of FLAC).
-9. **Server time to local time.** Bursts of eight time messages every 10 s
+9. **Server time to local time.** Bursts of eight time messages every 9 s
    (the next request goes out after 500 ms without a reply) feed the
-   specification's filter, unchanged. The first `client/state` waits for
+   specification's filter, unchanged. The specification allows at most 10 s
+   between the starts of two bursts; the second to spare covers a timer that
+   fires late. The first `client/state` waits for
    the first burst, as the specification requires. Local time is the
    monotonic clock, the one the PCM's timestamps use.
 10. **When a frame sounds.** The speaker session corrects the offset of its
