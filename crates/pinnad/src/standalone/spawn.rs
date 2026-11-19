@@ -17,13 +17,15 @@ use pinna_assist::config::primary_language;
 use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::observe::Observer;
 use pinna_assist::presets::PresetId;
-use pinna_assist::prompt::{self, Context};
+use pinna_assist::prompt::{self, Context, GroupMember, MemberMode};
 use pinna_assist::run::{RunEvent, RunEvents, RunRequest};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::AssistLive;
 use super::runlog::RunLog;
+use crate::group::Group;
+use crate::settings::Mode;
 use crate::tools::{Caller, DeviceTools, Surface, ToolKit};
 use crate::voice::{DeviceFacts, Input, LocalStart, RunId, RunSpawner, Snapshot};
 
@@ -86,7 +88,12 @@ impl ProdSpawner {
         Ok(RunRequest {
             kind,
             pipeline,
-            system: system_prompt(&live, &device, SystemTime::now()),
+            system: system_prompt(
+                &live,
+                &device,
+                group_context(self.kit.group().map(|g| g.as_ref())),
+                SystemTime::now(),
+            ),
             history,
             // Speech services take the primary subtag only (`en`, not
             // `en-US`); the prompt keeps the whole tag.
@@ -138,7 +145,12 @@ impl RunSpawner for ProdSpawner {
 }
 
 /// The system prompt: the owner's text or the voice rules, then the context.
-fn system_prompt(live: &AssistLive, device: &DeviceFacts, now: SystemTime) -> String {
+fn system_prompt(
+    live: &AssistLive,
+    device: &DeviceFacts,
+    group: Vec<GroupMember>,
+    now: SystemTime,
+) -> String {
     let (time, zone) = crate::clock::local_now(device.time_zone.as_deref(), now);
     prompt::system(
         live.prompt.as_deref(),
@@ -148,8 +160,28 @@ fn system_prompt(live: &AssistLive, device: &DeviceFacts, now: SystemTime) -> St
             place: live.place.as_ref().map(|place| place.name.clone()),
             language: live.language.clone(),
             satellite: device.name.clone(),
+            group,
         },
     )
+}
+
+/// The other members of the satellite group, for the context (ADR 0026):
+/// so the brain can name them to `send_message`, and say why one in Home
+/// Assistant mode is out of reach. Empty in no group.
+pub fn group_context(group: Option<&Group>) -> Vec<GroupMember> {
+    group.map_or_else(Vec::new, |group| {
+        group
+            .other_members()
+            .into_iter()
+            .map(|(member, mode)| GroupMember {
+                name: member.name,
+                mode: mode.map(|mode| match mode {
+                    Mode::Standalone => MemberMode::Standalone,
+                    Mode::HomeAssistant => MemberMode::HomeAssistant,
+                }),
+            })
+            .collect()
+    })
 }
 
 /// The `user` a hand-off agent keys its session on: the same for every

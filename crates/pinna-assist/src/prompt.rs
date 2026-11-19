@@ -29,6 +29,25 @@ pub struct Context {
     pub language: Option<String>,
     /// The satellite's name.
     pub satellite: String,
+    /// The other members of the satellite's group (ADR 0026); empty in no
+    /// group.
+    pub group: Vec<GroupMember>,
+}
+
+/// Another satellite of the group, as the brain hears of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupMember {
+    pub name: String,
+    /// `None` until the member was heard from.
+    pub mode: Option<MemberMode>,
+}
+
+/// A member's mode: the group works in standalone mode only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberMode {
+    Standalone,
+    /// Out of reach: the brain says so when asked to reach it.
+    HomeAssistant,
 }
 
 /// The system prompt for one request. `owner` is the stored prompt:
@@ -74,6 +93,23 @@ fn context_block(ctx: &Context) -> String {
     if !ctx.satellite.is_empty() {
         lines.push(format!("Satellite: {}.", ctx.satellite));
     }
+    if !ctx.group.is_empty() {
+        let members: Vec<String> = ctx
+            .group
+            .iter()
+            .map(|m| match m.mode {
+                Some(MemberMode::Standalone) => format!("{} (standalone mode)", m.name),
+                Some(MemberMode::HomeAssistant) => {
+                    format!("{} (Home Assistant mode, out of reach)", m.name)
+                }
+                None => m.name.clone(),
+            })
+            .collect();
+        lines.push(format!(
+            "Other satellites in its group: {}.",
+            members.join(", ")
+        ));
+    }
     lines.join("\n")
 }
 
@@ -88,6 +124,7 @@ mod tests {
             place: Some("Munich".into()),
             language: Some("de".into()),
             satellite: "Kitchen Dot".into(),
+            group: Vec::new(),
         }
     }
 
@@ -123,12 +160,38 @@ mod tests {
             place: None,
             language: None,
             satellite: "Dot".into(),
+            group: Vec::new(),
         };
         let prompt = system(None, &ctx);
         assert!(prompt.contains("Local time: 14:03 (UTC)."));
         assert!(prompt.contains("Satellite: Dot."));
         assert!(!prompt.contains("Place:"));
         assert!(!prompt.contains("Language:"));
+        assert!(!prompt.contains("group"));
+    }
+
+    #[test]
+    fn the_group_names_each_member_with_its_mode_when_known() {
+        let member = |name: &str, mode| GroupMember {
+            name: name.into(),
+            mode,
+        };
+        let ctx = Context {
+            group: vec![
+                member("Kitchen", Some(MemberMode::Standalone)),
+                member("Office", None),
+                member("Porch", Some(MemberMode::HomeAssistant)),
+            ],
+            ..full()
+        };
+        let prompt = system(None, &ctx);
+        assert!(
+            prompt.ends_with(
+                "Satellite: Kitchen Dot.\nOther satellites in its group: Kitchen (standalone \
+                 mode), Office, Porch (Home Assistant mode, out of reach)."
+            ),
+            "{prompt}"
+        );
     }
 
     #[test]

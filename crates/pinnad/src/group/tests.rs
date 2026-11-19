@@ -1775,3 +1775,36 @@ async fn send_message_names_two_members_that_share_a_name_by_host_name() {
     );
     assert!(b.brain.took().is_empty() && c.brain.took().is_empty());
 }
+
+#[tokio::test]
+async fn the_request_context_names_the_other_members_with_their_modes() {
+    use pinna_assist::prompt::{GroupMember, MemberMode};
+
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office", "Porch"]).await;
+    let all: Vec<&Sat> = s.iter().collect();
+    let (a, c, d) = (&s[0], &s[2], &s[3]);
+    assert!(crate::standalone::spawn::group_context(Some(&a.group)).is_empty());
+    grouped(&all).await;
+    // Kitchen and Office answered the news of Porch's Add; Porch only took
+    // its Join, which is unsigned.
+    c.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+    a.group.heard(
+        &c.mac,
+        &c.group.sender(),
+        Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+    );
+    assert_eq!(a.group.peer(&d.mac).and_then(|p| p.mode), None);
+    let member = |name: &str, mode| GroupMember {
+        name: name.into(),
+        mode,
+    };
+    assert_eq!(
+        crate::standalone::spawn::group_context(Some(&a.group)),
+        [
+            member("Kitchen", Some(MemberMode::Standalone)),
+            member("Office", Some(MemberMode::HomeAssistant)),
+            member("Porch", None),
+        ]
+    );
+    assert!(crate::standalone::spawn::group_context(None).is_empty());
+}
