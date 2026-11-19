@@ -1,10 +1,15 @@
-# ADR 0026: Satellites in a group pass messages, control each other and answer the wake word once
+# ADR 0026: Satellites in a group pass messages and control each other, and may answer the wake word once
 
 Status: proposed (2026-11-18). Builds on ADR 0008 (the Wi-Fi trial) and
 ADR 0021 (finding the other satellites). Amends ADR 0005 (a second kind of
 caller on the dashboard's listener), ADR 0017 (a key that leaves the device,
 and the tools), ADR 0020 (metrics) and ADR 0024 (more changes that rewrite
 the mDNS record).
+
+Not built yet (2026-11-19): the wake word arbitration of "One answer to the
+wake word". Only its measurement is built: the capture loop logs each wake
+word's level. Every member that hears the wake word answers it, as without a
+group.
 
 ## Context
 
@@ -63,8 +68,14 @@ the mDNS record).
 - **The group works in standalone mode only.** A member in Home Assistant
   mode stays a member and keeps the key, but sends, receives and arbitrates
   nothing. The other members list it as in Home Assistant mode, and their
-  brain can't reach it. A member's mode travels in its signed `GetGroup`
-  answer, not in the mDNS record, so a mode change doesn't restart resolved.
+  brain can't reach it. A member's mode travels in every signed call and
+  answer it sends, not in the mDNS record, so a mode change doesn't restart
+  resolved. Until a member's first signed call or answer since pinnad
+  started, its mode isn't known: the brain's context names it without a
+  mode, and `send_message` and the control tools (`Call`) call it as they
+  call a member in standalone mode. It doesn't count toward offering those
+  tools, though: the brain gets them only once another member was heard in
+  standalone mode.
 - **A satellite is in at most one group.** A group is an id (16 random bytes,
   in lowercase hex), a key (32 random bytes) and its member list, both from
   `ring`'s secure random generator.
@@ -159,10 +170,15 @@ the mDNS record).
   device tool).
 - **Every call and answer except `Join` is signed.** A Connect handler never
   sees the bytes that were sent, so each call and answer is an envelope: the
-  group id, the sender's MAC and web port, the inner message encoded as
-  protobuf bytes, and an HMAC-SHA256 over the group id, the MAC and those
-  bytes under the group key. The receiver checks the tag on the bytes as
-  they arrived, then decodes them. A call with a wrong tag, another group, or
+  group id, the sender's MAC, the inner message encoded as protobuf bytes,
+  and a tag. The inner message starts with the sender's facts, its web port
+  and mode (`PeerSender` in `proto/pinna/v1/peer.proto`), so they are signed
+  too. The tag is an HMAC-SHA256 under the group key over a fixed context,
+  `pinna-group-v1`, a purpose, the group id, the MAC and those bytes, joined
+  by zero bytes. The purpose is the method and `call` or `answer`, such as
+  `GetGroup/call`, so an answer can't be sent back as a call, nor one call's
+  body as another's. The receiver checks the tag on the bytes as they
+  arrived, then decodes them. A call with a wrong tag, another group, or
   a sender that isn't a member is refused, and the refusal says which, except
   as above: `GetGroup`, and a sender the receiver doesn't know yet. A refusal
   is an unsigned Connect error, which is why it never makes a satellite
@@ -187,7 +203,7 @@ the mDNS record).
   satellite is in a group with at least one other member in standalone mode.
   Only a brain whose tools pinnad runs gets it. An agent such as Hermes or
   OpenClaw gets no device tools (ADR 0017), and `/mcp` doesn't offer it.
-  - `to` is a member's name, or `all` for every other member;
+  - `to` is another member's name, or `all` for every other member;
   - `text` is at most 500 characters, as for `speak` (ADR 0017).
 - **The receiver says it in its own voice**: "Message from Kitchen: dinner is
   ready." The opening comes from a table of phrases, one per language, as the
@@ -201,7 +217,8 @@ the mDNS record).
   sooner than 30 s later; if it fails again, it is dropped, with a log line.
 - **The brain knows the members.** The context pinnad adds to each request
   (ADR 0017) lists the members in standalone mode by name, and names those in
-  Home Assistant mode as out of reach, so the brain can say why.
+  Home Assistant mode as out of reach, so the brain can say why. A member
+  whose mode isn't known yet is listed by its name alone.
 - **It plays now when it can, and is held when it can't.**
   - Idle, or with only music playing: it plays at once on the voice lane and
     ducks the music, as `speak` does.
@@ -235,7 +252,9 @@ the mDNS record).
 ### Control
 
 - **Device tools that act on the satellite take an optional `satellite`**: a
-  member's name. Empty means this satellite. The brain sees one tool for each
+  member's name. Empty means this satellite. The brain gets `satellite` on
+  the same terms as `send_message`: while at least one other member was
+  heard in standalone mode. The brain sees one tool for each
   action, not one for each member, so the tool limit of 64 (ADR 0017) holds.
   - The tools: volume (set and change), reply volume, the ring light, the
     media player (play a URL, pause, resume, stop), radio (play a station,
@@ -261,6 +280,9 @@ the mDNS record).
 
 ### One answer to the wake word
 
+- **Not built yet: only the measurement at the end of this section is.** No
+  claim is sent and no member waits or stands down. Every member that hears
+  the wake word answers it, as without a group.
 - **When several members hear the wake word, the one that heard it loudest
   answers.**
 - **Only starting a request is arbitrated.** A member whose alarm rings
@@ -305,8 +327,10 @@ the mDNS record).
   stood down.
 - **Measured before it's built.** First, the capture loop logs each wake
   word it passes on with its level before the gain: the mean level in dBFS
-  of the speech frames among the 1.28 s the detector's classifier saw, and
-  the detection's time to the millisecond. Clocks are synced by
+  of the speech frames among the 1.28 s the detector's classifier saw, or of
+  all those frames when none counts as speech. The line also logs the gain
+  (the AGC's as it stands, or the fixed one), the score, and the detection's
+  time to the millisecond. Clocks are synced by
   systemd-timesyncd. None is logged while muted or listening. A wake that
   only stops an alarm or counts for a calibration is logged too; the state
   machine's next line tells it apart. On the owner's Echo Dot (2nd gen) and Echo (2nd
@@ -343,18 +367,19 @@ the mDNS record).
 ## Consequences
 
 - A household with several standalone satellites can leave messages from
-  room to room, act on another room's satellite by its name, and gets one
-  answer to a wake word heard in two rooms.
+  room to room, and act on another room's satellite by its name. One answer
+  to a wake word heard in two rooms comes with the arbitration, which isn't
+  built yet: until then, both rooms answer.
 - Only satellites on the same subnet can be in a group: the search finds no
   others (ADR 0021).
 - The key keeps other groups' satellites out of a group's calls, and is ready
   for a dashboard login. Until there is one, it secures nothing that the LAN
   can't already do through `/mcp`.
-- In a group, the wake sound comes up to one window later. A satellite that
-  stands down shows its ring for that window, which tells the owner it heard
-  the wake word.
-- A claim that takes longer than the window over Wi-Fi arrives too late, and
-  two satellites answer.
+- Once the arbitration is built, the wake sound in a group comes up to one
+  window later. A satellite that stands down shows its ring for that window,
+  which tells the owner it heard the wake word.
+- Once the arbitration is built, a claim that takes longer than the window
+  over Wi-Fi arrives too late, and two satellites answer.
 - A message to `all` costs a text-to-speech request on each member that plays
   it.
 - A member that is off while the list changes takes the change at its next
