@@ -132,7 +132,9 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
    change the audio. The dashboard and the docs say so.
 5. **Pairing PSK is built, not yet offered.** The player keeps its own
    pairing key, accepts the pairing flow, stores up to eight pairings
-   (evicting the oldest), and accepts unpairing. It lists `pairing_psk`
+   (evicting the oldest that no open connection uses, provisional or
+   admitted; fewer than eight paired connections are open at once, so one
+   can always go), and accepts unpairing. It lists `pairing_psk`
    without `locations`: nothing gives the token to an owner yet. Handing it
    to Music Assistant through Home Assistant, which can ask an ESPHome
    device for it over an encrypted API connection, is planned.
