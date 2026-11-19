@@ -14,6 +14,7 @@ mod checks;
 mod clock;
 mod config;
 mod group;
+mod hotspot;
 mod identity;
 mod leds;
 mod logs;
@@ -864,6 +865,11 @@ async fn main() -> Result<()> {
     let (satellites_tx, satellites_rx) = watch::channel(satellites::Seen::default());
     tokio::spawn(satellites::run(dc_mac.clone(), satellites_tx));
 
+    // The setup hotspot (ADR 0028), and its name while it runs, for ListWifi.
+    let hotspot_paths = hotspot::HotspotPaths::default();
+    let has_hotspot = hotspot::available(&hotspot_paths);
+    let (hotspot_tx, hotspot_rx) = watch::channel(hotspot::State::default());
+
     // Local control API.
     let device_api = api::DeviceApi::with_updater(
         api::Info {
@@ -888,6 +894,7 @@ async fn main() -> Result<()> {
         device_api
             .with_ring(shown_rx)
             .with_satellites(satellites_rx.clone())
+            .with_hotspot(has_hotspot, hotspot_rx)
             .with_wake_checker(wakewords::Checker::process(
                 wake_dir,
                 // The test reads the same configuration this run did.
@@ -904,6 +911,21 @@ async fn main() -> Result<()> {
     // A Wi-Fi trial that a stopped pinnad left behind goes back (ADR 0008).
     let wifi_api = device_api.clone();
     tokio::spawn(async move { wifi_api.recover_wifi().await });
+    // The setup hotspot while no network is saved (ADR 0028); a join stops it.
+    if has_hotspot {
+        let wifi = device_api.wifi();
+        let hotspot = Arc::new(hotspot::Hotspot::new(
+            hotspot_paths,
+            wifi.clone(),
+            hotspot_tx,
+        ));
+        let stopper = hotspot.clone();
+        wifi.set_before_join(Arc::new(move || {
+            let h = stopper.clone();
+            Box::pin(async move { h.stop().await })
+        }));
+        tokio::spawn(hotspot.run(network::hostname));
+    }
     let api_addr = api::start(device_api.clone(), &cfg.api.listen).await?;
     tracing::info!("control API listening on {api_addr}");
 

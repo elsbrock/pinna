@@ -4,6 +4,9 @@
 //!
 //! The passphrase goes to wpa_supplicant and nowhere else: it is never
 //! logged, never put into an error, and never read back.
+//!
+//! It also tells the setup hotspot (ADR 0028) when it may run: never during a
+//! join or a trial, and only while no network is saved.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -20,7 +23,7 @@ use pinna_api::{
     WifiNetwork, WifiSecurity,
 };
 use tokio::net::UnixDatagram;
-use tokio::sync::{OwnedMutexGuard, broadcast};
+use tokio::sync::{OwnedMutexGuard, broadcast, watch};
 use tokio::time::Instant;
 
 /// How long a join waits for an address before it goes back.
@@ -415,16 +418,37 @@ struct State {
     events: broadcast::Sender<JoinWifiResponse>,
 }
 
+/// Runs before a join tries its network: the setup hotspot frees the radio.
+pub type BeforeJoin =
+    Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+
 struct Shared {
     paths: WifiPaths,
     /// One wpa_supplicant operation at a time: a scan, a join, a forget, a keep.
     op: Arc<tokio::sync::Mutex<()>>,
     state: Mutex<State>,
+    /// Bumped when a join starts or ends, a trial ends or a network is
+    /// forgotten: whether the hotspot may run can have changed.
+    changed: watch::Sender<u64>,
+    before_join: std::sync::OnceLock<BeforeJoin>,
+    /// The setup hotspot runs: a join warns first, and a scan that finds
+    /// nothing falls back to the one from before it started.
+    hotspot_on: std::sync::atomic::AtomicBool,
+    /// The last scan that found networks.
+    remembered: Mutex<Vec<WifiNetwork>>,
 }
 
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
     state.lock().unwrap_or_else(|e| e.into_inner())
 }
+
+fn lock_vec(v: &Mutex<Vec<WifiNetwork>>) -> MutexGuard<'_, Vec<WifiNetwork>> {
+    v.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// How long a join waits after saying the hotspot goes off, so that the step
+/// reaches the page on the hotspot before it does.
+const HOTSPOT_WARNING: Duration = Duration::from_secs(1);
 
 /// The addresses an interface has now (`network::addresses`; tests fake it).
 type Addresses = Arc<
@@ -513,14 +537,24 @@ impl Shared {
     }
 
     fn report(&self, step: JoinWifiResponse) {
-        let mut s = lock(&self.state);
-        if matches!(
-            step.stage.as_known(),
-            Some(JoinStage::JOIN_STAGE_JOINED | JoinStage::JOIN_STAGE_FAILED)
-        ) {
-            s.last = Some(step.clone());
+        let end = done(&step);
+        {
+            let mut s = lock(&self.state);
+            if matches!(
+                step.stage.as_known(),
+                Some(JoinStage::JOIN_STAGE_JOINED | JoinStage::JOIN_STAGE_FAILED)
+            ) {
+                s.last = Some(step.clone());
+            }
+            let _ = s.events.send(step);
         }
-        let _ = s.events.send(step);
+        if end {
+            self.bump();
+        }
+    }
+
+    fn bump(&self) {
+        self.changed.send_modify(|n| *n = n.wrapping_add(1));
     }
 
     fn mark(&self, on: bool) {
@@ -577,8 +611,15 @@ impl Shared {
                 .await
                 .map_err(|e| unavailable("going back", e))?;
             let why = if number.is_some() {
+                // The address, for whoever looks again: a .local name that
+                // didn't open (Android) is the usual reason.
+                let at = if t.step.address.is_empty() {
+                    String::new()
+                } else {
+                    format!(" at http://{}/", t.step.address)
+                };
                 format!(
-                    "Nobody opened the dashboard on {ssid} in time, so the satellite went back."
+                    "Nobody opened the dashboard{at} on {ssid} in time, so the satellite went back."
                 )
             } else {
                 format!("Went back from {ssid}.")
@@ -678,6 +719,10 @@ impl Wifi {
                     last: None,
                     events: broadcast::channel(32).0,
                 }),
+                changed: watch::channel(0).0,
+                before_join: std::sync::OnceLock::new(),
+                hotspot_on: std::sync::atomic::AtomicBool::new(false),
+                remembered: Mutex::new(Vec::new()),
             }),
             timeout,
             keep_for,
@@ -711,6 +756,44 @@ impl Wifi {
             }
             Err(e) => tracing::warn!("Wi-Fi: going back: {e}"),
         }
+        s.bump();
+    }
+
+    /// Changes after which the setup hotspot looks again (ADR 0028).
+    pub fn changes(&self) -> watch::Receiver<u64> {
+        self.shared.changed.subscribe()
+    }
+
+    /// Run `hook` before every join tries its network. Set once.
+    pub fn set_before_join(&self, hook: BeforeJoin) {
+        let _ = self.shared.before_join.set(hook);
+    }
+
+    /// The setup hotspot started or stopped.
+    pub fn set_hotspot_on(&self, on: bool) {
+        self.shared.hotspot_on.store(on, Ordering::SeqCst);
+    }
+
+    /// Whether the setup hotspot may run (ADR 0028): no join runs, no network
+    /// is on trial and wpa_supplicant has none saved. `None` when that can't
+    /// be told now (wpa_supplicant isn't up, or another operation runs).
+    pub async fn wants_hotspot(&self) -> Option<bool> {
+        let s = &self.shared;
+        let busy = |s: &Shared| {
+            let st = lock(&s.state);
+            st.joining || st.trial.is_some()
+        };
+        if busy(s) {
+            return Some(false);
+        }
+        let _op = s.op.clone().try_lock_owned().ok()?;
+        // A join that started before the lock was taken has finished.
+        if busy(s) {
+            return Some(false);
+        }
+        let ctrl = s.ctrl().ok()?;
+        let listed = ctrl.request("LIST_NETWORKS").await.ok()?;
+        Some(parse_list_networks(&listed).is_empty())
     }
 
     /// A request reached the dashboard at `local`: if that is the trial's
@@ -749,8 +832,30 @@ impl Wifi {
         });
     }
 
-    /// Networks in range, from a fresh scan.
+    /// Networks in range, from a fresh scan. While the setup hotspot runs, a
+    /// scan that fails or finds nothing gives the last one that found
+    /// networks: the chip may not scan as an access point (ADR 0028), and
+    /// pinnad scans before it starts one.
     pub async fn scan(&self) -> Result<Vec<WifiNetwork>, ConnectError> {
+        let s = &self.shared;
+        let fresh = self.fresh_scan().await;
+        match &fresh {
+            Ok(nets) if !nets.is_empty() => *lock_vec(&s.remembered) = nets.clone(),
+            _ if s.hotspot_on.load(Ordering::SeqCst) => {
+                let remembered = lock_vec(&s.remembered).clone();
+                if !remembered.is_empty() {
+                    tracing::info!(
+                        "Wi-Fi: no scan beside the hotspot; listing the one from before it"
+                    );
+                    return Ok(remembered);
+                }
+            }
+            _ => {}
+        }
+        fresh
+    }
+
+    async fn fresh_scan(&self) -> Result<Vec<WifiNetwork>, ConnectError> {
         let s = &self.shared;
         let _op = s.begin()?;
         let ctrl = s.ctrl()?;
@@ -781,6 +886,9 @@ impl Wifi {
                 aps.extend(ap);
                 cmd = format!("BSS NEXT-{id} MASK={BSS_MASK}");
             }
+            // Setup hotspots, its own and other satellites', aren't networks
+            // to join (ADR 0028).
+            aps.retain(|ap| !ap.ssid.starts_with(crate::hotspot::NAME_PREFIX));
             let mut nets = strongest(aps);
             let listed = parse_list_networks(&ctrl.request("LIST_NETWORKS").await?);
             for n in &mut nets {
@@ -875,6 +983,8 @@ impl Wifi {
             Ok(Some(Self::saved_with(&ctrl).await?))
         }
         .await;
+        drop(_op);
+        s.bump();
         match result {
             Ok(Some(saved)) => Ok(saved),
             Ok(None) => Err(ConnectError::not_found(format!(
@@ -905,9 +1015,24 @@ impl Wifi {
             st.joining = true;
             st.events.subscribe()
         };
+        s.bump();
         tracing::info!("Wi-Fi: trying {:?} (hidden: {})", j.ssid, j.hidden);
         let (shared, timeout, keep_for) = (s.clone(), self.timeout, self.keep_for);
         tokio::spawn(async move {
+            // The setup hotspot holds the radio until it is stopped. A page on
+            // the hotspot hears that first, so it knows it lost the satellite
+            // and not that the join was refused.
+            if shared.hotspot_on.load(Ordering::SeqCst) {
+                let _ = lock(&shared.state).events.send(step(
+                    &j.ssid,
+                    JoinStage::JOIN_STAGE_CONNECTING,
+                    format!("Turning the setup hotspot off to try {}.", j.ssid),
+                ));
+                tokio::time::sleep(HOTSPOT_WARNING).await;
+            }
+            if let Some(hook) = shared.before_join.get() {
+                hook().await;
+            }
             let outcome = match events.attach().await {
                 Ok(()) => run_join(&shared, &ctrl, &events, &j, timeout).await,
                 Err(e) => Err(e),
@@ -949,8 +1074,9 @@ impl Wifi {
             };
             tracing::info!("Wi-Fi: {}", end.message);
             lock(&shared.state).joining = false;
-            shared.report(end);
+            // Free first: the hotspot looks as soon as it hears of the end.
             drop(op);
+            shared.report(end);
         });
         Ok(live)
     }
@@ -1107,7 +1233,11 @@ async fn run_join(
         )
     };
     let back = if fallback.is_empty() {
-        " The satellite has no other network now: it is reachable over USB.".to_owned()
+        if shared.before_join.get().is_some() {
+            " The satellite has no other network now: it runs its setup hotspot again.".to_owned()
+        } else {
+            " The satellite has no other network now: it is reachable over USB.".to_owned()
+        }
     } else {
         format!(" Back on {fallback}.")
     };
@@ -1154,6 +1284,8 @@ pub mod fake {
         pub current: Option<u32>,
         selected: Option<(u32, Instant)>,
         pub log: Vec<String>,
+        /// SCAN fails, like a chip that can't scan as an access point.
+        pub refuse_scan: bool,
     }
 
     pub struct Fake {
@@ -1162,13 +1294,20 @@ pub mod fake {
     }
 
     /// The access points in range: `BSS` walks them.
-    const APS: [(&str, u32, i32, &str); 6] = [
+    const APS: [(&str, u32, i32, &str); 7] = [
         ("Home", 2412, -70, "[WPA2-PSK-CCMP][ESS]"),
         ("Home", 5180, -50, "[WPA2-PSK-CCMP][ESS]"),
         ("Caf\\xc3\\xa9", 2437, -60, "[ESS]"),
         ("Work", 2462, -40, "[WPA2-EAP-CCMP][ESS]"),
         ("\\x00\\x00", 2462, -45, "[WPA2-PSK-CCMP][ESS]"),
         ("Neighbour", 5200, -80, "[WPA2-SAE-CCMP][ESS]"),
+        // Another satellite's setup hotspot: never listed.
+        (
+            "Pinna setup pinna-2a914e",
+            2437,
+            -35,
+            "[WPA2-PSK-CCMP][ESS]",
+        ),
     ];
 
     impl Fake {
@@ -1296,6 +1435,7 @@ pub mod fake {
                 }
                 "OK\n".into()
             }
+            "SCAN" if w.refuse_scan => "FAIL\n".into(),
             "SCAN" => {
                 events.push("<2>CTRL-EVENT-SCAN-RESULTS ".into());
                 "OK\n".into()
@@ -1811,5 +1951,119 @@ mod tests {
         paths.has_radio = false;
         let err = Wifi::new(paths).scan().await.unwrap_err();
         assert!(err.message.unwrap_or_default().contains("no Wi-Fi"));
+    }
+
+    #[tokio::test]
+    async fn the_hotspot_runs_only_while_nothing_is_saved() {
+        let fake = Fake::start(Outcome::WrongKey);
+        let wifi = wifi(&fake, Duration::from_secs(60));
+        let mut changes = wifi.changes();
+        assert_eq!(wifi.wants_hotspot().await, Some(false), "Home is saved");
+        wifi.forget("Home").await.unwrap();
+        assert!(changes.has_changed().unwrap(), "a forget is a change");
+        changes.mark_unchanged();
+        assert_eq!(wifi.wants_hotspot().await, Some(true));
+
+        // A join stops the hotspot before it tries its network, and the
+        // hotspot may come back once the join has failed.
+        let stopped = fake.wpa.clone();
+        wifi.set_before_join(Arc::new(move || {
+            let stopped = stopped.clone();
+            Box::pin(async move { stopped.lock().unwrap().log.push("hotspot stopped".into()) })
+        }));
+        let j = Join {
+            ssid: "Café".into(),
+            security: WifiSecurity::WIFI_SECURITY_WPA_PSK,
+            passphrase: "wrong passphrase".into(),
+            hidden: false,
+        };
+        let mut live = wifi.join(j).unwrap();
+        assert_eq!(wifi.wants_hotspot().await, Some(false), "joining");
+        loop {
+            let s = tokio::time::timeout(Duration::from_secs(60), live.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if done(&s) {
+                assert_eq!(stage(&s), Some(JoinStage::JOIN_STAGE_FAILED));
+                assert!(
+                    s.message.ends_with("it runs its setup hotspot again."),
+                    "{}",
+                    s.message
+                );
+                break;
+            }
+        }
+        let log = fake.log();
+        let hook = log.iter().position(|c| c == "hotspot stopped").unwrap();
+        let add = log.iter().position(|c| c == "ADD_NETWORK").unwrap();
+        assert!(hook < add, "{log:?}");
+        assert!(changes.has_changed().unwrap());
+        assert_eq!(wifi.wants_hotspot().await, Some(true));
+    }
+
+    #[tokio::test]
+    async fn the_hotspot_waits_for_a_trial_to_end() {
+        let fake = Fake::start(Outcome::Joins);
+        let wifi = wifi(&fake, Duration::from_millis(300));
+        wifi.forget("Home").await.unwrap();
+        try_cafe(&wifi).await;
+        assert_eq!(wifi.wants_hotspot().await, Some(false), "on trial");
+        let mut changes = wifi.changes();
+        changes.mark_unchanged();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(changes.has_changed().unwrap(), "the trial went back");
+        assert_eq!(wifi.wants_hotspot().await, Some(true));
+        let last = wifi.list().await.unwrap().last_join.into_option().unwrap();
+        assert!(last.message.contains(" at http://"), "{}", last.message);
+    }
+
+    #[tokio::test]
+    async fn without_wpa_supplicant_the_hotspot_waits() {
+        let fake = Fake::start(Outcome::Joins);
+        let mut paths = fake.paths();
+        paths.ctrl_dir = fake.dir.join("nothing");
+        assert_eq!(Wifi::new(paths).wants_hotspot().await, None);
+    }
+
+    #[tokio::test]
+    async fn beside_the_hotspot_a_failed_scan_lists_the_one_from_before() {
+        let fake = Fake::start(Outcome::Joins);
+        let wifi = wifi(&fake, Duration::from_secs(60));
+        let before = wifi.scan().await.unwrap();
+        assert!(!before.is_empty());
+        fake.wpa.lock().unwrap().refuse_scan = true;
+        assert!(wifi.scan().await.is_err(), "no hotspot: the error stands");
+        wifi.set_hotspot_on(true);
+        assert_eq!(wifi.scan().await.unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn a_join_from_the_hotspot_says_so_before_it_goes() {
+        let fake = Fake::start(Outcome::Joins);
+        let wifi = wifi(&fake, Duration::from_secs(60));
+        wifi.set_hotspot_on(true);
+        let mut live = wifi
+            .join(Join {
+                ssid: "Café".into(),
+                security: WifiSecurity::WIFI_SECURITY_OPEN,
+                passphrase: String::new(),
+                hidden: false,
+            })
+            .unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(5), live.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stage(&first), Some(JoinStage::JOIN_STAGE_CONNECTING));
+        assert!(
+            first.message.contains("setup hotspot off"),
+            "{}",
+            first.message
+        );
+        assert!(
+            !fake.log().iter().any(|c| c == "ADD_NETWORK"),
+            "the step comes before the network is tried"
+        );
     }
 }

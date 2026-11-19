@@ -261,6 +261,18 @@ async fn check_host(State(hosts): State<Hosts>, req: Request, next: Next) -> Res
                 .extensions()
                 .get::<ConnectInfo<Conn>>()
                 .and_then(|c| c.0.local);
+            // On the setup hotspot every name is the satellite (ADR 0028): a
+            // phone's connectivity check lands on the dashboard.
+            if let Some(url) = crate::hotspot::portal(local) {
+                return (
+                    StatusCode::FOUND,
+                    [
+                        (header::LOCATION, url.as_str()),
+                        (header::CACHE_CONTROL, "no-store"),
+                    ],
+                )
+                    .into_response();
+            }
             let body = misdirected_page(host, local, hosts.current_name().as_deref());
             (
                 StatusCode::MISDIRECTED_REQUEST,
@@ -633,6 +645,29 @@ mod tests {
             b"{}".to_vec(),
         );
         assert_eq!(send(&f, req).await.0, StatusCode::MISDIRECTED_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn the_setup_hotspot_sends_other_names_to_the_dashboard() {
+        let f = fixture("portal", true);
+        let on = |host: &str, local: &str| {
+            let mut req = get(host, "/generate_204");
+            req.extensions_mut().insert(ConnectInfo(Conn {
+                peer: "10.42.1.20:40000".parse().unwrap(),
+                local: Some(local.parse().unwrap()),
+            }));
+            req
+        };
+        let (status, headers, _) =
+            send(&f, on("connectivitycheck.gstatic.com", "10.42.1.1:80")).await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(headers[header::LOCATION], "http://10.42.1.1/#/network");
+        // Its own address and names are the dashboard itself.
+        let (status, _, body) = send(&f, on("10.42.1.1", "10.42.1.1:80")).await;
+        assert_ne!(status, StatusCode::FOUND, "{body}");
+        // Elsewhere a foreign name stays misdirected.
+        let (status, _, _) = send(&f, on("connectivitycheck.gstatic.com", "10.42.0.1:80")).await;
+        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST);
     }
 
     #[tokio::test]

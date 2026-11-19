@@ -92,6 +92,10 @@ pub struct DeviceApi {
     satellites: watch::Receiver<satellites::Seen>,
     /// Tests the models owners upload (ADR 0013).
     wake_checker: Arc<Checker>,
+    /// Whether the satellite has the setup hotspot, and how it does
+    /// (ADR 0028).
+    has_hotspot: bool,
+    hotspot: watch::Receiver<crate::hotspot::State>,
 }
 
 /// WatchRing sends at most one frame per this interval.
@@ -119,7 +123,24 @@ impl DeviceApi {
             wifi: Arc::new(Wifi::new(WifiPaths::default())),
             satellites: watch::channel(satellites::Seen::default()).1,
             wake_checker: Arc::new(Checker::disabled()),
+            has_hotspot: false,
+            hotspot: watch::channel(crate::hotspot::State::default()).1,
         }
+    }
+
+    pub fn with_hotspot(
+        mut self,
+        has: bool,
+        hotspot: watch::Receiver<crate::hotspot::State>,
+    ) -> Self {
+        self.has_hotspot = has;
+        self.hotspot = hotspot;
+        self
+    }
+
+    /// The Wi-Fi the dashboard drives, for the setup hotspot (ADR 0028).
+    pub fn wifi(&self) -> Arc<Wifi> {
+        self.wifi.clone()
     }
 
     /// Test uploaded wake word models with `checker`.
@@ -1256,7 +1277,13 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         _request: ServiceRequest<'_, ListWifiRequest>,
     ) -> ServiceResult<ListWifiResponse> {
-        Response::ok(self.wifi.list().await?)
+        let list = self.wifi.list().await?;
+        let state = self.hotspot.borrow().clone();
+        Response::ok(ListWifiResponse {
+            hotspot: state.name.unwrap_or_default(),
+            has_hotspot: self.has_hotspot && !state.failing,
+            ..list
+        })
     }
 
     async fn join_wifi(

@@ -126,7 +126,7 @@ fn is_pinna_image(os_release: &str) -> bool {
 
 /// Only a satellite image is renamed, never the computer a developer runs
 /// pinnad on.
-fn on_pinna_image() -> bool {
+pub(crate) fn on_pinna_image() -> bool {
     let text = std::fs::read_to_string("/etc/os-release")
         .or_else(|_| std::fs::read_to_string("/usr/lib/os-release"))
         .unwrap_or_default();

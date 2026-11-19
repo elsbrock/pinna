@@ -1061,6 +1061,11 @@ message ListWifiResponse {
   JoinWifiResponse last_join = 3;
   // The network on trial, with `keep_seconds` left.
   JoinWifiResponse trial = 4;
+  // The setup hotspot's name while it runs (ADR 0028); empty when it is off.
+  string hotspot = 5;
+  // The satellite runs the setup hotspot whenever no network is saved: it has
+  // one, and its last start didn't fail.
+  bool has_hotspot = 6;
 }
 
 message JoinWifiRequest {
