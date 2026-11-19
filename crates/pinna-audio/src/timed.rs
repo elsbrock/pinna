@@ -110,10 +110,32 @@ const CORRECTION_PER_US: f64 = 1e-6;
 /// specification allows ±0.5 % over any 150 ms; the margin covers the
 /// rates the feed-forward ratio is built from.
 pub const SPEED_MAX: f64 = 0.0045;
-/// An error the correction can't bring within 1 ms in 10 s is jumped.
-const JUMP_US: f64 = 1_000.0 + SPEED_MAX * 10.0 * 1e6;
+/// How far the feed-forward ratio may miss the speaker's rate: about
+/// +320 ppm on the Echo Dot (ADR 0004) until the rate is measured. The
+/// correction makes up for it, and the error it leaves slows the
+/// correction down.
+const RATE_MISS: f64 = 320e-6;
+/// Audio already handed to the speaker when the error changes, which no
+/// correction reaches: its lead, the player's buffer and decoding (ADR 0027
+/// §11: 300 ms until measured).
+const HANDED_ON_S: f64 = 0.3;
 /// Steady state: this long after the last disturbance.
 const STEADY_AFTER: Duration = Duration::from_secs(10);
+
+/// The largest error that the correction brings within 1 ms by the time
+/// steady state begins; a larger one is jumped. The correction is
+/// proportional beyond the dead band, so it stays at the cap only until the
+/// error is `SPEED_MAX / CORRECTION_PER_US` past the dead band (4.6 ms), and
+/// from there it decays with a time constant of 1 s, towards the error a
+/// missed rate leaves. With the constants above: 36.9 ms.
+fn jump_us() -> f64 {
+    let cap_us = SPEED_MAX / CORRECTION_PER_US;
+    let left_us = RATE_MISS / CORRECTION_PER_US;
+    let tau_s = 1.0 / (CORRECTION_PER_US * 1e6);
+    let decay_s = tau_s * ((cap_us - left_us) / (1_000.0 - DEAD_BAND_US - left_us)).ln();
+    let at_cap_s = STEADY_AFTER.as_secs_f64() - HANDED_ON_S - decay_s;
+    DEAD_BAND_US + cap_us + (SPEED_MAX - RATE_MISS) * 1e6 * at_cap_s
+}
 
 /// Where the lane is about to mix: when the chunk's first frame will be
 /// heard, the speaker's frame rate, and whether that time comes from the
@@ -615,7 +637,7 @@ impl TimedPlayer {
         if err.abs() > 1_000.0 {
             self.disturbed = Some(t.first);
         }
-        if err.abs() > JUMP_US {
+        if err.abs() > jump_us() {
             self.fade_out(false);
             return;
         }
@@ -1207,6 +1229,36 @@ mod tests {
             "silent for {} frames",
             back - mark
         );
+    }
+
+    #[test]
+    fn the_largest_step_slewed_is_within_a_millisecond_10_s_later() {
+        // Without a missed rate, and with one that works against the
+        // correction: a slow speaker for a step forward, a fast one for a
+        // step back.
+        for (spk_ppm, sign) in [(0.0, 1.0), (-320.0, 1.0), (320.0, -1.0)] {
+            let mut sim = playing(spk_ppm, 0.0, 48_000, 3.0);
+            // The error the step leaves, not the step, is what counts.
+            let err = |sim: &Sim| sim.sink.stats().sync_error_us.unwrap();
+            sim.clock.shift(sign * (jump_us() - 200.0) - err(&sim));
+            let mark = sim.err.len();
+            sim.run(10.5);
+            assert_eq!(sim.sink.stats().jumps, 1, "{spk_ppm} ppm: jumped");
+            assert!(sim.max_speed(mark) < 0.005, "{spk_ppm} ppm");
+            // The filter moved as the chunk before `mark` was mixed, which
+            // is heard MIX_AHEAD later.
+            let steady = mark + frames(10.0 - MIX_AHEAD);
+            assert!(
+                sim.max_err(steady) < 1_000.0,
+                "{spk_ppm} ppm: {} µs",
+                sim.max_err(steady)
+            );
+
+            // A little more is jumped.
+            sim.clock.shift(sign * (jump_us() + 200.0) - err(&sim));
+            sim.run(0.5);
+            assert_eq!(sim.sink.stats().jumps, 2, "{spk_ppm} ppm: slewed");
+        }
     }
 
     #[test]
