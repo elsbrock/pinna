@@ -252,6 +252,18 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pn-secret .pn-input { flex: 1 1 220px; width: auto; }
 .pn-secret-shown { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .pn-secret-shown.is-removed { font-family: inherit; font-size: inherit; font-weight: 650; color: var(--danger); }
+/* File: the browser's file input, visually hidden but still focusable, with a
+   pn-btn label that opens the picker and the chosen file's name and size beside it.
+   Markup: .pn-file > input.pn-file-input + label.pn-btn + .pn-file-name.
+   Keyboard: Tab to the input, Enter or Space opens the picker; the label takes the focus ring. */
+.pn-file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+.pn-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.pn-file-input:focus-visible + .pn-btn { box-shadow: var(--focus-ring); }
+.pn-file-input:disabled + .pn-btn { opacity: .45; cursor: not-allowed; }
+.pn-file-input:disabled + .pn-btn:hover { background-color: var(--surface-raised); }
+.pn-file-name { flex: 1 1 12em; min-width: 0; font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.pn-file-name.is-empty { font-family: inherit; font-size: inherit; font-weight: inherit; color: var(--ink-muted); }
+.pn-file-size { color: var(--ink-muted); white-space: nowrap; }
 
 /* ---------- Notice ---------- */
 .pn-notice {

@@ -12,7 +12,7 @@ imports.
 | `tokens.json` | The source: colours (light and dark), type, spacing, radii, shadows, sizes |
 | `tokens.css` | Generated. Every token as a CSS custom property, the `@font-face` rules and `.pn-type-*` text styles. Dark follows `prefers-color-scheme` unless the page sets `data-theme` |
 | `tailwind.css` | Generated. A Tailwind v4 theme whose utilities point at the tokens (`bg-surface`, `text-ink-muted`, `font-display`, `text-display-l`, `rounded-md`) |
-| `pinna.css` | Component classes (`pn-btn`, `pn-badge`, `pn-ring`, `pn-notice`, …). Plain CSS on the tokens, no framework |
+| `pinna.css` | Component classes (`pn-btn`, `pn-badge`, `pn-ring`, `pn-notice`, `pn-file`, …). Plain CSS on the tokens, no framework |
 | `ring.ts` | Port of `crates/pinna-hal/src/anim.rs` plus the ring's drawing geometry |
 | `ring.test.ts` | The `anim.rs` tests, against `ring.ts` |
 | `devices/` | One drawing per supported model, picked by `Status.model` (`devices/index.ts`); the Echo Dot (2nd gen) and the Echo (2nd gen). A model without a drawing gets the flat Ring |
