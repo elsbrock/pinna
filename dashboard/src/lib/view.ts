@@ -779,7 +779,9 @@ export function mediaFrom(m: { stream: boolean; source: string; station: string;
   // A paused Sendspin group streams nothing, yet keeps its source (ADR 0027 §14).
   const known = STREAM_SOURCES.get(m.source);
   if (known) return { text: `From ${known}`, url: false };
-  if (m.stream) return { text: `From ${m.source || "AirPlay, Bluetooth or Music Assistant"}`, url: false };
+  // A stream with no source came through the stream socket without a source header.
+  // Sendspin never uses the socket and always names itself (ADR 0027 §13).
+  if (m.stream) return { text: `From ${m.source || "AirPlay or Bluetooth"}`, url: false };
   if (m.station) return { text: `From ${m.station}`, url: false };
   if (m.url.includes("/api/esphome/ffmpeg_proxy/")) return { text: "From Home Assistant", url: false };
   return { text: m.url, url: true };

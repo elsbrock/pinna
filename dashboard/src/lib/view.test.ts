@@ -619,7 +619,7 @@ test("now playing says where media comes from: a stream's source, a station, Hom
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "airplay" }), { text: "From AirPlay", url: false });
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "bluetooth" }), { text: "From Bluetooth", url: false });
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "sendspin" }), { text: "From Music Assistant", url: false });
-  assert.deepEqual(mediaFrom({ ...m, stream: true }), { text: "From AirPlay, Bluetooth or Music Assistant", url: false });
+  assert.deepEqual(mediaFrom({ ...m, stream: true }), { text: "From AirPlay or Bluetooth", url: false });
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "constructor" }), { text: "From constructor", url: false });
   assert.deepEqual(mediaFrom({ ...m, stream: true, source: "my-player" }), { text: "From my-player", url: false });
   const radio = "http://radio.example/live.mp3";
