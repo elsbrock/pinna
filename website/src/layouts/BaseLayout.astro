@@ -1,7 +1,7 @@
 ---
 import "../styles/global.css";
 import Footer from "../components/Footer.astro";
-import { SITE } from "../lib/site";
+import { SITE, href } from "../lib/site";
 import markUrl from "../../../design/mark.svg?url";
 
 type Props = {
@@ -30,6 +30,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? SITE.repo);
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
+    <link rel="sitemap" href={href("/sitemap-index.xml")} />
     <link rel="icon" type="image/svg+xml" href={markUrl} />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={SITE.name} />
