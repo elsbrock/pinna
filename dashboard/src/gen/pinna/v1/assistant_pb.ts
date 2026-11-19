@@ -1390,10 +1390,14 @@ export type SatelliteGroupView = Message<"pinna.v1.SatelliteGroupView"> & {
   members: SatelliteGroupMember[];
 
   /**
-   * The other satellites the search found (ADR 0021), except members whose
-   * record says they are in this group. A member that left the group is in
-   * both lists: here with STATE_LEFT_THE_GROUP, and in `members`. Empty
-   * while the switch is off.
+   * The other satellites the search found (ADR 0021), except the members of
+   * this group. A member counts as outside the group only when its record
+   * doesn't name this group and it refused this satellite's call as not in
+   * this group after the latest search, since a record can be older than
+   * the member's Add. Such a member is in both lists: here, and in
+   * `members`. It is STATE_IN_ANOTHER_GROUP when its record names another
+   * group, and STATE_LEFT_THE_GROUP otherwise. Empty while the switch is
+   * off.
    *
    * @generated from field: repeated pinna.v1.SatelliteGroupCandidate candidates = 5;
    */
@@ -1461,8 +1465,7 @@ export const SatelliteGroupMemberSchema: GenMessage<SatelliteGroupMember> = /*@_
   messageDesc(file_pinna_v1_assistant, 44);
 
 /**
- * A satellite the search found, other than a member whose record says it
- * is in this group.
+ * A satellite the search found, other than a member still in this group.
  *
  * @generated from message pinna.v1.SatelliteGroupCandidate
  */
@@ -1529,7 +1532,8 @@ export enum SatelliteGroupCandidate_State {
   ADDABLE = 1,
 
   /**
-   * It is in another group.
+   * It is in another group. A member of this group that refused this
+   * satellite's call as not in this group is listed in `members` too.
    *
    * @generated from enum value: STATE_IN_ANOTHER_GROUP = 2;
    */
@@ -1543,9 +1547,9 @@ export enum SatelliteGroupCandidate_State {
   OFF_OR_OLDER = 3,
 
   /**
-   * A member of this group whose record says it is in no group: its
-   * switch was turned off, or it was reset. It is listed in `members`
-   * too.
+   * A member of this group whose record says it is in no group, and that
+   * refused this satellite's call as not in this group: its switch was
+   * turned off, or it was reset. It is listed in `members` too.
    *
    * @generated from enum value: STATE_LEFT_THE_GROUP = 4;
    */

@@ -85,8 +85,11 @@ impl AssistantApi {
 
     fn group_view(&self) -> MessageField<SatelliteGroupView, Inline<SatelliteGroupView>> {
         let seen = self.satellites.borrow().clone();
-        let view = self.service.group_view(&self.own_mac, &seen);
-        MessageField::some(render_group(view, self.group.as_deref()))
+        let group = self.group.as_deref();
+        let view = self.service.group_view(&self.own_mac, &seen, |mac| {
+            group.is_some_and(|group| group.answered_outside(mac))
+        });
+        MessageField::some(render_group(view, group))
     }
 
     fn group(&self) -> Result<&Arc<Group>, ConnectError> {

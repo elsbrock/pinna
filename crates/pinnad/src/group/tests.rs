@@ -22,7 +22,7 @@ use super::model::{Member, same_mac};
 use super::peer::{NOT_IN_THIS_GROUP, PeerApi};
 use super::runtime::{Change, to_wire};
 use super::seal::Key;
-use super::{Group, Joined, Limits};
+use super::{Group, Joined, Limits, exchange};
 use crate::assistant_api::AssistantApi;
 use crate::satellites::{Found, Seen};
 use crate::settings::Mode;
@@ -47,7 +47,7 @@ struct Sat {
     assistant: AssistantServiceClient<HttpClient>,
     peer: PeerServiceClient<HttpClient>,
     seen: watch::Sender<Seen>,
-    _status: watch::Sender<Snapshot>,
+    status: watch::Sender<Snapshot>,
     _inputs: mpsc::Receiver<Input>,
     _dir: tempfile::TempDir,
 }
@@ -94,7 +94,7 @@ impl Sat {
             assistant: AssistantServiceClient::new(HttpClient::plaintext(), config()),
             peer: PeerServiceClient::new(HttpClient::plaintext(), config()),
             seen,
-            _status: status,
+            status,
             _inputs: inputs_rx,
             _dir: dir,
         }
@@ -214,6 +214,15 @@ impl Sat {
             .unwrap()
     }
 
+    /// The minute's exchange after the search the satellite last saw.
+    async fn exchange(&self, last: Option<u64>) {
+        exchange::once(&self.group, &self.group.seen(), last).await;
+    }
+
+    fn search(&self) -> u64 {
+        self.seen.borrow().search
+    }
+
     /// A signed call to this satellite, as `from` would make it with
     /// `group`'s key.
     fn sealed(group: &Joined, from: &Sat, rpc: Rpc, body: &impl buffa::Message) -> PeerEnvelope {
@@ -246,6 +255,14 @@ fn hello(sat: &Sat) -> PeerHello {
     }
 }
 
+/// `sat`'s next search finds `found`, and its exchange follows the search
+/// `last` saw.
+async fn search(sat: &Sat, found: Vec<Found>, last: &mut Option<u64>) {
+    sat.finds_as(found);
+    sat.exchange(*last).await;
+    *last = Some(sat.search());
+}
+
 /// The first satellite adds every other one, each one's search finding all.
 async fn grouped(sats: &[&Sat]) {
     all_find(sats);
@@ -265,6 +282,15 @@ async fn add_starts_a_group_of_the_two_with_one_key() {
     all_find(&[a, b]);
     let view = a.add(b).await.unwrap();
     assert!(view.in_group);
+    // Each search still lists the other as in no group, from before the
+    // Add: neither is offered as a satellite that left.
+    assert_eq!(view.candidates, []);
+    assert_eq!(b.view().await.candidates, []);
+    let e = a.add(b).await.unwrap_err();
+    assert_eq!(
+        e.message.as_deref(),
+        Some("That satellite is in this group already.")
+    );
     let names: Vec<(&str, bool)> = view
         .members
         .iter()
@@ -324,6 +350,70 @@ async fn a_third_satellite_joins_and_every_member_hears_of_it() {
     assert_eq!((office.mode, office.last_seen_unix_ms), (None, 0));
     let hall = view.members.iter().find(|m| m.this_satellite).unwrap();
     assert_eq!((hall.mode, hall.last_seen_unix_ms), (None, 0));
+    // A's exchange asks C too, and C's signed answer brings its mode.
+    a.exchange(None).await;
+    let view = a.view().await;
+    let office = view.members.iter().find(|m| m.name == "Office").unwrap();
+    assert_eq!(
+        office.mode.map(|m| m.as_known()),
+        Some(Some(pinna_api::Mode::MODE_STANDALONE))
+    );
+    assert!(office.last_seen_unix_ms > 0);
+}
+
+#[tokio::test]
+async fn a_member_is_offered_as_left_only_once_it_refused_and_can_be_added_back() {
+    use pinna_api::satellite_group_candidate::State;
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    let id = a.joined().unwrap().id;
+    // C was reset: in no group, with its switch on.
+    c.service.forget_group(&id).await.unwrap();
+    let candidates = |view: &SatelliteGroupView| -> Vec<(String, Option<State>, bool)> {
+        view.candidates
+            .iter()
+            .map(|c| {
+                (
+                    c.satellite.friendly_name.clone(),
+                    c.state.as_known(),
+                    c.addable,
+                )
+            })
+            .collect()
+    };
+    // Its record alone doesn't make it one that left.
+    a.finds(&[b, c]);
+    assert_eq!(candidates(&a.view().await), []);
+    // Its refusal after a search that listed it outside the group does.
+    let mut last = Some(a.search());
+    search(a, vec![b.found(), c.found()], &mut last).await;
+    assert_eq!(
+        candidates(&a.view().await),
+        [("Office".into(), Some(State::STATE_LEFT_THE_GROUP), true)]
+    );
+    // B's search and exchange count it outside too.
+    let mut last_b = Some(b.search());
+    search(b, vec![a.found(), c.found()], &mut last_b).await;
+    assert_eq!(
+        candidates(&b.view().await),
+        [("Office".into(), Some(State::STATE_LEFT_THE_GROUP), true)]
+    );
+    // Added back on A, while both searches still list it as in no group.
+    let view = a.add(c).await.unwrap();
+    assert_eq!(candidates(&view), []);
+    for sat in [a, b, c] {
+        assert_eq!(sat.current(), macs(&[a, b, c]), "{}", sat.name);
+    }
+    // B heard of it through A's list: Office is a member there too, not a
+    // satellite to add.
+    assert_eq!(candidates(&b.view().await), []);
+    let refusal = b.add(c).await.unwrap_err();
+    assert_eq!(refusal.code, ErrorCode::FailedPrecondition);
+    assert_eq!(
+        refusal.message.as_deref(),
+        Some("That satellite is in this group already.")
+    );
 }
 
 #[tokio::test]
@@ -655,6 +745,26 @@ async fn two_satellites_that_add_each_other_at_once_both_fail() {
 }
 
 #[tokio::test]
+async fn two_adds_on_two_members_at_once_both_stay() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office", "Porch"]).await;
+    let (a, b, c, d) = (&s[0], &s[1], &s[2], &s[3]);
+    grouped(&[a, b]).await;
+    all_find(&[a, b, c, d]);
+    let (ac, bd) = tokio::join!(a.add(c), b.add(d));
+    ac.unwrap();
+    bd.unwrap();
+    // C and D may not know of each other yet; one exchange settles it.
+    all_find(&[a, b, c, d]);
+    for sat in [a, b, c, d] {
+        sat.exchange(None).await;
+    }
+    for sat in [a, b, c, d] {
+        assert_eq!(sat.current(), macs(&[a, b, c, d]), "{}", sat.name);
+        assert_eq!(sat.joined().unwrap().members, a.joined().unwrap().members);
+    }
+}
+
+#[tokio::test]
 async fn a_removed_member_hears_it_and_forgets_the_group() {
     let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
     let (a, b, c) = (&s[0], &s[1], &s[2]);
@@ -709,6 +819,45 @@ async fn a_group_left_with_one_member_ends() {
 }
 
 #[tokio::test]
+async fn the_exchange_takes_the_names_the_search_heard_without_a_new_version() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let before = a.joined().unwrap().members;
+    let mut renamed = b.found();
+    renamed.friendly_name = "Cuisine".into();
+    a.status.send_modify(|s| s.friendly_name = "Hallway".into());
+    let mut last = Some(a.search());
+    search(a, vec![renamed], &mut last).await;
+    let after = a.joined().unwrap().members;
+    let names: Vec<(&str, u64)> = after.iter().map(|m| (m.name.as_str(), m.version)).collect();
+    assert_eq!(
+        names,
+        [
+            ("Hallway", before[0].version),
+            ("Cuisine", before[1].version)
+        ]
+    );
+    // B keeps the names its own search heard.
+    assert_eq!(b.joined().unwrap().members, before);
+}
+
+#[tokio::test]
+async fn a_removed_member_that_was_off_learns_it_at_its_next_exchange() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    // C is off while A removes it: A's search doesn't list it.
+    a.finds(&[b]);
+    a.remove(c).await.unwrap();
+    assert!(c.joined().is_some());
+    // Back on, it asks the others for their lists, signed with the key.
+    all_find(&[a, b, c]);
+    c.exchange(None).await;
+    assert_eq!(c.joined(), None);
+}
+
+#[tokio::test]
 async fn switching_off_tells_the_others_first() {
     let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
     let (a, b, c) = (&s[0], &s[1], &s[2]);
@@ -736,6 +885,84 @@ async fn switching_off_tells_the_others_first() {
     // The last other member left alone ends the group too.
     b.group.set_switch(false).await.unwrap();
     assert_eq!((b.joined(), c.joined()), (None, None));
+}
+
+#[tokio::test]
+async fn a_member_that_was_reset_never_makes_the_others_forget() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    let id = a.joined().unwrap().id;
+    // B was reset: in no group, refusing every call.
+    b.service.forget_group(&id).await.unwrap();
+    let mut last = Some(a.search());
+    for _ in 0..4 {
+        search(a, vec![b.found(), c.found()], &mut last).await;
+    }
+    assert_eq!(a.joined().unwrap().id, id);
+    assert_eq!(a.current(), macs(&[a, b, c]));
+
+    // Its refusals of a PutGroup don't either.
+    a.remove(c).await.unwrap();
+    assert!(a.joined().is_some());
+}
+
+#[tokio::test]
+async fn a_member_leaves_once_every_other_member_answers_outside_the_group_twice() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let id = a.joined().unwrap().id;
+    b.service.forget_group(&id).await.unwrap();
+
+    let mut last = Some(a.search());
+    // Once: not yet.
+    search(a, vec![b.found()], &mut last).await;
+    assert!(a.joined().is_some());
+    // Searches that passed unseen start the count again.
+    last = last.map(|l| l - 1);
+    search(a, vec![b.found()], &mut last).await;
+    assert!(a.joined().is_some());
+    // Twice in a row: it leaves, and keeps its switch on.
+    search(a, vec![b.found()], &mut last).await;
+    assert_eq!(a.joined(), None);
+    assert_eq!(a.found().group, Some(String::new()));
+}
+
+#[tokio::test]
+async fn neither_the_record_nor_the_refusal_alone_ends_a_group() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let id = a.joined().unwrap().id;
+    let mut last = Some(a.search());
+
+    // A stale record that says B is in no group, while B answers in it.
+    let mut stale = b.found();
+    stale.group = Some(String::new());
+    for _ in 0..3 {
+        search(a, vec![stale.clone()], &mut last).await;
+    }
+    assert!(a.joined().is_some());
+
+    // B refuses, but its record still names the group (resolved shows an
+    // old one), or the search didn't hear it this time.
+    b.service.forget_group(&id).await.unwrap();
+    let mut old = b.found();
+    old.group = Some(id.clone());
+    for _ in 0..3 {
+        search(a, vec![old.clone()], &mut last).await;
+    }
+    let mut missed = b.found();
+    missed.missed = 1;
+    for _ in 0..3 {
+        search(a, vec![missed.clone()], &mut last).await;
+    }
+    // Not listed at all: unreachable, not gone.
+    for _ in 0..3 {
+        search(a, Vec::new(), &mut last).await;
+    }
+    assert_eq!(a.joined().unwrap().id, id);
 }
 
 #[tokio::test]
@@ -926,6 +1153,26 @@ async fn deliver_and_call_are_not_taken_yet() {
     assert_eq!(e.code, ErrorCode::Unimplemented);
 }
 
+#[tokio::test]
+async fn an_answer_from_another_satellite_counts_as_no_answer() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    let group = a.joined().unwrap();
+    // B is gone, and C took its address: C's signed answer is C's, not B's.
+    b.service.forget_group(&group.id).await.unwrap();
+    let mut moved = b.found();
+    moved.web_port = c.port;
+    moved.group = Some(String::new());
+    let mut last = Some(a.search());
+    for _ in 0..3 {
+        search(a, vec![moved.clone(), c.found()], &mut last).await;
+    }
+    assert_eq!(a.joined().unwrap().id, group.id);
+    assert_eq!(a.current(), macs(&[a, b, c]));
+    assert_eq!(a.group.peer(&b.mac).unwrap().outside, 0);
+}
+
 thread_local! {
     static CAPTURED: std::cell::RefCell<Option<Arc<Mutex<Vec<u8>>>>> =
         const { std::cell::RefCell::new(None) };
@@ -993,12 +1240,15 @@ async fn the_key_never_leaves_in_a_view_an_answer_or_a_log_line() {
 
     all_find(&[a, b, c]);
     for sat in [a, b, c] {
+        sat.exchange(None).await;
         let view = sat.view().await;
         texts.push(format!("{view:?}"));
         texts.push(String::from_utf8_lossy(&view.encode_to_vec()).into_owned());
         texts.push(format!(
             "{:?}",
-            sat.service.group_view(&sat.mac, &sat.group.seen())
+            sat.service.group_view(&sat.mac, &sat.group.seen(), |mac| {
+                sat.group.answered_outside(mac)
+            })
         ));
     }
     let answer = b

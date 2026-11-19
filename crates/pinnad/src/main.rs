@@ -852,8 +852,8 @@ async fn main() -> Result<()> {
         boot,
     ));
 
-    // The satellite group (ADR 0026): its calls to the other members, and
-    // the calls they make here.
+    // The satellite group (ADR 0026): its calls to the other members, the
+    // calls they make here, and the exchange of lists after every search.
     let group = Arc::new(group::Group::new(
         assistant.clone(),
         &dc_mac,
@@ -862,6 +862,7 @@ async fn main() -> Result<()> {
         satellites_rx.clone(),
         group::Limits::default(),
     ));
+    tokio::spawn(group::exchange::run(group.clone()));
     let peer_api = Arc::new(group::peer::PeerApi::new(group.clone()));
 
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.

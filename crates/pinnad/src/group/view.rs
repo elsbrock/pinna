@@ -16,9 +16,9 @@ pub struct GroupView {
     pub control: bool,
     /// Not removed, by name.
     pub members: Vec<MemberView>,
-    /// Every satellite the search found except the members whose record
-    /// says they are in this group, as the search lists them. A member that
-    /// left the group is in `members` too.
+    /// Every satellite the search found except the members of this group,
+    /// as the search lists them. A member that left the group is in
+    /// `members` too.
     pub candidates: Vec<Candidate>,
 }
 
@@ -38,7 +38,8 @@ pub enum CandidateState {
     /// Its record has no `group` key: the switch is off there, or its Pinna
     /// is older.
     OffOrOlder,
-    /// A member of this group whose record says it is in no group.
+    /// A member of this group whose record says it is in no group, and
+    /// that refused a call as not in this group.
     LeftTheGroup,
 }
 
@@ -56,8 +57,16 @@ pub struct Candidate {
 }
 
 /// The view of `group` for this satellite (`own_mac`, called `own_name`),
-/// with the satellites in `seen`.
-pub fn view(group: &Persisted, own_mac: &str, own_name: &str, seen: &Seen) -> GroupView {
+/// with the satellites in `seen`. `answered_outside` says whether a member,
+/// by MAC, refused this satellite's `GetGroup` as not in this group after
+/// the latest search listed it outside the group.
+pub fn view(
+    group: &Persisted,
+    own_mac: &str,
+    own_name: &str,
+    seen: &Seen,
+    answered_outside: impl Fn(&str) -> bool,
+) -> GroupView {
     let joined = group.joined.as_ref();
     let members = joined.map_or(&[][..], |joined| &joined.members[..]);
     let mut listed: Vec<MemberView> = members
@@ -92,6 +101,11 @@ pub fn view(group: &Persisted, own_mac: &str, own_name: &str, seen: &Seen) -> Gr
                 // A member in this group, or a newcomer whose Add this
                 // satellite hasn't merged yet: a member either way.
                 Some(id) if joined.is_some_and(|joined| joined.id == id) => return None,
+                // A member is still one while only its record says
+                // otherwise: the search can list a record from before its
+                // Add, or one resolved kept (ADR 0021). Its refusal of a
+                // call makes it a candidate again.
+                _ if member && !answered_outside(&found.mac) => return None,
                 Some(id) if !id.is_empty() => CandidateState::InAnotherGroup,
                 _ if member => CandidateState::LeftTheGroup,
                 Some(_) => CandidateState::Addable,
@@ -198,7 +212,7 @@ mod tests {
             found("02:00:00:00:00:03", "Office", Some(OTHER_ID)),
             found("02:00:00:00:00:04", "Porch", None),
         ]);
-        let view = view(&group, OWN, "Hall", &seen);
+        let view = view(&group, OWN, "Hall", &seen, |_| false);
         assert!(view.on && !view.in_group && view.control);
         assert!(view.members.is_empty());
         assert_eq!(
@@ -217,13 +231,13 @@ mod tests {
     #[test]
     fn with_the_switch_off_nothing_is_listed() {
         let seen = seen(vec![found("02:00:00:00:00:02", "Kitchen", Some(""))]);
-        let view = view(&Persisted::default(), OWN, "Hall", &seen);
+        let view = view(&Persisted::default(), OWN, "Hall", &seen, |_| false);
         assert!(!view.on && !view.in_group);
         assert!(view.candidates.is_empty());
     }
 
     #[test]
-    fn members_are_listed_by_name_and_left_members_are_candidates() {
+    fn members_are_listed_by_name_and_members_that_left_are_candidates() {
         let group = in_group(vec![
             member(OWN, "Old hall", false),
             member("02:00:00:00:00:02", "Kitchen", false),
@@ -231,21 +245,35 @@ mod tests {
             member("02:00:00:00:00:04", "Attic", false),
             member("02:00:00:00:00:05", "Cellar", true),
             member("02:00:00:00:00:06", "Garage", false),
+            member("02:00:00:00:00:08", "Loft", false),
+            member("02:00:00:00:00:09", "Study", false),
         ]);
         let seen = seen(vec![
             // In this group: shown as a member, not a candidate.
             found("02:00:00:00:00:02", "Kitchen", Some(ID)),
-            // Members whose records say they are in no group.
+            // Members whose records say they are in no group, and that
+            // refused a call as not in this group.
             found("02:00:00:00:00:03", "Office", Some("")),
             found("02:00:00:00:00:04", "Attic", None),
             // A removed member is a satellite like any other.
             found("02:00:00:00:00:05", "Cellar", Some("")),
-            // A member now in another group.
+            // A member now in another group, by its record and its refusal.
             found("02:00:00:00:00:06", "Garage", Some(OTHER_ID)),
             // A newcomer this satellite hasn't merged yet.
             found("02:00:00:00:00:07", "Den", Some(ID)),
+            // Members whose records say otherwise, but that never refused a
+            // call: records from before their Add.
+            found("02:00:00:00:00:08", "Loft", Some("")),
+            found("02:00:00:00:00:09", "Study", None),
         ]);
-        let view = view(&group, OWN, "Hall", &seen);
+        let refused = [
+            "02:00:00:00:00:03",
+            "02:00:00:00:00:04",
+            "02:00:00:00:00:06",
+        ];
+        let view = view(&group, OWN, "Hall", &seen, |mac| {
+            refused.iter().any(|r| same_mac(r, mac))
+        });
         assert!(view.in_group);
         let names: Vec<(&str, bool)> = view
             .members
@@ -259,7 +287,9 @@ mod tests {
                 ("Garage", false),
                 ("Hall", true),
                 ("Kitchen", false),
+                ("Loft", false),
                 ("Office", false),
+                ("Study", false),
             ]
         );
         assert_eq!(
@@ -287,7 +317,7 @@ mod tests {
             // Add isn't offered, so its name isn't checked.
             found("02:00:00:00:00:07", "Kitchen", None),
         ]);
-        let view = view(&group, OWN, "Hall", &seen);
+        let view = view(&group, OWN, "Hall", &seen, |_| false);
         let refusals: Vec<(&str, Option<&str>)> = view
             .candidates
             .iter()
@@ -330,7 +360,7 @@ mod tests {
             found("f0:27:2d:2a:91:4e", "Echo Dot 2a914e", Some("")),
             found("f0:27:2d:2a:91:4f", "Kitchen", Some("")),
         ]);
-        let view = view(&group, OWN, "Hall", &seen);
+        let view = view(&group, OWN, "Hall", &seen, |_| false);
         let notes: Vec<(&str, bool)> = view
             .candidates
             .iter()
@@ -345,7 +375,7 @@ mod tests {
     #[test]
     fn the_view_never_contains_the_key() {
         let group = in_group(vec![member(OWN, "Hall", false)]);
-        let view = view(&group, OWN, "Hall", &seen(Vec::new()));
+        let view = view(&group, OWN, "Hall", &seen(Vec::new()), |_| false);
         let key = Key::new([7; 32]);
         assert!(!format!("{view:?}").contains(&key.to_base64()));
     }

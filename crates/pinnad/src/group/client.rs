@@ -65,6 +65,15 @@ pub enum Failed {
     Refused(ConnectError),
 }
 
+impl Failed {
+    /// The refusal a member that is in no group, or in another one, sends.
+    pub fn is_not_in_this_group(&self) -> bool {
+        matches!(self, Self::Refused(e)
+            if e.code == ErrorCode::FailedPrecondition
+                && e.message.as_deref() == Some(super::peer::NOT_IN_THIS_GROUP))
+    }
+}
+
 impl std::fmt::Display for Failed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

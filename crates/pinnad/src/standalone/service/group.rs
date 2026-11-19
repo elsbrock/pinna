@@ -64,9 +64,15 @@ impl Service {
 
     /// What the Assistant page shows of the group, with the satellites in
     /// `seen`. This satellite is `own_mac`, under the name it has now.
-    pub(crate) fn group_view(&self, own_mac: &str, seen: &Seen) -> GroupView {
+    /// `answered_outside` is [`view::view`]'s.
+    pub(crate) fn group_view(
+        &self,
+        own_mac: &str,
+        seen: &Seen,
+        answered_outside: impl Fn(&str) -> bool,
+    ) -> GroupView {
         let own_name = self.status.borrow().friendly_name.clone();
-        view::view(&self.group(), own_mac, &own_name, seen)
+        view::view(&self.group(), own_mac, &own_name, seen, answered_outside)
     }
 
     /// Turn *Satellite group* on or off. Off leaves the group: the group it
@@ -169,6 +175,20 @@ impl Service {
         remote: &[Member],
         own_mac: &str,
     ) -> Result<Merging, Refusal> {
+        self.exchange_members(id, remote, &[], own_mac).await
+    }
+
+    /// The minute's exchange as one commit: the lists the other members
+    /// answered with, merged as [`Service::merge_members`] does, and the
+    /// friendly names the search heard (`(mac, name)`), taken without raising
+    /// a version. It writes only when something changed.
+    pub(crate) async fn exchange_members(
+        &self,
+        id: &str,
+        remote: &[Member],
+        heard: &[(String, String)],
+        own_mac: &str,
+    ) -> Result<Merging, Refusal> {
         let mut outcome = Merging::Unchanged;
         self.commit(|d| {
             let mut group = d.group();
@@ -178,16 +198,19 @@ impl Service {
                 .filter(|joined| joined.id == id)
                 .ok_or_else(|| Refusal::Conflict(CHANGED.into()))?;
             let merged = model::merge(&joined.members, remote);
-            if !merged.changed {
+            let mut members = merged.members;
+            let mut changed = merged.changed;
+            for (mac, name) in heard {
+                changed |= model::heard_name(&mut members, mac, name);
+            }
+            if !changed {
                 return Ok(());
             }
-            if model::own_removed(&merged.members, own_mac)
-                || model::alone(&merged.members, own_mac)
-            {
+            if model::own_removed(&members, own_mac) || model::alone(&members, own_mac) {
                 group.joined = None;
                 outcome = Merging::Forgot;
             } else {
-                joined.members = merged.members;
+                joined.members = members;
                 outcome = Merging::Saved;
             }
             d.put_group(&group);
@@ -246,13 +269,6 @@ impl Service {
     /// Forget group `id` and its key. Refused as a conflict when this
     /// satellite is no longer in it, so a decision made about one group
     /// never ends the next.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a member leaves by itself (ADR 0026), in a later change"
-        )
-    )]
     pub(crate) async fn forget_group(&self, id: &str) -> Result<Joined, Refusal> {
         let mut forgot = None;
         self.commit(|d| {
@@ -890,7 +906,7 @@ mod tests {
             error: None,
             search: 3,
         };
-        let view = f.service.group_view(OWN, &seen);
+        let view = f.service.group_view(OWN, &seen, |_| false);
         assert!(view.on && view.in_group && view.control);
         let names: Vec<&str> = view.members.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(names, ["Hall", "Kitchen"]);

@@ -93,13 +93,7 @@ impl PeerApi {
             let limit = self.group.limits().exchange;
             match self.group.get_group(&to, joined, caller, limit).await {
                 Ok(list) => {
-                    let own = self.group.own_mac();
-                    if let Err(e) = self
-                        .group
-                        .service()
-                        .merge_members(&joined.id, &list, own)
-                        .await
-                    {
+                    if let Err(e) = self.group.merge(&joined.id, &list, &[]).await {
                         tracing::info!("satellite group: merging the list of {caller}: {e}");
                     }
                 }
@@ -166,6 +160,8 @@ impl PeerService for PeerApi {
             .join_group(group, self.group.own_mac(), &self.group.own_name())
             .await
             .map_err(crate::assistant_api::refused)?;
+        // What the members refused before is of no group this one is in.
+        self.group.reset_outside();
         Response::ok(PeerJoinResponse {
             member: MessageField::some(to_wire(&own)),
             ..Default::default()
@@ -221,12 +217,7 @@ impl PeerService for PeerApi {
                 .await?;
         }
         let members: Vec<_> = list.members.iter().map(from_wire).collect();
-        match self
-            .group
-            .service()
-            .merge_members(&joined.id, &members, self.group.own_mac())
-            .await
-        {
+        match self.group.merge(&joined.id, &members, &[]).await {
             Ok(_) => {}
             Err(Refusal::Conflict(_)) => {
                 return Err(ConnectError::failed_precondition(NOT_IN_THIS_GROUP));

@@ -22,9 +22,11 @@ use super::envelope::Rpc;
 use super::model::{self, Member, mac_form, same_mac};
 use super::persisted::Joined;
 use super::view::CandidateState;
-use crate::satellites::{Seen, mac_digits};
+use crate::satellites::{Found, Seen, mac_digits};
 use crate::settings::Mode;
-use crate::standalone::service::group::{IN_A_GROUP_THERE, OFF_HERE, OFF_THERE, next_version};
+use crate::standalone::service::group::{
+    IN_A_GROUP_THERE, Merging, OFF_HERE, OFF_THERE, next_version,
+};
 use crate::standalone::service::{Refusal, Service};
 use crate::voice::Snapshot;
 
@@ -72,8 +74,11 @@ impl Default for Limits {
 pub struct Peer {
     /// From its last signed call or answer.
     pub mode: Option<Mode>,
-    /// When it last answered a call, or called.
+    /// When it last answered the search, a call, or called.
     pub last_seen: Option<SystemTime>,
+    /// Searches in a row that listed it outside this group while it refused
+    /// a `GetGroup` as not in this group.
+    pub outside: u32,
     /// Where its last signed call came from, and the dashboard port it named.
     /// Nothing reads them yet: they are kept for the messages and control
     /// between members that come next (ADR 0026).
@@ -171,6 +176,11 @@ impl Group {
         self.satellites.borrow().clone()
     }
 
+    /// The search's results as they come.
+    pub fn satellites(&self) -> watch::Receiver<Seen> {
+        self.satellites.clone()
+    }
+
     /// Start a change, unless another one runs; then that one is returned.
     pub fn begin(&self, change: Change) -> Result<Changing<'_>, Change> {
         let mut current = self.change.lock().unwrap();
@@ -202,11 +212,79 @@ impl Group {
             peer.mode = Some(mode);
             peer.last_seen = Some(SystemTime::now());
             peer.failure_logged = false;
+            // Signed with the key: it is in this group.
+            peer.outside = 0;
             if let Some(address) = address {
                 peer.address = Some(address.to_canonical());
                 peer.web_port = u16::try_from(sender.web_port).ok().filter(|p| *p != 0);
             }
         });
+    }
+
+    /// The search heard `mac` just now.
+    pub fn seen_by_search(&self, mac: &str) {
+        self.with_peer(mac, |peer| peer.last_seen = Some(SystemTime::now()));
+    }
+
+    /// Count one more search that found `mac` outside the group, or end its
+    /// count. Returns the count.
+    pub fn outside(&self, mac: &str, outside: bool) -> u32 {
+        self.with_peer(mac, |peer| {
+            peer.outside = if outside { peer.outside + 1 } else { 0 };
+            peer.outside
+        })
+    }
+
+    /// Whether the member with `mac` refused a `GetGroup` as not in this
+    /// group after the latest search listed it outside the group. Only then
+    /// does the page offer it as a satellite that left: its record alone
+    /// may be older than its Add.
+    pub fn answered_outside(&self, mac: &str) -> bool {
+        self.peer(mac).is_some_and(|peer| peer.outside > 0)
+    }
+
+    /// Merge another member's lists and the names the search heard into the
+    /// saved group (see [`Service::exchange_members`]). A member whose entry
+    /// the merge raised and that isn't removed was added back somewhere
+    /// else: its count of searches outside the group ends, since the search
+    /// may still hold its record from before.
+    pub async fn merge(
+        &self,
+        id: &str,
+        remote: &[Member],
+        heard: &[(String, String)],
+    ) -> Result<Merging, Refusal> {
+        let before = self.service.group().joined.filter(|j| j.id == id);
+        let merging = self
+            .service
+            .exchange_members(id, remote, heard, &self.own_mac)
+            .await?;
+        if merging == Merging::Saved
+            && let Some(now) = self.service.group().joined.filter(|j| j.id == id)
+        {
+            let version = |mac: &str| {
+                before.as_ref().and_then(|b| {
+                    b.members
+                        .iter()
+                        .find(|m| same_mac(&m.mac, mac))
+                        .map(|m| m.version)
+                })
+            };
+            for member in now.members.iter().filter(|m| !m.removed) {
+                if version(&member.mac).is_none_or(|v| v < member.version) {
+                    self.outside(&member.mac, false);
+                }
+            }
+        }
+        Ok(merging)
+    }
+
+    /// Forget every count of searches outside the group: what happened
+    /// between them isn't known.
+    pub fn reset_outside(&self) {
+        for peer in self.peers.lock().unwrap().values_mut() {
+            peer.outside = 0;
+        }
     }
 
     /// Log a call to `name` that brought nothing, once until it answers
@@ -341,7 +419,9 @@ impl Group {
             .by_mac(mac)
             .cloned()
             .ok_or_else(|| Refusal::Precondition(NOT_FOUND.into()))?;
-        let view = self.service.group_view(&self.own_mac, &seen);
+        let view = self
+            .service
+            .group_view(&self.own_mac, &seen, |mac| self.answered_outside(mac));
         let candidate = view
             .candidates
             .iter()
@@ -424,6 +504,12 @@ impl Group {
         if let Err(refusal) = saved {
             self.take_back(&group, &To::heard(&found), &added).await;
             return Err(refusal);
+        }
+        // Whatever it refused before, it is in the group now.
+        if started {
+            self.reset_outside();
+        } else {
+            self.outside(mac, false);
         }
         tracing::info!("added {} to the satellite group", added.name);
         drop(adding);
@@ -579,4 +665,11 @@ pub fn from_wire(m: &PeerMember) -> Member {
         version: m.version,
         removed: m.removed,
     }
+}
+
+/// The satellites `seen` lists by MAC, for the members of `group`.
+pub fn listed<'a>(seen: &'a Seen, group: &'a Joined, own_mac: &'a str) -> Vec<(String, &'a Found)> {
+    others(group, own_mac)
+        .filter_map(|mac| seen.by_mac(&mac).map(|found| (mac, found)))
+        .collect()
 }

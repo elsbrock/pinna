@@ -7,11 +7,13 @@
 //! `view` what the dashboard shows of it. None of them does any I/O.
 //!
 //! The calls between members: `envelope` signs and opens them, `client`
-//! makes them, `peer` serves them, and `runtime` holds what is known of the
-//! other members while pinnad runs, with the changes the dashboard makes.
+//! makes them, `peer` serves them, `runtime` holds what is known of the
+//! other members while pinnad runs, with the changes the dashboard makes,
+//! and `exchange` merges the members' lists after every search.
 
 pub mod client;
 pub mod envelope;
+pub mod exchange;
 pub mod model;
 pub mod peer;
 pub mod persisted;
