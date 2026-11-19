@@ -10,12 +10,14 @@ use buffa::{Message as _, MessageField};
 use connectrpc::client::{ClientConfig, HttpClient};
 use connectrpc::{ConnectError, ErrorCode, RequestContext, Server, ServiceRequest, ServiceResult};
 use futures::future::BoxFuture;
+use pinna_api::peer_delivery::Outcome;
 use pinna_api::{
-    AddGroupMemberRequest, AssistantServiceClient, GetSatelliteGroupRequest, PeerEnvelope,
-    PeerHello, PeerJoinRequest, PeerJoinResponse, PeerMemberList, PeerSender, PeerService,
-    PeerServiceClient, RemoveGroupMemberRequest, SatelliteGroupView, SetSatelliteGroupRequest,
+    AddGroupMemberRequest, AssistantServiceClient, GetSatelliteGroupRequest, PeerDelivery,
+    PeerEnvelope, PeerHello, PeerJoinRequest, PeerJoinResponse, PeerMemberList, PeerMessage,
+    PeerSender, PeerService, PeerServiceClient, RemoveGroupMemberRequest, SatelliteGroupView,
+    SetSatelliteGroupRequest,
 };
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::envelope::{self, Rpc};
 use super::model::{Member, same_mac};
@@ -27,13 +29,72 @@ use crate::assistant_api::AssistantApi;
 use crate::satellites::{Found, Seen};
 use crate::settings::Mode;
 use crate::standalone::service::{Paths, Service};
-use crate::voice::{Input, Snapshot};
+use crate::voice::{AssistStatus, Input, Snapshot, Taken};
 
 fn limits() -> Limits {
     Limits {
         connect: Duration::from_millis(300),
         call: Duration::from_secs(3),
         exchange: Duration::from_secs(2),
+        deliver: Duration::from_millis(300),
+    }
+}
+
+/// The Brain a satellite hands its messages to: it records each one and
+/// answers as told, or never.
+struct FakeBrain {
+    /// The messages it took, as `(from, text)`.
+    took: Mutex<Vec<(String, String)>>,
+    /// Its answer; `None` keeps every message without answering.
+    answer: Mutex<Option<Taken>>,
+    /// While false, it reads nothing from its queue.
+    reading: watch::Sender<bool>,
+    /// Its queue.
+    inputs: mpsc::Sender<Input>,
+}
+
+impl FakeBrain {
+    fn start() -> Arc<Self> {
+        let (inputs, mut rx) = mpsc::channel(64);
+        let (reading, mut reads) = watch::channel(true);
+        let brain = Arc::new(Self {
+            took: Mutex::default(),
+            answer: Mutex::new(Some(Taken::Played)),
+            reading,
+            inputs,
+        });
+        let me = Arc::downgrade(&brain);
+        tokio::spawn(async move {
+            let mut kept: Vec<oneshot::Sender<Taken>> = Vec::new();
+            loop {
+                if reads.wait_for(|r| *r).await.is_err() {
+                    return;
+                }
+                let Some(input) = rx.recv().await else { return };
+                let (Input::Message(delivery), Some(me)) = (input, me.upgrade()) else {
+                    continue;
+                };
+                me.took
+                    .lock()
+                    .unwrap()
+                    .push((delivery.from.clone(), delivery.text.clone()));
+                match me.answer.lock().unwrap().clone() {
+                    Some(taken) => {
+                        let _ = delivery.reply.send(taken);
+                    }
+                    None => kept.push(delivery.reply),
+                }
+            }
+        });
+        brain
+    }
+
+    fn answers(&self, taken: Option<Taken>) {
+        *self.answer.lock().unwrap() = taken;
+    }
+
+    fn took(&self) -> Vec<(String, String)> {
+        self.took.lock().unwrap().clone()
     }
 }
 
@@ -48,6 +109,7 @@ struct Sat {
     peer: PeerServiceClient<HttpClient>,
     seen: watch::Sender<Seen>,
     status: watch::Sender<Snapshot>,
+    brain: Arc<FakeBrain>,
     _inputs: mpsc::Receiver<Input>,
     _dir: tempfile::TempDir,
 }
@@ -55,9 +117,14 @@ struct Sat {
 impl Sat {
     async fn start(n: u8, name: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
+        // Standalone, with a checked voice: it takes messages.
         let (status, status_rx) = watch::channel(Snapshot {
             mode: Mode::Standalone,
             friendly_name: name.into(),
+            assist: AssistStatus {
+                slots: pinna_assist::presets::Slots::all(true),
+                ..AssistStatus::default()
+            },
             ..Snapshot::default()
         });
         let service = Service::load(
@@ -80,8 +147,10 @@ impl Sat {
         let assistant = AssistantApi::new(service.clone(), inputs)
             .with_satellites(seen_rx, mac.clone())
             .with_group(group.clone());
-        let router = crate::assistant_api::router(Arc::new(assistant))
-            .add_service(Arc::new(PeerApi::new(group.clone())));
+        let brain = FakeBrain::start();
+        let router = crate::assistant_api::router(Arc::new(assistant)).add_service(Arc::new(
+            PeerApi::new(group.clone()).with_brain(brain.inputs.clone()),
+        ));
         tokio::spawn(async move { server.serve(router).await });
         let url = format!("http://127.0.0.1:{port}");
         let config = || ClientConfig::new(url.parse().unwrap());
@@ -95,6 +164,7 @@ impl Sat {
             peer: PeerServiceClient::new(HttpClient::plaintext(), config()),
             seen,
             status,
+            brain,
             _inputs: inputs_rx,
             _dir: dir,
         }
@@ -228,6 +298,33 @@ impl Sat {
     fn sealed(group: &Joined, from: &Sat, rpc: Rpc, body: &impl buffa::Message) -> PeerEnvelope {
         envelope::seal(group, &from.mac, rpc.call(), body)
     }
+
+    /// `from`'s message to this satellite, signed with `group`'s key, and
+    /// this satellite's signed answer, opened.
+    async fn deliver(&self, group: &Joined, from: &Sat, text: &str) -> PeerDelivery {
+        let message = PeerMessage {
+            sender: hello(from).sender,
+            text: text.into(),
+            ..Default::default()
+        };
+        let answer = self
+            .peer
+            .deliver(Self::sealed(group, from, Rpc::Deliver, &message))
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        assert!(same_mac(&answer.sender_mac, &self.mac));
+        envelope::open(group, Rpc::Deliver.answer(), (&answer).into()).unwrap()
+    }
+}
+
+/// A delivery's outcome and reason.
+fn outcome(delivery: &PeerDelivery) -> (Outcome, &str) {
+    (
+        delivery.outcome.as_known().unwrap(),
+        delivery.reason.as_str(),
+    )
 }
 
 /// Every satellite's search finds every other one, as they are now.
@@ -1135,15 +1232,8 @@ async fn a_call_must_be_signed_with_the_key_for_this_group() {
 }
 
 #[tokio::test]
-async fn deliver_and_call_are_not_taken_yet() {
+async fn call_is_not_taken_yet() {
     let s = Sat::switched_on(&["Hall"]).await;
-    let e = s[0]
-        .peer
-        .deliver(PeerEnvelope::default())
-        .await
-        .map(|_| ())
-        .unwrap_err();
-    assert_eq!(e.code, ErrorCode::Unimplemented);
     let e = s[0]
         .peer
         .call(PeerEnvelope::default())
@@ -1151,6 +1241,212 @@ async fn deliver_and_call_are_not_taken_yet() {
         .map(|_| ())
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::Unimplemented);
+}
+
+#[tokio::test]
+async fn deliver_answers_signed_with_what_the_brain_did() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+
+    let played = b.deliver(&group, a, "  dinner is ready.  ").await;
+    assert_eq!(outcome(&played), (Outcome::OUTCOME_PLAYED, ""));
+    // The answer carries B's facts; the Brain got the text trimmed, from
+    // the sender as B's list names it.
+    assert_eq!(
+        played.sender.as_option().unwrap().web_port,
+        u32::from(b.port)
+    );
+    assert_eq!(b.brain.took(), [("Hall".into(), "dinner is ready.".into())]);
+
+    b.brain.answers(Some(Taken::Held));
+    let held = b.deliver(&group, a, "call me.").await;
+    assert_eq!(outcome(&held), (Outcome::OUTCOME_HELD, ""));
+    // A signed call is heard like any other.
+    assert_eq!(b.group.peer(&a.mac).unwrap().mode, Some(Mode::Standalone));
+}
+
+#[tokio::test]
+async fn deliver_refuses_with_a_signed_reason_in_the_owners_order() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    let refused = async |text: &str| {
+        let delivery = b.deliver(&group, a, text).await;
+        let (outcome, reason) = outcome(&delivery);
+        assert_eq!(outcome, Outcome::OUTCOME_REFUSED, "{reason}");
+        reason.to_owned()
+    };
+
+    // Everything wrong at once: the mode comes first.
+    b.status.send_modify(|s| {
+        s.mode = Mode::HomeAssistant;
+        s.settings.group_messages = Some(false);
+        s.assist.slots.tts = false;
+    });
+    assert_eq!(
+        refused("").await,
+        "Kitchen is in Home Assistant mode and takes no messages."
+    );
+    b.status.send_modify(|s| s.mode = Mode::Standalone);
+    assert_eq!(
+        refused("").await,
+        "Kitchen has Group messages switched off."
+    );
+    b.status
+        .send_modify(|s| s.settings.group_messages = Some(true));
+    assert_eq!(
+        refused("").await,
+        "Kitchen can't say messages: its text-to-speech hasn't passed its check."
+    );
+    b.status.send_modify(|s| s.assist.slots.tts = true);
+    assert_eq!(refused(" \n ").await, "The message is empty.");
+    assert_eq!(
+        refused(&"ä".repeat(501)).await,
+        "A message is at most 500 characters."
+    );
+    assert!(b.brain.took().is_empty(), "the Brain never saw them");
+    // 500 are fine.
+    let fine = b.deliver(&group, a, &"ä".repeat(500)).await;
+    assert_eq!(outcome(&fine).0, Outcome::OUTCOME_PLAYED);
+
+    // A Brain that doesn't answer in time.
+    b.brain.answers(None);
+    assert_eq!(
+        refused("call me.").await,
+        "Kitchen didn't take the message in time. Try again in a moment."
+    );
+    // A Brain whose queue is nearly full: the message never waits for room.
+    b.brain.answers(Some(Taken::Played));
+    b.brain.reading.send_replace(false);
+    while b.brain.inputs.capacity() >= crate::tools::BRAIN_RESERVE {
+        b.brain.inputs.try_send(Input::Privacy(false)).unwrap();
+        tokio::task::yield_now().await;
+    }
+    let took = b.brain.took().len();
+    assert_eq!(
+        refused("call me.").await,
+        "Kitchen is busy. Try again in a moment."
+    );
+    b.brain.reading.send_replace(true);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(b.brain.took().len(), took, "the busy one never queued");
+    // And the Brain's own refusal comes back as it is.
+    b.brain
+        .answers(Some(Taken::Refused("Kitchen is resting.".into())));
+    assert_eq!(refused("call me.").await, "Kitchen is resting.");
+}
+
+#[tokio::test]
+async fn a_message_from_a_newcomer_is_taken_once_its_list_is_merged() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    // B added C, but A hasn't heard of it yet.
+    let mut members = group.members.clone();
+    members.push(Member {
+        mac: c.mac.clone(),
+        name: "Office".into(),
+        version: 1,
+        removed: false,
+    });
+    c.service
+        .join_group(
+            Joined {
+                members,
+                ..group.clone()
+            },
+            &c.mac,
+            "Office",
+        )
+        .await
+        .unwrap();
+    let delivery = a.deliver(&group, c, "dinner is ready.").await;
+    assert_eq!(outcome(&delivery).0, Outcome::OUTCOME_PLAYED);
+    assert_eq!(a.current(), macs(&[a, b, c]));
+    assert_eq!(
+        a.brain.took(),
+        [("Office".into(), "dinner is ready.".into())]
+    );
+}
+
+#[tokio::test]
+async fn a_message_from_a_satellite_still_no_member_is_refused() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    // C holds the key, but its own list says it was removed.
+    let mut members = group.members.clone();
+    members.push(Member {
+        mac: c.mac.clone(),
+        name: "Office".into(),
+        version: 1,
+        removed: false,
+    });
+    c.service
+        .join_group(
+            Joined {
+                members,
+                ..group.clone()
+            },
+            &c.mac,
+            "Office",
+        )
+        .await
+        .unwrap();
+    let removed = Member {
+        mac: c.mac.clone(),
+        name: "Office".into(),
+        version: 2,
+        removed: true,
+    };
+    a.service
+        .merge_members(&group.id, &[removed], &a.mac)
+        .await
+        .unwrap();
+    let message = PeerMessage {
+        sender: hello(c).sender,
+        text: "dinner is ready.".into(),
+        ..Default::default()
+    };
+    let e = a
+        .peer
+        .deliver(Sat::sealed(&group, c, Rpc::Deliver, &message))
+        .await
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied, "{e}");
+    assert!(a.brain.took().is_empty());
+}
+
+#[tokio::test]
+async fn a_message_must_be_signed_with_the_key_for_a_message() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    let message = PeerMessage {
+        sender: hello(a).sender,
+        text: "dinner is ready.".into(),
+        ..Default::default()
+    };
+    let forged = Joined {
+        key: Key::new([7; 32]),
+        ..group.clone()
+    };
+    for call in [
+        Sat::sealed(&forged, a, Rpc::Deliver, &message),
+        // Signed right, but for another call.
+        Sat::sealed(&group, a, Rpc::PutGroup, &message),
+    ] {
+        let e = b.peer.deliver(call).await.map(|_| ()).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Unauthenticated, "{e}");
+    }
+    assert!(b.brain.took().is_empty());
 }
 
 #[tokio::test]
@@ -1201,7 +1497,7 @@ impl std::io::Write for ThreadBuffer {
 /// is the process's global one: tracing caches whether a log line is wanted
 /// across threads, so a subscriber for one thread alone misses lines that
 /// another test's thread reached first.
-fn capture_logs() -> Arc<Mutex<Vec<u8>>> {
+pub(crate) fn capture_logs() -> Arc<Mutex<Vec<u8>>> {
     static GLOBAL: std::sync::Once = std::sync::Once::new();
     GLOBAL.call_once(|| {
         let subscriber = tracing_subscriber::fmt()
@@ -1216,8 +1512,11 @@ fn capture_logs() -> Arc<Mutex<Vec<u8>>> {
     lines
 }
 
+/// A message's text that must never show outside the message itself.
+const SECRET_TEXT: &str = "the spare key is under the third flowerpot";
+
 #[tokio::test]
-async fn the_key_never_leaves_in_a_view_an_answer_or_a_log_line() {
+async fn neither_the_key_nor_a_message_leaves_in_a_view_an_answer_or_a_log_line() {
     let captured = capture_logs();
 
     let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
@@ -1260,6 +1559,15 @@ async fn the_key_never_leaves_in_a_view_an_answer_or_a_log_line() {
         .to_owned_message();
     texts.push(format!("{answer:?}"));
     texts.push(String::from_utf8_lossy(&answer.encode_to_vec()).into_owned());
+    // A message, taken and refused: its sender and length only.
+    let played = b.deliver(&group, a, SECRET_TEXT).await;
+    b.status
+        .send_modify(|s| s.settings.group_messages = Some(false));
+    let refused = b.deliver(&group, a, SECRET_TEXT).await;
+    for answer in [played, refused] {
+        texts.push(format!("{answer:?}"));
+        texts.push(String::from_utf8_lossy(&answer.encode_to_vec()).into_owned());
+    }
     a.remove(c).await.unwrap();
     a.group.set_switch(false).await.unwrap();
 
@@ -1268,11 +1576,16 @@ async fn the_key_never_leaves_in_a_view_an_answer_or_a_log_line() {
         logs.contains("added Kitchen to the satellite group"),
         "{logs}"
     );
+    assert!(
+        logs.contains("a message from Hall, 42 characters, refused"),
+        "{logs}"
+    );
     texts.push(logs);
     for text in &texts {
         for form in &forms {
             assert!(!text.contains(form.as_str()), "{form} in {text}");
         }
+        assert!(!text.contains("flowerpot"), "the message's text in {text}");
     }
     // The raw bytes neither.
     let answer_bytes = answer.encode_to_vec();

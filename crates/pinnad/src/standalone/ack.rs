@@ -6,6 +6,9 @@
 //! `cache/` beside the settings, so it plays without waiting for a service.
 //! The current file and the one before it stay on disk, because a run may
 //! still hold the older path; older files are deleted.
+//!
+//! The opening of a message from another member of the satellite group
+//! (ADR 0026) comes from a table beside it, the same way.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -74,6 +77,51 @@ fn table(language: Option<&str>) -> &'static str {
         .find(|(tag, _)| primary.as_deref() == Some(*tag))
         .unwrap_or(&PHRASES[0])
         .1
+}
+
+/// How a message from another member of the satellite group opens, by
+/// primary language subtag (ADR 0026); `{name}` is the sender's name. The
+/// first row is the fallback. Where the language would inflect the name
+/// after a preposition, the sender is the subject, which leaves it as it is.
+const MESSAGE_OPENINGS: &[(&str, &str)] = &[
+    ("en", "Message from {name}"),
+    ("cs", "{name} vzkazuje"),
+    ("da", "Besked fra {name}"),
+    ("de", "Nachricht von {name}"),
+    ("el", "Μήνυμα από {name}"),
+    ("es", "Mensaje de {name}"),
+    ("fi", "{name} viestittää"),
+    ("fr", "Message de {name}"),
+    ("hu", "{name} üzeni"),
+    ("it", "Messaggio da {name}"),
+    ("ja", "{name}からのメッセージ"),
+    ("ko", "{name}에서 온 메시지"),
+    ("nb", "Melding fra {name}"),
+    ("nl", "Bericht van {name}"),
+    ("nn", "Melding frå {name}"),
+    ("no", "Melding fra {name}"),
+    ("pl", "{name} przekazuje"),
+    ("pt", "Mensagem de {name}"),
+    ("ro", "Mesaj de la {name}"),
+    ("ru", "{name} передаёт"),
+    ("sk", "{name} odkazuje"),
+    ("sv", "Meddelande från {name}"),
+    ("tr", "{name} diyor ki"),
+    ("uk", "{name} передає"),
+    ("zh", "来自{name}的消息"),
+];
+
+/// What a satellite says for a message from the member `from`: the
+/// language's opening with the name, then the text, as in "Message from
+/// Kitchen: dinner is ready."
+pub fn message(language: Option<&str>, from: &str, text: &str) -> String {
+    let primary = language.map(pinna_assist::config::primary_language);
+    let opening = MESSAGE_OPENINGS
+        .iter()
+        .find(|(tag, _)| primary.as_deref() == Some(*tag))
+        .unwrap_or(&MESSAGE_OPENINGS[0])
+        .1;
+    format!("{}: {text}", opening.replace("{name}", from))
 }
 
 /// The phrase to say: the owner's own, or the language's while the owner
@@ -442,6 +490,33 @@ mod tests {
 
         let tags: BTreeSet<&str> = PHRASES.iter().map(|(tag, _)| *tag).collect();
         assert_eq!(tags.len(), PHRASES.len());
+    }
+
+    #[test]
+    fn a_message_opens_in_the_language_and_falls_back_to_english() {
+        assert_eq!(
+            message(None, "Kitchen", "dinner is ready."),
+            "Message from Kitchen: dinner is ready."
+        );
+        assert_eq!(
+            message(Some("xx"), "Kitchen", "dinner is ready."),
+            "Message from Kitchen: dinner is ready."
+        );
+        assert_eq!(
+            message(Some("de-AT"), "Küche", "Essen ist fertig."),
+            "Nachricht von Küche: Essen ist fertig."
+        );
+        assert_eq!(
+            message(Some("pl"), "Kuchnia", "obiad gotowy."),
+            "Kuchnia przekazuje: obiad gotowy."
+        );
+        // Every language has its own row, and every row names the sender.
+        let tags: BTreeSet<&str> = MESSAGE_OPENINGS.iter().map(|(tag, _)| *tag).collect();
+        assert_eq!(tags.len(), MESSAGE_OPENINGS.len());
+        assert!(MESSAGE_OPENINGS.iter().all(|(_, o)| o.contains("{name}")));
+        // Every language with an acknowledgment has an opening too.
+        let ack: BTreeSet<&str> = PHRASES.iter().map(|(tag, _)| *tag).collect();
+        assert_eq!(tags, ack);
     }
 
     #[test]

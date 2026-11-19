@@ -297,6 +297,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         ring_light: MessageField::some(ring_light(&s.ring_light)),
         media: MessageField::some(media(&s.media)),
         assistant: MessageField::some(assistant(&s.assist)),
+        held_messages: s.held_messages,
         ..Default::default()
     }
 }

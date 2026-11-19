@@ -56,6 +56,10 @@ pub struct Limits {
     /// A call nobody waits on: the minute's exchange, the call-back for an
     /// unknown caller, and telling the members of a change.
     pub exchange: Duration,
+    /// How long a member that is sent a message waits for its own Brain to
+    /// take it, well inside the caller's limit: the Brain answers at once
+    /// unless its queue is stuck.
+    pub deliver: Duration,
 }
 
 impl Default for Limits {
@@ -64,6 +68,7 @@ impl Default for Limits {
             connect: Duration::from_secs(1),
             call: Duration::from_millis(9500),
             exchange: Duration::from_secs(5),
+            deliver: Duration::from_secs(2),
         }
     }
 }
@@ -160,6 +165,11 @@ impl Group {
     /// This satellite's friendly name now.
     pub fn own_name(&self) -> String {
         self.status.borrow().friendly_name.clone()
+    }
+
+    /// What the Brain published last. Never held across an await.
+    pub fn status(&self) -> watch::Ref<'_, Snapshot> {
+        self.status.borrow()
     }
 
     /// This satellite's facts, which every signed call and answer carries.

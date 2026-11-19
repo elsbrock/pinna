@@ -25,4 +25,4 @@ pub use persisted::{Joined, Persisted};
 pub use runtime::{Group, Limits};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

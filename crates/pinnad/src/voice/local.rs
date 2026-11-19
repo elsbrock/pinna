@@ -120,6 +120,16 @@ impl Local {
         self.live.borrow().group.record()
     }
 
+    /// The *Satellite group* switch is on (ADR 0026).
+    pub(super) fn group_on(&self) -> bool {
+        self.live.borrow().group.on
+    }
+
+    /// The standalone configuration now.
+    pub(super) fn live(&self) -> Arc<AssistLive> {
+        self.live.borrow().clone()
+    }
+
     /// Start the next request without any earlier turns.
     pub(super) fn forget_conversation(&mut self) {
         let live = self.live.borrow();
@@ -630,8 +640,9 @@ impl Brain {
 }
 
 /// Answers a Speak once. Dropped unanswered, the Speak was stopped before it
-/// sounded.
-struct SpeakReply(Option<oneshot::Sender<Result<(), String>>>);
+/// sounded. Without a sender, it answers nobody: a group message says its
+/// outcome another way.
+pub(super) struct SpeakReply(pub(super) Option<oneshot::Sender<Result<(), String>>>);
 
 impl SpeakReply {
     fn send(&mut self, result: Result<(), String>) {
@@ -670,7 +681,7 @@ async fn play_speak(
 }
 
 /// Answers `reply` once the text sounds; then waits until it has.
-async fn say(
+pub(super) async fn say(
     speaker: &Speaker,
     speech: &Speech,
     text: &str,

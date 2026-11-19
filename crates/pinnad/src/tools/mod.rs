@@ -33,8 +33,9 @@ use device::Op;
 use radio::RadioBrowser;
 use weather::OpenMeteo;
 
-/// Free Brain queue slots an MCP call leaves for the wake word and buttons.
-const BRAIN_RESERVE: usize = 16;
+/// Free Brain queue slots an MCP call, or a message from the satellite
+/// group, leaves for the wake word and buttons.
+pub(crate) const BRAIN_RESERVE: usize = 16;
 pub const BUSY: &str = "The satellite is busy. Try again in a moment.";
 const SHUTTING_DOWN: &str = "pinnad is shutting down.";
 

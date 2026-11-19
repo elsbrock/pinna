@@ -3,6 +3,7 @@
 //! light entity and volume. Single task, all inputs arrive on one channel.
 
 mod local;
+pub(crate) mod messages;
 mod mode;
 #[cfg(test)]
 mod tests;
@@ -32,6 +33,7 @@ use crate::wakewords::{Catalogue, KeywordSet};
 #[cfg(test)]
 pub(crate) use local::NoopSpawner;
 pub(crate) use local::{DeviceFacts, LocalOptions, LocalStart, RunSpawner};
+pub(crate) use messages::{Delivery, Taken};
 use timers::{Origin, Timer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,6 +111,8 @@ pub enum Input {
         run: RunId,
         cmd: ApiCommand,
     },
+    /// A message from another member of the satellite group (ADR 0026).
+    Message(Delivery),
 }
 
 /// Answer to an API command: the state right after it was applied, or why it was refused.
@@ -378,6 +382,8 @@ pub struct Snapshot {
     pub media: MediaSnapshot,
     /// The "Updates" setting in effect (ADR 0022).
     pub update_channel: crate::updates::UpdateChannel,
+    /// Messages from the satellite group waiting to be said (ADR 0026).
+    pub held_messages: u32,
 }
 
 /// A running calibration, as the API shows it.
@@ -418,6 +424,7 @@ impl Default for Snapshot {
             ring_light: RingLight::default(),
             media: MediaSnapshot::default(),
             update_channel: crate::updates::UpdateChannel::Off,
+            held_messages: 0,
         }
     }
 }
@@ -448,6 +455,8 @@ enum PlaybackKind {
     MediaAnnounce,
     Alarm,
     Cue,
+    /// A message from another member of the satellite group (ADR 0026).
+    Message,
 }
 
 /// Two presses of the same button within this window form a double press.
@@ -618,6 +627,8 @@ pub struct Brain {
     encrypted: bool,
     /// When the restart after an update from Home Assistant was last tried.
     update_restart_tried: Option<Instant>,
+    /// Messages from the satellite group: held, and the one playing.
+    messages: messages::Messages,
 }
 
 /// A restart after an update that didn't happen is tried again after this.
@@ -754,6 +765,7 @@ impl Brain {
             reconnect_for_mode: false,
             pending_mode: None,
             encrypted: opts.encrypted,
+            messages: messages::Messages::default(),
             opts,
         }
     }
@@ -942,7 +954,9 @@ impl Brain {
             Input::Api(cmd) => self.api(cmd).await,
             Input::Assist { run, ev } => self.assist_event(run, ev).await,
             Input::RunTool { run, cmd } => self.run_tool(run, cmd).await,
+            Input::Message(delivery) => self.take_message(delivery, Instant::now()),
         }
+        self.tend_messages(Instant::now());
     }
 
     // --- API ------------------------------------------------------------------
@@ -1163,6 +1177,7 @@ impl Brain {
                 effect: self.light_effect,
             },
             update_channel: self.update_channel(),
+            held_messages: self.messages.held() as u32,
             airplay: self.airplay_report.borrow().clone(),
             bluetooth: crate::bluetooth::report(
                 self.opts.bluetooth,
@@ -2109,10 +2124,15 @@ impl Brain {
                     self.abort_run(true).await;
                 } else if matches!(
                     self.playback,
-                    Some((_, PlaybackKind::MediaAnnounce | PlaybackKind::Speak, _))
+                    Some((
+                        _,
+                        PlaybackKind::MediaAnnounce | PlaybackKind::Speak | PlaybackKind::Message,
+                        _
+                    ))
                 ) {
                     // The ring shows it speaking: stop it, as for a reply.
                     tracing::info!("announcement stopped by button");
+                    self.message_stopped("the Action button");
                     self.stop_playback();
                 } else if self.muted() {
                     self.error_feedback();
@@ -2460,6 +2480,10 @@ impl Brain {
             "calibration: started at sensitivity {}",
             self.settings.wake_sensitivity
         );
+        // The owner says the wake word to it now: a group message waits.
+        if matches!(self.playback, Some((_, PlaybackKind::Message, _))) {
+            self.stop_playback();
+        }
         self.calibration = Some(Calibration::start(
             self.settings.wake_sensitivity,
             Instant::now(),
@@ -2599,6 +2623,7 @@ impl Brain {
         } else if self.phase != Phase::Idle {
             self.abort_run(true).await;
         } else {
+            self.message_stopped("Cancel request");
             self.stop_playback();
             if let Some(s) = &self.speaker {
                 s.media().stop();
@@ -2916,6 +2941,9 @@ impl Brain {
             if kind == PlaybackKind::MediaAnnounce {
                 self.update_media_state();
             }
+            if kind == PlaybackKind::Message {
+                self.message_cut();
+            }
             if let Some(s) = &self.speaker {
                 s.stop();
             }
@@ -3003,6 +3031,7 @@ impl Brain {
             }
             PlaybackKind::MediaAnnounce => self.update_media_state(),
             PlaybackKind::Reply => self.reply_done(ok).await,
+            PlaybackKind::Message => self.message_done(ok, Instant::now()),
             PlaybackKind::Speak | PlaybackKind::Cue => {}
         }
     }
@@ -3095,6 +3124,7 @@ impl Brain {
         {
             self.led_test = None;
         }
+        self.tend_messages(now);
         self.track_talker();
     }
 
@@ -3165,11 +3195,18 @@ impl Brain {
             Effect::Pairing
         } else {
             match self.phase {
-                // A media player announcement or a Speak speaks without a run.
+                // A media player announcement, a Speak or a group message
+                // speaks without a run.
                 Phase::Idle
                     if matches!(
                         self.playback,
-                        Some((_, PlaybackKind::MediaAnnounce | PlaybackKind::Speak, _))
+                        Some((
+                            _,
+                            PlaybackKind::MediaAnnounce
+                                | PlaybackKind::Speak
+                                | PlaybackKind::Message,
+                            _
+                        ))
                     ) =>
                 {
                     Effect::Speaking

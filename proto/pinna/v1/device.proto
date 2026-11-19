@@ -282,6 +282,10 @@ message Status {
   Mode mode = 29;
   // Standalone mode's services, whichever mode runs (ADR 0017).
   AssistantStatus assistant = 30;
+  // Messages from other members of the satellite group waiting to be said
+  // (ADR 0026): they play once the satellite is idle and not muted. At most
+  // 5, kept in memory only.
+  uint32 held_messages = 31;
 }
 
 // Whether standalone mode can run, and how its last request ended. Set up

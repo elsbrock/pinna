@@ -11,11 +11,12 @@ use super::seal;
 
 /// The calls that travel in an envelope. Each one's purpose goes into the
 /// tag, so an answer can't be sent back as a call, nor one call's body as
-/// another's. `Deliver` and `Call` join them with messages and control.
+/// another's. `Call` joins them with control.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rpc {
     GetGroup,
     PutGroup,
+    Deliver,
 }
 
 impl Rpc {
@@ -24,6 +25,7 @@ impl Rpc {
         match self {
             Self::GetGroup => "GetGroup/call",
             Self::PutGroup => "PutGroup/call",
+            Self::Deliver => "Deliver/call",
         }
     }
 
@@ -32,6 +34,7 @@ impl Rpc {
         match self {
             Self::GetGroup => "GetGroup/answer",
             Self::PutGroup => "PutGroup/answer",
+            Self::Deliver => "Deliver/answer",
         }
     }
 }
@@ -189,7 +192,7 @@ mod tests {
 
     #[test]
     fn every_purpose_is_its_own() {
-        let all = [Rpc::GetGroup, Rpc::PutGroup];
+        let all = [Rpc::GetGroup, Rpc::PutGroup, Rpc::Deliver];
         let mut purposes: Vec<&str> = all.iter().flat_map(|r| [r.call(), r.answer()]).collect();
         purposes.sort_unstable();
         purposes.dedup();
