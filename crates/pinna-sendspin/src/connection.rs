@@ -305,7 +305,9 @@ pub struct AudioChunk {
     pub data: Vec<u8>,
 }
 
-/// What happened, for `pinnad` to act on.
+/// What happened, for `pinnad` to act on. Text from the server (its name, metadata, a group's
+/// name) is passed on as the server sent it, control characters included: `pinnad` escapes it
+/// where it logs it. A [`CloseReason`] quotes the server only escaped and shortened.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     /// The handshake is done and the server introduced itself.
@@ -353,7 +355,8 @@ pub enum Event {
     Closed(CloseReason),
 }
 
-/// Why the connection closed.
+/// Why the connection closed. Where it quotes the server, the text is escaped and short, so it
+/// can go to the journal and the status as it is.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CloseReason {
     #[error("said goodbye: {0:?}")]
@@ -395,8 +398,34 @@ enum Phase {
     Closed,
 }
 
+/// The longest text of a close reason that may quote the server, in characters.
+const REASON_MAX: usize = 200;
+
+/// The server's text as a close reason may quote it, at most `max` characters: every character
+/// that is not printable escaped as in a Rust string, quotes left as they are. A close reason
+/// reaches the journal and the status, and the server's text may hold a newline that would
+/// start a forged log line, or 16 KiB.
+fn quoted(text: &str, max: usize) -> String {
+    let mut out = String::new();
+    let mut len = 0;
+    for c in text.chars() {
+        let piece = match c {
+            '"' | '\'' => c.to_string(),
+            _ => c.escape_debug().to_string(),
+        };
+        len += piece.chars().count();
+        if len > max {
+            break;
+        }
+        out.push_str(&piece);
+    }
+    out
+}
+
+/// A protocol error. Its text may quote the server (a message type, a value serde_json could
+/// not read), so it goes through [`quoted`].
 fn protocol(e: impl std::fmt::Display) -> CloseReason {
-    CloseReason::Protocol(e.to_string())
+    CloseReason::Protocol(quoted(&e.to_string(), REASON_MAX))
 }
 
 /// Admission of one `server/activate`, by the first rule that applies.
@@ -885,8 +914,7 @@ impl Connection {
         let init = match ServerMessage::from_envelope(envelope) {
             Ok(ServerMessage::Init(init)) => init,
             Ok(ServerMessage::Error(e)) => {
-                let reason = e.reason.chars().take(64).collect();
-                return self.close(CloseReason::ServerError(reason));
+                return self.close(CloseReason::ServerError(quoted(&e.reason, 64)));
             }
             _ => return self.close(CloseReason::Silent("expected server/init")),
         };
@@ -1014,10 +1042,8 @@ impl Connection {
         if let Some(expected) = expected
             && envelope.kind != expected
         {
-            return self.close(CloseReason::Protocol(format!(
-                "{} arrived where {expected} was due",
-                envelope.kind
-            )));
+            let kind: String = envelope.kind.chars().take(64).collect();
+            return self.close(protocol(format!("{kind} arrived where {expected} was due")));
         }
         let result = ServerMessage::from_envelope(envelope)
             .map_err(protocol)
@@ -1133,9 +1159,7 @@ impl Connection {
                 );
                 Ok(())
             }
-            Verdict::Malformed(detail) => {
-                Err(CloseReason::Protocol(format!("server/activate: {detail}")))
-            }
+            Verdict::Malformed(detail) => Err(protocol(format!("server/activate: {detail}"))),
         }
     }
 

@@ -472,6 +472,51 @@ fn handshake_failures_close_without_a_message() {
 }
 
 #[test]
+fn close_reasons_quote_the_server_escaped_and_short() {
+    let forged = format!(
+        "x\n2026-11-20T10:00:00Z  INFO pinnad: update installed{}",
+        "A".repeat(15_000)
+    );
+    let check = |events: Vec<Event>| {
+        let Some(reason) = closed(&events) else {
+            panic!("not closed: {events:?}")
+        };
+        let text = reason.to_string();
+        assert!(text.chars().count() <= 256, "{} characters", text.len());
+        assert!(!text.chars().any(char::is_control), "{text:?}");
+        assert!(text.contains("x\\n2026"), "{text:?}");
+    };
+    let store = store();
+    // A message type where server/hello is due.
+    let identity = Identity::generate().unwrap();
+    let mut server = Server::new(&identity);
+    let mut conn = Connection::new(config(identity), &store, 0).unwrap();
+    server.handshake(&mut conn, &SENTINEL_PSK, "sn", 0);
+    server.send(&mut conn, json!({"type": forged, "payload": {}}), 0);
+    check(std::iter::from_fn(|| conn.poll_event()).collect());
+    // A value serde_json cannot read, which its error quotes.
+    let mut s = playing(&store);
+    s.send(
+        json!({"type": "group/update", "payload": {"playback_state": forged,
+        "group_id": "A".repeat(43), "group_name": "x"}}),
+    );
+    check(s.events());
+    // The reason in server/error.
+    let mut conn = Connection::new(config(Identity::generate().unwrap()), &store, 0).unwrap();
+    conn.on_text(
+        &json!({"type": "server/error", "payload": {"reason": forged}}).to_string(),
+        0,
+    );
+    let events: Vec<Event> = std::iter::from_fn(|| conn.poll_event()).collect();
+    assert_eq!(
+        closed(&events),
+        Some(CloseReason::ServerError(
+            "x\\n2026-11-20T10:00:00Z  INFO pinnad: update installedAAAAAAAAAA".into()
+        ))
+    );
+}
+
+#[test]
 fn after_the_handshake_only_encrypted_binary_messages_count() {
     let store = store();
     let mut s = playing(&store);
