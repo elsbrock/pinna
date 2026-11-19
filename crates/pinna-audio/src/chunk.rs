@@ -8,12 +8,21 @@
 //!
 //! Everything here comes from the network, so malformed input is an error,
 //! never a panic: FLAC frames are delimited and checked (header CRC-8, frame
-//! CRC-16, block size against STREAMINFO) before the decoder sees them.
+//! CRC-16, block size against STREAMINFO) before the decoder sees them. A
+//! chunk that would decode to more than [`CHUNK_FRAMES_MAX`] is refused
+//! (ADR 0027 §6: bounded input).
 
 use crate::{Error, Result};
 use symphonia::core::audio::{AudioBufferRef, Signal};
 use symphonia::core::codecs::{CODEC_TYPE_FLAC, CodecParameters, Decoder, DecoderOptions};
 use symphonia::core::formats::Packet;
+
+/// The most audio one chunk may decode to: 1 s at 48 kHz. The specification
+/// lets a server send at most 150 ms; the margin admits one that rounds up.
+/// It is counted before decoding because a FLAC frame of 16 bytes (constant
+/// subframes) can claim 65535 samples: without it, a 1 MiB message could
+/// decode to some 17 GB.
+pub const CHUNK_FRAMES_MAX: usize = 48_000;
 
 /// The codecs a Pinna player lists (ADR 0027 §8: no Opus).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +112,7 @@ fn pcm(data: &[u8], channels: usize, bits: u16) -> Result<Vec<i16>> {
             data.len()
         )));
     }
+    too_long(data.len() / frame)?;
     let mut out = Vec::with_capacity(data.len() / frame * 2);
     for f in data.chunks_exact(frame) {
         let mut s = f.chunks_exact(width).map(|bytes| match bytes {
@@ -115,6 +125,16 @@ fn pcm(data: &[u8], channels: usize, bits: u16) -> Result<Vec<i16>> {
         out.push(s.next().unwrap_or(l));
     }
     Ok(out)
+}
+
+/// Refuse a chunk of `frames` frames if it is longer than [`CHUNK_FRAMES_MAX`].
+fn too_long(frames: usize) -> Result<()> {
+    if frames > CHUNK_FRAMES_MAX {
+        return Err(bad(format!(
+            "a chunk of {frames} frames or more; Pinna takes at most {CHUNK_FRAMES_MAX}"
+        )));
+    }
+    Ok(())
 }
 
 /// A 24-bit sample rounded to 16 bits, saturating at full scale.
@@ -153,6 +173,7 @@ impl Flac {
     fn decode(&mut self, data: &[u8], channels: usize) -> Result<Vec<i16>> {
         let mut out = Vec::new();
         let mut start = 0;
+        let mut frames = 0;
         while start < data.len() {
             let len = frame_len(&data[start..])?;
             let frame = &data[start..start + len];
@@ -170,6 +191,8 @@ impl Flac {
                     header.channels
                 )));
             }
+            frames += header.block as usize;
+            too_long(frames)?;
             let packet = Packet::new_from_slice(0, 0, 0, frame);
             // The decoder indexes by what the frame claims; the checks above
             // rule out what is known to overrun it. A frame that still makes
@@ -540,6 +563,46 @@ mod tests {
         // And the decoder still works afterwards.
         let want: Vec<i16> = samples.iter().map(|&s| s as i16).collect();
         assert_eq!(d.decode(&good).unwrap(), want);
+    }
+
+    /// One 16-bit stereo frame of `block` samples, both channels constant
+    /// subframes: 16 bytes, whatever the block size.
+    fn constant_frame(n: u8, block: u16, value: i16) -> Vec<u8> {
+        let mut f = vec![0xFF, 0xF8, 0x70, (1 << 4) | (4 << 1), n];
+        f.extend_from_slice(&(block - 1).to_be_bytes());
+        f.push(crc8(&f));
+        for _ in 0..2 {
+            f.push(0x00); // constant, no wasted bits
+            f.extend_from_slice(&value.to_be_bytes());
+        }
+        let crc = f.iter().fold(0, |c, &b| crc16_step(c, b));
+        f.extend_from_slice(&crc.to_be_bytes());
+        f
+    }
+
+    #[test]
+    fn a_chunk_that_decodes_to_more_than_a_second_is_refused() {
+        let header = streaminfo_block(48_000, 2, 16, 65_535);
+        let mut d = ChunkDecoder::new(Codec::Flac, 48_000, 2, 16, Some(header)).unwrap();
+        // Up to the limit, constant subframes decode.
+        let mut chunk = Vec::new();
+        for n in 0..12 {
+            chunk.extend(constant_frame(n, 4_000, -5));
+        }
+        let got = d.decode(&chunk).unwrap();
+        assert_eq!(got.len(), 2 * CHUNK_FRAMES_MAX);
+        assert!(got.iter().all(|&s| s == -5));
+        // One more sample is too many.
+        chunk.extend(constant_frame(12, 1, -5));
+        assert!(d.decode(&chunk).is_err());
+        // 1 KiB claiming 87 s is refused, not decoded.
+        let bomb: Vec<u8> = (0..64).flat_map(|n| constant_frame(n, 65_535, 1)).collect();
+        assert_eq!(bomb.len(), 1024);
+        assert!(d.decode(&bomb).is_err());
+        // PCM is held to the same length.
+        let mut d = ChunkDecoder::new(Codec::Pcm, 48_000, 2, 16, None).unwrap();
+        assert!(d.decode(&vec![0; 4 * CHUNK_FRAMES_MAX]).is_ok());
+        assert!(d.decode(&vec![0; 4 * CHUNK_FRAMES_MAX + 4]).is_err());
     }
 
     // -- FLAC from a real encoder ------------------------------------------

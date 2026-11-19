@@ -21,9 +21,9 @@
 //! | `end()`, or the sink dropped | fades out, the queue is emptied, the state says `Ended` |
 //! | another source, a stop or a pause through the lane, a speaker failure | ends like a live stream, and the state says why |
 //!
-//! 44.1 kHz audio goes through the same resampler into 48 kHz. Audio more
-//! than [`AHEAD_MAX`] ahead is refused, which bounds the memory a server
-//! can make the source hold.
+//! 44.1 kHz audio goes through the same resampler into 48 kHz. Audio that
+//! ends more than [`AHEAD_MAX`] ahead is refused, which bounds the memory a
+//! server can make the source hold.
 
 use crate::decode::PullResampler;
 use crate::mix::{FADE, Ramp, frames_of};
@@ -267,10 +267,11 @@ impl TimedQueue {
             .heard_us
             .or_else(|| b.chunks.front().map(|c| c.ts_us))
             .unwrap_or(ts);
-        if ts > now + AHEAD_MAX.as_secs_f64() * 1e6 {
+        let upf = 1e6 / f64::from(rate);
+        // Its end, not its start: one long chunk would hold as much.
+        if ts + (pcm.len() / 2) as f64 * upf > now + AHEAD_MAX.as_secs_f64() * 1e6 {
             return Err(Refused::TooFarAhead);
         }
-        let upf = 1e6 / f64::from(rate);
         if let Some(tail) = b.tail_us
             && ts < tail - upf / 2.0
         {
@@ -1426,6 +1427,16 @@ mod tests {
         );
         let soon = sim.heard_us() + 29e6;
         assert_eq!(sim.sink.push(soon as i64, 48_000, vec![0; 2]), Ok(()));
+        // Due soon enough, but lasting past 30 s.
+        let soon = sim.heard_us() + 29.5e6;
+        assert_eq!(
+            sim.sink.push(soon as i64, 48_000, vec![0; 2 * 48_000]),
+            Err(Refused::TooFarAhead)
+        );
+        assert_eq!(
+            sim.sink.push(soon as i64, 48_000, vec![0; 2 * 4_800]),
+            Ok(())
+        );
         assert_eq!(
             sim.sink.push(0, 32_000, vec![0; 2]),
             Err(Refused::Rate(32_000))
