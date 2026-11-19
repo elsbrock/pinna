@@ -473,6 +473,74 @@ async fn group_messages_is_a_home_assistant_switch() {
     assert!(saved.contains("group_messages = false"), "{saved}");
 }
 
+/// Home Assistant's *Install updates* select and the window's two times
+/// (ADR 0022): they report the setting when Home Assistant connects, a change
+/// is saved and echoed, and a window without length is refused.
+#[tokio::test]
+async fn install_updates_and_the_window_are_home_assistant_entities() {
+    let mut d = Device::new();
+    let mode = |label: &str| DeviceEvent::SelectState {
+        object_id: "install_updates".into(),
+        state: label.into(),
+    };
+    let time = |object_id: &str, hour, minute| DeviceEvent::TimeState {
+        object_id: object_id.into(),
+        hour,
+        minute,
+    };
+    d.ha(HaCommand::ClientConnected {
+        peer: "192.0.2.1:6053".into(),
+    })
+    .await;
+    let mut events = Vec::new();
+    while let Ok(event) = d.events.try_recv() {
+        events.push(event);
+    }
+    assert!(events.contains(&mode("Manually")), "{events:?}");
+    assert!(events.contains(&time("install_window_start", 3, 0)));
+    assert!(events.contains(&time("install_window_end", 5, 0)));
+
+    d.ha(HaCommand::Select {
+        object_id: "install_updates".into(),
+        state: "Automatically".into(),
+    })
+    .await;
+    d.expect(&[mode("Automatically")]);
+    d.ha(HaCommand::TimeOfDay {
+        object_id: "install_window_end".into(),
+        hour: 1,
+        minute: 30,
+        second: 0,
+    })
+    .await;
+    d.expect(&[
+        time("install_window_start", 3, 0),
+        time("install_window_end", 1, 30),
+    ]);
+    // Start equal to end has no length: the entity shows the old time again.
+    d.ha(HaCommand::TimeOfDay {
+        object_id: "install_window_start".into(),
+        hour: 1,
+        minute: 30,
+        second: 0,
+    })
+    .await;
+    d.expect(&[
+        time("install_window_start", 3, 0),
+        time("install_window_end", 1, 30),
+    ]);
+    let saved = std::fs::read_to_string(d._dir.path().join("settings.toml")).unwrap();
+    assert!(
+        saved.contains("install_updates = \"automatically\""),
+        "{saved}"
+    );
+    assert!(
+        saved.contains("install_window_start = \"03:00\""),
+        "{saved}"
+    );
+    assert!(saved.contains("install_window_end = \"01:30\""), "{saved}");
+}
+
 // --- Sendspin (ADR 0027) -----------------------------------------------------
 
 use crate::sendspin::{Asked, Control, Report};

@@ -53,6 +53,7 @@ use crate::boot;
 use crate::leds::LightEffect;
 #[cfg(test)]
 use crate::updates::UpdaterPaths;
+use crate::updates::auto::{InstallMode, Window, format_time, parse_time};
 use crate::updates::{Event, Origin, Source, UpdateChannel, Updater, stage_of};
 use crate::voice::{ApiCommand, ApiReply, Input, RingLightPatch, SettingsPatch, Snapshot};
 use crate::wakewords::{Checker, MAX_MODEL_BYTES, Refusal};
@@ -324,6 +325,9 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             update_channel: proto_channel(s.update_channel).into(),
             mode: api_mode(s.settings.mode).into(),
             group_messages: s.settings.group_messages(),
+            install_updates: proto_install_updates(s.settings.install_updates()).into(),
+            install_window_start: format_time(s.settings.install_window().start()),
+            install_window_end: format_time(s.settings.install_window().end()),
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
@@ -366,6 +370,13 @@ fn assistant(a: &crate::voice::AssistStatus) -> pinna_api::AssistantStatus {
             .and_then(|f| f.at.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_millis() as u64),
         ..Default::default()
+    }
+}
+
+fn proto_install_updates(m: InstallMode) -> pinna_api::InstallUpdates {
+    match m {
+        InstallMode::Manually => pinna_api::InstallUpdates::INSTALL_UPDATES_MANUALLY,
+        InstallMode::Automatically => pinna_api::InstallUpdates::INSTALL_UPDATES_AUTOMATICALLY,
     }
 }
 
@@ -808,6 +819,38 @@ impl DeviceService for DeviceApi {
                  to choose a channel.",
             ));
         }
+        let install_updates = match request.install_updates.map(|m| m.as_known()) {
+            None => None,
+            Some(Some(pinna_api::InstallUpdates::INSTALL_UPDATES_MANUALLY)) => {
+                Some(InstallMode::Manually)
+            }
+            Some(Some(pinna_api::InstallUpdates::INSTALL_UPDATES_AUTOMATICALLY)) => {
+                Some(InstallMode::Automatically)
+            }
+            Some(_) => {
+                return Err(ConnectError::invalid_argument(
+                    "Choose manually or automatically for Install updates.",
+                ));
+            }
+        };
+        // Both ends together are what counts: a swap is one request.
+        let install_window =
+            if request.install_window_start.is_some() || request.install_window_end.is_some() {
+                let time = |t: Option<&str>| {
+                    t.map(parse_time)
+                        .transpose()
+                        .map_err(|e| ConnectError::invalid_argument(e.to_string()))
+                };
+                let current = self.status.borrow().settings.install_window();
+                let start = time(request.install_window_start)?.unwrap_or(current.start());
+                let end = time(request.install_window_end)?.unwrap_or(current.end());
+                Some(
+                    Window::new(start, end)
+                        .map_err(|e| ConnectError::invalid_argument(e.to_string()))?,
+                )
+            } else {
+                None
+            };
         let mode = match request.mode.as_ref() {
             Some(value) => Some(match value.as_known() {
                 Some(pinna_api::Mode::MODE_HOME_ASSISTANT) => crate::settings::Mode::HomeAssistant,
@@ -839,6 +882,8 @@ impl DeviceService for DeviceApi {
             reply_follows_volume: request.reply_follows_volume,
             listening_direction: request.listening_direction,
             group_messages: request.group_messages,
+            install_updates,
+            install_window,
         };
         if patch.reply_follows_volume == Some(true) && patch.reply_volume.is_some() {
             return Err(ConnectError::invalid_argument(
@@ -1459,6 +1504,20 @@ mod tests {
         wake: Option<(crate::wakewords::Catalogue, Checker)>,
         sendspin: Option<crate::sendspin::Setup>,
     ) -> (Client, mpsc::Sender<Input>) {
+        start_device_full(updater, wifi, sats, wake, sendspin, false).await
+    }
+
+    /// `brain_updates`: the brain restarts the satellite after an install, as
+    /// on the device; most tests leave that out.
+    async fn start_device_full(
+        updater: impl Into<Arc<Updater>>,
+        wifi: Option<crate::wifi::Wifi>,
+        sats: Option<watch::Receiver<satellites::Seen>>,
+        wake: Option<(crate::wakewords::Catalogue, Checker)>,
+        sendspin: Option<crate::sendspin::Setup>,
+        brain_updates: bool,
+    ) -> (Client, mpsc::Sender<Input>) {
+        let updater: Arc<Updater> = updater.into();
         let (catalogue, checker) = match wake {
             Some((catalogue, checker)) => (Arc::new(catalogue), checker),
             None => (crate::wakewords::test_catalogue(), Checker::disabled()),
@@ -1506,7 +1565,7 @@ mod tests {
                     volume: 40,
                     ..Default::default()
                 },
-                updates: None,
+                updates: brain_updates.then(|| updater.clone()),
             },
         );
         tokio::spawn(brain.run(in_rx));
@@ -2390,6 +2449,98 @@ mod tests {
             .to_owned_message();
         assert!(!settings(off.status.into_option().unwrap()).group_messages);
         assert!(!settings(status(&c).await).group_messages);
+    }
+
+    #[tokio::test]
+    async fn install_updates_is_manual_with_a_window_from_three_to_five_until_set() {
+        let (c, _inputs) = start_device().await;
+        let settings = |s: Status| s.settings.into_option().unwrap();
+        let set = async |req: pinna_api::UpdateSettingsRequest| c.update_settings(req).await;
+        let s = settings(status(&c).await);
+        assert_eq!(
+            s.install_updates.as_known(),
+            Some(pinna_api::InstallUpdates::INSTALL_UPDATES_MANUALLY)
+        );
+        assert_eq!(
+            (
+                s.install_window_start.as_str(),
+                s.install_window_end.as_str()
+            ),
+            ("03:00", "05:00")
+        );
+
+        set(pinna_api::UpdateSettingsRequest {
+            install_updates: Some(pinna_api::InstallUpdates::INSTALL_UPDATES_AUTOMATICALLY.into()),
+            install_window_start: Some("23:00".into()),
+            install_window_end: Some("01:00".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let s = settings(status(&c).await);
+        assert_eq!(
+            s.install_updates.as_known(),
+            Some(pinna_api::InstallUpdates::INSTALL_UPDATES_AUTOMATICALLY)
+        );
+        assert_eq!(
+            (
+                s.install_window_start.as_str(),
+                s.install_window_end.as_str()
+            ),
+            ("23:00", "01:00")
+        );
+
+        // One end alone changes that end; the result needs a length.
+        set(pinna_api::UpdateSettingsRequest {
+            install_window_end: Some("02:00".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let err = set(pinna_api::UpdateSettingsRequest {
+            install_window_start: Some("02:00".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        let message = err.message.unwrap_or_default();
+        assert!(
+            message.contains("02:00") && message.contains("Choose an end time"),
+            "{message}"
+        );
+        // A swap is one request, and works.
+        set(pinna_api::UpdateSettingsRequest {
+            install_window_start: Some("02:00".into()),
+            install_window_end: Some("23:00".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let s = settings(status(&c).await);
+        assert_eq!(
+            (
+                s.install_window_start.as_str(),
+                s.install_window_end.as_str()
+            ),
+            ("02:00", "23:00")
+        );
+
+        let err = set(pinna_api::UpdateSettingsRequest {
+            install_window_start: Some("25:00".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
+        assert!(err.message.unwrap_or_default().contains("HH:MM"));
+        let err = set(pinna_api::UpdateSettingsRequest {
+            install_updates: Some(pinna_api::InstallUpdates::INSTALL_UPDATES_UNSPECIFIED.into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::InvalidArgument);
     }
 
     #[tokio::test]
@@ -3517,10 +3668,15 @@ mod tests {
     /// A `pinnactl` whose check finds `version` on the channel and whose
     /// install prints its arguments.
     fn release_rig(name: &str, version: &str) -> Rig {
+        release_rig_with(name, version, "null", r#"echo "args: $*""#)
+    }
+
+    /// [`release_rig`] with the check's `blocked` and the install's script.
+    fn release_rig_with(name: &str, version: &str, blocked: &str, install: &str) -> Rig {
         let rig = Rig::new(
             name,
             &format!(
-                r#"if [ "$2" = --check ]; then echo '{{"ok":true,"url":"https://u/v1/releases/v{version}/manifest.json","manifest":{{"version":"{version}","channel":"stable","summary":"S.","notes_url":"https://n"}},"blocked":null}}'; else echo "args: $*"; fi"#
+                r#"if [ "$2" = --check ]; then echo '{{"ok":true,"url":"https://u/v1/releases/v{version}/manifest.json","manifest":{{"version":"{version}","channel":"stable","summary":"S.","notes_url":"https://n"}},"blocked":{blocked}}}'; else {install}; fi"#
             ),
         );
         rig.slots("a", st(Slot::A, (0, true), (0, true)), "0.9.0", &slot_key());
@@ -3609,6 +3765,219 @@ mod tests {
         let u = wait_until_idle(&c).await;
         assert!(u.last_install.as_option().unwrap().ok);
         assert!(u.restart_pending && updater.restart_pending());
+    }
+
+    use std::time::SystemTime;
+
+    /// A window of two hours that starts `start` minutes from now, in UTC:
+    /// the zone the updater uses without a time zone setting. -60 is a
+    /// window that is open now.
+    fn window_from(start: i64) -> Window {
+        let now = jiff::Timestamp::now()
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .datetime();
+        let minute = i64::from(now.hour()) * 60 + i64::from(now.minute());
+        let at = |m: i64| m.rem_euclid(24 * 60) as u16;
+        Window::new(at(minute + start), at(minute + start + 120)).unwrap()
+    }
+
+    fn automatically(window: Window) -> crate::updates::Policy {
+        crate::updates::Policy {
+            mode: InstallMode::Automatically,
+            window,
+            zone: None,
+        }
+    }
+
+    async fn restarted(rig: &Rig) -> bool {
+        for _ in 0..40 {
+            if rig.reboot_reason().as_deref() == Some("update") {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn an_automatic_install_starts_in_the_window_and_restarts_once_quiet() {
+        let rig = release_rig("auto-install", "2.0.0");
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.init_automatic(automatically(window_from(-60)));
+        // Nothing is planned before a check has found a release.
+        assert!(updater.plan(SystemTime::now()).await.is_none());
+        updater.check().await.unwrap();
+        let now = SystemTime::now();
+        let at = updater.plan(now).await.expect("a minute is planned");
+        let ahead = at.as_second() - jiff::Timestamp::try_from(now).unwrap().as_second();
+        assert!((0..=3600).contains(&ahead), "{ahead} s ahead");
+        // The same minute until something changes.
+        assert_eq!(updater.plan(now).await, Some(at));
+
+        let (c, _) = start_device_full(updater.clone(), None, None, None, None, true).await;
+        updater.fire_automatic(SystemTime::now()).await;
+        let u = wait_until_idle(&c).await;
+        let last = u.last_install.as_option().unwrap();
+        assert!(last.ok);
+        assert_eq!(
+            last.last_line,
+            "args: update --channel stable --expect-version 2.0.0 -- \
+             https://u/v1/releases/v2.0.0/manifest.json"
+        );
+        // Inside the window and quiet: the satellite restarts by itself.
+        assert!(u.restart_pending);
+        assert!(restarted(&rig).await);
+        // The install ran in this window: the next minute is in another one.
+        let next = updater.plan(SystemTime::now()).await.unwrap();
+        assert!(next.as_second() - jiff::Timestamp::now().as_second() > 3600);
+    }
+
+    #[tokio::test]
+    async fn an_automatic_install_restarts_only_in_the_window() {
+        let rig = release_rig_with(
+            "auto-outside",
+            "2.0.0",
+            "null",
+            r#"sleep 1; echo "args: $*""#,
+        );
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.init_automatic(automatically(window_from(-60)));
+        updater.check().await.unwrap();
+        assert!(updater.plan(SystemTime::now()).await.is_some());
+        let (c, _) = start_device_full(updater.clone(), None, None, None, None, true).await;
+        updater.fire_automatic(SystemTime::now()).await;
+        // The window ends before the install does.
+        updater.set_automatic(automatically(window_from(120)));
+        let u = wait_until_idle(&c).await;
+        assert!(u.last_install.as_option().unwrap().ok);
+        assert!(u.restart_pending && updater.restart_pending());
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert!(!updater.restart_due());
+        assert_eq!(rig.reboot_reason(), None);
+        // The dashboard's Restart now works at any time.
+        c.reboot(RebootRequest::default()).await.unwrap();
+        assert_eq!(rig.reboot_reason().as_deref(), Some("user"));
+        std::fs::remove_file(rig.paths.run_dir.join("reboot-reason")).unwrap();
+        // The next window opens.
+        updater.set_automatic(automatically(window_from(-60)));
+        assert!(restarted(&rig).await);
+    }
+
+    #[tokio::test]
+    async fn switching_to_manually_cancels_a_planned_install_but_not_a_running_one() {
+        let rig = release_rig_with(
+            "auto-manual",
+            "2.0.0",
+            "null",
+            r#"sleep 1; echo "args: $*""#,
+        );
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.init_automatic(automatically(window_from(-60)));
+        updater.check().await.unwrap();
+        assert!(updater.plan(SystemTime::now()).await.is_some());
+        updater.set_automatic(crate::updates::Policy::default());
+        assert!(updater.plan(SystemTime::now()).await.is_none());
+
+        // A running install finishes like the owner's: no restart by itself.
+        updater.set_automatic(automatically(window_from(-60)));
+        assert!(updater.plan(SystemTime::now()).await.is_some());
+        let (c, _) = start_device_full(updater.clone(), None, None, None, None, true).await;
+        updater.fire_automatic(SystemTime::now()).await;
+        updater.set_automatic(crate::updates::Policy::default());
+        let u = wait_until_idle(&c).await;
+        assert!(u.last_install.as_option().unwrap().ok);
+        assert!(!u.restart_pending);
+    }
+
+    #[tokio::test]
+    async fn a_release_that_needs_a_new_boot_image_is_never_installed_automatically() {
+        let rig = release_rig_with(
+            "auto-level",
+            "2.0.0",
+            r#"{"kind":"boot_level","message":"Needs a new boot image: install it over USB."}"#,
+            r#"echo "args: $*""#,
+        );
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.init_automatic(automatically(window_from(-60)));
+        updater.check().await.unwrap();
+        assert!(updater.plan(SystemTime::now()).await.is_none());
+        updater.fire_automatic(SystemTime::now()).await;
+        assert!(!updater.get_updates().await.installing);
+        assert!(
+            updater
+                .get_updates()
+                .await
+                .last_install
+                .as_option()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn nothing_installs_automatically_without_a_channel() {
+        // `off`, and pinnad.toml's manifest.
+        for source in [
+            Source::Channel(UpdateChannel::Off),
+            Source::Manifest("https://u/v1/releases/v2.0.0/manifest.json".into()),
+        ] {
+            let rig = release_rig("auto-source", "2.0.0");
+            let updater = Arc::new(rig.updater());
+            updater.init_source(Source::Channel(UpdateChannel::Stable));
+            updater.init_automatic(automatically(window_from(-60)));
+            updater.check().await.unwrap();
+            assert!(updater.plan(SystemTime::now()).await.is_some());
+            updater.set_source(source.clone());
+            assert!(
+                updater.plan(SystemTime::now()).await.is_none(),
+                "{source:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_version_that_failed_three_automatic_installs_is_skipped_until_the_owner_installs_it()
+    {
+        let rig = release_rig_with(
+            "auto-failing",
+            "2.0.0",
+            "null",
+            r#"echo "no route to updates.getpinna.dev" >&2; exit 1"#,
+        );
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.init_automatic(automatically(window_from(-60)));
+        updater.check().await.unwrap();
+        let (c, _) = start_device_full(updater.clone(), None, None, None, None, false).await;
+        for attempt in 1..=3 {
+            // The window that ran the last attempt is over before the next one.
+            assert!(updater.plan(SystemTime::now()).await.is_some(), "{attempt}");
+            updater.fire_automatic(SystemTime::now()).await;
+            let u = wait_until_idle(&c).await;
+            let last = u.last_install.as_option().unwrap();
+            assert!(!last.ok, "{attempt}");
+            assert_eq!(last.last_line, "no route to updates.getpinna.dev");
+            assert!(!u.restart_pending);
+            // Not planned for the window it just ran in.
+            let again = updater.plan(SystemTime::now()).await;
+            assert_eq!(again.is_some(), attempt < 3, "{attempt}");
+            if let Some(at) = again {
+                let now = jiff::Timestamp::now().as_second();
+                assert!(at.as_second() - now > 3600, "{attempt}");
+            }
+        }
+        // Still shown to the owner, who installs it by hand.
+        let u = updater.get_updates().await;
+        assert_eq!(u.release.as_option().unwrap().version, "2.0.0");
+        updater
+            .install_release("2.0.0", false, Origin::Dashboard)
+            .await
+            .unwrap();
+        wait_until_idle(&c).await;
+        assert!(updater.plan(SystemTime::now()).await.is_some());
     }
 
     #[tokio::test]

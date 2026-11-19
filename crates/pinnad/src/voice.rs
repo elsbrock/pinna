@@ -322,6 +322,9 @@ pub struct SettingsPatch {
     /// Never set while pinnad.toml sets `[update] manifest` (the API refuses it).
     pub update_channel: Option<crate::updates::UpdateChannel>,
     pub group_messages: Option<bool>,
+    pub install_updates: Option<crate::updates::auto::InstallMode>,
+    /// Already checked: a window has a start and an end that differ.
+    pub install_window: Option<crate::updates::auto::Window>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -1442,6 +1445,8 @@ impl Brain {
         }
         tracing::info!("time zone: {zone}");
         self.settings.time_zone = Some(zone.clone());
+        // The install window is local time.
+        self.push_install_policy();
         tokio::task::spawn_blocking(move || {
             use crate::timezone::*;
             let paths = (ETC_LOCALTIME.as_ref(), LINK.as_ref(), ZONEINFO.as_ref());
@@ -1477,6 +1482,91 @@ impl Brain {
             u.set_source(crate::updates::Source::Channel(c));
         }
         self.send_update_channel().await;
+    }
+
+    /// What the updater needs to know about automatic installs.
+    fn install_policy(&self) -> crate::updates::Policy {
+        crate::updates::Policy {
+            mode: self.settings.install_updates(),
+            window: self.settings.install_window(),
+            zone: self.settings.time_zone.clone(),
+        }
+    }
+
+    fn push_install_policy(&self) {
+        if let Some(u) = &self.opts.updates {
+            u.set_automatic(self.install_policy());
+        }
+    }
+
+    async fn set_install_updates(&mut self, mode: crate::updates::auto::InstallMode) {
+        tracing::info!("install updates: {mode:?}");
+        self.settings.install_updates = Some(mode);
+        self.push_install_policy();
+        self.send_install_updates().await;
+    }
+
+    async fn set_install_window(&mut self, window: crate::updates::auto::Window) {
+        use crate::updates::auto::format_time;
+        tracing::info!(
+            "install window: {} to {}",
+            format_time(window.start()),
+            format_time(window.end())
+        );
+        self.settings.install_window_start = Some(format_time(window.start()));
+        self.settings.install_window_end = Some(format_time(window.end()));
+        self.push_install_policy();
+        self.send_install_window().await;
+    }
+
+    /// The "Install updates" select.
+    async fn send_install_updates(&self) {
+        self.send(DeviceEvent::SelectState {
+            object_id: "install_updates".into(),
+            state: self.settings.install_updates().label().to_owned(),
+        })
+        .await;
+    }
+
+    /// The "Install window start" and "Install window end" times.
+    async fn send_install_window(&self) {
+        let window = self.settings.install_window();
+        for (object_id, minute) in [
+            ("install_window_start", window.start()),
+            ("install_window_end", window.end()),
+        ] {
+            let (hour, minute) = crate::updates::auto::split_time(minute);
+            self.send(DeviceEvent::TimeState {
+                object_id: object_id.into(),
+                hour,
+                minute,
+            })
+            .await;
+        }
+    }
+
+    /// Home Assistant set one end of the window. Both ends are kept: a
+    /// window without length is refused, and the entity shows the old time again.
+    async fn install_window_from_ha(&mut self, object_id: &str, hour: u32, minute: u32) {
+        use crate::updates::auto::Window;
+        let current = self.settings.install_window();
+        let time = (hour * 60 + minute) as u16;
+        let (start, end) = match object_id {
+            "install_window_start" => (time, current.end()),
+            _ => (current.start(), time),
+        };
+        match Window::new(start, end) {
+            Ok(window) => {
+                self.set_install_window(window).await;
+                if let Err(e) = self.store.try_save(&self.settings) {
+                    tracing::warn!("saving the settings: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::info!("install window: {e}");
+                self.send_install_window().await;
+            }
+        }
     }
 
     /// The "Updates" select: the channel, or the URL that replaces it.
@@ -1557,7 +1647,7 @@ impl Brain {
             || self
                 .update_restart_tried
                 .is_some_and(|t| now - t < UPDATE_RESTART_RETRY)
-            || !u.restart_pending()
+            || !u.restart_due()
         {
             return;
         }
@@ -1604,6 +1694,8 @@ impl Brain {
                 tracing::info!("Home Assistant connected from {peer}");
                 self.send(DeviceEvent::MuteState(self.muted())).await;
                 self.send_update_channel().await;
+                self.send_install_updates().await;
+                self.send_install_window().await;
                 self.send_mode().await;
                 self.send_update_state().await;
                 self.send_light().await;
@@ -1778,6 +1870,25 @@ impl Brain {
                     // The URL from pinnad.toml, its only option: nothing to change.
                     _ => self.send_update_channel().await,
                 }
+            }
+            HaCommand::Select { object_id, state } if object_id == "install_updates" => {
+                match crate::updates::auto::InstallMode::from_label(&state) {
+                    Some(mode) => {
+                        self.set_install_updates(mode).await;
+                        if let Err(e) = self.store.try_save(&self.settings) {
+                            tracing::warn!("saving the settings: {e}");
+                        }
+                    }
+                    None => self.send_install_updates().await,
+                }
+            }
+            HaCommand::TimeOfDay {
+                object_id,
+                hour,
+                minute,
+                ..
+            } if object_id == "install_window_start" || object_id == "install_window_end" => {
+                self.install_window_from_ha(&object_id, hour, minute).await;
             }
             HaCommand::Select { object_id, state } if object_id == "assistant" => {
                 self.mode_from_ha(&state).await;
@@ -2118,6 +2229,12 @@ impl Brain {
         }
         if let Some(on) = patch.group_messages {
             self.set_group_messages(on).await;
+        }
+        if let Some(mode) = patch.install_updates {
+            self.set_install_updates(mode).await;
+        }
+        if let Some(window) = patch.install_window {
+            self.set_install_window(window).await;
         }
         // Applied, but a restart would undo it: say so (ADR 0007).
         self.store.try_save(&self.settings).map_err(|e| {

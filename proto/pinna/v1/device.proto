@@ -563,6 +563,25 @@ message Settings {
   // The Sendspin player for Music Assistant on or off (ADR 0027). Off by
   // default.
   bool sendspin = 19;
+  // Whether releases the satellite finds install by themselves (ADR 0022).
+  // Manually until 1.0.
+  InstallUpdates install_updates = 20;
+  // The install window's start and end, "HH:MM" in the satellite's time zone
+  // (`time_zone`); 03:00 and 05:00 until they are set. The window crosses
+  // midnight when the end is before the start. They matter only while
+  // `install_updates` is automatically.
+  string install_window_start = 21;
+  string install_window_end = 22;
+}
+
+// Whether releases install by themselves (ADR 0022).
+enum InstallUpdates {
+  INSTALL_UPDATES_UNSPECIFIED = 0;
+  // The owner installs: from the dashboard or from Home Assistant.
+  INSTALL_UPDATES_MANUALLY = 1;
+  // A release the satellite finds installs at a random minute in the install
+  // window, and the satellite restarts in the window once it is idle.
+  INSTALL_UPDATES_AUTOMATICALLY = 2;
 }
 
 // Where the satellite looks for releases (ADR 0022).
@@ -705,6 +724,13 @@ message UpdateSettingsRequest {
   optional bool group_messages = 19;
   // Refused on a device without a working speaker.
   optional bool sendspin = 20;
+  // Not UNSPECIFIED. Turning it on plans an install for a release a check
+  // already found; turning it off cancels one that hasn't started.
+  optional InstallUpdates install_updates = 21;
+  // "HH:MM", 24 hours. Start and end can't be the same time; the result of
+  // both fields together is what counts, so a swap works in one request.
+  optional string install_window_start = 22;
+  optional string install_window_end = 23;
 }
 
 // Only the fields that are set change.

@@ -28,7 +28,7 @@ pub fn local_now(zone: Option<&str>, now: SystemTime) -> (String, String) {
 }
 
 /// The time zone and the label to show for a setting value.
-fn resolve(zone: Option<&str>) -> (TimeZone, String) {
+pub(crate) fn resolve(zone: Option<&str>) -> (TimeZone, String) {
     let name = zone.map(str::trim).filter(|name| !name.is_empty());
     match name {
         None => (TimeZone::UTC, "UTC".to_owned()),

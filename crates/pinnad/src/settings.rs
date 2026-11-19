@@ -127,6 +127,17 @@ pub struct Settings {
     /// messages" switch, ADR 0026). `None`: on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_messages: Option<bool>,
+    /// Whether releases install by themselves ("Install updates" select,
+    /// ADR 0022). `None`: manually.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_updates: Option<crate::updates::auto::InstallMode>,
+    /// The install window's start and end as `HH:MM`, local time (ADR 0022).
+    /// `None`: 03:00 and 05:00. Both or neither is valid; a pair that
+    /// isn't (equal, or not a time) reads as the default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_window_start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_window_end: Option<String>,
     /// Keys a newer pinnad wrote, kept as they are.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -155,6 +166,9 @@ impl Default for Settings {
             sendspin: false,
             update_channel: None,
             group_messages: None,
+            install_updates: None,
+            install_window_start: None,
+            install_window_end: None,
             extra: toml::Table::new(),
         }
     }
@@ -173,6 +187,25 @@ impl Settings {
     /// owner switches it off.
     pub fn group_messages(&self) -> bool {
         self.group_messages.unwrap_or(true)
+    }
+
+    pub fn install_updates(&self) -> crate::updates::auto::InstallMode {
+        self.install_updates
+            .unwrap_or(crate::updates::auto::InstallMode::Manually)
+    }
+
+    /// The install window; the default for a pair that is not valid.
+    pub fn install_window(&self) -> crate::updates::auto::Window {
+        use crate::updates::auto::{Window, parse_time};
+        let time = |t: &Option<String>, default: u16| match t {
+            Some(t) => parse_time(t).unwrap_or(default),
+            None => default,
+        };
+        Window::new(
+            time(&self.install_window_start, Window::DEFAULT.start()),
+            time(&self.install_window_end, Window::DEFAULT.end()),
+        )
+        .unwrap_or(Window::DEFAULT)
     }
 }
 
@@ -504,6 +537,7 @@ mod tests {
                 && !text.contains("wake_sound")
                 && !text.contains("url")
                 && !text.contains("group_messages")
+                && !text.contains("install_")
         );
         assert!(rolled_back.group_messages());
         let named = Settings {
@@ -513,10 +547,20 @@ mod tests {
             wake_sound: Some(true),
             url: Some("https://dot.example.com/".into()),
             group_messages: Some(false),
+            install_updates: Some(crate::updates::auto::InstallMode::Automatically),
+            install_window_start: Some("23:00".into()),
+            install_window_end: Some("01:30".into()),
             ..Default::default()
         };
         store.try_save(&named).unwrap();
         assert!(!named.group_messages());
+        let window = named.install_window();
+        assert_eq!((window.start(), window.end()), (23 * 60, 90));
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("install_updates = \"automatically\"")
+        );
         assert_eq!(Store::load(&path, FILE_MODE, Settings::default()).1, named);
         // The old host names are no setting any more, but stay in the file.
         std::fs::write(&path, "allowed_hosts = [\"x\"]\n").unwrap();

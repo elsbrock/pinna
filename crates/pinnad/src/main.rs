@@ -531,6 +531,11 @@ async fn main() -> Result<()> {
         Some(url) => updates::Source::Manifest(url.clone()),
         None => updates::Source::Channel(initial.update_channel.unwrap_or(default_channel)),
     });
+    updater.init_automatic(updates::Policy {
+        mode: initial.install_updates(),
+        window: initial.install_window(),
+        zone: initial.time_zone.clone(),
+    });
     // The dashboard's name wins over pinnad.toml's, which wins over the
     // model and MAC suffix (ADR 0007).
     let defaults = voice::Defaults {
@@ -894,6 +899,7 @@ async fn main() -> Result<()> {
         updater.clone(),
     );
     tokio::spawn(updater.clone().run_checks());
+    tokio::spawn(updater.clone().run_automatic());
     let device_api = Arc::new(
         device_api
             .with_ring(shown_rx)

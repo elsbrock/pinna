@@ -6,6 +6,12 @@
 //! start (once the clock is set), daily at a minute picked at random and
 //! kept, and on request. What it found is kept in memory; what Install does
 //! with it follows from the slots each time it is asked (`release_view`).
+//!
+//! With "Install updates" on automatically, the updater also starts the
+//! install of a release a check found, at a random minute in the owner's
+//! window (`auto`, ADR 0022).
+
+pub mod auto;
 
 use std::cmp::Ordering;
 use std::collections::VecDeque;
@@ -28,7 +34,9 @@ use pinna_image::version;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{Notify, broadcast, watch};
+
+use self::auto::{Facts, InstallMode, Never, Verdict, Window};
 
 /// The project's release service (ADR 0022).
 pub const RELEASE_SERVICE: &str = "https://updates.getpinna.dev";
@@ -113,6 +121,9 @@ pub enum Origin {
     HomeAssistant,
     /// A tool the brain called (ADR 0017).
     Brain,
+    /// The owner's window for automatic installs (ADR 0022). The restart
+    /// waits for the window too (`restart_due`).
+    Automatic,
 }
 
 impl Origin {
@@ -122,6 +133,55 @@ impl Origin {
         matches!(self, Origin::HomeAssistant | Origin::Brain)
     }
 }
+
+/// The "Install updates" setting and what it needs to know: the window in
+/// the satellite's time zone (ADR 0007, ADR 0022).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Policy {
+    pub mode: InstallMode,
+    pub window: Window,
+    /// An IANA name; `None` is UTC.
+    pub zone: Option<String>,
+}
+
+impl Default for Policy {
+    fn default() -> Self {
+        Self {
+            mode: InstallMode::Manually,
+            window: Window::DEFAULT,
+            zone: None,
+        }
+    }
+}
+
+/// The minute an automatic install was planned for.
+#[derive(Debug, Clone)]
+struct Scheduled {
+    version: String,
+    at: jiff::Timestamp,
+}
+
+#[derive(Debug, Default)]
+struct Auto {
+    policy: Policy,
+    scheduled: Option<Scheduled>,
+    /// The start of the window an automatic install was last started in:
+    /// the next attempt waits for another one.
+    fired_window: Option<jiff::civil::DateTime>,
+    /// Failed automatic attempts of one version in a row; in memory only.
+    failures: Option<(String, u32)>,
+    /// The version an automatic install is running for.
+    running: Option<String>,
+    /// The version whose skipping was logged.
+    skip_logged: Option<String>,
+}
+
+/// What a restart waits for, in the restart mark: the owner's window. An
+/// install from Home Assistant or a tool leaves the mark empty.
+const MARK_IN_WINDOW: &[u8] = b"window";
+/// The longest the automatic installer sleeps: a clock that was set or a
+/// daylight saving change is noticed within it.
+const AUTO_MAX_SLEEP: Duration = Duration::from_secs(15 * 60);
 
 /// Whether the system clock is set; TLS and the daily schedule need it.
 #[derive(Debug, Clone, Copy)]
@@ -252,6 +312,9 @@ pub struct Updater {
     check_lock: tokio::sync::Mutex<()>,
     /// Bumped whenever what GetUpdates shows may have changed.
     changed: Arc<watch::Sender<u64>>,
+    auto: Arc<Mutex<Auto>>,
+    /// The automatic installer plans again when this is notified.
+    auto_wake: Arc<Notify>,
 }
 
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
@@ -266,6 +329,10 @@ fn now_ms() -> u64 {
 
 fn lock_checks(c: &Mutex<Checks>) -> MutexGuard<'_, Checks> {
     c.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn lock_auto(a: &Mutex<Auto>) -> MutexGuard<'_, Auto> {
+    a.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn bump(changed: &watch::Sender<u64>) {
@@ -287,6 +354,8 @@ impl Updater {
             checks: Mutex::new(Checks::default()),
             check_lock: tokio::sync::Mutex::new(()),
             changed: Arc::new(watch::channel(0).0),
+            auto: Arc::default(),
+            auto_wake: Arc::default(),
         }
     }
 
@@ -394,9 +463,15 @@ impl Updater {
         state.fraction = None;
         drop(state);
         bump(&self.changed);
+        if origin != Origin::Automatic {
+            // The owner installing it by hand ends the skipping.
+            lock_auto(&self.auto).failures = None;
+        }
 
         let shared = self.state.clone();
         let changed = self.changed.clone();
+        let auto = self.auto.clone();
+        let auto_wake = self.auto_wake.clone();
         let restart_mark = self.paths.restart_mark.clone();
         let manifest = manifest.to_owned();
         let mut out = BufReader::new(child.stdout.take().expect("stdout is piped")).lines();
@@ -432,7 +507,25 @@ impl Updater {
             }
             let ok = child.wait().await.is_ok_and(|s| s.success());
             if ok && origin.restarts_when_idle() {
-                mark_restart(&restart_mark);
+                mark_restart(&restart_mark, b"");
+            }
+            if origin == Origin::Automatic {
+                let mut auto = lock_auto(&auto);
+                let version = auto.running.take();
+                if ok {
+                    auto.failures = None;
+                    // Switched to manually meanwhile: it finishes like the owner's.
+                    if auto.policy.mode == InstallMode::Automatically {
+                        mark_restart(&restart_mark, MARK_IN_WINDOW);
+                    }
+                } else if let Some(version) = version {
+                    let n = match auto.failures.take() {
+                        Some((v, n)) if v == version => n + 1,
+                        _ => 1,
+                    };
+                    tracing::warn!("updates: the automatic install of {version} failed ({n})");
+                    auto.failures = Some((version, n));
+                }
             }
             let mut state = lock(&shared);
             state.last = Some(InstallResult {
@@ -446,6 +539,7 @@ impl Updater {
             let _ = state.events.send(Event::Done { ok });
             drop(state);
             bump(&changed);
+            auto_wake.notify_one();
         });
         Ok(())
     }
@@ -576,6 +670,7 @@ impl Updater {
             checks.finished_ms = 0;
         }
         bump(&self.changed);
+        self.auto_wake.notify_one();
         if source.url().is_some() {
             let this = self.clone();
             tokio::spawn(async move {
@@ -649,6 +744,7 @@ impl Updater {
         }
         drop(checks);
         bump(&self.changed);
+        self.auto_wake.notify_one();
     }
 
     /// The checks after start and once a day (ADR 0022). Runs for good on a
@@ -744,14 +840,14 @@ impl Updater {
                 tracing::info!("updates: {version} is in slot {other} already; it boots next");
                 self.set_active_inner(other, false).await?;
                 if origin.restarts_when_idle() {
-                    mark_restart(&self.paths.restart_mark);
+                    mark_restart(&self.paths.restart_mark, b"");
                 }
                 bump(&self.changed);
                 return Ok(());
             }
             Some(ReleaseAction::RELEASE_ACTION_RESTART) => {
                 if origin.restarts_when_idle() {
-                    mark_restart(&self.paths.restart_mark);
+                    mark_restart(&self.paths.restart_mark, b"");
                     bump(&self.changed);
                 }
                 return Ok(());
@@ -776,8 +872,198 @@ impl Updater {
     }
 }
 
-fn mark_restart(path: &std::path::Path) {
-    if let Err(e) = std::fs::write(path, b"") {
+/// Automatic installs (ADR 0022).
+impl Updater {
+    /// The setting at start; `run_automatic` reads it when it starts.
+    pub fn init_automatic(&self, policy: Policy) {
+        lock_auto(&self.auto).policy = policy;
+    }
+
+    /// A change of the mode, the window or the time zone. A new window or
+    /// `manually` drops an install that was planned and hasn't started; one
+    /// that runs finishes.
+    pub fn set_automatic(&self, policy: Policy) {
+        {
+            let mut auto = lock_auto(&self.auto);
+            if auto.policy == policy {
+                return;
+            }
+            tracing::info!(
+                "updates: install {:?}, window {} to {}",
+                policy.mode,
+                auto::format_time(policy.window.start()),
+                auto::format_time(policy.window.end())
+            );
+            auto.policy = policy;
+            auto.scheduled = None;
+        }
+        self.auto_wake.notify_one();
+    }
+
+    /// The facts about the release the last check found, for the verdict.
+    fn automatic_facts(&self, resp: &GetUpdatesResponse) -> Option<(String, Facts)> {
+        let found = lock_checks(&self.checks).found.clone()?;
+        let release = resp.release.as_option()?;
+        let auto = lock_auto(&self.auto);
+        let failed_attempts = match &auto.failures {
+            Some((v, n)) if *v == found.version => *n,
+            _ => 0,
+        };
+        let facts = Facts {
+            mode: auto.policy.mode,
+            on_a_channel: self.source().channel().is_some(),
+            clock_synchronized: self.paths.clock.synchronized(),
+            installing: resp.installing,
+            on_trial: resp.slots.iter().any(|s| s.booted && s.state == "trial"),
+            overlay: resp.development_overlay,
+            action: release.action.as_known()?,
+            boot_level_blocked: found.blocked.is_some(),
+            failed_attempts,
+        };
+        Some((found.version, facts))
+    }
+
+    /// When the next automatic install starts: at the minute already planned
+    /// for the release the last check found, or at one picked now. `None`
+    /// when nothing is to install automatically.
+    pub(crate) async fn plan(&self, now: SystemTime) -> Option<jiff::Timestamp> {
+        let resp = self.get_updates().await;
+        let facts = self.automatic_facts(&resp);
+        let mut auto = lock_auto(&self.auto);
+        let Some((version, facts)) = facts else {
+            auto.scheduled = None;
+            return None;
+        };
+        match auto::verdict(&facts) {
+            Verdict::Install | Verdict::Wait => {}
+            Verdict::Never(why) => {
+                auto.scheduled = None;
+                if auto.skip_logged.as_deref() != Some(version.as_str()) {
+                    tracing::info!(
+                        "updates: {version} is not installed automatically: {}",
+                        match why {
+                            Never::FailedTrialBoot => "it failed to start and was rolled back",
+                            Never::BootLevel => "it needs a new boot image, installed over USB",
+                            Never::TooManyFailures => "the last automatic installs failed",
+                        }
+                    );
+                    auto.skip_logged = Some(version);
+                }
+                return None;
+            }
+            Verdict::Off | Verdict::Nothing => {
+                auto.scheduled = None;
+                return None;
+            }
+        }
+        if let Some(s) = auto.scheduled.as_ref().filter(|s| s.version == version) {
+            return Some(s.at);
+        }
+        let (tz, _) = crate::clock::resolve(auto.policy.zone.as_deref());
+        let local = jiff::Timestamp::try_from(now)
+            .ok()?
+            .to_zoned(tz.clone())
+            .datetime();
+        let minute = auto::pick_minute(auto.policy.window, local, auto.fired_window, &mut |n| {
+            fastrand::u32(0..n)
+        })?;
+        let at = tz.to_ambiguous_timestamp(minute).compatible().ok()?;
+        tracing::info!("updates: installing {version} automatically at {minute} local time");
+        auto.scheduled = Some(Scheduled { version, at });
+        Some(at)
+    }
+
+    /// The planned minute has come: install if the release still may, and
+    /// leave this window alone either way.
+    pub(crate) async fn fire_automatic(&self, now: SystemTime) {
+        let resp = self.get_updates().await;
+        let facts = self.automatic_facts(&resp);
+        let version = {
+            let mut auto = lock_auto(&self.auto);
+            let scheduled = auto.scheduled.take();
+            let (tz, _) = crate::clock::resolve(auto.policy.zone.as_deref());
+            if let Ok(ts) = jiff::Timestamp::try_from(now) {
+                auto.fired_window =
+                    auto::window_start_at(auto.policy.window, ts.to_zoned(tz).datetime());
+            }
+            let Some((version, facts)) = facts else {
+                return;
+            };
+            if scheduled.is_none_or(|s| s.version != version)
+                || auto::verdict(&facts) != Verdict::Install
+            {
+                tracing::info!("updates: {version} is not installed automatically now");
+                return;
+            }
+            auto.running = Some(version.clone());
+            version
+        };
+        tracing::info!("updates: installing {version} automatically");
+        if let Err(e) = self
+            .install_release(&version, false, Origin::Automatic)
+            .await
+        {
+            tracing::warn!(
+                "updates: the automatic install of {version} was refused: {}",
+                e.message.unwrap_or_default()
+            );
+            lock_auto(&self.auto).running = None;
+        }
+    }
+
+    /// Installs releases automatically, in the owner's window (ADR 0022).
+    /// Runs for good on a satellite image, like `run_checks`.
+    pub async fn run_automatic(self: Arc<Self>) {
+        if !matches!(slot::booted_slot(&self.paths.run_dir), Ok(Some(_))) {
+            return;
+        }
+        while !self.paths.clock.synchronized() {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+        }
+        loop {
+            let now = SystemTime::now();
+            let wait = match self.plan(now).await {
+                None => AUTO_MAX_SLEEP,
+                Some(at) => {
+                    let ahead = jiff::Timestamp::try_from(now)
+                        .map_or(0, |n| at.as_second() - n.as_second());
+                    if ahead <= 0 {
+                        self.fire_automatic(now).await;
+                        continue;
+                    }
+                    Duration::from_secs(ahead.unsigned_abs()).min(AUTO_MAX_SLEEP)
+                }
+            };
+            tokio::select! {
+                () = self.auto_wake.notified() => {}
+                () = tokio::time::sleep(wait) => {}
+            }
+        }
+    }
+
+    /// Whether the restart after an install may happen now: always, unless
+    /// the install was an automatic one, which restarts in the window only.
+    pub fn restart_due(&self) -> bool {
+        if !self.restart_pending() {
+            return false;
+        }
+        match std::fs::read(&self.paths.restart_mark) {
+            Ok(mark) if mark == MARK_IN_WINDOW => {
+                let (window, zone) = {
+                    let auto = lock_auto(&self.auto);
+                    (auto.policy.window, auto.policy.zone.clone())
+                };
+                let (tz, _) = crate::clock::resolve(zone.as_deref());
+                self.paths.clock.synchronized()
+                    && window.contains_time(jiff::Timestamp::now().to_zoned(tz).datetime())
+            }
+            _ => true,
+        }
+    }
+}
+
+fn mark_restart(path: &std::path::Path, content: &[u8]) {
+    if let Err(e) = std::fs::write(path, content) {
         tracing::warn!("marking the restart after the update: {e}");
     }
 }
