@@ -34,9 +34,9 @@ class Network {
     };
   }
 
-  /** The Wi-Fi interface, if there is one. */
+  /** The Wi-Fi interface, if there is one; not the setup hotspot's (ADR 0028). */
   get wireless() {
-    return this.current?.interfaces.find((i) => i.wireless);
+    return this.current?.interfaces.find((i) => i.wireless && i.name !== "ap0");
   }
 
   /** The first IPv4 address on any interface but USB. */

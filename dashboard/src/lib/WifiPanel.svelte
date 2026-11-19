@@ -24,6 +24,8 @@
 
   const live = $derived(device.link === "live");
   const overUsb = location.hostname === "10.42.0.1";
+  // On the setup hotspot (ADR 0028), which goes away while the satellite joins.
+  const overHotspot = location.hostname === "10.42.1.1";
   const mac = $derived(network.wireless?.mac?.toLowerCase() ?? "");
   // Its name on any network (ADR 0010): the node name, as mDNS announces it.
   const local = $derived(`${device.status?.name ?? "pinna"}.local`);
@@ -55,8 +57,13 @@
   const step = $derived(wifi.steps.at(-1));
   // A join from another page, or before this page loaded.
   const otherJoin = $derived(wifi.joining && wifi.steps.length === 0);
-  // How this page's last join ended, once the form is closed.
-  const ended = $derived(!wifi.joining && !wifi.trial && mine && !target ? wifi.last : null);
+  // How this page's last join ended, once the form is closed. On the setup
+  // hotspot also a failed join from before this page: it brought the hotspot back.
+  const ended = $derived(
+    !wifi.joining && !wifi.trial && !target && (mine || (overHotspot && wifi.last?.stage === FAILED))
+      ? wifi.last
+      : null,
+  );
   const tone = $derived(joinTone(ended));
   const forgettingCurrent = $derived(wifi.saved?.find((n) => n.ssid === forgetting)?.current ?? false);
   const othersSaved = $derived((wifi.saved?.length ?? 0) > 1);
@@ -172,7 +179,14 @@
           </span>
         {:else}
           <span class="pn-row-hint">
-            {wifi.saved ? "No saved networks: the satellite is reachable over USB only." : "Reading the saved networks…"}
+            {#if !wifi.saved}
+              Reading the saved networks…
+            {:else if wifi.hotspot}
+              No saved networks. The satellite runs its setup hotspot, <strong>{wifi.hotspot}</strong>, with the
+              password <code class="pn-code">pinnasetup</code>, until it joins one.
+            {:else}
+              No saved networks: the satellite is reachable over USB only.
+            {/if}
           </span>
         {/if}
       </div>
@@ -301,10 +315,19 @@
         {#if joinError}<span class="pn-field-error" role="alert"><Icon name="alert" />{joinError}</span>{/if}
         {#if wifi.joining && mine}
           <p class="pn-field-hint" role="status">{step?.message ?? "Starting…"} This takes up to a minute.</p>
-        {:else}
+        {/if}
+        <!-- On the hotspot the page goes away during the join: the address stays in view. -->
+        {#if !(wifi.joining && mine) || overHotspot}
           <p class="pn-field-hint">
             {#if overUsb}
               This page stays connected over USB. Once the satellite is on the network, keep it here.
+            {:else if overHotspot}
+              Note this first: the satellite turns its hotspot off to try the network, so this page loses it. If it
+              joins, connect to that network within 5 minutes and open
+              <code class="pn-code">http://{local}/</code>{#if mac}
+                (on Android, find <code class="pn-code">{mac}</code> in your router and open its address
+                instead){/if}: it stays there. If it doesn't join, the hotspot comes back in about two minutes: join it
+              again to see why.
             {:else}
               This page may lose the satellite. If it joins, connect to that network within 5 minutes and open
               <code class="pn-code">http://{local}/</code>{#if mac}
@@ -344,6 +367,9 @@
       The satellite won't join it again until you join it here.
       {#if forgettingCurrent && othersSaved}
         It disconnects from it now and tries the other saved networks, so a page opened over Wi-Fi may lose it.
+      {:else if forgettingCurrent && wifi.hasHotspot}
+        It disconnects from it now and has no other network then: it runs its setup hotspot, and is reachable over
+        USB at <code class="pn-code">http://10.42.0.1/</code>.
       {:else if forgettingCurrent}
         It disconnects from it now and has no other network then: it is reachable over USB only, at
         <code class="pn-code">http://10.42.0.1/</code>.

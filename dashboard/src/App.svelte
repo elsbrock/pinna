@@ -140,6 +140,16 @@
         <Icon name="restart" />
         <p>Restarting. The satellite is back in a minute or two; this page reconnects on its own.</p>
       </div>
+    {:else if device.link === "offline" && wifi.lost && location.hostname === "10.42.1.1"}
+      <div class="pn-banner" data-tone="neutral" role="status">
+        <Icon name="wifi" />
+        <p>
+          The satellite turned its setup hotspot off to try {wifi.lost}. If it joins, connect to {wifi.lost} within 5
+          minutes and open <code class="pn-code">http://{s?.name ?? "pinna"}.local/</code> or its address from your
+          router: it then stays there. If <strong>Pinna setup</strong> is back in your Wi-Fi list in about two minutes,
+          the join failed: join it again, and this page says why.
+        </p>
+      </div>
     {:else if device.link === "offline" && wifi.lost}
       <div class="pn-banner" data-tone="neutral" role="status">
         <Icon name="wifi" />

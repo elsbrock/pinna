@@ -27,6 +27,10 @@ class Wifi {
   trialAt = $state(0);
   /** How the last join ended, since pinnad started. */
   last = $state<JoinWifiResponse | null>(null);
+  /** The setup hotspot's name while it runs (ADR 0028). */
+  hotspot = $state("");
+  /** The satellite runs the setup hotspot whenever no network is saved. */
+  hasHotspot = $state(false);
   /** No Wi-Fi to manage, and why (a VM; an Echo whose chip didn't start). */
   absent = $state<string | null>(null);
   error = $state<string | null>(null);
@@ -47,6 +51,8 @@ class Wifi {
       this.trial = r.trial ?? null;
       this.trialAt = Date.now();
       this.last = r.lastJoin ?? null;
+      this.hotspot = r.hotspot;
+      this.hasHotspot = r.hasHotspot;
       this.absent = null;
       this.error = null;
       if (this.trial || this.last) this.lost = null;
@@ -98,6 +104,9 @@ class Wifi {
     try {
       for await (const step of client.joinWifi(req)) {
         this.steps = [...this.steps, step];
+        // On the setup hotspot (ADR 0028) the page loses the satellite right
+        // after the first step, whether or not the request ends.
+        if (location.hostname === "10.42.1.1") this.lost = req.ssid ?? "";
         if (joinDone(step)) break;
       }
     } catch (e) {

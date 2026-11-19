@@ -27,6 +27,8 @@
         {/if}
         {#if t.fallback}
           Otherwise it goes back to {t.fallback} in {mmss(left)}.
+        {:else if wifi.hasHotspot}
+          Otherwise it leaves {t.ssid} in {mmss(left)}, and runs its setup hotspot again.
         {:else}
           Otherwise it leaves {t.ssid} in {mmss(left)}, and is reachable over USB only.
         {/if}

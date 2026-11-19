@@ -472,6 +472,8 @@ export function band(mhz: number): string {
 
 /** What an interface is, in words: the satellite has Wi-Fi and the USB console. */
 export function interfaceLabel(name: string, wireless: boolean): string {
+  // The setup hotspot's interface (ADR 0028).
+  if (name === "ap0") return "Setup hotspot";
   if (wireless) return "Wi-Fi";
   if (name.startsWith("usb")) return "USB (console)";
   if (/^(eth|en)/.test(name)) return "Ethernet";

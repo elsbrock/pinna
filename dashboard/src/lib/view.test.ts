@@ -335,6 +335,7 @@ test("network words", async () => {
   assert.equal(band(2437), "2.4 GHz");
   assert.equal(band(5180), "5 GHz");
   assert.equal(interfaceLabel("wlan0", true), "Wi-Fi");
+  assert.equal(interfaceLabel("ap0", true), "Setup hotspot");
   assert.equal(interfaceLabel("usb0", false), "USB (console)");
   assert.match(wifiIssue(undefined)?.title ?? "", /No Wi-Fi interface/);
   assert.match(wifiIssue({ addresses: [] })?.title ?? "", /Not connected/);
