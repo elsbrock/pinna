@@ -144,8 +144,12 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
    connection that exceeds it; it reassembles at most one fragmented
    message, up to that capacity; it drops audio timestamped more than 30 s
    ahead; it takes JSON only within the specification's limits (16 KiB,
-   depth 10); and a handshake step that takes longer than 30 s, or a
-   connection that is not activated within 30 s, is closed.
+   depth 10); a handshake step that takes longer than 30 s, or a
+   connection that is not activated within 30 s, is closed; and so is a
+   server whose clock the filter finds drifting more than 1 % from the
+   player's, twice what the lane follows (§11). The server's time replies
+   alone set the filter's drift, and at -100 % the conversion to local time
+   runs backward, so that audio due later counts as already played.
 7. **What is kept, and where.** The X25519 identity, the pairing key, the
    pairings, the last server, and the volume and mute live in
    `/var/lib/pinna/sendspin.toml`, mode 0600, written atomically. A factory
