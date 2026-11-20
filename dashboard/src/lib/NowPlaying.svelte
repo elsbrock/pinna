@@ -58,6 +58,9 @@
               title={from.url ? from.text : undefined}>{from.url ? shortUrl(from.text) : from.text}</span
             ></span
           >
+          {#if m.source === "sendspin"}
+            <span class="pn-row-hint">Pause, Resume and Stop act on the whole Music Assistant group.</span>
+          {/if}
         </div>
         <div class="actions">
           <!-- A stream can't pause: pausing ends its session, as Stop does.
@@ -74,7 +77,7 @@
           <!-- The Overview has a Stop for requests too: the name says which. -->
           <button
             class="pn-btn"
-            aria-label="Stop music"
+            aria-label={m.source === "sendspin" ? "Stop the group" : "Stop music"}
             disabled={!live}
             aria-disabled={device.busy || undefined}
             onclick={() => control(MediaCommand.STOP)}>Stop</button

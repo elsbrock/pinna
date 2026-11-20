@@ -84,6 +84,14 @@
       !ss.exactTiming &&
       (ss.state === SendspinState.READY || ss.state === SendspinState.CONNECTED || ss.state === SendspinState.PLAYING),
   );
+  // The group waits paused from here (ADR 0027 §14): Now playing shows it Paused.
+  const ssPaused = $derived(s?.media?.source === "sendspin" && s.media.state === MediaState.PAUSED);
+  // Another source holds the lane while a server is connected.
+  const otherPlays = $derived(
+    !!s?.media &&
+      s.media.source !== "sendspin" &&
+      (s.media.state === MediaState.PLAYING || s.media.state === MediaState.PAUSED),
+  );
   // pinnad's reasons ("port 8928 is in use") start in lower case, without a full stop.
   function sentence(r: string): string {
     const t = r.charAt(0).toUpperCase() + r.slice(1);
@@ -253,11 +261,11 @@
   </Group>
 
   <Group title="Sendspin">
-    {#snippet aside()}Experimental{/snippet}
+    {#snippet aside()}<span class="pn-health" data-tone="caution">Experimental</span>{/snippet}
     {#snippet foot()}
       It stays experimental while the Sendspin specification is a draft. Music Assistant connects without pairing, so
-      someone who can intercept your network's traffic could read or change the music. Music Assistant sets the music's
-      volume; Volume, on Voice &amp; sound, sets how loud the satellite is overall. Sendspin is also a switch in Home
+      someone who can intercept your network's traffic could read or change the music. Music volume, on Now playing, is
+      the satellite's volume in Music Assistant; Volume, on Voice &amp; sound, sets how loud the satellite is overall. Sendspin is also a switch in Home
       Assistant, on this satellite's device page.
     {/snippet}
     <SwitchRow
@@ -275,7 +283,6 @@
           {#if ss.state === SendspinState.READY}
             <span class="pn-row-label">Ready as “{ss.name}”</span>
             {#if ss.reason}
-              <span class="pn-row-hint">Music Assistant lists it as “{ss.name}”.</span>
               <span class="pn-row-hint is-danger">A server couldn't connect. {sentence(ss.reason)}</span>
             {:else}
               <span class="pn-row-hint">
@@ -284,9 +291,21 @@
                 settings.
               </span>
             {/if}
+          {:else if ss.state === SendspinState.CONNECTED && ssPaused}
+            <span class="pn-row-label">Paused</span>
+            <span class="pn-row-hint">
+              The group of {ss.server || "Music Assistant"} waits paused. Resume it on Now playing, on the Overview, or in
+              Music Assistant.
+            </span>
           {:else if ss.state === SendspinState.CONNECTED}
             <span class="pn-row-label">Connected to {ss.server || "Music Assistant"}</span>
-            <span class="pn-row-hint">Nothing plays. In Music Assistant, play to “{ss.name}”.</span>
+            {#if otherPlays}
+              <span class="pn-row-hint">
+                Another source plays here. In Music Assistant, play to “{ss.name}”, or add it back to its group.
+              </span>
+            {:else}
+              <span class="pn-row-hint">Nothing plays. In Music Assistant, play to “{ss.name}”.</span>
+            {/if}
           {:else if ss.state === SendspinState.PLAYING}
             <span class="pn-row-label">Playing</span>
             <span class="pn-row-hint">
@@ -295,7 +314,8 @@
           {:else if ss.state === SendspinState.FAILED}
             <span class="pn-row-label">Not running</span>
             <span class="pn-row-hint is-danger">
-              {ss.reason ? sentence(ss.reason) : "Sendspin didn't start."} Logs, under System, says more.
+              {ss.reason ? sentence(ss.reason) : "Sendspin didn't start."} It tries again every 5 seconds. Logs, under
+              System, says more.
             </span>
           {:else}
             <span class="pn-row-label">Starting…</span>
@@ -303,6 +323,17 @@
           {/if}
         </div>
       </div>
+      {#if set.airplay && ss.state !== SendspinState.FAILED}
+        <div class="pn-row">
+          <div class="pn-row-text">
+            <span class="pn-row-label">AirPlay is on too</span>
+            <span class="pn-row-hint">
+              Music Assistant may list “{ss.name}” more than once. Choose the Sendspin player, which keeps step with the
+              group.
+            </span>
+          </div>
+        </div>
+      {/if}
       {#if ssNotInStep}
         <div class="pn-row">
           <div class="pn-row-text">
@@ -318,7 +349,8 @@
   </Group>
   <Group title="Play a URL">
     {#snippet foot()}
-      It plays like music from Home Assistant, and stops what was playing. Volume, on Voice &amp; sound, sets how loud;
+      It plays like music from Home Assistant, and stops what was playing; a satellite playing in a Music Assistant group
+      leaves the group. Volume, on Voice &amp; sound, sets how loud;
       the Overview shows what plays.
     {/snippet}
     <form

@@ -143,7 +143,7 @@
     <a class="pn-row" href="#/voice/media-sources">
       <span class="pn-row-text">
         <span class="pn-row-label">Media sources</span>
-        <span class="pn-row-hint">Let phones and computers play music on this satellite, or play a URL</span>
+        <span class="pn-row-hint">Let phones, computers and Music Assistant play music on this satellite, or play a URL</span>
       </span>
       <span class="pn-row-value"
         >{[set.airplay && "AirPlay", set.bluetooth && "Bluetooth", set.sendspin && "Sendspin"]

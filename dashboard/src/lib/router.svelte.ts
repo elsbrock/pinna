@@ -66,7 +66,7 @@ const SUBPAGES: Omit<Page, "section">[] = [
   {
     path: "/voice/media-sources",
     title: "Media sources",
-    description: "What may play music to the satellite from phones and computers.",
+    description: "What may play music to the satellite from phones, computers and Music Assistant.",
   },
   {
     path: "/voice/ring",
