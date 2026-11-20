@@ -1,8 +1,9 @@
 ---
-// The mark (design/mark.svg) and the wordmark in Unbounded. The mark's
-// colours are fixed, the same in light and dark, so it is an image: inlined
-// twice on a page, its gradient ids would collide.
-import markUrl from "../../../design/mark.svg?url";
+// The mark (design/mark.svg) and the wordmark in Unbounded. The mark is
+// inline so its gradients can turn on hover; each copy gets its own ids, or
+// the header's and the footer's would collide.
+import mark from "../../../design/mark.svg?raw";
+import { uniqueId } from "../lib/ids";
 
 type Props = {
   /** Mark size in px; the wordmark scales with it. */
@@ -12,10 +13,44 @@ type Props = {
 };
 
 const { size = 28, wordmark = true, class: className } = Astro.props;
+
+const id = uniqueId("pn-mark");
+// One full turn of each face's gradient around its own midpoint: the light
+// sweeps across the faces and ends where it started.
+const turn = (cx: number, cy: number) =>
+  `<animateTransform attributeName="gradientTransform" type="rotate" from="0 ${cx} ${cy}" to="360 ${cx} ${cy}" dur="0.9s" begin="indefinite" restart="whenNotActive" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1"/>`;
+const svg = mark
+  .replace(/<title>.*?<\/title>/, "")
+  .replaceAll('id="pn-', `id="${id}-`)
+  .replaceAll("url(#pn-", `url(#${id}-`)
+  .replace(
+    /(<linearGradient [^>]*x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)">)/g,
+    (_, open: string, x1: string, y1: string, x2: string, y2: string) =>
+      open + turn((+x1 + +x2) / 2, (+y1 + +y2) / 2),
+  )
+  .replace(
+    'width="100" height="100"',
+    wordmark
+      ? 'width="100%" height="100%" aria-hidden="true" focusable="false"'
+      : 'width="100%" height="100%" role="img" aria-label="Pinna" focusable="false"',
+  );
 ---
 
-<span class:list={["inline-flex items-center gap-2.5", className]}>
-  <img class="block shrink-0" src={markUrl} alt={wordmark ? "" : "Pinna"} width={size} height={size} />
+<style>
+  /* On hover, or keyboard focus on the link around it, the mark grows. */
+  @media (prefers-reduced-motion: no-preference) {
+    .mark {
+      transition: scale 0.2s ease-out;
+    }
+    .logo:hover .mark,
+    :global(:focus-visible) > .logo .mark {
+      scale: 1.2;
+    }
+  }
+</style>
+
+<span data-pn-logo class:list={["logo inline-flex items-center gap-2.5", className]}>
+  <span class="mark block shrink-0" style={`width:${size}px;height:${size}px`} set:html={svg} />
   {
     wordmark && (
       <span
@@ -27,3 +62,20 @@ const { size = 28, wordmark = true, class: className } = Astro.props;
     )
   }
 </span>
+
+<script>
+  // Turns the gradients once when the pointer enters the logo, or its link
+  // gets focus. Nothing turns when the reader asks for reduced motion.
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
+  for (const logo of document.querySelectorAll<HTMLElement>("[data-pn-logo]")) {
+    const host = logo.closest("a") ?? logo;
+    const play = () => {
+      if (still.matches) return;
+      for (const turn of logo.querySelectorAll<SVGAnimationElement>("animateTransform")) {
+        turn.beginElement();
+      }
+    };
+    host.addEventListener("mouseenter", play);
+    host.addEventListener("focus", play);
+  }
+</script>
