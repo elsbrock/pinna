@@ -34,10 +34,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
   itself; each added file carries its own SPDX header and copyright lines.
 - `tools/wmt/`: GPL-2.0, see the SPDX headers in the files.
 - The playback volume curve (`crates/pinna-audio/src/volume.rs`) and the
-  output mixer settings in `crates/pinna-audio/src/mixer.rs` follow
-  `audio_engine.c` from LibreEcho's platform tree
-  (https://github.com/aslater3/LibreEcho-Platform). That repository
-  is GPL-2.0 (its `COPYING`); the file itself has no license header.
+  output mixer settings in `crates/pinna-audio/src/mixer.rs` take a formula
+  and mixer values from `audio_engine.c` in LibreEcho's platform tree
+  (https://github.com/aslater3/LibreEcho-Platform).
 - Release images and the device kernel carry Amazon's MT8163 Wi-Fi and
   Bluetooth firmware files from the Echo Dot (2nd gen)'s stock Fire OS and the
   microphone FPGA bitstream (`i2s_to_spi_v34.bin`), unmodified. The
