@@ -410,15 +410,37 @@ Otherwise, install Pinna again. This erases the data partition:
 
 ## Report a problem
 
-If you can't solve it, [open an issue](https://github.com/elsbrock/pinna/issues)
-and include:
+If you can't solve it,
+[open an issue](https://github.com/elsbrock/pinna/issues/new):
 
-- What you did, and what happened.
-- The version, from the **Software** tile on the dashboard's **Overview**,
-  and whether the device is an Echo Dot (2nd gen) or an Echo (2nd gen).
-- How the last start ended, from the **Logs** row of **System**.
-- The log, from **System > Logs**: select **All**, then **Copy**, and paste it
-  into the issue. Check it first: issues are public.
+1. On the dashboard, open **System > Logs**. If the problem happened a while
+   ago, make it happen again first: the page starts with the log's last
+   1,000 lines at most.
+2. Select **Copy for an issue**. It copies these details:
+   - the version and the device model
+   - the slot the satellite runs from, and how its last start ended
+   - the mode: Home Assistant or standalone
+   - the update channel
+   - when you copied it, in the time zone of the log's times
+   - the log, in a collapsed section. It has every line on the page, also
+     the lines that **Warnings and errors** or **Filter** hide.
+3. Paste it into the issue. Above it, say what you did and what happened.
+4. Read it before you post it: issues are public. The block has no serial
+   number. In the log, IP addresses, MAC addresses and the names of the
+   satellite's Wi-Fi networks become `[IP]`, `[MAC]` and `[Wi-Fi network]`,
+   and so does the part of the MAC address in the satellite's default name
+   (`pinna-[MAC]`). The log can still hold other details: a name you gave
+   the satellite, the names of paired phones and timers, and host names and
+   web addresses.
+
+The block holds at most 50,000 characters, which leaves room for your own
+words under GitHub's limit of 65,536. A longer log is cut to its newest
+lines, and the title of the collapsed section says so, such as **Log, the
+newest 600 of 2,000 lines**. To attach every line the page holds, select
+**All**, clear **Filter**, select **Download**, and attach the text file to
+the issue. **Download** saves the lines as they are, with addresses and
+network names, and the file's name starts with the satellite's name: check
+it before you attach it.
 
 In rescue mode, the dashboard doesn't run. Attach the file from **Download
 diagnostics** on `http://10.42.0.1` instead. Read it before you post it: the
