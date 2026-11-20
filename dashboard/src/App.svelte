@@ -24,6 +24,7 @@
   import Network from "./pages/Network.svelte";
   import Overview from "./pages/Overview.svelte";
   import Password from "./pages/Password.svelte";
+  import RecordAudio from "./pages/RecordAudio.svelte";
   import System from "./pages/System.svelte";
   import Updates from "./pages/Updates.svelte";
   import MediaSources from "./pages/MediaSources.svelte";
@@ -229,6 +230,7 @@
         {:else if page.path === "/system"}<System />
         {:else if page.path === "/system/updates"}<Updates />
         {:else if page.path === "/system/password"}<Password />
+        {:else if page.path === "/system/record"}<RecordAudio />
         {:else if page.path === "/system/logs"}<Logs />{/if}
       {/if}
     </main>

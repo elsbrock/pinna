@@ -1,17 +1,23 @@
-<!-- Asks for someone at the satellite (ADR 0029): the ring circles white for 60
-     seconds, and a press of Action hands the caller a one-time grant. Starts
+<!-- Asks for someone at the satellite (ADR 0029): the ring circles for 60
+     seconds, white for a password and in the Listening colour for a recording
+     (ADR 0030), and a press of Action hands the caller a one-time grant. Starts
      when it appears. Cancel, and leaving while it waits, stop the ring at once. -->
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { ConfirmationState } from "../gen/pinna/v1/device_pb.ts";
+  import { ConfirmationPurpose, ConfirmationState } from "../gen/pinna/v1/device_pb.ts";
   import { clock } from "./clock.svelte.ts";
   import { client, errorSentence } from "./device.svelte.ts";
   import Icon from "./Icon.svelte";
   import { security } from "./security.svelte.ts";
   import { secondsUntil, secondsWord, splitRetry } from "./view.ts";
 
-  let { ongrant, oncancel }: { ongrant: (grant: string) => void; oncancel: () => void } = $props();
+  let {
+    ongrant,
+    oncancel,
+    purpose = ConfirmationPurpose.PASSWORD,
+  }: { ongrant: (grant: string) => void; oncancel: () => void; purpose?: ConfirmationPurpose } = $props();
+  const recording = $derived(purpose === ConfirmationPurpose.RECORDING);
 
   let stage = $state<"starting" | "waiting" | "expired" | "stopped" | "refused" | "done">("starting");
   // The satellite sends the seconds left once, when the wait starts: count down here.
@@ -48,7 +54,7 @@
     const mine = (stream = new AbortController());
     stage = "starting";
     try {
-      const started = await client.startConfirmation({});
+      const started = await client.startConfirmation({ purpose });
       id = started.id;
       clock.now = Date.now();
       deadline = clock.now + started.seconds * 1000;
@@ -92,15 +98,23 @@
   {#if stage === "starting"}
     <p>Asking the satellite…</p>
   {:else if stage === "waiting"}
-    <p class="pn-notice-title">Press the Action button (the one with the dot) on the satellite.</p>
-    <p>Its ring circles white. {secondsWord(left)} left.</p>
+    {#if recording}
+      <p class="pn-notice-title">Press Action on the satellite to start recording.</p>
+      <p>The ring circles in the Listening colour. {secondsWord(left)} left.</p>
+    {:else}
+      <p class="pn-notice-title">Press the Action button (the one with the dot) on the satellite.</p>
+      <p>Its ring circles white. {secondsWord(left)} left.</p>
+    {/if}
     <p class="muted">Press it only if you started this yourself.</p>
   {:else if stage === "expired"}
     <p class="pn-notice-title">Nobody pressed Action in time.</p>
-    <p>Try again, and press Action on the satellite while its ring circles white.</p>
+    <p>Try again, and press Action on the satellite while its ring circles {recording ? "in the Listening colour" : "white"}.</p>
   {:else if stage === "stopped"}
     <p class="pn-notice-title">The confirmation was stopped.</p>
-    <p>Someone stopped it from the dashboard. Try again, and press Action on the satellite while its ring circles white.</p>
+    <p>
+      Someone stopped it from the dashboard. Try again, and press Action on the satellite while its ring circles
+      {recording ? "in the Listening colour" : "white"}.
+    </p>
   {:else if stage === "refused"}
     <p class="refused"><Icon name="alert" />{refusal}</p>
   {/if}

@@ -105,6 +105,12 @@ const SUBPAGES: Omit<Page, "section">[] = [
     description: "Where updates come from, installing them, and the version in each slot.",
   },
   {
+    path: "/system/record",
+    title: "Record audio",
+    description:
+      "Up to 30 seconds of what the satellite hears, to debug the wake word and echo cancellation.",
+  },
+  {
     path: "/system/logs",
     title: "Logs",
     description:

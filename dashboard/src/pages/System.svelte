@@ -8,7 +8,7 @@
   import { security } from "../lib/security.svelte.ts";
   import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
-  import { displayName, lastStart, updateSummary, uptime } from "../lib/view.ts";
+  import { displayName, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -67,6 +67,7 @@
     void security.refresh();
   });
   const passwordSet = $derived(security.state?.passwordSet);
+  const record = $derived(recordHint(passwordSet, !!s?.recording));
 
   // GetUpdates once on mount and when the link comes back live; every 5 s while
   // an install runs, so the row turns from "Installing" without a reload. A
@@ -203,6 +204,13 @@
         >
       </span>
       <span class="pn-row-value is-mono">{summary.value}</span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+    <a class="pn-row" href="#/system/record">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Record audio</span>
+        <span class="pn-row-hint" class:is-caution={record.caution}>{record.hint}</span>
+      </span>
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
     <a class="pn-row" href="#/system/logs">
