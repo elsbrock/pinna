@@ -600,6 +600,84 @@ async fn a_paused_group_and_its_controls() {
     wait(&mut s.report, |r| !r.group_paused).await;
 }
 
+/// The report once the service has read everything the server sent so far: a volume
+/// command goes last, and its `client/state` comes back.
+async fn settled(s: &mut Session, volume: u8) -> Report {
+    s.server
+        .send(json!({"type": "server/command", "payload": {"player": {"command": "volume", "volume": volume}}}))
+        .await;
+    s.server.expect("client/state").await;
+    wait(&mut s.report, |r| r.volume == volume).await
+}
+
+/// A group reports `stopped` whether it paused, stopped or ran out of queue: only a pause
+/// sent from here shows it paused. A queue that ends on its own, and Stop from here, leave
+/// the satellite Connected and the group not paused (ADR 0027 §14).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_pause_from_here_leaves_the_group_paused() {
+    let mut s = session().await;
+    s.server
+        .send(json!({"type": "server/state", "payload": {"controller": {
+            "supported_commands": ["play", "pause", "stop"], "volume": 50, "muted": false,
+            "repeat": "off", "shuffle": false}}}))
+        .await;
+    let end = json!({"type": "stream/end", "payload": {}});
+
+    // The queue runs out.
+    s.server.group("playing").await;
+    s.server.stream_start().await;
+    wait(&mut s.report, |r| r.state == State::Playing).await;
+    s.server.send(end.clone()).await;
+    s.server.group("stopped").await;
+    let r = settled(&mut s, 31).await;
+    assert_eq!(
+        (r.state, r.group_paused),
+        (State::Connected("Music Assistant".into()), false)
+    );
+
+    // Paused from here, then stopped from here.
+    s.server.group("playing").await;
+    s.server.stream_start().await;
+    wait(&mut s.report, |r| r.state == State::Playing).await;
+    assert!(s.handle.control(Control::Pause).await);
+    s.server.expect("client/command").await;
+    s.server.send(end.clone()).await;
+    s.server.group("stopped").await;
+    wait(&mut s.report, |r| r.group_paused).await;
+    assert!(s.handle.control(Control::Stop).await);
+    assert_eq!(
+        s.server.expect("client/command").await,
+        json!({"controller": {"command": "stop"}})
+    );
+    assert!(!settled(&mut s, 32).await.group_paused);
+
+    // Stopped from here while it plays.
+    s.server.group("playing").await;
+    s.server.stream_start().await;
+    wait(&mut s.report, |r| r.state == State::Playing).await;
+    assert!(s.handle.control(Control::Stop).await);
+    s.server.expect("client/command").await;
+    s.server.send(end.clone()).await;
+    s.server.group("stopped").await;
+    assert!(!settled(&mut s, 33).await.group_paused);
+
+    // Paused from here, resumed elsewhere, then the queue runs out.
+    s.server.group("playing").await;
+    s.server.stream_start().await;
+    wait(&mut s.report, |r| r.state == State::Playing).await;
+    assert!(s.handle.control(Control::Pause).await);
+    s.server.expect("client/command").await;
+    s.server.send(end.clone()).await;
+    s.server.group("stopped").await;
+    wait(&mut s.report, |r| r.group_paused).await;
+    s.server.group("playing").await;
+    s.server.stream_start().await;
+    wait(&mut s.report, |r| r.state == State::Playing).await;
+    s.server.send(end).await;
+    s.server.group("stopped").await;
+    assert!(!settled(&mut s, 34).await.group_paused);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn switching_off_withdraws_the_record_first() {
     let mut s = session().await;

@@ -262,11 +262,33 @@ async def test_pause_and_play_act_on_the_group(pinnad, server):
     server.start_producer(client, tone(30))
     await pinnad.until_playing()
 
-    # Stop goes to the group too.
+    # Stop goes to the group too. The group then reports `stopped` as a paused one does, yet
+    # the satellite shows Idle: only its own pause leaves the group paused (ADR 0027 §14).
     await pinnad.call("ControlMedia", {"command": "MEDIA_COMMAND_STOP"})
     await server.until(
         lambda: any(isinstance(e, ControllerStopEvent) for e in server.group_events), "stop"
     )
+    await server.stop_producer()
+    await client.group.stop(keep_progress=True)
+    await until_idle(pinnad, "idle after stop")
+
+    # A queue that runs out: Music Assistant ends the stream and stops the group.
+    server.start_producer(client, tone(30))
+    await pinnad.until_playing()
+    await server.stop_producer()
+    await client.group.stop()
+    await until_idle(pinnad, "idle at the end of the queue")
+
+
+async def until_idle(pinnad, what: str):
+    """Until the media player is Idle, and still is a moment later: the lane goes idle once
+    the stream fades out, and a group shown paused would show Paused again."""
+    await pinnad.until(lambda s: media(s).get("state") == "MEDIA_STATE_IDLE", what)
+    await asyncio.sleep(0.5)
+    status = await pinnad.status()
+    assert media(status).get("state") == "MEDIA_STATE_IDLE", media(status)
+    assert media(status).get("source", "") != "sendspin", media(status)
+    assert sendspin(status)["state"] == "SENDSPIN_STATE_CONNECTED", sendspin(status)
 
 
 @pytest.fixture

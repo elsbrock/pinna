@@ -132,9 +132,11 @@ struct Peer {
     name: String,
     roles: ActiveRoles,
     group: Option<GroupUpdate>,
-    /// The group in which a stream last played here: a stopped group is paused only if it
-    /// played (ADR 0027 §14).
-    played_group: Option<String>,
+    /// The group this satellite paused through the controller role, until the group plays
+    /// again or the satellite stops or leaves it. A group reports `stopped` whether it paused,
+    /// stopped or ran out of queue, so only a pause sent from here shows it Paused (ADR 0027
+    /// §14).
+    paused_group: Option<String>,
 }
 
 /// A player stream, from its `stream/start` to its end.
@@ -419,19 +421,32 @@ impl Service {
             Control::Play => ControllerCommand::Play,
             Control::Stop => ControllerCommand::Stop,
         };
-        self.admitted()
-            .is_some_and(|i| self.peers[i].conn.command(command).is_ok())
+        let Some(i) = self.admitted() else {
+            return false;
+        };
+        let p = &mut self.peers[i];
+        if p.conn.command(command).is_err() {
+            return false;
+        }
+        match control {
+            Control::Pause => p.paused_group = p.group.as_ref().map(|g| g.group_id.clone()),
+            // A group stopped from here is not waiting to resume (ADR 0027 §14).
+            Control::Stop => p.paused_group = None,
+            // Paused until the group says it plays.
+            Control::Play => {}
+        }
+        true
     }
 
-    /// Another source took the lane while nothing sounded: the group plays on without the
-    /// satellite (ADR 0027 §14).
+    /// Another source took the lane while the group waited paused from here: the group plays
+    /// on without the satellite when it resumes (ADR 0027 §14).
     fn leave_group(&mut self) {
         if let Some(i) = self.admitted() {
             let p = &mut self.peers[i];
             if p.conn.leave().is_ok() {
                 tracing::info!("sendspin: another source plays; left {:?}'s group", p.name);
             }
-            p.played_group = None;
+            p.paused_group = None;
         }
     }
 
@@ -572,7 +587,7 @@ impl Service {
             name: String::new(),
             roles: ActiveRoles::default(),
             group: None,
-            played_group: None,
+            paused_group: None,
         });
     }
 
@@ -670,7 +685,7 @@ impl Service {
             Event::Group(group) => {
                 let p = &mut self.peers[i];
                 if group.playback_state == PlaybackState::Playing {
-                    p.played_group = Some(group.group_id.clone());
+                    p.paused_group = None;
                 }
                 p.group = Some(group);
             }
@@ -793,10 +808,6 @@ impl Service {
             self.stats_at = Some(Instant::now() + STATS_EVERY);
             self.refresh_stats();
         }
-        let p = &mut self.peers[i];
-        if let Some(group) = &p.group {
-            p.played_group = Some(group.group_id.clone());
-        }
     }
 
     /// The stream ended: its timed source fades out.
@@ -883,7 +894,7 @@ impl Service {
                             p.name
                         );
                     }
-                    p.played_group = None;
+                    p.paused_group = None;
                 }
             }
             EndReason::SpeakerFailed => {
@@ -948,7 +959,7 @@ impl Service {
                 p.roles.player
                     && p.group.as_ref().is_some_and(|g| {
                         g.playback_state == PlaybackState::Stopped
-                            && p.played_group.as_deref() == Some(g.group_id.as_str())
+                            && p.paused_group.as_deref() == Some(g.group_id.as_str())
                     })
             });
         Report {

@@ -100,9 +100,10 @@ pub struct Report {
     pub reason: String,
     /// The speaker's hardware pointer times the audio, so it plays in step with its group.
     pub exact_timing: bool,
-    /// The admitted server's group is paused: it holds the player role, nothing sounds, and the
-    /// group stopped after it played here (ADR 0027 §14). The media state keeps the source
-    /// `sendspin` meanwhile.
+    /// The admitted server's group waits paused from here: it holds the player role, nothing
+    /// sounds, and the group stopped after this satellite paused it, and has not played since
+    /// (ADR 0027 §14). A group stopped any other way, or that ran out of queue, is not. The
+    /// media state keeps the source `sendspin` meanwhile.
     pub group_paused: bool,
     /// The stream's own level, 0 to 100 (ADR 0027 §15).
     pub volume: u8,
@@ -308,7 +309,8 @@ impl Handle {
 
     /// Pause, play or stop the admitted server's group (ADR 0027 §14). Whether it could be
     /// sent: the server must have admitted the controller role and list the command as one
-    /// it accepts now.
+    /// it accepts now. A pause sent here is what makes the stopped group count as paused
+    /// ([`Report::group_paused`]); a stop sent here ends that.
     pub async fn control(&self, control: Control) -> bool {
         let (tx, rx) = oneshot::channel();
         if self.tx.send(Command::Control(control, tx)).is_err() {
@@ -327,8 +329,8 @@ impl Handle {
         let _ = self.tx.send(Command::SetMuted(muted));
     }
 
-    /// Another source took the lane while the group was paused: leave the group, which plays
-    /// on without the satellite when it resumes (ADR 0027 §14).
+    /// Another source took the lane while the group waited paused from here: leave the group,
+    /// which plays on without the satellite when it resumes (ADR 0027 §14).
     pub fn another_source(&self) {
         let _ = self.tx.send(Command::AnotherSource);
     }

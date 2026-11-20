@@ -1018,9 +1018,10 @@ impl Brain {
                     && self.sendspin_report.borrow().group_paused
                     && let Some(s) = &self.sendspin
                 {
-                    // Another source took the lane while the group waits:
-                    // the satellite leaves it, so the group's next play
-                    // doesn't cut this one off (ADR 0027 §14).
+                    // Another source took the lane while the group waits
+                    // paused from here: the satellite leaves it, so the
+                    // group's next play doesn't cut this one off (ADR 0027
+                    // §14).
                     s.another_source();
                 }
                 self.media_url = state.url;
@@ -2628,9 +2629,10 @@ impl Brain {
         .await;
     }
 
-    /// The media lane plays nothing, and the Sendspin group that last played
-    /// here is paused: the media player shows it Paused, from Sendspin, so
-    /// that Play resumes the group (ADR 0027 §14).
+    /// The media lane plays nothing, and the Sendspin group this satellite
+    /// paused waits: the media player shows it Paused, from Sendspin, so that
+    /// Play resumes the group (ADR 0027 §14). After Stop, or a queue that ran
+    /// out, it shows Idle.
     fn sendspin_paused(&self) -> bool {
         self.media_phase == MediaPhase::Idle && self.sendspin_report.borrow().group_paused
     }
