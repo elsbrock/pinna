@@ -113,6 +113,15 @@ receiver runs and under which name. A sender on another network, VLAN or guest
 Wi-Fi doesn't see the device. See
 [If the device doesn't show up](/docs/airplay/#if-the-device-doesnt-show-up).
 
+## Music Assistant doesn't list the satellite
+
+Check **Voice & sound > Media sources** on the dashboard. It says whether the
+Sendspin player runs, under which name, and why a server couldn't connect,
+for example because Music Assistant is older than 2.10.7. Music Assistant on
+another network, VLAN or guest Wi-Fi doesn't see the satellite: give it the
+satellite's address. See
+[If Music Assistant doesn't list the satellite or doesn't connect](/docs/sendspin/#if-music-assistant-doesnt-list-the-satellite-or-doesnt-connect).
+
 ## A phone doesn't find the device over Bluetooth
 
 Check **Voice & sound > Media sources** on the dashboard. A phone that hasn't
