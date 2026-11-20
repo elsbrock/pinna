@@ -1049,10 +1049,19 @@ impl Updater {
         }
         match std::fs::read(&self.paths.restart_mark) {
             Ok(mark) if mark == MARK_IN_WINDOW => {
-                let (window, zone) = {
+                let (mode, window, zone) = {
                     let auto = lock_auto(&self.auto);
-                    (auto.policy.window, auto.policy.zone.clone())
+                    (
+                        auto.policy.mode,
+                        auto.policy.window,
+                        auto.policy.zone.clone(),
+                    )
                 };
+                // Switched to manually after the install: the owner restarts,
+                // as after an install from the dashboard.
+                if mode != InstallMode::Automatically {
+                    return false;
+                }
                 let (tz, _) = crate::clock::resolve(zone.as_deref());
                 self.paths.clock.synchronized()
                     && window.contains_time(jiff::Timestamp::now().to_zoned(tz).datetime())

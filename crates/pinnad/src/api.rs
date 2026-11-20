@@ -4142,6 +4142,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn switching_to_manually_after_an_automatic_install_leaves_the_restart_to_the_owner() {
+        let rig = release_rig_with("auto-after", "2.0.0", "null", HELD_INSTALL);
+        let updater = Arc::new(rig.updater());
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        updater.init_automatic(automatically(window_from(-60)));
+        updater.check().await.unwrap();
+        assert!(updater.plan(SystemTime::now()).await.is_some());
+        // No Brain: nothing restarts while the test looks.
+        let (c, _) = start_device_with(updater.clone()).await;
+        updater.fire_automatic(SystemTime::now()).await;
+        // Outside the window when it finishes, so it waits for the window.
+        updater.set_automatic(automatically(window_from(120)));
+        finish_install(&rig);
+        let u = wait_until_idle(&c).await;
+        assert!(u.last_install.as_option().unwrap().ok && u.restart_pending);
+        assert!(!updater.restart_due());
+        // Manually, with the window open: the owner restarts, not pinnad.
+        updater.set_automatic(crate::updates::Policy {
+            window: window_from(-60),
+            ..crate::updates::Policy::default()
+        });
+        assert!(updater.restart_pending());
+        assert!(!updater.restart_due());
+        // Back to automatically, in the window: due again.
+        updater.set_automatic(automatically(window_from(-60)));
+        assert!(updater.restart_due());
+    }
+
+    #[tokio::test]
     async fn switching_to_manually_cancels_a_planned_install_but_not_a_running_one() {
         let rig = release_rig_with("auto-manual", "2.0.0", "null", HELD_INSTALL);
         let updater = Arc::new(rig.updater());
