@@ -598,6 +598,15 @@ async fn a_paused_group_and_its_controls() {
     s.handle.another_source();
     assert_eq!(s.server.expect("client/leave").await, json!({}));
     wait(&mut s.report, |r| !r.group_paused).await;
+    // The Brain hears of the source more than once before the report catches up (buffering,
+    // then playing): the group is left once. The volume goes through the same queue, so a
+    // second leave would come before its client/state.
+    s.handle.another_source();
+    s.handle.set_volume(42);
+    assert_eq!(
+        s.server.expect("client/state").await["player"]["volume"],
+        42
+    );
 }
 
 /// The report once the service has read everything the server sent so far: a volume

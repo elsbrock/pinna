@@ -443,10 +443,11 @@ impl Service {
     fn leave_group(&mut self) {
         if let Some(i) = self.admitted() {
             let p = &mut self.peers[i];
-            if p.conn.leave().is_ok() {
+            // Once: the Brain may hear of the new source again before the report says the
+            // group no longer waits.
+            if p.paused_group.take().is_some() && p.conn.leave().is_ok() {
                 tracing::info!("sendspin: another source plays; left {:?}'s group", p.name);
             }
-            p.paused_group = None;
         }
     }
 
