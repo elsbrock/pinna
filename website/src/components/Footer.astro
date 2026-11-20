@@ -6,6 +6,9 @@ import { docHref, SITE } from "../lib/site";
 // Set by astro.config.mjs from git at build time.
 declare const __PINNA_SITE_VERSION__: { describe: string; commit: string };
 const version = __PINNA_SITE_VERSION__;
+// The release the site was built from: `git describe` without the commits
+// since the tag ("v0.5.0-beta.2-1-g0c3b4ae" is v0.5.0-beta.2).
+const release = version.describe.replace(/-\d+-g[0-9a-f]+(-dirty)?$/, "");
 
 const docs = [
   { slug: "", title: "Overview" },
@@ -81,21 +84,22 @@ const project = [
       class="border-line text-ink-muted mt-10 flex flex-col gap-2 border-t pt-6 text-xs sm:flex-row sm:items-center sm:justify-between"
     >
       <p>
-        Site source in <a
-          class="text-ink-muted hover:text-ink font-mono"
-          href={`${SITE.repo}/tree/main/website`}>website/</a
-        > · built with Astro and Tailwind CSS ·
+        © 2026 Simon Elsbrock and
+        <a class="text-ink-muted hover:text-ink" href={`${SITE.repo}/graphs/contributors`}>contributors</a>
+        ·
+        <a class="text-ink-muted hover:text-ink" href={`${SITE.repo}/blob/main/LICENSE`}>MIT licence</a>
+        ·
         {
           version.commit ? (
             <a
               class="text-ink-muted hover:text-ink font-mono"
               href={`${SITE.repo}/commit/${version.commit}`}
-              title="The commit this site was built from"
+              title={`Built from ${version.describe}`}
             >
-              {version.describe}
+              {release}
             </a>
           ) : (
-            <span class="font-mono">{version.describe}</span>
+            <span class="font-mono">{release}</span>
           )
         }
       </p>
