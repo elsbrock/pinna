@@ -35,7 +35,9 @@ file-only) and the key handling of pinna-esphome. Builds on ADR 0005 and ADR
 
 - **Until it has a key, a satellite is provisionable.** It accepts plaintext
   connections, as today, and Noise connections with the all-zero key. Its
-  device info reports `api_encryption_provisionable`.
+  device info reports `api_encryption_provisionable`. Proposed in ADR 0029:
+  once the dashboard has a password, only for 15 minutes after the owner
+  allows it there ([ADR 0029](0029-dashboard-password.md)).
 - **The first key comes from whoever sends it first,** over either kind of
   connection. pinnad stores it (mode 0600, written durably) in
   `/var/lib/pinna/esphome-key`, uses it from then on, and closes every

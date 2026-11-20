@@ -38,7 +38,8 @@ Constraints:
   share one origin and need no CORS. It uses axum, through connectrpc's `axum`
   feature, and tower-http's `ServeDir`.
 - **No authentication.** Anyone who can reach the satellite on the LAN can use
-  the dashboard.
+  the dashboard. Proposed in ADR 0029: a password, once the owner sets one,
+  confirmed with the Action button ([ADR 0029](0029-dashboard-password.md)).
 - **Host allowlist against DNS rebinding.** The web listener answers only
   requests whose Host is:
   - an IP address
@@ -159,6 +160,6 @@ Constraints:
 - A satellite opened by a custom DNS name (not `.local`) needs that name as its
   dashboard address on the Network page. The 421 response says so.
 - Authentication (for example a password seeded from `secrets/device/`) is
-  deferred. Adding it would amend this ADR and probably split the listener's
+  deferred. Proposed in ADR 0029. Adding it would amend this ADR and probably split the listener's
   API from the loopback one.
 - `just image` now needs Node to build `dashboard/`.

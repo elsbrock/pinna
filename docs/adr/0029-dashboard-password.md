@@ -1,4 +1,4 @@
-# ADR 0028: A dashboard password, confirmed at the device
+# ADR 0029: A dashboard password, confirmed at the device
 
 Status: proposed (2026-11-19). Amends ADR 0005 (no authentication on the
 listener), ADR 0017 (who may call `/mcp`), ADR 0018 (who may connect to the

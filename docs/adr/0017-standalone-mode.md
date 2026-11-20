@@ -302,7 +302,8 @@ ADR 0021.
   most two tool calls at once (another is told the device is busy), and keeps room in the state
   machine's queue for the wake word. The dashboard lists the last 8 clients that introduced themselves
   (`initialize` with a name), by that name and their address.
-- **Access works like the dashboard: anyone on the LAN, no token.**
+- **Access works like the dashboard: anyone on the LAN, no token.** Proposed in ADR 0029: once the
+  dashboard has a password, `/mcp` needs the agent token ([ADR 0029](0029-dashboard-password.md)).
   - The Host allowlist applies. An agent reaches `/mcp` by the `.local` name, an IP address or the
     dashboard address (ADR 0021), and the Assistant page shows that address to copy.
   - Requests must be `application/json` and pass an Origin check.

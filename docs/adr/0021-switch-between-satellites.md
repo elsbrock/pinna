@@ -121,6 +121,8 @@ Builds on ADR 0010 (hostname).
 - The Network page shows one address instead of a list of names. A second
   custom name, such as the router's name next to a reverse proxy's, needs
   `[web] allowed_hosts`, a developer setting.
+- Proposed in ADR 0029: the list marks members of the satellite's group, and
+  says that the other entries are only what the network announced.
 - Anyone on the LAN can announce a fake satellite whose link goes elsewhere;
   the list shows each link's host. Anyone on the LAN can already control the
   satellites (ADR 0005), so this widens nothing that matters while there is no

@@ -22,6 +22,8 @@ and what anyone on the LAN can read).
 
 - **`GET /metrics` on the web listener** (ADR 0005), in the Prometheus text
   format 0.0.4. It has the dashboard's Host allowlist and no authentication.
+  Proposed in ADR 0029: once the dashboard has a password, it needs the
+  metrics token ([ADR 0029](0029-dashboard-password.md)).
   It is off when the listener is off (`[web] listen = ""`); there is no switch
   of its own.
 - **pinnad reads the host itself**, from /proc and /sys, when scraped, with the

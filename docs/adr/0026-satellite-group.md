@@ -105,7 +105,11 @@ group.
   two. The satellite added accepts only while its switch is on and it is in
   no group: its switch is its owner's consent to be added, and the click is
   the group's. A satellite never adds itself to a group from its own
-  dashboard: the group decides who gets its key.
+  dashboard: the group decides who gets its key. Proposed in ADR 0029: on a
+  satellite with a dashboard password, the switch alone isn't consent; it
+  accepts a `Join` only for 10 minutes after its owner allows it there, and
+  it refuses `Call` and `Deliver` from members without a password
+  ([ADR 0029](0029-dashboard-password.md)).
 - **Names must be speakable and unique.** The brain names members by their
   friendly name (ADR 0007). Add is refused for a satellite whose friendly name
   is a member's already, or is "all" (which `send_message` uses for everyone),
