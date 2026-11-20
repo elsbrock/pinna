@@ -108,7 +108,7 @@ const goals = [
   { title: "Be safe to install and update", body: "Every installation step can be undone, updates roll back on their own, and none installs without you." },
   { title: "Use standard parts", body: "Debian, systemd and a small set of Rust programs." },
   { title: "Make development pleasant", body: "One shell for every tool, and tests that run without hardware." },
-  { title: "Stay open", body: "All code is public. The few proprietary firmware files are included unmodified, in their own folder." },
+  { title: "Stay open", body: "Pinna's code is open source. Amazon's Wi-Fi firmware and microphone bitstream aren't part of it: the build fetches them, unmodified." },
 ];
 
 const works = [
@@ -372,9 +372,9 @@ const gaps = [
           <Icon name="disk" size={18} class="text-brand-mid mt-0.5 shrink-0" />
           <p class="text-ink-muted text-body">
             <span class="text-ink font-medium">You provide the backup.</span>
-            You back up your own device before you install, and you create
-            your own signing key. The proprietary Wi-Fi firmware is included
-            unmodified, in its own folder.
+            You back up your own device before you install. Amazon's Wi-Fi
+            firmware and microphone bitstream aren't in Pinna's repository:
+            the build fetches them, unmodified, and the images carry them.
           </p>
         </div>
         <div class="flex items-start gap-3">
