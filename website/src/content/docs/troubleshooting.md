@@ -41,8 +41,8 @@ If the dashboard doesn't open, start with
 You don't need a cable or a reset. You need to be at the device:
 
 1. Open the dashboard and select **Forgot the password?** on the sign-in page.
-2. The dashboard says "Press Action on the satellite", and the ring circles
-   white. Press the **Action** button on the device within 60 seconds.
+2. The dashboard says "Press the Action button (the one with the dot) on the
+   satellite", and the ring circles white. Press it within 60 seconds.
 3. Enter a new password, 8 to 128 characters, and select **Set password**. The
    dashboard signs you in.
 
@@ -52,10 +52,12 @@ tokens for [Prometheus](/docs/metrics/#who-can-read-them) and
 
 Two messages can stop you before you press **Action**:
 
-- "Another confirmation waits for a press of Action at the satellite." One is
-  running, started from another tab or by someone else on your network. Press
-  **Action** only if you started it. Otherwise wait, and try again after the
-  seconds the message names.
+- "A confirmation from another browser is waiting. Press Action only if you
+  started it. Try again in N s." One is running, started from another tab or by
+  someone else on your network. Press **Action** only if you started it. If you
+  are signed in, **Overview** shows the address that asked and **Stop it**; the
+  next confirmation can start 10 seconds after that. Otherwise wait the seconds
+  the message names. The **Try again** button stays disabled until they run out.
 - "A confirmation ended just now." Wait the seconds it names, then try again.
 
 If you see "Too many attempts", the sign-in page waits a minute between

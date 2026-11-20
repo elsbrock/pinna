@@ -267,8 +267,9 @@ sensitivity instead and don't send theirs. See
 
 Some changes to the [dashboard password](/docs/dashboard/#who-can-use-the-dashboard)
 need someone at the device: setting the first password, and setting or
-removing it without the current one. The dashboard then says "Press Action on
-the satellite", and for up to 60 seconds the ring shows a white light that
+removing it without the current one. The dashboard then says "Press the Action
+button (the one with the dot) on the satellite", and for up to 60 seconds the
+ring shows a white light that
 circles slowly, one turn every 3 seconds. It shows above the red of the muted
 microphones, and the press works while they are off.
 
@@ -277,8 +278,11 @@ start a request, stop a timer alarm, clear a notification or send an event to
 Home Assistant. Press it only if you started the change yourself: anyone on
 your network can make the ring circle, and a press from you is what lets
 their change through. If nobody presses it, the light goes out after 60
-seconds and nothing changes. A new confirmation can start a minute after the
-last one ended.
+seconds and nothing changes. The ring also stops at once when the confirmation
+is canceled: with **Cancel** in the dashboard that asked, or with **Stop it**
+on **Overview** in any signed-in browser. A new confirmation can start a minute
+after the last one was pressed or ran out, and 10 seconds after one was
+canceled.
 
 ### Microphone off
 
