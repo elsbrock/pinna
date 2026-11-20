@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sun, 15 Nov 2026 13:46:18 +0100
 Subject: [PATCH 05/27] mmc: mtk-sd: MT8163 support
 
-Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
+Ported from LibreEcho's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  drivers/mmc/host/mtk-sd.c | 35 +++++++++++++++++++++++++++++++++++
  1 file changed, 35 insertions(+)

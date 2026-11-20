@@ -4,7 +4,7 @@ Date: Sun, 15 Nov 2026 13:46:19 +0100
 Subject: [PATCH 07/27] usb: musb: mediatek: MT8163 glue, PHY and role
  switching
 
-Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
+Ported from LibreEcho's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  drivers/usb/musb/mediatek.c    | 828 +++++++++++++++++++++++++++++++--
  drivers/usb/musb/musb_gadget.c |  13 +-

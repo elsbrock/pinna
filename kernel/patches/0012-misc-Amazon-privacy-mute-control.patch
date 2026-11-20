@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sun, 15 Nov 2026 13:46:20 +0100
 Subject: [PATCH 12/27] misc: Amazon privacy (mute) control
 
-Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
+Ported from LibreEcho's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  drivers/misc/Kconfig       |  11 +
  drivers/misc/Makefile      |   1 +
@@ -835,7 +835,7 @@ index 000000000..8c19c15a7
 +};
 +module_platform_driver(amz_privacy_driver);
 +
-+MODULE_AUTHOR("Amazon Technologies, Inc.; Echo port contributors");
++MODULE_AUTHOR("Amazon Technologies, Inc.; LibreEcho contributors");
 +MODULE_DESCRIPTION("Amazon Radar-Puffin hardware privacy control");
 +MODULE_LICENSE("GPL");
 diff --git a/include/linux/amz_priv.h b/include/linux/amz_priv.h

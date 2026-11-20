@@ -2,9 +2,9 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Simon Elsbrock <simon@iodev.org>
 Date: Sun, 15 Nov 2026 13:49:59 +0100
 Subject: [PATCH 18/27] misc: mediatek: import the MT8163 CONSYS (Wi-Fi/BT)
- vendor driver from the previous firmware
+ vendor driver from LibreEcho
 
-Unmodified from the previous firmware's Linux tree (release 0.14.5, b81fd49a9), which carries it
+Unmodified from LibreEcho's Linux tree (release 0.14.5, b81fd49a9), which carries it
 as a subtree at drivers/misc/mediatek/mt8163-connectivity.
 ---
  drivers/misc/Kconfig                          |     1 +

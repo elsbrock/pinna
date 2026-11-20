@@ -19,7 +19,7 @@ rx_ba_win (default 0)
     2.4 GHz for Amazon's abh123/abc123/abd123 projects - abh123 is the
     project carrying the Echo's tlv320aic32x4 tuning - but this kernel
     has CONFIG_ARCH_MTK_PROJECT="radar", so that workaround never ran
-    under the previous firmware or Pinna. 0x12 reproduces Amazon's setting.
+    on it. 0x12 reproduces Amazon's setting.
 
 rx_ba_reject (default 0)
     Sends CMD_ID_ADDBA_REJECT on association so the firmware declines

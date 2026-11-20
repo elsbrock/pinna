@@ -4,7 +4,7 @@ Date: Sun, 15 Nov 2026 13:46:21 +0100
 Subject: [PATCH 15/27] ASoC: mediatek: MT8163 AFE, Radar-Puffin machine driver
  and FPGA SPI capture
 
-Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
+Ported from LibreEcho's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  sound/soc/mediatek/Kconfig                    |   32 +
  sound/soc/mediatek/Makefile                   |    2 +

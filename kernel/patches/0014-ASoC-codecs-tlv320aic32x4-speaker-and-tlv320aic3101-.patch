@@ -4,7 +4,7 @@ Date: Sun, 15 Nov 2026 13:46:21 +0100
 Subject: [PATCH 14/27] ASoC: codecs: tlv320aic32x4 speaker and tlv320aic3101
  microphone ADC support
 
-Ported from the previous firmware's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
+Ported from LibreEcho's Linux tree (release 0.14.5, Linux 6.1.178) to Linux 6.12.
 ---
  sound/soc/codecs/Kconfig                |   26 +
  sound/soc/codecs/Makefile               |    1 +
