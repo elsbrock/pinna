@@ -200,6 +200,62 @@ if [ "$arch" = x86_64 ]; then
   fi
 fi
 
+# Sendspin (ADR 0027): off by default; on, pinnad itself listens on TCP 8928
+# (0x22E0 in /proc/net) and publishes _sendspin._tcp, and keeps its keys in a
+# file only it reads; off withdraws the record and closes the port. The
+# virtual Echo Dot has no hardware pointer, so it doesn't play in exact step.
+if [ "$arch" = x86_64 ]; then
+  log "Sendspin"
+  sendspin() {
+    curl -fsS --max-time 10 -H 'Content-Type: application/json' -d "{\"sendspin\":$1}" \
+      "$web/pinna.v1.DeviceService/UpdateSettings"
+  }
+  listening='awk '\''$2 ~ /:22E0$/ && $4 == "0A"'\'' /proc/net/tcp6 /proc/net/tcp | grep -q .'
+  if curl -fsS --max-time 10 -H 'Content-Type: application/json' -d '{}' \
+       "$web/pinna.v1.DeviceService/GetStatus" | grep -q '"sendspin":true'; then
+    fail "Sendspin off by default"
+  else
+    pass "Sendspin off by default"
+  fi
+  if sendspin true | grep -q '"sendspin":true'; then pass "Sendspin switched on over the API"; else fail "Sendspin switched on over the API"; fi
+  status=
+  for _ in $(seq 1 20); do
+    status=$(curl -fsS --max-time 10 -H 'Content-Type: application/json' -d '{}' \
+               "$web/pinna.v1.DeviceService/GetStatus" || true)
+    if printf '%s' "$status" | grep -q '"SENDSPIN_STATE_READY"'; then break; fi
+    status=
+    sleep 1
+  done
+  if [ -n "$status" ]; then pass "Sendspin reported ready in Status"; else fail "Sendspin reported ready in Status"; fi
+  if printf '%s' "$status" | grep -q '"exactTiming":true'; then
+    fail "Sendspin not in exact step without a hardware pointer"
+  else
+    pass "Sendspin not in exact step without a hardware pointer"
+  fi
+  if [ -n "${SSH_KEY:-}" ]; then
+    sleep 5
+    if ssh_vm "$listening &&
+               grep -q '^Type=_sendspin._tcp' /run/systemd/dnssd/pinna-sendspin.dnssd &&
+               grep -q 'path=/sendspin' /run/systemd/dnssd/pinna-sendspin.dnssd &&
+               [ \"\$(stat -c %a /var/lib/pinna/sendspin.toml)\" = 600 ]"; then
+      pass "Sendspin on: port 8928 listening, _sendspin._tcp published, keys kept 0600"
+    else
+      fail "Sendspin on:"
+      ssh_vm 'ls -l /run/systemd/dnssd /var/lib/pinna; cat /proc/net/tcp6; journalctl -b --no-pager -o short-monotonic | grep sendspin | tail -20' | sed 's/^/     /'
+    fi
+  fi
+  if sendspin false | grep -q '"sendspin":true'; then fail "Sendspin switched off"; else pass "Sendspin switched off"; fi
+  if [ -n "${SSH_KEY:-}" ]; then
+    sleep 5 # the record goes with a restart of systemd-resolved
+    if ssh_vm "! test -e /run/systemd/dnssd/pinna-sendspin.dnssd && ! { $listening; }"; then
+      pass "Sendspin off: record withdrawn, port 8928 closed"
+    else
+      fail "Sendspin off: record withdrawn, port 8928 closed"
+      ssh_vm 'ls -l /run/systemd/dnssd; cat /proc/net/tcp6; journalctl -b --no-pager -o short-monotonic | grep sendspin | tail -20' | sed 's/^/     /'
+    fi
+  fi
+fi
+
 log "stopping the VM and reading its journal from the userdata partition"
 kill "$(cat "$work/qemu.pid")" 2>/dev/null || true
 sleep 2
