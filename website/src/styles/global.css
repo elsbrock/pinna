@@ -74,8 +74,8 @@
     );
   }
 
-  /* Short facts, each under a hairline in the mark's colours: the page's
-     answer to a list of checkmarks. */
+  /* Short facts, each under a plain hairline: the page's answer to a list
+     of checkmarks. */
   .facts {
     display: grid;
     gap: 20px;
@@ -93,8 +93,7 @@
     align-content: start;
     gap: 4px;
     padding-top: 14px;
-    border-top: 2px solid transparent;
-    border-image: linear-gradient(90deg, var(--brand-start), var(--brand-end)) 1;
+    border-top: 1px solid var(--line);
   }
 
   .fact-title {
