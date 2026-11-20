@@ -57,11 +57,16 @@ Device facts that constrain the design:
   chooses it.)* Kernel updates are separate from root updates. A/B for the
   root (`system_a`/`system_b`) with dm-verity: ADR 0003 (the initramfs chooses
   the slot, so the command line stays fixed).
-- Wi-Fi/BT firmware is committed (`firmware/`), like the microphone FPGA
-  bitstream (`kernel/firmware/`, ADR 0006): neither has a source other than
-  the device's stock firmware or the previous firmware, so an owner without them would
-  have no Wi-Fi or no microphones. Amended 2026-11-15; until then they were
-  owner-supplied in `blobs/`.
+- Wi-Fi/BT firmware and the microphone FPGA bitstream (ADR 0006) are
+  fetched, not committed: `just firmware` downloads them from
+  `https://static.iodev.org/pinna/firmware/` into `blobs/firmware/` and checks
+  their sha256, and the kernel and image builds take them from there. Neither
+  has a source other than the device's stock firmware or the previous firmware, so an
+  owner without them would have no Wi-Fi or no microphones. They are Amazon's
+  files and carry no license, so they stay out of the repository and its
+  history: a claim against them concerns one download, not the source tree.
+  Amended 2026-11-20; from 2026-11-15 they were committed (`firmware/`,
+  `kernel/firmware/`), and before that owner-supplied in `blobs/`.
 - Moving to Debian's kernel source (6.12 LTS) means porting the board patches:
   done in ADR 0006.
 - arm64 may be possible (ATF runs 64-bit, `bootopt=64S3,…`); not pursued yet.

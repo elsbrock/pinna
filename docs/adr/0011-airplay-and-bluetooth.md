@@ -28,7 +28,8 @@ What the repository has today, and what it does not:
   it, the device hears its own music.
 - **Bluetooth is configured but off, and unproven.** The kernel has the
   CONSYS vendor driver with BlueZ HCI hooks (`CONFIG_MTK_MT8163_BLUEZ_HCI`,
-  BR/EDR, RFCOMM, no SCO), the Wi-Fi/BT firmware ships in `firmware/`, and
+  BR/EDR, RFCOMM, no SCO), the Wi-Fi/BT firmware ships in the image
+  (`just firmware`, ADR 0001), and
   `wmt_bt_on` — a single pinned ioctl behind an explicit
   `--execute-bt-only-once` gate — is built into the image. But `wifi-up`
   powers on only the Wi-Fi function, and no BlueZ package is in the image.

@@ -32,11 +32,12 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 - **Device tree:** the boot image keeps using `mt8163-radar-puffin.dtb`
   from this kernel build (ADR 0001); the 6.12 build decompiles to the same
   tree as the DTB in the previous firmware's known-good `boot_a`.
-- **The microphone FPGA bitstream is committed** (`kernel/firmware/`, 31 KB)
-  and built in with `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it
-  at probe, before the root is mounted, so the device kernel cannot be built
-  without it, and the previous firmware's Linux tree is its only public source. The Wi-Fi/BT
-  firmware is committed for the same reason (`firmware/`, ADR 0001).
+- **The microphone FPGA bitstream is built in** (31 KB) with
+  `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it at probe, before
+  the root is mounted, so the device kernel cannot be built without it, and
+  the previous firmware's Linux tree is its only public source. Like the Wi-Fi/BT
+  firmware, it isn't committed: `just firmware` fetches it into
+  `blobs/firmware/` (ADR 0001, amended 2026-11-20).
 - **Config from allnoconfig + fragments.** `common.config` holds what every
   variant needs: the systemd requirements (README, v257), erofs/ext4/overlay,
   dm-verity, networking. `device.config`, `qemu.config` and `x86.config` add
