@@ -134,6 +134,26 @@ increase(pinna_standalone_tokens_total[1d])
 sum by (slot, reason) (increase(pinna_standalone_errors_total[1d]))
 ```
 
+### Sendspin
+
+These metrics describe the [Sendspin player](/docs/sendspin/), and show
+whether it keeps time with its group. They are there whether Sendspin is on
+or off.
+
+| Metric | What it is |
+| --- | --- |
+| `pinna_sendspin_state{state}` | 1 for the current state: `off`, `ready` (listening, with no server connected), `connected` (a server is connected and nothing plays), `playing`, `failed` or `unavailable` |
+| `pinna_sendspin_sync_error_seconds` | How much later the stream sounds than the server's clock says it should; negative when it sounds early. Missing while no stream sounds |
+| `pinna_sendspin_clock_error_seconds` | The standard deviation of the clock filter's estimate of the server's clock. Missing while no server is connected, and until the filter's first measurement |
+| `pinna_sendspin_steady` | 1 while a stream plays and 10 seconds or more have passed since its start or its last jump, clear, underrun or error above 1 ms |
+| `pinna_sendspin_jumps_total` | Times a stream started at the right sample instead of correcting its speed: at its start, and after a clear, an underrun or an error too large to correct |
+| `pinna_sendspin_late_drops_total` | Audio chunks dropped because they arrived after their time |
+| `pinna_sendspin_decode_errors_total` | Audio chunks dropped because they didn't decode |
+
+The sync error shows how closely the satellite follows its own idea of when
+a sample sounds. It can't show a fixed error in that idea, such as the delay
+of the speaker's own path, which isn't measured yet.
+
 The `pinna_*` names can change before Pinna 1.0. The release notes say when
 one does. The `node_*` names follow node_exporter.
 
