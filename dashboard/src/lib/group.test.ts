@@ -50,6 +50,7 @@ const satellite = (mac: string): Satellite => ({
   url: "",
   ipv4: ["192.168.1.20"],
   ipv6: [],
+  groupMember: false,
 });
 const candidate = (over: Partial<SatelliteGroupCandidate> = {}): SatelliteGroupCandidate => ({
   $typeName: "pinna.v1.SatelliteGroupCandidate",
@@ -110,6 +111,18 @@ test("a member's line: this satellite's own mode, the others' mode and when they
     "In another group · seen 4 min ago",
   );
   assert.equal(line(member(), CANDIDATE.leftTheGroup), "Left the group · not seen since Hall started");
+});
+
+test("a member that says it has no password is marked", () => {
+  const seen = BigInt(NOW - 4 * 60_000);
+  const line = (m: SatelliteGroupMember, outside?: number) => memberLine(m, MODE.standalone, "Hall", NOW, outside);
+  const base = { mode: MODE.standalone, lastSeenUnixMs: seen };
+  assert.equal(line(member({ ...base, hasPassword: false })), "Standalone mode · seen 4 min ago · No password");
+  assert.equal(line(member({ ...base, hasPassword: true })), "Standalone mode · seen 4 min ago");
+  // Not known yet: no mark.
+  assert.equal(line(member(base)), "Standalone mode · seen 4 min ago");
+  // This satellite's own entry never carries one.
+  assert.equal(memberLine(member({ thisSatellite: true }), MODE.standalone, "Hall", NOW), "Standalone mode");
 });
 
 test("a member the candidates list too shows once, under Members, and doesn't count", () => {

@@ -45,7 +45,7 @@ export function seenWord(unixMs: bigint | number, now: number, here: string): st
   return `seen ${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-export type MemberLike = Pick<SatelliteGroupMember, "mac" | "thisSatellite" | "mode" | "lastSeenUnixMs">;
+export type MemberLike = Pick<SatelliteGroupMember, "mac" | "thisSatellite" | "mode" | "lastSeenUnixMs" | "hasPassword">;
 
 /** This satellite's name in the view's member list, for lines in the other
  *  members' rows. */
@@ -73,7 +73,9 @@ export function memberLine(
     return `${where} · ${seenWord(m.lastSeenUnixMs, now, here)}`;
   }
   if (m.mode === undefined && !Number(m.lastSeenUnixMs)) return `Not heard from since ${here} started`;
-  return `${modeWord(m.mode)} · ${seenWord(m.lastSeenUnixMs, now, here)}`;
+  // A member without a password can't take messages or calls from one with it (ADR 0029).
+  const line = `${modeWord(m.mode)} · ${seenWord(m.lastSeenUnixMs, now, here)}`;
+  return m.hasPassword === false ? `${line} · No password` : line;
 }
 
 /** A row under Members: the member, and its entry among the candidates while

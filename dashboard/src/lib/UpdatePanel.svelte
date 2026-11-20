@@ -14,6 +14,7 @@
   import Icon from "./Icon.svelte";
   import Select from "./Select.svelte";
   import { toasts } from "./toast.svelte.ts";
+  import { windows } from "./windows.svelte.ts";
   import {
     ACTION,
     CHANNEL,
@@ -26,6 +27,8 @@
     type InstallName,
     installName,
     installSteps,
+    OLDER_SLOT_WARNING,
+    olderSlotWarning,
     slotWord,
     switchTarget,
     targetSlot,
@@ -263,6 +266,8 @@
     const timer = setTimeout(() => void refresh(), 2_000);
     return () => clearTimeout(timer);
   });
+  // Whether a password is set, for the rollback warning (ADR 0029).
+  $effect(() => windows.watch());
   let wasLive = device.link === "live";
   $effect(() => {
     const live = device.link === "live";
@@ -290,6 +295,12 @@
   // Going back: start the other slot when it holds that version, else install it.
   const olderInSlot = $derived(
     release && other?.version === release.version && other.state !== "unbootable" ? other : undefined,
+  );
+  // An image from before the password doesn't check it: say so before starting an older one (ADR 0029).
+  const switchWarning = $derived(olderSlotWarning(windows.passwordSet, other));
+  const pendingWarning = $derived(olderSlotWarning(windows.passwordSet, next));
+  const olderRelease = $derived(
+    windows.passwordSet && release?.action === ACTION.older ? OLDER_SLOT_WARNING : null,
   );
   const INSTALL_CHOICES = [
     { id: "manually", label: "Manually" },
@@ -536,6 +547,7 @@
         fallback.
       </p>
       <p>Your settings stay. Settings that only {u.bootedVersion} knows come back when you update again.</p>
+      {#if olderRelease}<p class="is-caution">{olderRelease}</p>{/if}
     </Confirm>
   {/if}
 
@@ -556,6 +568,7 @@
         <div class="pn-row-text">
           <span class="pn-row-label">Switch to slot {other.name.toUpperCase()}</span>
           <span class="pn-row-hint">Restart into {other.version}, on trial.</span>
+          {#if switchWarning}<span class="pn-row-hint is-caution">{switchWarning}</span>{/if}
         </div>
         <button
           bind:this={switchButton}
@@ -587,6 +600,7 @@
         minute or two; this page reconnects on its own.
       </p>
       <p>If {other.version} doesn't come up, the satellite goes back to {u.bootedVersion} on its own.</p>
+      {#if switchWarning}<p class="is-caution">{switchWarning}</p>{/if}
     </Confirm>
   {/if}
 
@@ -608,6 +622,7 @@
       <div class="pn-notice-body">
         <p class="pn-notice-title">Version {next?.version || "?"} is ready in slot {next?.name.toUpperCase()}</p>
         <p>It starts on the next restart, as a trial. If it doesn't come up, the satellite returns to this version.</p>
+        {#if pendingWarning}<p>{pendingWarning}</p>{/if}
         <p class="actions">{@render pendingActions()}</p>
         {#if restartError}<p class="pn-field-error" role="alert"><Icon name="alert" />{restartError}</p>{/if}
       </div>

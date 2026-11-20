@@ -82,6 +82,8 @@ import {
   joinTone,
   mediaFrom,
   mediaPauses,
+  OLDER_SLOT_WARNING,
+  olderSlotWarning,
   shortUrl,
   mmss,
   securityWord,
@@ -96,6 +98,7 @@ import {
   routeOf,
   satelliteFallbacks,
   satelliteLink,
+  satelliteMark,
   satelliteModel,
   since,
   spokenWakeWords,
@@ -110,6 +113,7 @@ import {
   wakeWordsHint,
   when,
   wifiConnected,
+  windowLeft,
 } from "./view.ts";
 
 // A connected, idle satellite; tests override what they need.
@@ -578,6 +582,7 @@ const satellite = (over: Partial<Satellite> = {}): Satellite => ({
   url: "",
   ipv4: ["192.168.1.20"],
   ipv6: ["fd00::20", "2001:db8::20"],
+  groupMember: false,
   ...over,
 });
 const at = (hostname: string) => ({ protocol: "http:", hostname });
@@ -804,6 +809,8 @@ const security = (over: Partial<Security> = {}): Security => ({
   confirmationCooldownS: 0,
   mcpClients: [],
   metricsRead: false,
+  homeAssistantWindowLeftS: 0,
+  groupJoinLeftS: 0,
   ...over,
 });
 
@@ -881,4 +888,28 @@ test("the Overview warns while no password is set, and adds the voice in standal
     "Anyone on your network can control this satellite.",
     "That includes where your voice goes.",
   ]);
+});
+
+test("the rollback warning shows for an older slot, with a password set", () => {
+  assert.equal(OLDER_SLOT_WARNING, "The version in the other slot is older, and may not ask for a password.");
+  assert.equal(olderSlotWarning(true, { olderThanRunning: true }), OLDER_SLOT_WARNING);
+  // Without a password there is nothing to lose, and a newer slot is no rollback.
+  assert.equal(olderSlotWarning(false, { olderThanRunning: true }), null);
+  assert.equal(olderSlotWarning(true, { olderThanRunning: false }), null);
+  assert.equal(olderSlotWarning(true, undefined), null);
+});
+
+test("a window says what it has left", () => {
+  assert.equal(windowLeft(900), "15 min left");
+  assert.equal(windowLeft(61), "2 min left");
+  assert.equal(windowLeft(60), "1 min left");
+  assert.equal(windowLeft(59), "59 s left");
+  assert.equal(windowLeft(0.2), "1 s left");
+  assert.equal(windowLeft(0), "");
+  assert.equal(windowLeft(-3), "");
+});
+
+test("the satellite list says which entries the group's key confirms", () => {
+  assert.equal(satelliteMark({ groupMember: true }), "In this satellite's group");
+  assert.equal(satelliteMark({ groupMember: false }), "Only announced on the network");
 });

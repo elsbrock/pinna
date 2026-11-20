@@ -10,7 +10,7 @@
   import Device from "./Device.svelte";
   import { device, errorSentence } from "./device.svelte.ts";
   import Icon from "./Icon.svelte";
-  import { displayName, satelliteFallbacks, satelliteLink, satelliteModel } from "./view.ts";
+  import { displayName, satelliteFallbacks, satelliteLink, satelliteMark, satelliteModel } from "./view.ts";
 
   let {
     anchor,
@@ -166,6 +166,11 @@
           <span class="pn-sat-text">
             <span class="pn-sat-name">{sat.friendlyName || sat.name}</span>
             <span class="pn-sat-host">{to.host}</span>
+            {#if sat.groupMember}
+              <span class="pn-sat-here"><Icon name="check" />{satelliteMark(sat)}</span>
+            {:else}
+              <span class="announced">{satelliteMark(sat)}</span>
+            {/if}
           </span>
         </a>
         {#if sat.url}
@@ -188,3 +193,12 @@
     </a>
   {/if}
 </div>
+
+<style>
+  /* An entry only the network announced: no key confirms it (ADR 0029). */
+  .announced {
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--ink-muted);
+  }
+</style>

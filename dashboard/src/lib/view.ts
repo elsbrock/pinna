@@ -457,6 +457,13 @@ export function joinTone(step: { stage: number } | null | undefined): "ok" | "ca
   return null;
 }
 
+/** What a window has left (ADR 0029), "14 min left" or "40 s left"; empty once it ended. */
+export function windowLeft(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds));
+  if (s === 0) return "";
+  return s >= 60 ? `${Math.ceil(s / 60)} min left` : `${s} s left`;
+}
+
 /** Minutes and seconds, "4:05". */
 export function mmss(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -522,7 +529,15 @@ export function wifiIssue(
   return null;
 }
 
-type SlotLike = { name: string; version: string; state: string; triesLeft: number; active: boolean; booted: boolean };
+type SlotLike = {
+  name: string;
+  version: string;
+  state: string;
+  triesLeft: number;
+  active: boolean;
+  booted: boolean;
+  olderThanRunning?: boolean;
+};
 type UpdatesLike = { available: boolean; installing: boolean; slots: SlotLike[] };
 
 /** A slot's state in words. */
@@ -553,6 +568,15 @@ export function updatePhase(u: UpdatesLike): UpdatePhase {
   if (booted?.state === "trial") return "trial";
   if (active && booted && active.name !== booted.name && active.state !== "unbootable") return "pending";
   return "ready";
+}
+
+/** Said before the satellite starts an older version while a password is set (ADR 0029):
+ *  an image from before the password doesn't check it, so the dashboard is open until the next update. */
+export const OLDER_SLOT_WARNING = "The version in the other slot is older, and may not ask for a password.";
+
+/** The warning for starting `slot`, or null: only with a password set, and only for an older version. */
+export function olderSlotWarning(passwordSet: boolean, slot: Pick<SlotLike, "olderThanRunning"> | undefined): string | null {
+  return passwordSet && slot?.olderThanRunning ? OLDER_SLOT_WARNING : null;
 }
 
 /** The slot an install writes: the one that is not running. */
@@ -766,6 +790,12 @@ export function satelliteLink(sat: SatelliteLike, here: { protocol: string; host
 export function satelliteFallbacks(sat: SatelliteLike): SatLink[] {
   const v4 = sat.ipv4[0];
   return [localLink(sat), ...(v4 ? [link(`${v4}${port(sat)}`)] : [])];
+}
+
+/** What the satellite list says of an entry (ADR 0029): a member of this satellite's group is
+ *  confirmed by the group's key; any other entry is only what the network announced. */
+export function satelliteMark(sat: Pick<Satellite, "groupMember">): string {
+  return sat.groupMember ? "In this satellite's group" : "Only announced on the network";
 }
 
 /** The drawing's model id for a satellite's `board` (see `identity::model_name`). */

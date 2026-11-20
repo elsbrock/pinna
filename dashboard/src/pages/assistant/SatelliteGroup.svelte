@@ -28,7 +28,8 @@
   } from "../../lib/group.ts";
   import Icon from "../../lib/Icon.svelte";
   import SwitchRow from "../../lib/SwitchRow.svelte";
-  import { satelliteLink } from "../../lib/view.ts";
+  import { satelliteLink, windowLeft } from "../../lib/view.ts";
+  import { windows } from "../../lib/windows.svelte.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -47,6 +48,10 @@
   const refused = $derived(group.refused);
 
   $effect(() => group.watch());
+  $effect(() => windows.watch());
+  // With a password, another satellite may add this one only after the owner allows it
+  // here (ADR 0029). It is added from the other satellite, and only while in no group.
+  const joinLeft = $derived(windows.groupJoinLeft);
   // Back after the satellite couldn't be reached: read it again at once.
   let wasLive = device.link === "live";
   $effect(() => {
@@ -173,6 +178,27 @@
         <span class="pn-row-hint">
           In no group yet. Add a satellite below to start one, or add this one from another satellite's dashboard.
         </span>
+      </div>
+    {/if}
+    {#if view.on && !view.inGroup && windows.passwordSet}
+      <div class="pn-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label">Allow adding to a group</span>
+          <span class="pn-row-hint" role="status">
+            {#if joinLeft}
+              Another satellite can add this one now. {windowLeft(joinLeft)}.
+            {:else}
+              This satellite has a dashboard password, so it refuses to be added to a group until you allow it here. Allow
+              it, then add this satellite from another satellite's dashboard within 10 minutes.
+            {/if}
+          </span>
+          {#if windows.error}
+            <span class="pn-field-error" role="alert"><Icon name="alert" />{windows.error}</span>
+          {/if}
+        </div>
+        <button class="pn-btn" disabled={!live || windows.opening} onclick={() => windows.allowGroupJoin()}>
+          Allow adding to a group
+        </button>
       </div>
     {/if}
     {#if group.running?.kind === "on" && inGroup}
