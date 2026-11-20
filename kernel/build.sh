@@ -101,8 +101,11 @@ fi
 # --- build ----------------------------------------------------------------
 if [ "$variant" = device ]; then
   # Built into the kernel (CONFIG_EXTRA_FIRMWARE): the SPI microphone driver
-  # loads it into the FPGA at probe. See kernel/firmware/README.md.
-  install -Dm0644 "$here/firmware/i2s_to_spi_v34.bin" "$src/firmware/i2s_to_spi_v34.bin"
+  # loads it into the FPGA at probe. Amazon's file, fetched, never committed
+  # (scripts/fetch-firmware.sh, ADR 0006).
+  fw=$root/blobs/firmware/i2s_to_spi_v34.bin
+  [ -f "$fw" ] || { echo "$fw missing: run just firmware" >&2; exit 1; }
+  install -Dm0644 "$fw" "$src/firmware/i2s_to_spi_v34.bin"
 fi
 
 log "building ${targets[*]}"

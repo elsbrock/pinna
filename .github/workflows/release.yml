@@ -133,7 +133,8 @@ jobs:
         run: nix develop -c just keygen
 
       # The kernel changes rarely. The key covers its sources, patches and
-      # configuration, and the toolchain; the paths are what bootimg and mkosi
+      # configuration, the FPGA bitstream it builds in, and the toolchain; the
+      # paths are what bootimg and mkosi
       # read. It is saved right after it is built, so a later failure doesn't
       # lose it.
       - name: Kernel cache
@@ -144,7 +145,7 @@ jobs:
             build/kernel/arch/arm/boot/zImage
             build/kernel/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dtb
             build/debs/linux-image-*.deb
-          key: kernel-${{ hashFiles('kernel/**', 'flake.nix', 'flake.lock') }}
+          key: kernel-${{ hashFiles('kernel/**', 'scripts/fetch-firmware.sh', 'flake.nix', 'flake.lock') }}
 
       # git.kernel.org refused the runner's connections (dry run 2), so the
       # stable tree comes from its GitHub mirror. kernel/build.sh still checks

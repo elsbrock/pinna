@@ -65,11 +65,11 @@ updates-test:
     node --test 'services/updates/test/*.test.ts'
 
 # kernel: build + package as build/debs/linux-image-*.deb
-kernel:
+kernel: firmware
     kernel/build.sh
 
 # kernel with kernel/debug.config (ftrace, debugfs, sysrq, core dumps) for dev images
-kernel-debug:
+kernel-debug: firmware
     DEBUG=1 kernel/build.sh
 
 # static MT8163 WMT helpers (Wi-Fi/BT power-up)
@@ -92,7 +92,7 @@ web-check:
     cd dashboard && npm ci && npm run check
 
 # root filesystem: erofs via mkosi, sealed into a signed slot image build/pinna.root.img
-image: models wmt rust-arm ladspa web
+image: models firmware wmt rust-arm ladspa web
     scripts/assemble-rootfs-extra.sh
     scripts/build-root.sh
 
@@ -155,6 +155,10 @@ release: image bootimg
 # fetch the wake word models (openWakeWord CC BY-NC-SA, Okay Nabu from an Apache-2.0 repository; never committed) into blobs/
 models:
     scripts/fetch-models.sh
+
+# fetch Amazon's Wi-Fi/BT firmware and microphone FPGA bitstream (no license; never committed) into blobs/firmware/
+firmware:
+    scripts/fetch-firmware.sh
 
 # wake word: tract vs onnxruntime parity (needs `just models`)
 wakeword-parity:

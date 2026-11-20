@@ -3,7 +3,7 @@
 # firmware or owner-local (never committed) into build/rootfs-extra, which
 # mkosi copies on top of the Debian root.
 #
-#   firmware/                MT8163 Wi-Fi/BT firmware (see firmware/README.md)
+#   blobs/firmware/          MT8163 Wi-Fi/BT firmware (Amazon's, fetched by `just firmware`)
 #   blobs/models/            openWakeWord models (CC BY-NC-SA, fetched by `just models`)
 #   build/wmt/               static WMT helpers (`just wmt`)
 #   target/<arm>/release/    pinnad, pinnactl, pinna-bootctl (`just rust-arm`)
@@ -52,9 +52,11 @@ fi
 
 # Firmware (device only)
 if [ "$device" = yes ]; then
+  fw=$root/blobs/firmware
+  [ -f "$fw/WIFI_RAM_CODE_8163" ] || { echo "assemble: $fw is missing the Wi-Fi/BT firmware (just firmware)" >&2; exit 1; }
   install -d "$out/usr/lib/firmware"
-  install -m0644 "$root"/firmware/WIFI_RAM_CODE_8163 "$root"/firmware/ROMv2_lm_patch_1_*_hdr.bin \
-    "$root"/firmware/WMT_SOC.cfg "$out/usr/lib/firmware/"
+  install -m0644 "$fw"/WIFI_RAM_CODE_8163 "$fw"/ROMv2_lm_patch_1_*_hdr.bin \
+    "$fw"/WMT_SOC.cfg "$out/usr/lib/firmware/"
 fi
 
 # WMT helpers (device only)
