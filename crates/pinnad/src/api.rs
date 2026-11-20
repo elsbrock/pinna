@@ -38,10 +38,11 @@ use pinna_api::{
 use pinna_api::{
     CancelConfirmationRequest, CancelConfirmationResponse, ConfirmationState, CreateTokenRequest,
     CreateTokenResponse, GetSecurityRequest, GetSecurityResponse, LeaveDashboardOpenRequest,
-    LeaveDashboardOpenResponse, RemoveDashboardPasswordRequest, RemoveDashboardPasswordResponse,
-    SetDashboardPasswordRequest, SetDashboardPasswordResponse, SignOutEverywhereRequest,
-    SignOutEverywhereResponse, StartConfirmationRequest, StartConfirmationResponse,
-    WatchConfirmationRequest, WatchConfirmationResponse,
+    LeaveDashboardOpenResponse, RecordAudioRequest, RecordAudioResponse,
+    RemoveDashboardPasswordRequest, RemoveDashboardPasswordResponse, SetDashboardPasswordRequest,
+    SetDashboardPasswordResponse, SignOutEverywhereRequest, SignOutEverywhereResponse,
+    StartConfirmationRequest, StartConfirmationResponse, StopRecordingRequest,
+    StopRecordingResponse, WatchConfirmationRequest, WatchConfirmationResponse,
 };
 use pinna_api::{CheckForUpdatesRequest, CheckForUpdatesResponse};
 use pinna_api::{
@@ -63,7 +64,7 @@ use pinna_api::{RemoveWakeWordRequest, RemoveWakeWordResponse};
 use pinna_hal::led::{Frame, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::auth::{Auth, ConfirmProgress, TokenKind, layer::Session};
+use crate::auth::{Auth, ConfirmProgress, Purpose, TokenKind, layer::Session};
 use crate::boot;
 use crate::group::Group;
 use crate::leds::LightEffect;
@@ -1592,9 +1593,17 @@ impl DeviceService for DeviceApi {
     async fn start_confirmation(
         &self,
         ctx: RequestContext,
-        _request: ServiceRequest<'_, StartConfirmationRequest>,
+        request: ServiceRequest<'_, StartConfirmationRequest>,
     ) -> ServiceResult<StartConfirmationResponse> {
-        let (id, seconds) = self.auth()?.start_confirmation(caller(&ctx))?;
+        let purpose = match request.purpose.as_known() {
+            Some(pinna_api::ConfirmationPurpose::CONFIRMATION_PURPOSE_RECORDING) => {
+                Purpose::Recording
+            }
+            _ => Purpose::Password,
+        };
+        let (id, seconds) =
+            self.auth()?
+                .start_confirmation(caller(&ctx), purpose, session_cookie(&ctx))?;
         Response::ok(StartConfirmationResponse {
             id,
             seconds,
@@ -1655,6 +1664,24 @@ impl DeviceService for DeviceApi {
         self.auth()?
             .cancel_confirmation(request.id, signed_in(&ctx))?;
         Response::ok(CancelConfirmationResponse::default())
+    }
+
+    async fn record_audio(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RecordAudioRequest>,
+    ) -> ServiceResult<ServiceStream<RecordAudioResponse>> {
+        self.auth()?
+            .take_recording_grant(request.grant, session_cookie(&ctx))?;
+        Err(ConnectError::unimplemented("Recording is not built yet."))
+    }
+
+    async fn stop_recording(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, StopRecordingRequest>,
+    ) -> ServiceResult<StopRecordingResponse> {
+        Response::ok(StopRecordingResponse::default())
     }
 
     async fn create_token(
@@ -1733,6 +1760,14 @@ fn signed_in(ctx: &RequestContext) -> bool {
     ctx.extensions()
         .get::<Session>()
         .is_some_and(|s| s.signed_in)
+}
+
+/// The cookie value of the session the call carries, which a recording's
+/// grant is bound to (ADR 0030).
+fn session_cookie(ctx: &RequestContext) -> Option<&str> {
+    ctx.extensions()
+        .get::<Session>()
+        .and_then(|s| s.cookie.as_deref())
 }
 
 /// The ConnectRPC routes; shared by the loopback API and the dashboard listener.

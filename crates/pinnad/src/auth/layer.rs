@@ -60,10 +60,14 @@ const BEARER: &str = "Bearer realm=\"pinna\"";
 const MAX_LOGIN_BODY: usize = 4096;
 
 /// Set on every request that passes the check: whether it carries a valid
-/// session. `DeviceService` reads it for `GetSecurity`.
-#[derive(Debug, Clone, Copy)]
+/// session. `DeviceService` reads it for `GetSecurity`. No `Debug`: the
+/// cookie value is the session's secret.
+#[derive(Clone)]
 pub struct Session {
     pub signed_in: bool,
+    /// The cookie value of that session, which a recording's grant is bound to
+    /// (ADR 0030).
+    pub cookie: Option<String>,
 }
 
 /// Set on requests a session let through: it changes when every session ends.
@@ -114,8 +118,9 @@ pub async fn guard(State(auth): State<Arc<Auth>>, mut req: Request, next: Next) 
     // the stream this one opens.
     let end = auth.subscribe_end();
     let protected = super::credentials::has_password(&auth.credentials());
-    let signed_in = protected && auth.signed_in(req.headers());
-    req.extensions_mut().insert(Session { signed_in });
+    let cookie = auth.session_value(req.headers()).filter(|_| protected);
+    let signed_in = cookie.is_some();
+    req.extensions_mut().insert(Session { signed_in, cookie });
     match classify(&req) {
         Class::Public | Class::Files | Class::Peer => next.run(req).await,
         Class::Mcp if !protected || auth.bearer_ok(TokenKind::Agent, req.headers()) => {

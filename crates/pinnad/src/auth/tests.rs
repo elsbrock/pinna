@@ -41,9 +41,14 @@ impl Rig {
 
     /// Someone presses Action at the satellite: the grant that gives.
     pub async fn press(&mut self) -> String {
+        self.press_for(Purpose::Password, None).await
+    }
+
+    /// The same for a confirmation of `purpose`, asked for from `session`.
+    pub async fn press_for(&mut self, purpose: Purpose, session: Option<&str>) -> String {
         // The minute between two confirmations isn't what these tests are about.
         self.auth.confirmations.lock().unwrap().current = None;
-        let (id, _) = self.auth.start_confirmation(WHO).unwrap();
+        let (id, _) = self.auth.start_confirmation(WHO, purpose, session).unwrap();
         let mut progress = self.auth.watch_confirmation(&id).unwrap();
         let Some(Input::Presence(presence)) = self.inputs.recv().await else {
             panic!("the Brain was not asked to wait for a press");
@@ -356,7 +361,10 @@ async fn a_token_is_shown_once_and_opens_only_its_own_door() {
 #[tokio::test]
 async fn a_confirmation_waits_for_one_press_and_then_for_a_minute() {
     let mut rig = rig();
-    let (id, seconds) = rig.auth.start_confirmation(WHO).unwrap();
+    let (id, seconds) = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     assert_eq!(seconds, 60);
     let Some(Input::Presence(presence)) = rig.inputs.recv().await else {
         panic!("no presence");
@@ -365,7 +373,10 @@ async fn a_confirmation_waits_for_one_press_and_then_for_a_minute() {
     assert!(presence.until > Instant::now() + Duration::from_secs(58));
 
     // One at a time.
-    let e = rig.auth.start_confirmation(WHO).unwrap_err();
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap_err();
     assert_eq!(code(e), ErrorCode::ResourceExhausted);
     assert_eq!(
         code(rig.auth.watch_confirmation("nope").unwrap_err()),
@@ -384,7 +395,10 @@ async fn a_confirmation_waits_for_one_press_and_then_for_a_minute() {
     // A minute after it ended, not before.
     let s = rig.auth.security(false);
     assert!((59..=61).contains(&s.confirmation_cooldown_s), "{s:?}");
-    let e = rig.auth.start_confirmation(WHO).unwrap_err();
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap_err();
     assert_eq!(code(e), ErrorCode::ResourceExhausted);
 }
 
@@ -413,7 +427,10 @@ async fn a_confirmation_nobody_presses_expires() {
         rig.tx.clone(),
         Duration::from_millis(100),
     );
-    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let (id, _) = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     let mut progress = rig.auth.watch_confirmation(&id).unwrap();
     let Some(Input::Presence(presence)) = rig.inputs.recv().await else {
         panic!("no presence");
@@ -423,7 +440,13 @@ async fn a_confirmation_nobody_presses_expires() {
     // The Brain's side of the press gave up with it.
     assert!(presence.pressed.is_closed());
     // No grant came out of it.
-    assert!(!rig.auth.grants.lock().unwrap().consume("", Instant::now()));
+    let used = rig
+        .auth
+        .grants
+        .lock()
+        .unwrap()
+        .consume("", Purpose::Password, None, Instant::now());
+    assert!(!used);
 }
 
 #[tokio::test]
@@ -589,8 +612,13 @@ fn a_window_that_ended_has_no_seconds_left() {
 #[tokio::test]
 async fn a_second_asker_is_told_a_confirmation_from_another_browser_waits() {
     let rig = rig();
-    rig.auth.start_confirmation(WHO).unwrap();
-    let e = rig.auth.start_confirmation(WHO).unwrap_err();
+    rig.auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap_err();
     assert_eq!(code(e.clone()), ErrorCode::ResourceExhausted);
     let message = e.message.unwrap_or_default();
     assert!(
@@ -608,7 +636,9 @@ async fn a_signed_in_caller_sees_who_waits_and_for_how_long() {
     let s = rig.auth.security(true);
     assert!(s.confirmation_waiting_from.is_empty() && s.confirmation_left_s == 0);
     rig.auth.confirmations.lock().unwrap().current = None;
-    rig.auth.start_confirmation(WHO).unwrap();
+    rig.auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     let s = rig.auth.security(true);
     assert_eq!(s.confirmation_waiting_from, "192.168.1.9");
     assert!((59..=60).contains(&s.confirmation_left_s), "{s:?}");
@@ -621,7 +651,10 @@ async fn a_signed_in_caller_sees_who_waits_and_for_how_long() {
 #[tokio::test]
 async fn the_id_cancels_a_confirmation_without_a_session() {
     let mut rig = rig();
-    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let (id, _) = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     let mut progress = rig.auth.watch_confirmation(&id).unwrap();
     let Some(Input::Presence(mut presence)) = rig.inputs.recv().await else {
         panic!("no presence");
@@ -641,11 +674,17 @@ async fn the_id_cancels_a_confirmation_without_a_session() {
 #[tokio::test]
 async fn a_canceled_confirmation_gives_the_next_one_ten_seconds_not_a_minute() {
     let mut rig = rig();
-    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let (id, _) = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     rig.auth.cancel_confirmation(&id, false).unwrap();
     let wait = rig.auth.security(false).confirmation_cooldown_s;
     assert!((9..=10).contains(&wait), "{wait}");
-    let e = rig.auth.start_confirmation(WHO).unwrap_err();
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap_err();
     assert_eq!(code(e), ErrorCode::ResourceExhausted);
     // Ten seconds after it ended, the next may start.
     let ended = Instant::now() - Duration::from_secs(10);
@@ -653,14 +692,19 @@ async fn a_canceled_confirmation_gives_the_next_one_ten_seconds_not_a_minute() {
         let mut confirmations = rig.auth.confirmations.lock().unwrap();
         confirmations.current.as_mut().unwrap().ended = Some(ended);
     }
-    rig.auth.start_confirmation(WHO).unwrap();
+    rig.auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     assert!(matches!(rig.inputs.recv().await, Some(Input::Presence(_))));
 }
 
 #[tokio::test]
 async fn an_empty_id_cancels_whichever_waits_but_only_for_a_session() {
     let mut rig = rig();
-    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let (id, _) = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     let progress = rig.auth.watch_confirmation(&id).unwrap();
     let e = rig.auth.cancel_confirmation("", false).unwrap_err();
     assert_eq!(code(e), ErrorCode::Unauthenticated);
@@ -680,7 +724,10 @@ async fn an_empty_id_cancels_whichever_waits_but_only_for_a_session() {
 #[tokio::test]
 async fn an_unknown_id_cancels_nothing_and_a_press_is_not_undone() {
     let mut rig = rig();
-    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let (id, _) = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
     let e = rig.auth.cancel_confirmation("nope", true).unwrap_err();
     assert_eq!(code(e), ErrorCode::NotFound);
     let mut progress = rig.auth.watch_confirmation(&id).unwrap();
@@ -692,4 +739,129 @@ async fn an_unknown_id_cancels_nothing_and_a_press_is_not_undone() {
     assert!(matches!(*progress.borrow(), ConfirmProgress::Confirmed(_)));
     rig.auth.cancel_confirmation(&id, false).unwrap();
     assert!(matches!(*progress.borrow(), ConfirmProgress::Confirmed(_)));
+}
+
+#[tokio::test]
+async fn a_recording_confirmation_needs_a_password_and_a_session() {
+    let mut rig = rig();
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Recording, Some("a session"))
+        .unwrap_err();
+    assert_eq!(code(e.clone()), ErrorCode::FailedPrecondition);
+    assert_eq!(
+        e.message.as_deref(),
+        Some("Recording needs a dashboard password. Set one under System > Password and tokens.")
+    );
+    rig.with_password().await;
+    rig.auth.confirmations.lock().unwrap().current = None;
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::Recording, None)
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::Unauthenticated);
+    // Neither refusal rang the ring.
+    assert!(rig.inputs.try_recv().is_err());
+    rig.auth
+        .start_confirmation(WHO, Purpose::Recording, Some("a session"))
+        .unwrap();
+}
+
+#[tokio::test]
+async fn the_purpose_reaches_the_ring_and_the_signed_in_overview() {
+    let mut rig = rig();
+    rig.with_password().await;
+    rig.auth.confirmations.lock().unwrap().current = None;
+    rig.auth
+        .start_confirmation(WHO, Purpose::Recording, Some("mine"))
+        .unwrap();
+    let Some(Input::Presence(presence)) = rig.inputs.recv().await else {
+        panic!("no presence");
+    };
+    assert_eq!(presence.purpose, Purpose::Recording);
+    let s = rig.auth.security(true);
+    assert_eq!(
+        s.confirmation_purpose.as_known(),
+        Some(ConfirmationPurpose::CONFIRMATION_PURPOSE_RECORDING)
+    );
+    // Without a session the purpose isn't told either.
+    let s = rig.auth.security(false);
+    assert_eq!(
+        s.confirmation_purpose.as_known(),
+        Some(ConfirmationPurpose::CONFIRMATION_PURPOSE_PASSWORD)
+    );
+    // A password confirmation says so.
+    rig.auth.confirmations.lock().unwrap().current = None;
+    rig.auth
+        .start_confirmation(WHO, Purpose::Password, None)
+        .unwrap();
+    let s = rig.auth.security(true);
+    assert_eq!(
+        s.confirmation_purpose.as_known(),
+        Some(ConfirmationPurpose::CONFIRMATION_PURPOSE_PASSWORD)
+    );
+}
+
+#[tokio::test]
+async fn a_recording_grant_is_not_a_password_grant_and_the_other_way_round() {
+    let mut rig = rig();
+    rig.with_password().await;
+
+    let recording = rig.press_for(Purpose::Recording, Some("mine")).await;
+    // It changes nothing about the password.
+    let e = rig
+        .auth
+        .set_password(WHO, "another one".into(), String::new(), recording.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    let e = rig
+        .auth
+        .remove_password(WHO, String::new(), recording.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    assert!(rig.auth.security(false).password_set);
+    // Those refusals left it good for a recording.
+    rig.auth
+        .take_recording_grant(&recording, Some("mine"))
+        .unwrap();
+
+    // A password grant doesn't start a recording.
+    let password = rig.press().await;
+    let e = rig
+        .auth
+        .take_recording_grant(&password, Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+}
+
+#[tokio::test]
+async fn a_recording_grant_belongs_to_the_session_that_asked_and_works_once() {
+    let mut rig = rig();
+    rig.with_password().await;
+    let grant = rig.press_for(Purpose::Recording, Some("mine")).await;
+    let e = rig
+        .auth
+        .take_recording_grant(&grant, Some("theirs"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    let e = rig.auth.take_recording_grant(&grant, None).unwrap_err();
+    assert_eq!(code(e), ErrorCode::Unauthenticated);
+    rig.auth.take_recording_grant(&grant, Some("mine")).unwrap();
+    let e = rig
+        .auth
+        .take_recording_grant(&grant, Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+}
+
+#[tokio::test]
+async fn recording_needs_a_password_when_the_grant_is_presented_too() {
+    let rig = rig();
+    let e = rig
+        .auth
+        .take_recording_grant("anything", Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::FailedPrecondition);
 }

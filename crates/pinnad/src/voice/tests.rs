@@ -279,6 +279,7 @@ async fn a_confirmation_takes_the_action_press_for_itself() {
     d.brain
         .handle(Input::Presence(Presence {
             until: Instant::now() + Duration::from_secs(60),
+            purpose: crate::auth::Purpose::Password,
             pressed,
         }))
         .await;
@@ -317,6 +318,7 @@ async fn a_confirmation_nobody_presses_ends_on_its_own() {
     d.brain
         .handle(Input::Presence(Presence {
             until: Instant::now() + Duration::from_secs(60),
+            purpose: crate::auth::Purpose::Password,
             pressed,
         }))
         .await;
@@ -330,6 +332,7 @@ async fn a_confirmation_nobody_presses_ends_on_its_own() {
     d.brain
         .handle(Input::Presence(Presence {
             until: Instant::now(),
+            purpose: crate::auth::Purpose::Password,
             pressed,
         }))
         .await;
@@ -345,6 +348,7 @@ async fn the_ring_stops_when_the_waiting_side_goes_away() {
     d.brain
         .handle(Input::Presence(Presence {
             until: Instant::now() + Duration::from_secs(60),
+            purpose: crate::auth::Purpose::Password,
             pressed,
         }))
         .await;
@@ -361,6 +365,7 @@ async fn the_ring_stops_when_the_waiting_side_goes_away() {
     d.brain
         .handle(Input::Presence(Presence {
             until: Instant::now() - Duration::from_millis(1),
+            purpose: crate::auth::Purpose::Password,
             pressed,
         }))
         .await;
@@ -1002,4 +1007,28 @@ async fn the_media_volume_is_the_speakers_while_the_sendspin_group_is_paused() {
     d.lane(sendspin_stream(MediaPhase::Playing)).await;
     let m = d.brain.snapshot().media;
     assert_eq!((m.volume, m.muted), (30, true));
+}
+
+#[tokio::test]
+async fn a_recording_confirmation_shows_its_own_pattern_and_takes_the_press_the_same_way() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    let (pressed, press) = oneshot::channel();
+    d.brain
+        .handle(Input::Presence(Presence {
+            until: Instant::now() + Duration::from_secs(60),
+            purpose: crate::auth::Purpose::Recording,
+            pressed,
+        }))
+        .await;
+    d.brain.refresh();
+    assert_eq!(d.brain.leds.borrow().base, Effect::ConfirmRecording);
+    d.brain
+        .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+        .await;
+    press.await.expect("the press reached the confirmation");
+    // It started no request.
+    assert_eq!(d.brain.phase, Phase::Idle);
+    d.brain.refresh();
+    assert_eq!(d.brain.leds.borrow().base, Effect::Idle);
 }

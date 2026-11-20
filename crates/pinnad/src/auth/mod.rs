@@ -20,7 +20,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use connectrpc::ConnectError;
-use pinna_api::Security;
+use pinna_api::{ConfirmationPurpose, Security};
 use pinna_assist::secrets::DashboardFile;
 use pinna_esphome::EsphomeHandle;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -29,7 +29,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::standalone::service::Service;
 use crate::voice::{Input, Presence};
 use confirm::{Confirmations, Current, Grants, Progress};
-pub use confirm::{Progress as ConfirmProgress, WINDOW as CONFIRM_WINDOW};
+pub use confirm::{Progress as ConfirmProgress, Purpose, WINDOW as CONFIRM_WINDOW};
 pub use credentials::{TokenKind, has_password};
 
 /// How long the ESPHome API takes connections without a key after the owner
@@ -61,6 +61,10 @@ const WINDOW_HAS_KEY: &str =
     "Home Assistant has added this satellite already. Nothing needs opening.";
 const GROUP_NEEDS_PASSWORD: &str =
     "No password is set, so the Satellite group switch is all it takes to be added to a group.";
+const RECORDING_NEEDS_PASSWORD: &str =
+    "Recording needs a dashboard password. Set one under System > Password and tokens.";
+const RECORDING_NEEDS_SESSION: &str = "Sign in to record from the microphones.";
+const BAD_RECORDING_GRANT: &str = "The confirmation has expired, was already used or belongs to another browser. Confirm at the satellite again.";
 const NO_RANDOM: &str = "The satellite couldn't make random numbers. Try again.";
 
 /// Why a login didn't give a session.
@@ -236,9 +240,18 @@ impl Auth {
     }
 
     /// The request carries a session that is valid now.
+    #[cfg(test)]
     pub fn signed_in(&self, headers: &axum::http::HeaderMap) -> bool {
+        self.session_value(headers).is_some()
+    }
+
+    /// The cookie value of the valid session the request carries: what a
+    /// recording's grant is bound to (ADR 0030).
+    pub fn session_value(&self, headers: &axum::http::HeaderMap) -> Option<String> {
         let key = credentials::session_key(&self.credentials());
-        session::read(headers, &self.cookie).is_some_and(|v| session::valid(&key, v, unix_now()))
+        session::read(headers, &self.cookie)
+            .filter(|v| session::valid(&key, v, unix_now()))
+            .map(str::to_owned)
     }
 
     /// The request carries the `kind` token as a bearer token.
@@ -319,7 +332,8 @@ impl Auth {
             }
         }
         let password_set = credentials::has_password(&creds);
-        let (confirmation_waiting_from, confirmation_left_s) = self.waiting_confirmation(now);
+        let (confirmation_waiting_from, confirmation_left_s, purpose) =
+            self.waiting_confirmation(now);
         let (home_assistant_window_left_s, group_join_left_s) = {
             let windows = self.windows.lock().unwrap();
             (
@@ -347,22 +361,28 @@ impl Auth {
             group_join_left_s,
             confirmation_waiting_from,
             confirmation_left_s,
+            confirmation_purpose: match purpose {
+                Purpose::Password => ConfirmationPurpose::CONFIRMATION_PURPOSE_PASSWORD,
+                Purpose::Recording => ConfirmationPurpose::CONFIRMATION_PURPOSE_RECORDING,
+            }
+            .into(),
             ..Default::default()
         }
     }
 
-    /// The address that asked for the confirmation that waits and the seconds
-    /// it still waits; empty and 0 when none does.
-    fn waiting_confirmation(&self, now: Instant) -> (String, u32) {
+    /// The address that asked for the confirmation that waits, the seconds
+    /// it still waits and what it is for; empty, 0 and the password when none
+    /// does.
+    fn waiting_confirmation(&self, now: Instant) -> (String, u32, Purpose) {
         let confirmations = self.confirmations.lock().unwrap();
         confirmations
             .current
             .as_ref()
             .filter(|c| c.ended.is_none())
-            .map_or((String::new(), 0), |c| {
+            .map_or((String::new(), 0, Purpose::Password), |c| {
                 let left =
                     limit::ceil_secs((c.started + self.window).saturating_duration_since(now));
-                (c.from.to_string(), left as u32)
+                (c.from.to_string(), left as u32, c.purpose)
             })
     }
 
@@ -430,7 +450,12 @@ impl Auth {
             };
         }
         if !grant.is_empty() {
-            let granted = self.grants.lock().unwrap().consume(&grant, Instant::now());
+            let granted = self.grants.lock().unwrap().consume(
+                &grant,
+                Purpose::Password,
+                None,
+                Instant::now(),
+            );
             return if granted {
                 Ok(())
             } else {
@@ -555,10 +580,22 @@ impl Auth {
     }
 
     /// Ask for someone at the satellite. The id and the seconds the ring waits.
+    /// A recording needs a password and the session of the caller, whose
+    /// cookie value `session` is (ADR 0030).
     pub fn start_confirmation(
         self: &Arc<Self>,
         from: IpAddr,
+        purpose: Purpose,
+        session: Option<&str>,
     ) -> Result<(String, u32), ConnectError> {
+        if purpose == Purpose::Recording {
+            if !credentials::has_password(&self.credentials()) {
+                return Err(ConnectError::failed_precondition(RECORDING_NEEDS_PASSWORD));
+            }
+            if session.is_none() {
+                return Err(ConnectError::unauthenticated(RECORDING_NEEDS_SESSION));
+            }
+        }
         let now = Instant::now();
         let mut confirmations = self.confirmations.lock().unwrap();
         let wait = confirmations.cooldown(now);
@@ -584,6 +621,7 @@ impl Auth {
         self.inputs
             .try_send(Input::Presence(Presence {
                 until: now + self.window,
+                purpose,
                 pressed,
             }))
             .map_err(|_| ConnectError::unavailable(NO_RING))?;
@@ -592,6 +630,10 @@ impl Auth {
         confirmations.current = Some(Current {
             id: id.clone(),
             from,
+            purpose,
+            session: session
+                .filter(|_| purpose == Purpose::Recording)
+                .map(str::to_owned),
             started: now,
             ended: None,
             cooldown: confirm::COOLDOWN,
@@ -632,7 +674,12 @@ impl Auth {
                 return;
             }
             let grant = URL_SAFE_NO_PAD.encode(grant);
-            self.grants.lock().unwrap().add(grant.clone(), now);
+            self.grants.lock().unwrap().add(
+                grant.clone(),
+                now,
+                current.purpose,
+                current.session.clone(),
+            );
             // A press at the satellite lifts the login limit too.
             self.limiter.lock().unwrap().reset();
             tracing::info!("dashboard: presence confirmed");
@@ -640,6 +687,33 @@ impl Auth {
         } else {
             tracing::info!("dashboard: confirmation expired");
             current.progress.send_replace(Progress::Expired);
+        }
+    }
+
+    /// Use the grant of a recording: a password is set, `session` is the
+    /// caller's, and the grant came from a recording confirmation that this
+    /// session asked for, at most 10 seconds ago (ADR 0030).
+    pub fn take_recording_grant(
+        &self,
+        grant: &str,
+        session: Option<&str>,
+    ) -> Result<(), ConnectError> {
+        if !credentials::has_password(&self.credentials()) {
+            return Err(ConnectError::failed_precondition(RECORDING_NEEDS_PASSWORD));
+        }
+        let Some(session) = session else {
+            return Err(ConnectError::unauthenticated(RECORDING_NEEDS_SESSION));
+        };
+        let granted = self.grants.lock().unwrap().consume(
+            grant,
+            Purpose::Recording,
+            Some(session),
+            Instant::now(),
+        );
+        if granted {
+            Ok(())
+        } else {
+            Err(ConnectError::permission_denied(BAD_RECORDING_GRANT))
         }
     }
 

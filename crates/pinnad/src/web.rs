@@ -647,7 +647,7 @@ mod tests {
         // Someone presses Action: the grant sets the first password.
         let (id, _) = f
             .auth
-            .start_confirmation(Ipv4Addr::LOCALHOST.into())
+            .start_confirmation(Ipv4Addr::LOCALHOST.into(), auth::Purpose::Password, None)
             .unwrap();
         let mut progress = f.auth.watch_confirmation(&id).unwrap();
         let Some(crate::voice::Input::Presence(presence)) = f._inputs.recv().await else {

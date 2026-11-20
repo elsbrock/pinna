@@ -81,6 +81,9 @@ pub struct Shared {
 pub struct Presence {
     /// When the wait ends.
     pub until: Instant,
+    /// What the press is for: the ring shows its own pattern for a recording
+    /// (ADR 0030).
+    pub purpose: crate::auth::Purpose,
     /// Answered by the press.
     pub pressed: oneshot::Sender<()>,
 }
@@ -3712,7 +3715,10 @@ impl Brain {
             Effect::Boot
         } else if self.presence.is_some() {
             // Above Muted: someone who has to press Action needs to see it.
-            Effect::Confirm
+            match self.presence.as_ref().map(|p| p.purpose) {
+                Some(crate::auth::Purpose::Recording) => Effect::ConfirmRecording,
+                _ => Effect::Confirm,
+            }
         } else if muted {
             Effect::Muted
         } else if self.ringing.is_some() {
