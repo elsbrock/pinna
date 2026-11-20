@@ -1,10 +1,9 @@
 export const SITE = {
   name: "Pinna",
-  tagline:
-    "A local voice satellite for the Echo (2nd gen) and Echo Dot (2nd gen)",
+  tagline: "A local voice satellite for your Echo",
   description:
-    "Pinna is an open-source operating system for the Echo (2nd gen) and the " +
-    "Echo Dot (2nd gen). It detects the wake word on the device and answers " +
+    "Pinna is an open-source operating system for Echo speakers. It detects " +
+    "the wake word on the device and answers " +
     "with your Home Assistant, or on its own with the speech services and " +
     "the language model or AI agent you choose.",
   repo: "https://github.com/elsbrock/pinna",
