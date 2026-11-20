@@ -172,9 +172,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    # 1 light, 10 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
+    # 1 light, 11 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
     # 1 media player, 2 selects and 1 update.
-    assert len(by_key) == len(entities) == 1 + 10 + 4 + 1 + 8 + 1 + 1 + 2 + 1
+    assert len(by_key) == len(entities) == 1 + 11 + 4 + 1 + 8 + 1 + 1 + 2 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -439,6 +439,22 @@ async def test_group_messages_switch(client, demo):
     cmd = await demo.wait(demo.cmd("switch"), "switch command")
     assert cmd["object_id"] == "group_messages" and cmd["state"] is True
     await eventually(lambda: states[g.key].state is True, "echoed group messages switch")
+
+
+@pytest.mark.asyncio
+async def test_sendspin_switch(client, demo):
+    switches = await infos(client, SwitchInfo)
+    s = switches["Sendspin"]
+    assert s.object_id == "sendspin" and s.icon == "mdi:speaker-multiple"
+    assert int(s.entity_category) == 1  # config, like AirPlay's
+    assert s.key not in (MUTE_KEY, switches["AirPlay"].key)
+    states = {}
+    client.subscribe_states(lambda st: states.__setitem__(st.key, st))
+    await eventually(lambda: s.key in states, "initial Sendspin switch state")
+    client.switch_command(s.key, True)
+    cmd = await demo.wait(demo.cmd("switch"), "switch command")
+    assert cmd["object_id"] == "sendspin" and cmd["state"] is True
+    await eventually(lambda: states[s.key].state is True, "echoed Sendspin switch")
 
 
 @pytest.mark.asyncio

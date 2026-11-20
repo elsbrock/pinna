@@ -54,6 +54,7 @@ EXPECTED = {
         "AirPlay",
         "Bluetooth audio",
         "Bluetooth pairing",
+        "Sendspin",
     },
     NumberInfo: {"Volume", "Reply volume", "Wake word sensitivity", "LED brightness"},
     ButtonInfo: {"Cancel request"},

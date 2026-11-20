@@ -99,6 +99,14 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             icon: "mdi:bluetooth-connect".into(),
             entity_category: EntityCategory::None,
         },
+        // A Sendspin player for Music Assistant's groups (ADR 0027); off by
+        // default.
+        SwitchConfig {
+            object_id: "sendspin".into(),
+            name: "Sendspin".into(),
+            icon: "mdi:speaker-multiple".into(),
+            entity_category: EntityCategory::Config,
+        },
         // Tune the sensitivity with the volume buttons; turns itself off when
         // calibration ends.
         SwitchConfig {
