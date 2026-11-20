@@ -35,6 +35,8 @@ pub use record::Mdns;
 
 /// The port the specification recommends, and the one the record names.
 pub const PORT: u16 = 8928;
+/// Where systemd-resolved reads the record from.
+pub const RECORD: &str = record::DNSSD;
 /// The WebSocket endpoint.
 pub const PATH: &str = "/sendspin";
 /// The media lane's name for the source (ADR 0027 §13).
@@ -224,13 +226,28 @@ impl Setup {
             exact_backend,
             state_file,
             device_info,
-            listen: vec![
-                SocketAddr::from((Ipv6Addr::UNSPECIFIED, PORT)),
-                SocketAddr::from((Ipv4Addr::UNSPECIFIED, PORT)),
-            ],
+            listen: every_address(PORT),
             mdns: Mdns::default(),
         }
     }
+
+    /// Another port, and the record in another file: `pinnad.toml`'s `[sendspin]`, for a
+    /// developer. The record names the port the player listens on.
+    pub fn at(self, port: u16, record: PathBuf) -> Self {
+        Self {
+            listen: every_address(port),
+            mdns: Mdns::at(record),
+            ..self
+        }
+    }
+}
+
+/// `[::]` takes IPv4 too; `0.0.0.0` is for a host without IPv6.
+fn every_address(port: u16) -> Vec<SocketAddr> {
+    vec![
+        SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)),
+        SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)),
+    ]
 }
 
 /// What `client/hello` says about the device: the model as Pinna names it (the host's name on

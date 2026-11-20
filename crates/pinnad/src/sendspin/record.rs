@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use super::PATH;
 
 /// The record, for systemd-resolved.
-const DNSSD: &str = "/run/systemd/dnssd/pinna-sendspin.dnssd";
+pub const DNSSD: &str = "/run/systemd/dnssd/pinna-sendspin.dnssd";
 /// The protocol's limit for the player's name, in bytes.
 const NAME_MAX: usize = 64;
 /// An mDNS instance name is one DNS label.
@@ -75,6 +75,15 @@ impl Default for Mdns {
 }
 
 impl Mdns {
+    /// The record in `file`. systemd-resolved is told about it only at its usual place, so a
+    /// test's record elsewhere leaves the computer's resolved alone.
+    pub fn at(file: PathBuf) -> Self {
+        Self {
+            resolved: file == Path::new(DNSSD),
+            file,
+        }
+    }
+
     /// Without systemd-resolved (a developer's computer without it) there is nothing to tell.
     fn skipped(&self) -> bool {
         self.resolved && !Path::new("/run/systemd/resolve").exists()
@@ -149,6 +158,14 @@ mod tests {
         assert!(r.contains(&format!("name={long}\n")), "{r}");
         let r = record("a\\b", 8928);
         assert!(r.contains("\nName=ab\n"), "{r}");
+    }
+
+    #[test]
+    fn resolved_hears_only_of_a_record_at_its_usual_place() {
+        assert!(Mdns::at(DNSSD.into()).resolved);
+        let elsewhere = Mdns::at("/tmp/test/pinna-sendspin.dnssd".into());
+        assert!(!elsewhere.resolved);
+        assert_eq!(elsewhere.file, Path::new("/tmp/test/pinna-sendspin.dnssd"));
     }
 
     #[test]

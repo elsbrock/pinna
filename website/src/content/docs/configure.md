@@ -195,6 +195,16 @@ The connection to Home Assistant. See
 | --- | --- | --- |
 | `manifest` | Not set | A manifest address that the satellite checks instead of its update channel, such as `"http://192.168.1.20:8000/manifest.json"` for the output of `just release`. It offers the release there when its version is newer than the running one. The dashboard and Home Assistant show the address in place of the **Updates** setting. See [Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates) |
 
+### `[sendspin]`
+
+Where the Sendspin player listens while its switch is on. For developers: a test
+runs a second `pinnad` on a computer beside one that already holds the port.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `port` | `8928` | The TCP port the player listens on, on every address. The record names it, so Music Assistant finds the player on it |
+| `record` | `"/run/systemd/dnssd/pinna-sendspin.dnssd"` | The file that announces the player through systemd-resolved. Anywhere else, Pinna writes and removes the file but doesn't tell systemd-resolved, so nothing is announced |
+
 ### `[dev]`
 
 | Setting | Default | Description |

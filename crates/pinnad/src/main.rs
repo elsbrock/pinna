@@ -1009,7 +1009,8 @@ async fn main() -> Result<()> {
         exact_backend,
         cli.settings.with_file_name("sendspin.toml"),
         sendspin::device_info(pinna_hal::ident::board_model(), Some(mac)),
-    );
+    )
+    .at(cfg.sendspin.port, cfg.sendspin.record.clone());
     let spawner = ProdSpawner::new(
         in_tx.clone(),
         status_rx,

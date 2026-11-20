@@ -14,6 +14,7 @@ pub struct Config {
     pub api: Api,
     pub web: Web,
     pub update: Update,
+    pub sendspin: Sendspin,
     pub dev: Dev,
 }
 
@@ -126,6 +127,19 @@ pub struct Update {
     pub manifest: Option<String>,
 }
 
+/// Where the Sendspin player listens and publishes itself (ADR 0027 §2), for a developer: a
+/// test runs its own pinnad beside one that already holds the port. Owners switch the player
+/// on and off on the dashboard.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Sendspin {
+    /// The TCP port, on every address. 8928 is the one the specification recommends.
+    pub port: u16,
+    /// The `_sendspin._tcp` record for systemd-resolved. Anywhere else, the file is written
+    /// and removed but resolved isn't told: a test on a computer leaves the computer's alone.
+    pub record: PathBuf,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Dev {
@@ -199,6 +213,15 @@ impl Default for Api {
     fn default() -> Self {
         Self {
             listen: "127.0.0.1:7470".into(),
+        }
+    }
+}
+
+impl Default for Sendspin {
+    fn default() -> Self {
+        Self {
+            port: crate::sendspin::PORT,
+            record: crate::sendspin::RECORD.into(),
         }
     }
 }
@@ -366,6 +389,20 @@ mod tests {
         let c = Config::load_layered(&[image, vm], Path::new("/nonexistent")).unwrap();
         assert!(c.dev.virtual_device);
         assert_eq!(c.audio.speaker_profile, None);
+    }
+
+    #[test]
+    fn parses_sendspin() {
+        let c: Config = toml::from_str("").unwrap();
+        assert_eq!(c.sendspin.port, 8928);
+        assert_eq!(
+            c.sendspin.record,
+            Path::new("/run/systemd/dnssd/pinna-sendspin.dnssd")
+        );
+        let c: Config =
+            toml::from_str("[sendspin]\nport = 18928\nrecord = \"/tmp/t/s.dnssd\"\n").unwrap();
+        assert_eq!(c.sendspin.port, 18928);
+        assert_eq!(c.sendspin.record, Path::new("/tmp/t/s.dnssd"));
     }
 
     #[test]
