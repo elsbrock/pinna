@@ -51,9 +51,22 @@ restarts.
 ## Add your own wake word
 
 You can add up to eight wake words of your own. Each is an openWakeWord
-model, an `.onnx` or `.tflite` file of at most 2 MiB, such as the ones Home
-Assistant users train and share. Pinna can't run microWakeWord models, which
-ESPHome devices such as Voice PE use.
+model, an `.onnx` or `.tflite` file of at most 2 MiB. Pinna can't run
+microWakeWord models, which ESPHome devices such as Voice PE use.
+
+To get a model:
+
+- Download one from the
+  [Home Assistant Wake Word Collection](https://github.com/fwartner/home-assistant-wakewords-collection).
+  It has about 120 words that Home Assistant users trained and shared, sorted
+  by language. Most words come as both `.onnx` and `.tflite`, and Pinna takes
+  either. The quality varies from word to word.
+- Train your own with
+  [Create your own wake word](https://www.home-assistant.io/voice_control/create_wake_word/)
+  in the Home Assistant documentation. The training runs in Google Colab, in
+  your browser, and gives you a `.tflite` and an `.onnx` file. The guide's
+  last steps add the word to Home Assistant's openWakeWord add-on. To use
+  the word on the satellite, add it here instead.
 
 1. Open **Voice & sound > Wake words**.
 2. Under **Add a wake word**, enter the **Phrase**: the phrase the model was
