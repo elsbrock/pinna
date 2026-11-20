@@ -500,6 +500,75 @@ fn state_name(s: &State) -> &'static str {
 
 const STATES: [&str; 5] = ["off", "starting", "ready", "failed", "unavailable"];
 
+fn sendspin_state_name(s: &crate::sendspin::State) -> &'static str {
+    use crate::sendspin::State;
+    match s {
+        State::Off => "off",
+        State::Ready => "ready",
+        State::Connected(_) => "connected",
+        State::Playing => "playing",
+        State::Failed(_) => "failed",
+        State::Unavailable => "unavailable",
+    }
+}
+
+const SENDSPIN_STATES: [&str; 6] = [
+    "off",
+    "ready",
+    "connected",
+    "playing",
+    "failed",
+    "unavailable",
+];
+
+/// The Sendspin player: its state, and how well it keeps time (ADR 0027 §11).
+fn sendspin(enc: &mut DescriptorEncoder, r: &crate::sendspin::Report) -> fmt::Result {
+    let now = sendspin_state_name(&r.state);
+    gauge(
+        enc,
+        "pinna_sendspin_state",
+        "1 for the state the Sendspin player is in.",
+        SENDSPIN_STATES.map(|st| (vec![("state", st)], flag(st == now))),
+    )?;
+    let stats = &r.stats;
+    gauge(
+        enc,
+        "pinna_sendspin_sync_error_seconds",
+        "How much later the Sendspin stream sounds than the server's clock says, while it sounds.",
+        stats.sync_error_us.and_then(|us| one(us / 1e6)),
+    )?;
+    gauge(
+        enc,
+        "pinna_sendspin_clock_error_seconds",
+        "The standard deviation of the Sendspin clock filter's offset to the server.",
+        stats.filter_error_us.and_then(|us| one(us / 1e6)),
+    )?;
+    gauge(
+        enc,
+        "pinna_sendspin_steady",
+        "The Sendspin stream has kept time for 10 s or more.",
+        one(flag(stats.steady)),
+    )?;
+    counter(
+        enc,
+        "pinna_sendspin_jumps",
+        "Times a Sendspin stream started at the right sample: at its start, and after a clear, an underrun or an error too large to correct.",
+        one(stats.jumps as f64),
+    )?;
+    counter(
+        enc,
+        "pinna_sendspin_late_drops",
+        "Sendspin audio chunks dropped because they came after their time.",
+        one(stats.late_drops as f64),
+    )?;
+    counter(
+        enc,
+        "pinna_sendspin_decode_errors",
+        "Sendspin audio chunks dropped because they did not decode.",
+        one(stats.decode_drops as f64),
+    )
+}
+
 impl Collector for Status {
     fn encode(&self, mut enc: DescriptorEncoder) -> fmt::Result {
         let s = self.status.borrow().clone();
@@ -618,6 +687,7 @@ impl Collector for Status {
             "Phones paired over Bluetooth.",
             one(s.bluetooth.devices.len() as f64),
         )?;
+        sendspin(&mut enc, &s.sendspin)?;
         counter(
             &mut enc,
             "pinna_speaker_underruns",
@@ -1407,6 +1477,43 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         // pinnad's own process.
         assert!(t.contains("\nprocess_resident_memory_bytes "), "{t}");
         assert!(t.contains("\nprocess_open_fds "), "{t}");
+    }
+
+    #[test]
+    fn reports_sendspin() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = scrape(Snapshot::default(), &Counters::default(), dir.path());
+        has(&t, "pinna_sendspin_state{state=\"off\"} 1.0");
+        has(&t, "pinna_sendspin_steady 0.0");
+        has(&t, "pinna_sendspin_jumps_total 0.0");
+        // No stream, no measurement: left out.
+        assert!(!t.contains("pinna_sendspin_sync_error_seconds"), "{t}");
+        assert!(!t.contains("pinna_sendspin_clock_error_seconds"), "{t}");
+
+        let s = Snapshot {
+            sendspin: crate::sendspin::Report {
+                state: crate::sendspin::State::Playing,
+                stats: crate::sendspin::Stats {
+                    sync_error_us: Some(-250.0),
+                    filter_error_us: Some(120.0),
+                    steady: true,
+                    jumps: 2,
+                    late_drops: 3,
+                    decode_drops: 1,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let t = scrape(s, &Counters::default(), dir.path());
+        has(&t, "pinna_sendspin_state{state=\"playing\"} 1.0");
+        has(&t, "pinna_sendspin_state{state=\"off\"} 0.0");
+        has(&t, "pinna_sendspin_sync_error_seconds -0.00025");
+        has(&t, "pinna_sendspin_clock_error_seconds 0.00012");
+        has(&t, "pinna_sendspin_steady 1.0");
+        has(&t, "pinna_sendspin_jumps_total 2.0");
+        has(&t, "pinna_sendspin_late_drops_total 3.0");
+        has(&t, "pinna_sendspin_decode_errors_total 1.0");
     }
 
     #[test]
