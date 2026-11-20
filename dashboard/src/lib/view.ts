@@ -46,11 +46,12 @@ export function ringEffect(s: Status | null, link: Link, testStep = 0): Effect {
   const phase = PHASE_WORDS[s.phase];
   if (phase) return phase;
   if (pairingOpen(s)) return "pairing";
+  // A recording changes no phase (ADR 0030), but the ring says that the
+  // microphones record: Listening covers a timer's arc and a notification.
+  if (s.recording) return "listening";
   // The soonest running timer's arc shows above a waiting notification.
   if (s.timers.some((t) => t.active)) return "timer";
   if (s.notification) return "notification";
-  // A recording changes no phase (ADR 0030): the ring shows Listening while nothing else shows.
-  if (s.recording) return "listening";
   return "idle";
 }
 

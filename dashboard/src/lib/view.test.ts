@@ -1126,9 +1126,11 @@ test("a recording's files are named for the satellite, the kind and the local ti
   assert.equal(recordingFile("", "heard", at), "pinna-heard-2026-11-20-0905.wav");
 });
 
-test("a recording shows Listening on the ring while nothing else shows", () => {
+test("a recording shows Listening on the ring, above a timer's arc and a notification", () => {
   const recording = { $typeName: "pinna.v1.Recording", secondsLeft: 5, from: "192.168.1.30" } as const;
   assert.equal(ringEffect(status({ recording }), "live"), "listening");
+  const tea = { id: "1", name: "Tea", secondsLeft: 90, totalSeconds: 180, active: true } as Timer;
+  assert.equal(ringEffect(status({ recording, notification: true, timers: [tea] }), "live"), "listening");
   assert.equal(ringEffect(status({ recording, muted: true }), "live"), "muted");
   assert.equal(ringEffect(status({ recording, alarmRinging: true }), "live"), "timer-ringing");
   assert.equal(ringEffect(status({ recording, phase: 3 }), "live"), "thinking");
