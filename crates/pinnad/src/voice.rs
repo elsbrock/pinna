@@ -1014,14 +1014,15 @@ impl Brain {
                 self.media_stream = state.url.as_deref() == Some(STREAM_URL);
                 if self.media_stream && self.media_source == crate::sendspin::SOURCE {
                     self.sendspin_track.clone_from(&self.media_track);
-                } else if self.media_phase != MediaPhase::Idle
+                } else if self.media_phase == MediaPhase::Playing
                     && self.sendspin_report.borrow().group_paused
                     && let Some(s) = &self.sendspin
                 {
                     // Another source took the lane while the group waits
                     // paused from here: the satellite leaves it, so the
                     // group's next play doesn't cut this one off (ADR 0027
-                    // §14).
+                    // §14). A URL takes the lane only once it plays: one
+                    // that fails to open changes nothing (ADR 0011 §6).
                     s.another_source();
                 }
                 self.media_url = state.url;

@@ -738,7 +738,18 @@ async fn another_source_leaves_a_paused_sendspin_group() {
     d.lane(sendspin_stream(MediaPhase::Buffering)).await;
     assert!(asked(&mut rx).await.is_empty());
 
+    // A URL that is still opening hasn't taken the lane: one that fails to
+    // open changes nothing (ADR 0011 §6).
     d.lane(radio(MediaPhase::Buffering)).await;
+    assert!(asked(&mut rx).await.is_empty());
+    d.lane(MediaState {
+        error: Some("HTTP 404 Not Found".into()),
+        ..radio(MediaPhase::Idle)
+    })
+    .await;
+    assert!(asked(&mut rx).await.is_empty());
+
+    d.lane(radio(MediaPhase::Playing)).await;
     assert_eq!(asked(&mut rx).await, [Asked::AnotherSource]);
     let m = d.brain.snapshot().media;
     assert_eq!(
