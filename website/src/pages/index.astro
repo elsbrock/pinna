@@ -41,7 +41,7 @@ const features = [
   {
     icon: "speaker",
     title: "Music over AirPlay, Bluetooth and Sendspin",
-    body: "Phones and computers can play music to the device, and Music Assistant can play to it in step with other speakers (experimental). Each source is off until you turn it on, and the wake word keeps working while music plays.",
+    body: "Phones and computers can play music to the device, and Music Assistant can play to it in step with other speakers over Sendspin, its protocol for synchronised playback (experimental). Each source is off until you turn it on, and the wake word keeps working while music plays.",
   },
   {
     icon: "layer",
@@ -93,9 +93,9 @@ const works = [
 ];
 
 const gaps = [
-  "The dashboard has no login: anyone on your network can use it",
+  "The dashboard's password is optional and it serves plain HTTP: until you set one, anyone on your network can use it. Pinna offers no access from outside your network",
   "Standalone mode is new and hasn't been tried with every service yet",
-  "With a Kaeru from before 22 October 2026, a new kernel needs fastboot",
+  "With a Kaeru from before 22 October 2026, a new kernel needs fastboot. Pinna finds out at its first update and says so",
 ];
 ---
 
@@ -174,8 +174,10 @@ const gaps = [
       <p class="eyebrow">Standalone mode</p>
       <h2 class="section-title">An assistant from parts you choose</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        Without Home Assistant, the satellite hands each request to the brain
-        you set up on its dashboard, and the brain uses the tools you allow.
+        Without Home Assistant, the satellite hands each request to its brain:
+        the language model or AI agent that works out what you asked and
+        answers. You set it up on the satellite's dashboard, and it uses the
+        tools you allow.
         Standalone mode is new: it has been tried on an Echo Dot (2nd gen)
         with OpenRouter and ElevenLabs, not yet with every service.
       </p>
@@ -247,9 +249,10 @@ const gaps = [
           <Icon name="board" size={18} class="text-brand-mid mt-0.5 shrink-0" />
           <p class="text-ink-muted text-body">
             <span class="text-ink font-medium">It needs an unlocked bootloader.</span>
-            Pinna installs over fastboot on a device unlocked with amonet and
-            Kaeru. Holding Volume Down while you plug the device in always
-            opens fastboot.
+            The unlock (amonet) installs Kaeru, a small addition to the
+            bootloader. Pinna installs over fastboot, the bootloader's USB mode
+            for writing the device's storage. Holding Volume Down while you
+            plug the device in always opens it.
           </p>
         </div>
         <div class="flex items-start gap-3">
@@ -320,6 +323,27 @@ const gaps = [
               Open the installer
               <Icon name="arrow" size={16} />
             </a>
+          </div>
+          <div class="pn-notice mt-5" data-tone="caution">
+            <span class="pn-notice-icon"><Icon name="shield" size={20} /></span>
+            <div class="pn-notice-body">
+              <p class="pn-notice-title">Unlocking can brick the device</p>
+              <p class="text-body">
+                Pinna doesn't unlock devices, and its docs don't cover the
+                unlock. A mistake there can leave the device unusable. Pinna
+                itself never writes the bootloader or Kaeru, so fastboot stays
+                reachable after you install it: hold Volume Down while you plug
+                the device in, and restore your backup from there. Making and
+                restoring the backup needs a Linux computer with
+                <code>adb</code> and <code>fastboot</code>.
+              </p>
+              <p class="text-sm">
+                <a class="link inline-flex items-center gap-1.5" href={docHref("recovery")}>
+                  Recover a device
+                  <Icon name="arrow" size={14} />
+                </a>
+              </p>
+            </div>
           </div>
           <p class="mt-4 flex flex-col gap-2 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("requirements")}>
