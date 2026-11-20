@@ -62,7 +62,8 @@ lanes:
 
 - **Voice**: replies, announcements, the timer alarm and short sounds.
 - **Media**: music and other audio from the media player, and live audio from
-  [AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/).
+  [AirPlay](/docs/airplay/), [Bluetooth](/docs/bluetooth/) and
+  [Sendspin](/docs/sendspin/).
 
 While the voice lane plays, and while the device listens or works on a
 request, the media lane gets 20 dB quieter, and returns afterwards.
@@ -72,6 +73,18 @@ Live audio runs on the sender's clock, and the speaker on the device's own.
 always holds 100 ms of it: the delay stays the same however long the music
 plays. Other programs on the device can play live audio the same way; see
 [The stream socket](/docs/configure/#the-stream-socket).
+
+Sendspin audio is timed instead: each piece carries the moment, on the
+server's clock, at which its first sample has to sound. `pinnad` follows the
+server's clock, and on the Echo (2nd gen) and the Echo Dot (2nd gen) reads
+from the speaker's hardware clock when each sample it writes will sound. It
+converts the audio at a rate that keeps the two in step. When they are too
+far apart to correct gently, it skips audio or waits in silence, to start
+again at the right sample. While the media lane is quieter for a reply, the
+stream keeps its place, so the music continues where the rest of the group
+is. With the `pipewire` backend, on the virtual Echo Dot and other
+computers, there is no hardware clock to read: the audio plays, but not in
+step with the group.
 
 Replies and announcements play while they download. If the audio arrives
 slower than it plays, the reply pauses in silence until enough audio is
@@ -101,6 +114,11 @@ It follows the sending phone's or computer's volume. While a stream plays,
 **Music volume**, under **Now playing** on the dashboard's **Overview**, and
 the Home Assistant media player show and set the stream volume; the volume
 itself stays where it is.
+
+Sendspin has a volume of its own, under the volume too: the satellite's
+volume in Music Assistant, on the curve that Sendspin defines. While
+Sendspin plays, **Music volume** and the Home Assistant media player show
+and set it, and Music Assistant's slider follows.
 
 ## What's next
 

@@ -102,7 +102,7 @@ work:
 | Service | Job |
 | --- | --- |
 | `systemd-networkd`, `wpa_supplicant@wlan0` | Wi-Fi, and the USB network to your computer |
-| `systemd-resolved` | Name resolution and mDNS, which Home Assistant and AirPlay senders use to find the device |
+| `systemd-resolved` | Name resolution and mDNS, which Home Assistant, AirPlay senders and Music Assistant use to find the device |
 | `ssh` | Remote login with keys |
 | `systemd-journald` | Logs, kept in `/var/log/journal` |
 | `pinna-pipewire`, `pinna-wireplumber` | The microphone processing graph. See [Audio](/docs/audio/) |
@@ -111,7 +111,7 @@ Pinna's own services:
 
 | Service | Job |
 | --- | --- |
-| `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons. In standalone mode, runs each request itself with the services you set up. Serves the dashboard, the control API, standalone mode's setup API and its MCP server on port 80, and the control API on `127.0.0.1:7470` for `pinnactl` and the health check |
+| `pinnad` | The voice satellite. Talks to Home Assistant, detects the wake word, drives the ring and reads the buttons. In standalone mode, runs each request itself with the services you set up. Serves the dashboard, the control API, standalone mode's setup API and its MCP server on port 80, and the control API on `127.0.0.1:7470` for `pinnactl` and the health check. While **Sendspin** is on, it is the Sendspin player too, on port 8928. See [Play music with Sendspin](/docs/sendspin/) |
 | `pinna-wifi` | Powers up the Wi-Fi chip and loads its firmware |
 | `pinna-gadget` | Sets up the USB serial console and network |
 | `pinna-bootstages` | Shows the start-up steps on the ring after the system starts (USB, Wi-Fi, `pinnad`), then hands the ring to `pinnad` |
