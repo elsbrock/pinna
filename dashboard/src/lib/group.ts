@@ -73,7 +73,7 @@ export function memberLine(
     return `${where} · ${seenWord(m.lastSeenUnixMs, now, here)}`;
   }
   if (m.mode === undefined && !Number(m.lastSeenUnixMs)) return `Not heard from since ${here} started`;
-  // A member without a password can't take messages or calls from one with it (ADR 0029).
+  // A satellite with a password refuses messages and calls from a member without one (ADR 0029).
   const line = `${modeWord(m.mode)} · ${seenWord(m.lastSeenUnixMs, now, here)}`;
   return m.hasPassword === false ? `${line} · No password` : line;
 }
