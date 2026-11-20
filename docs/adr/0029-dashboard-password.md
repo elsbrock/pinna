@@ -110,8 +110,9 @@ measured on one yet.
   - GET and HEAD that no route answers: the page's own files, which hold no
     secret;
   - `/auth/login` and `/auth/logout`;
-  - four `DeviceService` calls that need no session: `StartConfirmation`
-    and `WatchConfirmation`, `SetDashboardPassword`, which checks the
+  - five `DeviceService` calls that need no session: `StartConfirmation`,
+    `WatchConfirmation`, `CancelConfirmation` (by the confirmation's id; an
+    empty id needs a session), `SetDashboardPassword`, which checks the
     current password or a grant itself, and `GetSecurity`, which without a
     session answers only whether a password is set and how long to wait to
     sign in or to start a confirmation;
