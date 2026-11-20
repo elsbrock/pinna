@@ -36,6 +36,8 @@
   const ring = $derived(ringEffect(s, device.link, device.testStep));
   const page = $derived(pageOf(router.path));
   const groups = [...new Set(SECTIONS.map((x) => x.group))];
+  // Logs fills the window, and only its log scrolls.
+  const fill = $derived(page.path === "/system/logs");
 
   // The satellite switcher (ADR 0021), opened from the sidebar's device box or,
   // on phones, the name in the app bar.
@@ -53,7 +55,7 @@
   });
 </script>
 
-<div class="shell">
+<div class="shell" class:fill>
   <aside class="side">
     <a class="home" href="#/" aria-label="Pinna, overview">
       {#if s}
@@ -357,6 +359,26 @@
     flex-direction: column;
     gap: var(--space-6);
   }
+  /* A page that fills the window: as tall as the window, the full width of the
+     content area, and the content takes what the bars leave. Only a window
+     too short for it scrolls. */
+  .shell.fill {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .fill .main {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .fill .content {
+    flex: 1 1 0;
+    max-width: none;
+    padding-bottom: var(--space-4);
+  }
   .skeleton {
     display: flex;
     flex-direction: column;
@@ -370,7 +392,8 @@
 
   /* From 760px: the sidebar. */
   @media (min-width: 760px) {
-    .shell {
+    .shell,
+    .shell.fill {
       display: grid;
       grid-template-columns: var(--nav-w) minmax(0, 1fr);
     }
@@ -433,7 +456,8 @@
       /* Centred on the content, not on the sidebar too. */
       padding-left: calc(var(--nav-w) + var(--space-4));
     }
-    .content {
+    .content,
+    .fill .content {
       padding: var(--space-8);
       gap: 28px;
     }

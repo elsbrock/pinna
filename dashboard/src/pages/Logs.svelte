@@ -1,25 +1,31 @@
+<!-- The journal, newest at the bottom. The log fills the window (App.svelte) and
+     is the only thing that scrolls; it follows the newest line while it is
+     scrolled to the bottom. -->
 <script lang="ts">
   import { tick } from "svelte";
 
   import { copyText } from "../lib/copy.ts";
-  import { client, errorSentence } from "../lib/device.svelte.ts";
+  import { client, device, errorSentence } from "../lib/device.svelte.ts";
   import Icon from "../lib/Icon.svelte";
-  import Switch from "../lib/Switch.svelte";
+  import { toasts } from "../lib/toast.svelte.ts";
 
-  type Line = { key: number; time: string; level: string; message: string };
+  type Line = { key: number; unixMs: number; time: string; level: string; message: string };
   const MAX = 2000;
+  /** How close to the bottom still counts as at the bottom, in pixels. */
+  const SLACK = 24;
 
   let lines = $state<Line[]>([]);
   let error = $state<string | null>(null);
   let connected = $state(false);
   let onlyProblems = $state(false);
+  let query = $state("");
   let follow = $state(true);
-  let copied = $state(false);
   let box = $state<HTMLElement>();
   let key = 0;
 
-  const time = (ms: bigint) =>
-    new Date(Number(ms)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const time = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const text = (l: Line) => `${l.time} ${l.level.padEnd(5)} ${l.message}`;
 
   // Follow the journal while the page is open; start again (with the backlog) after a break.
   $effect(() => {
@@ -31,7 +37,8 @@
           for await (const res of client.watchLogs({}, { signal: abort.signal })) {
             const l = res.line;
             if (!l) continue;
-            const line = { key: key++, time: time(l.unixMs), level: l.level, message: l.message };
+            const ms = Number(l.unixMs);
+            const line = { key: key++, unixMs: ms, time: time(ms), level: l.level, message: l.message };
             if (first) {
               // A new connection sends the backlog again: replace, don't append.
               lines = [];
@@ -53,55 +60,129 @@
     return () => abort.abort();
   });
 
-  const shown = $derived(onlyProblems ? lines.filter((l) => l.level === "WARN" || l.level === "ERROR") : lines);
+  const needle = $derived(query.trim().toLowerCase());
+  const shown = $derived(
+    lines.filter(
+      (l) =>
+        (!onlyProblems || l.level === "WARN" || l.level === "ERROR") &&
+        (!needle || text(l).toLowerCase().includes(needle)),
+    ),
+  );
+  const empty = $derived.by(() => {
+    if (!lines.length) return "No log lines yet.";
+    const what = onlyProblems ? "No warnings or errors" : "No lines";
+    return needle ? `${what} match “${query.trim()}”.` : `${what}.`;
+  });
 
-  // Keep the newest line in view while following.
+  function atEnd(b: HTMLElement) {
+    return b.scrollTop + b.clientHeight >= b.scrollHeight - SLACK;
+  }
+
+  function toEnd() {
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+
+  // Keep the newest line in view while following. When a filter shortens the
+  // log so that it no longer scrolls, it is at the bottom again.
   $effect(() => {
-    void shown.length;
-    if (follow && box) tick().then(() => box && (box.scrollTop = box.scrollHeight));
+    void shown;
+    tick().then(() => {
+      if (!box) return;
+      if (follow) toEnd();
+      else if (atEnd(box)) follow = true;
+    });
+  });
+
+  // A taller or narrower window moves the bottom: stay on it while following.
+  $effect(() => {
+    if (!box) return;
+    const watch = new ResizeObserver(() => follow && toEnd());
+    watch.observe(box);
+    return () => watch.disconnect();
   });
 
   function scrolled() {
     if (!box) return;
-    const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 24;
-    if (follow !== atEnd) follow = atEnd;
+    const end = atEnd(box);
+    if (follow !== end) follow = end;
   }
 
+  function newest() {
+    follow = true;
+    toEnd();
+    // The button goes away: keep the keyboard on the log, not on the page.
+    box?.focus();
+  }
+
+  const count = (n: number) => `${n} ${n === 1 ? "line" : "lines"}`;
+
   async function copy() {
-    const text = shown.map((l) => `${l.time} ${l.level.padEnd(5)} ${l.message}`).join("\n");
-    await copyText(text);
-    copied = true;
-    setTimeout(() => (copied = false), 1500);
+    await copyText(shown.map(text).join("\n"));
+    toasts.show(`Copied ${count(shown.length)}`);
+  }
+
+  function download() {
+    const blob = new Blob([shown.map(text).join("\n") + "\n"], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    // Local time, as the lines show it.
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+    a.href = url;
+    a.download = `${device.status?.name || "pinna"}-log-${stamp}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 </script>
 
 <div class="tools">
-  <div class="filter" role="group" aria-label="Show">
-    <button class="pn-btn pn-btn-sm" aria-pressed={!onlyProblems} onclick={() => (onlyProblems = false)}>All</button>
-    <button class="pn-btn pn-btn-sm" aria-pressed={onlyProblems} onclick={() => (onlyProblems = true)}>
-      Warnings and errors
+  <div class="pn-segmented" role="group" aria-label="Show">
+    <button type="button" aria-pressed={!onlyProblems} onclick={() => (onlyProblems = false)}>All</button>
+    <button type="button" aria-pressed={onlyProblems} onclick={() => (onlyProblems = true)}>Warnings and errors</button>
+  </div>
+  <input
+    class="pn-input filter"
+    type="search"
+    placeholder="Filter"
+    aria-label="Filter lines"
+    autocomplete="off"
+    spellcheck="false"
+    bind:value={query}
+  />
+  <div class="actions">
+    <button class="pn-btn" type="button" disabled={!shown.length} onclick={copy}>
+      <Icon name="copy" />Copy
+    </button>
+    <button class="pn-btn" type="button" disabled={!shown.length} onclick={download}>
+      <Icon name="download" />Download
     </button>
   </div>
-  <Switch id="follow" label="Follow" checked={follow} toggle={(on) => (follow = on)} />
-  <button class="pn-btn pn-btn-sm" disabled={!shown.length} onclick={copy}>{copied ? "Copied" : "Copy"}</button>
 </div>
 
 {#if error && !connected}
   <p class="pn-field-error" role="alert"><Icon name="alert" />{error} Trying again…</p>
 {/if}
 
-<!-- Focusable so the keyboard can scroll it (a scrollable region must be reachable). -->
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="log" bind:this={box} onscroll={scrolled} tabindex="0" role="log" aria-label="Log lines">
-  {#each shown as l (l.key)}
-    <div class="line" data-level={l.level}>
-      <span class="time">{l.time}</span>
-      <span class="level">{l.level}</span>
-      <span class="msg">{l.message}</span>
-    </div>
-  {:else}
-    <p class="empty">{onlyProblems && lines.length ? "No warnings or errors." : "No log lines yet."}</p>
-  {/each}
+<div class="frame">
+  <!-- Focusable so the keyboard can scroll it (a scrollable region must be reachable). -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="log" bind:this={box} onscroll={scrolled} tabindex="0" role="log" aria-label="Log lines">
+    {#each shown as l (l.key)}
+      <div class="line" data-level={l.level}>
+        <span class="time">{l.time}</span>
+        <span class="level">{l.level}</span>
+        <span class="msg">{l.message}</span>
+      </div>
+    {:else}
+      <p class="empty">{empty}</p>
+    {/each}
+  </div>
+  {#if !follow}
+    <button class="pn-btn pn-btn-sm newest" type="button" onclick={newest}>
+      <Icon name="chevron-down" />Newest
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -109,19 +190,29 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-3) var(--space-6);
+    gap: var(--space-3);
   }
   .filter {
-    display: flex;
-    gap: var(--space-1);
+    flex: 1 1 12rem;
+    width: auto;
   }
-  .filter [aria-pressed="true"] {
-    background: var(--surface-sunken);
-    border-color: var(--ink-muted);
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  /* The rest of the window, down to its bottom edge (or the tab bar). */
+  .frame {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 12rem;
+    display: flex;
   }
   .log {
-    height: min(70vh, 640px);
+    flex: 1;
+    min-width: 0;
     overflow: auto;
+    overscroll-behavior: contain;
     padding: var(--space-3) var(--space-4);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
@@ -135,6 +226,13 @@
   .log:focus-visible {
     outline: none;
     box-shadow: var(--focus-ring);
+  }
+  .newest {
+    position: absolute;
+    left: 50%;
+    bottom: var(--space-4);
+    transform: translateX(-50%);
+    box-shadow: var(--shadow-pop);
   }
   .line {
     display: grid;
