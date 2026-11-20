@@ -20,6 +20,8 @@ mod record;
 mod saved;
 mod service;
 mod socket;
+#[cfg(test)]
+mod tests;
 
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
