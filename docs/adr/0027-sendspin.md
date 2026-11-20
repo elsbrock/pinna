@@ -279,12 +279,17 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
   canceller's reference: the satellite hears them as it hears any other
   speaker in the room. The wake word and a request with a second member
   playing nearby are part of the gate; the docs say what to expect.
-- No new dependencies. The size of `pinnad` and of the root image before and
-  after is recorded when the code lands.
+- No new third-party crates. Measured on main 4b7812d against this branch
+  (e7542b1), release builds for the device: `pinnad` (armv7, stripped)
+  grows from 26,059,948 to 26,706,004 bytes (+646,056, +2.5 %), and the
+  signed root image from 135,450,624 to 135,917,568 bytes (+466,944,
+  +0.34 %; erofs compresses the binary).
 - A test suite runs Music Assistant's own server library (`aiosendspin`),
   at the versions in the oldest and the newest Music Assistant release that
   speak rc1, against a `pinnad` on the developer's computer: handshake,
-  PCM and FLAC played sample for sample, volume both ways, metadata, pause
+  PCM and FLAC played as sent (pinnad resamples and applies the volume, so
+  the suite compares by correlation per 100 ms, level and timeline, not
+  bit for bit), volume both ways, metadata, pause
   and play through the controller, leaving, and reconnecting
   (`just sendspin-conformance`). The docs claim only the versions it
   passes with.
