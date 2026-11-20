@@ -42,7 +42,7 @@ If you use Home Assistant, it has the same switch: **Sendspin**, under
 the other.
 
 The player uses the satellite's name, the one you set in
-[Name the device](/docs/dashboard/#name-the-device). When you rename the
+[Name the device](/docs/settings/#name-the-device). When you rename the
 satellite, its connection to Music Assistant ends, which stops the music on
 it. Music Assistant then connects again and reads the new name.
 
@@ -149,7 +149,7 @@ the satellite plays.
   Assistant could play to it.
 
 The satellite keeps its Sendspin identity and the volume across restarts. A
-[factory reset](/docs/dashboard/#reset-the-device) gives it a new identity,
+[factory reset](/docs/settings/#reset-the-device) gives it a new identity,
 so Music Assistant may list it as a new player.
 
 ## Limits
