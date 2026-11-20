@@ -279,8 +279,9 @@
               <span class="pn-row-hint is-danger">A server couldn't connect. {sentence(ss.reason)}</span>
             {:else}
               <span class="pn-row-hint">
-                Music Assistant lists it as “{ss.name}”. Not in the list? Music Assistant has to be on the same network
-                as the satellite: a guest Wi-Fi or a separate VLAN hides it.
+                Music Assistant lists it as “{ss.name}”. Not in the list? Music Assistant finds it only on the same
+                network. On a guest Wi-Fi or a separate VLAN, add the satellite's IP address in Music Assistant's Sendspin
+                settings.
               </span>
             {/if}
           {:else if ss.state === SendspinState.CONNECTED}
