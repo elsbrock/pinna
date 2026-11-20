@@ -11,6 +11,7 @@
   import Confirm from "../../lib/Confirm.svelte";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
+  import HomeAssistantWindow from "../../lib/HomeAssistantWindow.svelte";
   import Icon from "../../lib/Icon.svelte";
   import HomeAssistant from "../HomeAssistant.svelte";
   import SatelliteGroup from "./SatelliteGroup.svelte";
@@ -146,6 +147,7 @@
         </span>
       </div>
     </Group>
+    <HomeAssistantWindow />
   {:else}
     <HomeAssistant />
   {/if}

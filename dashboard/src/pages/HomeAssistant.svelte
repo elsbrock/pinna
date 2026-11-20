@@ -5,18 +5,12 @@
   import Icon from "../lib/Icon.svelte";
   import { network } from "../lib/network.svelte.ts";
   import { toasts } from "../lib/toast.svelte.ts";
-  import { windowLeft } from "../lib/view.ts";
-  import { windows } from "../lib/windows.svelte.ts";
+  import HomeAssistantWindow from "../lib/HomeAssistantWindow.svelte";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
 
   $effect(() => network.watch());
-  $effect(() => windows.watch());
-  // With a password and no key, the ESPHome API refuses Home Assistant until the
-  // owner opens a window (ADR 0029). A key makes the window pointless.
-  const closed = $derived(live && windows.passwordSet && !s?.apiEncrypted);
-  const left = $derived(windows.homeAssistantLeft);
   // The satellite's own address on the network. The page's host may be one Home
   // Assistant can't reach: USB (10.42.0.1), a port forward, a proxy.
   const host = $derived(
@@ -84,32 +78,7 @@
     </div>
   </Group>
 
-  {#if closed}
-    <Group title="Let Home Assistant add this satellite">
-      {#snippet foot()}
-        Once Home Assistant has added the satellite, only its key works, and the window no longer matters.
-      {/snippet}
-      <div class="pn-row">
-        <div class="pn-row-text">
-          <span class="pn-row-label">{left ? "Home Assistant can add this satellite" : "Home Assistant can't connect"}</span>
-          <span class="pn-row-hint" role="status">
-            {#if left}
-              Add the satellite in Home Assistant now. {windowLeft(left)}.
-            {:else}
-              This satellite has a dashboard password and Home Assistant hasn't set a key yet, so it refuses Home Assistant's
-              connections. Choose the button, then add the satellite in Home Assistant within 15 minutes.
-            {/if}
-          </span>
-          {#if windows.error}
-            <span class="pn-field-error" role="alert"><Icon name="alert" />{windows.error}</span>
-          {/if}
-        </div>
-        <button class="pn-btn" disabled={windows.opening} onclick={() => windows.openHomeAssistant()}>
-          Let Home Assistant add this satellite
-        </button>
-      </div>
-    </Group>
-  {/if}
+  <HomeAssistantWindow />
 
   <Group title="Add it to Home Assistant">
     {#snippet foot()}
