@@ -1,14 +1,16 @@
 ---
 // The hero drawing: the Echo (2nd gen) behind, the Echo Dot (2nd gen) in
-// front, staggered so the pair reads with depth. The two take turns answering
-// a request, each to its own wake word: the one that answers steps through
-// the phases with the device's own timings and a speech bubble shows what was
-// said; the other stays dark, and both rest between requests. The phase word
-// under the drawing follows the device that answers. Starts paused (on the
-// first request) under reduced motion, and the Pause button stops it at any
-// time.
+// front, staggered so the pair reads with depth. The two play the requests in
+// ringDemoScenes.ts, with Home Assistant or in standalone mode, each to its own
+// wake word: a device that takes part steps through the phases with its own
+// timings and a speech bubble shows what was said; a device that doesn't
+// stays dark, and both rest between requests. The phase badge follows the
+// device that leads. A row of dots names the request and jumps to another.
+// Starts paused (on the first request) under reduced motion. The Pause button
+// stops it at any time and mutes both satellites until Play.
 import DeviceDrawing from "./DeviceDrawing.astro";
 import { drawingFor } from "../../../design/devices/index.ts";
+import { MODE_NAME, SCENES, sceneTitle } from "./ringDemoScenes.ts";
 
 type Props = { class?: string };
 const { class: className } = Astro.props;
@@ -17,12 +19,15 @@ const { class: className } = Astro.props;
 // viewer. The Echo stands at the origin and the Dot in front of its right
 // side, a hand's width clear of it. Both drawings are seen from the same
 // angle, so a floor point (x, z) shows at (x, z * tilt), and each is scaled
-// to the same millimetres. `effect` is the still frame before the script runs:
-// the first request, which the Dot answers.
+// to the same millimetres.
 const placed = [
-  { model: "echo-2", id: "hero-echo", x: 0, z: 0, effect: "idle", label: "Illustration of an Echo (2nd gen) running Pinna." },
-  { model: "echo-dot-2", id: "hero-dot", x: 54, z: 76, effect: "listening", label: "Illustration of an Echo Dot (2nd gen) running Pinna." },
+  { model: "echo-2", id: "hero-echo", x: 0, z: 0, label: "Illustration of an Echo (2nd gen) running Pinna." },
+  { model: "echo-dot-2", id: "hero-dot", x: 54, z: 76, label: "Illustration of an Echo Dot (2nd gen) running Pinna." },
 ] as const;
+
+// The still frame before the script runs: the first beat of the first request.
+const first = SCENES[0];
+const opening = (n: number) => first.beats[0].parts.find((p) => p.device === n);
 
 const boxes = placed.map((p) => {
   const { view, foot, mm, tilt } = drawingFor(p.model)!.stage;
@@ -71,23 +76,26 @@ const anchor = (b: (typeof boxes)[number]) => {
     >
     </div>
     {
-      boxes.map((b) => (
+      boxes.map((b, i) => (
         <div class="absolute" style={pct(b)}>
-          <DeviceDrawing model={b.model} id={b.id} effect={b.effect} width="100%" label={b.label} />
+          <DeviceDrawing model={b.model} id={b.id} effect={opening(i)?.effect ?? "idle"} width="100%" label={b.label} />
         </div>
       ))
     }
     {
       boxes.map((b, i) => {
         const a = anchor(b);
+        const request = opening(i)?.request;
         return (
           <div class="anchor" data-side={a.side} data-device={i} style={a.style} aria-hidden="true">
-            <p class="bubble" data-bubble="request" data-shown={i === 1 ? "" : undefined}>
+            <p class="bubble" data-bubble="request" data-shown={request ? "" : undefined}>
               <span class="who">You</span>
-              <span data-text>{i === 1 ? "Okay Nabu, turn on the kitchen lights." : ""}</span>
+              <span data-text>{request ?? ""}</span>
             </p>
             <p class="bubble reply" data-bubble="reply">
-              <span class="who">Pinna</span>
+              <span class="who" data-who>
+                {MODE_NAME[first.mode]}
+              </span>
               <span data-text />
             </p>
           </div>
@@ -97,14 +105,27 @@ const anchor = (b: (typeof boxes)[number]) => {
   </div>
   <figcaption class="flex max-w-[18rem] flex-col items-center gap-2 text-center">
     <span class="flex items-center gap-2">
-      <span class="pn-badge" data-phase="listening">
+      <span class="pn-badge" data-phase={opening(1)?.effect ?? "idle"}>
         <span class="pn-badge-dot" aria-hidden="true"></span>
         <span data-word>Listening</span>
       </span>
       <button type="button" class="pn-btn pn-btn-quiet pn-btn-sm" data-toggle hidden>Pause</button>
     </span>
-    <span class="text-ink-muted text-caption">
-      A demo of two satellites taking turns, with the rings' own colours and timing.
+    <span class="flex flex-col items-center gap-1">
+      <span class="scenes" role="group" aria-label="Demo requests" data-scenes hidden>
+        {
+          SCENES.map((s, i) => (
+            <button
+              type="button"
+              class="scene"
+              data-scene={i}
+              aria-label={`Play the demo from: ${sceneTitle(s)}`}
+              aria-current={i === 0 ? "true" : undefined}
+            />
+          ))
+        }
+      </span>
+      <span class="text-ink-muted text-caption" data-scene-title>{sceneTitle(first)}</span>
     </span>
   </figcaption>
 </figure>
@@ -188,8 +209,57 @@ const anchor = (b: (typeof boxes)[number]) => {
     text-transform: uppercase;
   }
 
+  /* The scene row: small dots, the current one a short bar in the mark's
+     indigo. Each button is a 24px target round its dot. */
+  .scenes {
+    display: flex;
+    align-items: center;
+  }
+
+  .scenes[hidden] {
+    display: none;
+  }
+
+  .scene {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+  }
+
+  .scene::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--line-strong);
+    transition:
+      width 200ms ease,
+      background-color 200ms ease;
+  }
+
+  .scene:hover::before {
+    background: var(--ink-muted);
+  }
+
+  .scene[aria-current="true"]::before {
+    width: 16px;
+    background: var(--brand-mid);
+  }
+
+  .scene:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .bubble {
+    .bubble,
+    .scene::before {
       transition: none;
     }
   }
@@ -197,23 +267,30 @@ const anchor = (b: (typeof boxes)[number]) => {
 
 <script>
   import { displayLevel, ringFrame, type Effect } from "../../../design/ring";
+  import { MODE_NAME, REST_MS, SCENES, sceneTitle, type Part } from "./ringDemoScenes";
 
-  // Who answers what. The device is an index into the drawings: 0 the Echo,
-  // 1 the Dot. Each listens for its own wake word.
-  const SCENES = [
-    { device: 1, request: "Okay Nabu, turn on the kitchen lights.", reply: "The kitchen lights are on." },
-    { device: 0, request: "Hey Jarvis, will it rain tomorrow?", reply: "Light rain from noon, up to 12 degrees." },
-    { device: 1, request: "Okay Nabu, add milk to the shopping list.", reply: "Milk is on the shopping list." },
-  ];
-  // One request, with the device's timings, then a rest.
-  const PHASES: { effect: Effect; word: string; ms: number }[] = [
-    { effect: "listening", word: "Listening", ms: 2800 },
-    { effect: "thinking", word: "Thinking", ms: 1600 },
-    { effect: "speaking", word: "Speaking", ms: 3400 },
-    { effect: "idle", word: "Idle", ms: 3600 },
-  ];
-  const SCENE = PHASES.reduce((sum, p) => sum + p.ms, 0);
-  const CYCLE = SCENES.length * SCENE;
+  const WORD: Partial<Record<Effect, string>> = {
+    idle: "Idle",
+    listening: "Listening",
+    thinking: "Thinking",
+    speaking: "Speaking",
+    muted: "Muted",
+  };
+
+  // The whole demo as one timeline: each beat with its start, and a rest
+  // after each request.
+  type Step = { start: number; ms: number; scene: number; parts: Part[] };
+  const STEPS: Step[] = [];
+  const SCENE_START: number[] = [];
+  let end = 0;
+  SCENES.forEach((scene, s) => {
+    SCENE_START.push(end);
+    for (const beat of [...scene.beats, { ms: REST_MS, parts: [] }]) {
+      STEPS.push({ start: end, ms: beat.ms, scene: s, parts: beat.parts });
+      end += beat.ms;
+    }
+  });
+  const CYCLE = end;
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
   for (const root of document.querySelectorAll<HTMLElement>("[data-ring-demo]")) {
@@ -228,14 +305,19 @@ const anchor = (b: (typeof boxes)[number]) => {
     const badge = root.querySelector<HTMLElement>("[data-phase]");
     const word = root.querySelector<HTMLElement>("[data-word]");
     const toggle = root.querySelector<HTMLButtonElement>("[data-toggle]");
+    const row = root.querySelector<HTMLElement>("[data-scenes]");
+    const dots = [...root.querySelectorAll<HTMLButtonElement>("[data-scene]")];
+    const title = root.querySelector<HTMLElement>("[data-scene-title]");
 
     let elapsed = 0;
     let last = 0;
     let raf = 0;
     let shown = -1;
+    let shownScene = 0;
     let visible = false;
     let playing = !reduceMotion.matches;
     let pausedByUser = false;
+    let muted = false;
 
     const paint = (n: number, effect: Effect, t: number) => {
       const { leds, glows } = drawings[n];
@@ -249,41 +331,54 @@ const anchor = (b: (typeof boxes)[number]) => {
       });
     };
 
-    const say = (el: HTMLElement | null, text: string | null) => {
+    const say = (el: HTMLElement | null, text: string | undefined, who?: string) => {
       if (!el) return;
-      if (text === null) return void el.removeAttribute("data-shown");
+      if (!text) return void el.removeAttribute("data-shown");
       const span = el.querySelector<HTMLElement>("[data-text]");
       if (span) span.textContent = text;
+      const label = el.querySelector<HTMLElement>("[data-who]");
+      if (label && who) label.textContent = who;
       el.setAttribute("data-shown", "");
     };
 
-    const show = (ms: number) => {
-      let t = ms % CYCLE;
-      const s = Math.floor(t / SCENE);
-      t -= s * SCENE;
-      let i = 0;
-      while (t >= PHASES[i].ms) t -= PHASES[i++].ms;
-      const scene = SCENES[s];
-      const phase = PHASES[i];
+    const setPhase = (effect: Effect) => {
+      if (badge) badge.dataset.phase = effect;
+      if (word) word.textContent = WORD[effect] ?? "";
+    };
 
-      // Badge, bubbles and the device that stays dark change only with the phase.
-      const step = s * PHASES.length + i;
-      if (step !== shown) {
-        shown = step;
-        if (badge) badge.dataset.phase = phase.effect;
-        if (word) word.textContent = phase.word;
-        bubbles.forEach((b, n) => {
-          const mine = n === scene.device;
-          say(b.request, mine && i <= 1 ? scene.request : null);
-          say(b.reply, mine && i === 2 ? scene.reply : null);
-          if (!mine) paint(n, "idle", 0);
+    const markScene = (s: number) => {
+      shownScene = s;
+      dots.forEach((d, i) => (i === s ? d.setAttribute("aria-current", "true") : d.removeAttribute("aria-current")));
+      if (title) title.textContent = sceneTitle(SCENES[s]);
+    };
+
+    const show = (ms: number) => {
+      const t = ((ms % CYCLE) + CYCLE) % CYCLE;
+      let n = 0;
+      while (n < STEPS.length - 1 && t >= STEPS[n].start + STEPS[n].ms) n++;
+      const step = STEPS[n];
+      const into = t - step.start;
+
+      // Badge, bubbles, the scene row and the dark devices change only with the beat.
+      if (n !== shown) {
+        shown = n;
+        const scene = SCENES[step.scene];
+        if (step.scene !== shownScene) markScene(step.scene);
+        setPhase(step.parts[0]?.effect ?? "idle");
+        bubbles.forEach((b, d) => {
+          const part = step.parts.find((p) => p.device === d);
+          say(b.request, part?.request);
+          say(b.reply, part?.reply, MODE_NAME[scene.mode]);
+          if (!part) paint(d, "idle", 0);
         });
       }
-      paint(scene.device, phase.effect, t);
+      for (const part of step.parts) paint(part.device, part.effect, into);
     };
 
     const tick = (now: number) => {
-      elapsed += now - last;
+      // A frame's timestamp can be a little older than `last`, set when the
+      // animation started: never let the time run backwards.
+      elapsed += Math.max(0, now - last);
       last = now;
       show(elapsed);
       raf = requestAnimationFrame(tick);
@@ -307,13 +402,49 @@ const anchor = (b: (typeof boxes)[number]) => {
       run();
     };
 
+    // Pausing mutes both satellites, as their mute buttons would: red rings,
+    // no bubbles. Playing again starts with the next request, not mid-sentence.
+    const mute = () => {
+      muted = true;
+      shown = -1;
+      setPhase("muted");
+      bubbles.forEach((b) => {
+        say(b.request, undefined);
+        say(b.reply, undefined);
+      });
+      drawings.forEach((_, d) => paint(d, "muted", 0));
+    };
+
+    const playFrom = (ms: number) => {
+      muted = false;
+      pausedByUser = false;
+      elapsed = ms;
+      shown = -1;
+      show(elapsed);
+      setPlaying(true);
+    };
+
     if (toggle) {
       toggle.hidden = false;
       toggle.addEventListener("click", () => {
-        pausedByUser = playing;
-        setPlaying(!playing);
+        if (playing) {
+          pausedByUser = true;
+          setPlaying(false);
+          mute();
+        } else if (muted) {
+          const next = SCENE_START.find((s) => s >= elapsed % CYCLE) ?? 0;
+          playFrom(elapsed - (elapsed % CYCLE) + next);
+        } else {
+          playFrom(elapsed);
+        }
       });
     }
+
+    if (row) row.hidden = false;
+    dots.forEach((dot, i) =>
+      dot.addEventListener("click", () => playFrom(elapsed - (elapsed % CYCLE) + SCENE_START[i])),
+    );
+
     show(elapsed);
     setPlaying(playing);
 
