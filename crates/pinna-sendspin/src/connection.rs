@@ -54,8 +54,8 @@ use crate::psk::PskCategory;
 pub const STEP_TIMEOUT_US: i64 = 30_000_000;
 /// Audio due further ahead than this is dropped (ADR 0027 §6).
 pub const MAX_AHEAD_US: i64 = 30_000_000;
-/// The fastest the server's clock may drift from the player's, as a fraction: twice what the
-/// media lane follows (±0.5 %, ADR 0027 §11). The server's `server/time` replies set the
+/// The fastest the server's clock may drift from the player's, as a fraction: far beyond the
+/// parts per million real clocks differ by (ADR 0027 §6). The server's `server/time` replies set the
 /// filter's drift, with no bound of its own; at -1 the conversion to the player's clock would
 /// divide by zero, and below it run backward, so that audio due later would count as already
 /// played. A server whose clock the filter finds drifting faster is closed.
