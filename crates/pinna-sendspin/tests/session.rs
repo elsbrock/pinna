@@ -1479,3 +1479,19 @@ fn between_idle_connections_the_last_playback_server_wins() {
     assert!(activated(&newcomer.events()).is_none());
     assert!(newcomer.conn.is_closed());
 }
+
+#[test]
+fn a_server_that_plays_again_is_the_last_one_even_when_the_connection_started_with_it() {
+    // The server last played when it connected, so the connection's store already names it.
+    // Another server played meanwhile, which pinnad keeps: this server's playback must name it
+    // again.
+    let identity = Identity::generate().unwrap();
+    let server = Server::new(&identity);
+    let id = server.id();
+    let mut store = store();
+    store.set_last_playback_server(&id);
+    let mut s = connect(identity, server, &store, &SENTINEL_PSK, "sn", |_| {});
+    s.conn.set_rival(None, Some("other"));
+    s.send(activate(json!(["playback"]), json!(["player@v1"])));
+    assert!(s.events().contains(&Event::LastPlaybackServer(id)));
+}

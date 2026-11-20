@@ -348,7 +348,8 @@ pub enum Event {
     PairingAdded(PairingRecord),
     /// The server removed its pairing: drop its record.
     Unpaired(String),
-    /// This server is now the last one to have played: keep it.
+    /// This server is now the last one to have played: keep it. Sent at every playback
+    /// activation, whether or not it changed.
     LastPlaybackServer(String),
     Closed(CloseReason),
 }
@@ -1239,7 +1240,11 @@ impl Connection {
             paired: self.matched == Some(PskCategory::LongTerm),
             displaces_rival,
         });
-        if activities.playback && self.store.set_last_playback_server(&self.server_id) {
+        // Every playback activation names the server: this connection's store is a copy made
+        // when it opened, and another server may have played since. The caller keeps it only
+        // when it changed.
+        if activities.playback {
+            self.store.set_last_playback_server(&self.server_id);
             self.events
                 .push_back(Event::LastPlaybackServer(self.server_id.clone()));
         }
