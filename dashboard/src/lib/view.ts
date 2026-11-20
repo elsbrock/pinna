@@ -652,6 +652,7 @@ export const PATHS = [
   "/assistant/services",
   "/assistant/conversation",
   "/assistant/tools",
+  "/assistant/group",
   "/network",
   "/system",
   "/system/updates",

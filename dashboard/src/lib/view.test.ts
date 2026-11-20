@@ -529,6 +529,7 @@ test("routeOf: sections, sub-pages, moved paths and unknowns", () => {
   assert.equal(routeOf("#/assistant/services"), "/assistant/services");
   assert.equal(routeOf("#/assistant/conversation"), "/assistant/conversation");
   assert.equal(routeOf("#/assistant/tools"), "/assistant/tools");
+  assert.equal(routeOf("#/assistant/group"), "/assistant/group");
   assert.equal(routeOf("#/home-assistant"), "/assistant");
   assert.equal(routeOf("#/nope"), null);
 });

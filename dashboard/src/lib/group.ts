@@ -47,6 +47,31 @@ export function seenWord(unixMs: bigint | number, now: number, here: string): st
 
 export type MemberLike = Pick<SatelliteGroupMember, "mac" | "thisSatellite" | "mode" | "lastSeenUnixMs" | "hasPassword">;
 
+/**
+ * The Assistant page's Satellite group row: a value and a line under it. An open
+ * adding window comes first, because it is a time-limited exposure; the value
+ * stays the group's own. `joinLeftS` counts the window's seconds down.
+ */
+export function groupSummary(
+  view: Pick<SatelliteGroupView, "on" | "inGroup" | "members"> | null,
+  standalone: boolean,
+  joinLeftS: number,
+): { value?: string; hint: string; tone?: "caution" } {
+  if (!view) return { hint: "Satellites that pass messages to each other and act on each other by name" };
+  const value = !view.on ? "Off" : view.inGroup ? `${view.members.length} satellites` : "On";
+  if (joinLeftS > 0) {
+    const m = Math.floor(joinLeftS / 60);
+    const s = String(joinLeftS % 60).padStart(2, "0");
+    return { value, hint: `Another satellite may add this one for ${m}:${s}`, tone: "caution" };
+  }
+  if (!view.on) return { value, hint: "Pass messages between satellites, and act on one by its name" };
+  if (!view.inGroup) return { value, hint: "Not in a group yet" };
+  if (!standalone) {
+    return { value, hint: "Sends and takes nothing while Home Assistant answers requests", tone: "caution" };
+  }
+  return { value, hint: "Messages and control between them" };
+}
+
 /** This satellite's name in the view's member list, for lines in the other
  *  members' rows. */
 export function ownName(view: Pick<SatelliteGroupView, "members">): string {

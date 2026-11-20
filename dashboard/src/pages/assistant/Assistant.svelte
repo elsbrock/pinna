@@ -1,7 +1,7 @@
 <!-- Assistant: who answers requests (ADR 0017). The mode card first; then, in
      Home Assistant mode, how Home Assistant reaches the satellite, and in
      standalone mode, what answers and how the last request went. The
-     satellite group (ADR 0026) comes last, in both modes. -->
+     satellite group (ADR 0026) has its own page, linked under Setup. -->
 <script lang="ts">
   import { onMount } from "svelte";
 
@@ -11,10 +11,12 @@
   import Confirm from "../../lib/Confirm.svelte";
   import { device } from "../../lib/device.svelte.ts";
   import Group from "../../lib/Group.svelte";
+  import { satelliteGroup as group } from "../../lib/group.svelte.ts";
+  import { groupSummary } from "../../lib/group.ts";
   import HomeAssistantWindow from "../../lib/HomeAssistantWindow.svelte";
   import Icon from "../../lib/Icon.svelte";
+  import { windows } from "../../lib/windows.svelte.ts";
   import HomeAssistant from "../HomeAssistant.svelte";
-  import SatelliteGroup from "./SatelliteGroup.svelte";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -25,6 +27,16 @@
   const offTools = $derived(toolsOff(assistant.view));
 
   onMount(() => void assistant.load());
+
+  // The Satellite group row's state (ADR 0026), read the way its page reads it.
+  $effect(() => group.watch());
+  $effect(() => windows.watch());
+  const groupRow = $derived(groupSummary(group.view, standalone, windows.groupJoinLeft));
+  let wasLive = device.link === "live";
+  $effect(() => {
+    if (live && !wasLive) void group.load();
+    wasLive = live;
+  });
 
   // The mode the confirmation asks about.
   let asking = $state<Mode>(Mode.HOME_ASSISTANT);
@@ -181,9 +193,15 @@
       {#if offTools}<span class="pn-row-value">{offTools} off</span>{/if}
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
+    <a class="pn-row" href="#/assistant/group">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Satellite group</span>
+        <span class="pn-row-hint" class:is-caution={groupRow.tone === "caution"}>{groupRow.hint}</span>
+      </span>
+      {#if groupRow.value}<span class="pn-row-value">{groupRow.value}</span>{/if}
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
   </Group>
-
-  <SatelliteGroup />
 
   <Confirm
     bind:open={confirming}

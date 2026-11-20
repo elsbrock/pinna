@@ -90,6 +90,11 @@ const SUBPAGES: Omit<Page, "section">[] = [
     description: "What the brain and MCP clients may do on the satellite, the radio stations it knows, and MCP.",
   },
   {
+    path: "/assistant/group",
+    title: "Satellite group",
+    description: "Satellites in standalone mode that pass messages to each other and act on each other by name.",
+  },
+  {
     path: "/system/updates",
     title: "Updates",
     description: "Where updates come from, installing them, and the version in each slot.",

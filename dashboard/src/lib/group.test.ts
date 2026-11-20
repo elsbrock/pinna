@@ -9,6 +9,7 @@ import {
   type Change,
   candidateOffer,
   groupLists,
+  groupSummary,
   happened,
   keyed,
   memberLine,
@@ -385,4 +386,34 @@ test("removing the last other member ends the group", () => {
 test("rows keep their keys, and a repeated one gets a count", () => {
   const keys = keyed(["a", "b", "a", "", ""], (x) => x).map((x) => x.key);
   assert.deepEqual(keys, ["a", "b", "a#1", "", "#1"]);
+});
+
+test("the Satellite group row: off, on, in a group, and an open adding window", () => {
+  const view = (over: object = {}) => ({ on: true, inGroup: false, members: [], ...over });
+  const two = [member({ thisSatellite: true }), member()];
+  assert.deepEqual(groupSummary(null, true, 0), {
+    hint: "Satellites that pass messages to each other and act on each other by name",
+  });
+  assert.deepEqual(groupSummary(view({ on: false }), true, 0), {
+    value: "Off",
+    hint: "Pass messages between satellites, and act on one by its name",
+  });
+  assert.deepEqual(groupSummary(view(), true, 0), { value: "On", hint: "Not in a group yet" });
+  assert.deepEqual(groupSummary(view({ inGroup: true, members: two }), false, 0), {
+    value: "2 satellites",
+    hint: "Sends and takes nothing while Home Assistant answers requests",
+    tone: "caution",
+  });
+  assert.deepEqual(groupSummary(view({ inGroup: true, members: two }), true, 0), {
+    value: "2 satellites",
+    hint: "Messages and control between them",
+  });
+  // The window wins over the group's own line, but the value stays.
+  assert.deepEqual(groupSummary(view(), true, 125), {
+    value: "On",
+    hint: "Another satellite may add this one for 2:05",
+    tone: "caution",
+  });
+  assert.equal(groupSummary(view({ on: false }), true, 9).value, "Off");
+  assert.equal(groupSummary(null, true, 30).value, undefined);
 });

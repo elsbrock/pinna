@@ -16,6 +16,7 @@
   import { displayName, DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
   import Assistant from "./pages/assistant/Assistant.svelte";
   import Conversation from "./pages/assistant/Conversation.svelte";
+  import SatelliteGroupPage from "./pages/assistant/SatelliteGroupPage.svelte";
   import Services from "./pages/assistant/Services.svelte";
   import Tools from "./pages/assistant/Tools.svelte";
   import LightRing from "./pages/LightRing.svelte";
@@ -226,6 +227,7 @@
         {:else if page.path === "/assistant/services"}<Services />
         {:else if page.path === "/assistant/conversation"}<Conversation />
         {:else if page.path === "/assistant/tools"}<Tools />
+        {:else if page.path === "/assistant/group"}<SatelliteGroupPage />
         {:else if page.path === "/network"}<Network />
         {:else if page.path === "/system"}<System />
         {:else if page.path === "/system/updates"}<Updates />
