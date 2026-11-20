@@ -243,7 +243,7 @@
   --pf-dropdown-z-index: 40;
 }
 
-/* The dropdown is wider than the 18rem sidebar so excerpts stay readable.
+/* The dropdown is wider than the 15rem sidebar so excerpts stay readable.
    (Pagefind inflates selector specificity with :is(*,#\#) triples, hence
    !important.) */
 @media (min-width: 1024px) {
