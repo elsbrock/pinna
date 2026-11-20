@@ -133,52 +133,54 @@ const gaps = [
   <SiteHeader slot="header" />
 
   <!-- Hero -->
-  <section
-    class="mx-auto grid max-w-6xl items-center gap-12 px-4 pt-14 pb-16 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:pt-20 lg:pb-24"
-  >
-    <div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="chip">
-          <span class="bg-caution h-1.5 w-1.5 rounded-full"></span>
-          Early development
-        </span>
-        <span class="chip">Echo (2nd gen) · Echo Dot (2nd gen)</span>
+  <div class="hero-glow">
+    <section
+      class="mx-auto grid max-w-6xl items-center gap-12 px-4 pt-14 pb-16 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:pt-20 lg:pb-24"
+    >
+      <div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="chip">
+            <span class="bg-caution h-1.5 w-1.5 rounded-full"></span>
+            Early development
+          </span>
+          <span class="chip">Echo (2nd gen) · Echo Dot (2nd gen)</span>
+        </div>
+
+        <h1 class="font-display text-ink text-display-l sm:text-display-xl mt-6 max-w-2xl text-balance">
+          A local voice satellite for your Echo and Echo&nbsp;Dot
+        </h1>
+
+        <p class="text-ink-muted text-body-l mt-5 max-w-xl">
+          Pinna is an open-source operating system for the Echo (2nd gen) and
+          the Echo Dot (2nd gen). It detects the wake word on the device and
+          sends your request to your own Home Assistant, or, in standalone mode,
+          to the speech services and the language model or AI agent you choose.
+          It doesn't use Amazon's services.
+        </p>
+
+        <div class="mt-8 flex flex-wrap items-center gap-3">
+          <a class="pn-btn pn-btn-primary pn-btn-lg" href={href("/docs/")}>
+            Get started
+            <Icon name="arrow" size={16} />
+          </a>
+          <a class="pn-btn pn-btn-lg" href={SITE.repo}>
+            <Icon name="github" size={16} />
+            Source on GitHub
+          </a>
+        </div>
+
+        <div class="mt-9 flex flex-wrap gap-2">
+          {["Debian trixie", "read-only root", "systemd", "Rust", "ESPHome API"].map(
+            (fact) => <span class="chip">{fact}</span>,
+          )}
+        </div>
       </div>
 
-      <h1 class="font-display text-ink text-display-l sm:text-display-xl mt-6 max-w-2xl text-balance">
-        A local voice satellite for your Echo and Echo&nbsp;Dot
-      </h1>
-
-      <p class="text-ink-muted text-body-l mt-5 max-w-xl">
-        Pinna is an open-source operating system for the Echo (2nd gen) and
-        the Echo Dot (2nd gen). It detects the wake word on the device and
-        sends your request to your own Home Assistant, or, in standalone mode,
-        to the speech services and the language model or AI agent you choose.
-        It doesn't use Amazon's services.
-      </p>
-
-      <div class="mt-8 flex flex-wrap items-center gap-3">
-        <a class="pn-btn pn-btn-primary pn-btn-lg" href={href("/docs/")}>
-          Get started
-          <Icon name="arrow" size={16} />
-        </a>
-        <a class="pn-btn pn-btn-lg" href={SITE.repo}>
-          <Icon name="github" size={16} />
-          Source on GitHub
-        </a>
+      <div class="flex flex-col items-center">
+        <RingDemo />
       </div>
-
-      <div class="mt-9 flex flex-wrap gap-2">
-        {["Debian trixie", "read-only root", "systemd", "Rust", "ESPHome API"].map(
-          (fact) => <span class="chip">{fact}</span>,
-        )}
-      </div>
-    </div>
-
-    <div class="flex flex-col items-center">
-      <RingDemo />
-    </div>
-  </section>
+    </section>
+  </div>
 
   <!-- How it works -->
   <section id="how" class="scroll-mt-20">
@@ -190,7 +192,7 @@ const gaps = [
         {
           steps.map((step) => (
             <div class="border-line border-t pt-5">
-              <p class="text-signal font-mono text-sm">{step.number}</p>
+              <p class="text-brand-mid font-mono text-sm">{step.number}</p>
               <h3 class="text-ink text-heading mt-2">{step.title}</h3>
               <p class="text-ink-muted text-body mt-2">{step.body}</p>
             </div>
@@ -210,7 +212,7 @@ const gaps = [
         {
           features.map((feature) => (
             <div class="card p-5">
-              <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+              <div class="brand-tile">
                 <Icon name={feature.icon} size={18} />
               </div>
               <h3 class="text-ink text-heading mt-4">{feature.title}</h3>
@@ -235,7 +237,7 @@ const gaps = [
 
       <div class="mt-10 grid gap-5 lg:grid-cols-2">
         <div class="card flex flex-col p-6">
-          <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+          <div class="brand-tile">
             <Icon name="home" size={18} />
           </div>
           <h3 class="text-ink text-heading mt-4">Home Assistant answers</h3>
@@ -273,7 +275,7 @@ const gaps = [
         </div>
 
         <div class="card flex flex-col p-6">
-          <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+          <div class="brand-tile">
             <Icon name="bolt" size={18} />
           </div>
           <h3 class="text-ink text-heading mt-4">The satellite answers itself</h3>
@@ -311,7 +313,7 @@ const gaps = [
       </div>
 
       <p class="text-ink-muted text-body mt-5 flex max-w-3xl items-start gap-2.5">
-        <Icon name="broadcast" size={16} class="text-signal mt-1 shrink-0" />
+        <Icon name="broadcast" size={16} class="text-brand-mid mt-1 shrink-0" />
         <span>
           Home Assistant can stay connected in standalone mode. It keeps the
           media player, announcements, the ring and the buttons, but it no
@@ -358,7 +360,7 @@ const gaps = [
 
       <div class="mt-8 grid gap-5 md:grid-cols-3">
         <div class="flex items-start gap-3">
-          <Icon name="board" size={18} class="text-signal mt-0.5 shrink-0" />
+          <Icon name="board" size={18} class="text-brand-mid mt-0.5 shrink-0" />
           <p class="text-ink-muted text-body">
             <span class="text-ink font-medium">It needs an unlocked bootloader.</span>
             Pinna installs over fastboot on a device unlocked with amonet and
@@ -367,7 +369,7 @@ const gaps = [
           </p>
         </div>
         <div class="flex items-start gap-3">
-          <Icon name="disk" size={18} class="text-signal mt-0.5 shrink-0" />
+          <Icon name="disk" size={18} class="text-brand-mid mt-0.5 shrink-0" />
           <p class="text-ink-muted text-body">
             <span class="text-ink font-medium">You provide the backup.</span>
             You back up your own device before you install, and you create
@@ -376,7 +378,7 @@ const gaps = [
           </p>
         </div>
         <div class="flex items-start gap-3">
-          <Icon name="home" size={18} class="text-signal mt-0.5 shrink-0" />
+          <Icon name="home" size={18} class="text-brand-mid mt-0.5 shrink-0" />
           <p class="text-ink-muted text-body">
             <span class="text-ink font-medium">It's standard Linux.</span>
             Debian trixie with systemd on a read-only root filesystem. Pinna's
@@ -396,7 +398,7 @@ const gaps = [
       <div class="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <ol class="space-y-5">
           <li class="flex gap-4">
-            <span class="text-signal font-mono text-sm">1</span>
+            <span class="text-brand-mid font-mono text-sm">1</span>
             <p class="text-ink-muted text-body">
               <span class="text-ink block font-medium">Unlock and back up the device</span>
               Pinna installs on an Echo whose bootloader is unlocked. Back it
@@ -404,7 +406,7 @@ const gaps = [
             </p>
           </li>
           <li class="flex gap-4">
-            <span class="text-signal font-mono text-sm">2</span>
+            <span class="text-brand-mid font-mono text-sm">2</span>
             <p class="text-ink-muted text-body">
               <span class="text-ink block font-medium">Install from the browser</span>
               The installer downloads the newest release, checks its signature
@@ -414,7 +416,7 @@ const gaps = [
             </p>
           </li>
           <li class="flex gap-4">
-            <span class="text-signal font-mono text-sm">3</span>
+            <span class="text-brand-mid font-mono text-sm">3</span>
             <p class="text-ink-muted text-body">
               <span class="text-ink block font-medium">Set it up on the dashboard</span>
               Open the device's dashboard in your browser. Add the device to
@@ -541,7 +543,7 @@ const gaps = [
 
       <div class="mt-10 grid gap-5 md:grid-cols-3">
         <div class="card flex flex-col p-5">
-          <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+          <div class="brand-tile">
             <Icon name="bug" size={18} />
           </div>
           <h3 class="text-ink text-heading mt-4">Give feedback</h3>
@@ -565,7 +567,7 @@ const gaps = [
         </div>
 
         <div class="card flex flex-col p-5">
-          <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+          <div class="brand-tile">
             <Icon name="code" size={18} />
           </div>
           <h3 class="text-ink text-heading mt-4">Send changes</h3>
@@ -584,7 +586,7 @@ const gaps = [
         </div>
 
         <div class="card flex flex-col p-5">
-          <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
+          <div class="brand-tile">
             <Icon name="board" size={18} />
           </div>
           <h3 class="text-ink text-heading mt-4">Support another device</h3>

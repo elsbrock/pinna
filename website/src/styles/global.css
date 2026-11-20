@@ -46,8 +46,58 @@
     @apply border-line bg-surface-raised rounded-md border;
   }
 
+  /* Eyebrows carry the mark's gradient (the brand-* tokens, decoration only).
+     fit-content, so a short label runs through all three stops. */
   .eyebrow {
-    @apply text-ink-muted text-label uppercase;
+    @apply text-label uppercase;
+    width: fit-content;
+    color: var(--brand-start);
+  }
+
+  @supports (background-clip: text) or (-webkit-background-clip: text) {
+    .eyebrow {
+      background-image: linear-gradient(90deg, var(--brand-start), var(--brand-mid), var(--brand-end));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
+  /* The square behind a decorative icon: a faint tint of the mark's gradient. */
+  .brand-tile {
+    @apply grid h-9 w-9 place-items-center rounded-sm;
+    color: var(--brand-mid);
+    background-image: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--brand-start) 16%, transparent),
+      color-mix(in oklab, var(--brand-end) 16%, transparent)
+    );
+  }
+
+  /* A soft glow of the mark's colours behind the hero. Full width, so it fades
+     out at the screen's edges instead of at the content's. */
+  .hero-glow {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .hero-glow::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        ellipse 45% 55% at 22% 35%,
+        color-mix(in oklab, var(--brand-start) 16%, transparent),
+        transparent
+      ),
+      radial-gradient(
+        ellipse 40% 50% at 78% 45%,
+        color-mix(in oklab, var(--brand-end) 16%, transparent),
+        transparent
+      );
   }
 
   /* Links in running text: underlined at rest, never colour alone. */
