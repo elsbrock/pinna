@@ -1,4 +1,4 @@
-//! The entity set of the previous firmware, so Home Assistant keeps its entity IDs.
+//! The entity set of LibreEcho, so Home Assistant keeps its entity IDs.
 
 use crate::types::{
     ButtonConfig, DeviceConfig, EntityCategory, EventConfig, LightConfig, MediaFormat,
@@ -50,7 +50,7 @@ fn format(
     }
 }
 
-/// Fill `cfg` with the entities the previous firmware exposed (names are part of the HA unique id),
+/// Fill `cfg` with the entities LibreEcho exposed (names are part of the HA unique id),
 /// plus Pinna's own controls.
 /// The "Voice mode" select's options: the dashboard's names for the modes.
 pub const MODE_HOME_ASSISTANT: &str = "Home Assistant";

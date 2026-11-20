@@ -5,7 +5,8 @@ set -eu
 G=/sys/kernel/config/usb_gadget/pinna
 
 # The device's serial number: from the bootloader's idme record in the device
-# tree (6.12), /proc/idme (the 6.1 kernel), else the machine id (VMs). Only
+# tree (6.12), /proc/idme (kernels with Amazon's idme driver), else the
+# machine id (VMs). Only
 # letters and digits, as rescue mode in pinna-init reads it.
 device_serial() {
     s=$( { tr -d '\000' < /sys/firmware/devicetree/base/idme/serial/value ||

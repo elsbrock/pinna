@@ -1,5 +1,5 @@
 #!/bin/sh
-# MT8163 Wi-Fi bring-up, ported from the previous firmware's proven sequence
+# MT8163 Wi-Fi bring-up, ported from LibreEcho's proven sequence
 # (the init script of its MT8163 initramfs):
 # configure-only WMT init, exactly one one-shot command responder, then one
 # timed function-on write. The chip only tolerates one attempt per boot.

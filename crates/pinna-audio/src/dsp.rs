@@ -1,5 +1,5 @@
 //! Microphone-array front end: S24_3LE decode, per-mic calibration, mixdown,
-//! 80 Hz high-pass and digital gain. A port of the previous firmware's voice_dsp.c and the
+//! 80 Hz high-pass and digital gain. A port of LibreEcho's voice_dsp.c and the
 //! gain stage of micd.c. Beamforming / AEC would replace [`SimpleFrontEnd`]
 //! behind the [`FrontEnd`] trait.
 

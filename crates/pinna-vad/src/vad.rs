@@ -1,4 +1,4 @@
-//! Energy VAD, a port of the previous firmware's `le_voice_vad_process` (voice_dsp.c)
+//! Energy VAD, a port of LibreEcho's `le_voice_vad_process` (voice_dsp.c)
 //! with its default 16 RMS floor. Runs on 160-sample (10 ms) frames: a frame is
 //! speech above 6x the tracked noise energy; two consecutive speech frames
 //! activate it, 20 non-speech frames of hangover deactivate it, and the noise

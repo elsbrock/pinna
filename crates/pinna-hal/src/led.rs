@@ -1,7 +1,7 @@
 //! LED ring (IS31FL3236) driven through the kernel driver's sysfs files.
 //!
 //! Never talk to `/dev/i2c`: the kernel driver owns the chip. Output shaping
-//! (gamma, per-channel weights, frame power budget) is a port of the previous firmware's
+//! (gamma, per-channel weights, frame power budget) is a port of LibreEcho's
 //! `led_output.c`.
 
 use crate::{Error, Result};

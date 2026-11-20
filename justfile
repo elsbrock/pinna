@@ -117,7 +117,7 @@ initramfs-x86:
 
 # boot image for boot_a: kernel + DTB from the kernel build + initramfs (pinna-init)
 # The Echo Dot (2nd gen) boots the radar-puffin device tree (the Echo 2nd gen's);
-# it decompiles identically to the DTB in the previous firmware's known-good boot_a.
+# it decompiles identically to the DTB in LibreEcho's known-good boot_a, which it is ported from.
 bootimg: initramfs
     cargo run -q -p pinna-bootimg -- pack \
         --zimage {{build}}/kernel/arch/arm/boot/zImage \
@@ -205,7 +205,7 @@ vm-hotspot-test: initramfs-x86
 kernel-config:
     for v in device qemu x86; do CHECK_ONLY=1 kernel/build.sh $v; done
 
-# boot image round trips: the previous firmware's known-good boot_a and our own
+# boot image round trips: a saved boot_a from before Pinna and our own
 bootimg-roundtrip:
     if [ -s blobs/boot/boot_a-previous.img ]; then cargo run -q -p pinna-bootimg -- roundtrip blobs/boot/boot_a-previous.img; fi
     cargo run -q -p pinna-bootimg -- roundtrip {{build}}/pinna-boot.img

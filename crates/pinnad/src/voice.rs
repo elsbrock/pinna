@@ -3671,7 +3671,7 @@ impl Brain {
         }
     }
 
-    /// While listening, point the ring at the talker's beam (the previous firmware's
+    /// While listening, point the ring at the talker's beam (LibreEcho's
     /// directional listening ring). Called at run start and every tick.
     fn track_talker(&mut self) {
         let listening = matches!(self.phase, Phase::Starting(_) | Phase::Listening(_));

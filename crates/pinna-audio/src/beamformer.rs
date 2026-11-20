@@ -1,5 +1,5 @@
 //! Fixed-beam frequency-domain superdirective beamformer: a port of
-//! the previous firmware's `mic_beamformer.c`.
+//! LibreEcho's `mic_beamformer.c`.
 //!
 //! 256-point STFT, 128-sample hop, up to 12 beams spread evenly in azimuth
 //! (0 degrees = front, clockwise from above). Each beam is MVDR against a
@@ -37,7 +37,7 @@ const SWITCH_HOPS: u32 = 12;
 /// Only a beam clearly above its floor (3 dB) may take over.
 const ACTIVE_SCORE: f32 = 2.0;
 
-// Geometry of the seven-microphone ring (see the previous firmware's mic_array_geometry.h).
+// Geometry of the seven-microphone ring (see LibreEcho's mic_array_geometry.h).
 const CENTRE_LANE: usize = 6;
 const LANE0_AZIMUTH_DEG: f64 = 150.0;
 const RING_STEP_DEG: f64 = 60.0;

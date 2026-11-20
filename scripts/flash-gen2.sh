@@ -8,7 +8,7 @@
 #   scripts/flash-gen2.sh root         # system_a <- sealed slot image, clear system_b, wipe userdata
 #   scripts/flash-gen2.sh try          # RAM-boot the Pinna kernel once (nothing written)
 #   scripts/flash-gen2.sh boot         # boot_a + boot_b <- Pinna boot image (persistent)
-#   scripts/flash-gen2.sh restore DIR  # put the previous firmware back from a backup's partitions/
+#   scripts/flash-gen2.sh restore DIR  # put a backup's partitions/ back, as the device was
 #
 # Only boot_a, boot_b, system_a, system_b and userdata are ever written. Never
 # touched: preloader/boot areas, lk_a/lk_b, tee1/tee2, expdb (Kaeru), persist,

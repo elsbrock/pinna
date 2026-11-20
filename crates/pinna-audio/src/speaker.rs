@@ -5,7 +5,7 @@
 //! written while idle (no underrun pops) and the session is closed after
 //! [`SpeakerConfig::idle_timeout`] without audio. On the Echo Dot it is never
 //! closed: every amp power-up cracks, whatever the codec and mute state.
-//! Volume is applied digitally in this pipeline using the previous firmware's
+//! Volume is applied digitally in this pipeline using LibreEcho's
 //! curve; the codec stays at its 0 dB reference.
 //!
 //! The session mixes two lanes: the *voice* lane (queued in order: clips such

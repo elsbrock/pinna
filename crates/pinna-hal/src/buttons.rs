@@ -1,5 +1,5 @@
 //! Physical buttons via evdev, with software autorepeat and long-press
-//! detection (a port of the previous firmware's buttond input handling).
+//! detection (a port of LibreEcho's buttond input handling).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -40,7 +40,8 @@ pub enum Button {
 
 impl Button {
     /// Map a key code. On radar_puffin/biscuit KEY_POWER is the microphone
-    /// mute button (measured in the previous firmware: ten mute presses gave ten
+    /// mute button (measured on LibreEcho's 6.1 kernel, whose device tree Pinna's is
+    /// ported from: ten mute presses gave ten
     /// KEY_POWER events; there is no separate power button), so it maps to
     /// `Mute`, not `Action`.
     pub fn from_code(code: u16) -> Option<Button> {

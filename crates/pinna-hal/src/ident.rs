@@ -55,8 +55,8 @@ pub fn mac_from(path: &Path) -> Option<String> {
 const BOARD_ID_BISCUIT: &str = "A3S5BH2HU6VAYF";
 const BOARD_ID_RADAR: &str = "A7WXQPH584YP";
 
-/// The bootloader's idme `device_type_id`: `/proc/idme/device_type_id` on the
-/// previous firmware's 6.1 kernel, LK's `idme/device_type_id` node in the
+/// The bootloader's idme `device_type_id`: `/proc/idme/device_type_id` on a
+/// kernel with Amazon's idme driver, LK's `idme/device_type_id` node in the
 /// device tree on 6.12. None when the bootloader keeps no record (a VM).
 pub fn device_type_id() -> Option<String> {
     device_type_id_in(Path::new(IDME_DIR), Path::new(DT_IDME_DIR))
@@ -238,7 +238,7 @@ mod tests {
         fs::write(&dt_value, "A7WXQPH584YP\0").unwrap();
         assert_eq!(board_model_in(&idme, &dt, &compatible), "echo-2");
 
-        // The 6.1 kernel's /proc/idme wins; an unknown id stays unknown.
+        // /proc/idme (Amazon's idme driver) wins; an unknown id stays unknown.
         fs::create_dir_all(&idme).unwrap();
         fs::write(idme.join("device_type_id"), "A7WXQPH584YP\n").unwrap();
         assert_eq!(board_model_in(&idme, &dt, &compatible), "echo-2");

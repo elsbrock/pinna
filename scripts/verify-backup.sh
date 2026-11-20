@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Compare a backup's per-partition images with the live device (read-only).
-# The device must be running the previous firmware with adb.
+# The device must still run the firmware the backup was taken from, with adb.
 #
 #   scripts/verify-backup.sh ~/echo-backups/echodot2-2026-11-15
 #
-# userdata is skipped: it changes while the previous firmware runs.
+# userdata is skipped: it changes while that firmware runs.
 set -euo pipefail
 
 backup=${1:?usage: $0 <backup dir>}

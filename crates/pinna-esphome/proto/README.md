@@ -1,8 +1,8 @@
 # Vendored ESPHome API schema
 
 Fetched unmodified from the ESPHome repository at commit
-`fb65096ea3dc4cccf53681b501dec01fd2ec9538` (`fb65096e`, the schema the previous firmware was
-tested against), path `esphome/components/api/`.
+`fb65096ea3dc4cccf53681b501dec01fd2ec9538` (`fb65096e`), path
+`esphome/components/api/`.
 
 | file                | sha256                                                             |
 | ------------------- | ------------------------------------------------------------------ |

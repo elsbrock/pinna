@@ -74,7 +74,7 @@ pub struct Settings {
     pub volume: u8,
     /// Volume for replies and announcements; `None` follows `volume`.
     pub reply_volume: Option<u8>,
-    /// Wake word sensitivity 0..=100 (the previous firmware's scale).
+    /// Wake word sensitivity 0..=100 (LibreEcho's scale).
     pub wake_sensitivity: u8,
     /// LED ring brightness 0..=100.
     pub led_brightness: u8,
