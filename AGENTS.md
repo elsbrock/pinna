@@ -64,6 +64,7 @@ changed:
 | You changed | Also run |
 | --- | --- |
 | `pinna-esphome`, entities, anything Home Assistant sees | `just esphome-conformance` |
+| `pinna-sendspin`, pinnad's Sendspin player, the timed source in `pinna-audio` | `just sendspin-conformance` (needs `uv`, and PyPI the first time) |
 | The voice flow in `pinnad`: wake word, replies, timers | `just e2e` |
 | `pinna-wakeword` | `just wakeword-parity` |
 | `dashboard/`, `design/` or `proto/` | `just web-check` |
