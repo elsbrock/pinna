@@ -8,12 +8,14 @@ light ring feedback and button control. You choose who answers requests: your
 Home Assistant, which adds the satellite over the ESPHome API, or the satellite
 itself in standalone mode, with the speech services and the language model or
 AI agent you choose, and timers, the weather and radio on the device. It also
-plays music over AirPlay and Bluetooth. A dashboard on the device sets it up
-and manages it from your browser, with or without Home Assistant. It finds new
-releases on its update channel and shows them on the dashboard and in Home
-Assistant, which install them with one button. It is a modern image-based
-Linux system: Debian userland built with mkosi, systemd, a read-only erofs
-root in signed A/B slots verified by dm-verity, and small Rust daemons.
+plays music over AirPlay and Bluetooth, and from Music Assistant over Sendspin
+(experimental), in step with the other speakers of a group. A dashboard on the
+device sets it up and manages it from your browser, with or without Home
+Assistant. It finds new releases on its update channel and shows them on the
+dashboard and in Home Assistant, which install them with one button. It is a
+modern image-based Linux system: Debian userland built with mkosi, systemd, a
+read-only erofs root in signed A/B slots verified by dm-verity, and small Rust
+daemons.
 
 > Status: early development. Owners set up the satellite on its dashboard;
 > developers have SSH, `pinnactl` and `pinnad.toml`. Expect sharp edges.
