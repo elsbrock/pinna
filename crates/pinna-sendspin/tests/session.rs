@@ -894,10 +894,15 @@ fn metadata_now_and_scheduled() {
         })
         .collect();
     assert_eq!(titles, ["Instead"]);
-    // Limits close the connection.
-    let mut bad = playing(&store);
-    bad.send(metadata(0, &"x".repeat(256)));
-    assert!(bad.conn.is_closed());
+    // rc1 sets no limit on a title: a longer one is cut, and the connection stays.
+    let mut long = playing(&store);
+    long.events();
+    long.send(metadata(0, &"x".repeat(256)));
+    assert!(!long.conn.is_closed());
+    let Some(Event::Metadata(Some(m))) = long.events().pop() else {
+        panic!()
+    };
+    assert_eq!(m.title, Some("x".repeat(255)));
     // The role removed: what was shown goes.
     s.send(activate(json!(["playback"]), json!(["player@v1"])));
     assert!(s.events().contains(&Event::Metadata(None)));
@@ -907,7 +912,7 @@ fn metadata_now_and_scheduled() {
 }
 
 #[test]
-fn group_updates_are_checked_and_passed_on() {
+fn group_updates_are_passed_on() {
     let store = store();
     let mut s = playing(&store);
     s.events();
@@ -924,11 +929,21 @@ fn group_updates_are_checked_and_passed_on() {
             group_name: "Downstairs".into()
         })]
     );
+    // Music Assistant 2.10.7 to 2.11 names its groups by UUID, which rc1 allows.
+    let uuid = "6b1d7a52-3c1e-4f43-9a51-0d1c2b8e7f60";
     s.send(
-        json!({"type": "group/update", "payload": {"playback_state": "stopped",
-        "group_id": "A".repeat(42), "group_name": "Downstairs"}}),
+        json!({"type": "group/update", "payload": {"playback_state": "playing",
+        "group_id": uuid, "group_name": "Downstairs"}}),
     );
-    assert!(s.conn.is_closed());
+    assert!(!s.conn.is_closed());
+    assert_eq!(
+        s.events(),
+        [Event::Group(GroupUpdate {
+            playback_state: messages::PlaybackState::Playing,
+            group_id: uuid.into(),
+            group_name: "Downstairs".into()
+        })]
+    );
 }
 
 #[test]

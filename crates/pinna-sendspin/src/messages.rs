@@ -7,6 +7,12 @@
 //! 16 KiB and nest at most 10 levels (ADR 0027 §6). The objects of a role are parsed only when
 //! that role is active, because the specification says to leave an inactive role's values
 //! unvalidated. Optional fields that are absent are never written.
+//!
+//! The ranges are 1.0.0-rc1's, the version servers speak (ADR 0027 §6). A limit that only a
+//! later draft sets is not held against a server: Music Assistant from 2.10.7 to 2.11 sends a
+//! UUID as `group_id`, not 43 base64url characters, and passes on names and track details at
+//! any length. Such text is cut to the later limit, an over-long artwork URL is dropped, a
+//! track number below 1 is taken as unknown, and a group's id is taken as it is.
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -109,8 +115,15 @@ fn read<T: DeserializeOwned>(kind: &str, payload: Value) -> Result<T, MessageErr
     })
 }
 
-fn within(text: &Option<String>, max: usize) -> bool {
-    text.as_ref().is_none_or(|t| t.len() <= max)
+/// `text` cut to at most `max` bytes, on a character boundary.
+fn cut(text: &mut String, max: usize) {
+    if text.len() > max {
+        let mut end = max;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
 }
 
 /// The messages only a client sends. One of them from the server breaks the direction rules.
@@ -213,13 +226,8 @@ pub struct ServerHello {
 }
 
 impl ServerHello {
-    fn checked(self) -> Result<Self, MessageError> {
-        if self.name.len() > NAME_MAX {
-            return Err(MessageError::OutOfRange {
-                kind: "server/hello",
-                field: "name",
-            });
-        }
+    fn checked(mut self) -> Result<Self, MessageError> {
+        cut(&mut self.name, NAME_MAX);
         if self.languages.as_ref().is_some_and(Vec::is_empty) {
             return Err(MessageError::OutOfRange {
                 kind: "server/hello",
@@ -301,19 +309,8 @@ pub struct GroupUpdate {
 }
 
 impl GroupUpdate {
-    fn checked(self) -> Result<Self, MessageError> {
-        if !b64::is_url_chars(&self.group_id, b64::KEY_CHARS) {
-            return Err(MessageError::OutOfRange {
-                kind: "group/update",
-                field: "group_id",
-            });
-        }
-        if self.group_name.len() > NAME_MAX {
-            return Err(MessageError::OutOfRange {
-                kind: "group/update",
-                field: "group_name",
-            });
-        }
+    fn checked(mut self) -> Result<Self, MessageError> {
+        cut(&mut self.group_name, NAME_MAX);
         Ok(self)
     }
 }
@@ -477,27 +474,21 @@ pub struct Metadata {
 
 impl Metadata {
     pub fn from_value(value: Value) -> Result<Self, MessageError> {
-        let m: Self = read("server/state", value)?;
-        let out_of_range = |field| MessageError::OutOfRange {
-            kind: "server/state",
-            field,
-        };
-        for (field, text) in [
-            ("metadata.title", &m.title),
-            ("metadata.artist", &m.artist),
-            ("metadata.album_artist", &m.album_artist),
-            ("metadata.album", &m.album),
-        ] {
-            if !within(text, METADATA_TEXT_MAX) {
-                return Err(out_of_range(field));
-            }
+        let mut m: Self = read("server/state", value)?;
+        for text in [
+            &mut m.title,
+            &mut m.artist,
+            &mut m.album_artist,
+            &mut m.album,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            cut(text, METADATA_TEXT_MAX);
         }
-        if !within(&m.artwork_url, ARTWORK_URL_MAX) {
-            return Err(out_of_range("metadata.artwork_url"));
-        }
-        if m.track.is_some_and(|t| t < 1) {
-            return Err(out_of_range("metadata.track"));
-        }
+        // A cut URL would name something else.
+        m.artwork_url = m.artwork_url.filter(|u| u.len() <= ARTWORK_URL_MAX);
+        m.track = m.track.filter(|&t| t >= 1);
         Ok(m)
     }
 
@@ -878,25 +869,30 @@ mod tests {
                 json!({"type": "server/hello", "payload": {"name": name, "languages": languages}}),
             )
         };
-        assert!(hello(&"é".repeat(32), json!(["en"])).is_ok());
-        assert_eq!(out_of_range(hello(&"é".repeat(33), json!(null))), "name");
+        let name = |message| match message {
+            Ok(ServerMessage::Hello(h)) => h.name,
+            other => panic!("expected a server/hello, got {other:?}"),
+        };
+        assert_eq!(name(hello(&"é".repeat(32), json!(["en"]))), "é".repeat(32));
+        // rc1 sets no limit: a longer name is cut to the later one, on a character boundary.
+        assert_eq!(name(hello(&"é".repeat(33), json!(null))), "é".repeat(32));
         assert_eq!(out_of_range(hello("x", json!([]))), "languages");
     }
 
     #[test]
-    fn group_update_limits() {
-        let group = |id: &str, name: &str| {
-            parse(json!({"type": "group/update", "payload": {
+    fn group_updates_are_read_as_rc1_defines_them() {
+        let group = |id: &str, name: &str| match parse(json!({"type": "group/update", "payload": {
                 "playback_state": "playing", "group_id": id, "group_name": name}}))
+        {
+            Ok(ServerMessage::Group(g)) => g,
+            other => panic!("expected a group/update, got {other:?}"),
         };
-        assert!(group(GROUP, &"x".repeat(64)).is_ok());
-        assert_eq!(out_of_range(group(&GROUP[1..], "x")), "group_id");
-        assert_eq!(out_of_range(group(&format!("{GROUP}A"), "x")), "group_id");
-        assert_eq!(
-            out_of_range(group(&GROUP.replace('-', "+"), "x")),
-            "group_id"
-        );
-        assert_eq!(out_of_range(group(GROUP, &"x".repeat(65))), "group_name");
+        assert_eq!(group(GROUP, &"x".repeat(64)).group_name, "x".repeat(64));
+        // Music Assistant 2.10.7 to 2.11 (aiosendspin 10.2 and 10.3) sends a UUID.
+        let uuid = "6b1d7a52-3c1e-4f43-9a51-0d1c2b8e7f60";
+        assert_eq!(group(uuid, "x").group_id, uuid);
+        assert_eq!(group(&GROUP[1..], "x").group_id, GROUP[1..]);
+        assert_eq!(group(GROUP, &"x".repeat(65)).group_name, "x".repeat(64));
     }
 
     #[test]
@@ -930,31 +926,39 @@ mod tests {
     fn metadata_limits() {
         let base = json!({"timestamp": 5});
         assert!(Metadata::from_value(base.clone()).is_ok());
-        for (field, max) in [
-            ("title", METADATA_TEXT_MAX),
-            ("artist", METADATA_TEXT_MAX),
-            ("album_artist", METADATA_TEXT_MAX),
-            ("album", METADATA_TEXT_MAX),
-            ("artwork_url", ARTWORK_URL_MAX),
-        ] {
-            let mut ok = base.clone();
-            ok[field] = json!("x".repeat(max));
-            assert!(Metadata::from_value(ok).is_ok(), "{field}");
-            let mut long = base.clone();
-            long[field] = json!("x".repeat(max + 1));
-            assert!(
-                matches!(
-                    Metadata::from_value(long),
-                    Err(MessageError::OutOfRange { .. })
-                ),
-                "{field}"
-            );
+        let texts = |m: Metadata| [m.title, m.artist, m.album_artist, m.album];
+        let mut ok = base.clone();
+        let mut long = base.clone();
+        for field in ["title", "artist", "album_artist", "album"] {
+            ok[field] = json!("x".repeat(METADATA_TEXT_MAX));
+            // rc1 sets no limit: longer text is cut to the later one, on a character boundary.
+            long[field] = json!(format!("{}é", "x".repeat(METADATA_TEXT_MAX - 1)));
         }
-        assert!(Metadata::from_value(json!({"timestamp": 5, "track": 1})).is_ok());
-        assert!(matches!(
-            Metadata::from_value(json!({"timestamp": 5, "track": 0})),
-            Err(MessageError::OutOfRange { .. })
-        ));
+        let want = Some("x".repeat(METADATA_TEXT_MAX));
+        assert_eq!(
+            texts(Metadata::from_value(ok).unwrap()),
+            [(); 4].map(|_| want.clone())
+        );
+        let want = Some("x".repeat(METADATA_TEXT_MAX - 1));
+        assert_eq!(
+            texts(Metadata::from_value(long).unwrap()),
+            [(); 4].map(|_| want.clone())
+        );
+        let url = |len: usize| {
+            let mut m = base.clone();
+            m["artwork_url"] = json!("x".repeat(len));
+            Metadata::from_value(m).unwrap().artwork_url
+        };
+        assert_eq!(url(ARTWORK_URL_MAX), Some("x".repeat(ARTWORK_URL_MAX)));
+        // A cut URL would name something else.
+        assert_eq!(url(ARTWORK_URL_MAX + 1), None);
+        let track = |t: i64| {
+            Metadata::from_value(json!({"timestamp": 5, "track": t}))
+                .unwrap()
+                .track
+        };
+        assert_eq!(track(1), Some(1));
+        assert_eq!(track(0), None);
         assert!(matches!(
             Metadata::from_value(json!({"title": "x"})),
             Err(MessageError::Malformed { .. })
