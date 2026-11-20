@@ -1,9 +1,12 @@
 ---
 // The hero drawing: the Echo (2nd gen) behind, the Echo Dot (2nd gen) in
-// front, staggered so the pair reads with depth. Both rings step through a
-// voice request with the device's own timings, with the phase word under the
-// Dot. Starts paused (on Listening) under reduced motion, and the Pause button
-// stops it at any time.
+// front, staggered so the pair reads with depth. The two take turns answering
+// a request, each to its own wake word: the one that answers steps through
+// the phases with the device's own timings and a speech bubble shows what was
+// said; the other stays dark, and both rest between requests. The phase word
+// under the drawing follows the device that answers. Starts paused (on the
+// first request) under reduced motion, and the Pause button stops it at any
+// time.
 import DeviceDrawing from "./DeviceDrawing.astro";
 import { drawingFor } from "../../../design/devices/index.ts";
 
@@ -14,16 +17,11 @@ const { class: className } = Astro.props;
 // viewer. The Echo stands at the origin and the Dot in front of its right
 // side, a hand's width clear of it. Both drawings are seen from the same
 // angle, so a floor point (x, z) shows at (x, z * tilt), and each is scaled
-// to the same millimetres.
+// to the same millimetres. `effect` is the still frame before the script runs:
+// the first request, which the Dot answers.
 const placed = [
-  { model: "echo-2", id: "hero-echo", x: 0, z: 0, label: "Illustration of an Echo (2nd gen) running Pinna." },
-  {
-    model: "echo-dot-2",
-    id: "hero-dot",
-    x: 54,
-    z: 76,
-    label: "Illustration of an Echo Dot running Pinna. Its light ring shows the phase named below.",
-  },
+  { model: "echo-2", id: "hero-echo", x: 0, z: 0, effect: "idle", label: "Illustration of an Echo (2nd gen) running Pinna." },
+  { model: "echo-dot-2", id: "hero-dot", x: 54, z: 76, effect: "listening", label: "Illustration of an Echo Dot (2nd gen) running Pinna." },
 ] as const;
 
 const boxes = placed.map((p) => {
@@ -50,10 +48,22 @@ const H = maxY - minY;
 const pct = (b: { left: number; top: number; w: number; h: number }) =>
   `left:${(((b.left - minX) / W) * 100).toFixed(3)}%;top:${(((b.top - minY) / H) * 100).toFixed(3)}%;` +
   `width:${((b.w / W) * 100).toFixed(3)}%;height:${((b.h / H) * 100).toFixed(3)}%`;
+
+// A device's speech bubbles stand on its top edge, flush with the side of the
+// stage it stands on, so they never reach past the stage on that side.
+const anchor = (b: (typeof boxes)[number]) => {
+  const bottom = `bottom:${(100 - ((b.top - minY) / H) * 100).toFixed(3)}%`;
+  return b.left + b.w / 2 < minX + W / 2
+    ? { side: "left", style: `${bottom};left:${(((b.left - minX) / W) * 100).toFixed(3)}%` }
+    : { side: "right", style: `${bottom};right:${(((maxX - b.left - b.w) / W) * 100).toFixed(3)}%` };
+};
 ---
 
 <figure class:list={["flex w-full flex-col items-center gap-4", className]} data-ring-demo>
-  <div class="relative w-[14rem] max-w-full sm:w-[17rem] lg:w-[22rem]" style={`aspect-ratio:${W.toFixed(2)} / ${H.toFixed(2)}`}>
+  <div
+    class="relative mt-20 w-[14rem] max-w-full sm:w-[17rem] lg:w-[22rem]"
+    style={`aspect-ratio:${W.toFixed(2)} / ${H.toFixed(2)}`}
+  >
     <div
       aria-hidden="true"
       class="pointer-events-none absolute rounded-[50%]"
@@ -63,9 +73,26 @@ const pct = (b: { left: number; top: number; w: number; h: number }) =>
     {
       boxes.map((b) => (
         <div class="absolute" style={pct(b)}>
-          <DeviceDrawing model={b.model} id={b.id} width="100%" label={b.label} />
+          <DeviceDrawing model={b.model} id={b.id} effect={b.effect} width="100%" label={b.label} />
         </div>
       ))
+    }
+    {
+      boxes.map((b, i) => {
+        const a = anchor(b);
+        return (
+          <div class="anchor" data-side={a.side} data-device={i} style={a.style} aria-hidden="true">
+            <p class="bubble" data-bubble="request" data-shown={i === 1 ? "" : undefined}>
+              <span class="who">You</span>
+              <span data-text>{i === 1 ? "Okay Nabu, turn on the kitchen lights." : ""}</span>
+            </p>
+            <p class="bubble reply" data-bubble="reply">
+              <span class="who">Pinna</span>
+              <span data-text />
+            </p>
+          </div>
+        );
+      })
     }
   </div>
   <figcaption class="flex max-w-[18rem] flex-col items-center gap-2 text-center">
@@ -77,28 +104,126 @@ const pct = (b: { left: number; top: number; w: number; h: number }) =>
       <button type="button" class="pn-btn pn-btn-quiet pn-btn-sm" data-toggle hidden>Pause</button>
     </span>
     <span class="text-ink-muted text-caption">
-      A demo of the light rings, using the devices' own colours and timing.
+      A demo of two satellites taking turns, with the rings' own colours and timing.
     </span>
   </figcaption>
 </figure>
 
+<style>
+  .anchor {
+    position: absolute;
+    width: 0;
+    height: 0;
+  }
+
+  .bubble {
+    position: absolute;
+    bottom: 10px;
+    width: max-content;
+    max-width: 15rem;
+    margin: 0;
+    padding: 6px 12px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 20px;
+    text-align: left;
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+      opacity 200ms ease,
+      transform 200ms ease;
+  }
+
+  .bubble[data-shown] {
+    opacity: 1;
+    transform: none;
+  }
+
+  .reply {
+    border-color: color-mix(in oklab, var(--brand-mid) 35%, var(--line));
+    background: color-mix(in oklab, var(--brand-mid) 12%, var(--surface-raised));
+  }
+
+  /* The tail: a square turned onto its corner, the bubble's own fill and edge. */
+  .bubble::after {
+    content: "";
+    position: absolute;
+    bottom: -6px;
+    width: 10px;
+    height: 10px;
+    border-right: 1px solid;
+    border-bottom: 1px solid;
+    border-color: inherit;
+    background: inherit;
+    transform: rotate(45deg);
+  }
+
+  [data-side="left"] .bubble {
+    left: 0;
+  }
+
+  [data-side="left"] .bubble::after {
+    left: 2.5rem;
+  }
+
+  [data-side="right"] .bubble {
+    right: 0;
+  }
+
+  [data-side="right"] .bubble::after {
+    right: 2.5rem;
+  }
+
+  .who {
+    display: block;
+    color: var(--ink-muted);
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bubble {
+      transition: none;
+    }
+  }
+</style>
+
 <script>
   import { displayLevel, ringFrame, type Effect } from "../../../design/ring";
 
-  const STEPS: { effect: Effect; word: string; ms: number }[] = [
-    { effect: "listening", word: "Listening", ms: 3200 },
-    { effect: "thinking", word: "Thinking", ms: 2400 },
-    { effect: "speaking", word: "Speaking", ms: 4800 },
-    { effect: "idle", word: "Idle", ms: 1600 },
+  // Who answers what. The device is an index into the drawings: 0 the Echo,
+  // 1 the Dot. Each listens for its own wake word.
+  const SCENES = [
+    { device: 1, request: "Okay Nabu, turn on the kitchen lights.", reply: "The kitchen lights are on." },
+    { device: 0, request: "Hey Jarvis, will it rain tomorrow?", reply: "Light rain from noon, up to 12 degrees." },
+    { device: 1, request: "Okay Nabu, add milk to the shopping list.", reply: "Milk is on the shopping list." },
   ];
-  const CYCLE = STEPS.reduce((sum, s) => sum + s.ms, 0);
+  // One request, with the device's timings, then a rest.
+  const PHASES: { effect: Effect; word: string; ms: number }[] = [
+    { effect: "listening", word: "Listening", ms: 2800 },
+    { effect: "thinking", word: "Thinking", ms: 1600 },
+    { effect: "speaking", word: "Speaking", ms: 3400 },
+    { effect: "idle", word: "Idle", ms: 3600 },
+  ];
+  const SCENE = PHASES.reduce((sum, p) => sum + p.ms, 0);
+  const CYCLE = SCENES.length * SCENE;
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
   for (const root of document.querySelectorAll<HTMLElement>("[data-ring-demo]")) {
-    // Every drawing in the demo (the Echo and the Dot) shows the same phase.
     const drawings = [...root.querySelectorAll<HTMLElement>(".pn-drawing")].map((el) => ({
       leds: [...el.querySelectorAll<SVGPathElement>("[data-led]")],
       glows: [...el.querySelectorAll<SVGPathElement>("[data-glow]")],
+    }));
+    const bubbles = [...root.querySelectorAll<HTMLElement>("[data-device]")].map((el) => ({
+      request: el.querySelector<HTMLElement>('[data-bubble="request"]'),
+      reply: el.querySelector<HTMLElement>('[data-bubble="reply"]'),
     }));
     const badge = root.querySelector<HTMLElement>("[data-phase]");
     const word = root.querySelector<HTMLElement>("[data-word]");
@@ -107,31 +232,54 @@ const pct = (b: { left: number; top: number; w: number; h: number }) =>
     let elapsed = 0;
     let last = 0;
     let raf = 0;
-    let shown = 0;
+    let shown = -1;
     let visible = false;
     let playing = !reduceMotion.matches;
     let pausedByUser = false;
 
+    const paint = (n: number, effect: Effect, t: number) => {
+      const { leds, glows } = drawings[n];
+      ringFrame(effect, t).forEach((p, i) => {
+        const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
+        const opacity = p.c ? displayLevel(p.level) : 0;
+        leds[i]?.setAttribute("stroke", stroke);
+        leds[i]?.setAttribute("stroke-opacity", opacity.toFixed(3));
+        glows[i]?.setAttribute("stroke", stroke);
+        glows[i]?.setAttribute("stroke-opacity", (opacity * 0.6).toFixed(3));
+      });
+    };
+
+    const say = (el: HTMLElement | null, text: string | null) => {
+      if (!el) return;
+      if (text === null) return void el.removeAttribute("data-shown");
+      const span = el.querySelector<HTMLElement>("[data-text]");
+      if (span) span.textContent = text;
+      el.setAttribute("data-shown", "");
+    };
+
     const show = (ms: number) => {
       let t = ms % CYCLE;
+      const s = Math.floor(t / SCENE);
+      t -= s * SCENE;
       let i = 0;
-      while (t >= STEPS[i].ms) t -= STEPS[i++].ms;
-      if (i !== shown) {
-        shown = i;
-        if (badge) badge.dataset.phase = STEPS[i].effect;
-        if (word) word.textContent = STEPS[i].word;
-      }
-      const frame = ringFrame(STEPS[i].effect, t);
-      for (const { leds, glows } of drawings) {
-        frame.forEach((p, n) => {
-          const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
-          const opacity = p.c ? displayLevel(p.level) : 0;
-          leds[n]?.setAttribute("stroke", stroke);
-          leds[n]?.setAttribute("stroke-opacity", opacity.toFixed(3));
-          glows[n]?.setAttribute("stroke", stroke);
-          glows[n]?.setAttribute("stroke-opacity", (opacity * 0.6).toFixed(3));
+      while (t >= PHASES[i].ms) t -= PHASES[i++].ms;
+      const scene = SCENES[s];
+      const phase = PHASES[i];
+
+      // Badge, bubbles and the device that stays dark change only with the phase.
+      const step = s * PHASES.length + i;
+      if (step !== shown) {
+        shown = step;
+        if (badge) badge.dataset.phase = phase.effect;
+        if (word) word.textContent = phase.word;
+        bubbles.forEach((b, n) => {
+          const mine = n === scene.device;
+          say(b.request, mine && i <= 1 ? scene.request : null);
+          say(b.reply, mine && i === 2 ? scene.reply : null);
+          if (!mine) paint(n, "idle", 0);
         });
       }
+      paint(scene.device, phase.effect, t);
     };
 
     const tick = (now: number) => {
@@ -166,6 +314,7 @@ const pct = (b: { left: number; top: number; w: number; h: number }) =>
         setPlaying(!playing);
       });
     }
+    show(elapsed);
     setPlaying(playing);
 
     reduceMotion.addEventListener("change", () => {
