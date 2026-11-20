@@ -670,6 +670,9 @@ pub struct Brain {
     calibration: Option<Calibration>,
     /// A confirmation waiting for the Action button (ADR 0029).
     presence: Option<Presence>,
+    /// Action confirmed a change and is still held: the rest of that hold
+    /// is the confirmation's too, so no `long_press` follows (ADR 0029).
+    confirm_held: bool,
     /// Renamed while Home Assistant was connected: make it reconnect, and read
     /// the new name, once the satellite is idle.
     reconnect_pending: bool,
@@ -827,6 +830,7 @@ impl Brain {
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
             presence: None,
+            confirm_held: false,
             reconnect_pending: false,
             update_restart_tried: None,
             reconnect_for_mode: false,
@@ -2355,7 +2359,20 @@ impl Brain {
             && presence.pressed.send(()).is_ok()
         {
             tracing::info!("Action pressed to confirm a change");
+            self.confirm_held = true;
             return;
+        }
+        if self.confirm_held {
+            match ev {
+                ButtonEvent::LongPress(Button::Action) => return,
+                ButtonEvent::Release(Button::Action) => {
+                    self.confirm_held = false;
+                    return;
+                }
+                // A release went missing: a new press starts a new hold.
+                ButtonEvent::Press(Button::Action) => self.confirm_held = false,
+                _ => {}
+            }
         }
         // Home Assistant event entities: press / double_press / long_press.
         match ev {

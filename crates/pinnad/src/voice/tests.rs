@@ -290,6 +290,13 @@ async fn a_confirmation_takes_the_action_press_for_itself() {
         .handle(Input::Button(ButtonEvent::Press(Button::Action)))
         .await;
     press.await.expect("the press reached the confirmation");
+    // Held on past the long-press time and let go: still the confirmation's.
+    d.brain
+        .handle(Input::Button(ButtonEvent::LongPress(Button::Action)))
+        .await;
+    d.brain
+        .handle(Input::Button(ButtonEvent::Release(Button::Action)))
+        .await;
     // It stopped no alarm and told Home Assistant nothing.
     assert!(d.brain.snapshot().alarm_ringing);
     d.expect(&[]);
