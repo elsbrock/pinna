@@ -98,7 +98,7 @@ website, design system, docs, tests, ADRs, chores, CI.
 Leave out empty sections. The language rules are `AGENTS.md`, "Language":
 plain, short sentences, no hype, exclamation marks or emoji; the project's
 nouns (satellite, ring, Home Assistant); the phase words of the proto; the
-hardware named exactly; never the name of the previous firmware's project.
+hardware named exactly.
 
 ## 4. Check, then hand over
 

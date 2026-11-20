@@ -18,10 +18,10 @@ explains how to undo it.
 
 - The device's bootloader is unlocked, with Kaeru. See
   [What you need](/docs/requirements/#device).
-- If you want to go back to the previous firmware later, back up the device
+- If you want to go back to the firmware the device runs now, back it up
   first, as described in
   [What you need](/docs/requirements/#backup-of-the-device). Installing Pinna
-  replaces the previous firmware and erases the data partition.
+  replaces that firmware and erases the data partition.
 
 ## What gets written
 

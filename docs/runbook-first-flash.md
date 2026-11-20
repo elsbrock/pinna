@@ -1,18 +1,18 @@
 # First flash: Echo Dot (2nd gen) → Pinna
 
-Moves an Echo Dot that currently runs the previous firmware (Kaeru/amonet-unlocked) to
-Pinna. Every step says what it writes; Recovery (at the end) undoes all of
+Moves an Echo Dot that is unlocked with Kaeru/amonet and reachable over adb
+to Pinna. Every step says what it writes; Recovery (at the end) undoes all of
 them from the step 1 backup.
 
 ## What gets written
 
 | Partition | Before | After |
 |---|---|---|
-| `boot_a` (p10) | previous firmware's boot image | Pinna boot image (`build/pinna-boot.img`: kernel, DTB, initramfs with pinna-init), marked `pinna.boot=a`: slot A's kernel |
-| `boot_b` (p11) | previous firmware's copy | the same image marked `pinna.boot=b`: slot B's kernel (ADR 0019) |
-| `system_a` (p13) | stock Fire OS system (the previous firmware reads Wi-Fi firmware from it) | Pinna root, sealed slot image (`build/pinna.root.img`: erofs + signed footer + dm-verity hash tree) |
+| `boot_a` (p10) | the current boot image | Pinna boot image (`build/pinna-boot.img`: kernel, DTB, initramfs with pinna-init), marked `pinna.boot=a`: slot A's kernel |
+| `boot_b` (p11) | a copy of it | the same image marked `pinna.boot=b`: slot B's kernel (ADR 0019) |
+| `system_a` (p13) | stock Fire OS system | Pinna root, sealed slot image (`build/pinna.root.img`: erofs + signed footer + dm-verity hash tree) |
 | `system_b` | stock copy | first MiB zeroed (no image); later written by `pinnactl update` |
-| `userdata` (p16) | previous firmware's `/data` | wiped; Pinna formats it as `/var` on first boot |
+| `userdata` (p16) | the current firmware's `/data` | wiped; Pinna formats it as `/var` on first boot |
 
 Never written: preloader/boot areas, `lk_a`/`lk_b`, `tee1`/`tee2`, `expdb`
 (Kaeru payload), `persist` (identity, calibration, MAC). `misc`: `root` and
@@ -46,10 +46,10 @@ nix develop          # recommended dev shell (x86_64 Linux); needs flakes:
 The commands below run in this shell (or with the tools you installed), from
 the repository root.
 
-Either way, `adb devices` must list the Echo Dot (the previous firmware
+Either way, `adb devices` must list the Echo Dot (the current firmware
 running, USB connected).
 
-## 1. Back up, and save what Home Assistant knows (the previous firmware still running)
+## 1. Back up, and save what Home Assistant knows (the current firmware still running)
 
 Step 4 overwrites `system_a` and wipes `userdata`, and recovery restores from
 this backup. Do not continue without it.
@@ -63,11 +63,11 @@ adb (~4 GB), compares every
 partition except `userdata` with the device, and cuts `partitions/*.img` with
 `SHA256SUMS`, the layout `scripts/flash-gen2.sh restore` takes. Copy the
 directory somewhere safe. `scripts/verify-backup.sh <dir>` repeats the
-comparison later, as long as the previous firmware still runs.
+comparison later, as long as the current firmware still runs.
 
-**Taking over the previous firmware's device in Home Assistant** (keeps its entities,
-automations and scripts; see step 7): `userdata` holds the previous firmware's API key and
-node name, so save them now:
+**Taking over a LibreEcho device in Home Assistant** (keeps its entities,
+automations and scripts; see step 7): Pinna exposes LibreEcho's entity set,
+and `userdata` holds LibreEcho's API key and node name, so save them now:
 
 ```sh
 mkdir -p secrets/device
@@ -84,7 +84,7 @@ EOF
 cat secrets/device/pinnad.toml
 ```
 
-`hostname` is the previous firmware's node name. If it was never set, the
+`hostname` is LibreEcho's node name. If it was never set, the
 file has none and the snippet stops: take the node name from the device's
 entry in Home Assistant (ESPHome integration) instead.
 `secrets/device/pinnad.toml` must be valid TOML: pinnad refuses to start on
@@ -113,7 +113,7 @@ sha256sum -c SHA256SUMS
 | `secrets/authorized_keys` | for SSH | `/root/.ssh/authorized_keys` | your SSH public key(s) |
 | `secrets/wifi/wpa_supplicant-wlan0.conf` | for Wi-Fi | default for `/var/lib/pinna/wifi/` (first boot; edit on the device afterwards) | see below |
 | `secrets/device/pinnad.toml` | no | default for `/var/lib/pinna/pinnad.toml` — device identity: a `[device]` table with e.g. `name = "echodot2"` on its own line | step 1, or by hand |
-| `secrets/device/esphome-key` | no | default for `/var/lib/pinna/esphome-key` — the Home Assistant API key (base64, 32 bytes) | `head -c32 /dev/urandom \| base64`, or the previous firmware's (step 1) |
+| `secrets/device/esphome-key` | no | default for `/var/lib/pinna/esphome-key` — the Home Assistant API key (base64, 32 bytes) | `head -c32 /dev/urandom \| base64`, or LibreEcho's (step 1) |
 
 Without an API key, Home Assistant adds the device without asking for one and
 then gives it a key of its own (ADR 0018). Without Wi-Fi credentials the device is
@@ -175,7 +175,7 @@ release, and the image's signature when you built it yourself. LK accepts
 109 MiB per download (`max-download-size` 0x6d00000); fastboot splits the
 larger root image into sparse chunks by itself.
 
-Undo: Recovery. From here until step 5, the previous firmware no longer boots properly.
+Undo: Recovery. From here until step 5, the device doesn't boot properly.
 
 ## 5. Flash the boot image
 
@@ -241,8 +241,8 @@ Pinna advertises `_esphomelib._tcp` via mDNS.
 - **New device**: Home Assistant shows "Echo Dot" as a discovered ESPHome
   device. Add it; if `secrets/device/esphome-key` was set, it asks for that
   key. Then configure the voice assistant pipeline for the device.
-- **Taking over the previous firmware's entry** (step 1): do not add a new device. Pinna
-  exposes the previous firmware's entity set under the same names, so the existing
+- **Taking over LibreEcho's entry** (step 1): do not add a new device. Pinna
+  exposes LibreEcho's entity set under the same names, so the existing
   entities, automations and scripts keep working. Reload the existing ESPHome
   config entry once so Home Assistant rebuilds the platforms from Pinna's
   device info.
@@ -331,7 +331,7 @@ reboot-bootloader` on a running Pinna):
 scripts/flash-gen2.sh restore <backup dir>/partitions
 ```
 
-restores the previous firmware exactly from the step 1 backup (boot_a, boot_b, system_a,
+restores the device exactly as it was from the step 1 backup (boot_a, boot_b, system_a,
 userdata, and system_b when the backup has it). It checks the backup's
 `SHA256SUMS` and that every required image is there before writing anything.
 

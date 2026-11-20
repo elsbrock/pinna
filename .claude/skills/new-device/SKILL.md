@@ -26,9 +26,9 @@ Echo (2nd gen) took.
   on it for unsigned boot images and the fastboot guard. Find out how to reach
   fastboot on this model (the Echo (2nd gen) has no USB port and needs pins
   on its base) and record it for `recovery.md`.
-- Back up the whole eMMC while the previous firmware still runs:
+- Back up the whole eMMC while the current firmware still runs:
   `scripts/backup-gen2.sh <dir>`, then `scripts/verify-backup.sh <dir>`.
-  Both need adb on the previous firmware. Without a backup there is no way
+  Both need adb on the current firmware. Without a backup there is no way
   back.
 - Collect, from fastboot and the running firmware: the fastboot `product`,
   the idme `device_type_id`, and the partition table. `pinna-init` finds
@@ -48,7 +48,7 @@ Each of these knows the model by name. Go through all of them:
 | `crates/pinna-hal/src/ident.rs` | `device_type_id` → model id in `board_model_in()`, with a test |
 | `proto/pinna/v1/device.proto` | Document the model id, then regenerate `dashboard/src/gen/` |
 | `crates/pinnad/src/identity.rs` | `model_name()` (what Home Assistant shows), `default_friendly_name()`, `speaker_flat()`, with tests |
-| `crates/pinnad/src/main.rs`, `crates/pinna-audio/src/mixer.rs` | Speaker profile and gain. Measure loudness against the previous firmware before you pick values |
+| `crates/pinnad/src/main.rs`, `crates/pinna-audio/src/mixer.rs` | Speaker profile and gain. Measure loudness against the firmware the device ran before you pick values |
 | `crates/pinna-audio/src/beamformer.rs` | Microphone positions, if the array differs |
 | `crates/pinna-hal/src/buttons.rs` | Key codes, read from the device's input events, not assumed |
 | `mkosi/mkosi.extra/usr/libexec/pinna/usb-gadget` | The USB product string |
@@ -80,7 +80,8 @@ colours:
   once the failing boot got as far as systemd.
 - **No replugging**: from a running system, `pinna-bootctl reboot-bootloader`
   opens fastboot.
-- `/proc/idme` exists only on the 6.1 kernel. On 6.12, LK must publish the
+- `/proc/idme` exists only with Amazon's idme driver, which Pinna's 6.12
+  kernel doesn't carry. LK must publish the
   idme record in the device tree, or the model reads as the Echo Dot.
 
 ## 4. Verify on the hardware

@@ -26,12 +26,12 @@ device's Wi-Fi firmware, unmodified.
 ## Backup of the device
 
 Back up the device before you install Pinna if you want to go back to the
-previous firmware later: installing Pinna replaces it, and only a backup
+firmware it runs now: installing Pinna replaces it, and only a backup
 brings it back. Pinna can restore the backup.
 
 The backup script is in Pinna's repository. Get it on your computer with
 `git clone https://github.com/elsbrock/pinna.git`, and run the commands below
-in that folder. Run `scripts/backup-gen2.sh` while the previous firmware still
+in that folder. Run `scripts/backup-gen2.sh` while the current firmware still
 runs on the device and `adb` can reach it. It needs about 8 GB of free space:
 
 ```sh

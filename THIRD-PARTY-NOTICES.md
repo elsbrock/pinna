@@ -1,9 +1,9 @@
 # Third-party notices
 
-Pinna took over the Echo (2nd gen) from earlier open-source firmware. Parts of
-Pinna are ports of, or copies from, that firmware's MIT-licensed user-space
-code. Its copyright notice and permission notice follow, as the license
-requires.
+Parts of Pinna are ports of, or copies from, the MIT-licensed user-space code
+of LibreEcho (https://github.com/aslater3/LibreEcho-UI), open-source firmware
+for the Echo (2nd gen). Its copyright notice and permission notice follow, as
+the license requires.
 
 Covered here:
 
@@ -35,7 +35,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - `tools/wmt/`: GPL-2.0, see the SPDX headers in the files.
 - The playback volume curve (`crates/pinna-audio/src/volume.rs`) and the
   output mixer settings in `crates/pinna-audio/src/mixer.rs` follow
-  `audio_engine.c` from the earlier firmware's platform tree. That repository
+  `audio_engine.c` from LibreEcho's platform tree
+  (https://github.com/aslater3/LibreEcho-Platform). That repository
   is GPL-2.0 (its `COPYING`); the file itself has no license header.
 - Release images and the device kernel carry Amazon's MT8163 Wi-Fi and
   Bluetooth firmware files from the Echo Dot (2nd gen)'s stock Fire OS and the

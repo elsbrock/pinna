@@ -42,7 +42,7 @@ stage 4 (unlock).
     `product` is `BISCUIT`, `max-download-size` 0x6d00000.
 - GitHub release downloads send no `Access-Control-Allow-Origin`, so a page on
   the website cannot fetch release files.
-- The project has no stock unit. The previous firmware's own browser installer
+- The project has no stock unit. LibreEcho's browser installer
   only ever ran a read-only query from a browser; its unlock and write steps
   were never run from one.
 
@@ -63,7 +63,7 @@ stage 4 (unlock).
      issue. Nothing is written. It finds the driver and permission problems
      on users' machines, the stock USB identity, and the LK builds in the
      wild.
-  2. **Install on an unlocked device** (Kaeru: the previous firmware or Pinna).
+  2. **Install on an unlocked device** (Kaeru).
   3. **Backup and restore** (optional for the user, offered before any write).
   4. **Unlock a stock device.**
 - Browsers without WebUSB get a notice and a link to the terminal guide.

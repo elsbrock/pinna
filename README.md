@@ -20,8 +20,8 @@ daemons.
 > Status: early development. Owners set up the satellite on its dashboard;
 > developers have SSH, `pinnactl` and `pinnad.toml`. Expect sharp edges.
 
-Pinna needs an Echo that has already been unlocked with Kaeru/amonet (as
-for the previous firmware). To install it, follow `docs/runbook-first-flash.md`:
+Pinna needs an Echo that has already been unlocked with Kaeru/amonet. To
+install it, follow `docs/runbook-first-flash.md`:
 it covers downloading a prebuilt image from a
 [release](https://github.com/elsbrock/pinna/releases) or building your own,
 backs the device up first, and every step says how to undo it.
@@ -66,5 +66,10 @@ lives in `website/` (`npm run dev`); it deploys to GitHub Pages from
 MIT, see `LICENSE`. Exceptions: `kernel/patches/` and `tools/wmt/` are
 GPL-2.0, like the code they patch or come from. Amazon's Wi-Fi/BT firmware and
 microphone FPGA bitstream aren't in the repository: `just firmware` fetches
-them, unmodified, and the MIT license doesn't cover them. Third-party notices for
-ported and copied material are in `THIRD-PARTY-NOTICES.md`.
+them, unmodified, and the MIT license doesn't cover them.
+
+Parts of Pinna are ported from [LibreEcho](https://github.com/aslater3/LibreEcho):
+the kernel's MT8163 board support, the microphone beamformer and DSP, the LED
+and button handling, the wake word detection rules and the ESPHome entity set.
+Third-party notices for ported and copied material are in
+`THIRD-PARTY-NOTICES.md`.

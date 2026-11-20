@@ -31,7 +31,7 @@ Measured on the owner's Echo Dot (2nd gen), Kaeru `v2.0.0-gab93750`, on
     and loaded `boot_a`, so 3 tries give a new kernel **2 attempts**. The
     preloader then set B's priority to 0.
   - Slot B's boot chain (`tee2`, which differs from `tee1`) started.
-  - The previous firmware reset the record on every boot for the same reason:
+  - LibreEcho reset the record on every boot for the same reason:
     its tries ran out.
   - `set_active:<slot>` (Kaeru) marks that slot good and blanks the other.
   - Kaeru repairs a record without a good slot, but only in LK, after the

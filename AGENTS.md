@@ -39,8 +39,6 @@ Nix is recommended, not required. `nix develop` provides every tool that
 - Comments say why, not what. A module's doc comment says what it does and
   cites its ADR. A hardware fact carries its evidence: what was measured, and
   on which device.
-- Refer to the firmware Pinna replaced as "the previous firmware" or "the 6.1
-  kernel", never by its project name: in code, comments, commits and docs.
 - Generated files are committed, and the checks fail when they are stale:
   - `dashboard/src/gen/` comes from `proto/` (`cd dashboard && npm run generate`).
   - `design/tokens.css` and `design/tailwind.css` come from

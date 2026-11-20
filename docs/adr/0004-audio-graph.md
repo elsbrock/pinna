@@ -67,7 +67,7 @@ retried every 5 s. An underrun restarts the PCM and so cycles the amp;
 aplay's underrun messages are logged as warnings.
 
 - **Beamform first, then mono echo cancellation**: the usual design for small
-  arrays and far cheaper than per-microphone AEC. The beamformer is the previous firmware's
+  arrays and far cheaper than per-microphone AEC. The beamformer is LibreEcho's
   superdirective fixed-beam design, ported to Rust (within 1 LSB of the C on
   ≥ 99.9 % of samples) and loaded into
   PipeWire as a LADSPA plugin (`crates/pinna-ladspa`).
@@ -85,7 +85,7 @@ aplay's underrun messages are logged as warnings.
   `pinnad.toml` replaces it with a fixed gain.
   The noise ceiling sits below the wake word detector's energy VAD, which
   needs more than about −58.5 dBFS whatever the noise (an absolute floor from
-  the previous firmware): lifted noise never opens it, so its
+  LibreEcho's VAD, which Pinna ports): lifted noise never opens it, so its
   speech-over-noise rule decides. Measured (Echo (2nd gen), living room,
   2026-11-17): the detector's scores don't depend on level (the
   `alexa-twice` fixture scores 0.997–1.000 from 0 to −42 dB, nothing at

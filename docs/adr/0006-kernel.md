@@ -4,11 +4,11 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 
 ## Context
 
-- ADR 0001 built the previous firmware's Linux tree (release 0.14.5): Linux 6.1.178 with the
+- ADR 0001 built LibreEcho's Linux tree (release 0.14.5): Linux 6.1.178 with the
   MT8163 board support merged in, its `mt8163_arm32_defconfig` and a Pinna
   fragment. The userland is Debian trixie, whose kernel is 6.12 LTS, supported
   for trixie's lifetime.
-- The previous firmware's delta to upstream 6.1.178 is 388 files: about 28.6k lines of
+- LibreEcho's delta to upstream 6.1.178 is 388 files: about 28.6k lines of
   board support (clocks, pinctrl, power domains, PMIC wrapper, MMC, SPI, MUSB,
   watchdog, thermal, LEDs, privacy switch, light sensors, codecs, AFE, FPGA SPI
   microphones, device tree) and the MT8163 CONSYS vendor driver (Wi-Fi/BT, 214k
@@ -22,7 +22,7 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
   Debian's patch series from the kernel team's packaging tag, both pinned by
   commit in `kernel/source.env`.
 - **Board support in `kernel/patches`**, applied after Debian's series: the
-  previous firmware's board support ported to 6.12 (one patch per subsystem) with
+  LibreEcho's board support ported to 6.12 (one patch per subsystem) with
   Pinna's audio and device-tree fixes, then the CONSYS driver (imported
   unmodified, then ported) with Pinna's Wi-Fi and Bluetooth fixes. Not carried:
   diagnostic-only changes (SPI firmware-transfer tracing, FunctionFS and MUSB
@@ -31,11 +31,11 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
   Dot's charger node is disabled).
 - **Device tree:** the boot image keeps using `mt8163-radar-puffin.dtb`
   from this kernel build (ADR 0001); the 6.12 build decompiles to the same
-  tree as the DTB in the previous firmware's known-good `boot_a`.
+  tree as the DTB in LibreEcho's known-good `boot_a`.
 - **The microphone FPGA bitstream is built in** (31 KB) with
   `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it at probe, before
   the root is mounted, so the device kernel cannot be built without it, and
-  the previous firmware's Linux tree is its only public source. Like the Wi-Fi/BT
+  LibreEcho's Linux tree is its only public source. Like the Wi-Fi/BT
   firmware, it isn't committed: `just firmware` fetches it into
   `blobs/firmware/` (ADR 0001, amended 2026-11-20).
 - **Config from allnoconfig + fragments.** `common.config` holds what every
