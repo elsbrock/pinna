@@ -29,7 +29,7 @@ keep the name the device had when you added it.
 | Reply volume | `reply_volume` | Number | 0 to 100, in % | Sets the volume of replies and announcements, on the same scale as **Volume** and never louder than it. Until it is set, it follows **Volume**; the dashboard's **Replies follow Volume** switch makes it follow again. See [Volume](/docs/audio/#volume) |
 | Wake word sensitivity | `wake_word_sensitivity` | Number | 0 to 100 | Sets how easily the wake word triggers. Higher values trigger more easily, and more often by mistake. The default is 68. The dashboard's [Wake word page](/docs/wake-words/#tune-the-wake-word) shows which setting catches or ignores each recent wake and near miss |
 | LED brightness | `led_brightness` | Number | 0 to 100, in % | Sets the brightness of the whole ring |
-| Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm |
+| Cancel request | `cancel_request` | Button | | Stops a running request, a reply or an announcement, and silences a timer alarm. With none of them, it stops the music; with Sendspin, the whole group |
 | Media player | `media_player` | Media player | Play, pause, stop, volume, mute, announce | Plays audio from a URL and announcements. See [Media player](#media-player) |
 | Updates | `update_channel` | Select (configuration) | `stable`, `beta`, `off` | Where the device looks for new releases, as on the dashboard's **System** page. While a developer's own update address replaces the channel, its only option is that address ([Offer your own builds as updates](/docs/releases/#offer-your-own-builds-as-updates)). See [How the satellite finds updates](/docs/update/#how-the-satellite-finds-updates) |
 | Voice mode | `assistant` | Select (configuration) | `Home Assistant`, `Standalone` | Who answers voice requests, as **Mode** on the dashboard's **Assistant** page. `Standalone` works only once speech-to-text, the brain and text-to-speech have passed their check on the dashboard; until then the select goes back to `Home Assistant`. A change while the satellite answers a request (with its follow-up), plays an announcement or rings an alarm waits until that has ended. Switching deletes every timer and reconnects Home Assistant. See [Set up standalone mode](/docs/standalone/) |
@@ -93,7 +93,7 @@ While [Sendspin](/docs/sendspin/#play-music) plays, the media player's
 volume and mute are the device's own in Music Assistant, and play, pause and
 stop act on the whole group. After a pause from the device, the media player
 shows the group as paused, and play and stop act on the group; its volume is
-the device's volume meanwhile. After a stop, at the end of the queue, or
+the device's overall **Volume** meanwhile, not its volume in Music Assistant. After a stop, at the end of the queue, or
 after a pause in Music Assistant, the media player is idle. With no request
 running and no alarm ringing, **Cancel request** stops the group too.
 

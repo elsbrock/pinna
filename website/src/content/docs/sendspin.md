@@ -12,7 +12,9 @@ alarms play over it.
 
 Sendspin is experimental, as the dashboard says: its specification is still a
 draft, and a change to it can stop Music Assistant from playing to the
-satellite until Pinna follows. Sendspin is off until you turn it on.
+satellite until Pinna follows. It is tested against Music Assistant's
+Sendspin server on a computer, not yet on an Echo, so how closely an Echo
+keeps step is not measured yet. Sendspin is off until you turn it on.
 
 ## Before you begin
 
@@ -53,15 +55,19 @@ shows **Connected to** and the server's name.
 ### Add the satellite by its address
 
 Music Assistant on another VLAN or on a guest network doesn't see the
-satellite, because mDNS doesn't cross between networks. Give Music Assistant
-the satellite's address instead:
+satellite, because mDNS doesn't cross between networks. Neither does Music
+Assistant in a container without host networking. Give Music Assistant the
+satellite's address instead:
 
-1. In your router, reserve an IP address for the satellite, so that it
-   doesn't change.
+1. On the dashboard, open **Network** and note the satellite's IP address
+   under **Addresses**. In your router, reserve that address for the
+   satellite, so that it doesn't change.
 2. In Music Assistant, open the settings of the Sendspin provider, show its
-   advanced settings, and add the satellite's IP address to **Manual IP
-   addresses for discovery**. Music
-   Assistant connects to port 8928 at that address.
+   advanced settings, and add the address to **Manual IP addresses for
+   discovery**. Music Assistant connects to TCP port 8928 at that address, so
+   a firewall between the networks has to let it through.
+3. On the dashboard, **Media sources** shows **Connected to** and the
+   server's name.
 
 ### With AirPlay on as well
 
@@ -70,7 +76,8 @@ more than once: as an AirPlay player, as an AirPlay player that Music
 Assistant plays to through Sendspin, and as a Sendspin player. Use the
 Sendspin player. Through AirPlay, the satellite keeps step only as well as
 AirPlay's delay can be estimated, and a volume change on the satellite
-doesn't reach Music Assistant.
+doesn't reach Music Assistant. If you play to the satellite from Music
+Assistant only, turn AirPlay off, and Music Assistant lists it once.
 
 ## Play music
 
@@ -121,11 +128,22 @@ the satellite plays.
 
 ## Security
 
-- **There is no pairing yet.** While Sendspin is on, anyone on your network
-  can play to the satellite, and replace what it plays, as with AirPlay.
-- **The music can be intercepted.** Without pairing, someone who can
-  intercept the traffic between Music Assistant and the satellite could read
-  or change the music.
+- **The satellite only plays.** Over Sendspin it takes audio, its volume and
+  the track details from Music Assistant, and sends back its own volume and
+  pause, play and stop. It sends no microphone audio: it asks only for
+  Sendspin's player, controller and metadata roles.
+- **There is no pairing yet.** While Sendspin is on, any device that can
+  reach TCP port 8928 on the satellite can play to it, and replace what it
+  plays, as with AirPlay: every device on the satellite's network, and on
+  networks your router lets through. To narrow it, let only Music
+  Assistant's address through to port 8928.
+- **The music can be intercepted.** The connection is encrypted, but without
+  pairing neither side can check who is at the other end. Someone who can sit
+  between Music Assistant and the satellite, such as a router between your
+  networks, could read or change the music.
+- **The dashboard controls the group.** Anyone who can open the dashboard can
+  pause and stop the whole group, not only the satellite. See
+  [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 - Pairing through Home Assistant is planned: Home Assistant would hand the
   satellite's pairing key to Music Assistant, so that only your Music
   Assistant could play to it.
@@ -136,19 +154,21 @@ so Music Assistant may list it as a new player.
 
 ## Limits
 
-- **Exact step on the Echo devices only.** On the Echo (2nd gen) and the Echo
-  Dot (2nd gen), the satellite reads the speaker's hardware clock to know when
-  each sample sounds. The virtual Echo Dot and other computers play, but not
-  in step with the group: **Media sources** shows **Not in step**.
+- **In step on the Echo devices only, and not yet measured there.** On the
+  Echo (2nd gen) and the Echo Dot (2nd gen), the satellite reads the
+  speaker's hardware clock to know when each sample sounds. The delay from
+  that clock to the sound counts as 0 until it is measured on each model, so
+  the satellite can be off from the group by that delay. The virtual Echo Dot
+  and other computers play, but not in step with the group: **Media
+  sources** shows **Not in step**.
 - **The wake word hears the rest of the group.** The echo canceller takes
   out only the satellite's own sound. The wake word and your requests hear
   other speakers of the group in the same room as they hear any other sound
   in the room.
 - **One server at a time.** The satellite plays from one Music Assistant at a
-  time.
+  time. A second server that plays takes over from the first.
 - **Music Assistant before 2.10.7 can't connect.** The dashboard says so.
-- **Port 8928.** Music Assistant has to reach the satellite on TCP port 8928,
-  and no other program on the satellite may use it.
+- **Port 8928.** Music Assistant has to reach the satellite on TCP port 8928.
 - **The buttons don't control the group.** The volume buttons set how loud
   the satellite is overall, as for every source.
 

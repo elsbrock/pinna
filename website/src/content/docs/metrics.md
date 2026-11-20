@@ -142,7 +142,7 @@ or off.
 
 | Metric | What it is |
 | --- | --- |
-| `pinna_sendspin_state{state}` | 1 for the current state: `off`, `ready` (listening, with no server connected), `connected` (a server is connected, whether or not it plays: when music played would be a record of who was home), `failed` or `unavailable` |
+| `pinna_sendspin_state{state}` | 1 for the current state: `off`, `ready` (listening, with no server connected), `connected` (a server is connected), `failed` or `unavailable`. There is no playing state, so that the metric doesn't record when music played |
 | `pinna_sendspin_sync_error_seconds` | How much later the stream sounds than the server's clock says it should; negative when it sounds early. Missing while no stream sounds |
 | `pinna_sendspin_clock_error_seconds` | The standard deviation of the clock filter's estimate of the server's clock. Missing while no server is connected, and until the filter's first measurement |
 | `pinna_sendspin_steady` | 1 while a stream plays and 10 seconds or more have passed since its start or its last jump, clear, underrun or error above 1 ms |

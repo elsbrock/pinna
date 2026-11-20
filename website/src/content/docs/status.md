@@ -61,8 +61,8 @@ These parts are covered by tests that run without hardware:
 - The [Sendspin](/docs/sendspin/) player, which is experimental, plays
   sessions with a test server over a WebSocket on the same computer: the
   encrypted handshake, audio on the server's timeline, volume and mute in
-  both directions, a paused group and its controls, a rename, and refusing a
-  browser or a third server. In a simulation of the speaker, timed playback
+  both directions, a paused group and its controls, a rename, a second server
+  taking over from the first, and refusing a browser or a third connection. In a simulation of the speaker, timed playback
   stays within 1 ms of the server's clock from 10 seconds after a stream
   starts.
 
