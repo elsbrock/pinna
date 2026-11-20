@@ -158,4 +158,4 @@ unavailable until you add it again.
 ## What's next
 
 - Choose and tune the [wake words](/docs/wake-words/).
-- [Update Pinna](/docs/update/) from **System**.
+- [Update Pinna](/docs/update/) from **System > Updates**.

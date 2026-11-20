@@ -265,7 +265,7 @@ LED direction.
 ## 8. Updates and rollback
 
 Release images look for new releases on their update channel
-(`updates.getpinna.dev`, ADR 0022) and show them on the dashboard's **System**
+(`updates.getpinna.dev`, ADR 0022) and show them on the dashboard's **System > Updates**
 page and in Home Assistant, where you install them. From the device, the same channel by hand (it needs Wi-Fi with internet
 access):
 

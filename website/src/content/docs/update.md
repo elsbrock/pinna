@@ -60,16 +60,16 @@ no identifier. Nothing is downloaded or installed until you install it, or
 until your install window, if you chose
 [automatic installs](#install-updates-automatically).
 
-A newer release then shows on the dashboard's **System** page and in Home
+A newer release then shows on the dashboard's **System > Updates** page and in Home
 Assistant. The satellite never goes back to an older version on its own, and a
 satellite on **Stable** never installs a beta.
 
 ## Before you begin
 
 - The device runs Pinna, and its current slot is marked **Good** on the
-  dashboard's **System** page. Pinna refuses to install an update while the
+  dashboard's **System > Updates** page. Pinna refuses to install an update while the
   running slot is still on trial.
-- **System** has the **Updates** setting. If it doesn't, the satellite runs
+- The dashboard has an **Updates** setting. If it doesn't, the satellite runs
   a build from before update channels: install a current build first, with
   its **Release manifest** field, as in
   [Install a build of your own](#install-a-build-of-your-own).
@@ -80,7 +80,7 @@ satellite on **Stable** never installs a beta.
 
 ## Install an update from the dashboard
 
-1. In the [dashboard](/docs/dashboard/), open **System**. Under **Updates**,
+1. In the [dashboard](/docs/dashboard/), open **System > Updates**. Under **Updates**,
    choose **Stable** or **Beta** if the setting is **Off**.
 2. Select **Check now** to look at once. A newer release shows below it, with
    a summary and a link to its release notes.
@@ -89,7 +89,7 @@ satellite on **Stable** never installs a beta.
    again.
 
    The page shows each step. The device keeps running the update if you close
-   the page; open **System** again to see where it is. If the update fails,
+   the page; open **System > Updates** again to see where it is. If the update fails,
    the page says **The update was not installed** and gives the reason, and
    **Output on the satellite** shows every line. The device keeps running the
    current version.
@@ -97,18 +97,18 @@ satellite on **Stable** never installs a beta.
    when the device is back, and shows the new version on trial.
 
    To start it later instead, select **Start it later**. The update stays
-   in its slot as **Not started yet**, and **System** offers **Start on next
+   in its slot as **Not started yet**, and **System > Updates** offers **Start on next
    restart**, which makes it start on the next restart without downloading it again.
 5. Wait until the new slot is marked **Good**, within 5 minutes of the restart.
    You can install the next update after that.
 
 If the new version doesn't start, the device goes back to the previous one.
-**System** then says, for example, `0.4.1 failed to start and was rolled
+**System > Updates** then says, for example, `0.4.1 failed to start and was rolled
 back.`, shows the new slot as **Can't boot**, and doesn't offer that version
 again. A newer release is offered as usual. See
 [Recover a device](/docs/recovery/) if the device doesn't come back at all.
 
-**System** says why **Install** isn't there when an update can't be
+**System > Updates** says why **Install** isn't there when an update can't be
 installed:
 
 - **Needs a new boot image: install it over USB.** The release needs a newer
@@ -119,7 +119,7 @@ installed:
   device with `just push` would hide the new release's programs. Remove them
   first, as in [Try a change on a device](/docs/development/#try-a-change-on-a-device).
 
-A release published for another model isn't offered at all: **System** says
+A release published for another model isn't offered at all: **System > Updates** says
 which models it is for, and Home Assistant shows no update.
 
 ## Ask the satellite to update
@@ -129,7 +129,7 @@ version it runs and whether there is an update, such as "is there an update?".
 If the check takes more than a few seconds, the satellite says that it goes on:
 ask again a minute later, such as "what did the update check find?". While
 **Updates** is **Off**, the satellite still says which version runs, but it
-doesn't check: choose **Stable** or **Beta** under **System** first.
+doesn't check: choose **Stable** or **Beta** under **System > Updates** first.
 
 The satellite can also install the release that the last check found. This is
 off until you turn it on:
@@ -138,14 +138,14 @@ off until you turn it on:
 2. Under **Pinna's tools**, turn on **Install update**.
 
 Then ask, such as "install the update". The satellite installs the release into
-the other slot, as **Install** on **System** does, and restarts the next time
+the other slot, as **Install** on **System > Updates** does, and restarts the next time
 it is Idle, with no timer set and nothing playing. If the new version doesn't
 work, the satellite goes back to the previous one on its own. To go back by
 hand, see [Go back to an older version](#go-back-to-an-older-version).
 
 - The brain is told to install only when you ask, but nothing else stops it
   while **Install update** is on. Turn it off again if you don't want that.
-- It never installs an older version, and where **System** can't install the
+- It never installs an older version, and where **System > Updates** can't install the
   release, the satellite refuses and says why. Switching to the other slot by
   hand and going back stay on the dashboard.
 - With Hermes or OpenClaw as the brain, the agent can say the version and check
@@ -180,7 +180,7 @@ With **Install updates** set to **Automatically**, the satellite installs a
 new release by itself, at a time inside a window that you choose. The setting
 is **Manually** until you change it.
 
-1. In the [dashboard](/docs/dashboard/), open **System**. In the **Updates**
+1. In the [dashboard](/docs/dashboard/), open **System > Updates**. In the **Updates**
    group, check that **Updates** is **Stable** or **Beta**: nothing installs by
    itself while it is **Off**.
 2. In the same group, set **Install updates** to **Automatically**.
@@ -210,7 +210,7 @@ one if it doesn't start, as for any update.
 
 ### What never installs automatically
 
-- A release that needs a new boot image. **System** shows it with **Needs a
+- A release that needs a new boot image. **System > Updates** shows it with **Needs a
   new boot image: install it over USB**, and it waits for you.
 - A version that failed to start and was rolled back.
 - A version that is already in the other slot, for example one you kept back
@@ -229,7 +229,7 @@ channel ([Offer your own builds as updates](/docs/releases/#offer-your-own-build
 The version number doesn't decide: a new major version, or before 1.0 a new
 minor version, installs like any other.
 
-If an automatic download fails, **System** shows the failure under **Last
+If an automatic download fails, **System > Updates** shows the failure under **Last
 install**, as for an install that you started. The next window tries again.
 
 An install that you start yourself ignores the window: from the dashboard,
@@ -255,10 +255,10 @@ apply again after the next update.
 
 - When the other slot holds the older version, switch to it, as in
   [Switch to the other version](#switch-to-the-other-version). When that
-  version is also the channel's release, **System** offers **Start …** next
+  version is also the channel's release, **System > Updates** offers **Start …** next
   to it, which does the same.
 - When the channel's release is older than the running version, for example
-  after you changed **Updates** from **Beta** to **Stable**, **System** offers
+  after you changed **Updates** from **Beta** to **Stable**, **System > Updates** offers
   **Install … (older)**. It asks before it installs. Then select **Restart
   now**.
 
@@ -271,7 +271,7 @@ warns for each one. The dashboard shows this warning wherever it would start an
 older version.
 
 After you go back, the newer version is still in the other slot, and the next
-check offers it again: **System** shows **Start on next restart**, and Home Assistant shows
+check offers it again: **System > Updates** shows **Start on next restart**, and Home Assistant shows
 it as an update. Home Assistant's **Install** would start it and restart the
 satellite, and so would the satellite in standalone mode if you ask it to
 install while **Install update** is on. To stay on the older version, select
@@ -285,7 +285,7 @@ version, set **Install updates** to **Manually** too.
 The slot that isn't running holds the previous version, or an update that you
 kept back (**Not started yet**). To run it:
 
-1. In the dashboard, open **System**. If it says **This version is on trial**,
+1. In the dashboard, open **System > Updates**. If it says **This version is on trial**,
    wait until the running slot is marked **Good**, within 5 minutes of the
    last restart.
 2. Under **Software**, select **Switch…** next to **Switch to slot A** or
@@ -328,7 +328,7 @@ the device must reach your computer over Wi-Fi or over the USB cable.
    python3 -m http.server 8000 --directory build/release
    ```
 
-3. In the dashboard, open **System**, open **Install from a manifest URL**,
+3. In the dashboard, open **System > Updates**, open **Install from a manifest URL**,
    check the address, and select **Install**. The address is filled in with
    port 8000 on the computer or phone that you opened the dashboard on, or
    with the last address you used, such as
@@ -340,7 +340,7 @@ the device must reach your computer over Wi-Fi or over the USB cable.
    use an open dashboard and has a copy of an older signed release can
    downgrade the device this way.
 4. When it is installed, select **Restart now**.
-5. Wait until **System** shows the new slot as **Good**, within 5 minutes of
+5. Wait until **System > Updates** shows the new slot as **Good**, within 5 minutes of
    the restart.
 
 A build of your own accepts only images signed with your key, so releases from

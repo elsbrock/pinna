@@ -81,7 +81,7 @@ The output lists both slots with their version and state: `good`, `trial` or
 `unbootable`, the attempts left, and which slot is running.
 
 To go back to the other slot yourself, use **Switch…** on the dashboard's
-**System** page. See
+**System > Updates** page. See
 [Switch to the other version](/docs/update/#switch-to-the-other-version).
 
 If the dashboard doesn't open, a developer can switch over SSH (see

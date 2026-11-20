@@ -175,7 +175,7 @@ own: it is off only when the dashboard is off, which is a
 [developer setting](/docs/configure/#web).
 
 Once you set a password, `/metrics` needs the **metrics token**, which opens
-nothing else. On the dashboard, open **System**, and under **Tokens** select
+nothing else. On the dashboard, open **System > Password and tokens**, and under **Tokens** select
 **Create a token** next to **Metrics token**. Copy the token at once: the
 dashboard shows it only then, and keeps only its last four characters. Give it to
 Prometheus as `authorization` credentials, which it sends as

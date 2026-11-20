@@ -24,8 +24,8 @@ Before you begin:
    [Name the device](/docs/settings/#name-the-device). The brain calls each
    member by its name, so two members can't share a name, and none can be
    called "all".
-2. On the dashboard of each satellite, select **Assistant**. Under
-   **Satellite group**, turn on **Satellite group**. A satellite takes part
+2. On the dashboard of each satellite, select **Assistant**, then
+   **Satellite group**, and turn on **Satellite group**. A satellite takes part
    only once its own switch is on.
 3. Wait about a minute. The other satellites see the switch after their next
    search, which runs once a minute. Until then, they show this one as
@@ -86,7 +86,7 @@ the switch is all it takes. With one, a satellite takes an **Add** only in the
 10 minutes after you allow it:
 
 1. On the dashboard of the satellite that you want to add, sign in. Select
-   **Assistant**. Under **Satellite group**, with the switch on and the
+   **Assistant > Satellite group**. With the switch on and the
    satellite in no group, select **Allow adding to a group**. The page shows
    how much of the 10 minutes is left.
 2. Within that time, on the dashboard of a member, or of the satellite that starts the group when

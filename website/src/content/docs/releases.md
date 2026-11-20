@@ -84,10 +84,10 @@ Assistant's update entity:
    systemctl restart pinnad
    ```
 
-3. After each `just release`, select **Check now** on **System**, then
+3. After each `just release`, select **Check now** on **System > Updates**, then
    **Install**.
 
-The address replaces the channel: **System** shows it instead of the
+The address replaces the channel: **System > Updates** shows it instead of the
 **Updates** setting, and Home Assistant's **Updates** select has it as its only
 option. The satellite checks it on the same schedule as a channel (once after
 it starts, once a day, and on **Check now**), once its clock is set from the

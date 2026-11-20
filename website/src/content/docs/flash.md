@@ -256,7 +256,7 @@ dashboard saves the networks you join into the same file, and updates keep it.
 ## Check that the installation is healthy
 
 After each boot, Pinna checks itself: `pinnad` must answer and SSH must run. When the check passes, Pinna marks the slot as good. The
-dashboard's **System** page shows whether the running slot is **Good**. To
+dashboard's **System > Updates** page shows whether the running slot is **Good**. To
 see the result from a terminal, run this on the satellite:
 
 ```sh

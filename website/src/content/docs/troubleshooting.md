@@ -11,7 +11,7 @@ Start with the satellite's own view of the problem, on the
   whether it listens for the wake word and why not.
 - **System > Logs** shows the log of `pinnad`, the program that runs the
   satellite, as it is written. The sections below quote the lines to look for.
-- **System**, under **Troubleshooting**, says how the last start ended, for
+- **System**, on the **Logs** row, says how the last start ended, for
   example `restarted (update)` or `crashed: a kernel panic or oops`.
 
 If the dashboard doesn't open, start with
@@ -375,7 +375,7 @@ services didn't answer in time. See
    ```
 
 2. If the dashboard opens, look at **System > Logs** for errors, and at how
-   the last start ended under **System > Troubleshooting**.
+   the last start ended on the **Logs** row of **System**.
 3. If the device opens fastboot again, Pinna's services don't start. Install
    the root filesystem again from fastboot, as described in
    [Recover a device](/docs/recovery/). This erases your settings, which also
@@ -416,7 +416,7 @@ and include:
 - What you did, and what happened.
 - The version, from the **Software** tile on the dashboard's **Overview**,
   and whether the device is an Echo Dot (2nd gen) or an Echo (2nd gen).
-- How the last start ended, from **System > Troubleshooting**.
+- How the last start ended, from the **Logs** row of **System**.
 - The log, from **System > Logs**: select **All**, then **Copy**, and paste it
   into the issue. Check it first: issues are public.
 

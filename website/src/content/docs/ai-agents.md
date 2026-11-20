@@ -59,7 +59,7 @@ Without a [dashboard password](/docs/dashboard/#who-can-use-the-dashboard),
 anyone on your network can use `/mcp`. Once you set a password, `/mcp` needs
 the **agent token**, which opens nothing else:
 
-1. Select **System**. Under **Tokens**, next to **Agent token**, select
+1. Select **System > Password and tokens**. Under **Tokens**, next to **Agent token**, select
    **Create a token**.
 2. Copy the token at once. The dashboard shows it only then, and keeps only its
    last four characters. A new token replaces the old one, which stops working
@@ -70,7 +70,7 @@ the **agent token**, which opens nothing else:
 An agent that can't send headers can't use the MCP server of a satellite with a
 password: the token doesn't go in the address, because addresses end up in logs.
 Without the token, the device answers `401` and "This satellite needs its agent
-token. Create one on its System page."
+token. Create one on its dashboard, under System > Password and tokens."
 
 ## What's next
 
