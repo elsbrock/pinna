@@ -218,16 +218,16 @@ if [ "$arch" = x86_64 ]; then
     pass "Sendspin off by default"
   fi
   if sendspin true | grep -q '"sendspin":true'; then pass "Sendspin switched on over the API"; else fail "Sendspin switched on over the API"; fi
-  status=
+  reply=
   for _ in $(seq 1 20); do
-    status=$(curl -fsS --max-time 10 -H 'Content-Type: application/json' -d '{}' \
+    reply=$(curl -fsS --max-time 10 -H 'Content-Type: application/json' -d '{}' \
                "$web/pinna.v1.DeviceService/GetStatus" || true)
-    if printf '%s' "$status" | grep -q '"SENDSPIN_STATE_READY"'; then break; fi
-    status=
+    if printf '%s' "$reply" | grep -q '"SENDSPIN_STATE_READY"'; then break; fi
+    reply=
     sleep 1
   done
-  if [ -n "$status" ]; then pass "Sendspin reported ready in Status"; else fail "Sendspin reported ready in Status"; fi
-  if printf '%s' "$status" | grep -q '"exactTiming":true'; then
+  if [ -n "$reply" ]; then pass "Sendspin reported ready in Status"; else fail "Sendspin reported ready in Status"; fi
+  if printf '%s' "$reply" | grep -q '"exactTiming":true'; then
     fail "Sendspin not in exact step without a hardware pointer"
   else
     pass "Sendspin not in exact step without a hardware pointer"
