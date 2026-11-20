@@ -45,13 +45,17 @@ each device a different one.
 1. [Open the dashboard](#open-the-dashboard). Over the USB cable or the setup
    hotspot, first [connect the device to Wi-Fi](/docs/flash/#connect-to-wi-fi)
    on **Network**.
-2. [Name the device](/docs/settings/#name-the-device) on **System**, for example `Kitchen`.
+2. The dashboard offers a password before anything else. Select **Set a
+   password** and press **Action** on the device when the ring circles white,
+   or select **Leave it open** if you trust everyone on your network. See
+   [Who can use the dashboard](#who-can-use-the-dashboard).
+3. [Name the device](/docs/settings/#name-the-device) on **System**, for example `Kitchen`.
    Do this before you add it to Home Assistant, which keeps the first name in
    its entity IDs.
-3. [Set the time zone](/docs/settings/#set-the-time-zone) on **System**, so that the
+4. [Set the time zone](/docs/settings/#set-the-time-zone) on **System**, so that the
    satellite tells your time in standalone mode, and its own clock and log
    use your zone.
-4. Choose who answers requests, on **Assistant**:
+5. Choose who answers requests, on **Assistant**:
    [connect the device to Home Assistant](/docs/home-assistant/), or
    [set up standalone mode](/docs/standalone/). Until Home Assistant connects
    or you switch to standalone mode, **Overview** shows how to do either.
@@ -67,9 +71,9 @@ sections are in a bar at the bottom, and a section's pages are rows on it.
 | --- | --- |
 | **Overview** | See the device with its light ring lit as it is right now, what it is doing, and its connection to Home Assistant (in standalone mode, whether its services are ready), Wi-Fi, version and uptime at a glance. Set the volume, turn the microphones and the wake word on or off, start or stop a request, clear a waiting [notification](/docs/ring-and-buttons/#notifications), and see the timers and how many messages from the [satellite group](/docs/satellite-groups/#pass-messages-between-satellites) wait to be said. **Now playing** shows what plays and where it comes from, with pause, resume and stop, and **Mute music**; with nothing playing, it says how to play something. **Identify** runs the ring's test pattern, to find the device among others |
 | **Voice & sound** (**Voice** in the phone's bar) | Turn the wake word on or off, choose the **Wake word** and **Second wake word** while Home Assistant isn't connected or in standalone mode, turn the microphones on or off, set the volume and the [reply volume](/docs/audio/#volume) (turn **Replies follow Volume** off first), and turn the **Wake sound** on or off. **Ring** sets the ring brightness, turns **Listening direction** on or off, [uses the ring as a light](/docs/ring-and-buttons/#use-the-ring-as-a-light), runs the ring's test pattern with **Identify**, and shows what each ring state means. **Media sources** turns [AirPlay](/docs/airplay/), [Bluetooth](/docs/bluetooth/) and [Sendspin](/docs/sendspin/) on or off, shows whether they run, pairs phones and forgets them, shows which Music Assistant Sendspin is connected to and whether it plays in step, and [plays music from a URL](/docs/music/#play-music-from-a-url). **Wake words** lists the words on offer and [adds your own](/docs/wake-words/#add-your-own-wake-word). **Sensitivity** opens the **Wake word sensitivity** page, where you [tune the wake word](/docs/wake-words/#tune-the-wake-word). Home Assistant shows the same settings, and a change in one shows in the other |
-| **Assistant** | Choose who answers requests: Home Assistant or the satellite itself, in [standalone mode](/docs/standalone/). In Home Assistant mode, see whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted, and see the device's name and copy the host and port to add the device by hand. **Services**, **Conversation** and **Tools** set up standalone mode: the speech and language services and their keys, the language, place and prompt, a box to type a question, what the brain may do, radio stations and MCP. **Satellite group** puts satellites in a group, so that they [pass messages](/docs/satellite-groups/#pass-messages-between-satellites) to each other and [control each other](/docs/satellite-groups/#control-another-satellite): turn it on, add and remove members, and turn **Group messages** and **Control from the group** on or off |
+| **Assistant** | Choose who answers requests: Home Assistant or the satellite itself, in [standalone mode](/docs/standalone/). In Home Assistant mode, see whether Home Assistant is connected and has a voice pipeline for the device, and whether the connection is encrypted, and see the device's name and copy the host and port to add the device by hand. **Let Home Assistant add this satellite** [opens the window](/docs/home-assistant/#add-a-device-that-has-a-dashboard-password) in which Home Assistant can add a satellite that has a dashboard password: it is on this page in standalone mode, and on the **Home Assistant** page in Home Assistant mode. **Services**, **Conversation** and **Tools** set up standalone mode: the speech and language services and their keys, the language, place and prompt, a box to type a question, what the brain may do, radio stations and MCP. **Satellite group** puts satellites in a group, so that they [pass messages](/docs/satellite-groups/#pass-messages-between-satellites) to each other and [control each other](/docs/satellite-groups/#control-another-satellite): turn it on, add and remove members, and turn **Group messages** and **Control from the group** on or off. **Allow adding to a group** [lets another satellite add this one](/docs/satellite-groups/#add-a-satellite-that-has-a-dashboard-password) when it has a dashboard password |
 | **Network** | See the Wi-Fi network, the signal strength and the addresses. [Change the hostname](/docs/settings/#change-the-hostname). [Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network) and forget saved ones. If the Wi-Fi doesn't work, the page says which of the [troubleshooting](/docs/troubleshooting/#the-device-has-no-wi-fi) cases applies. [Set a dashboard address](/docs/settings/#set-a-dashboard-address), where else the dashboard opens |
-| **System** | [Name the device](/docs/settings/#name-the-device), [set its time zone](/docs/settings/#set-the-time-zone), [reset it](/docs/settings/#reset-the-device), choose where it looks for updates (**Updates**: Stable, Beta or Off), choose whether updates install by themselves and in which window (**Install updates**), check for one and see what the last check found, see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, see how its last start ended, and see its details. See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard) and [Install updates automatically](/docs/update/#install-updates-automatically). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
+| **System** | [Name the device](/docs/settings/#name-the-device), [set its time zone](/docs/settings/#set-the-time-zone), [reset it](/docs/settings/#reset-the-device), choose where it looks for updates (**Updates**: Stable, Beta or Off), choose whether updates install by themselves and in which window (**Install updates**), check for one and see what the last check found, see which version runs from which slot, install an update and follow its steps, switch to the version in the other slot, restart the device, see how its last start ended, and see its details. Under **Dashboard password**, [set, change and remove the password](#set-change-and-remove-the-password) and sign out; under **Tokens**, [create the tokens for Prometheus and agents](#tokens-for-prometheus-and-agents). See [Install an update from the dashboard](/docs/update/#install-an-update-from-the-dashboard) and [Install updates automatically](/docs/update/#install-updates-automatically). **Logs**, under System, shows the log of `pinnad`, and of the AirPlay and Bluetooth services, as it is written. Debug lines are left out, because they can contain what was said |
 
 ## Switch between satellites
 
@@ -82,10 +86,12 @@ them. Select one
 to open its dashboard in the same tab.
 
 Anyone on your network can announce a device, so a fake entry could lead to a
-page that looks like a login form. The list marks the members of this device's
-[satellite group](/docs/satellite-groups/) as **In this satellite's group**: the
-group's key confirms them. Every other entry says **Only announced on the
-network**. Check the address before you enter a password on a page you opened
+page that looks like a login form. The list marks an entry as **In this
+satellite's group** only when it carries the MAC address of a member of this
+device's [satellite group](/docs/satellite-groups/), announces the address that
+member's last signed call came from, and has no dashboard address of its own.
+Every other entry says **Only announced on the network**: that is all it is.
+Check the address before you enter a password on a page you opened
 from the list.
 
 Each device looks for the others once a minute, so the list opens at once. A
@@ -105,25 +111,13 @@ isn't on a network yet, only on USB, shows the list without others.
 
 ## Who can use the dashboard
 
-Until you set a password, **anyone on your network can use the dashboard**.
-That includes renaming the device, setting its dashboard address, moving it to
-another Wi-Fi network or forgetting the one it uses, making the device play an
-address from your network, lighting the ring in any colour, the solid red of
-the muted microphones included, restarting the device, resetting it,
-choosing the update channel, installing an update and switching to the version
-in the other slot. It also includes seeing what plays: the title of the music
-a phone sends over AirPlay or Bluetooth, or Music Assistant over Sendspin,
-shows on **Now playing**. With Sendspin, it includes pausing and stopping the
-whole Music Assistant group that the device plays in. In
-[standalone mode](/docs/standalone/) it includes changing your services and
-the prompt, adding MCP servers, and pointing a speech-to-text service at a
-server of someone else's, which then receives what the microphones hear after
-the wake word. The keys themselves never leave the device. Pinna's MCP
-server, `/mcp`, and the [metrics](/docs/metrics/) are open the same way. Only
-an update that is signed with the device's release key installs, and the
-device goes back to the previous version if the new one doesn't start. An
-install from a manifest URL takes an older signed release too, so someone with
-a copy of one can downgrade the device.
+Until you set a password, **anyone on your network can use the dashboard**:
+change any setting, restart or reset the device, install updates, see what
+plays and pause or stop the Music Assistant group it plays in over Sendspin.
+In [standalone mode](/docs/standalone/) that includes your services, and
+pointing a speech-to-text service at a server of someone else's, which then
+receives what the microphones hear after the wake word. `/mcp` and the
+[metrics](/docs/metrics/) are open the same way.
 
 The first time you open the dashboard, it offers a password before anything
 else. Choose **Set a password**, or **Leave it open** if you trust everyone on
@@ -132,12 +126,23 @@ again, and **Overview** keeps saying "Anyone on your network can control this
 satellite" until you set one. An update never locks you out: a device that
 updates into this version asks too, and you can leave it open.
 
+You can't turn the dashboard off from the dashboard. Developers can turn it off
+in the [developer settings](/docs/configure/#web).
+
 ### What the password protects
 
 With a password, every request to the device needs you to be signed in, except
 the page's own files and the sign-in itself. That covers the dashboard, the
 control API, and the log. The metrics and `/mcp` need
-[their own tokens](#tokens-for-prometheus-and-agents) instead.
+[their own tokens](#tokens-for-prometheus-and-agents) instead. The password
+also:
+
+- closes the ESPHome API to Home Assistant until you
+  [open the window](/docs/home-assistant/#add-a-device-that-has-a-dashboard-password)
+  for a satellite that has no key from Home Assistant yet;
+- refuses to let another satellite add this one to a group until you
+  [allow it](/docs/satellite-groups/#add-a-satellite-that-has-a-dashboard-password);
+- refuses [messages and calls from members without a password](/docs/satellite-groups/#passwords-between-members).
 
 The password doesn't cover everything:
 
@@ -146,7 +151,8 @@ The password doesn't cover everything:
   network, for example another device on your Wi-Fi, can read the password and
   your session. Don't use a password that you use anywhere else, and don't
   use one password for every satellite. A reverse proxy with TLS in front of
-  the dashboard address avoids this; see
+  the dashboard address protects the path from your browser to the proxy. The
+  hop from the proxy to the satellite stays plain HTTP over your network. See
   [Set a dashboard address](/docs/settings/#set-a-dashboard-address).
 - **It isn't Home Assistant's key.** Home Assistant connects with its own
   encryption key, which you can't see or change on the dashboard.
@@ -160,11 +166,12 @@ The password doesn't cover everything:
   tab.
 
 An older version of Pinna in the other slot may not ask for a password. If you
-[switch to it](/docs/update/), the dashboard is open until the next update.
+[go back to it](/docs/update/#go-back-to-an-older-version), the dashboard,
+`/mcp` and the metrics are open until the next update.
 
 ### Set, change and remove the password
 
-Open **System > Dashboard password**.
+Open **System**. Under **Dashboard password**:
 
 - **Set a password.** Select **Set a password…**. The dashboard says "Press
   Action on the satellite", and the ring circles white: press the **Action**
@@ -173,7 +180,8 @@ Open **System > Dashboard password**.
   Press it only if you started this yourself. Then enter the password, 8 to
   128 characters, with no other rules. If an agent or Prometheus called the
   device in the last 24 hours, the form says so: they need a token once the
-  password is set.
+  password is set. You can
+  [create the tokens first](#tokens-for-prometheus-and-agents).
 - **Change it.** Select **Change…** and enter the current password and the
   new one. Or select **Confirm at the satellite instead** and press **Action**.
 - **Remove it.** Select **Remove…** and enter the current password, or confirm
@@ -183,9 +191,14 @@ Open **System > Dashboard password**.
 Changing the password signs every browser out. The dashboard signs this one in
 again with the new password.
 
+### Sign in
+
+On another computer, open the dashboard. The sign-in page shows the
+satellite's name. Enter the password and select **Sign in**.
+
 ### Sign out
 
-On **System > Dashboard password**:
+Open **System**. Under **Dashboard password**:
 
 - **Sign out** ends the session of this browser. A session lasts 30 days, and
   survives a restart of the device.
@@ -205,20 +218,19 @@ then set a new password. You need no cable and no reset. See
 ### Tokens for Prometheus and agents
 
 With a password set, the metrics and `/mcp` don't take a session. Each has a
-token that opens it and nothing else. On **System > Tokens**, select **Create a
-token** next to **Metrics token** or **Agent token**. The dashboard shows the
+token that opens it and nothing else. Open **System**. Under **Tokens**, select
+**Create a token** next to **Metrics token** or **Agent token**. The dashboard shows the
 token once, with a **Copy** button, and afterwards only its last four
 characters. **Create a new token** replaces the old one, which stops working at
 once. A factory reset removes the password and the tokens.
+
+You can create the tokens before you set a password. Give them to Prometheus
+and your agents first, and they keep working once the password is set.
 
 - Prometheus takes the metrics token as `authorization` credentials. See
   [Prometheus metrics](/docs/metrics/#who-can-read-them).
 - An MCP client sends the agent token in an `Authorization: Bearer` header. See
   [Connect an agent over MCP](/docs/ai-agents/#who-can-use-the-mcp-server).
-
-The dashboard has no switch to turn it off: on a page without a login, anyone
-could turn it back on. Developers can turn it off in the
-[developer settings](/docs/configure/#web).
 
 ## What's next
 

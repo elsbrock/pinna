@@ -77,7 +77,8 @@ With a dashboard password set and no key from Home Assistant yet, the device
 refuses every connection to Home Assistant. Home Assistant may still list the
 device, but it can't connect to it. You open a window first:
 
-1. Open the dashboard of the device and sign in. Select **Assistant**.
+1. Open the dashboard of the device and sign in. In Home Assistant mode,
+   select **Home Assistant**. In standalone mode, select **Assistant**.
 2. Select **Let Home Assistant add this satellite**. The page shows how much
    of the 15 minutes is left.
 3. In Home Assistant, add the device as in [Add the device](#add-the-device).

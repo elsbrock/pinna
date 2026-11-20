@@ -50,10 +50,16 @@ The new password ends every session, so other browsers sign in again. The
 tokens for [Prometheus](/docs/metrics/#who-can-read-them) and
 [agents](/docs/ai-agents/#who-can-use-the-mcp-server) keep working.
 
-If the dashboard says that another confirmation waits or that you must wait,
-the last one ended less than a minute ago: wait the seconds it names and try
-again. If you see "Too many attempts", the sign-in page waits a minute between
-tries after ten wrong passwords in a row. Setting a new password with a press
+Two messages can stop you before you press **Action**:
+
+- "Another confirmation waits for a press of Action at the satellite." One is
+  running, started from another tab or by someone else on your network. Press
+  **Action** only if you started it. Otherwise wait, and try again after the
+  seconds the message names.
+- "A confirmation ended just now." Wait the seconds it names, then try again.
+
+If you see "Too many attempts", the sign-in page waits a minute between
+tries after 10 wrong passwords in a row. Setting a new password with a press
 of **Action** ends that wait.
 
 ## The device has no Wi-Fi

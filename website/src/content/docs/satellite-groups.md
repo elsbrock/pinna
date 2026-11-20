@@ -89,7 +89,8 @@ the switch is all it takes. With one, a satellite takes an **Add** only in the
    **Assistant**. Under **Satellite group**, with the switch on and the
    satellite in no group, select **Allow adding to a group**. The page shows
    how much of the 10 minutes is left.
-2. Within that time, on the dashboard of a member, select **Add** next to it,
+2. Within that time, on the dashboard of a member, or of the satellite that starts the group when
+   neither is in a group yet, select **Add** next to it,
    as in [Set up a satellite group](#set-up-a-satellite-group). If the time
    passes first, **Add** says that the satellite has a password. Select
    **Allow adding to a group** again.

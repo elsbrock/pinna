@@ -28,6 +28,7 @@ this table wins:
 
 | What you see | Meaning |
 | --- | --- |
+| A white light that circles slowly, one turn every 3 seconds | The dashboard asks you to confirm a change at the device. Press the Action button to confirm; see [Confirm a change at the device](#confirm-a-change-at-the-device). It shows above every other state, the red of the muted microphones included, for up to 60 seconds |
 | Solid red | The microphones are off |
 | Amber, pulsing twice a second | A timer has finished. Say the wake word or press the Action button to stop it |
 | Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch, on the dashboard under **Voice & sound > Ring** or in Home Assistant |
@@ -35,7 +36,6 @@ this table wins:
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | A green arc | Wake word calibration runs. The arc shows the sensitivity, and the volume buttons tune it. It shows in place of a running timer's arc, a notification, the light and the music. See [Calibrate at the device](/docs/wake-words/#calibrate-at-the-device) |
 | Two blue lights that turn slowly around the ring | The Bluetooth pairing window is open: a phone nearby can pair now. It shows in place of a running timer's arc, a notification, the light and the music. See [Pair a phone](/docs/bluetooth/#pair-a-phone) |
-| A white light that circles slowly, one turn every 3 seconds | The dashboard asks you to confirm a change at the device. Press the Action button to confirm; see [Confirm a change at the device](#confirm-a-change-at-the-device). It shows above the red of the muted microphones, for up to 60 seconds |
 | An amber arc | A timer is running. The arc shows how much time is left |
 | Yellow, the whole ring slowly getting brighter and dimmer | A notification is waiting. See [Notifications](#notifications) |
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |

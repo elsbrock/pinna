@@ -28,8 +28,16 @@ A `.local` name such as `pinna-2a914e.local` works only if the machine that
 runs Prometheus resolves `.local` names. Prometheus's own builds and its
 Docker image don't.
 
-To check the address, open `http://192.168.1.40/metrics` in a browser. Then,
-in Prometheus, open **Status > Targets**: the `pinna` job shows **UP**.
+To check the address, open `http://192.168.1.40/metrics` in a browser. With a
+[dashboard password](/docs/dashboard/#who-can-use-the-dashboard) set, the
+browser gets `401`. Run this on your computer instead, with the
+[metrics token](#who-can-read-them):
+
+```sh
+curl -H "Authorization: Bearer TOKEN" http://192.168.1.40/metrics
+```
+
+Then, in Prometheus, open **Status > Targets**: the `pinna` job shows **UP**.
 
 The device answers only to the names the dashboard answers to, such as its IP
 addresses and `.local` names. If you scrape it by another DNS name, add that
@@ -179,7 +187,7 @@ scrape_configs:
     static_configs:
       - targets: ["192.168.1.40:80"]
     authorization:
-      credentials: "the token from the dashboard"
+      credentials: "<token>"
 ```
 
 Prometheus also reads the token from a file, with `credentials_file`. A new

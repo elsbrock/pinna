@@ -144,6 +144,8 @@ The device forgets:
 - its saved Wi-Fi networks
 - the encryption key that Home Assistant set; a key that came with the image
   stays
+- the dashboard password, its sessions, and the tokens for the metrics and
+  agents
 - SSH keys added on the device, and its SSH host key.
 
 It then restarts as it was installed. Its log stays, and so does the version
