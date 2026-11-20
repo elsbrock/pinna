@@ -9,22 +9,8 @@ import GroupsPlan from "../components/GroupsPlan.astro";
 import WakeMeter from "../components/WakeMeter.astro";
 import MusicDuck from "../components/MusicDuck.astro";
 import UpdateSlots from "../components/UpdateSlots.astro";
+import DeviceDrawing from "../components/DeviceDrawing.astro";
 import { docHref, href, SITE } from "../lib/site";
-
-const hardware: { device: string; soc: string; status: string; tone: string }[] = [
-  {
-    device: "Echo Dot (2nd gen)",
-    soc: "MediaTek MT8163, about 480 MB of memory",
-    status: "Supported, in early development",
-    tone: "text-ink",
-  },
-  {
-    device: "Echo (2nd gen)",
-    soc: "The same MT8163 platform",
-    status: "Supported, in early development",
-    tone: "text-ink",
-  },
-];
 
 const goals = [
   { title: "Your voice goes only where you send it", body: "The wake word runs on the device, and audio goes only to your Home Assistant or to services you set up." },
@@ -35,6 +21,29 @@ const goals = [
   { title: "Use standard parts", body: "Debian, systemd and a small set of Rust programs." },
   { title: "Make development pleasant", body: "One shell for every tool, and tests that run without hardware." },
   { title: "Stay open", body: "All of Pinna's code is open source." },
+];
+
+// What the page says about each device. "Tested on it" follows the status
+// page: only what has run on that model.
+const devices = [
+  {
+    model: "echo-dot-2" as const,
+    name: "Echo Dot (2nd gen)",
+    rows: [
+      { label: "In fastboot", value: "BISCUIT" },
+      { label: "USB", value: "Its micro-USB port, with a cable that carries data" },
+      { label: "Tested on it", value: "Installing, updates that roll back, standalone mode, and echo cancellation" },
+    ],
+  },
+  {
+    model: "echo-2" as const,
+    name: "Echo (2nd gen)",
+    rows: [
+      { label: "In fastboot", value: "RADAR" },
+      { label: "USB", value: "Pins in the base: a pogo-pin adapter, or a cable soldered to the pads" },
+      { label: "Tested on it", value: "The same image runs. The bootloader's rollback and echo cancellation are tested on the Echo Dot only" },
+    ],
+  },
 ];
 
 const works = [
@@ -284,63 +293,58 @@ const gaps = [
   <section id="hardware" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
       <p class="eyebrow">Devices</p>
-      <h2 class="section-title">Supported devices</h2>
+      <h2 class="section-title">Two Echos, one image</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        Pinna supports the Echo (2nd gen) and the Echo Dot (2nd gen), which
-        share the same MT8163 platform and run the same image.
+        The Echo (2nd gen) and the Echo Dot (2nd gen) share the MT8163
+        platform and run the same image. More Echo devices may follow.
       </p>
 
-      <div class="card mt-8 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="bg-surface-sunken text-ink-muted text-xs tracking-wide uppercase">
-                <th class="px-4 py-3 text-left font-semibold">Device</th>
-                <th class="px-4 py-3 text-left font-semibold">Platform</th>
-                <th class="px-4 py-3 text-left font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {
-                hardware.map((row) => (
-                  <tr class="border-line border-t">
-                    <td class="text-ink px-4 py-3 font-medium whitespace-nowrap">{row.device}</td>
-                    <td class="text-ink-muted px-4 py-3">{row.soc}</td>
-                    <td class={`px-4 py-3 ${row.tone}`}>{row.status}</td>
-                  </tr>
-                ))
-              }
-            </tbody>
-          </table>
-        </div>
+      <div class="mt-10 grid gap-5 md:grid-cols-2">
+        {
+          devices.map((d) => (
+            <div class="spec">
+              <div class="spec-pic">
+                <DeviceDrawing model={d.model} id={`spec-${d.model}`} effect="idle" width="100%" label={`Illustration of an ${d.name}.`} />
+              </div>
+              <div class="spec-body">
+                <h3 class="text-ink text-heading">{d.name}</h3>
+                <dl class="spec-rows">
+                  {d.rows.map((r) => (
+                    <div>
+                      <dt>{r.label}</dt>
+                      <dd>{r.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </div>
+          ))
+        }
       </div>
 
-      <div class="mt-8 grid gap-5 md:grid-cols-3">
-        <div class="flex items-start gap-3">
-          <Icon name="board" size={18} class="text-brand-mid mt-0.5 shrink-0" />
-          <p class="text-ink-muted text-body">
-            <span class="text-ink font-medium">It needs an unlocked bootloader.</span>
+      <div class="facts mt-10" style="--facts: 3">
+        <div class="fact">
+          <span class="fact-title">It needs an unlocked bootloader</span>
+          <span class="fact-say">
             The unlock (amonet) installs Kaeru, a small addition to the
             bootloader. Pinna installs over fastboot, the bootloader's USB mode
             for writing the device's storage. Holding Volume Down while you
             plug the device in always opens it.
-          </p>
+          </span>
         </div>
-        <div class="flex items-start gap-3">
-          <Icon name="disk" size={18} class="text-brand-mid mt-0.5 shrink-0" />
-          <p class="text-ink-muted text-body">
-            <span class="text-ink font-medium">You provide the backup.</span>
+        <div class="fact">
+          <span class="fact-title">You keep a backup</span>
+          <span class="fact-say">
             You back up your own device before you install, and Pinna can
             restore that backup.
-          </p>
+          </span>
         </div>
-        <div class="flex items-start gap-3">
-          <Icon name="home" size={18} class="text-brand-mid mt-0.5 shrink-0" />
-          <p class="text-ink-muted text-body">
-            <span class="text-ink font-medium">It's standard Linux.</span>
-            Debian trixie with systemd on a read-only root filesystem. Pinna's
+        <div class="fact">
+          <span class="fact-title">It's standard Linux</span>
+          <span class="fact-say">
+            Debian trixie with systemd, on a read-only root filesystem. Pinna's
             own programs are written in Rust.
-          </p>
+          </span>
         </div>
       </div>
     </div>
@@ -350,35 +354,36 @@ const gaps = [
   <section id="start" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
       <p class="eyebrow">Get started</p>
-      <h2 class="section-title">Install from your browser</h2>
+      <h2 class="section-title">Install Pinna</h2>
 
-      <div class="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <ol class="space-y-5">
-          <li class="flex gap-4">
-            <span class="text-brand-mid font-mono text-sm">1</span>
-            <p class="text-ink-muted text-body">
-              <span class="text-ink block font-medium">Unlock and back up the device</span>
+      <div class="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:gap-16">
+        <ol class="timeline">
+          <li>
+            <span class="node">1</span>
+            <span class="text-ink block font-semibold">Unlock and back up the device</span>
+            <span class="text-ink-muted text-body">
               Pinna installs on an Echo whose bootloader is unlocked. Back it
               up first if you want to go back to its current firmware later.
-            </p>
+            </span>
           </li>
-          <li class="flex gap-4">
-            <span class="text-brand-mid font-mono text-sm">2</span>
-            <p class="text-ink-muted text-body">
-              <span class="text-ink block font-medium">Install from the browser</span>
+          <li>
+            <span class="node">2</span>
+            <span class="text-ink block font-semibold">Install from the browser</span>
+            <span class="text-ink-muted text-body">
               The installer downloads the newest release, checks its signature
               and writes it over USB. From a terminal,
               <code class="font-mono text-sm">scripts/flash-gen2.sh</code> does
               the same.
-            </p>
+            </span>
           </li>
-          <li class="flex gap-4">
-            <span class="text-brand-mid font-mono text-sm">3</span>
-            <p class="text-ink-muted text-body">
-              <span class="text-ink block font-medium">Set it up on the dashboard</span>
-              Open the device's dashboard in your browser. Add the device to
-              Home Assistant, or set up standalone mode, and say “Alexa”.
-            </p>
+          <li>
+            <span class="node">3</span>
+            <span class="text-ink block font-semibold">Set it up on the dashboard</span>
+            <span class="text-ink-muted text-body">
+              Open the satellite's dashboard in your browser: every setting is
+              there. Add it to Home Assistant, or set up standalone mode, and
+              say the wake word.
+            </span>
           </li>
         </ol>
 
@@ -431,72 +436,25 @@ const gaps = [
     </div>
   </section>
 
-  <!-- Goals -->
-  <section id="goals" class="scroll-mt-20">
-    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-      <p class="eyebrow">Goals</p>
-      <h2 class="section-title">What Pinna sets out to do</h2>
-
-      <div class="mt-10 grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
-        {
-          goals.map((goal) => (
-            <div class="border-line border-t pt-4">
-              <h3 class="text-ink text-heading">{goal.title}</h3>
-              <p class="text-ink-muted text-body mt-1.5">{goal.body}</p>
-            </div>
-          ))
-        }
-      </div>
-
-      <p class="mt-8 text-sm">
-        <a class="link inline-flex items-center gap-1.5" href={docHref("goals")}>
-          Read the goals, the plans and what's out of scope
-          <Icon name="arrow" size={14} />
-        </a>
-      </p>
-    </div>
-  </section>
-
   <!-- Status -->
   <section id="status" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
       <p class="eyebrow">Status</p>
-      <h2 class="section-title">Project status</h2>
+      <h2 class="section-title">Where Pinna stands</h2>
 
-      <div class="mt-10 grid gap-5 lg:grid-cols-2">
-        <div class="card p-6">
-          <p class="text-ink text-heading flex items-center gap-2">
-            <Icon name="check" size={16} class="text-ok" />
-            What works
-          </p>
-          <ul class="mt-4 space-y-3">
-            {
-              works.map((item) => (
-                <li class="text-ink-muted text-body flex items-start gap-2.5">
-                  <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
-                  {item}
-                </li>
-              ))
-            }
+      <div class="mt-10 grid gap-10 lg:grid-cols-2 lg:gap-16">
+        <div>
+          <p class="status-head">What works</p>
+          <ul class="leds mt-5" style="--led: var(--ok)">
+            {works.map((item) => <li>{item}</li>)}
           </ul>
         </div>
-
-        <div class="card p-6">
-          <p class="text-ink text-heading flex items-center gap-2">
-            <span class="bg-caution h-2 w-2 rounded-full"></span>
-            Known gaps
-          </p>
-          <ul class="mt-4 space-y-3">
-            {
-              gaps.map((item) => (
-                <li class="text-ink-muted text-body flex items-start gap-2.5">
-                  <span class="bg-line-strong mt-2.5 h-1 w-1 shrink-0 rounded-full" />
-                  {item}
-                </li>
-              ))
-            }
+        <div>
+          <p class="status-head">Known gaps</p>
+          <ul class="leds mt-5" style="--led: var(--caution)">
+            {gaps.map((item) => <li>{item}</li>)}
           </ul>
-          <p class="mt-5 text-sm">
+          <p class="mt-6 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("status")}>
               Status and roadmap
               <Icon name="arrow" size={14} />
@@ -504,6 +462,33 @@ const gaps = [
           </p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- Goals -->
+  <section id="goals" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Goals</p>
+      <h2 class="section-title">What Pinna sets out to do</h2>
+
+      <ol class="facts mt-10" style="--facts: 4">
+        {
+          goals.map((goal, i) => (
+            <li class="fact">
+              <span class="goal-num">{String(i + 1).padStart(2, "0")}</span>
+              <span class="fact-title">{goal.title}</span>
+              <span class="fact-say">{goal.body}</span>
+            </li>
+          ))
+        }
+      </ol>
+
+      <p class="mt-8 text-sm">
+        <a class="link inline-flex items-center gap-1.5" href={docHref("goals")}>
+          Read the goals, the plans and what's out of scope
+          <Icon name="arrow" size={14} />
+        </a>
+      </p>
     </div>
   </section>
 
@@ -519,20 +504,17 @@ const gaps = [
         shapes those changes. You can help in three ways:
       </p>
 
-      <div class="mt-10 grid gap-5 md:grid-cols-3">
-        <div class="card flex flex-col p-5">
-          <div class="brand-tile">
-            <Icon name="bug" size={18} />
-          </div>
-          <h3 class="text-ink text-heading mt-4">Give feedback</h3>
-          <p class="text-ink-muted text-body mt-2">
+      <div class="facts mt-10" style="--facts: 3">
+        <div class="fact">
+          <span class="fact-title">Give feedback</span>
+          <span class="fact-say">
             Say what works for you, what doesn't and what you miss. If an
             installation fails, the ring stays dark or the wake word doesn't
             trigger, open an issue with the version and the log, as
             <a class="link" href={docHref("troubleshooting") + "#report-a-problem"}>Report a problem</a>
             describes.
-          </p>
-          <p class="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+          </span>
+          <span class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={`${SITE.repo}/discussions`}>
               Start a discussion
               <Icon name="arrow" size={14} />
@@ -541,44 +523,36 @@ const gaps = [
               Open an issue
               <Icon name="arrow" size={14} />
             </a>
-          </p>
+          </span>
         </div>
-
-        <div class="card flex flex-col p-5">
-          <div class="brand-tile">
-            <Icon name="code" size={18} />
-          </div>
-          <h3 class="text-ink text-heading mt-4">Send changes</h3>
-          <p class="text-ink-muted text-body mt-2">
+        <div class="fact">
+          <span class="fact-title">Send changes</span>
+          <span class="fact-say">
             Pinna is a small Rust workspace with standard systemd units.
             Experience with Rust, systemd or embedded audio helps most. Open an
             issue before larger changes, so that nobody does the same work
             twice.
-          </p>
-          <p class="mt-4 text-sm">
+          </span>
+          <span class="mt-3 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("development")}>
               Contribute
               <Icon name="arrow" size={14} />
             </a>
-          </p>
+          </span>
         </div>
-
-        <div class="card flex flex-col p-5">
-          <div class="brand-tile">
-            <Icon name="board" size={18} />
-          </div>
-          <h3 class="text-ink text-heading mt-4">Support another device</h3>
-          <p class="text-ink-muted text-body mt-2">
+        <div class="fact">
+          <span class="fact-title">Support another device</span>
+          <span class="fact-say">
             Pinna supports the Echo (2nd gen) and the Echo Dot (2nd gen), and
             aims to support more Echo devices. Each needs a device tree, board
             support and a device to test on.
-          </p>
-          <p class="mt-4 text-sm">
+          </span>
+          <span class="mt-3 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("architecture")}>
               Read the architecture
               <Icon name="arrow" size={14} />
             </a>
-          </p>
+          </span>
         </div>
       </div>
     </div>

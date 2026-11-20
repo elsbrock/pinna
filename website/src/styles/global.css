@@ -133,6 +133,115 @@
     box-shadow: 0 0 6px 1px color-mix(in oklab, var(--led, var(--brand-mid)) 55%, transparent);
   }
 
+  /* A device's spec sheet: its drawing beside label/value rows. */
+  .spec {
+    display: grid;
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+    align-items: center;
+    gap: 20px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .spec-rows {
+    display: grid;
+    margin-top: 10px;
+  }
+
+  .spec-rows > div {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr);
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .spec-rows dt {
+    @apply text-ink-muted;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 20px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .spec-rows dd {
+    @apply text-ink;
+    margin: 0;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  @media (max-width: 479px) {
+    .spec {
+      grid-template-columns: 1fr;
+    }
+
+    .spec-pic {
+      width: 8rem;
+    }
+  }
+
+  /* Steps on a wire, numbered in nodes like the request path's. */
+  /* Its own height, not the taller column's beside it. */
+  .timeline {
+    position: relative;
+    display: grid;
+    align-self: start;
+    align-content: start;
+    gap: 26px;
+  }
+
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 15px;
+    top: 16px;
+    bottom: 16px;
+    width: 2px;
+    border-radius: 1px;
+    background: linear-gradient(var(--brand-start), var(--brand-mid), var(--brand-end));
+    opacity: 0.6;
+  }
+
+  .timeline > li {
+    position: relative;
+    display: grid;
+    gap: 4px;
+    padding-left: 48px;
+  }
+
+  .timeline .node {
+    position: absolute;
+    left: 0;
+    top: -4px;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--brand-mid);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--brand-mid);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .status-head {
+    @apply text-ink text-heading;
+  }
+
+  .goal-num {
+    color: var(--brand-mid);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
   /* A soft glow of the mark's colours behind the hero. Full width, so it fades
      out at the screen's edges instead of at the content's. */
   .hero-glow {
