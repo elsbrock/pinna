@@ -104,16 +104,22 @@ You can call it with any Connect, gRPC or gRPC-Web client, or with plain HTTP
 and JSON. A second service, `pinna.v1.AssistantService`, sets up standalone
 mode; see [AssistantService](#assistantservice).
 
-The API has no authentication: anyone who can reach it can control the
-device. `pinnad` serves it in two places:
+`pinnad` serves the API in two places:
 
 - On `127.0.0.1:7470`, which only programs on the device itself can reach.
+  It has no authentication: anyone who can reach it can control the device.
   `pinnactl` and the boot health check use this address. It serves
   `DeviceService` only.
 - On port 80, with the dashboard, for your network (`[web]` in the
   [developer settings](/docs/configure/#web)). It serves `DeviceService` and
   `AssistantService`, and `PeerService`, which the other satellites of a
-  [satellite group](#satellite-group) call. This one only answers requests for IP
+  [satellite group](#satellite-group) call. Without a
+  [dashboard password](/docs/dashboard/#who-can-use-the-dashboard), it has no
+  authentication. With one, every call needs a session, which `POST
+  /auth/login` gives you (see [Sign in](#sign-in)), except `GetSecurity`,
+  `SetDashboardPassword`, `StartConfirmation` and `WatchConfirmation`.
+  `PeerService` checks the group key instead, `/mcp` needs the agent token and
+  `/metrics` the metrics token. It only answers requests for IP
   addresses, `localhost`, `.local` names, the device's own hostname (its node name, such as `pinna-2a914e`),
   the host of the dashboard address set on the **Network** page, and the names
   in `[web] allowed_hosts`. Other names get `421 Misdirected Request`.
@@ -135,7 +141,7 @@ device. `pinnad` serves it in two places:
 | `ClearNotification` | Empty | Clears a waiting notification, even if the ring shows something else: the **Notification** switch turns off and the `cleared` event fires. Does nothing if no notification is waiting |
 | `UpdateSettings` | Any of `friendly_name` (the name Home Assistant shows: 1 to 64 characters, no control characters), `wake_word` and `wake_sound` (bool), `wake_sensitivity` and `led_brightness` (0–100), `wake_words` (up to two ids from `Status.wake_word.available`), `airplay`, `bluetooth` and `sendspin` (bool), `hostname` (one DNS label, stored lowercase), `time_zone` (one of `ListTimeZones`), `url` (the dashboard address: `http://` or `https://`, a host that other devices can reach and an optional port, nothing after it; stored with a `/` at the end; an empty string clears it), `reply_volume` (0–100), `reply_follows_volume` and `listening_direction` (bool), `update_channel` (`UPDATE_CHANNEL_STABLE`, `_BETA` or `_OFF`), `mode` (`MODE_HOME_ASSISTANT` or `MODE_STANDALONE`), and `group_messages` (bool) | Changes those settings through the same paths as Home Assistant's entities; `friendly_name`, `hostname`, `time_zone`, `url` and `mode` have no entity. Home Assistant reads a new `friendly_name` or `hostname` when it next connects: the device makes it reconnect once no request, reply, announcement, music or timer alarm plays. `reply_follows_volume` set to true makes replies follow the volume again; false keeps the current level. `reply_follows_volume` true together with `reply_volume` returns `invalid_argument`. `airplay` and `sendspin` return `failed_precondition` on a device without a working speaker, `bluetooth` also on one without Bluetooth. `update_channel` starts a check of the new channel, and returns `failed_precondition` while `[update] manifest` in `pinnad.toml` replaces the channel. Values above 100, an empty or too long name, an invalid hostname or dashboard address, a time zone the device doesn't have, unknown or repeated wake word ids and more than two return `invalid_argument`. `wake_words` returns `failed_precondition` while Home Assistant is connected in Home Assistant mode: its dropdowns own the choice then. `mode` set to `MODE_STANDALONE` returns `failed_precondition` until `Status.assistant.ready`. A change of `mode` stops a running request and a ringing timer alarm, deletes every timer and forgets the conversation; music keeps playing. If Home Assistant is connected, the device makes it reconnect once no request runs, no alarm rings and nothing but music plays, so it reads the new voice features. `group_messages` set to false refuses messages from the other members of the [satellite group](/docs/satellite-groups/#pass-messages-between-satellites); messages already held still play |
 | `ListTimeZones` | Empty | Returns the IANA time zones the device has, from tzdata's `zone1970.tab`, plus `UTC`, that `UpdateSettings` accepts as `time_zone` |
-| `ListSatellites` | Empty | Returns the other Pinna devices that the device's background search last found, at once. The device searches once a minute with a one-shot mDNS query over IPv4 and IPv6 and follow-ups for missing records, and lists a device once its dashboard accepts a connection. A device stays listed until it misses two searches in a row: it isn't found, its dashboard doesn't answer, or the search fails. Returns `satellites`, one per MAC address, each with its ESPHome instance name, the host its SRV record names (its `.local` name), friendly name, model, MAC, version, dashboard port, dashboard address and addresses (without the USB link's `10.42.0.0/24` and without link-local IPv6 addresses); `on_network`, which is false, with an empty list, while the device has no address beyond USB; and `searched`, which is false until the first search after the device starts has finished. Returns `unavailable` when the last search failed and nothing is listed. Each satellite has `group_member`, true when it is a member of this device's [satellite group](/docs/satellite-groups/); any other entry is only what the network announced |
+| `ListSatellites` | Empty | Returns the other Pinna devices that the device's background search last found, at once. The device searches once a minute with a one-shot mDNS query over IPv4 and IPv6 and follow-ups for missing records, and lists a device once its dashboard accepts a connection. A device stays listed until it misses two searches in a row: it isn't found, its dashboard doesn't answer, or the search fails. Returns `satellites`, one per MAC address, each with its ESPHome instance name, the host its SRV record names (its `.local` name), friendly name, model, MAC, version, dashboard port, dashboard address and addresses (without the USB link's `10.42.0.0/24` and without link-local IPv6 addresses); `on_network`, which is false, with an empty list, while the device has no address beyond USB; and `searched`, which is false until the first search after the device starts has finished. Returns `unavailable` when the last search failed and nothing is listed. Each satellite has `group_member`, true only when the entry carries the MAC address of a member of this device's [satellite group](/docs/satellite-groups/), announces the address that member's last signed call came from, and has no dashboard address of its own; any other entry is only what the network announced |
 | `SetRingLight` | Any of `on` (bool), `brightness` (0–100), `rgb` (`0xRRGGBB`) and `effect` (one of `Status.ring_light.effects`) | Changes the ring light, as Home Assistant's **LED ring** light does. Out-of-range values and unknown effects return `invalid_argument` |
 | `ControlMedia` | `command`: `MEDIA_COMMAND_PLAY` (resume), `_PAUSE`, `_STOP`, `_MUTE` or `_UNMUTE`; `volume` (0–100), alone or with a command | Controls the media player, as Home Assistant's does. `volume` sets the stream's own volume while AirPlay or Bluetooth plays, the [Sendspin](/docs/sendspin/) player's volume, which Music Assistant shows, while Sendspin plays, and the volume otherwise. While Sendspin plays, `_MUTE` and `_UNMUTE` act on the Sendspin player's mute, and `_PLAY`, `_PAUSE` and `_STOP` act on the whole group, as they do while the group waits paused after a `_PAUSE` from the device. Returns `failed_precondition` on a device without a working speaker |
 | `PlayMedia` | `url` (an `http://` or `https://` URL, at most 2048 bytes) | Plays the URL on the media player, as Home Assistant's **Play media** does. Other URLs return `invalid_argument`; a device without a working speaker returns `failed_precondition`. What plays keeps playing until the URL's audio starts. If the audio can't play, it keeps playing, and `Status.media.error` says why |
@@ -155,9 +161,17 @@ device. `pinnad` serves it in two places:
 | `WatchInstall` | Empty | Streams the output of the running or last install, each line with its `stage`, and ends with a message that has `done` set |
 | `SetActiveSlot` | `slot` (`a` or `b`) | Chooses the slot that starts next. The other slot: its image is checked, it starts next as a trial, and the device restarts; if the restart fails, the slots are put back. Only a slot that is good or hasn't been started yet. The running slot: it starts next again, which cancels a pending update, without a restart. Refused while an install runs or while the running slot is on trial |
 | `Reboot` | Empty | Restarts the device |
-| `FactoryReset` | `name` (the device's name or node name, as typed to confirm; case and surrounding spaces don't matter) | Forgets the settings, standalone mode's setup and keys, the saved Wi-Fi networks, the encryption key that Home Assistant set, SSH keys added on the device and its SSH host key, and restarts the device. The log stays. Another name returns `invalid_argument`. See [Reset the device](/docs/settings/#reset-the-device) |
+| `FactoryReset` | `name` (the device's name or node name, as typed to confirm; case and surrounding spaces don't matter) | Forgets the settings, standalone mode's setup and keys, the dashboard password, its sessions and the tokens, the saved Wi-Fi networks, the encryption key that Home Assistant set, SSH keys added on the device and its SSH host key, and restarts the device. The log stays. Another name returns `invalid_argument`. See [Reset the device](/docs/settings/#reset-the-device) |
 | `OpenHomeAssistantWindow` | Empty | With a dashboard password set and no ESPHome key yet, lets Home Assistant connect to the ESPHome API for 15 minutes; it refuses connections otherwise. Returns the `Security` state, whose `home_assistant_window_left_s` counts the seconds left. Returns `failed_precondition` when no password is set, or Home Assistant has set its key already |
 | `AllowGroupJoin` | Empty | With a dashboard password set, lets another satellite add this one to its [satellite group](/docs/satellite-groups/) for 10 minutes; a `Join` is refused otherwise. Returns the `Security` state, whose `group_join_left_s` counts the seconds left. Returns `failed_precondition` when no password is set: the *Satellite group* switch is consent then |
+| `GetSecurity` | Empty | Returns the `Security` state: whether a password is set, whether the owner chose to leave the dashboard open, whether a session is signed in, and the waits (`login_retry_after_s`, `confirmation_cooldown_s`). Needs no session. Without a session, with a password set, it returns only `password_set` and the waits; the failures, the tokens' last four characters, the names of agents and the windows are for a signed-in caller |
+| `SetDashboardPassword` | `new_password` (8 to 128 characters), and `current_password` or `grant` | Sets or changes the dashboard password, and ends every session. Needs no session: it checks its own credentials. With a password set it needs `current_password` or a `grant`; without one, a `grant` from a confirmation. A wrong current password counts as a failed sign-in |
+| `RemoveDashboardPassword` | `current_password` or `grant` | Removes the password, and ends every session. Needs a session and the current password or a grant |
+| `LeaveDashboardOpen` | Empty | Records that the owner chose **Leave it open**, so the dashboard stops offering a password. Returns `failed_precondition` when a password is set |
+| `StartConfirmation` | Empty | Asks for someone at the satellite: for 60 seconds the ring shows the confirm pattern, and the next press of **Action** confirms. Returns the `id` to pass to `WatchConfirmation` and the `seconds` it waits. Needs no session. Returns `resource_exhausted` while another confirmation waits or one ended in the last 60 seconds, and says how long to wait |
+| `WatchConfirmation` | `id` | Streams the confirmation: `CONFIRMATION_STATE_WAITING` with `seconds_left`, then `_CONFIRMED` with a one-time `grant` that is valid for 5 minutes, or `_EXPIRED`. Needs no session |
+| `CreateToken` | `kind`: `TOKEN_KIND_METRICS` or `TOKEN_KIND_AGENT` | Creates the token for `/metrics` or for `/mcp`. Returns the `token`, once, and the `Security` state. A new token replaces the old one, which stops working at once. Only the SHA-256 of a token is kept |
+| `SignOutEverywhere` | Empty | Ends every session, in every browser, and closes the streams they hold open. Tokens keep working. Returns the `Security` state |
 | `ScanWifi` | Empty | Scans for Wi-Fi networks, which takes a few seconds. Returns `networks`, strongest first, one per name, each with `ssid`, `signal_dbm`, `frequency_mhz`, `security`, `saved` and `current`. Networks that hide their name are left out. Returns `failed_precondition` while a join runs |
 | `ListWifi` | Empty | Returns the `saved` networks in the order the device tries them (each with `ssid`, `security`, `hidden` and `current`; never the password), whether a join runs (`joining`), the last join's final step (`last_join`), and the network on `trial` |
 | `JoinWifi` | `ssid`, `security` (`WIFI_SECURITY_OPEN` or `_WPA_PSK`), `passphrase` (8 to 63 characters or 64 hex digits; empty for an open network) and `hidden` | Tries a network and streams the steps: `JOIN_STAGE_CONNECTING`, `_ADDRESS`, then `_TRIAL` or `_FAILED` (with `failure`). Without an address within 45 seconds, the device goes back to the network it was on. On trial, it keeps the network once the dashboard is opened at the new `address` or `KeepWifi` keeps it, and goes back after `keep_seconds` (5 minutes) otherwise. The join goes on when the caller goes away. Returns `failed_precondition` while another join runs or a network is on trial. See [Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network) |
@@ -168,6 +182,21 @@ device. `pinnad` serves it in two places:
 `ClearNotification`, `UpdateSettings`, `StartCalibration`, `StopCalibration`,
 `StartBluetoothPairing`, `StopBluetoothPairing` and `ForgetBluetoothDevice`
 return the `Status` after the change.
+
+### Sign in
+
+With a dashboard password set, a browser or a script signs in over plain HTTP,
+not Connect, because the answer sets a cookie. Both calls take only the
+names that the dashboard answers to, and a request from a web page must come
+from one of them:
+
+| Call | What it does |
+| --- | --- |
+| `POST /auth/login` | Takes `{"password": "..."}` as `application/json`, at most 4 KiB. Answers `204` and sets a session cookie that lasts 30 days. Answers `401` for a wrong password, `409` when the satellite has no password, and `429` with `retry_after_s` while sign-ins wait |
+| `POST /auth/logout` | Clears the session cookie of this browser. Answers `204`. Use `SignOutEverywhere` to end every session |
+
+Send the cookie with later calls. Without a session, a call to `DeviceService`
+or `AssistantService` returns `unauthenticated`.
 
 ### Example
 
@@ -321,8 +350,10 @@ doesn't keep a new Wi-Fi network on trial: only opening the dashboard does.
 ## MCP server
 
 In standalone mode, `pinnad` also serves an MCP server at `/mcp`, on port 80
-with the dashboard, so that an AI agent can use the device. It has no
-authentication, like the dashboard, and answers only to the same names.
+with the dashboard, so that an AI agent can use the device. Without a
+dashboard password it has no authentication, like the dashboard; with one, it
+needs the agent token in an `Authorization: Bearer` header. It answers only to
+the same names.
 
 - It speaks MCP 2025-06-18 and 2025-03-26, as JSON over HTTP `POST`: no event
   stream, and no batches. A request must be `application/json`, at most

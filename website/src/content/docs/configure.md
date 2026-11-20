@@ -185,7 +185,7 @@ The connection to Home Assistant. See
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `listen` | `""` in the code, `"[::]:80"` in the image | The address of the [dashboard](/docs/dashboard/), of the same control API and of the [metrics](/docs/metrics/), for your network. It has no authentication. `""` turns it off; the dashboard has no switch for this |
+| `listen` | `""` in the code, `"[::]:80"` in the image | The address of the [dashboard](/docs/dashboard/), of the same control API and of the [metrics](/docs/metrics/), for your network. With a [dashboard password](/docs/dashboard/#who-can-use-the-dashboard) set, it needs a session, `/mcp` needs the agent token and `/metrics` the metrics token. Without a password it has no authentication. `""` turns it off; the dashboard has no switch for this |
 | `root` | `"/usr/share/pinna/web"` | The dashboard's files |
 | `allowed_hosts` | `[]` | More names to open the dashboard by, besides IP addresses, `localhost`, `.local` names, the hostname and the host of the dashboard address. A setting for developers: to open the dashboard by a name, [set a dashboard address](/docs/settings/#set-a-dashboard-address) on the **Network** page |
 
