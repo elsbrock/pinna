@@ -4,12 +4,15 @@
 <script lang="ts">
   import { tick } from "svelte";
 
+  import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
   import { copyText } from "../lib/copy.ts";
   import { client, device, errorSentence } from "../lib/device.svelte.ts";
   import Icon from "../lib/Icon.svelte";
+  import { issueReport } from "../lib/report.ts";
   import { toasts } from "../lib/toast.svelte.ts";
+  import { wifi } from "../lib/wifi.svelte.ts";
 
-  type Line = { key: number; unixMs: number; time: string; level: string; message: string };
+  type Line = { key: number; time: string; level: string; message: string };
   const MAX = 2000;
   /** How close to the bottom still counts as at the bottom, in pixels. */
   const SLACK = 24;
@@ -21,6 +24,7 @@
   let query = $state("");
   let follow = $state(true);
   let box = $state<HTMLElement>();
+  let updates = $state<GetUpdatesResponse | null>(null);
   let key = 0;
 
   const time = (ms: number) =>
@@ -37,8 +41,7 @@
           for await (const res of client.watchLogs({}, { signal: abort.signal })) {
             const l = res.line;
             if (!l) continue;
-            const ms = Number(l.unixMs);
-            const line = { key: key++, unixMs: ms, time: time(ms), level: l.level, message: l.message };
+            const line = { key: key++, time: time(Number(l.unixMs)), level: l.level, message: l.message };
             if (first) {
               // A new connection sends the backlog again: replace, don't append.
               lines = [];
@@ -58,6 +61,15 @@
       }
     })();
     return () => abort.abort();
+  });
+
+  // The running slot, for Copy for an issue; it changes only with a restart.
+  // Without it the report says the slot is unknown.
+  $effect(() => {
+    client.getUpdates({}, { timeoutMs: 10_000 }).then(
+      (u) => (updates = u),
+      () => {},
+    );
   });
 
   const needle = $derived(query.trim().toLowerCase());
@@ -121,6 +133,16 @@
     toasts.show(`Copied ${count(shown.length)}`);
   }
 
+  // Every line the page holds, whatever the filter: the reader of the issue
+  // needs the context.
+  async function copyForIssue() {
+    if (!device.status) return;
+    const names = [...(wifi.saved ?? []).map((w) => w.ssid), wifi.trial?.ssid, wifi.last?.ssid, wifi.lost];
+    const known = names.filter((n): n is string => !!n);
+    await copyText(issueReport(device.status, updates, lines.map(text), known));
+    toasts.show("Copied. Read it before you post it: issues are public.");
+  }
+
   function download() {
     const blob = new Blob([shown.map(text).join("\n") + "\n"], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -152,11 +174,12 @@
   />
   <div class="actions">
     <button class="pn-btn" type="button" disabled={!shown.length} onclick={copy}>
-      <Icon name="copy" />Copy
+      Copy
     </button>
     <button class="pn-btn" type="button" disabled={!shown.length} onclick={download}>
-      <Icon name="download" />Download
+      Download
     </button>
+    <button class="pn-btn" type="button" onclick={copyForIssue}>Copy for an issue</button>
   </div>
 </div>
 
