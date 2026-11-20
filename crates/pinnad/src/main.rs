@@ -24,8 +24,6 @@ mod mic;
 mod network;
 mod satellites;
 mod secrets;
-// The Brain routes pause, play, stop and the media volume to it in the next step (ADR 0027 §14).
-#[allow(dead_code)]
 mod sendspin;
 mod settings;
 mod standalone;

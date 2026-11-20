@@ -646,6 +646,9 @@ pub struct Brain {
     sendspin_report: watch::Receiver<crate::sendspin::Report>,
     /// Sendspin can run: there is a speaker.
     sendspin_available: bool,
+    /// What the Sendspin stream last showed, for its paused group (ADR 0027
+    /// §14): the media lane shows a track only while its source plays.
+    sendspin_track: pinna_audio::Track,
     /// Wakes and near misses, oldest first.
     recent_wakes: VecDeque<WakeRecord>,
     /// The sensitivity tuning with the device's buttons, while it runs.
@@ -803,6 +806,7 @@ impl Brain {
             sendspin: None,
             sendspin_report,
             sendspin_available,
+            sendspin_track: pinna_audio::Track::default(),
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
             reconnect_pending: false,
@@ -854,10 +858,14 @@ impl Brain {
             // on without a speaker, the setting stays saved, as AirPlay's.
             self.apply_sendspin();
         }
+        let mut sendspin_changes = self
+            .sendspin
+            .is_some()
+            .then(|| self.sendspin_report.clone());
         self.restore_timers(Instant::now(), SystemTime::now(), crate::clock::synced)
             .await;
         self.refresh();
-        let mut sent_media = (self.media_state, self.media_volume(), self.media_muted);
+        let mut sent_media = (self.media_state, self.media_volume(), self.media_muted());
         // Home Assistant's "Bluetooth pairing" switch follows the window,
         // however it opened or closed.
         let mut sent_pairing = false;
@@ -875,8 +883,14 @@ impl Brain {
                         None => std::future::pending().await,
                     }
                 } => self.send_update_state().await,
+                Some(()) = async {
+                    match &mut sendspin_changes {
+                        Some(rx) => rx.changed().await.ok(),
+                        None => std::future::pending().await,
+                    }
+                } => self.update_media_state(),
             }
-            let media = (self.media_state, self.media_volume(), self.media_muted);
+            let media = (self.media_state, self.media_volume(), self.media_muted());
             if media != sent_media {
                 if media.0 != sent_media.0 {
                     match (sent_media.0, media.0) {
@@ -998,6 +1012,17 @@ impl Brain {
                 self.media_track = state.track;
                 self.media_source = state.source;
                 self.media_stream = state.url.as_deref() == Some(STREAM_URL);
+                if self.media_stream && self.media_source == crate::sendspin::SOURCE {
+                    self.sendspin_track.clone_from(&self.media_track);
+                } else if self.media_phase != MediaPhase::Idle
+                    && self.sendspin_report.borrow().group_paused
+                    && let Some(s) = &self.sendspin
+                {
+                    // Another source took the lane while the group waits:
+                    // the satellite leaves it, so the group's next play
+                    // doesn't cut this one off (ADR 0027 §14).
+                    s.another_source();
+                }
                 self.media_url = state.url;
                 self.media_error = state.error;
                 self.media_error_url = state.error_url;
@@ -1250,13 +1275,22 @@ impl Brain {
                 state: self.media_state,
                 url: self.media_url.clone().filter(|u| u != STREAM_URL),
                 stream: self.media_stream,
-                muted: self.media_muted,
+                muted: self.media_muted(),
                 error: self.media_error.clone(),
                 error_url: self.media_error_url.clone(),
                 available: self.speaker.is_some(),
                 volume: self.media_volume(),
-                track: self.media_track.clone(),
-                source: self.media_source.clone(),
+                // A paused group streams nothing, yet keeps what it played.
+                track: if self.sendspin_paused() {
+                    self.sendspin_track.clone()
+                } else {
+                    self.media_track.clone()
+                },
+                source: if self.sendspin_paused() {
+                    crate::sendspin::SOURCE.into()
+                } else {
+                    self.media_source.clone()
+                },
             },
             ring_light: RingLight {
                 on: self.light_on,
@@ -2293,26 +2327,40 @@ impl Brain {
         self.send(DeviceEvent::MediaPlayerState {
             state: self.media_state,
             volume: f32::from(self.media_volume()) / 100.0,
-            muted: self.media_muted,
+            muted: self.media_muted(),
         })
         .await;
     }
 
-    /// What the Home Assistant media player shows as its volume: the stream
-    /// volume while a stream plays, the speaker volume otherwise.
+    /// What the Home Assistant media player shows as its volume: Sendspin's
+    /// while it owns the media (ADR 0027 §15), the stream volume while
+    /// another stream plays, the speaker volume otherwise.
     fn media_volume(&self) -> u8 {
-        if self.media_stream {
+        if self.sendspin_media() {
+            self.sendspin_report.borrow().volume
+        } else if self.media_stream {
             self.stream_volume
         } else {
             self.settings.volume
         }
     }
 
-    /// The media player's volume from Home Assistant: the stream's own
-    /// volume while a stream plays (the speaker volume stays where it is),
-    /// the speaker volume otherwise.
+    /// The media player's mute: the lane's, or Sendspin's own while it owns
+    /// the media.
+    fn media_muted(&self) -> bool {
+        self.media_muted || (self.sendspin_media() && self.sendspin_report.borrow().muted)
+    }
+
+    /// The media player's volume from Home Assistant: Sendspin's own while it
+    /// owns the media, which the server hears (ADR 0027 §15); the stream's
+    /// own volume while another stream plays (the speaker volume stays where
+    /// it is); the speaker volume otherwise.
     async fn set_media_volume(&mut self, v: u8) {
-        if self.media_stream {
+        if self.sendspin_media() {
+            if let Some(s) = &self.sendspin {
+                s.set_volume(v);
+            }
+        } else if self.media_stream {
             self.set_stream_volume(v);
         } else {
             self.set_volume(v).await;
@@ -2580,6 +2628,35 @@ impl Brain {
         .await;
     }
 
+    /// The media lane plays nothing, and the Sendspin group that last played
+    /// here is paused: the media player shows it Paused, from Sendspin, so
+    /// that Play resumes the group (ADR 0027 §14).
+    fn sendspin_paused(&self) -> bool {
+        self.media_phase == MediaPhase::Idle && self.sendspin_report.borrow().group_paused
+    }
+
+    /// Sendspin owns the media player: its stream is what the lane shows, or
+    /// its group is paused. Pause, play, stop, mute and the volume then act
+    /// on the group and the stream (ADR 0027 §14, §15).
+    fn sendspin_media(&self) -> bool {
+        (self.media_stream && self.media_source == crate::sendspin::SOURCE)
+            || self.sendspin_paused()
+    }
+
+    /// Pause, play or stop the Sendspin group, while Sendspin owns the media.
+    /// False when it doesn't, or when the server can't take the command now:
+    /// the lane acts instead.
+    async fn sendspin_control(&self, control: crate::sendspin::Control) -> bool {
+        let Some(s) = self.sendspin.as_ref().filter(|_| self.sendspin_media()) else {
+            return false;
+        };
+        let sent = s.control(control).await;
+        if !sent {
+            tracing::debug!("sendspin: the server takes no {control:?} now; the lane acts");
+        }
+        sent
+    }
+
     /// Bluetooth as it is: saved on, and the device can run it.
     fn bluetooth_on(&self) -> bool {
         self.settings.bluetooth && self.opts.bluetooth
@@ -2842,12 +2919,14 @@ impl Brain {
         s.set_voice_gain(pct);
     }
 
-    /// The Home Assistant media player state from the media lane and the voice lane.
+    /// The Home Assistant media player state from the media lane, the voice
+    /// lane and the Sendspin group.
     fn update_media_state(&mut self) {
         self.media_state = if matches!(self.playback, Some((_, PlaybackKind::MediaAnnounce, _))) {
             MediaPlayerStateKind::Announcing
         } else {
             match self.media_phase {
+                MediaPhase::Idle if self.sendspin_paused() => MediaPlayerStateKind::Paused,
                 MediaPhase::Idle => MediaPlayerStateKind::Idle,
                 MediaPhase::Buffering | MediaPhase::Playing => MediaPlayerStateKind::Playing,
                 MediaPhase::Paused => MediaPlayerStateKind::Paused,
@@ -2865,7 +2944,9 @@ impl Brain {
         } else {
             self.message_stopped("Cancel request");
             self.stop_playback();
-            if let Some(s) = &self.speaker {
+            if !self.sendspin_control(crate::sendspin::Control::Stop).await
+                && let Some(s) = &self.speaker
+            {
                 s.media().stop();
             }
         }
@@ -2902,6 +2983,19 @@ impl Brain {
                 });
             }
         }
+        // While Sendspin owns the media, pause, play and stop act on its
+        // group (ADR 0027 §14); the lane acts only when the server can't.
+        let to_group = match command {
+            Some(MediaPlayerCommand::Pause) => Some(crate::sendspin::Control::Pause),
+            Some(MediaPlayerCommand::Play) => Some(crate::sendspin::Control::Play),
+            Some(MediaPlayerCommand::Stop) => Some(crate::sendspin::Control::Stop),
+            _ => None,
+        };
+        let sent = match to_group {
+            Some(control) => self.sendspin_control(control).await,
+            None => false,
+        };
+        let media = media.filter(|_| !sent);
         match command {
             Some(MediaPlayerCommand::Stop) => {
                 if let Some(m) = &media {
@@ -2922,8 +3016,19 @@ impl Brain {
                 }
             }
             Some(MediaPlayerCommand::Mute) | Some(MediaPlayerCommand::Unmute) => {
-                if let Some(m) = &media {
-                    m.set_muted(command == Some(MediaPlayerCommand::Mute));
+                let muted = command == Some(MediaPlayerCommand::Mute);
+                if self.sendspin_media()
+                    && let Some(s) = &self.sendspin
+                {
+                    // The stream's own mute, which the server hears (ADR
+                    // 0027 §15). Unmuting also lifts the lane's, which would
+                    // otherwise keep it silent.
+                    s.set_muted(muted);
+                    if let Some(m) = media.as_ref().filter(|_| !muted) {
+                        m.set_muted(false);
+                    }
+                } else if let Some(m) = &media {
+                    m.set_muted(muted);
                 }
             }
             Some(MediaPlayerCommand::VolumeUp) => {

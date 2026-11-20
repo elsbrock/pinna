@@ -475,7 +475,8 @@ async fn group_messages_is_a_home_assistant_switch() {
 
 // --- Sendspin (ADR 0027) -----------------------------------------------------
 
-use crate::sendspin::{Asked, Report};
+use crate::sendspin::{Asked, Control, Report};
+use pinna_esphome::MediaPlayerCommand;
 
 impl Device {
     /// With a stand-in for the Sendspin service that answers pause, play and
@@ -490,6 +491,26 @@ impl Device {
         d.brain.sendspin_available = true;
         (d, report, asked)
     }
+
+    async fn media(&mut self, command: Option<MediaPlayerCommand>, volume: Option<f32>) {
+        self.ha(HaCommand::MediaPlayer {
+            command,
+            volume,
+            media_url: None,
+            announcement: false,
+        })
+        .await;
+    }
+
+    async fn lane(&mut self, state: MediaState) {
+        self.brain.handle(Input::Media(state)).await;
+    }
+
+    /// A new report, and the run loop's answer to it.
+    fn report(&mut self, report: &watch::Sender<Report>, change: impl FnOnce(&mut Report)) {
+        report.send_modify(change);
+        self.brain.update_media_state();
+    }
 }
 
 /// What the Brain asked of the Sendspin service since the last call.
@@ -499,6 +520,29 @@ async fn asked(rx: &mut mpsc::UnboundedReceiver<Asked>) -> Vec<Asked> {
         tokio::task::yield_now().await;
     }
     std::iter::from_fn(|| rx.try_recv().ok()).collect()
+}
+
+/// The media lane as it shows a Sendspin stream.
+fn sendspin_stream(phase: MediaPhase) -> MediaState {
+    MediaState {
+        phase,
+        url: Some(STREAM_URL.into()),
+        source: "sendspin".into(),
+        track: pinna_audio::Track {
+            title: "Song".into(),
+            artist: "Artist".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn radio(phase: MediaPhase) -> MediaState {
+    MediaState {
+        phase,
+        url: Some("http://radio.test/live.mp3".into()),
+        ..Default::default()
+    }
 }
 
 /// The "Sendspin" switch: reported when Home Assistant connects, saved, and
@@ -583,4 +627,158 @@ async fn sendspin_is_refused_without_a_speaker() {
          Logs, under System, says why."
     );
     assert!(!d.brain.snapshot().settings.sendspin);
+}
+
+/// The server's time is the local monotonic time, a second on.
+struct SameClock(Instant);
+
+impl pinna_audio::ServerClock for SameClock {
+    fn server_us(&self, local: Instant) -> Option<i64> {
+        Some(local.saturating_duration_since(self.0).as_micros() as i64 + 1_000_000)
+    }
+
+    fn rate(&self) -> f64 {
+        1.0
+    }
+}
+
+/// Pause while a Sendspin stream plays pauses the whole group through the
+/// server (ADR 0027 §14), and leaves the lane alone: the server ends the
+/// stream. Only a server that can't take it has the lane pause, which ends the
+/// stream here alone.
+#[tokio::test]
+async fn pause_while_sendspin_plays_goes_to_the_group_not_the_lane() {
+    for controls in [true, false] {
+        let (mut d, _report, mut rx) = Device::with_sendspin(controls);
+        let speaker = Arc::new(Speaker::new(pinna_audio::SpeakerConfig::new(
+            pinna_audio::Backend::WavFile(d._dir.path().join("out.wav")),
+        )));
+        d.brain.speaker = Some(speaker.clone());
+        let clock = Arc::new(SameClock(Instant::now()));
+        let sink = speaker.media().begin_timed("sendspin", clock.clone());
+        let start = pinna_audio::ServerClock::server_us(&*clock, Instant::now()).unwrap() + 300_000;
+        for i in 0..40 {
+            sink.push(start + i * 50_000, 48_000, vec![0; 2 * 2_400])
+                .unwrap();
+        }
+        let mut state = sink.state();
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            state.wait_for(|s| *s == pinna_audio::TimedState::Playing),
+        )
+        .await
+        .expect("plays")
+        .unwrap();
+        let lane = speaker.media().state().borrow().clone();
+        d.lane(lane).await;
+
+        d.media(Some(MediaPlayerCommand::Pause), None).await;
+
+        assert_eq!(asked(&mut rx).await, [Asked::Control(Control::Pause)]);
+        let paused = tokio::time::timeout(
+            Duration::from_millis(500),
+            state
+                .wait_for(|s| *s == pinna_audio::TimedState::Ended(pinna_audio::EndReason::Paused)),
+        )
+        .await
+        .is_ok();
+        assert_eq!(paused, !controls, "the lane paused it");
+    }
+}
+
+/// A paused group shows as Paused, with what it played, and Play resumes the
+/// group; stop goes to it too.
+#[tokio::test]
+async fn a_paused_sendspin_group_shows_paused_and_play_resumes_it() {
+    let (mut d, report, mut rx) = Device::with_sendspin(true);
+    d.lane(sendspin_stream(MediaPhase::Playing)).await;
+    // The server ended the stream; then its group says it stopped.
+    d.lane(MediaState::default()).await;
+    assert_eq!(d.brain.media_state, MediaPlayerStateKind::Idle);
+    d.report(&report, |r| r.group_paused = true);
+
+    assert_eq!(d.brain.media_state, MediaPlayerStateKind::Paused);
+    let m = d.brain.snapshot().media;
+    assert_eq!(
+        (m.source.as_str(), m.track.title.as_str(), m.stream),
+        ("sendspin", "Song", false)
+    );
+    d.media(Some(MediaPlayerCommand::Play), None).await;
+    assert_eq!(asked(&mut rx).await, [Asked::Control(Control::Play)]);
+    d.media(Some(MediaPlayerCommand::Stop), None).await;
+    assert_eq!(asked(&mut rx).await, [Asked::Control(Control::Stop)]);
+
+    // The group plays elsewhere, or the connection ended: nothing to show.
+    d.report(&report, |r| r.group_paused = false);
+    assert_eq!(d.brain.media_state, MediaPlayerStateKind::Idle);
+    assert_eq!(d.brain.snapshot().media.source, "");
+    d.media(Some(MediaPlayerCommand::Play), None).await;
+    assert!(asked(&mut rx).await.is_empty());
+}
+
+/// "Cancel request" stops what plays: a Sendspin stream's whole group.
+#[tokio::test]
+async fn cancel_request_stops_the_sendspin_group() {
+    let (mut d, _report, mut rx) = Device::with_sendspin(true);
+    d.lane(sendspin_stream(MediaPhase::Playing)).await;
+    d.ha(HaCommand::Button {
+        object_id: "cancel_request".into(),
+    })
+    .await;
+    assert_eq!(asked(&mut rx).await, [Asked::Control(Control::Stop)]);
+}
+
+/// Another source taking the lane while the group is paused leaves the
+/// group, so that the group's next play doesn't cut it off (ADR 0027 §14).
+#[tokio::test]
+async fn another_source_leaves_a_paused_sendspin_group() {
+    let (mut d, report, mut rx) = Device::with_sendspin(true);
+    d.report(&report, |r| r.group_paused = true);
+    // The group playing again is no other source.
+    d.lane(sendspin_stream(MediaPhase::Buffering)).await;
+    assert!(asked(&mut rx).await.is_empty());
+
+    d.lane(radio(MediaPhase::Buffering)).await;
+    assert_eq!(asked(&mut rx).await, [Asked::AnotherSource]);
+    let m = d.brain.snapshot().media;
+    assert_eq!(
+        (m.state, m.source.as_str()),
+        (MediaPlayerStateKind::Playing, "")
+    );
+
+    // Outside a paused group, a source is just a source.
+    d.report(&report, |r| r.group_paused = false);
+    d.lane(radio(MediaPhase::Playing)).await;
+    assert!(asked(&mut rx).await.is_empty());
+}
+
+/// While Sendspin owns the media, the media player's volume and mute are the
+/// stream's own, which the server hears (ADR 0027 §15); the speaker's volume
+/// stays where it is.
+#[tokio::test]
+async fn the_media_volume_is_sendspins_while_it_plays() {
+    let (mut d, report, mut rx) = Device::with_sendspin(true);
+    d.report(&report, |r| r.volume = 30);
+    d.lane(sendspin_stream(MediaPhase::Playing)).await;
+    assert_eq!(d.brain.snapshot().media.volume, 30);
+
+    d.media(None, Some(0.6)).await;
+    d.report(&report, |r| r.volume = 60);
+    d.media(Some(MediaPlayerCommand::VolumeUp), None).await;
+    d.media(Some(MediaPlayerCommand::Mute), None).await;
+    assert_eq!(
+        asked(&mut rx).await,
+        [Asked::Volume(60), Asked::Volume(65), Asked::Muted(true)]
+    );
+    d.report(&report, |r| r.muted = true);
+    assert!(d.brain.snapshot().media.muted);
+    assert_eq!((d.brain.settings.volume, d.brain.stream_volume), (50, 100));
+
+    // Another source plays: the media player's volume is the speaker's again.
+    d.lane(radio(MediaPhase::Playing)).await;
+    let m = d.brain.snapshot().media;
+    assert_eq!((m.volume, m.muted), (50, false));
+    d.media(None, Some(0.2)).await;
+    assert!(asked(&mut rx).await.is_empty());
+    assert_eq!(d.brain.settings.volume, 20);
 }
