@@ -24,8 +24,8 @@ Before you begin:
    [Name the device](/docs/settings/#name-the-device). The brain calls each
    member by its name, so two members can't share a name, and none can be
    called "all".
-2. On the dashboard of each satellite, select **Assistant**, then
-   **Satellite group**, and turn on **Satellite group**. A satellite takes part
+2. On the dashboard of each satellite, select **Assistant > Satellite
+   group**, and turn on **Satellite group**. A satellite takes part
    only once its own switch is on.
 3. Wait about a minute. The other satellites see the switch after their next
    search, which runs once a minute. Until then, they show this one as
@@ -147,8 +147,8 @@ If two satellites hear the wake word, both answer. Choosing one is planned.
   stops it for good.
 - A satellite in Home Assistant mode stays in its group, but takes no
   messages: the brain says it is out of reach.
-- To stop a satellite from taking messages, select **Assistant** on its
-  dashboard, and under **From the group**, turn off **Group messages**.
+- To stop a satellite from taking messages, select **Assistant > Satellite
+  group** on its dashboard, and under **From the group**, turn off **Group messages**.
   **From the group** shows while **Satellite group** is on. Home Assistant
   has a switch of the same name. Messages the satellite already holds still
   play.
@@ -199,8 +199,8 @@ satellites must be in one group; see
 - The brain says when another satellite can't do it: it is in Home Assistant
   mode, the search doesn't find it, it doesn't answer within 9.5 seconds (what
   it was asked may still happen), or it refused.
-- To stop the others from acting on a satellite, select **Assistant** on its
-  dashboard, and under **From the group**, turn off **Control from the
+- To stop the others from acting on a satellite, select **Assistant >
+  Satellite group** on its dashboard, and under **From the group**, turn off **Control from the
   group**. **From the group** shows while **Satellite group** is on.
 - Your MCP clients can't act on another satellite: Pinna's MCP server offers
   this satellite's tools only.

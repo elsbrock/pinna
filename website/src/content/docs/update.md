@@ -72,7 +72,8 @@ satellite on **Stable** never installs a beta.
 - The dashboard has an **Updates** setting. If it doesn't, the satellite runs
   a build from before update channels: install a current build first, with
   its **Release manifest** field, as in
-  [Install a build of your own](#install-a-build-of-your-own).
+  [Install a build of your own](#install-a-build-of-your-own). On such a
+  build the field is on **System** itself, not on an **Updates** page.
 - The device runs a Pinna built on or after 17 November 2026. An older one
   keeps its own slot record, which the new version doesn't read: a developer
   moves it over once, as in
@@ -80,8 +81,8 @@ satellite on **Stable** never installs a beta.
 
 ## Install an update from the dashboard
 
-1. In the [dashboard](/docs/dashboard/), open **System > Updates**. Under **Updates**,
-   choose **Stable** or **Beta** if the setting is **Off**.
+1. In the [dashboard](/docs/dashboard/), open **System > Updates**. Set
+   **Updates** to **Stable**, or to **Beta** for betas.
 2. Select **Check now** to look at once. A newer release shows below it, with
    a summary and a link to its release notes.
 3. Select **Install**. The satellite installs the release that the page shows,
