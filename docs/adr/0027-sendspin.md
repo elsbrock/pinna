@@ -153,6 +153,12 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
    player's, twice what the lane follows (§11). The server's time replies
    alone set the filter's drift, and at -100 % the conversion to local time
    runs backward, so that audio due later counts as already played.
+   Every other range is rc1's. A limit that only a later draft sets, and
+   tells the player to close on, is not held against a server: Music
+   Assistant 2.10.7 to 2.11 sends a UUID as `group_id`, not 43 base64url
+   characters, and passes on server names, group names and track details
+   at any length. Such text is cut to the later limit instead (64 bytes
+   for a name, 255 for a title, artist or album).
 7. **What is kept, and where.** The X25519 identity, the pairing key, the
    pairings, the last server, and the volume and mute live in
    `/var/lib/pinna/sendspin.toml`, mode 0600, written atomically. A factory
