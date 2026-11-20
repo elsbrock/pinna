@@ -162,4 +162,5 @@ These plans follow the project's [goals](/docs/goals/).
 - **Send changes.** See [Contribute](/docs/development/).
 - **Bring up a new device.** Supporting another Echo device means work on the
   device tree, clocks, audio, microphones and LED ring, and a device to test
-  on. Open an issue with the hardware you have.
+  on. [Echo devices](/docs/devices/) lists which ones can be unlocked. Open
+  an issue with the hardware you have.

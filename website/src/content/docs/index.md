@@ -49,14 +49,15 @@ previous version if the new one doesn't start.
 
 To install and set up Pinna, follow these pages in order:
 
-1. [What you need](/docs/requirements/): the device, the computer and a
+1. [Echo devices](/docs/devices/): check that Pinna runs on your Echo.
+2. [What you need](/docs/requirements/): the device, the computer and a
    backup.
-2. [Install Pinna](/docs/flash/): from the browser with the
+3. [Install Pinna](/docs/flash/): from the browser with the
    [installer](/install/), or from a terminal over fastboot. Then connect the
    device to Wi-Fi.
-3. [Set up the satellite](/docs/dashboard/): open its dashboard, and name
+4. [Set up the satellite](/docs/dashboard/): open its dashboard, and name
    it.
-4. Choose who answers: [connect to Home Assistant](/docs/home-assistant/), or
+5. Choose who answers: [connect to Home Assistant](/docs/home-assistant/), or
    [set up standalone mode](/docs/standalone/).
 
 If something goes wrong, see [Troubleshooting](/docs/troubleshooting/) and

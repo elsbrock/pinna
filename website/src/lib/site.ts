@@ -29,6 +29,7 @@ export const DOCS_NAV: DocGroup[] = [
     group: "Get started",
     items: [
       { slug: "", title: "Overview" },
+      { slug: "devices", title: "Echo devices" },
       { slug: "requirements", title: "What you need" },
       { slug: "flash", title: "Install Pinna" },
       { slug: "dashboard", title: "Set up the satellite" },

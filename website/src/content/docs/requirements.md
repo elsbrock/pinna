@@ -11,7 +11,8 @@ device's Wi-Fi firmware, unmodified.
 
 - **An Echo (2nd gen) or an Echo Dot (2nd gen).** In fastboot, the Echo Dot
   reports the product name `BISCUIT` and the Echo reports `RADAR`. Pinna
-  doesn't support other Echo devices yet.
+  doesn't support other Echo devices yet; [Echo devices](/docs/devices/)
+  says where each one stands.
 - **An unlocked bootloader with Kaeru.** Pinna installs over fastboot. It
   also needs Kaeru, a small addition to the bootloader that the amonet-based
   unlock installs: Kaeru opens fastboot when the system asks for it, and Pinna
