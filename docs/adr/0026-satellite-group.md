@@ -1,6 +1,7 @@
 # ADR 0026: Satellites in a group pass messages and control each other, and may answer the wake word once
 
-Status: proposed (2026-11-18). Builds on ADR 0008 (the Wi-Fi trial) and
+Status: proposed (2026-11-18), built (2026-11-19), accepted (2026-11-20),
+released in v0.4.0-beta.1. Builds on ADR 0008 (the Wi-Fi trial) and
 ADR 0021 (finding the other satellites). Amends ADR 0005 (a second kind of
 caller on the dashboard's listener), ADR 0017 (a key that leaves the device,
 and the tools), ADR 0020 (metrics) and ADR 0024 (more changes that rewrite
