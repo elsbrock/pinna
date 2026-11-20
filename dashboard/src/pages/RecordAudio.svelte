@@ -247,7 +247,7 @@
         <div class="pn-row is-stack">
           <p class="muted">
             The channels of the second file aren't aligned to the sample. Channels 1 to {laneTotal} are the lanes as
-            the codec delivers them. Channel {laneTotal + 1} is the signal before pinnad's gain, and channel {laneTotal +
+            the codec delivers them. Channel {laneTotal + 1} is the signal before Pinna's gain, and channel {laneTotal +
               2} is the echo reference.
           </p>
         </div>

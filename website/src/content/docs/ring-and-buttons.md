@@ -29,6 +29,7 @@ this table wins:
 | What you see | Meaning |
 | --- | --- |
 | A white light that circles slowly, one turn every 3 seconds | The dashboard asks you to confirm a change at the device. Press the Action button to confirm; see [Confirm a change at the device](#confirm-a-change-at-the-device). It shows above every other state, the red of the muted microphones included, for up to 60 seconds |
+| A blue light that circles slowly, one turn every 3 seconds | The dashboard asks to [record what the satellite hears](/docs/troubleshooting/#record-what-the-satellite-hears). Press the Action button to start the recording, only if you asked for it. It shows like the white light, for up to 60 seconds |
 | Solid red | The microphones are off |
 | Amber, pulsing twice a second | A timer has finished. Say the wake word or press the Action button to stop it |
 | Blue, with a brighter part pointing at you | The device is listening to you. When it can't tell where you are, for example before you speak or in a noisy room, the whole ring slowly gets brighter and dimmer instead. You can turn the pointing off with the **Listening direction** switch, on the dashboard under **Voice & sound > Ring** or in Home Assistant |
@@ -253,7 +254,7 @@ Seen from above, with the front of the device towards you, the buttons are:
 
 | Button | Press | Hold |
 | --- | --- | --- |
-| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While it speaks an announcement, stops it. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it. While the ring circles white, confirms a [change at the device](#confirm-a-change-at-the-device) and does nothing else | Sends a `long_press` event to Home Assistant after 2 seconds |
+| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While it speaks an announcement, stops it. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it. While the ring circles white or blue, confirms a [change at the device](#confirm-a-change-at-the-device) or a recording and does nothing else | Sends a `long_press` event to Home Assistant after 2 seconds |
 | Volume up | Raises the volume by 5. While calibration runs, raises the wake word sensitivity to catch the strongest near miss heard in the last 15 seconds instead | Keeps raising the volume |
 | Volume down | Lowers the volume by 5. While calibration runs, lowers the wake word sensitivity to ignore the last wake instead | Keeps lowering the volume |
 | Microphone off | Turns the microphones off or on | Nothing |

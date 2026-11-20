@@ -416,31 +416,40 @@ seconds from the microphones, as the wake word and requests get them. On the
 Echo Dot (2nd gen) and the Echo (2nd gen), it also records the signal of each
 microphone lane, the signal before Pinna's gain, and the echo reference.
 
-Recording needs a dashboard password and a press of Action on the satellite,
-so that nobody can start it without being there. The satellite doesn't store
-anything. The audio goes only to the browser that asked, and you save it
-from there.
+Recording needs a dashboard password and a press of **Action** on the
+satellite, so that nobody can start it without being there. The satellite
+doesn't store anything. The audio goes only to the browser that asked, and
+you save it from there. Stay on the page until you've saved the files:
+leaving it ends a running recording, and the files you haven't saved are
+lost.
 
 1. Set a [dashboard password](/docs/dashboard/#set-change-and-remove-the-password),
    if you haven't.
-2. On the dashboard, open **System > Record audio** and select **Record**.
-3. Press Action on the satellite. Its ring circles in the Listening colour
-   while it waits. Press it only if you started the recording yourself.
-4. Make the problem happen, such as saying the wake word while the satellite
-   replies. During the recording, the ring shows Listening, and the satellite
-   works as usual. Muting the microphones ends the recording at once.
-5. Select **Stop**, or wait for the 30 seconds to pass. The page says why
+2. Turn the microphones on, and stop the wake word calibration if it runs. A
+   recording can't start while the microphones are off or calibration runs.
+3. On the dashboard, open **System > Record audio** and select **Record**.
+   For up to 60 seconds, the ring circles in blue, the Listening colour.
+4. While it circles, press **Action** on the satellite. Press it only if you
+   started the recording yourself.
+5. Make the problem happen, such as saying the wake word while the satellite
+   replies. The satellite works as usual. The ring shows Listening for the
+   whole recording, except while a request, a ringing timer or the red of the
+   microphones shows on it. Turning the microphones off ends the recording at
+   once.
+6. Select **Stop**, or wait for the 30 seconds to pass. The page says why
    the recording ended, and lists the files.
-6. Select **Save** next to each file.
+7. Select **Save** next to each file.
 
-Leaving the page also ends the recording, and what it recorded is lost.
+To record again, wait a minute after the last recording.
 
 The first file, **What the satellite hears**, has one channel. The second,
-**Microphone lanes and echo cancellation**, isn't made on the virtual Echo
-Dot. Its first channels are the microphone lanes as the codec delivers them
-(9 on the Echo Dot (2nd gen): 7 microphones, then 2 reference lanes), then
-the signal before Pinna's gain, then the echo reference. The channels come
-from separate streams, so they aren't aligned to the sample.
+**Microphone lanes and echo cancellation**, is made only on the Echo Dot
+(2nd gen) and the Echo (2nd gen). Its first 9 channels are the microphone
+lanes as the codec delivers them: on the Echo Dot (2nd gen), 7 microphones,
+then 2 reference lanes; on the Echo (2nd gen), what each lane holds isn't
+measured yet. Then come the signal before Pinna's gain and the echo
+reference. The channels come from separate streams, so they aren't aligned
+to the sample.
 
 The files are the audio of your room: they can hold what people said. Send
 them privately, and attach them to a reply only when a developer asks. Don't
