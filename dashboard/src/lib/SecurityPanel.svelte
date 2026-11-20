@@ -7,6 +7,7 @@
 
   import Confirm from "./Confirm.svelte";
   import ConfirmAtSatellite from "./ConfirmAtSatellite.svelte";
+  import { clock } from "./clock.svelte.ts";
   import { copyText } from "./copy.ts";
   import { device } from "./device.svelte.ts";
   import Group from "./Group.svelte";
@@ -15,7 +16,9 @@
   import { security } from "./security.svelte.ts";
   import SetPassword from "./SetPassword.svelte";
   import { toasts } from "./toast.svelte.ts";
-  import { failuresText, passwordProblem, tokenShown } from "./view.ts";
+  import { failuresText, passwordNote, passwordProblem, secondsUntil, splitRetry, tokenShown } from "./view.ts";
+
+  const REFRESH_MS = 10_000;
 
   const sec = $derived(security.state);
   const live = $derived(device.link === "live");
@@ -26,15 +29,39 @@
   let next = $state("");
   let currentError = $state<string | null>(null);
   let nextError = $state<string | null>(null);
+  // A wrong current password counts as a failed sign-in, and the satellite slows those down.
+  let retryAt = $state(0);
+  const retryIn = $derived(secondsUntil(retryAt, clock.now));
   let busy = $state(false);
   let signingOutEverywhere = $state(false);
+  const newNote = $derived(passwordNote(next));
 
-  onMount(() => void security.refresh());
+  // The failed sign-ins row follows the satellite without a reload.
+  onMount(() => {
+    void security.refresh();
+    const timer = setInterval(() => void security.refresh(), REFRESH_MS);
+    return () => clearInterval(timer);
+  });
+  $effect(() => clock.use());
 
   function open(p: Panel | null) {
     panel = p;
     current = next = "";
     currentError = nextError = null;
+    retryAt = 0;
+  }
+
+  /** The satellite's sentence about the current password: its wait counts down here, once. */
+  function refuse(sentence: string) {
+    const { text, wait } = splitRetry(sentence);
+    currentError = text;
+    clock.now = Date.now();
+    retryAt = clock.now + wait * 1000;
+  }
+
+  function closeOnEscape(e: KeyboardEvent) {
+    const inline = panel === "change" || panel === "remove";
+    if (e.key === "Escape" && inline && !busy && !replacingOpen && !signingOutEverywhere) open(null);
   }
 
   async function change() {
@@ -42,9 +69,9 @@
     if (nextError) return;
     busy = true;
     const failed = await security.setPassword({ newPassword: next, currentPassword: current });
-    if (failed) currentError = failed;
+    if (failed) refuse(failed);
     else {
-      const outcome = await security.signIn(next, true);
+      const outcome = await security.signIn(next, true, "changed");
       if (!outcome.ok) nextError = `The password is changed, but signing in failed. ${outcome.message}`;
     }
     busy = false;
@@ -56,7 +83,7 @@
     busy = false;
     if (failed) {
       if (panel === "remove-grant") toasts.show(failed, "danger");
-      else currentError = failed;
+      else refuse(failed);
       return;
     }
     open(null);
@@ -87,16 +114,27 @@
       hint: "An MCP client sends it in an Authorization: Bearer header, to use /mcp.",
     },
   ] as const;
-  let fresh = $state<{ kind: "metrics" | "agent"; token: string } | null>(null);
-  let tokenError = $state<{ kind: "metrics" | "agent"; text: string } | null>(null);
+  // Each stays until it is dismissed, so making the second doesn't hide the first.
+  type Kind = "metrics" | "agent";
+  let fresh = $state<Partial<Record<Kind, { token: string; replaced: boolean }>>>({});
+  let tokenError = $state<{ kind: Kind; text: string } | null>(null);
+  let replacing = $state<(typeof KINDS)[number] | null>(null);
+  let replacingOpen = $state(false);
 
-  async function create(kind: "metrics" | "agent") {
+  async function create(kind: Kind, replaced: boolean) {
     busy = true;
     tokenError = null;
     const r = await security.createToken(kind);
     busy = false;
     if ("error" in r) tokenError = { kind, text: r.error };
-    else fresh = { kind, token: r.token };
+    else fresh[kind] = { token: r.token, replaced };
+  }
+
+  /** A token that exists is replaced only after the owner says so: whatever uses it stops working. */
+  function ask(k: (typeof KINDS)[number], exists: boolean) {
+    if (!exists) return void create(k.kind, false);
+    replacing = k;
+    replacingOpen = true;
   }
 
   async function copy(token: string) {
@@ -105,13 +143,15 @@
   }
 </script>
 
+<svelte:window onkeydown={closeOnEscape} />
+
 {#if sec}
   <Group title="Dashboard password">
     {#snippet foot()}
       The password crosses your network unencrypted, so don't use one you use anywhere else. Home Assistant has its
       own key, and the password doesn't cover it.
     {/snippet}
-    <div class="pn-row">
+    <div class="pn-row is-actions">
       <div class="pn-row-text">
         <span class="pn-row-label">Password</span>
         <span class="pn-row-hint">
@@ -127,8 +167,10 @@
           Set a password…
         </button>
       {:else}
-        <button class="pn-btn" disabled={!live || !!panel} onclick={() => open("change")}>Change…</button>
-        <button class="pn-btn" disabled={!live || !!panel} onclick={() => open("remove")}>Remove…</button>
+        <div class="actions">
+          <button class="pn-btn" disabled={!live || !!panel} onclick={() => open("change")}>Change…</button>
+          <button class="pn-btn" disabled={!live || !!panel} onclick={() => open("remove")}>Remove…</button>
+        </div>
       {/if}
     </div>
 
@@ -159,11 +201,13 @@
           bind:value={next}
           autocomplete="new-password"
           hint="8 to 128 characters. Changing it signs every browser out, this one in again."
+          note={newNote}
           error={nextError}
           disabled={busy}
         />
+        {#if retryIn > 0}<p class="muted" role="status">Try again in {retryIn} s.</p>{/if}
         <div class="actions">
-          <button class="pn-btn pn-btn-primary" type="submit" disabled={busy || !current || !next}>
+          <button class="pn-btn pn-btn-primary" type="submit" disabled={busy || !current || !next || retryIn > 0}>
             Change password
           </button>
           <button class="pn-btn" type="button" disabled={busy} onclick={() => open("change-grant")}>
@@ -193,8 +237,11 @@
           disabled={busy}
           autofocus
         />
+        {#if retryIn > 0}<p class="muted" role="status">Try again in {retryIn} s.</p>{/if}
         <div class="actions">
-          <button class="pn-btn pn-btn-danger" type="submit" disabled={busy || !current}>Remove password</button>
+          <button class="pn-btn pn-btn-danger" type="submit" disabled={busy || !current || retryIn > 0}>
+            Remove password
+          </button>
           <button class="pn-btn" type="button" disabled={busy} onclick={() => open("remove-grant")}>
             Confirm at the satellite instead
           </button>
@@ -222,7 +269,7 @@
         </div>
         <button class="pn-btn" onclick={signOut}>Sign out</button>
       </div>
-      <div class="pn-row">
+      <div class="pn-row is-actions">
         <div class="pn-row-text">
           <span class="pn-row-label">Sign out everywhere</span>
           <span class="pn-row-hint">Ends every session, in every browser. Tokens keep working.</span>
@@ -242,28 +289,34 @@
     {/snippet}
     {#each KINDS as k (k.kind)}
       {@const last4 = k.kind === "metrics" ? sec.metricsTokenLast4 : sec.agentTokenLast4}
-      <div class="pn-row">
+      <div class="pn-row is-actions">
         <div class="pn-row-text">
           <span class="pn-row-label">{k.label}</span>
           <span class="pn-row-hint">{k.hint}</span>
         </div>
         <span class="pn-row-value is-mono">{tokenShown(last4)}</span>
-        <button class="pn-btn" disabled={!live || busy} onclick={() => create(k.kind)}>
+        <button class="pn-btn" disabled={!live || busy} onclick={() => ask(k, !!last4)}>
           {last4 ? "Create a new token" : "Create a token"}
         </button>
       </div>
-      {#if fresh?.kind === k.kind}
+      {#if fresh[k.kind]}
+        {@const made = fresh[k.kind]!}
         <div class="pn-row is-stack">
           <div class="pn-field">
             <span class="pn-field-label">New {k.label.toLowerCase()}</span>
             <div class="pn-secret">
-              <output class="pn-secret-shown">{fresh.token}</output>
-              <button class="pn-btn pn-btn-sm" onclick={() => copy(fresh!.token)}>
+              <output class="pn-secret-shown">{made.token}</output>
+              <button class="pn-btn pn-btn-sm" onclick={() => copy(made.token)}>
                 <Icon name="copy" />Copy
+              </button>
+              <button class="pn-btn pn-btn-quiet pn-btn-sm" onclick={() => (fresh[k.kind] = undefined)}>
+                Dismiss
               </button>
             </div>
             <span class="pn-field-hint">
-              This is the only time it shows. Copy it now. It replaces the old token, which no longer works.
+              This is the only time it shows. Copy it now.{made.replaced
+                ? " It replaces the old token, which no longer works."
+                : ""}
             </span>
           </div>
         </div>
@@ -275,6 +328,16 @@
       {/if}
     {/each}
   </Group>
+
+  <Confirm
+    bind:open={replacingOpen}
+    title="Replace the {replacing?.label.toLowerCase() ?? 'token'}?"
+    action="Replace token"
+    danger
+    confirm={() => replacing && create(replacing.kind, true)}
+  >
+    <p>The old token stops working at once. Whatever uses it needs the new one.</p>
+  </Confirm>
 
   <Confirm
     bind:open={signingOutEverywhere}
@@ -304,5 +367,8 @@
   }
   p {
     margin: 0;
+  }
+  .muted {
+    color: var(--ink-muted);
   }
 </style>

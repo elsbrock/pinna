@@ -5,9 +5,17 @@
   import Offer from "./lib/Offer.svelte";
   import { security } from "./lib/security.svelte.ts";
   import SignIn from "./lib/SignIn.svelte";
+  import { toasts } from "./lib/toast.svelte.ts";
   import { gate } from "./lib/view.ts";
 
   const showing = $derived(gate(security.state));
+
+  // A password was just set or changed, and the page reloaded to sign in with it: say so once.
+  $effect(() => {
+    if (showing !== "app") return;
+    const notice = security.takeNotice();
+    if (notice) toasts.show(notice);
+  });
 </script>
 
 {#if showing === "offer"}

@@ -33,6 +33,7 @@
     switchTarget,
     targetSlot,
     updatePhase,
+    windowLength,
   } from "./view.ts";
 
   const STORE = "pinna.manifest";
@@ -180,11 +181,28 @@
 
   // Both times go together: pinnad checks the window as a whole, so a swap works.
   async function setWindow() {
-    if (!startInput?.value || !endInput?.value) return;
+    if (!startInput || !endInput) return;
+    if (!startInput.value || !endInput.value) {
+      windowError = "The window needs a start time and an end time.";
+      return putBackWindow();
+    }
     windowError = await device.saveSettings(
       { installWindowStart: startInput.value, installWindowEnd: endInput.value },
       "Install window saved",
     );
+    if (windowError) putBackWindow();
+  }
+
+  // The fields show what the satellite has saved, not what it refused.
+  function putBackWindow() {
+    if (startInput) startInput.value = savedStart;
+    if (endInput) endInput.value = savedEnd;
+  }
+
+  function showTimeZone() {
+    const zone = document.getElementById("time-zone");
+    zone?.scrollIntoView({ block: "center" });
+    zone?.focus();
   }
 
   async function install() {
@@ -290,6 +308,10 @@
   const off = $derived(!u?.manifestOverride && channel === "off");
   const installMode = $derived(installName(device.status?.settings?.installUpdates));
   const zone = $derived(device.status?.settings?.timeZone || "UTC");
+  const zoneSet = $derived(!!device.status?.settings?.timeZone);
+  const savedStart = $derived(device.status?.settings?.installWindowStart ?? "03:00");
+  const savedEnd = $derived(device.status?.settings?.installWindowEnd ?? "05:00");
+  const windowSpan = $derived(windowLength(savedStart, savedEnd));
   const channelLabel = $derived(channel === "beta" ? "Beta" : "Stable");
   const release = $derived(u?.release);
   // Going back: start the other slot when it holds that version, else install it.
@@ -377,7 +399,15 @@
           <div class="pn-row-text">
             <span id="install-window-label" class="pn-row-label">Install window</span>
             <span id="install-window-hint" class="pn-row-hint">
-              Local time, in the time zone {zone}. The window may cross midnight, for example 23:00 to 01:00.
+              {#if zoneSet}
+                Local time, in the time zone {zone}.
+              {:else}
+                No time zone is set, so the window is in UTC.
+                <button class="pn-btn pn-btn-quiet pn-btn-sm" type="button" onclick={showTimeZone}>
+                  Set the time zone
+                </button>
+              {/if}
+              The window may cross midnight, for example 23:00 to 01:00.
             </span>
           </div>
           <div class="times" role="group" aria-labelledby="install-window-label" aria-describedby="install-window-hint">
@@ -388,7 +418,7 @@
               type="time"
               step="60"
               aria-label="Window start"
-              value={device.status?.settings?.installWindowStart ?? "03:00"}
+              value={savedStart}
               disabled={!live || device.busy}
               onchange={setWindow}
             />
@@ -400,10 +430,11 @@
               type="time"
               step="60"
               aria-label="Window end"
-              value={device.status?.settings?.installWindowEnd ?? "05:00"}
+              value={savedEnd}
               disabled={!live || device.busy}
               onchange={setWindow}
             />
+            {#if windowSpan}<span class="span">{windowSpan}</span>{/if}
           </div>
         </div>
         {#if windowError}
@@ -761,6 +792,11 @@
   }
   .time {
     width: auto;
+  }
+  .span {
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .note {
     display: flex;

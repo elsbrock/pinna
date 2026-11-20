@@ -3,13 +3,21 @@
 // no session, so it still answers when every other call is refused.
 import { type Security, TokenKind } from "../gen/pinna/v1/device_pb.ts";
 import { client, errorSentence } from "./device.svelte.ts";
-import { type LoginOutcome, loginOutcome } from "./view.ts";
+import { type LoginOutcome, loginOutcome, lostSession, PASSWORD_NOTICES, type PasswordNotice } from "./view.ts";
 
 const JSON_HEADERS = { "content-type": "application/json" };
+/** sessionStorage key: what to tell after the reload that follows a new password. */
+const NOTICE_KEY = "pinna.passwordNotice";
 
 class SecurityState {
   /** Null until GetSecurity first answers. */
   state = $state<Security | null>(null);
+  /** This tab had a session and the satellite says it has none now. */
+  signedOut = $state(false);
+  /** A confirmation this browser asked for waits: the Overview doesn't warn of its own. */
+  confirmingHere = $state(false);
+  /** When `state` arrived (Date.now()), for counting a confirmation's seconds down. */
+  receivedAt = $state(0);
 
   #refreshing = false;
 
@@ -17,12 +25,28 @@ class SecurityState {
     if (this.#refreshing) return;
     this.#refreshing = true;
     try {
-      this.state = (await client.getSecurity({})).security ?? this.state;
+      const next = (await client.getSecurity({})).security;
+      if (next) {
+        if (lostSession(this.state, next)) this.signedOut = true;
+        this.state = next;
+        this.receivedAt = Date.now();
+      }
     } catch {
       // Unreachable: the page shows that already, and asks again at the next change.
     } finally {
       this.#refreshing = false;
     }
+  }
+
+  /** End the confirmation that waits, whoever started it; or the satellite's sentence. */
+  async stopConfirmation(): Promise<string | null> {
+    try {
+      await client.cancelConfirmation({});
+    } catch (e) {
+      return errorSentence(e);
+    }
+    await this.refresh();
+    return null;
   }
 
   /** A call came back `unauthenticated`: ask what this browser may do now. */
@@ -44,16 +68,44 @@ class SecurityState {
 
   /** Sign in, then load the page afresh, as on first load. `afterChange`: the
    *  password was just set or checked, which counts as an attempt, so a login
-   *  right behind it may be asked to wait a second: wait it out once. */
-  async signIn(password: string, afterChange = false): Promise<LoginOutcome> {
+   *  right behind it may be asked to wait a second: wait it out once. `notice`
+   *  is told once the page has loaded. */
+  async signIn(password: string, afterChange = false, notice?: PasswordNotice): Promise<LoginOutcome> {
     let outcome = await this.login(password);
     if (afterChange && !outcome.ok && outcome.wait > 0 && outcome.wait <= 2) {
       const wait = outcome.wait;
       await new Promise((resolve) => setTimeout(resolve, wait * 1000 + 100));
       outcome = await this.login(password);
     }
-    if (outcome.ok) location.reload();
+    if (outcome.ok) {
+      try {
+        if (notice) sessionStorage.setItem(NOTICE_KEY, notice);
+      } catch {
+        // Private mode: the page just doesn't say it.
+      }
+      location.reload();
+    }
     return outcome;
+  }
+
+  /** What to tell after a reload that followed a new password; once. */
+  takeNotice(): string | null {
+    try {
+      const kind = sessionStorage.getItem(NOTICE_KEY) as PasswordNotice | null;
+      sessionStorage.removeItem(NOTICE_KEY);
+      return kind ? (PASSWORD_NOTICES[kind] ?? null) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Seconds until a new confirmation may start; 0 when one may or the satellite doesn't answer. */
+  async cooldown(): Promise<number> {
+    try {
+      return (await client.getSecurity({})).security?.confirmationCooldownS ?? 0;
+    } catch {
+      return 0;
+    }
   }
 
   /** POST /auth/logout: this browser only. */

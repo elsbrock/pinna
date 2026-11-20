@@ -57,14 +57,21 @@ import {
   addedNextStep,
   ago,
   badge,
+  confirmationWarning,
   failuresText,
   gate,
+  grantLeft,
+  homeAssistantBlocked,
   loginOutcome,
+  lostSession,
   openNotice,
+  passwordNote,
   passwordProblem,
   secondsUntil,
+  splitRetry,
   tokenNeeds,
   tokenShown,
+  windowLength,
   byline,
   CAL_KIND,
   calibrationAdvice,
@@ -811,6 +818,8 @@ const security = (over: Partial<Security> = {}): Security => ({
   metricsRead: false,
   homeAssistantWindowLeftS: 0,
   groupJoinLeftS: 0,
+  confirmationWaitingFrom: "",
+  confirmationLeftS: 0,
   ...over,
 });
 
@@ -878,6 +887,17 @@ test("the first password lists who will need a token", () => {
   assert.equal(tokenNeeds(security()), null);
   assert.match(tokenNeeds(security({ mcpClients: ["claude-code", "cursor"] })) ?? "", /claude-code, cursor.*token/);
   assert.match(tokenNeeds(security({ metricsRead: true })) ?? "", /\/metrics/);
+  assert.equal(
+    tokenNeeds(security({ mcpClients: ["cursor"], metricsRead: true })),
+    "In the last 24 hours, MCP clients (cursor) called it and something read /metrics, such as Prometheus. With a password, they need a token from the System page.",
+  );
+  // A token that exists already is not news.
+  assert.equal(tokenNeeds(security({ metricsRead: true, metricsTokenLast4: "a1b2" })), null);
+  assert.equal(tokenNeeds(security({ mcpClients: ["cursor"], agentTokenLast4: "a1b2" })), null);
+  assert.match(
+    tokenNeeds(security({ mcpClients: ["cursor"], metricsRead: true, metricsTokenLast4: "a1b2" })) ?? "",
+    /^In the last 24 hours, MCP clients \(cursor\) called it\. With/,
+  );
 });
 
 test("the Overview warns while no password is set, and adds the voice in standalone mode", () => {
@@ -891,7 +911,10 @@ test("the Overview warns while no password is set, and adds the voice in standal
 });
 
 test("the rollback warning shows for an older slot, with a password set", () => {
-  assert.equal(OLDER_SLOT_WARNING, "The version in the other slot is older, and may not ask for a password.");
+  assert.equal(
+    OLDER_SLOT_WARNING,
+    "The version in the other slot is older, and may not ask for a password: until the next update, anyone on your network could use the dashboard, /mcp and the metrics.",
+  );
   assert.equal(olderSlotWarning(true, { olderThanRunning: true }), OLDER_SLOT_WARNING);
   // Without a password there is nothing to lose, and a newer slot is no rollback.
   assert.equal(olderSlotWarning(false, { olderThanRunning: true }), null);
@@ -912,4 +935,74 @@ test("a window says what it has left", () => {
 test("the satellite list says which entries the group's key confirms", () => {
   assert.equal(satelliteMark({ groupMember: true }), "In this satellite's group");
   assert.equal(satelliteMark({ groupMember: false }), "Only announced on the network");
+});
+
+test("a refused sign-in with a removed password says so by status 409", () => {
+  assert.deepEqual(loginOutcome(409, { error: "This satellite has no password." }), {
+    ok: false,
+    message: "This satellite has no password.",
+    wait: 0,
+    gone: true,
+  });
+});
+
+test("a sentence that ends in a wait is split from it, so the page counts it down once", () => {
+  assert.deepEqual(splitRetry("Too many attempts. Try again in 42 s."), { text: "Too many attempts.", wait: 42 });
+  assert.deepEqual(splitRetry("A confirmation ended just now. Try again in 7 s."), {
+    text: "A confirmation ended just now.",
+    wait: 7,
+  });
+  assert.deepEqual(splitRetry("Wrong password."), { text: "Wrong password.", wait: 0 });
+});
+
+test("a password with a space at either end is allowed, with a note", () => {
+  assert.equal(passwordNote("correct horse"), null);
+  assert.equal(passwordNote(" correct horse"), "It starts or ends with a space.");
+  assert.equal(passwordNote("correct horse "), "It starts or ends with a space.");
+  assert.equal(passwordProblem(" 1234567"), null);
+});
+
+test("a grant lasts five minutes from when the page got it", () => {
+  assert.equal(grantLeft(1_000, 1_000), 300);
+  assert.equal(grantLeft(1_000, 1_000 + 299_001), 1);
+  assert.equal(grantLeft(1_000, 1_000 + 300_000), 0);
+  assert.equal(grantLeft(1_000, 1_000 + 900_000), 0);
+});
+
+test("the Overview warns of a confirmation another browser started, for a signed-in session", () => {
+  const waiting = { signedIn: true, confirmationWaitingFrom: "192.168.1.23", confirmationLeftS: 41 };
+  assert.deepEqual(confirmationWarning(security(waiting), false), { from: "192.168.1.23", left: 41 });
+  assert.equal(confirmationWarning(security(waiting), true), null, "this browser started it");
+  assert.equal(confirmationWarning(security({ ...waiting, confirmationLeftS: 0 }), false), null);
+  assert.equal(confirmationWarning(security({ ...waiting, signedIn: false }), false), null);
+  assert.equal(confirmationWarning(null, false), null);
+});
+
+test("a tab that was signed in and isn't any more was signed out", () => {
+  const was = security({ passwordSet: true, signedIn: true });
+  assert.equal(lostSession(was, security({ passwordSet: true })), true);
+  assert.equal(lostSession(was, security({ passwordSet: true, signedIn: true })), false);
+  // The password was removed: nothing to sign in to.
+  assert.equal(lostSession(was, security({ leftOpen: true })), false);
+  assert.equal(lostSession(security({ passwordSet: true }), security({ passwordSet: true })), false);
+  assert.equal(lostSession(null, security({ passwordSet: true })), false);
+});
+
+test("Home Assistant can't add a keyless satellite behind a password until the window is open", () => {
+  const status = { apiEncrypted: false, haConnected: false };
+  assert.equal(homeAssistantBlocked(security({ passwordSet: true }), status), true);
+  assert.equal(homeAssistantBlocked(security(), status), false);
+  assert.equal(homeAssistantBlocked(security({ passwordSet: true }), { ...status, apiEncrypted: true }), false);
+  assert.equal(homeAssistantBlocked(security({ passwordSet: true }), { ...status, haConnected: true }), false);
+  assert.equal(homeAssistantBlocked(security({ passwordSet: true }), undefined), false);
+});
+
+test("the install window's length is shown across midnight too", () => {
+  assert.equal(windowLength("03:00", "05:00"), "2 h");
+  assert.equal(windowLength("23:00", "01:00"), "2 h");
+  assert.equal(windowLength("03:00", "04:30"), "1 h 30 min");
+  assert.equal(windowLength("03:00", "03:20"), "20 min");
+  assert.equal(windowLength("05:00", "03:00"), "22 h");
+  assert.equal(windowLength("03:00", "03:00"), null);
+  assert.equal(windowLength("", "03:00"), null);
 });

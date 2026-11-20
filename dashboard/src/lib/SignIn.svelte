@@ -1,27 +1,32 @@
 <!-- The sign-in form (ADR 0029), shown instead of the page while a password is
      set and this browser has no session. "Forgot the password" asks for a press
-     of Action at the satellite, then sets a new one. -->
+     of Action at the satellite, then sets a new one. The satellite is asked
+     every 10 seconds whether it still has a password: another browser may have
+     removed it. -->
 <script lang="ts">
   import AuthScreen from "./AuthScreen.svelte";
+  import { clock } from "./clock.svelte.ts";
   import { device, savedName } from "./device.svelte.ts";
   import PasswordField from "./PasswordField.svelte";
   import { security } from "./security.svelte.ts";
   import SetPassword from "./SetPassword.svelte";
-  import { displayName, secondsUntil } from "./view.ts";
+  import { displayName, SIGNED_OUT, secondsUntil, splitRetry } from "./view.ts";
 
-  // Without a session there is no Status: the name this browser last saw, or the one in the address.
-  const name = $derived(device.status ? displayName(device.status) : savedName() || location.hostname);
+  const POLL_MS = 10_000;
+
+  // Without a session there is no Status: the name this browser last saw.
+  const name = $derived(device.status ? displayName(device.status) : savedName() || "this satellite");
 
   let forgot = $state(false);
   let password = $state("");
   let error = $state<string | null>(null);
   let busy = $state(false);
-  let now = $state(Date.now());
   let waitUntil = $state(Date.now() + (security.state?.loginRetryAfterS ?? 0) * 1000);
-  const wait = $derived(secondsUntil(waitUntil, now));
+  const wait = $derived(secondsUntil(waitUntil, clock.now));
 
+  $effect(() => clock.use());
   $effect(() => {
-    const timer = setInterval(() => (now = Date.now()), 500);
+    const timer = setInterval(() => void security.refresh(), POLL_MS);
     return () => clearInterval(timer);
   });
 
@@ -30,22 +35,29 @@
     error = null;
     const outcome = await security.signIn(password);
     if (!outcome.ok) {
-      error = outcome.message;
-      now = Date.now();
-      waitUntil = now + outcome.wait * 1000;
-      password = "";
+      if (outcome.gone) {
+        // The password was removed: there is nothing to sign in to, and the page opens.
+        await security.refresh();
+      } else {
+        // The wait counts down below: the sentence's own copy would stay at its first number.
+        error = splitRetry(outcome.message).text;
+        clock.now = Date.now();
+        waitUntil = clock.now + outcome.wait * 1000;
+        password = "";
+      }
     }
     busy = false;
   }
 </script>
 
-<AuthScreen title={forgot ? "Set a new password" : name}>
+<AuthScreen title={forgot ? "Set a new password" : "Sign in"}>
   {#if forgot}
     <p>
       To set a new password for {name}, press Action on the satellite. Nothing else is needed: no cable and no reset.
     </p>
     <SetPassword id="forgot" oncancel={() => (forgot = false)} />
   {:else}
+    {#if security.signedOut}<p class="signed-out" role="status">{SIGNED_OUT}</p>{/if}
     <p>Sign in to control this satellite.</p>
     <form
       onsubmit={(e) => {
@@ -79,6 +91,9 @@
   }
   .wait {
     color: var(--ink-muted);
+  }
+  .signed-out {
+    font-weight: 650;
   }
   .forgot {
     align-self: flex-start;

@@ -572,7 +572,8 @@ export function updatePhase(u: UpdatesLike): UpdatePhase {
 
 /** Said before the satellite starts an older version while a password is set (ADR 0029):
  *  an image from before the password doesn't check it, so the dashboard is open until the next update. */
-export const OLDER_SLOT_WARNING = "The version in the other slot is older, and may not ask for a password.";
+export const OLDER_SLOT_WARNING =
+  "The version in the other slot is older, and may not ask for a password: until the next update, anyone on your network could use the dashboard, /mcp and the metrics.";
 
 /** The warning for starting `slot`, or null: only with a password set, and only for an older version. */
 export function olderSlotWarning(passwordSet: boolean, slot: Pick<SlotLike, "olderThanRunning"> | undefined): string | null {
@@ -898,14 +899,24 @@ export function passwordProblem(password: string): string | null {
 }
 
 /** POST /auth/login's answer: signed in, or the server's sentence and how long to wait. */
-export type LoginOutcome = { ok: true } | { ok: false; message: string; wait: number };
+export type LoginOutcome = { ok: true } | { ok: false; message: string; wait: number; gone?: true };
 
 export function loginOutcome(status: number, body: unknown): LoginOutcome {
   if (status === 204) return { ok: true };
   const b = (body ?? {}) as { error?: unknown; retry_after_s?: unknown };
   const message = typeof b.error === "string" && b.error ? b.error : "The satellite refused the sign-in. Try again.";
   const wait = status === 429 && typeof b.retry_after_s === "number" ? Math.max(1, Math.ceil(b.retry_after_s)) : 0;
+  // 409: the password was removed since this page loaded. There is nothing to sign in to.
+  if (status === 409) return { ok: false, message, wait, gone: true };
   return { ok: false, message, wait };
+}
+
+/** A sentence that ends in "Try again in 12 s.": the sentence without it, and the seconds.
+ *  The page counts the seconds down itself, so it shows one countdown, not a frozen copy as well. */
+export function splitRetry(sentence: string): { text: string; wait: number } {
+  const m = /\s*Try again in (\d+) s\.$/.exec(sentence);
+  if (!m) return { text: sentence, wait: 0 };
+  return { text: sentence.slice(0, m.index), wait: Number(m[1]) };
 }
 
 /** Whole seconds until `until` (Date.now() milliseconds), never below 0. */
@@ -938,19 +949,82 @@ export function failuresText(sec: Security, nowMs: number): string {
   return last ? `${count} since the last sign-in. The last was ${last}.` : `${count} since the last sign-in.`;
 }
 
+/** A note on a new password that is allowed but may not be meant: spaces at either end. */
+export function passwordNote(password: string): string | null {
+  return password !== password.trim() ? "It starts or ends with a space." : null;
+}
+
+/** How long a grant from a confirmation stays good, from when this page got it. */
+export const GRANT_MS = 5 * 60 * 1000;
+
+/** Seconds a grant got at `at` (Date.now()) is still good; 0 once it lapsed. */
+export function grantLeft(at: number, now: number): number {
+  return secondsUntil(at + GRANT_MS, now);
+}
+
+/** What the page tells after it reloads with a new password in place. */
+export type PasswordNotice = "set" | "changed";
+export const PASSWORD_NOTICES: Record<PasswordNotice, string> = {
+  set: "Password set.",
+  changed: "Password changed. Every other browser is signed out.",
+};
+
+/** The Overview's warning about a confirmation someone else started; null when none waits
+ *  or this browser started it. */
+export function confirmationWarning(
+  sec: Security | null,
+  startedHere: boolean,
+): { from: string; left: number } | null {
+  if (!sec?.signedIn || startedHere || sec.confirmationLeftS <= 0) return null;
+  return { from: sec.confirmationWaitingFrom, left: sec.confirmationLeftS };
+}
+
+/** This tab was signed in and now isn't, with a password still set: the password changed or
+ *  every session ended. A tab that never had a session says nothing. */
+export function lostSession(before: Security | null, after: Security): boolean {
+  return !!before?.signedIn && after.passwordSet && !after.signedIn;
+}
+
+export const SIGNED_OUT = "You were signed out: the password was changed, or every session was ended.";
+
+/** Home Assistant can't add this satellite until the owner opens the window (ADR 0029). */
+export function homeAssistantBlocked(
+  sec: Pick<Security, "passwordSet"> | null,
+  status: { apiEncrypted: boolean; haConnected: boolean } | null | undefined,
+): boolean {
+  return !!sec?.passwordSet && !!status && !status.apiEncrypted && !status.haConnected;
+}
+
+/** The install window's length, "2 h" or "1 h 30 min"; a window may cross midnight. Null for a
+ *  time that isn't "HH:MM", and for equal times, which the satellite refuses. */
+export function windowLength(start: string, end: string): string | null {
+  const minutes = (t: string) => {
+    const m = /^(\d{2}):(\d{2})$/.exec(t);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  };
+  const a = minutes(start);
+  const b = minutes(end);
+  if (a === null || b === null || a === b) return null;
+  const length = (b - a + 24 * 60) % (24 * 60);
+  const h = Math.floor(length / 60);
+  const m = length % 60;
+  return [h ? `${h} h` : "", m ? `${m} min` : ""].filter(Boolean).join(" ");
+}
+
 /** A token as the System page shows it: its last four characters, or "None". */
 export function tokenShown(last4: string): string {
   return last4 ? `••••${last4}` : "None";
 }
 
-/** Before a first password is saved: who will need a token. Null when nobody called. */
+/** Before a first password is saved: who will need a token. Null when nobody called, or when
+ *  the token they need exists already. */
 export function tokenNeeds(sec: Security | null): string | null {
   if (!sec) return null;
-  const who: string[] = [];
-  if (sec.mcpClients.length) who.push(`MCP clients (${sec.mcpClients.join(", ")})`);
-  if (sec.metricsRead) who.push("something that reads /metrics, such as Prometheus");
-  if (!who.length) return null;
-  return `In the last 24 hours, ${who.join(" and ")} used this satellite. With a password, they need a token from the System page.`;
+  const did: string[] = [];
+  if (sec.mcpClients.length && !sec.agentTokenLast4) did.push(`MCP clients (${sec.mcpClients.join(", ")}) called it`);
+  if (sec.metricsRead && !sec.metricsTokenLast4) did.push("something read /metrics, such as Prometheus");
+  if (!did.length) return null;
+  return `In the last 24 hours, ${did.join(" and ")}. With a password, they need a token from the System page.`;
 }
 
 /** The Overview's notice while no password is set; null once one is. */

@@ -31,8 +31,8 @@
       </p>
     {/if}
     <p>
-      A password asks for a sign-in first. To set it, you press Action on the satellite, which proves that you are
-      there. You can change it later on the System page.
+      A password asks for a sign-in first. To set it, you press the Action button (the one with the dot) on the
+      satellite, which proves that you are there. You can change it later on the System page.
     </p>
     <div class="actions">
       <button class="pn-btn pn-btn-primary" type="button" disabled={busy} onclick={() => (setting = true)}>

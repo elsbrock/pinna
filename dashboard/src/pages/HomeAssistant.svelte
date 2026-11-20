@@ -6,9 +6,12 @@
   import { network } from "../lib/network.svelte.ts";
   import { toasts } from "../lib/toast.svelte.ts";
   import HomeAssistantWindow from "../lib/HomeAssistantWindow.svelte";
+  import { homeAssistantBlocked } from "../lib/view.ts";
+  import { windows } from "../lib/windows.svelte.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
+  const blocked = $derived(live && homeAssistantBlocked(windows.security, s ?? undefined));
 
   $effect(() => network.watch());
   // The satellite's own address on the network. The page's host may be one Home
@@ -28,7 +31,16 @@
 {#if s}
   <Group title="Connection">
     <div class="pn-row">
-      <div class="pn-row-text"><span class="pn-row-label">Home Assistant</span></div>
+      <div class="pn-row-text">
+        <span class="pn-row-label">Home Assistant</span>
+        {#if blocked}
+          <span class="pn-row-hint">
+            {windows.homeAssistantLeft > 0
+              ? "The window is open: Home Assistant can add this satellite now."
+              : "This satellite refuses Home Assistant until the window below is open."}
+          </span>
+        {/if}
+      </div>
       <span class="pn-row-value">
         {#if !live}
           <span class="pn-health" data-tone="danger">Not reachable</span>

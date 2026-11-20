@@ -9,6 +9,7 @@
     value = $bindable(""),
     autocomplete,
     hint,
+    note,
     error,
     disabled = false,
     autofocus = false,
@@ -19,13 +20,15 @@
     /** "current-password" or "new-password": password managers follow it. */
     autocomplete: "current-password" | "new-password";
     hint?: string;
+    /** Something to know about what was typed, that doesn't stop it. */
+    note?: string | null;
     error?: string | null;
     disabled?: boolean;
     autofocus?: boolean;
   } = $props();
 
   let shown = $state(false);
-  const describedBy = $derived([hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(" ") || undefined);
+  const describedBy = $derived([hint && `${id}-hint`, note && `${id}-note`, error && `${id}-error`].filter(Boolean).join(" ") || undefined);
 
   function focus(node: HTMLInputElement) {
     if (autofocus) node.focus();
@@ -60,5 +63,6 @@
     </button>
   </div>
   {#if error}<span id="{id}-error" class="pn-field-error" role="alert"><Icon name="alert" />{error}</span>{/if}
+  {#if note}<span id="{id}-note" class="pn-field-hint">{note}</span>{/if}
   {#if hint}<span id="{id}-hint" class="pn-field-hint">{hint}</span>{/if}
 </div>

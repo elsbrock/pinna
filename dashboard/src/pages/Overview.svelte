@@ -13,21 +13,27 @@
   import StatTile from "../lib/StatTile.svelte";
   import NowPlaying from "../lib/NowPlaying.svelte";
   import Timers from "../lib/Timers.svelte";
+  import { toasts } from "../lib/toast.svelte.ts";
   import VirtualDevice from "../lib/VirtualDevice.svelte";
   import {
     badge,
     band,
+    confirmationWarning,
     displayName,
     health,
     heldText,
+    homeAssistantBlocked,
     openNotice,
     ringEffect,
+    secondsUntil,
     signalWord,
     since,
     slotWord,
     uptime,
+    windowLeft,
     wifiConnected,
   } from "../lib/view.ts";
+  import { windows } from "../lib/windows.svelte.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -37,6 +43,26 @@
   const standalone = $derived(isStandalone(s));
   // While no password is set, anyone on the network can control the satellite (ADR 0029).
   const notice = $derived(openNotice(security.state, standalone));
+  // A confirmation another browser started waits for a press of Action (ADR 0029): the
+  // owner who didn't start it can stop it. Asked often enough to notice while it waits.
+  const WATCH_MS = 5_000;
+  $effect(() => {
+    const timer = setInterval(() => void security.refresh(), WATCH_MS);
+    return () => clearInterval(timer);
+  });
+  const waiting = $derived(confirmationWarning(security.state, security.confirmingHere));
+  const waitingLeft = $derived(waiting ? secondsUntil(security.receivedAt + waiting.left * 1000, device.now) : 0);
+  let stopping = $state(false);
+  async function stopIt() {
+    stopping = true;
+    const failed = await security.stopConfirmation();
+    stopping = false;
+    if (failed) toasts.show(failed, "danger");
+  }
+  // With a password and no key, the satellite refuses Home Assistant until the owner opens a window.
+  $effect(() => windows.watch());
+  const blocked = $derived(homeAssistantBlocked(security.state, s));
+  const haLeft = $derived(windows.homeAssistantLeft);
   // Messages from the satellite group that wait to be said (ADR 0026).
   const held = $derived(heldText(s?.heldMessages ?? 0, !!s?.muted));
   // Uptime only arrives with a change; count on between messages.
@@ -110,6 +136,21 @@
     </div>
   </section>
 
+  {#if waiting && waitingLeft > 0}
+    <div class="pn-notice" data-tone="caution" role="alert">
+      <Icon name="alert" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">
+          A browser at {waiting.from} is waiting for a press of Action, {waitingLeft} s left. Don't press it unless
+          that was you.
+        </p>
+        <div>
+          <button class="pn-btn" disabled={stopping || !live} onclick={stopIt}>Stop it</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   {#if notice}
     <div class="pn-notice" data-tone="caution" role="status">
       <Icon name="alert" class="pn-icon pn-notice-icon" />
@@ -130,6 +171,22 @@
             First <a href="#/system">give it a name</a>: Home Assistant's entity IDs keep the name it has when you add
             it.
           </p>
+        {/if}
+        {#if blocked}
+          {#if haLeft > 0}
+            <p>Home Assistant can add this satellite now, {windowLeft(haLeft)}. Add it in Home Assistant.</p>
+          {:else}
+            <p>
+              Home Assistant can't add this satellite until you let it: it has a dashboard password and no key from
+              Home Assistant yet, so it refuses Home Assistant's connections.
+            </p>
+            <div>
+              <button class="pn-btn" disabled={windows.opening} onclick={() => windows.openHomeAssistant()}>
+                Let Home Assistant add this satellite
+              </button>
+            </div>
+          {/if}
+          {#if windows.error}<p class="pn-field-error" role="alert"><Icon name="alert" />{windows.error}</p>{/if}
         {/if}
         <p>
           Home Assistant usually finds the satellite on its own under Settings › Devices &amp; services.
