@@ -97,8 +97,8 @@ satellite on **Stable** never installs a beta.
    when the device is back, and shows the new version on trial.
 
    To start it later instead, select **Start it later**. The update stays
-   in its slot as **Not started yet**, and **System** offers **Start it**,
-   which makes it start on the next restart without downloading it again.
+   in its slot as **Not started yet**, and **System** offers **Start on next
+   restart**, which makes it start on the next restart without downloading it again.
 5. Wait until the new slot is marked **Good**, within 5 minutes of the restart.
    You can install the next update after that.
 
@@ -180,9 +180,11 @@ With **Install updates** set to **Automatically**, the satellite installs a
 new release by itself, at a time inside a window that you choose. The setting
 is **Manually** until you change it.
 
-1. In the [dashboard](/docs/dashboard/), open **System**. Under **Updates**,
-   set **Install updates** to **Automatically**.
-2. Set the **Install window**: a start and an end time. The times are local
+1. In the [dashboard](/docs/dashboard/), open **System**. In the **Updates**
+   group, check that **Updates** is **Stable** or **Beta**: nothing installs by
+   itself while it is **Off**.
+2. In the same group, set **Install updates** to **Automatically**.
+3. Set the **Install window**: a start and an end time. The times are local
    time in the satellite's time zone ([Set the time zone](/docs/settings/#set-the-time-zone)).
    The window is 03:00 to 05:00 until you change it, and it may cross
    midnight, for example 23:00 to 01:00. The satellite doesn't accept a window
@@ -211,6 +213,10 @@ one if it doesn't start, as for any update.
 - A release that needs a new boot image. **System** shows it with **Needs a
   new boot image: install it over USB**, and it waits for you.
 - A version that failed to start and was rolled back.
+- A version that is already in the other slot, for example one you kept back
+  with **Start it later** or left there when you went back to an older
+  version. That was your choice. A newer release installs over it in its
+  window.
 - A version whose automatic install failed three times in a row, for example
   because the download failed. The satellite logs that it skips the version.
   It tries again when you install that version by hand, or when a newer
@@ -237,6 +243,10 @@ Assistant. An install that was planned and hasn't started is cancelled. An
 install that is already running finishes, and then waits for you to select
 **Restart now**, as an install from the dashboard does.
 
+An automatic install that has already finished, and waits for the window to
+restart, then waits for you too: select **Restart now**, or **Start it
+later** to keep it back.
+
 ## Go back to an older version
 
 Going back is your choice; the satellite never does it on its own. Your
@@ -255,21 +265,20 @@ apply again after the next update.
 While a [dashboard password](/docs/dashboard/) is set, the dashboard warns you
 before it starts an older version: "The version in the other slot is older, and
 may not ask for a password." An older Pinna keeps the password's entries but
-doesn't check them, so the dashboard is open until the next update. Pinna can't
-tell which older versions check the password, so it warns for each one. The
-warning shows next to **Switch…**, in the dialog that asks you to confirm, on
-**Install … (older)**, and when an older version waits in the other slot to
-start on the next restart.
+doesn't check them, so the dashboard, `/mcp` and the metrics are open until the
+next update. Pinna can't tell which older versions check the password, so it
+warns for each one. The dashboard shows this warning wherever it would start an
+older version.
 
 After you go back, the newer version is still in the other slot, and the next
-check offers it again: **System** shows **Start it**, and Home Assistant shows
+check offers it again: **System** shows **Start on next restart**, and Home Assistant shows
 it as an update. Home Assistant's **Install** would start it and restart the
 satellite, and so would the satellite in standalone mode if you ask it to
 install while **Install update** is on. To stay on the older version, select
 **Skip** in Home Assistant and turn off **Install update**, or set **Updates**
-to **Off**. With **Install updates** set to **Automatically**, the satellite
-installs the channel's release again in its next window, so set it to
-**Manually** too.
+to **Off**. Automatic installs don't start the version in the other slot, but
+the next newer release installs over it in its window. To stay on the older
+version, set **Install updates** to **Manually** too.
 
 ## Switch to the other version
 
@@ -327,7 +336,9 @@ the device must reach your computer over Wi-Fi or over the USB cable.
    computer's address is in the range `10.42.0.10` to `10.42.0.29`.
 
    An install from an address installs what it is given after the signature
-   checks, an older version too, and says when it is older.
+   checks, an older version too, and says when it is older. Someone who can
+   use an open dashboard and has a copy of an older signed release can
+   downgrade the device this way.
 4. When it is installed, select **Restart now**.
 5. Wait until **System** shows the new slot as **Good**, within 5 minutes of
    the restart.
