@@ -1355,7 +1355,7 @@ export const RemoveGroupMemberResponseSchema: GenMessage<RemoveGroupMemberRespon
   messageDesc(file_pinna_v1_assistant, 42);
 
 /**
- * The satellite group as the Assistant page shows it.
+ * The satellite group as the dashboard's Satellite group page shows it.
  *
  * @generated from message pinna.v1.SatelliteGroupView
  */

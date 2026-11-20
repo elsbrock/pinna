@@ -1,4 +1,4 @@
-//! What the Assistant page shows of the satellite group (ADR 0026): the
+//! What the Satellite group page shows of the satellite group (ADR 0026): the
 //! switches, the members, and the satellites the search found, each with
 //! whether it can be added and why not. Built from the saved group and the
 //! search's latest result, without I/O. Never the key.

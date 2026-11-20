@@ -1,4 +1,4 @@
-// The satellite group (ADR 0026) as the Assistant page sees it:
+// The satellite group (ADR 0026) as the Satellite group page and its row on Assistant see it:
 // AssistantService's view, read every 30 s while the page shows it and the tab
 // is visible, and its changes: the switches, Add and Remove. The group's key
 // never reaches the page.

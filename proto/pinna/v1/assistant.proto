@@ -486,7 +486,7 @@ message RemoveGroupMemberResponse {
   SatelliteGroupView group = 1;
 }
 
-// The satellite group as the Assistant page shows it.
+// The satellite group as the dashboard's Satellite group page shows it.
 message SatelliteGroupView {
   // The Satellite group switch.
   bool on = 1;

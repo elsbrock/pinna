@@ -62,7 +62,7 @@ impl Service {
         self.committed.live.borrow().group.clone()
     }
 
-    /// What the Assistant page shows of the group, with the satellites in
+    /// What the Satellite group page shows of the group, with the satellites in
     /// `seen`. This satellite is `own_mac`, under the name it has now.
     /// `answered_outside` is [`view::view`]'s.
     pub(crate) fn group_view(
