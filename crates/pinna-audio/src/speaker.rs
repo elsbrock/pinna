@@ -15,7 +15,7 @@
 //! and while [`Speaker::duck`] is held.
 
 use crate::chain::LOOKAHEAD;
-use crate::clock::{PointerAnchor, monotonic_now, parse_boundary, parse_pointer};
+use crate::clock::{PointerAnchor, monotonic_now, parse_avail_min, parse_boundary, parse_pointer};
 use crate::decode::{OUT_RATE, Pcm};
 use crate::media::{
     Decoder, MediaHandle, MediaLane, MediaPhase, MediaState, Pull, VoiceSource, open_voice,
@@ -31,6 +31,7 @@ use crate::{Backend, Error, Result, decode};
 use bytes::Bytes;
 use futures_util::stream::BoxStream;
 use std::collections::VecDeque;
+use std::os::fd::{AsRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
@@ -787,6 +788,14 @@ impl Session {
         self.pointer.as_ref().is_some_and(PointerAnchor::exact)
     }
 
+    /// The pipe into the player.
+    fn player_fd(&self) -> Option<RawFd> {
+        match &self.sink {
+            Sink::Process { stdin, .. } => Some(stdin.as_raw_fd()),
+            Sink::Null => None,
+        }
+    }
+
     /// Move the frame-to-time mapping `secs` later (earlier if negative).
     fn shift(&mut self, secs: f64) {
         let d = Duration::from_secs_f64(secs.abs());
@@ -799,8 +808,16 @@ impl Session {
 
     /// Correct the mapping from a speaker status sample. `mono_now` and
     /// `now` were read together: they convert the PCM's monotonic timestamps
-    /// into [`Instant`]s.
-    fn follow_pointer(&mut self, status: &str, sw_params: &Path, mono_now: f64, now: Instant) {
+    /// into [`Instant`]s. `unread`: the frames still in the player's pipe as
+    /// the sample was read, if known.
+    fn follow_pointer(
+        &mut self,
+        status: &str,
+        sw_params: &Path,
+        mono_now: f64,
+        now: Instant,
+        unread: Option<u64>,
+    ) {
         let Some(sample) = parse_pointer(status) else {
             return;
         };
@@ -809,18 +826,17 @@ impl Session {
             return;
         };
         if sample.running && p.needs_boundary() {
-            // Read once: without it, a wrap counts as a restart.
-            p.set_boundary(
-                std::fs::read_to_string(sw_params)
-                    .ok()
-                    .and_then(|t| parse_boundary(&t)),
-            );
+            // Read once: without it, a wrap counts as a restart, and a
+            // restart is never identified exactly.
+            let text = std::fs::read_to_string(sw_params).ok();
+            p.set_boundary(text.as_deref().and_then(parse_boundary));
+            p.set_player_chunk(text.as_deref().and_then(parse_avail_min));
         }
         // `time_of`, in monotonic seconds.
         let anchor = mono_now + signed_secs(self.anchor_t, now);
         let (anchor_frame, rate) = (self.anchor_frame as f64, self.rate);
         let predicted = |f: u64| anchor + (f as f64 - anchor_frame) / rate;
-        if let Some(secs) = p.update(&sample, mono_now, written, predicted) {
+        if let Some(secs) = p.update(&sample, mono_now, written, unread, predicted) {
             self.shift(secs);
         }
     }
@@ -872,6 +888,19 @@ impl Session {
         self.frames_written += (bytes.len() / 4) as u64;
         Ok(())
     }
+}
+
+/// Frames (of the session's 16-bit stereo) written into the pipe `fd` and
+/// not yet read from it, by `FIONREAD`; `None` if it can't be asked.
+fn pipe_unread_frames(fd: RawFd) -> Option<u64> {
+    let mut bytes: libc::c_int = 0;
+    // SAFETY: FIONREAD writes one c_int through the pointer, which is valid
+    // and writable for the duration of the call.
+    let r = unsafe { libc::ioctl(fd, libc::FIONREAD, &mut bytes) };
+    (r == 0)
+        .then(|| u64::try_from(bytes).ok())
+        .flatten()
+        .map(|b| b / 4)
 }
 
 /// Sleep until `t`, or forever without one.
@@ -948,8 +977,9 @@ struct Clocks {
     d_mic: f64,
     logged: Instant,
     /// The speaker's latest status, with `CLOCK_MONOTONIC` and the
-    /// [`Instant`] read together after it (for [`Session::follow_pointer`]).
-    spk_status: Option<(String, f64, Instant)>,
+    /// [`Instant`] read together after it, and the frames in the player's
+    /// pipe as it was read (for [`Session::follow_pointer`]).
+    spk_status: Option<(String, f64, Instant, Option<u64>)>,
 }
 
 impl Clocks {
@@ -970,16 +1000,20 @@ impl Clocks {
         self.spk.path().with_file_name("sw_params")
     }
 
-    /// Sample both clocks (every 200 ms) and update the estimates.
-    fn tick(&mut self, now: Instant) -> bool {
+    /// Sample both clocks (every 200 ms) and update the estimates. `player`
+    /// is the pipe into the speaker's player.
+    fn tick(&mut self, now: Instant, player: Option<RawFd>) -> bool {
         if now.saturating_duration_since(self.last) < Duration::from_millis(200) {
             return false;
         }
         self.last = now;
-        self.spk_status = self
-            .spk
-            .sample_text(now)
-            .map(|text| (text, monotonic_now(), Instant::now()));
+        // The pipe is read on both sides of the status: if the player took
+        // from it in between, the two can't be matched.
+        let before = player.and_then(pipe_unread_frames);
+        let status = self.spk.sample_text(now);
+        let after = player.and_then(pipe_unread_frames);
+        let unread = before.filter(|&b| after == Some(b));
+        self.spk_status = status.map(|text| (text, monotonic_now(), Instant::now(), unread));
         self.mic.sample(now);
         let mut changed = false;
         if let Some(d) = self.spk.deviation() {
@@ -1223,8 +1257,9 @@ impl Actor {
             }
 
             let now = Instant::now();
+            let player = self.session.as_ref().and_then(Session::player_fd);
             if let Some(c) = self.clocks.as_mut()
-                && c.tick(now)
+                && c.tick(now, player)
                 && let Some(s) = self.session.as_mut()
             {
                 s.set_rate(f64::from(OUT_RATE) * (1.0 + c.d_spk));
@@ -1233,10 +1268,10 @@ impl Actor {
                 }
             }
             if let Some(c) = self.clocks.as_mut()
-                && let Some((status, mono, at)) = c.spk_status.take()
+                && let Some((status, mono, at, unread)) = c.spk_status.take()
                 && let Some(s) = self.session.as_mut()
             {
-                s.follow_pointer(&status, &c.spk_sw_params(), mono, at);
+                s.follow_pointer(&status, &c.spk_sw_params(), mono, at, unread);
             }
             // Complete clips whose last frame has sounded.
             while let Some((end, _)) = self.finishing.front() {
@@ -1939,7 +1974,7 @@ mod tests {
             )
         };
         let none = Path::new("/nonexistent/sw_params");
-        s.follow_pointer(&status(14_400, mono - 0.008), none, mono, now);
+        s.follow_pointer(&status(14_400, mono - 0.008), none, mono, now, Some(0));
         let err = signed_secs(s.time_of(14_400), now) + 0.008;
         assert!(err.abs() < 1e-6, "{err}");
         // A stopped PCM or a closed one changes nothing.
@@ -1949,13 +1984,26 @@ mod tests {
             none,
             mono,
             now,
+            Some(0),
         );
-        s.follow_pointer("closed\n", none, mono, now);
+        s.follow_pointer("closed\n", none, mono, now, Some(0));
         assert_eq!(s.anchor_t, before);
         // Without a pointer (PipeWire), nothing either.
         s.pointer = None;
-        s.follow_pointer(&status(14_400, mono - 0.5), none, mono, now);
+        s.follow_pointer(&status(14_400, mono - 0.5), none, mono, now, Some(0));
         assert_eq!(s.anchor_t, before);
+    }
+
+    #[test]
+    fn the_frames_waiting_in_the_players_pipe_are_counted() {
+        use std::io::{Read, Write};
+        let (mut rx, mut tx) = std::io::pipe().unwrap();
+        assert_eq!(pipe_unread_frames(tx.as_raw_fd()), Some(0));
+        tx.write_all(&[0; 4 * 960]).unwrap();
+        assert_eq!(pipe_unread_frames(tx.as_raw_fd()), Some(960));
+        rx.read_exact(&mut [0; 4 * 100]).unwrap();
+        assert_eq!(pipe_unread_frames(tx.as_raw_fd()), Some(860));
+        assert_eq!(pipe_unread_frames(-1), None);
     }
 
     #[test]
