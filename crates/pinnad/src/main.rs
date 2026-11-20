@@ -24,7 +24,7 @@ mod mic;
 mod network;
 mod satellites;
 mod secrets;
-// The Brain starts the player and routes the media lane to it in the next step (ADR 0027).
+// The Brain routes pause, play, stop and the media volume to it in the next step (ADR 0027 §14).
 #[allow(dead_code)]
 mod sendspin;
 mod settings;
@@ -698,6 +698,9 @@ async fn main() -> Result<()> {
         Some(Backend::PipeWire) => "pipewire",
         Some(Backend::WavFile(_)) => "wav",
     };
+    // Only the Echo Dot's own output reads a hardware pointer: Sendspin plays
+    // in exact step there, and elsewhere at the pacing clock (ADR 0027 §12).
+    let exact_backend = backend.as_ref().is_some_and(Backend::echo_dot_mixer);
     let speaker = backend.clone().map(|b| {
         let echo_dot = b.echo_dot_mixer();
         let mut sc = SpeakerConfig::new(b);
@@ -1002,6 +1005,13 @@ async fn main() -> Result<()> {
     let airplay = speaker.is_some() && !cfg.audio.stream_socket.as_os_str().is_empty();
     // Bluetooth needs the same, and a controller.
     let bluetooth = airplay && bluetooth::present();
+    // Sendspin plays on the speaker's media lane itself (ADR 0027).
+    let sendspin = sendspin::Setup::new(
+        speaker.as_deref().cloned(),
+        exact_backend,
+        cli.settings.with_file_name("sendspin.toml"),
+        sendspin::device_info(pinna_hal::ident::board_model(), Some(mac)),
+    );
     let spawner = ProdSpawner::new(
         in_tx.clone(),
         status_rx,
@@ -1028,6 +1038,7 @@ async fn main() -> Result<()> {
             settings_file: cli.settings.clone(),
             airplay,
             bluetooth,
+            sendspin: Some(sendspin),
             settings: initial,
             updates: Some(updater),
         },

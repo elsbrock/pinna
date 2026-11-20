@@ -1073,6 +1073,7 @@ mod tests {
                     privacy_trigger: Vec::new(),
                     airplay: false,
                     bluetooth: false,
+                    sendspin: None,
                     settings: Settings {
                         mode,
                         ..Settings::default()

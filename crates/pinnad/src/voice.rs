@@ -312,6 +312,7 @@ pub struct SettingsPatch {
     pub url: Option<Option<String>>,
     pub airplay: Option<bool>,
     pub bluetooth: Option<bool>,
+    pub sendspin: Option<bool>,
     /// Stop following `volume` at this level.
     pub reply_volume: Option<u8>,
     /// `true`: follow `volume` again. `false`: keep the current level.
@@ -400,6 +401,8 @@ pub struct Snapshot {
     pub airplay: crate::airplay::Report,
     /// Bluetooth as it is (ADR 0011).
     pub bluetooth: crate::bluetooth::Report,
+    /// The Sendspin player as it is (ADR 0027).
+    pub sendspin: crate::sendspin::Report,
     pub ring_light: RingLight,
     pub media: MediaSnapshot,
     /// The "Updates" setting in effect (ADR 0022).
@@ -444,6 +447,7 @@ impl Default for Snapshot {
             led_test: false,
             airplay: Default::default(),
             bluetooth: Default::default(),
+            sendspin: Default::default(),
             ring_light: RingLight::default(),
             media: MediaSnapshot::default(),
             update_channel: crate::updates::UpdateChannel::Off,
@@ -514,6 +518,9 @@ pub struct Options {
     pub airplay: bool,
     /// Bluetooth can run: AirPlay's needs, and a Bluetooth controller.
     pub bluetooth: bool,
+    /// The Sendspin player (ADR 0027), started in `run`; `None` in tests
+    /// that don't need it. Without a speaker the switch is refused.
+    pub sendspin: Option<crate::sendspin::Setup>,
     /// Settings at startup (already loaded from `settings_file`).
     pub settings: Settings,
     /// Update channels and installs (ADR 0022); `None` in tests that don't
@@ -633,6 +640,12 @@ pub struct Brain {
     /// Since when the bridge has been ready with the Wi-Fi up, until the
     /// start counts and the marker goes (`bluetooth::SETTLE`).
     bt_ready_since: Option<Instant>,
+    /// The Sendspin player (ADR 0027), started in `run`.
+    sendspin: Option<crate::sendspin::Handle>,
+    /// The player as it is: from the service once `run` starts it.
+    sendspin_report: watch::Receiver<crate::sendspin::Report>,
+    /// Sendspin can run: there is a speaker.
+    sendspin_available: bool,
     /// Wakes and near misses, oldest first.
     recent_wakes: VecDeque<WakeRecord>,
     /// The sensitivity tuning with the device's buttons, while it runs.
@@ -719,6 +732,12 @@ impl Brain {
             },
             name: String::new(),
         });
+        let sendspin_available = opts
+            .sendspin
+            .as_ref()
+            .is_some_and(crate::sendspin::Setup::has_speaker);
+        let (_, sendspin_report) =
+            watch::channel(crate::sendspin::Report::idle(sendspin_available));
         Self {
             esp,
             speaker,
@@ -781,6 +800,9 @@ impl Brain {
             bt_pairing_until: None,
             bt_skipped: None,
             bt_ready_since: None,
+            sendspin: None,
+            sendspin_report,
+            sendspin_available,
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
             reconnect_pending: false,
@@ -823,6 +845,14 @@ impl Brain {
                 // Also off: a target left over from before a restart stops.
                 let _ = tx.send(self.settings.bluetooth);
             }
+        }
+        if let Some(setup) = self.opts.sendspin.take() {
+            let (handle, report) = crate::sendspin::worker(setup);
+            self.sendspin = Some(handle);
+            self.sendspin_report = report;
+            // Also off: a record left over from before a restart goes. Saved
+            // on without a speaker, the setting stays saved, as AirPlay's.
+            self.apply_sendspin();
         }
         self.restore_timers(Instant::now(), SystemTime::now(), crate::clock::synced)
             .await;
@@ -1200,6 +1230,7 @@ impl Brain {
             settings: Settings {
                 airplay: self.airplay_on(),
                 bluetooth: self.bluetooth_on(),
+                sendspin: self.sendspin_on(),
                 ..self.settings.clone()
             },
             recent_wakes: self.recent_wakes.iter().cloned().collect(),
@@ -1236,6 +1267,7 @@ impl Brain {
             update_channel: self.update_channel(),
             held_messages: self.messages.held() as u32,
             airplay: self.airplay_report.borrow().clone(),
+            sendspin: self.sendspin_report.borrow().clone(),
             bluetooth: crate::bluetooth::report(
                 self.opts.bluetooth,
                 self.settings.bluetooth,
@@ -1312,6 +1344,11 @@ impl Brain {
         // Senders list it under the new name too.
         if self.airplay_on() {
             self.apply_airplay();
+        }
+        if self.sendspin_on()
+            && let Some(s) = &self.sendspin
+        {
+            s.rename(&self.friendly_name());
         }
     }
 
@@ -1555,6 +1592,11 @@ impl Brain {
                     on: self.bluetooth_on(),
                 })
                 .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "sendspin".into(),
+                    on: self.sendspin_on(),
+                })
+                .await;
                 self.send_pairing_switch(self.bt_pairing_until.is_some())
                     .await;
                 self.send(DeviceEvent::SwitchState {
@@ -1676,6 +1718,9 @@ impl Brain {
             }
             HaCommand::Switch { object_id, on } if object_id == "bluetooth" => {
                 self.set_bluetooth(on).await;
+            }
+            HaCommand::Switch { object_id, on } if object_id == "sendspin" => {
+                self.set_sendspin(on).await;
             }
             HaCommand::Switch { object_id, on } if object_id == "notification" => {
                 self.set_notification(on).await;
@@ -1967,6 +2012,12 @@ impl Brain {
                  Logs, under System, says why.",
             );
         }
+        if patch.sendspin == Some(true) && !self.sendspin_available {
+            return Some(
+                "This satellite has no working speaker, so it can't play from Music Assistant. \
+                 Logs, under System, says why.",
+            );
+        }
         None
     }
 
@@ -2011,6 +2062,9 @@ impl Brain {
         }
         if let Some(on) = patch.bluetooth {
             self.set_bluetooth(on).await;
+        }
+        if let Some(on) = patch.sendspin {
+            self.set_sendspin(on).await;
         }
         match (patch.reply_follows_volume, patch.reply_volume) {
             (Some(true), _) => self.set_reply_volume(None).await,
@@ -2490,6 +2544,37 @@ impl Brain {
         }
         self.send(DeviceEvent::SwitchState {
             object_id: "airplay".into(),
+            on,
+        })
+        .await;
+    }
+
+    /// Sendspin as it is: saved on, and the device has a speaker.
+    fn sendspin_on(&self) -> bool {
+        self.settings.sendspin && self.sendspin_available
+    }
+
+    /// Hand the player as it should be to the service: on under the current
+    /// name, or off.
+    fn apply_sendspin(&self) {
+        if let Some(s) = &self.sendspin {
+            s.enable(self.sendspin_on().then(|| crate::sendspin::Params {
+                name: self.friendly_name(),
+            }));
+        }
+    }
+
+    /// Sendspin on or off, from the dashboard or Home Assistant. Stays off on
+    /// a device without a speaker.
+    async fn set_sendspin(&mut self, on: bool) {
+        let on = on && self.sendspin_available;
+        if on != self.settings.sendspin {
+            self.settings.sendspin = on;
+            self.store.save(&self.settings);
+            self.apply_sendspin();
+        }
+        self.send(DeviceEvent::SwitchState {
+            object_id: "sendspin".into(),
             on,
         })
         .await;
@@ -3543,6 +3628,7 @@ mod checked_media_tests {
                 privacy_trigger: Vec::new(),
                 airplay: false,
                 bluetooth: false,
+                sendspin: None,
                 settings: Settings::default(),
             },
         )

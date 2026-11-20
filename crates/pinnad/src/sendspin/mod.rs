@@ -112,6 +112,21 @@ pub struct Report {
     pub stats: Stats,
 }
 
+impl Report {
+    /// The player before the service runs: Off, or Unavailable without a speaker.
+    pub fn idle(speaker: bool) -> Self {
+        Self {
+            state: if speaker {
+                State::Off
+            } else {
+                State::Unavailable
+            },
+            volume: saved::VOLUME_DEFAULT,
+            ..Self::default()
+        }
+    }
+}
+
 /// A command for the admitted server's group, through the controller role (ADR 0027 §14).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
@@ -191,6 +206,11 @@ pub struct Setup {
 }
 
 impl Setup {
+    /// There is a speaker to play on: without one the switch is refused.
+    pub fn has_speaker(&self) -> bool {
+        self.output.is_some()
+    }
+
     /// The player on `speaker`, listening on every address at [`PORT`] and publishing its
     /// record through systemd-resolved.
     pub fn new(
@@ -301,15 +321,54 @@ impl Handle {
 /// called inside a tokio runtime. Dropping every handle stops it without a goodbye.
 pub fn worker(setup: Setup) -> (Handle, watch::Receiver<Report>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    let (report_tx, report_rx) = watch::channel(Report {
-        state: if setup.output.is_some() {
-            State::Off
-        } else {
-            State::Unavailable
-        },
-        volume: saved::VOLUME_DEFAULT,
-        ..Report::default()
-    });
+    let (report_tx, report_rx) = watch::channel(Report::idle(setup.has_speaker()));
     tokio::spawn(service::run(setup, rx, report_tx));
     (Handle { tx }, report_rx)
+}
+
+/// What the Brain asked of a [`fake`] handle.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Asked {
+    Enable(Option<String>),
+    Rename(String),
+    Control(Control),
+    Volume(u8),
+    Muted(bool),
+    AnotherSource,
+}
+
+/// A stand-in for the service, for the Brain's tests: [`Handle::control`] answers `controls`,
+/// every command arrives in order as [`Asked`], and the report is the test's to set. Must be
+/// called inside a tokio runtime.
+#[cfg(test)]
+pub(crate) fn fake(
+    controls: bool,
+) -> (
+    Handle,
+    watch::Sender<Report>,
+    mpsc::UnboundedReceiver<Asked>,
+) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (asked_tx, asked) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Some(command) = rx.recv().await {
+            let asked = match command {
+                Command::Enable(params) => Asked::Enable(params.map(|p| p.name)),
+                Command::Rename(name) => Asked::Rename(name),
+                Command::Control(control, reply) => {
+                    let _ = reply.send(controls);
+                    Asked::Control(control)
+                }
+                Command::SetVolume(volume) => Asked::Volume(volume),
+                Command::SetMuted(muted) => Asked::Muted(muted),
+                Command::AnotherSource => Asked::AnotherSource,
+            };
+            if asked_tx.send(asked).is_err() {
+                return;
+            }
+        }
+    });
+    let (report, _) = watch::channel(Report::idle(true));
+    (Handle { tx }, report, asked)
 }

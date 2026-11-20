@@ -305,6 +305,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         last_boot: MessageField::some(last_boot(&info.last_boot)),
         airplay: MessageField::some(airplay(&s.airplay)),
         bluetooth: MessageField::some(bluetooth(&s.bluetooth)),
+        sendspin: MessageField::some(sendspin(&s.sendspin)),
         settings: MessageField::some(pinna_api::Settings {
             wake_word: s.settings.wake_word,
             wake_sensitivity: s.settings.wake_sensitivity.into(),
@@ -316,6 +317,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             url: s.settings.url.clone().unwrap_or_default(),
             airplay: s.settings.airplay,
             bluetooth: s.settings.bluetooth,
+            sendspin: s.settings.sendspin,
             time_zone: s.settings.time_zone.clone().unwrap_or_else(|| "UTC".into()),
             reply_volume: s.settings.reply_volume.map(u32::from),
             listening_direction: s.settings.listening_direction,
@@ -503,6 +505,28 @@ fn bluetooth(r: &crate::bluetooth::Report) -> pinna_api::Bluetooth {
             })
             .collect(),
         reason: reason.into(),
+        ..Default::default()
+    }
+}
+
+/// The Sendspin player as the API reports it (ADR 0027).
+fn sendspin(r: &crate::sendspin::Report) -> pinna_api::Sendspin {
+    use crate::sendspin::State;
+    use pinna_api::SendspinState as S;
+    let state = match &r.state {
+        State::Off => S::SENDSPIN_STATE_OFF,
+        State::Ready => S::SENDSPIN_STATE_READY,
+        State::Connected(_) => S::SENDSPIN_STATE_CONNECTED,
+        State::Playing => S::SENDSPIN_STATE_PLAYING,
+        State::Failed(_) => S::SENDSPIN_STATE_FAILED,
+        State::Unavailable => S::SENDSPIN_STATE_UNAVAILABLE,
+    };
+    pinna_api::Sendspin {
+        state: buffa::EnumValue::Known(state),
+        name: r.name.clone(),
+        server: r.server.clone(),
+        reason: r.reason.clone(),
+        exact_timing: r.exact_timing,
         ..Default::default()
     }
 }
@@ -810,6 +834,7 @@ impl DeviceService for DeviceApi {
             url,
             airplay: request.airplay,
             bluetooth: request.bluetooth,
+            sendspin: request.sendspin,
             reply_volume: percent("reply_volume", request.reply_volume)?,
             reply_follows_volume: request.reply_follows_volume,
             listening_direction: request.listening_direction,
@@ -1424,7 +1449,7 @@ mod tests {
     }
 
     async fn start_device_with(updater: impl Into<Arc<Updater>>) -> (Client, mpsc::Sender<Input>) {
-        start_device_inner(updater, None, None, None).await
+        start_device_inner(updater, None, None, None, None).await
     }
 
     async fn start_device_inner(
@@ -1432,6 +1457,7 @@ mod tests {
         wifi: Option<crate::wifi::Wifi>,
         sats: Option<watch::Receiver<satellites::Seen>>,
         wake: Option<(crate::wakewords::Catalogue, Checker)>,
+        sendspin: Option<crate::sendspin::Setup>,
     ) -> (Client, mpsc::Sender<Input>) {
         let (catalogue, checker) = match wake {
             Some((catalogue, checker)) => (Arc::new(catalogue), checker),
@@ -1475,6 +1501,7 @@ mod tests {
                 )),
                 airplay: false,
                 bluetooth: false,
+                sendspin,
                 settings: crate::settings::Settings {
                     volume: 40,
                     ..Default::default()
@@ -1811,6 +1838,7 @@ mod tests {
             None,
             None,
             Some((catalogue, checker)),
+            None,
         )
         .await;
         (c, dir)
@@ -2098,8 +2126,14 @@ mod tests {
     #[tokio::test]
     async fn satellites_come_from_the_last_search() {
         let (tx, rx) = watch::channel(satellites::Seen::default());
-        let (c, _inputs) =
-            start_device_inner(Updater::new(UpdaterPaths::default()), None, Some(rx), None).await;
+        let (c, _inputs) = start_device_inner(
+            Updater::new(UpdaterPaths::default()),
+            None,
+            Some(rx),
+            None,
+            None,
+        )
+        .await;
         let list = async || {
             c.list_satellites(pinna_api::ListSatellitesRequest::default())
                 .await
@@ -2651,6 +2685,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sendspin_stays_off_without_a_speaker() {
+        let (c, inputs) = start_device().await;
+        let on = |s: &Status| s.settings.as_option().unwrap().sendspin;
+        let st = status(&c).await;
+        assert!(!on(&st), "off by default");
+        assert_eq!(
+            st.sendspin.as_option().unwrap().state,
+            buffa::EnumValue::Known(pinna_api::SendspinState::SENDSPIN_STATE_UNAVAILABLE)
+        );
+        let err = c
+            .update_settings(UpdateSettingsRequest {
+                sendspin: Some(true),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, connectrpc::ErrorCode::FailedPrecondition);
+        inputs
+            .send(Input::Ha(HaCommand::Switch {
+                object_id: "sendspin".into(),
+                on: true,
+            }))
+            .await
+            .unwrap();
+        // Off from the dashboard is always fine, and orders after the switch.
+        c.update_settings(UpdateSettingsRequest {
+            sendspin: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert!(!on(&status(&c).await));
+    }
+
+    /// The real player, on loopback: the dashboard switches it on, Status
+    /// follows it, a rename re-publishes its record, and Home Assistant's
+    /// switch turns it off (ADR 0027 §2).
+    #[tokio::test]
+    async fn sendspin_switches_on_and_follows_a_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let speaker = pinna_audio::Speaker::new(pinna_audio::SpeakerConfig::new(
+            pinna_audio::Backend::WavFile(dir.path().join("out.wav")),
+        ));
+        let record = dir.path().join("dnssd/pinna-sendspin.dnssd");
+        let mut setup = crate::sendspin::Setup::new(
+            Some(speaker),
+            false,
+            dir.path().join("sendspin.toml"),
+            crate::sendspin::device_info("echo-dot-2", None),
+        );
+        setup.listen = vec![SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 0))];
+        setup.mdns = crate::sendspin::Mdns {
+            file: record.clone(),
+            resolved: false,
+        };
+        let (c, inputs) = start_device_inner(
+            Updater::new(UpdaterPaths::default()),
+            None,
+            None,
+            None,
+            Some(setup),
+        )
+        .await;
+        let player = |s: &Status| s.sendspin.as_option().unwrap().clone();
+        async fn until(c: &Client, what: impl Fn(&Status) -> bool) -> Status {
+            for _ in 0..250 {
+                let s = status(c).await;
+                if what(&s) {
+                    return s;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            panic!("timed out; the status is {:?}", status(c).await.sendspin);
+        }
+        let state = |s: &Status, want| {
+            s.sendspin.as_option().unwrap().state == buffa::EnumValue::Known(want)
+        };
+        use pinna_api::SendspinState as S;
+        let st = until(&c, |s| state(s, S::SENDSPIN_STATE_OFF)).await;
+        assert!(!st.settings.as_option().unwrap().sendspin);
+
+        c.update_settings(UpdateSettingsRequest {
+            sendspin: Some(true),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let st = until(&c, |s| state(s, S::SENDSPIN_STATE_READY)).await;
+        assert!(st.settings.as_option().unwrap().sendspin);
+        assert_eq!(player(&st).name, "Echo Dot aabbcc");
+        assert!(player(&st).reason.is_empty());
+        let text = std::fs::read_to_string(&record).unwrap();
+        assert!(text.contains("\nName=Echo Dot aabbcc\n"), "{text}");
+
+        c.update_settings(UpdateSettingsRequest {
+            friendly_name: Some("Kitchen".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        until(&c, |s| player(s).name == "Kitchen").await;
+        let text = std::fs::read_to_string(&record).unwrap();
+        assert!(text.contains("\nName=Kitchen\n"), "{text}");
+
+        inputs
+            .send(Input::Ha(HaCommand::Switch {
+                object_id: "sendspin".into(),
+                on: false,
+            }))
+            .await
+            .unwrap();
+        let st = until(&c, |s| state(s, S::SENDSPIN_STATE_OFF)).await;
+        assert!(!st.settings.as_option().unwrap().sendspin);
+        assert!(!record.exists(), "the record is withdrawn");
+    }
+
+    #[tokio::test]
     async fn bluetooth_stays_off_without_a_controller() {
         let (c, inputs) = start_device().await;
         let on = |s: &Status| s.settings.as_option().unwrap().bluetooth;
@@ -3088,6 +3239,7 @@ mod tests {
         let (c, _inputs) = start_device_inner(
             Updater::new(UpdaterPaths::default()),
             Some(wifi),
+            None,
             None,
             None,
         )

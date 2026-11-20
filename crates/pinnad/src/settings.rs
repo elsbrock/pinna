@@ -115,6 +115,10 @@ pub struct Settings {
     /// Bluetooth on or off ("Bluetooth" switch, ADR 0011). Off by default.
     #[serde(default)]
     pub bluetooth: bool,
+    /// The Sendspin player on or off ("Sendspin" switch, ADR 0027). Off by
+    /// default: anyone on the network can play to it.
+    #[serde(default)]
+    pub sendspin: bool,
     /// Where the satellite looks for releases ("Updates" select, ADR 0022).
     /// `None`: `updates::default_channel`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -148,6 +152,7 @@ impl Default for Settings {
             url: None,
             airplay: false,
             bluetooth: false,
+            sendspin: false,
             update_channel: None,
             group_messages: None,
             extra: toml::Table::new(),
@@ -398,7 +403,8 @@ mod tests {
              listening_direction = true\n\
              notification = false\n\
              airplay = false\n\
-             bluetooth = false\n"
+             bluetooth = false\n\
+             sendspin = false\n"
         );
     }
 

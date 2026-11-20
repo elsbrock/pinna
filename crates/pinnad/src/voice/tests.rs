@@ -39,6 +39,7 @@ impl Device {
                 privacy_trigger: Vec::new(),
                 airplay: false,
                 bluetooth: false,
+                sendspin: None,
                 settings: Settings::default(),
             },
         );
@@ -470,4 +471,116 @@ async fn group_messages_is_a_home_assistant_switch() {
     assert!(!d.brain.settings.group_messages());
     let saved = std::fs::read_to_string(d._dir.path().join("settings.toml")).unwrap();
     assert!(saved.contains("group_messages = false"), "{saved}");
+}
+
+// --- Sendspin (ADR 0027) -----------------------------------------------------
+
+use crate::sendspin::{Asked, Report};
+
+impl Device {
+    /// With a stand-in for the Sendspin service that answers pause, play and
+    /// stop with `controls`, as `run` would start the service.
+    fn with_sendspin(
+        controls: bool,
+    ) -> (Self, watch::Sender<Report>, mpsc::UnboundedReceiver<Asked>) {
+        let mut d = Self::new();
+        let (handle, report, asked) = crate::sendspin::fake(controls);
+        d.brain.sendspin = Some(handle);
+        d.brain.sendspin_report = report.subscribe();
+        d.brain.sendspin_available = true;
+        (d, report, asked)
+    }
+}
+
+/// What the Brain asked of the Sendspin service since the last call.
+async fn asked(rx: &mut mpsc::UnboundedReceiver<Asked>) -> Vec<Asked> {
+    // The stand-in's task takes what was sent once this task yields.
+    for _ in 0..4 {
+        tokio::task::yield_now().await;
+    }
+    std::iter::from_fn(|| rx.try_recv().ok()).collect()
+}
+
+/// The "Sendspin" switch: reported when Home Assistant connects, saved, and
+/// handed to the service under the satellite's name, which a rename follows.
+#[tokio::test]
+async fn sendspin_is_a_home_assistant_switch() {
+    let (mut d, _report, mut rx) = Device::with_sendspin(true);
+    let state = |on| DeviceEvent::SwitchState {
+        object_id: "sendspin".into(),
+        on,
+    };
+    d.ha(HaCommand::ClientConnected {
+        peer: "192.0.2.1:6053".into(),
+    })
+    .await;
+    let events: Vec<_> = std::iter::from_fn(|| d.events.try_recv().ok()).collect();
+    assert!(events.contains(&state(false)), "{events:?}");
+
+    d.ha(HaCommand::Switch {
+        object_id: "sendspin".into(),
+        on: true,
+    })
+    .await;
+    d.expect(&[state(true)]);
+    assert_eq!(asked(&mut rx).await, [Asked::Enable(Some("Test".into()))]);
+    assert!(d.brain.snapshot().settings.sendspin);
+    let saved = std::fs::read_to_string(d._dir.path().join("settings.toml")).unwrap();
+    assert!(saved.contains("sendspin = true"), "{saved}");
+
+    let (reply, result) = oneshot::channel();
+    d.brain
+        .handle(Input::Api(ApiCommand::UpdateSettings(
+            SettingsPatch {
+                friendly_name: Some("Kitchen".into()),
+                ..SettingsPatch::default()
+            },
+            reply,
+        )))
+        .await;
+    result.await.unwrap().unwrap();
+    assert_eq!(asked(&mut rx).await, [Asked::Rename("Kitchen".into())]);
+
+    // The rename's own events (the friendly name) are not this test's.
+    while d.events.try_recv().is_ok() {}
+    d.ha(HaCommand::Switch {
+        object_id: "sendspin".into(),
+        on: false,
+    })
+    .await;
+    d.expect(&[state(false)]);
+    assert_eq!(asked(&mut rx).await, [Asked::Enable(None)]);
+    let saved = std::fs::read_to_string(d._dir.path().join("settings.toml")).unwrap();
+    assert!(saved.contains("sendspin = false"), "{saved}");
+}
+
+/// Without a speaker the switch stays off, and the dashboard is told why.
+#[tokio::test]
+async fn sendspin_is_refused_without_a_speaker() {
+    let mut d = Device::new();
+    d.ha(HaCommand::Switch {
+        object_id: "sendspin".into(),
+        on: true,
+    })
+    .await;
+    d.expect(&[DeviceEvent::SwitchState {
+        object_id: "sendspin".into(),
+        on: false,
+    }]);
+    let (reply, result) = oneshot::channel();
+    d.brain
+        .handle(Input::Api(ApiCommand::UpdateSettings(
+            SettingsPatch {
+                sendspin: Some(true),
+                ..SettingsPatch::default()
+            },
+            reply,
+        )))
+        .await;
+    assert_eq!(
+        result.await.unwrap().unwrap_err(),
+        "This satellite has no working speaker, so it can't play from Music Assistant. \
+         Logs, under System, says why."
+    );
+    assert!(!d.brain.snapshot().settings.sendspin);
 }
