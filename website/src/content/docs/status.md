@@ -58,6 +58,13 @@ These parts are covered by tests that run without hardware:
 - [AirPlay](/docs/airplay/) turns on and off in the x86_64 virtual machine:
   the receiver starts, publishes its AirPlay record, reports that it is ready,
   and stops again.
+- The [Sendspin](/docs/sendspin/) player, which is experimental, plays
+  sessions with a test server over a WebSocket on the same computer: the
+  encrypted handshake, audio on the server's timeline, volume and mute in
+  both directions, a paused group and its controls, a rename, and refusing a
+  browser or a third server. In a simulation of the speaker, timed playback
+  stays within 1 ms of the server's clock from 10 seconds after a stream
+  starts.
 
 On the devices:
 
@@ -102,6 +109,12 @@ On the devices:
   has been tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs, not
   yet with each hosted service.
   - MCP servers that need a sign-in or a token in a header can't be added.
+- **Sendspin is experimental.** Its specification is still a draft. Music
+  Assistant connects without pairing, so anyone on your network can play to
+  the satellite. How closely the satellite keeps step with other speakers
+  isn't measured on a device yet: the delay from the speaker's hardware
+  clock to the sound counts as 0 until it is. See
+  [Play music with Sendspin](/docs/sendspin/#limits).
 
 ## Planned
 
@@ -116,8 +129,9 @@ On the devices:
 - **A setup hotspot password that only the owner can learn**, instead of one
   that every device shares (ADR 0028).
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
-- **Multi-room with Music Assistant** through its own protocol, Sendspin: the
-  device would play in step with other speakers in a group.
+- **Pairing for Sendspin through Home Assistant**: Home Assistant would hand
+  the satellite's pairing key to Music Assistant, so that only your Music
+  Assistant could play to it (ADR 0027).
 
 These plans follow the project's [goals](/docs/goals/).
 
