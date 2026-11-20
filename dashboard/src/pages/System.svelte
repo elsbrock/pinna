@@ -208,7 +208,6 @@
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
     <a class="pn-row" href="#/system/logs">
-      <span class="pn-row-icon"><Icon name="logs" /></span>
       <span class="pn-row-text">
         <span class="pn-row-label">Logs</span>
         <span class="pn-row-hint" class:is-danger={crashed}>
