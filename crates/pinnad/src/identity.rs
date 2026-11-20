@@ -223,7 +223,7 @@ pub fn speaker_flat(profile: Option<&str>, model: &str) -> bool {
     }
 }
 
-fn quote_txt(k: &str, v: &str) -> String {
+pub(crate) fn quote_txt(k: &str, v: &str) -> String {
     let kv = format!("{k}={v}");
     if kv
         .chars()
