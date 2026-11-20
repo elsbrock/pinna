@@ -60,11 +60,12 @@ Device facts that constrain the design:
 - Wi-Fi/BT firmware and the microphone FPGA bitstream (ADR 0006) are
   fetched, not committed: `just firmware` downloads them from
   `https://static.iodev.org/pinna/firmware/` into `blobs/firmware/` and checks
-  their sha256, and the kernel and image builds take them from there. Neither
-  has a source other than the device's stock firmware or LibreEcho's Linux tree, so an
-  owner without them would have no Wi-Fi or no microphones. They are Amazon's
-  files and carry no license, so they stay out of the repository and its
-  history: a claim against them concerns one download, not the source tree.
+  their sha256, and the kernel and image builds take them from there. Their
+  only public sources are the device's stock firmware and LibreEcho's
+  repositories, so an owner without them would have no Wi-Fi or no
+  microphones. They are Amazon's files and carry no license, so they stay out
+  of the repository: a claim against them concerns one download, not the
+  source tree.
   Amended 2026-11-20; from 2026-11-15 they were committed (`firmware/`,
   `kernel/firmware/`), and before that owner-supplied in `blobs/`.
 - Moving to Debian's kernel source (6.12 LTS) means porting the board patches:

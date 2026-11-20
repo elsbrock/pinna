@@ -35,7 +35,7 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
 - **The microphone FPGA bitstream is built in** (31 KB) with
   `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it at probe, before
   the root is mounted, so the device kernel cannot be built without it, and
-  LibreEcho's Linux tree is its only public source. Like the Wi-Fi/BT
+  LibreEcho's repositories are its only public source. Like the Wi-Fi/BT
   firmware, it isn't committed: `just firmware` fetches it into
   `blobs/firmware/` (ADR 0001, amended 2026-11-20).
 - **Config from allnoconfig + fragments.** `common.config` holds what every
