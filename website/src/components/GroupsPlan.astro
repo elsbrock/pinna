@@ -1,15 +1,15 @@
 ---
 // The landing page's satellite groups: a floor plan with three satellites
 // seen from above, each in its room and to its own wake word. They play three
-// scenes: the hall passes a message to the kitchen, the kitchen sets a timer
-// in the office, and the office turns the kitchen down. Rings use the
-// devices' own frames (design/ring.ts). Runs only on screen; under reduced
+// scenes: the kitchen tells the living room that dinner is ready, the living
+// room sets a timer in the office, and the office turns the kitchen down.
+// Rings use the devices' own frames (design/ring.ts). Runs only on screen; under reduced
 // motion, and without JavaScript, it shows the message arriving.
 import Icon from "./Icon.astro";
 import { docHref } from "../lib/site";
 
 const rooms = [
-  { key: "hall", name: "Hall", device: "Echo (2nd gen)", wake: "Hey Jarvis", big: true },
+  { key: "hall", name: "Living room", device: "Echo (2nd gen)", wake: "Hey Jarvis", big: true },
   { key: "kitchen", name: "Kitchen", device: "Echo Dot (2nd gen)", wake: "Okay Nabu", big: false },
   { key: "office", name: "Office", device: "Echo Dot (2nd gen)", wake: "Hey Mycroft", big: false },
 ];
@@ -377,22 +377,22 @@ const rooms = [
 
   const TIMER_S = 600;
   const BEATS: Beat[] = [
-    // The hall passes a message to the kitchen.
-    { ms: 2600, rings: { hall: { effect: "listening" } }, say: { hall: { kind: "request", text: "Hey Jarvis, tell the kitchen that dinner is ready." } } },
-    { ms: 1400, rings: { hall: { effect: "thinking" } }, link: ["hall", "kitchen"] },
+    // The kitchen tells the living room that dinner is ready.
+    { ms: 2600, rings: { kitchen: { effect: "listening" } }, say: { kitchen: { kind: "request", text: "Okay Nabu, tell the living room that dinner is ready." } } },
+    { ms: 1400, rings: { kitchen: { effect: "thinking" } }, link: ["kitchen", "hall"] },
     {
       ms: 3000,
-      rings: { hall: { effect: "thinking" }, kitchen: { effect: "speaking" } },
-      say: { kitchen: { kind: "reply", text: "Message from Hall: dinner is ready." } },
-      link: ["hall", "kitchen"],
+      rings: { kitchen: { effect: "thinking" }, hall: { effect: "speaking" } },
+      say: { hall: { kind: "reply", text: "Message from Kitchen: dinner is ready." } },
+      link: ["kitchen", "hall"],
     },
-    { ms: 2200, rings: { hall: { effect: "speaking" } }, say: { hall: { kind: "reply", text: "I told the kitchen." } } },
+    { ms: 2200, rings: { kitchen: { effect: "speaking" } }, say: { kitchen: { kind: "reply", text: "I told the living room." } } },
     { ms: 1600 },
-    // The kitchen sets a timer in the office.
-    { ms: 2800, rings: { kitchen: { effect: "listening" } }, say: { kitchen: { kind: "request", text: "Okay Nabu, set a 10 minute timer in the office." } } },
-    { ms: 1400, rings: { kitchen: { effect: "thinking" } }, link: ["kitchen", "office"] },
-    { ms: 1200, rings: { kitchen: { effect: "thinking" } }, link: ["kitchen", "office"], timer: true },
-    { ms: 2600, rings: { kitchen: { effect: "speaking" } }, say: { kitchen: { kind: "reply", text: "The office timer runs for 10 minutes." } } },
+    // The living room sets a timer in the office.
+    { ms: 2800, rings: { hall: { effect: "listening" } }, say: { hall: { kind: "request", text: "Hey Jarvis, set a 10 minute timer in the office." } } },
+    { ms: 1400, rings: { hall: { effect: "thinking" } }, link: ["hall", "office"] },
+    { ms: 1200, rings: { hall: { effect: "thinking" } }, link: ["hall", "office"], timer: true },
+    { ms: 2600, rings: { hall: { effect: "speaking" } }, say: { hall: { kind: "reply", text: "The office timer runs for 10 minutes." } } },
     { ms: 1600 },
     // The office turns the kitchen down.
     { ms: 2600, rings: { office: { effect: "listening" } }, say: { office: { kind: "request", text: "Hey Mycroft, turn the kitchen down." } } },

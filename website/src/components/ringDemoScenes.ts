@@ -1,8 +1,8 @@
 // The requests the hero demo (RingDemo.astro) plays, in order. The page draws
 // the scene row from this list and the script plays it, so both agree.
 //
-// A device is an index into the drawings: 0 the Echo (2nd gen), named Hall,
-// 1 the Echo Dot (2nd gen), named Kitchen. Each listens for its own wake
+// A device is an index into the drawings: 0 the Echo (2nd gen), named Living
+// room, 1 the Echo Dot (2nd gen), named Kitchen. Each listens for its own wake
 // word. A beat lights the devices it names and leaves the others dark. The
 // phase lengths are the demo's, not measured response times.
 import type { Effect } from "../../../design/ring";
@@ -30,8 +30,8 @@ const ask = (device: number, request: string, reply: string): Beat[] => [
   { ms: 3400, parts: [{ device, effect: "speaking", reply }] },
 ];
 
-// The devices take turns: the message ends on the Dot, so the Echo answers
-// next, and the list wraps round to the Dot.
+// The devices take turns: the message starts and ends on the Dot, so the
+// Echo answers next, and the list wraps round to the Dot.
 export const SCENES: Scene[] = [
   {
     name: "Lights",
@@ -44,26 +44,21 @@ export const SCENES: Scene[] = [
     beats: ask(ECHO, "Hey Jarvis, will it rain tomorrow?", "Light rain from noon, up to 12 degrees."),
   },
   {
-    name: "Shopping list",
-    mode: "home-assistant",
-    beats: ask(DOT, "Okay Nabu, add milk to the shopping list.", "Milk is on the shopping list."),
-  },
-  {
     // The brain sends the message with its send_message tool while it thinks;
-    // the Kitchen says it at once, then Hall answers.
+    // the living room says it at once, then the kitchen answers.
     name: "Message to another satellite",
     mode: "standalone",
     beats: [
-      { ms: 2800, parts: [{ device: ECHO, effect: "listening", request: "Hey Jarvis, tell the kitchen that dinner is ready." }] },
-      { ms: 1200, parts: [{ device: ECHO, effect: "thinking", request: "Hey Jarvis, tell the kitchen that dinner is ready." }] },
+      { ms: 2800, parts: [{ device: DOT, effect: "listening", request: "Okay Nabu, tell the living room that dinner is ready." }] },
+      { ms: 1200, parts: [{ device: DOT, effect: "thinking", request: "Okay Nabu, tell the living room that dinner is ready." }] },
       {
         ms: 3400,
         parts: [
-          { device: DOT, effect: "speaking", reply: "Message from Hall: dinner is ready." },
-          { device: ECHO, effect: "thinking" },
+          { device: ECHO, effect: "speaking", reply: "Message from Kitchen: dinner is ready." },
+          { device: DOT, effect: "thinking" },
         ],
       },
-      { ms: 2600, parts: [{ device: ECHO, effect: "speaking", reply: "I told the kitchen." }] },
+      { ms: 2600, parts: [{ device: DOT, effect: "speaking", reply: "I told the living room." }] },
     ],
   },
   {
