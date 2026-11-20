@@ -118,6 +118,8 @@ pub struct DeviceApi {
     auth: Option<Arc<Auth>>,
     /// Whose satellites in the list are members (ADR 0029).
     group: Option<Arc<Group>>,
+    /// Records the microphones (ADR 0030).
+    recorder: Option<Arc<crate::recording::Recorder>>,
 }
 
 /// WatchRing sends at most one frame per this interval.
@@ -149,7 +151,14 @@ impl DeviceApi {
             hotspot: watch::channel(crate::hotspot::State::default()).1,
             auth: None,
             group: None,
+            recorder: None,
         }
+    }
+
+    /// Answer `RecordAudio` and `StopRecording` with `recorder`.
+    pub fn with_recorder(mut self, recorder: Arc<crate::recording::Recorder>) -> Self {
+        self.recorder = Some(recorder);
+        self
     }
 
     pub fn with_hotspot(
@@ -379,6 +388,13 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         media: MessageField::some(media(&s.media)),
         assistant: MessageField::some(assistant(&s.assist)),
         held_messages: s.held_messages,
+        recording: s.recording.map_or_else(MessageField::none, |r| {
+            MessageField::some(pinna_api::Recording {
+                seconds_left: r.until.saturating_duration_since(now).as_secs_f32().ceil() as u32,
+                from: r.from.to_string(),
+                ..Default::default()
+            })
+        }),
         ..Default::default()
     }
 }
@@ -1671,9 +1687,19 @@ impl DeviceService for DeviceApi {
         ctx: RequestContext,
         request: ServiceRequest<'_, RecordAudioRequest>,
     ) -> ServiceResult<ServiceStream<RecordAudioResponse>> {
-        self.auth()?
-            .take_recording_grant(request.grant, session_cookie(&ctx))?;
-        Err(ConnectError::unimplemented("Recording is not built yet."))
+        let auth = self.auth()?;
+        let recorder = self
+            .recorder
+            .as_ref()
+            .ok_or_else(|| ConnectError::unavailable("This satellite can't record."))?;
+        crate::recording::check_seconds(request.seconds)?;
+        // Before the grant is used up: a refusal doesn't cost a press.
+        if let Some(refusal) = recorder.refusal() {
+            return Err(refusal);
+        }
+        auth.take_recording_grant(request.grant, session_cookie(&ctx))?;
+        let recording = recorder.start(caller(&ctx), request.seconds).await?;
+        Response::ok(Box::pin(recording.into_stream()))
     }
 
     async fn stop_recording(
@@ -1681,6 +1707,9 @@ impl DeviceService for DeviceApi {
         _ctx: RequestContext,
         _request: ServiceRequest<'_, StopRecordingRequest>,
     ) -> ServiceResult<StopRecordingResponse> {
+        if let Some(recorder) = &self.recorder {
+            recorder.stop();
+        }
         Response::ok(StopRecordingResponse::default())
     }
 

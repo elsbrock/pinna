@@ -1032,3 +1032,58 @@ async fn a_recording_confirmation_shows_its_own_pattern_and_takes_the_press_the_
     d.brain.refresh();
     assert_eq!(d.brain.leds.borrow().base, Effect::Idle);
 }
+
+#[tokio::test]
+async fn a_recording_shows_listening_below_everything_and_leaves_the_phase_alone() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    let from = "192.168.1.9".parse().unwrap();
+    d.brain
+        .handle(Input::RecordingStarted {
+            id: 1,
+            until: Instant::now() + Duration::from_secs(30),
+            from,
+        })
+        .await;
+    d.brain.refresh();
+    assert_eq!(d.brain.leds.borrow().base, Effect::Listening);
+    assert_eq!(d.brain.phase, Phase::Idle);
+    let s = d.brain.snapshot();
+    assert_eq!(s.phase, pinna_api::Phase::PHASE_IDLE);
+    assert_eq!(s.recording.map(|r| r.from), Some(from));
+
+    // Muted keeps its own pattern.
+    d.brain.sw_muted = true;
+    d.brain.refresh();
+    assert_eq!(d.brain.leds.borrow().base, Effect::Muted);
+    d.brain.sw_muted = false;
+
+    // The wake word still starts a request, which shows its own pattern.
+    d.ha(HaCommand::VoiceSubscribed(true)).await;
+    d.wake().await;
+    assert!(matches!(d.brain.phase, Phase::Starting(_)));
+    d.brain.refresh();
+    assert!(d.brain.snapshot().recording.is_some());
+
+    // Another recording's end doesn't end this one; its own does.
+    d.brain.handle(Input::RecordingEnded { id: 2 }).await;
+    assert!(d.brain.recording.is_some());
+    d.brain.handle(Input::RecordingEnded { id: 1 }).await;
+    assert!(d.brain.recording.is_none());
+    assert!(d.brain.snapshot().recording.is_none());
+}
+
+#[tokio::test]
+async fn a_recording_nobody_ended_is_forgotten_after_its_time_and_a_grace() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    d.brain
+        .handle(Input::RecordingStarted {
+            id: 1,
+            until: Instant::now() - crate::recording::BRAIN_GRACE - Duration::from_millis(1),
+            from: "192.168.1.9".parse().unwrap(),
+        })
+        .await;
+    d.brain.tick().await;
+    assert!(d.brain.recording.is_none());
+}

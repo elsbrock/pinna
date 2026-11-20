@@ -23,6 +23,7 @@ mod mcp;
 mod metrics;
 mod mic;
 mod network;
+mod recording;
 mod satellites;
 mod secrets;
 mod sendspin;
@@ -328,7 +329,12 @@ async fn capture_loop(
             continue;
         }
         let pre_gain = pinna_audio::agc::mean_square(&frame);
+        // The recording hears the frame before and after the gain (ADR 0030).
+        let before_gain = shared.recording.active().then_some(frame);
         gain.apply(&mut frame);
+        if let Some(before) = &before_gain {
+            shared.recording.frame(before, &frame);
+        }
         let streaming = shared.streaming.load(Ordering::SeqCst);
         // The wake detector's latest noise floor seeds the shadow endpointer.
         let noise_seed = match shared.noise_energy.load(Ordering::Relaxed) {
@@ -920,9 +926,22 @@ async fn main() -> Result<()> {
     );
     tokio::spawn(updater.clone().run_checks());
     tokio::spawn(updater.clone().run_automatic());
+    let recorder = recording::Recorder::new(
+        shared.clone(),
+        in_tx.clone(),
+        status_rx.clone(),
+        // The lanes and the echo reference exist on the Echo's PipeWire graph
+        // only.
+        (audio_backend == "echodot-pipewire").then(|| {
+            Arc::new(recording::PwRecord {
+                bin: "pw-record".into(),
+            }) as Arc<dyn recording::DebugCapture>
+        }),
+    );
     let device_api = Arc::new(
         device_api
             .with_auth(auth.clone())
+            .with_recorder(recorder)
             .with_group(group.clone())
             .with_ring(shown_rx)
             .with_satellites(satellites_rx.clone())

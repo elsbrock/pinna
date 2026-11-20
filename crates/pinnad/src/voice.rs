@@ -73,6 +73,8 @@ pub struct Shared {
     pub noise_energy: AtomicU64,
     /// What `/metrics` counts (ADR 0020).
     pub counters: crate::metrics::Counters,
+    /// Copies of the frames for a recording, while one runs (ADR 0030).
+    pub recording: crate::recording::Tap,
 }
 
 /// Someone must press Action (ADR 0029): the dashboard asked for presence at
@@ -130,6 +132,26 @@ pub enum Input {
     Message(Delivery),
     /// The dashboard waits for a press of Action (ADR 0029).
     Presence(Presence),
+    /// A recording from the microphones started (ADR 0030). The Brain shows
+    /// it and changes nothing else.
+    RecordingStarted {
+        id: u64,
+        /// When it ends at the latest.
+        until: Instant,
+        /// The browser that records.
+        from: std::net::IpAddr,
+    },
+    RecordingEnded {
+        id: u64,
+    },
+}
+
+/// A running recording, as the API shows it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RecordingSnapshot {
+    pub id: u64,
+    pub until: Instant,
+    pub from: std::net::IpAddr,
 }
 
 /// Answer to an API command: the state right after it was applied, or why it was refused.
@@ -427,6 +449,8 @@ pub struct Snapshot {
     pub update_channel: crate::updates::UpdateChannel,
     /// Messages from the satellite group waiting to be said (ADR 0026).
     pub held_messages: u32,
+    /// The running recording (ADR 0030).
+    pub recording: Option<RecordingSnapshot>,
 }
 
 /// A running calibration, as the API shows it.
@@ -470,6 +494,7 @@ impl Default for Snapshot {
             media: MediaSnapshot::default(),
             update_channel: crate::updates::UpdateChannel::Off,
             held_messages: 0,
+            recording: None,
         }
     }
 }
@@ -673,6 +698,9 @@ pub struct Brain {
     calibration: Option<Calibration>,
     /// A confirmation waiting for the Action button (ADR 0029).
     presence: Option<Presence>,
+    /// A recording runs (ADR 0030): the ring shows Listening when nothing
+    /// else shows, and an update's restart waits.
+    recording: Option<RecordingSnapshot>,
     /// Action confirmed a change and is still held: the rest of that hold
     /// is the confirmation's too, so no `long_press` follows (ADR 0029).
     confirm_held: bool,
@@ -833,6 +861,7 @@ impl Brain {
             recent_wakes: VecDeque::with_capacity(RECENT_WAKES),
             calibration: None,
             presence: None,
+            recording: None,
             confirm_held: false,
             reconnect_pending: false,
             update_restart_tried: None,
@@ -1064,6 +1093,14 @@ impl Brain {
             Input::Presence(presence) => {
                 tracing::info!("waiting for a press of Action to confirm a change");
                 self.presence = Some(presence);
+            }
+            Input::RecordingStarted { id, until, from } => {
+                self.recording = Some(RecordingSnapshot { id, until, from });
+            }
+            Input::RecordingEnded { id } => {
+                if self.recording.is_some_and(|r| r.id == id) {
+                    self.recording = None;
+                }
             }
         }
         self.tend_messages(Instant::now());
@@ -1331,6 +1368,7 @@ impl Brain {
             },
             update_channel: self.update_channel(),
             held_messages: self.messages.held() as u32,
+            recording: self.recording,
             airplay: self.airplay_report.borrow().clone(),
             sendspin: self.sendspin_report.borrow().clone(),
             bluetooth: crate::bluetooth::report(
@@ -1669,6 +1707,7 @@ impl Brain {
         };
         let now = Instant::now();
         if !self.quiet()
+            || self.recording.is_some()
             || !self.timers.is_empty()
             || self
                 .update_restart_tried
@@ -3610,6 +3649,14 @@ impl Brain {
         {
             self.presence = None;
         }
+        // The stream tells the Brain when it ends; this is for one that
+        // didn't.
+        if self
+            .recording
+            .is_some_and(|r| now >= r.until + crate::recording::BRAIN_GRACE)
+        {
+            self.recording = None;
+        }
         if let Some(mode) = self.pending_mode
             && self.switch_idle()
         {
@@ -3746,6 +3793,9 @@ impl Brain {
                 {
                     Effect::Speaking
                 }
+                // A recording shows the ring as listening, below everything
+                // else, and leaves the phase alone.
+                Phase::Idle if self.recording.is_some() => Effect::Listening,
                 Phase::Idle => Effect::Idle,
                 Phase::Starting(_) | Phase::Listening(_) => self
                     .talker

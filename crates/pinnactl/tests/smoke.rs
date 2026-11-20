@@ -407,6 +407,22 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn record_audio(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, RecordAudioRequest>,
+    ) -> ServiceResult<ServiceStream<RecordAudioResponse>> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn stop_recording(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StopRecordingRequest>,
+    ) -> ServiceResult<StopRecordingResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn create_token(
         &self,
         _: RequestContext,
