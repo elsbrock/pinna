@@ -11,6 +11,8 @@ The satellite plays music from these sources:
   [media player](/docs/entities/#media-player).
 - A phone or a computer, over [AirPlay](/docs/airplay/) or
   [Bluetooth](/docs/bluetooth/).
+- Music Assistant, over [Sendspin](/docs/sendspin/), in step with the other
+  speakers of a group.
 - In standalone mode, a radio station that you ask for by name. See
   [Choose what the brain may do](/docs/standalone/#choose-what-the-brain-may-do).
 
@@ -49,6 +51,13 @@ It has no **Pause**, because pausing ends the phone's session: use **Stop**,
 or pause on the phone. **Music volume** sets how loud that music plays on the
 device. The phone's own slider doesn't move.
 
+For [Sendspin](/docs/sendspin/), **Now playing** shows the title, artist and
+album that Music Assistant sends, and **From Music Assistant**. **Pause**,
+**Resume** and **Stop** act on the whole group in Music Assistant. While the
+group is paused, **Now playing** keeps the track, as paused. **Music volume**
+and **Mute music** are the device's volume and mute in Music Assistant, and
+Music Assistant's slider follows them.
+
 If an address doesn't play, what was playing keeps playing. **Now playing**
 shows **Couldn't play** under it, with the address and why, for example that
 the server answered `HTTP 404 Not Found`. **Dismiss** removes the message:
@@ -63,3 +72,4 @@ alarms still sound. When the device isn't reachable, **Now playing** says
 
 - [Play music with AirPlay](/docs/airplay/).
 - [Play music over Bluetooth](/docs/bluetooth/).
+- [Play music with Sendspin](/docs/sendspin/).
