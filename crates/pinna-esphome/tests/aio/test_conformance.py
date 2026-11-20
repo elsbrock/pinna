@@ -818,3 +818,40 @@ async def test_older_home_assistant_provisions_over_plaintext(request):
         await d.wait(d.cmd("encryption_key_set"), "encryption_key_set")
     finally:
         await d.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_closed_gate_refuses_connections_while_there_is_no_key():
+    d = await start_demo(None)
+    try:
+        open_client = d.client("open")
+        stopped = asyncio.Event()
+
+        async def on_stop(expected):
+            stopped.set()
+
+        await open_client.connect(on_stop=on_stop, login=True)
+        d.send("keyless closed")
+        await d.wait(lambda l: l.get("n") == 1, "keyless closed")
+        # A password is set: the connection that has no key ends, and a new
+        # one is closed right after accept.
+        await asyncio.wait_for(stopped.wait(), 5)
+        with pytest.raises(Exception):
+            await d.client("refused").connect(login=True)
+        # The window opens: it is provisionable as before.
+        d.send("keyless open")
+        await d.wait(lambda l: l.get("n") == 2, "keyless open")
+        c = d.client("window")
+        await c.connect(login=True)
+        assert (await c.device_info()).api_encryption_provisionable
+        new = bytes(range(1, 33))
+        assert await c.noise_encryption_set_key(base64.b64encode(new))
+        await d.wait(d.cmd("encryption_key_set"), "encryption_key_set")
+        # With Home Assistant's key the gate no longer matters.
+        d.send("keyless closed")
+        await d.wait(lambda l: l.get("n") == 3, "keyless closed again")
+        keyed = d.client("keyed", psk=base64.b64encode(new).decode())
+        await keyed.connect(login=True)
+        await keyed.disconnect()
+    finally:
+        await d.stop()

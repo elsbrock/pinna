@@ -5,7 +5,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -131,6 +131,8 @@ enum Input {
     Gone {
         id: u64,
     },
+    /// The gate closed: end the connections that have no key.
+    CloseKeyless,
 }
 
 /// Handle used by the device side to push [`DeviceEvent`]s. Cloneable.
@@ -138,6 +140,7 @@ enum Input {
 pub struct EsphomeHandle {
     tx: EventSender,
     addr: SocketAddr,
+    gate: Arc<Gate>,
 }
 
 #[derive(Clone)]
@@ -155,6 +158,7 @@ impl EsphomeHandle {
             Self {
                 tx: EventSender::Detached(tx),
                 addr: ([127, 0, 0, 1], 0).into(),
+                gate: Arc::new(Gate::new(Arc::new(Mutex::new(None)))),
             },
             rx,
         )
@@ -182,6 +186,60 @@ impl EsphomeHandle {
     pub fn local_addr(&self) -> SocketAddr {
         self.addr
     }
+
+    /// The server has an encryption key now, set by Home Assistant or at start.
+    pub fn has_key(&self) -> bool {
+        self.gate.key.lock().is_ok_and(|k| k.is_some())
+    }
+
+    /// Refuse connections while there is no key, or take them again (ADR 0029).
+    /// Closing also ends the connections that have no key now. Once there is
+    /// a key the gate no longer matters: only the key works.
+    pub fn set_keyless_closed(&self, closed: bool) {
+        self.gate.closed.store(closed, Ordering::SeqCst);
+        if closed && let EventSender::Server(tx) = &self.tx {
+            // The accept loop refuses new connections already; a full queue
+            // only delays ending the open ones.
+            let _ = tx.try_send(Input::CloseKeyless);
+        }
+    }
+}
+
+/// Whether a server without a key takes connections (ADR 0029). With a key
+/// the gate is open: only the key works, as before.
+struct Gate {
+    key: SharedKey,
+    closed: AtomicBool,
+    /// When a refusal was last logged: a scanner could otherwise fill the log.
+    logged: Mutex<Option<Instant>>,
+}
+
+/// At most one log line this often for refused connections.
+const REFUSAL_LOG_EVERY: Duration = Duration::from_secs(60);
+
+impl Gate {
+    fn new(key: SharedKey) -> Self {
+        Self {
+            key,
+            closed: AtomicBool::new(false),
+            logged: Mutex::new(None),
+        }
+    }
+
+    /// Whether a connection from `peer` at `now` is taken. A refusal is
+    /// logged once a minute, with the peer.
+    fn admit(&self, peer: SocketAddr, now: Instant) -> bool {
+        let keyless = self.key.lock().is_ok_and(|k| k.is_none());
+        if !(keyless && self.closed.load(Ordering::SeqCst)) {
+            return true;
+        }
+        let mut logged = self.logged.lock().unwrap_or_else(|e| e.into_inner());
+        if logged.is_none_or(|at| now.duration_since(at) >= REFUSAL_LOG_EVERY) {
+            *logged = Some(now);
+            info!(%peer, "refusing connection: a password is set and Home Assistant may not add this satellite now");
+        }
+        false
+    }
 }
 
 /// Start the server. Returns the event handle and the stream of commands from Home Assistant.
@@ -196,13 +254,21 @@ pub async fn serve(
     let (cmd_tx, cmd_rx) = mpsc::channel(64);
     let key = Arc::new(Mutex::new(cfg.encryption_key));
     let ident = (Arc::new(Mutex::new(cfg.name.clone())), cfg.mac);
+    let gate = Arc::new(Gate::new(key.clone()));
     let actor = Actor::new(cfg, cmd_tx, key.clone(), ident.0.clone());
     tokio::spawn(actor.run(in_rx));
-    tokio::spawn(accept_loop(listener, in_tx.clone(), key, ident));
+    tokio::spawn(accept_loop(
+        listener,
+        in_tx.clone(),
+        key,
+        ident,
+        gate.clone(),
+    ));
     Ok((
         EsphomeHandle {
             tx: EventSender::Server(in_tx),
             addr,
+            gate,
         },
         cmd_rx,
     ))
@@ -230,6 +296,7 @@ async fn accept_loop(
     inputs: mpsc::Sender<Input>,
     key: SharedKey,
     ident: (SharedName, [u8; 6]),
+    gate: Arc<Gate>,
 ) {
     let live = Arc::new(AtomicUsize::new(0));
     let mut next_id = 0u64;
@@ -244,6 +311,10 @@ async fn accept_loop(
         };
         if inputs.is_closed() {
             return;
+        }
+        // Closed right after accept, before a byte is read.
+        if !gate.admit(peer, Instant::now()) {
+            continue;
         }
         if live.load(Ordering::SeqCst) >= MAX_CLIENTS {
             warn!(%peer, "rejecting connection: client limit reached");
@@ -530,7 +601,20 @@ impl Actor {
                 }
                 Input::Frame { id, frame } => self.frame(id, frame),
                 Input::Gone { id } => self.drop_client(id),
+                Input::CloseKeyless => self.close_keyless(),
             }
+        }
+    }
+
+    /// End the connections that aren't encrypted with a key, unless there is
+    /// a key now: then they are the key's.
+    fn close_keyless(&mut self) {
+        if self.cfg.encryption_key.is_some() {
+            return;
+        }
+        let open: Vec<u64> = self.clients.keys().copied().collect();
+        for id in open {
+            self.drop_client(id);
         }
     }
 
@@ -1676,6 +1760,79 @@ mod tests {
             .await
             .unwrap();
         tokio::net::TcpStream::connect(("::1", port)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_closed_gate_refuses_a_keyless_server_and_not_a_keyed_one() {
+        use tokio::io::AsyncReadExt;
+        let mut cfg = DeviceConfig::new("t", [0; 6]);
+        cfg.port = 0;
+        cfg.bind = [127, 0, 0, 1].into();
+        let (handle, _cmds) = serve(cfg).await.unwrap();
+        assert!(!handle.has_key());
+        let port = handle.local_addr().port();
+        handle.set_keyless_closed(true);
+        let mut refused = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        // Closed without a byte sent either way.
+        let mut buf = [0u8; 1];
+        assert_eq!(refused.read(&mut buf).await.unwrap_or(0), 0);
+        handle.set_keyless_closed(false);
+        let mut open = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let waited = tokio::time::timeout(Duration::from_millis(200), open.read(&mut buf)).await;
+        assert!(waited.is_err(), "an open gate takes the connection");
+
+        // With a key the gate doesn't matter.
+        let mut cfg = DeviceConfig::new("t", [0; 6]);
+        cfg.port = 0;
+        cfg.bind = [127, 0, 0, 1].into();
+        cfg.encryption_key = Some([7; 32]);
+        let (keyed, _cmds) = serve(cfg).await.unwrap();
+        assert!(keyed.has_key());
+        keyed.set_keyless_closed(true);
+        let mut c = TcpStream::connect(("127.0.0.1", keyed.local_addr().port()))
+            .await
+            .unwrap();
+        let waited = tokio::time::timeout(Duration::from_millis(200), c.read(&mut buf)).await;
+        assert!(
+            waited.is_err(),
+            "a keyed server takes connections as before"
+        );
+    }
+
+    #[tokio::test]
+    async fn closing_the_gate_ends_a_connection_that_has_no_key() {
+        use tokio::io::AsyncReadExt;
+        let mut cfg = DeviceConfig::new("t", [0; 6]);
+        cfg.port = 0;
+        cfg.bind = [127, 0, 0, 1].into();
+        let (handle, _cmds) = serve(cfg).await.unwrap();
+        let mut open = TcpStream::connect(("127.0.0.1", handle.local_addr().port()))
+            .await
+            .unwrap();
+        // The accept loop has taken it once it is in the actor's list.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        handle.set_keyless_closed(true);
+        let mut buf = [0u8; 1];
+        let ended = tokio::time::timeout(Duration::from_secs(2), open.read(&mut buf)).await;
+        assert!(matches!(ended, Ok(Ok(0)) | Ok(Err(_))), "{ended:?}");
+    }
+
+    #[test]
+    fn a_refusal_is_logged_once_a_minute() {
+        let gate = Gate::new(Arc::new(Mutex::new(None)));
+        let peer: SocketAddr = "192.0.2.1:1234".parse().unwrap();
+        let start = Instant::now();
+        assert!(gate.admit(peer, start));
+        gate.closed.store(true, Ordering::SeqCst);
+        assert!(!gate.admit(peer, start));
+        assert_eq!(*gate.logged.lock().unwrap(), Some(start));
+        // Within the minute the time of the last line stays.
+        let later = start + Duration::from_secs(30);
+        assert!(!gate.admit(peer, later));
+        assert_eq!(*gate.logged.lock().unwrap(), Some(start));
+        let after = start + REFUSAL_LOG_EVERY;
+        assert!(!gate.admit(peer, after));
+        assert_eq!(*gate.logged.lock().unwrap(), Some(after));
     }
 
     #[test]

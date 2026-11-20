@@ -5,7 +5,8 @@
 //! line on stdout (`ready`, `command`, `sent`); logs go to stderr. Commands on stdin:
 //! `voice [wake word phrase]` starts a voice run, `stop` aborts the run, `time` requests the time,
 //! `event <object_id> <type>` fires an event, `text <object_id> <value>` sets a text sensor,
-//! `rename <friendly name>` renames the device and disconnects every client, `quit` exits.
+//! `rename <friendly name>` renames the device and disconnects every client, `keyless closed|open`
+//! closes the API to connections while there is no key, or opens it again (ADR 0029) and prints `keyless`, `quit` exits.
 //! Pressing the `Cancel request` button emits the `action` press event and sets `Last wake word` to Alexa.
 //! The Updates select starts on `stable` and echoes channel changes; the install window is 03:00 to 05:00. Firmware starts unknown;
 //! checking shows a sample release and installing reports 50% progress.
@@ -118,6 +119,7 @@ async fn main() -> anyhow::Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdin_open = true;
     let mut run = 0u32;
+    let mut keyless_changes = 0u32;
     let (mut mp_state, mut mp_volume, mut mp_muted) = (MediaPlayerStateKind::Idle, 0.5f32, false);
 
     loop {
@@ -155,6 +157,11 @@ async fn main() -> anyhow::Result<()> {
                     ("rename", name) => {
                         handle.send(DeviceEvent::FriendlyName(name.to_owned())).await?;
                         handle.send(DeviceEvent::Disconnect).await?;
+                    }
+                    ("keyless", state) => {
+                        handle.set_keyless_closed(state == "closed");
+                        keyless_changes += 1;
+                        out(json!({"keyless": state, "n": keyless_changes}));
                     }
                     ("quit", _) => break,
                     _ => {}
