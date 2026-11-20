@@ -53,10 +53,11 @@ device. The phone's own slider doesn't move.
 
 For [Sendspin](/docs/sendspin/), **Now playing** shows the title, artist and
 album that Music Assistant sends, and **From Music Assistant**. **Pause**,
-**Resume** and **Stop** act on the whole group in Music Assistant. While the
-group is paused, **Now playing** keeps the track, as paused. **Music volume**
-and **Mute music** are the device's volume and mute in Music Assistant, and
-Music Assistant's slider follows them.
+**Resume** and **Stop** act on the whole group in Music Assistant. After
+**Pause**, **Now playing** keeps the track, as paused, until the group plays
+again. While Sendspin plays, **Music volume** and **Mute music** are the
+device's volume and mute in Music Assistant, and Music Assistant's slider
+follows them.
 
 If an address doesn't play, what was playing keeps playing. **Now playing**
 shows **Couldn't play** under it, with the address and why, for example that

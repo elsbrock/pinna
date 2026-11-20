@@ -58,8 +58,9 @@ the satellite's address instead:
 
 1. In your router, reserve an IP address for the satellite, so that it
    doesn't change.
-2. In Music Assistant, open the settings of the Sendspin provider and add the
-   satellite's IP address to its manual discovery IP addresses. Music
+2. In Music Assistant, open the settings of the Sendspin provider, show its
+   advanced settings, and add the satellite's IP address to **Manual IP
+   addresses for discovery**. Music
    Assistant connects to port 8928 at that address.
 
 ### With AirPlay on as well
@@ -86,9 +87,11 @@ While Sendspin plays:
 - **Pause**, **Resume** and **Stop** on **Now playing**, Home Assistant's
   media player and a request by voice act on the whole group, as Music
   Assistant's own controls do. So does **Cancel request** in Home Assistant
-  when no request runs and no alarm rings: it stops the group. While the
-  group is paused, **Now playing** shows the track as paused, and **Resume**
-  starts the group's music again.
+  when no request runs and no alarm rings: it stops the group.
+- After a pause from the satellite, **Now playing** shows the track as
+  paused, and **Resume** starts the group's music again. After a stop, at the
+  end of the queue, or after a pause in Music Assistant, it shows that
+  nothing plays: resume the group in Music Assistant.
 - **Music volume**, under **Now playing**, is the satellite's volume in Music
   Assistant, and so is the Home Assistant media player's volume. A change on
   either side shows on the other. **Mute music** mutes the satellite in Music
@@ -109,8 +112,12 @@ where the group is, not from where it was.
 When something else plays on the satellite, such as a URL from Home
 Assistant or the dashboard, AirPlay or Bluetooth, the satellite leaves its
 group in Music Assistant. The rest of the group plays on. The same happens
-when another source starts while the group is paused. To play to the
-satellite again, add it back to the group in Music Assistant.
+when another source starts while the group waits paused from the satellite.
+To play to the satellite again, add it back to the group in Music Assistant.
+
+A group that stopped, ran out of music or was paused in Music Assistant
+keeps the satellite. When that group plays again, it takes over from what
+the satellite plays.
 
 ## Security
 

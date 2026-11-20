@@ -89,9 +89,12 @@ While [AirPlay](/docs/airplay/#play-music) or
 [Bluetooth](/docs/bluetooth/#play-music) plays, the media player's volume is
 the music's own, and pause stops the music.
 
-While [Sendspin](/docs/sendspin/#play-music) plays, and while its group is
-paused, the media player's volume and mute are the device's own in Music
-Assistant, and play, pause and stop act on the whole group. With no request
+While [Sendspin](/docs/sendspin/#play-music) plays, the media player's
+volume and mute are the device's own in Music Assistant, and play, pause and
+stop act on the whole group. After a pause from the device, the media player
+shows the group as paused, and play and stop act on the group; its volume is
+the device's volume meanwhile. After a stop, at the end of the queue, or
+after a pause in Music Assistant, the media player is idle. With no request
 running and no alarm ringing, **Cancel request** stops the group too.
 
 The [dashboard](/docs/music/#play-music-from-a-url) shows the same media
