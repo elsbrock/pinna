@@ -5,7 +5,9 @@ listener), ADR 0017 (who may call `/mcp`), ADR 0018 (who may connect to the
 ESPHome API before Home Assistant sets a key), ADR 0020 (who may read
 `/metrics`), ADR 0021 (the list of satellites) and ADR 0026 (`Join`, and
 calls from members without a password). Points marked *default* are not
-confirmed by the owner yet.
+confirmed by the owner yet. Built (2026-11-20), with the tests that run
+without hardware; not run on a device, and the PBKDF2 iteration count is not
+measured on one yet.
 
 ## Context
 
@@ -65,6 +67,8 @@ confirmed by the owner yet.
   light that circles slowly *(default)*, until Action is pressed. The press
   is pinnad's alone while it waits: it doesn't stop an alarm, start a
   request, or reach Home Assistant as an event, and it works while muted.
+  The rest of that hold is the confirmation's too: a long press that follows
+  sends no `long_press`.
   Only one confirmation waits at a time, and a new one can start a minute
   after the last ended, so nobody on the LAN can keep the ring busy.
 - **A press confirms only the request that asked for it.** The dashboard
@@ -72,8 +76,11 @@ confirmed by the owner yet.
   presents.
 - **What needs a press:**
   - setting the first password;
-  - setting or removing the password without the current one, which is how
-    an owner who forgot it gets back in.
+  - setting a new password without the current one, which is how an owner
+    who forgot it gets back in;
+  - removing it without the current one, from a session.
+
+  A confirmed press also lifts the slowdown of failed logins (below).
 - The USB link gets no exemption. Rescue mode and recovery still answer
   only there, without a password (ADR 0012, ADR 0019).
 
@@ -90,14 +97,20 @@ confirmed by the owner yet.
   your voice goes."
 - **Once a password is set, every request to the listener needs a
   session**, except:
-  - the page's own files (`/`, `/assets/`), which hold no secret;
-  - `/auth/login`, and starting and following a confirmation;
+  - GET and HEAD that no route answers: the page's own files, which hold no
+    secret;
+  - `/auth/login` and `/auth/logout`;
+  - four `DeviceService` calls that need no session: `StartConfirmation`
+    and `WatchConfirmation`, `SetDashboardPassword`, which checks the
+    current password or a grant itself, and `GetSecurity`, which without a
+    session answers only whether a password is set and how long to wait to
+    sign in or to start a confirmation;
   - `/mcp` and `/metrics` with their tokens (below);
   - `PeerService`, which checks the group key (ADR 0026, and below).
 
-  The check wraps the whole router, the fallback included, and the
-  exceptions are exact paths, so a route added later is protected without
-  anyone remembering to. `DeviceService` and `AssistantService` refuse with
+  The check wraps the whole router, the fallback included. The routes it
+  lets through are named one by one, so a route added later is protected
+  without anyone remembering to; only the file fallback is open by method. `DeviceService` and `AssistantService` refuse with
   Connect's `unauthenticated` code, and the page shows the login form. The
   virtual Echo Dot's socket in the development VM (ADR 0014) needs a session
   like the API.
@@ -107,9 +120,10 @@ confirmed by the owner yet.
 - **It is stored as a hash:** PBKDF2-HMAC-SHA256 with a 16-byte random salt,
   in `/var/lib/pinna/secrets.toml` (mode 0600, written durably, ADR 0017),
   with its iteration count, so the count can change. One check should take
-  about a quarter of a second on the Echo Dot (2nd gen); the count is
-  measured there when this is built. Checks run on a blocking thread, away
-  from the voice path.
+  about a quarter of a second on the Echo Dot (2nd gen). The count is
+  100,000 until it is measured there; a release build on an Intel Core
+  Ultra X7 358H takes 27 ms per check (`measure_one_check`, an ignored test
+  in `crates/pinnad/src/auth/credentials.rs`). Checks run on a blocking thread, away from the voice path.
 - **Changing or removing the password needs the current one, or a press.**
   Changes go through one lock, so of two changes made at once, the second
   fails as a wrong current password. A wrong current password counts as a
@@ -142,8 +156,9 @@ confirmed by the owner yet.
   doesn't keep receiving.
 - **Failed logins slow down for the whole satellite**, not per address,
   because addresses on a LAN cost nothing: at most one attempt a second, and
-  after 10 failures in a row, one a minute until a login succeeds or the
-  password is reset with a press. *(default)* A refused attempt doesn't run
+  after 10 failures in a row, one a minute until the right password is
+  given (to sign in, or as the current one) or a press confirms a change.
+  *(default)* A refused attempt doesn't run
   PBKDF2. The form says how long to wait, and the System page shows the
   failures since the last login and the address of the last one. Sessions
   that already exist keep working.
@@ -177,7 +192,8 @@ confirmed by the owner yet.
   chooses **Let Home Assistant add this satellite** on the Home Assistant
   page. Inside the window it is provisionable as before (ADR 0018); once Home
   Assistant has set its key, only the key works, as before, and the window
-  no longer matters.
+  no longer matters. Setting a password ends a keyless connection that is
+  open, and so does the window's end.
 - Without a password, nothing changes: a satellite without a key is
   provisionable, as ADR 0018 says.
 - A satellite with a key keeps it when a password is set. The Home Assistant
@@ -193,8 +209,9 @@ confirmed by the owner yet.
   facts each call carries (`PeerSender`). The member list shows a member
   without one.
 - **A satellite with a password refuses `Call` and `Deliver` from a member
-  without one,** with "That satellite has no password; set one there
-  first." A member with an older Pinna counts as one without. Otherwise
+  without one,** with "Kitchen has a dashboard password and this satellite
+  doesn't. Set one on this satellite first.", worded for the caller's
+  owner, who can fix it. A member with an older Pinna counts as one without. Otherwise
   anyone could reach a protected satellite through the brain of an
   unprotected member.
 - **The key doesn't change** (ADR 0026). A removed member that kept it can
@@ -206,9 +223,13 @@ confirmed by the owner yet.
   satellite with a password opens its login form.
 - **Anyone on the LAN can announce a satellite** (ADR 0021), and with
   passwords a fake entry could lead to a look-alike login form. The list
-  marks the members of this satellite's group, which their key confirms;
-  every other entry is only what the network announced, and the list says
-  so. The docs don't suggest one password for every satellite.
+  marks an entry as a member of this satellite's group only when it carries
+  a member's MAC, announces the address that member's last signed call came
+  from, and has no dashboard address of its own, which the key can't vouch
+  for. Every other entry is only what the network announced, and the list
+  says so. The mark can't bind the link itself: a browser resolves a
+  `.local` name through mDNS, which anyone on the LAN can answer. The docs
+  don't suggest one password for every satellite.
 
 ### What doesn't change
 
@@ -244,14 +265,15 @@ confirmed by the owner yet.
 - **A rollback removes the protection while it lasts.** An image from before
   this keeps the password's entries in `secrets.toml` but doesn't check
   them, so the dashboard is open until the next update. While a password is
-  set, before switching to an older version in the other slot, or keeping an
-  update back in favour of one, the Updates page says: "The version in the
-  other slot is older, and may not ask for a password." It can't tell which
-  older versions do, so it says so for each.
+  set, the Updates page says "The version in the other slot is older, and
+  may not ask for a password." wherever it would start an older version:
+  switching slots, installing an older release, and the notice of an older
+  version waiting in the other slot. It can't tell which older versions
+  ask, so it says so for each.
 - New in `DeviceService`: the security state (password set, tokens set,
-  failures, windows); setting, changing and removing the password; the
-  confirmation; creating tokens; signing out everywhere; opening the
-  ESPHome and group windows.
+  failures, windows); setting, changing and removing the password; leaving
+  the dashboard open; the confirmation; creating tokens; signing out
+  everywhere; opening the ESPHome and group windows.
 - New in the dashboard: the login form, the first-run offer, the password,
   tokens and sign-out on the System page, the notice on the Overview, the
   Home Assistant page's window, the Satellite group page's window and its
