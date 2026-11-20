@@ -47,7 +47,7 @@ const reach = [
 ];
 ---
 
-<div class="board" data-board>
+<div class="board" data-board data-animates>
   <svg class="wires" aria-hidden="true" data-wires>
     <defs>
       <linearGradient id="board-wire" gradientUnits="userSpaceOnUse" data-gradient>
@@ -378,7 +378,8 @@ const reach = [
 
     // In turn, every few seconds, unless the reader points at one.
     setInterval(() => {
-      if (!held && !reduceMotion.matches && !document.hidden) show((live + 1) % brains.length);
+      if (!held && !reduceMotion.matches && !document.hidden && !board.hasAttribute("data-offscreen"))
+        show((live + 1) % brains.length);
     }, 3500);
     brains.forEach((b, i) => {
       const hold = () => {

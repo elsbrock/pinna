@@ -17,7 +17,7 @@ const goals = [
   { title: "Be a good Home Assistant satellite", body: "Everything the device can do is available in Home Assistant." },
   { title: "Play music without getting in the way", body: "AirPlay, Bluetooth and Sendspin share the audio path, and replies, announcements and timers come first." },
   { title: "Work without Home Assistant", body: "In standalone mode the device is a voice assistant on its own, with the services you choose, and the voice of your AI agent." },
-  { title: "Be safe to install and update", body: "Every installation step can be undone, updates roll back on their own, and none installs without you." },
+  { title: "Be safe to install and update", body: "Every step Pinna takes can be undone, updates roll back on their own, and none installs without you." },
   { title: "Use standard parts", body: "Debian, systemd and a small set of Rust programs." },
   { title: "Make development pleasant", body: "One shell for every tool, and tests that run without hardware." },
   { title: "Stay open", body: "All of Pinna's code is open source." },
@@ -34,15 +34,7 @@ const goals = [
       class="mx-auto grid max-w-6xl items-center gap-12 px-4 pt-14 pb-16 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:pt-20 lg:pb-24"
     >
       <div>
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="chip">
-            <span class="bg-caution h-1.5 w-1.5 rounded-full"></span>
-            Early development
-          </span>
-          <span class="chip">Echo (2nd gen) · Echo Dot (2nd gen)</span>
-        </div>
-
-        <h1 class="font-display text-ink text-display-l sm:text-display-xl mt-6 max-w-2xl text-balance">
+        <h1 class="font-display text-ink text-display-l sm:text-display-xl max-w-2xl text-balance">
           A local voice satellite for your Echo and Echo&nbsp;Dot
         </h1>
 
@@ -85,7 +77,7 @@ const goals = [
       <h2 class="section-title">From the wake word to the reply</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
         Home Assistant answers, or the satellite answers itself with services
-        you choose. You switch on the dashboard, or by voice. The ring, music
+        you choose. You choose the mode on the dashboard, or by voice. The ring, music
         and updates work the same in both modes.
       </p>
       <div class="mt-10">
@@ -388,10 +380,10 @@ const goals = [
         Pinna is a small project in early development, and most of the useful
         work happens on real devices. Until 1.0 it can change from one release
         to the next, standalone mode most of all, and what owners report
-        shapes those changes. You can help in three ways:
+        shapes those changes. You can help in two ways:
       </p>
 
-      <div class="facts mt-10" style="--facts: 3">
+      <div class="facts mt-10" style="--facts: 2">
         <div class="fact">
           <span class="fact-title">Give feedback</span>
           <span class="fact-say">
@@ -423,20 +415,6 @@ const goals = [
           <span class="mt-3 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("development")}>
               Contribute
-              <Icon name="arrow" size={14} />
-            </a>
-          </span>
-        </div>
-        <div class="fact">
-          <span class="fact-title">Support another device</span>
-          <span class="fact-say">
-            Pinna supports the Echo (2nd gen) and the Echo Dot (2nd gen), and
-            aims to support more Echo devices. Each needs a device tree, board
-            support and a device to test on.
-          </span>
-          <span class="mt-3 text-sm">
-            <a class="link inline-flex items-center gap-1.5" href={docHref("architecture")}>
-              Read the architecture
               <Icon name="arrow" size={14} />
             </a>
           </span>

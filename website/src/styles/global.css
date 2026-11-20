@@ -205,9 +205,17 @@
 
   /* A soft glow of the mark's colours behind the hero. Full width, so it fades
      out at the screen's edges instead of at the content's. */
+  /* Off screen, a section's CSS animations wait (BaseLayout marks it). */
+  [data-offscreen],
+  [data-offscreen] * {
+    animation-play-state: paused !important;
+  }
+
+  /* Clipped sideways: the demo's floor shadow is wider than its column. */
   .hero-glow {
     position: relative;
     isolation: isolate;
+    overflow-x: clip;
   }
 
   .hero-glow::before {

@@ -118,7 +118,7 @@ const anchor = (b: (typeof boxes)[number]) => {
           ))
         }
       </span>
-      <button type="button" class="pn-btn pn-btn-quiet pn-btn-sm" data-toggle hidden>Pause</button>
+      <button type="button" class="pn-btn pn-btn-quiet" data-toggle hidden>Pause</button>
     </span>
     <span class="text-ink-muted text-caption" data-scene-title>{sceneTitle(first)}</span>
   </figcaption>
@@ -214,11 +214,12 @@ const anchor = (b: (typeof boxes)[number]) => {
     display: none;
   }
 
+  /* A 28 × 40 px target round a 6 px dot. */
   .scene {
     display: grid;
     place-items: center;
-    width: 20px;
-    height: 24px;
+    width: 28px;
+    height: 40px;
     padding: 0;
     border: 0;
     background: none;
@@ -385,6 +386,7 @@ const anchor = (b: (typeof boxes)[number]) => {
     const mute = () => {
       muted = true;
       shown = -1;
+      if (title) title.textContent = "Muted. Press Play to continue.";
       bubbles.forEach((b) => {
         say(b.request, undefined);
         say(b.reply, undefined);
@@ -395,6 +397,7 @@ const anchor = (b: (typeof boxes)[number]) => {
     const playFrom = (ms: number) => {
       muted = false;
       pausedByUser = false;
+      markScene(SCENES.findIndex((_, i) => (SCENE_START[i + 1] ?? Infinity) > ms % CYCLE));
       elapsed = ms;
       shown = -1;
       show(elapsed);

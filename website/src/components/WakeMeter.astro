@@ -52,7 +52,7 @@ const t0 = threshold(DEFAULT);
     </div>
     {
       events.map((e) => (
-        <div class="col" data-score={e.score} data-wakes={e.score >= t0 ? "" : undefined}>
+        <div class="col" data-score={e.score} data-wakes={e.score >= t0 ? "" : undefined} data-other={e.who === "You" ? undefined : ""}>
           <div class="bar" style={`height:${(e.score * 100).toFixed(1)}%`}>
             <span class="score">{e.score.toFixed(2)}</span>
           </div>
@@ -63,7 +63,7 @@ const t0 = threshold(DEFAULT);
   </div>
 
   <p class="summary" id="meter-summary" data-summary>
-    Example. At {DEFAULT}, it wakes on {events.filter((e) => e.score >= t0 && e.who === "You").length} of your{" "}
+    Example: the satellite lists each score and when it came; you know which were you. At {DEFAULT}, it wakes on {events.filter((e) => e.score >= t0 && e.who === "You").length} of your{" "}
     {events.filter((e) => e.who === "You").length} wakes and {events.filter((e) => e.score >= t0 && e.who !== "You").length} other
     sounds.
   </p>
@@ -168,6 +168,12 @@ const t0 = threshold(DEFAULT);
   [data-wakes] .bar {
     background: linear-gradient(to top, var(--brand-start), var(--brand-end));
     box-shadow: 0 0 12px -2px color-mix(in oklab, var(--brand-mid) 60%, transparent);
+  }
+
+  /* A wake that wasn't you: what the slider should get rid of. */
+  [data-wakes][data-other] .bar {
+    background: var(--caution);
+    box-shadow: 0 0 12px -2px color-mix(in oklab, var(--caution) 60%, transparent);
   }
 
   .score {
@@ -289,7 +295,7 @@ const t0 = threshold(DEFAULT);
         if (wakes && !isYou) others++;
       }
       if (summary)
-        summary.textContent = `Example. At ${s}, it wakes on ${you} of your ${yours} wakes and ${others} other ${others === 1 ? "sound" : "sounds"}.`;
+        summary.textContent = `Example: the satellite lists each score and when it came; you know which were you. At ${s}, it wakes on ${you} of your ${yours} wakes and ${others} other ${others === 1 ? "sound" : "sounds"}.`;
     };
 
     slider.addEventListener("input", update);

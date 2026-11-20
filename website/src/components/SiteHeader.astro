@@ -36,8 +36,9 @@ import { href, SITE } from "../lib/site";
     </nav>
 
     <div class="ml-auto flex items-center gap-2">
+      <!-- Hidden on the narrowest phones, where it pushes Install off screen. -->
       <a
-        class="pn-btn px-2.5"
+        class="pn-btn hidden px-2.5 min-[360px]:inline-flex"
         href={SITE.repo}
         aria-label="Pinna on GitHub"
       >

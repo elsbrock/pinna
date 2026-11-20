@@ -60,6 +60,15 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? SITE.repo);
       }
     </script>
     <slot name="head" />
+    <script>
+      // Sections that animate pause while they're off screen: the observer
+      // marks them, and global.css pauses their CSS animations. Their own
+      // scripts read the same mark.
+      const seen = new IntersectionObserver((entries) => {
+        for (const e of entries) e.target.toggleAttribute("data-offscreen", !e.isIntersecting);
+      });
+      for (const el of document.querySelectorAll("[data-animates]")) seen.observe(el);
+    </script>
   </head>
   <body class="flex min-h-dvh flex-col">
     <slot name="header" />
