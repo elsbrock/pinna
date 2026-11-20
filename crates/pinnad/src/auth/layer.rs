@@ -54,9 +54,8 @@ const PUBLIC_METHODS: [&str; 5] = [
 ];
 
 const SIGN_IN: &str = "Sign in to this satellite's dashboard.";
-const AGENT_TOKEN: &str = "This satellite needs its agent token. Create one on its System page.";
-const METRICS_TOKEN: &str =
-    "This satellite needs its metrics token. Create one on its System page.\n";
+const AGENT_TOKEN: &str = "This satellite needs its agent token. Create one on its dashboard, under System > Password and tokens.";
+const METRICS_TOKEN: &str = "This satellite needs its metrics token. Create one on its dashboard, under System > Password and tokens.\n";
 const BEARER: &str = "Bearer realm=\"pinna\"";
 const MAX_LOGIN_BODY: usize = 4096;
 
@@ -476,7 +475,7 @@ mod tests {
         assert_eq!(body["error"]["message"], AGENT_TOKEN);
         assert_eq!(
             AGENT_TOKEN,
-            "This satellite needs its agent token. Create one on its System page."
+            "This satellite needs its agent token. Create one on its dashboard, under System > Password and tokens."
         );
 
         // A session is not the agent token, and the metrics token isn't either.

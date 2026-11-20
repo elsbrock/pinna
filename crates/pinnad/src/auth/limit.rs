@@ -31,7 +31,7 @@ pub struct Limiter {
     last: Option<Instant>,
     /// Failures in a row.
     streak: u32,
-    /// Failures since the last success, for the System page.
+    /// Failures since the last success, for the Password and tokens page.
     since_login: u32,
     last_failure: Option<Failure>,
 }

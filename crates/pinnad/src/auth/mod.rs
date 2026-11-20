@@ -38,7 +38,7 @@ pub const HOME_ASSISTANT_WINDOW: Duration = Duration::from_secs(15 * 60);
 /// How long a `Join` is accepted after **Allow adding to a group** (ADR 0029).
 pub const GROUP_JOIN_WINDOW: Duration = Duration::from_secs(10 * 60);
 
-/// What the System page and the first-password form look back over.
+/// What the Password and tokens page and the first-password form look back over.
 const LOOK_BACK: Duration = Duration::from_secs(24 * 3600);
 
 const LENGTH: &str = "The password must be 8 to 128 characters. Choose one in that range.";
@@ -290,7 +290,7 @@ impl Auth {
     /// The access state, for `signed_in` as the caller is. With a password set,
     /// a caller without a session gets only what the sign-in form needs: the
     /// failures, their address, the tokens' ends, the agents' names and the
-    /// windows are for the System page, not for anyone on the LAN (ADR 0029).
+    /// windows are for the Password and tokens page, not for anyone on the LAN (ADR 0029).
     pub fn security(&self, signed_in: bool) -> Security {
         let creds = self.credentials();
         let now = Instant::now();
