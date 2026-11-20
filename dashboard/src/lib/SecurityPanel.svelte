@@ -350,6 +350,17 @@
       Prometheus keep working.
     </p>
   </Confirm>
+{:else if security.error}
+  <div class="pn-notice" data-tone="danger" role="alert">
+    <Icon name="alert" class="pn-icon pn-notice-icon" />
+    <div class="pn-notice-body">
+      <p class="pn-notice-title">The password and tokens couldn't be read</p>
+      <p>{security.error}</p>
+      <div><button class="pn-btn" type="button" onclick={() => security.refresh()}>Try again</button></div>
+    </div>
+  </div>
+{:else}
+  <span class="pn-skeleton" style:height="140px"></span>
 {/if}
 
 <style>

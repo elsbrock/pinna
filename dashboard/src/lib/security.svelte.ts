@@ -12,6 +12,8 @@ const NOTICE_KEY = "pinna.passwordNotice";
 class SecurityState {
   /** Null until GetSecurity first answers. */
   state = $state<Security | null>(null);
+  /** Why the last read failed, until one succeeds. */
+  error = $state<string | null>(null);
   /** This tab had a session and the satellite says it has none now. */
   signedOut = $state(false);
   /** A confirmation this browser asked for waits: the Overview doesn't warn of its own. */
@@ -35,8 +37,10 @@ class SecurityState {
         this.state = next;
         this.receivedAt = Date.now();
       }
-    } catch {
-      // Unreachable: the page shows that already, and asks again at the next change.
+      this.error = null;
+    } catch (e) {
+      // Pages that need the state say why; the others ask again at the next change.
+      this.error = errorSentence(e);
     }
   }
 
