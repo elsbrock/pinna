@@ -40,9 +40,9 @@ switch at any time.
 A new satellite starts in Home Assistant mode.
 
 Both modes have the same ring and buttons, the wake word tuning, music over
-[AirPlay](/docs/airplay/) and [Bluetooth](/docs/bluetooth/), and
-[updates](/docs/update/) that go back to the previous version if the new one
-doesn't start.
+[AirPlay](/docs/airplay/), [Bluetooth](/docs/bluetooth/) and
+[Sendspin](/docs/sendspin/), and [updates](/docs/update/) that go back to the
+previous version if the new one doesn't start.
 
 ## Where to start
 

@@ -33,7 +33,8 @@ media playback.
 ### Play music without getting in the way
 
 The device can be a speaker for phones and computers too, over AirPlay and
-Bluetooth. The music goes through the same audio path as everything
+Bluetooth, and for Music Assistant over Sendspin, in step with the other
+speakers of a group. The music goes through the same audio path as everything
 else, so the wake word keeps working while it plays, and replies,
 announcements and timers always come first. Each source is off until you turn
 it on.

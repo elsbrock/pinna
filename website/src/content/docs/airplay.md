@@ -69,7 +69,9 @@ While AirPlay plays:
 ## Limits
 
 - **The device plays on its own.** Pinna has AirPlay 1, not AirPlay 2, so the
-  device can't join a group with HomePods or other AirPlay 2 speakers.
+  device can't join a group with HomePods or other AirPlay 2 speakers. To
+  play in step with other speakers from Music Assistant, use
+  [Sendspin](/docs/sendspin/).
 - **There is no password.** While AirPlay is on, anyone on your network can
   play music on the device, and replace what it plays.
 
