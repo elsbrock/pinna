@@ -237,23 +237,28 @@ installed a release this way yet.
   clock. pinnad starts the install at that minute, as an install with its own
   origin, after it checks again that the release may install.
   Switching to `manually` cancels an install that has not started; one that
-  runs finishes like the owner's, and the owner restarts. When the install has
+  runs, or has finished and waits for the window, is left to the owner, who
+  restarts. When the install has
   succeeded, pinnad restarts the satellite when it is Idle with no timer set
   and nothing playing, inside the window. If the window ends first, the
   restart waits for the next window. The dashboard's Restart now works at
   any time. pinnad keeps the pending restart in `/run`, marked as one that
   waits for the window.
 - Never installed automatically: a release that needs a higher boot level, and
-  a version that failed its trial boot. Nothing installs automatically while
-  the clock isn't synchronized, while the running slot is still on trial,
-  while an install runs, while Updates is `off`, or while pinnad.toml's
-  `[update] manifest` replaces the channel. Such releases are shown and wait
-  for the owner.
+  a version that failed its trial boot. A version already in the other slot
+  (kept back with "Start it later", or left there by going back) isn't
+  started either: that was the owner's choice; a newer release installs over
+  it. Nothing installs automatically while the clock isn't synchronized,
+  while the running slot is still on trial, while an install runs, while a
+  `just push` overlay is active (ADR 0025), while Updates is `off`, or while
+  pinnad.toml's `[update] manifest` replaces the channel. Such releases are
+  shown and wait for the owner.
 - After an unattended download fails, the failure is logged and shown as the
   last install's failure, as for any install. The next window tries again, at
   a new random minute. After 3 failed automatic attempts of one version in a
   row, automatic installs skip that version, and log that they do, until the
-  owner installs it by hand or a newer version is found. The count lives in
+  owner starts an install by hand (of any version) or a newer version is
+  found. The count lives in
   memory: a restart of pinnad begins again.
 - The version number doesn't decide: a major or, before 1.0, a minor version
   installs like a patch. What a release needs by hand is in its manifest's
@@ -369,7 +374,8 @@ installed a release this way yet.
   Worker's logs keep these for a few days at Cloudflare (`observability` in
   `wrangler.toml`), and the goals page says so.
 - Owners see a new release on the dashboard and in Home Assistant and install
-  it with one button. Nothing installs without them.
+  it with one button. Nothing installs without them, unless they set
+  Install updates to automatically.
 - The project runs a Worker and keeps a Cloudflare account and the domain. If
   the Worker is down, satellites report a failed check and nothing else
   changes. A GitHub download URL doesn't replace it: GitHub redirects its
