@@ -188,7 +188,7 @@ measured on one yet.
   strings end up in proxy logs.
 - **A refusal names the fix.** `/mcp` answers 401 with
   `WWW-Authenticate: Bearer realm="pinna"` and a JSON-RPC error: "This
-  satellite needs its agent token. Create one on its dashboard, under System > Password and tokens." It offers
+  satellite needs its agent token. Create one on its dashboard, under System › Password and tokens." It offers
   no OAuth metadata, so clients don't start an OAuth sign-in that can't
   succeed. `/metrics` answers 401 with a one-line text body.
 - **Without a password, `/mcp` and `/metrics` stay open**, as today.

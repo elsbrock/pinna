@@ -70,7 +70,7 @@ the **agent token**, which opens nothing else:
 An agent that can't send headers can't use the MCP server of a satellite with a
 password: the token doesn't go in the address, because addresses end up in logs.
 Without the token, the device answers `401` and "This satellite needs its agent
-token. Create one on its dashboard, under System > Password and tokens."
+token. Create one on its dashboard, under System › Password and tokens."
 
 ## What's next
 
