@@ -17,7 +17,7 @@ imports.
 | `ring.test.ts` | The `anim.rs` tests, against `ring.ts` |
 | `devices/` | One drawing per supported model, picked by `Status.model` (`devices/index.ts`); the Echo Dot (2nd gen) and the Echo (2nd gen). A model without a drawing gets the flat Ring |
 | `icons.ts` | The stroked icon set as SVG markup, for the dashboard (the website can use it too) |
-| `mark.svg` | The mark (the ring's boot frame): favicon and app icon |
+| `mark.svg` | The mark: a folded hexagon around a play triangle, shading from the dark `signal` blue to the dark Thinking violet. Favicon and app icon, the same in light and dark |
 | `fonts/` | Unbounded, Atkinson Hyperlegible Next and Mono, variable WOFF2 (latin), SIL OFL 1.1, licences beside them |
 
 ## Use
