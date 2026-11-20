@@ -1,57 +1,90 @@
 ---
-// The landing page's "How it works": the path of one request, from the wake
-// word on the satellite to the reply on its speaker, with a switch between
-// the two modes. With Home Assistant the three middle stages fold into one
-// panel, the Assist pipeline; in standalone mode they open into the services
-// set up on the dashboard. Without JavaScript it shows Home Assistant mode,
-// and the details of both modes.
+// The landing page's "How it works": one request as a loop round one
+// satellite. It leaves at the ring, which hears the wake word, runs through
+// speech-to-text, the brain and text-to-speech, and comes back into the
+// speaker. A switch shows either mode; both modes' words share each place on
+// the page, so switching changes the words and nothing moves. A pulse runs
+// the loop and the satellite's ring follows it: Listening on the way out,
+// Thinking at the brain, Speaking on the way back. Without JavaScript it shows
+// Home Assistant mode with a still ring and no wire.
+import DeviceDrawing from "./DeviceDrawing.astro";
 import Icon from "./Icon.astro";
 import { docHref } from "../lib/site";
 
 type Mode = "home-assistant" | "standalone";
+type Words = Record<Mode, string>;
 
-const stages: { n: string; name: Record<Mode, string>; standalone: string }[] = [
+const label: Words = {
+  "home-assistant": "Home Assistant: your Assist pipeline",
+  standalone: "Standalone: services you choose",
+};
+
+const stages: { key: string; n: string; name: Words; say: Words }[] = [
   {
+    key: "stt",
     n: "2",
     name: { "home-assistant": "Speech-to-text", standalone: "Speech-to-text" },
-    standalone: "OpenAI, Groq, ElevenLabs, or your own server",
+    say: {
+      "home-assistant": "Whichever your pipeline uses, such as Whisper or Home Assistant Cloud",
+      standalone: "OpenAI, Groq, ElevenLabs, or your own server",
+    },
   },
   {
+    key: "brain",
     n: "3",
     name: { "home-assistant": "Conversation agent", standalone: "Brain" },
-    standalone: "A language model, in the cloud or at home, or an AI agent",
+    say: {
+      "home-assistant": "Home Assistant's own, or a language model you connected to it",
+      standalone: "A language model, in the cloud or at home, or an AI agent",
+    },
   },
   {
+    key: "tts",
     n: "4",
     name: { "home-assistant": "Text-to-speech", standalone: "Text-to-speech" },
-    standalone: "OpenAI, ElevenLabs, or your own server",
+    say: {
+      "home-assistant": "Whichever your pipeline uses, such as Piper or Home Assistant Cloud",
+      standalone: "OpenAI, ElevenLabs, or your own server",
+    },
   },
 ];
 
-const details: Record<Mode, { facts: string[]; links: { label: string; href: string }[] }> = {
-  "home-assistant": {
-    facts: [
-      "Home Assistant finds the satellite and adds it like any ESPHome device, without YAML or an add-on",
-      "The ring, the buttons, mute, volume, timers and a media player are entities for your automations",
-      "Home Assistant encrypts the connection, and new releases install from there",
-    ],
-    links: [
-      { label: "Connect to Home Assistant", href: docHref("home-assistant") },
-      { label: "Home Assistant entities", href: docHref("entities") },
-    ],
+const facts: { title: Words; say: Words }[] = [
+  {
+    title: { "home-assistant": "Adds itself", standalone: "Set up on the dashboard" },
+    say: {
+      "home-assistant": "Home Assistant finds the satellite and adds it like any ESPHome device, without YAML or an add-on.",
+      standalone: "Each service with your own key, or on your own server. No Home Assistant needed.",
+    },
   },
-  standalone: {
-    facts: [
-      "You set up each service on the satellite's dashboard, with your own keys or servers",
-      "Audio goes only to those services, and only after the wake word or a press of the Action button",
-      "Home Assistant can stay connected for the media player, announcements, the ring and the buttons",
-    ],
-    links: [
-      { label: "Set up standalone mode", href: docHref("standalone") },
-      { label: "What it can use", href: "#standalone" },
-    ],
+  {
+    title: { "home-assistant": "Entities for automations", standalone: "Audio only on purpose" },
+    say: {
+      "home-assistant": "The ring, the buttons, mute, volume, timers and a media player.",
+      standalone: "It goes only to those services, and only after the wake word or a press of the Action button.",
+    },
   },
+  {
+    title: { "home-assistant": "Encrypted, updated from there", standalone: "Home Assistant if you like" },
+    say: {
+      "home-assistant": "Home Assistant encrypts the connection, and new releases install from it.",
+      standalone: "It can stay connected for the media player, announcements, the ring and the buttons.",
+    },
+  },
+];
+
+const links: Record<Mode, { label: string; href: string }[]> = {
+  "home-assistant": [
+    { label: "Connect to Home Assistant", href: docHref("home-assistant") },
+    { label: "Home Assistant entities", href: docHref("entities") },
+  ],
+  standalone: [
+    { label: "Set up standalone mode", href: docHref("standalone") },
+    { label: "What it can use", href: "#standalone" },
+  ],
 };
+
+const modes = Object.keys(label) as Mode[];
 ---
 
 <div class="path" data-path data-mode="home-assistant">
@@ -60,76 +93,106 @@ const details: Record<Mode, { facts: string[]; links: { label: string; href: str
     <button type="button" data-set="standalone" aria-pressed="false">Standalone</button>
   </div>
 
-  <ol class="track" aria-label="The path of a request">
-    <li class="end">
-      <span class="puck" style="--led: var(--led-listening)" aria-hidden="true"></span>
-      <span class="num">1</span>
-      <span class="name">Wake word</span>
-      <span class="where">On the satellite</span>
-      <span class="say">Until it hears the wake word, no audio leaves the device.</span>
-    </li>
+  <div class="loop" data-loop>
+    <svg class="wire" aria-hidden="true" data-wire>
+      <defs>
+        <linearGradient id="loop-wire" gradientUnits="userSpaceOnUse" data-gradient>
+          <stop offset="0" style="stop-color: var(--brand-start)"></stop>
+          <stop offset="0.5" style="stop-color: var(--brand-mid)"></stop>
+          <stop offset="1" style="stop-color: var(--brand-end)"></stop>
+        </linearGradient>
+        <marker id="loop-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M1,1 L9,5 L1,9" fill="none" stroke="var(--brand-end)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        </marker>
+      </defs>
+      <path class="track" data-track marker-end="url(#loop-arrow)"></path>
+      <circle class="pulse" r="4" data-pulse></circle>
+    </svg>
 
-    <li class="middle">
-      <span class="group-label">
-        <span data-show="home-assistant"><Icon name="home" size={14} /> Home Assistant: your Assist pipeline</span>
-        <span data-show="standalone"><Icon name="sliders" size={14} /> Standalone: services you choose</span>
+    <div class="satellite">
+      <div class="end">
+        <span class="num">1</span>
+        <span class="name">Wake word</span>
+        <span class="say">The satellite hears it. Until then, no audio leaves the device.</span>
+      </div>
+      <div class="device" data-device>
+        <DeviceDrawing model="echo-dot-2" id="path-dot" effect="listening" width="100%" label="An Echo Dot (2nd gen) running Pinna." />
+      </div>
+      <div class="end">
+        <span class="num">5</span>
+        <span class="name">Reply</span>
+        <span class="say">Back on the satellite: the speaker plays it, the ring shows each step.</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <span class="panel-label swap">
+        {
+          modes.map((m) => (
+            <span data-show={m}>
+              <Icon name={m === "home-assistant" ? "home" : "sliders"} size={14} /> {label[m]}
+            </span>
+          ))
+        }
       </span>
       <ol class="stages">
         {
           stages.map((s) => (
-            <li class="stage">
+            <li class="stage" data-stage={s.key}>
               <span class="num">{s.n}</span>
-              <span class="name">
-                <span data-show="home-assistant">{s.name["home-assistant"]}</span>
-                <span data-show="standalone">{s.name.standalone}</span>
+              <span class="name swap">
+                {modes.map((m) => (
+                  <span data-show={m}>{s.name[m]}</span>
+                ))}
               </span>
-              <span class="say" data-show="standalone">
-                {s.standalone}
+              <span class="say swap">
+                {modes.map((m) => (
+                  <span data-show={m}>{s.say[m]}</span>
+                ))}
               </span>
             </li>
           ))
         }
       </ol>
-    </li>
+    </div>
+  </div>
 
-    <li class="end">
-      <span class="puck" style="--led: var(--led-speaking)" aria-hidden="true"></span>
-      <span class="num">5</span>
-      <span class="name">Reply</span>
-      <span class="where">On the satellite</span>
-      <span class="say">The speaker plays it, and the ring shows each step.</span>
-    </li>
-  </ol>
-
-  <div class="details">
+  <div class="facts">
     {
-      (Object.keys(details) as Mode[]).map((mode) => (
-        <div class="detail" data-detail={mode}>
-          <ul class="space-y-2.5">
-            {details[mode].facts.map((fact) => (
-              <li class="text-ink-muted text-body flex items-start gap-2.5">
-                <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
-                {fact}
-              </li>
+      facts.map((f) => (
+        <div class="fact">
+          <span class="fact-title swap">
+            {modes.map((m) => (
+              <span data-show={m}>{f.title[m]}</span>
             ))}
-          </ul>
-          <p class="flex flex-wrap gap-x-5 gap-y-2 text-sm lg:flex-col lg:gap-y-3">
-            {details[mode].links.map((link) => (
-              <a class="link inline-flex items-center gap-1.5" href={link.href}>
-                {link.label}
-                <Icon name="arrow" size={14} />
-              </a>
+          </span>
+          <span class="fact-say swap">
+            {modes.map((m) => (
+              <span data-show={m}>{f.say[m]}</span>
             ))}
-          </p>
+          </span>
         </div>
       ))
     }
   </div>
+  <p class="links swap">
+    {
+      modes.map((m) => (
+        <span data-show={m}>
+          {links[m].map((link) => (
+            <a class="link inline-flex items-center gap-1.5" href={link.href}>
+              {link.label}
+              <Icon name="arrow" size={14} />
+            </a>
+          ))}
+        </span>
+      ))
+    }
+  </p>
 </div>
 
 <style>
   .path {
-    --gap: 12px;
     display: flex;
     flex-direction: column;
     gap: 32px;
@@ -143,64 +206,81 @@ const details: Record<Mode, { facts: string[]; links: { label: string; href: str
     display: none;
   }
 
-  /* ------------------------------------------------------------- track -- */
-
-  .track {
-    position: relative;
+  /* Both modes' words share one grid cell, so the taller sets the height and
+     switching moves nothing. The other mode's words are hidden, not removed. */
+  .swap {
     display: grid;
-    gap: 20px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
   }
 
-  /* The wire the request travels along, and the pulse on it. */
-  .track::before,
-  .track::after {
-    content: "";
+  .swap > * {
+    grid-area: 1 / 1;
+  }
+
+  [data-mode="home-assistant"] .swap > [data-show="standalone"],
+  [data-mode="standalone"] .swap > [data-show="home-assistant"] {
+    visibility: hidden;
+  }
+
+  /* -------------------------------------------------------------- loop -- */
+
+  .loop {
+    position: relative;
+    display: grid;
+    gap: 28px;
+    /* Room on the right for the wire's way back on phones. */
+    padding-right: 28px;
+  }
+
+  /* Above the panel, below the cards and the drawing, so the wire shows
+     between the stages and passes behind them. */
+  .wire {
     position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
     pointer-events: none;
   }
 
-  .track::before {
-    background: linear-gradient(var(--wire-dir, 180deg), var(--brand-start), var(--brand-mid), var(--brand-end));
-    opacity: 0.55;
+  .track {
+    fill: none;
+    stroke: url(#loop-wire);
+    stroke-width: 2;
+    stroke-linecap: round;
+    opacity: 0.8;
   }
 
-  .track::after {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--brand-mid);
-    box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand-mid) 25%, transparent);
+  .pulse {
+    fill: var(--brand-mid);
+    stroke: color-mix(in oklab, var(--brand-mid) 30%, transparent);
+    stroke-width: 6;
+    paint-order: stroke;
+  }
+
+  /* The wake word above the satellite, the reply below it. */
+  .satellite {
+    display: grid;
+    justify-items: start;
+    gap: 14px;
+  }
+
+  .device {
+    position: relative;
+    z-index: 2;
+    width: 9rem;
   }
 
   .end,
   .stage {
-    position: relative;
     display: grid;
-    grid-template-columns: auto 1fr;
-    column-gap: 12px;
+    grid-template-columns: 1.5rem minmax(0, 1fr);
     align-items: baseline;
   }
 
+  /* Clear of the wire, which runs down the right on phones. */
   .end {
-    padding: 4px 0;
-  }
-
-  .puck {
-    grid-row: span 3;
-    align-self: start;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--puck);
-    box-shadow:
-      inset 0 0 0 5px var(--puck),
-      inset 0 0 0 8px var(--led),
-      0 0 18px -2px color-mix(in oklab, var(--led) 60%, transparent);
-    position: relative;
-    z-index: 1;
+    max-width: 13.5rem;
   }
 
   .num {
@@ -210,10 +290,6 @@ const details: Record<Mode, { facts: string[]; links: { label: string; href: str
     color: var(--brand-mid);
   }
 
-  .end .num {
-    display: none;
-  }
-
   .name {
     color: var(--ink);
     font-size: 17px;
@@ -221,42 +297,28 @@ const details: Record<Mode, { facts: string[]; links: { label: string; href: str
     font-weight: 700;
   }
 
-  .where {
-    grid-column: 2;
-    color: var(--brand-mid);
-    font-size: 12px;
-    line-height: 16px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
   .say {
     grid-column: 2;
-    margin-top: 4px;
+    margin-top: 2px;
     color: var(--ink-muted);
     font-size: 15px;
     line-height: 22px;
   }
 
-  /* The middle: Home Assistant's panel, or the services side by side. */
-  .middle {
+  .panel {
     position: relative;
-    z-index: 1;
-    margin-left: 52px;
     padding: 14px 16px 16px;
-    border: 1px solid var(--line);
+    border: 1px dashed color-mix(in oklab, var(--brand-mid) 45%, var(--line));
     border-radius: var(--radius-md);
-    background: var(--surface-raised);
-    box-shadow: var(--shadow-raised);
-    transition:
-      background-color 250ms ease,
-      border-color 250ms ease,
-      box-shadow 250ms ease;
   }
 
-  .group-label {
-    display: block;
+  /* The page's own fill, so the wire passes behind the label, not through it. */
+  .panel-label {
+    position: relative;
+    z-index: 2;
+    width: fit-content;
+    padding-right: 6px;
+    background: var(--surface);
     color: var(--ink-muted);
     font-size: 12px;
     line-height: 16px;
@@ -265,7 +327,7 @@ const details: Record<Mode, { facts: string[]; links: { label: string; href: str
     text-transform: uppercase;
   }
 
-  .group-label :global(svg) {
+  .panel-label :global(svg) {
     display: inline;
     vertical-align: -2px;
     margin-right: 4px;
@@ -273,208 +335,150 @@ const details: Record<Mode, { facts: string[]; links: { label: string; href: str
 
   .stages {
     display: grid;
-    gap: 6px;
-    margin: 12px 0 0;
+    gap: 28px;
+    margin: 14px 0 0;
     padding: 0;
     list-style: none;
-    transition: gap 250ms ease;
   }
 
   .stage {
-    grid-template-columns: 1.5rem 1fr;
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--surface-sunken);
-    transition:
-      padding 250ms ease,
-      background-color 250ms ease;
-  }
-
-  .stage .say {
-    margin-top: 2px;
-    font-size: 14px;
-    line-height: 20px;
-  }
-
-  /* Standalone: the panel opens up, and each service stands on its own. */
-  [data-mode="standalone"] .middle {
-    border-style: dashed;
-    border-color: color-mix(in oklab, var(--brand-mid) 45%, var(--line));
-    /* The page's own colour, so the wire passes behind the panel, not through its label. */
-    background: var(--surface);
-    box-shadow: none;
-  }
-
-  [data-mode="standalone"] .stages {
-    gap: 10px;
-  }
-
-  [data-mode="standalone"] .stage {
+    position: relative;
+    z-index: 2;
     padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
     background: var(--surface-raised);
     box-shadow: var(--shadow-raised);
   }
 
-  /* What each mode shows. */
-  [data-mode="home-assistant"] [data-show="standalone"],
-  [data-mode="standalone"] [data-show="home-assistant"] {
-    display: none;
+  .stage .say {
+    font-size: 14px;
+    line-height: 20px;
   }
 
-  /* ----------------------------------------------------------- details -- */
+  /* ------------------------------------------------------------- facts -- */
 
-  .details {
+  /* Three short facts, each under a hairline in the mark's colours. */
+  .facts {
     display: grid;
-    gap: 24px;
+    gap: 20px;
   }
 
-  .detail {
+  .fact {
     display: grid;
-    gap: 16px;
+    gap: 4px;
+    padding-top: 14px;
+    border-top: 2px solid transparent;
+    border-image: linear-gradient(90deg, var(--brand-start), var(--brand-end)) 1;
   }
 
-  /* With the switch working, only the chosen mode's details show. */
-  [data-js][data-mode="home-assistant"] [data-detail="standalone"],
-  [data-js][data-mode="standalone"] [data-detail="home-assistant"] {
-    display: none;
+  .fact-title {
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 700;
   }
 
-  /* ----------------------------------------------------------- phones -- */
-
-  @media (max-width: 1023px) {
-    /* The wire runs down the pucks' centre line. */
-    .track::before {
-      left: 19px;
-      top: 24px;
-      bottom: 24px;
-      width: 2px;
-    }
-
-    .track::after {
-      left: 16px;
-      top: 24px;
-      animation: pulse-down 5s ease-in-out infinite;
-    }
+  .fact-say {
+    color: var(--ink-muted);
+    font-size: 15px;
+    line-height: 22px;
   }
 
-  @keyframes pulse-down {
-    0% {
-      top: 24px;
-      opacity: 0;
-    }
-    10% {
-      opacity: 1;
-    }
-    90% {
-      opacity: 1;
-    }
-    100% {
-      top: calc(100% - 32px);
-      opacity: 0;
-    }
+  .links > span {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    font-size: 14px;
   }
 
   /* ---------------------------------------------------------- desktop -- */
 
+  /* The satellite on the left; the stages open to the right as a loop:
+     speech-to-text along the top, the brain at the turn, text-to-speech
+     along the bottom. */
   @media (min-width: 1024px) {
-    .track {
-      --wire-dir: 90deg;
-      grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) minmax(0, 13rem);
-      align-items: start;
-      gap: 28px;
+    .loop {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      gap: 0 88px;
+      align-items: center;
+      padding-right: 0;
     }
 
-    .track::before {
-      left: 20px;
-      right: 20px;
-      top: 23px;
-      height: 2px;
+    .satellite {
+      gap: 18px;
     }
 
-    .track::after {
-      top: 20px;
-      left: 16px;
-      animation: pulse-across 6s ease-in-out infinite;
+    .device {
+      width: 11rem;
     }
 
+    /* Narrower than the column, so the wire coming back clears the text. */
     .end {
-      grid-template-columns: 1fr;
-      row-gap: 0;
+      max-width: 12.5rem;
     }
 
-    .end .puck {
-      grid-row: auto;
-      margin-bottom: 14px;
-    }
-
-    .end .where,
-    .end .say {
-      grid-column: 1;
-    }
-
-    .middle {
-      margin-left: 0;
-      padding: 14px 18px 18px;
+    .panel {
+      padding: 16px 20px 20px;
     }
 
     .stages {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-areas:
+        "stt ."
+        ". brain"
+        "tts .";
+      gap: 18px 56px;
+    }
+
+    [data-stage="stt"] {
+      grid-area: stt;
+    }
+
+    [data-stage="brain"] {
+      grid-area: brain;
+    }
+
+    [data-stage="tts"] {
+      grid-area: tts;
+    }
+
+    .facts {
       grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .stage {
-      grid-template-columns: 1fr;
-      align-content: start;
-    }
-
-    .stage .say {
-      grid-column: 1;
-    }
-
-    .details {
-      max-width: 52rem;
-    }
-
-    .detail {
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 40px;
-    }
-  }
-
-  @keyframes pulse-across {
-    0% {
-      left: 16px;
-      opacity: 0;
-    }
-    8% {
-      opacity: 1;
-    }
-    92% {
-      opacity: 1;
-    }
-    100% {
-      left: calc(100% - 24px);
-      opacity: 0;
+      gap: 32px;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .track::after {
+    .pulse {
       display: none;
-    }
-
-    .middle,
-    .stages,
-    .stage {
-      transition: none;
     }
   }
 </style>
 
 <script>
+  import { displayLevel, ringFrame, type Effect } from "../../../design/ring";
+
+  // One trip round the loop, then a short rest with the ring off.
+  const TRIP = 6000;
+  const REST = 1400;
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
   for (const root of document.querySelectorAll<HTMLElement>("[data-path]")) {
+    const loop = root.querySelector<HTMLElement>("[data-loop]");
+    const svg = root.querySelector<SVGSVGElement>("[data-wire]");
+    const track = root.querySelector<SVGPathElement>("[data-track]");
+    const pulse = root.querySelector<SVGCircleElement>("[data-pulse]");
+    const gradient = root.querySelector<SVGLinearGradientElement>("[data-gradient]");
+    const device = root.querySelector<HTMLElement>("[data-device] .pn-drawing");
+    const stage = (k: string) => root.querySelector<HTMLElement>(`[data-stage="${k}"]`);
+    const stt = stage("stt");
+    const brain = stage("brain");
+    const tts = stage("tts");
     const toggle = root.querySelector<HTMLElement>("[data-switch]");
     const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-set]")];
-    root.dataset.js = "";
+    if (!loop || !svg || !track || !pulse || !device || !stt || !brain || !tts) continue;
+
     if (toggle) toggle.hidden = false;
     for (const button of buttons) {
       button.addEventListener("click", () => {
@@ -482,5 +486,136 @@ const details: Record<Mode, { facts: string[]; links: { label: string; href: str
         for (const b of buttons) b.setAttribute("aria-pressed", String(b === button));
       });
     }
+
+    const leds = [...device.querySelectorAll<SVGPathElement>("[data-led]")];
+    const glows = [...device.querySelectorAll<SVGPathElement>("[data-glow]")];
+    const paint = (effect: Effect, t: number) =>
+      ringFrame(effect, t).forEach((p, i) => {
+        const stroke = p.c ? `rgb(${p.c.join(",")})` : "none";
+        const opacity = p.c ? displayLevel(p.level) : 0;
+        leds[i]?.setAttribute("stroke", stroke);
+        leds[i]?.setAttribute("stroke-opacity", opacity.toFixed(3));
+        glows[i]?.setAttribute("stroke", stroke);
+        glows[i]?.setAttribute("stroke-opacity", (opacity * 0.6).toFixed(3));
+      });
+
+    // Where, along the wire, the ring turns from Listening to Thinking and
+    // from Thinking to Speaking: the brain's top and bottom edges.
+    let total = 1;
+    let thinkAt = 0.4;
+    let speakAt = 0.6;
+
+    const draw = () => {
+      const o = loop.getBoundingClientRect();
+      const r = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        return {
+          l: b.left - o.left,
+          r: b.right - o.left,
+          t: b.top - o.top,
+          b: b.bottom - o.top,
+          cx: b.left - o.left + b.width / 2,
+          cy: b.top - o.top + b.height / 2,
+        };
+      };
+      const d = r(device);
+      const s = r(stt);
+      const k = r(brain);
+      const t = r(tts);
+      const across = k.l > s.r - 1; // the brain stands beside speech-to-text: the desktop loop
+      const parts: string[] = [];
+      let toThink = "";
+      let toSpeak = "";
+      if (across) {
+        // Out of the ring along the top, down through the brain, back along the bottom into the speaker.
+        const out = { x: d.r - 4, y: d.t + (d.b - d.t) * 0.28 };
+        const back = { x: d.r - 6, y: d.t + (d.b - d.t) * 0.7 };
+        parts.push(`M${out.x},${out.y}`);
+        parts.push(`C${(out.x + s.l) / 2},${out.y} ${(out.x + s.l) / 2},${s.cy} ${s.l},${s.cy}`);
+        parts.push(`L${s.r},${s.cy}`);
+        parts.push(`C${k.cx},${s.cy} ${k.cx},${s.cy} ${k.cx},${k.t}`);
+        toThink = parts.join(" ");
+        parts.push(`L${k.cx},${k.b}`);
+        toSpeak = parts.join(" ");
+        parts.push(`C${k.cx},${t.cy} ${k.cx},${t.cy} ${t.r},${t.cy}`);
+        parts.push(`L${t.l},${t.cy}`);
+        parts.push(`C${(back.x + t.l) / 2},${t.cy} ${(back.x + t.l) / 2},${back.y} ${back.x},${back.y}`);
+      } else {
+        // Stacked: from the satellite's right side, down the right edge past
+        // the reply, through the stages, and round to come back up into its
+        // side. The wire never crosses the text on the left.
+        const edge = o.width - 10;
+        const x = Math.max(s.l + (s.r - s.l) * 0.78, d.r + 12);
+        const out = { x: d.r - 6, y: d.t + (d.b - d.t) * 0.3 };
+        const back = { x: d.r - 6, y: d.t + (d.b - d.t) * 0.72 };
+        parts.push(`M${out.x},${out.y}`);
+        parts.push(`C${x},${out.y} ${x},${out.y} ${x},${out.y + 24}`);
+        parts.push(`L${x},${k.t}`);
+        toThink = parts.join(" ");
+        parts.push(`L${x},${k.b}`);
+        toSpeak = parts.join(" ");
+        parts.push(`L${x},${t.b}`);
+        parts.push(`C${x},${t.b + 24} ${edge},${t.b + 24} ${edge},${t.b - 12}`);
+        parts.push(`L${edge},${back.y + 16}`);
+        parts.push(`C${edge},${back.y} ${edge},${back.y} ${back.x},${back.y}`);
+      }
+      track.setAttribute("d", parts.join(" "));
+      gradient?.setAttribute("x1", "0");
+      gradient?.setAttribute("x2", String(o.width));
+      // Lengths along the wire, from throwaway paths of its first parts.
+      const measure = (dd: string) => {
+        const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        p.setAttribute("d", dd);
+        svg.appendChild(p);
+        const len = p.getTotalLength();
+        p.remove();
+        return len;
+      };
+      total = track.getTotalLength() || 1;
+      thinkAt = measure(toThink) / total;
+      speakAt = measure(toSpeak) / total;
+    };
+
+    let start = performance.now();
+    let raf = 0;
+    let visible = false;
+
+    const frame = (now: number) => {
+      const t = Math.max(0, now - start) % (TRIP + REST);
+      if (t < TRIP) {
+        const f = t / TRIP;
+        const p = track.getPointAtLength(f * total);
+        pulse.setAttribute("cx", String(p.x));
+        pulse.setAttribute("cy", String(p.y));
+        pulse.style.opacity = "1";
+        const effect: Effect = f < thinkAt ? "listening" : f < speakAt ? "thinking" : "speaking";
+        const since = f < thinkAt ? t : f < speakAt ? t - thinkAt * TRIP : t - speakAt * TRIP;
+        paint(effect, since);
+      } else {
+        pulse.style.opacity = "0";
+        paint("idle", 0);
+      }
+      raf = requestAnimationFrame(frame);
+    };
+
+    const run = () => {
+      cancelAnimationFrame(raf);
+      if (visible && !reduceMotion.matches) {
+        start = performance.now();
+        raf = requestAnimationFrame(frame);
+      } else {
+        pulse.style.opacity = "0";
+        paint("listening", 0);
+      }
+    };
+
+    const resize = new ResizeObserver(draw);
+    for (const el of [loop, stt, brain, tts]) resize.observe(el);
+    draw();
+    new IntersectionObserver(([entry]) => {
+      visible = Boolean(entry?.isIntersecting);
+      run();
+    }).observe(loop);
+    reduceMotion.addEventListener("change", run);
   }
 </script>
