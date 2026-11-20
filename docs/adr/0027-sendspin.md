@@ -228,13 +228,20 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
     satellite is in a Sendspin group, go to the server as controller
     commands, so the whole group pauses, plays or stops, as grouped
     speakers and Music Assistant's own controls do. The server ends the
-    stream (`stream/end`), and the media state shows Paused with the
-    source `sendspin` until the group plays again or the connection ends;
-    Play then sends `play`, which resumes the group's last media. Another
-    source taking the lane (a URL, AirPlay, Bluetooth) makes the satellite
-    leave its group instead (`client/leave`): the rest of the group plays
-    on, and Music Assistant can add it back. A role the server removes, a
-    `stream/end` or a lost connection stops it with a fade.
+    stream (`stream/end`). A group reports `stopped` whether it was paused,
+    stopped or came to the end of its queue, so the satellite goes by what
+    it sent itself. After its own Pause, the media state shows Paused with
+    the source `sendspin` until the group plays again, the satellite stops
+    or leaves it, or the connection ends; Play then sends `play`, which
+    resumes the group's last media. Stop from the satellite, a queue that
+    ends on its own, and a pause or stop from anywhere else show Idle.
+    Another source taking the lane (a URL, AirPlay, Bluetooth) while the
+    group plays, or while it waits paused from the satellite, makes the
+    satellite leave its group instead (`client/leave`): the rest of the
+    group plays on, and Music Assistant can add it back. In a group stopped
+    any other way the satellite stays, as the specification has it, and the
+    group's next play takes the lane back (§13). A role the server removes,
+    a `stream/end` or a lost connection stops it with a fade.
 15. **Volume.** The server's volume and mute set the Sendspin stream's own
     level, with the specification's curve (`(v/100)^1.5`), ramped, and are
     kept across restarts. While Sendspin plays, Home Assistant's media
