@@ -1211,6 +1211,33 @@ mod tests {
     }
 
     #[test]
+    fn once_the_speaker_rate_is_known_the_feed_forward_ratio_alone_keeps_time() {
+        // Both rates the ratio is built from, each way: a ratio that missed
+        // or inverted either would drift by 100 ppm or more, 2 ms over the
+        // 20 s, where only rounding is left.
+        for (spk_ppm, drift_ppm, rate) in [
+            (320.0, 100.0, 48_000),
+            (-320.0, -100.0, 48_000),
+            (320.0, -100.0, 44_100),
+            (-320.0, 100.0, 44_100),
+        ] {
+            let mut sim = Sim::new(spk_ppm, drift_ppm, rate);
+            sim.spk_told = sim.spk_true;
+            sim.queue().correct.store(false, Ordering::Relaxed);
+            sim.run(0.5);
+            sim.start_stream(0.3);
+            sim.run(20.0);
+            let first = sim.first_sound();
+            assert!(
+                sim.max_err(first) < 50.0,
+                "{spk_ppm} ppm speaker, {drift_ppm} ppm server, {rate} Hz: {} µs",
+                sim.max_err(first)
+            );
+            assert_eq!(sim.sink.stats().jumps, 1);
+        }
+    }
+
+    #[test]
     fn a_small_filter_step_is_slewed_and_a_large_one_jumped() {
         let mut sim = playing(0.0, 0.0, 48_000, 3.0);
         // The filter moves 3 ms: within what 10 s of correction can do.
@@ -1257,8 +1284,8 @@ mod tests {
             sim.run(10.5);
             assert_eq!(sim.sink.stats().jumps, 1, "{spk_ppm} ppm: jumped");
             assert!(sim.max_speed(mark) < 0.005, "{spk_ppm} ppm");
-            // The filter moved as the chunk before `mark` was mixed, which
-            // is heard MIX_AHEAD later.
+            // The filter moved MIX_AHEAD before frame `mark` is heard: as
+            // the chunk it starts was mixed.
             let steady = mark + frames(10.0 - MIX_AHEAD);
             assert!(
                 sim.max_err(steady) < 1_000.0,
