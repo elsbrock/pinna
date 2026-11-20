@@ -209,7 +209,10 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
       `min_buffer_ms` is the 99th percentile of how late chunks arrive over
       the last minute, reported only when it changes by more than 20 ms.
     - The sync error and the filter's error are metrics (ADR 0020), so a
-      device can show that it keeps ±1 ms.
+      device can show that it keeps ±1 ms. They exist only while a stream
+      sounds, so they show when music played: the one exception to ADR
+      0020's rule, kept for the release gate. The state metric doesn't add
+      to it: playing counts as connected there.
 12. **Other backends.** On PipeWire (the virtual Echo Dot, laptops) there is
     no hardware pointer to read: the source plays at the pacing clock, in
     time to within the PipeWire graph's latency, not to 1 ms. The status
