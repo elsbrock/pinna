@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Fri, 20 Nov 2026 19:32:56 +0100
+Subject: [PATCH 31/31] fix(wlan): advertise the basic rates of the MT8163 access
+ point
+
+The setup hotspot (ADR 0028) came up on an Echo Dot (2nd gen) running
+0.5.0-beta.1, but every client was refused at association with status
+18: it doesn't support all of the BSS basic rates. A phone said "failed
+to join"; a Linux client logged CTRL-EVENT-ASSOC-REJECT status_code=18
+four times, and hostapd never saw a station.
+
+The P2P init sets up the BSS for 11G_P2P and fills the rates the beacon
+advertises from it: 6(B) 9 12(B) 18 24(B) 36 48 54, which is what a scan
+of the hotspot showed. When hostapd starts a pure access point,
+p2pFuncStartGO switches the BSS to mixed 11b/g, whose basic rates are 1,
+2, 5.5 and 11 Mbit/s, but rebuilds the advertised rates only in OOBE AP
+mode, which Pinna leaves off. A client offers only rates it saw in the
+beacon, so it never offers the 11b basic rates, and the association
+check refuses it.
+
+Rebuild the advertised rates for a pure access point too, so the beacon
+lists 1(B) 2(B) 5.5(B) 11(B) and the OFDM rates. The station side and
+the P2P group owner path are unchanged.
+
+Not built or run on a device yet.
+---
+ .../conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_func.c       | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_func.c b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_func.c
+index d85a24d..71b28c7 100644
+--- a/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_func.c
++++ b/drivers/misc/mediatek/mt8163-connectivity/conn_soc/drv_wlan/mt_wifi/wlan/mgmt/p2p_func.c
+@@ -413,7 +413,14 @@ p2pFuncStartGO(IN P_ADAPTER_T prAdapter,
+ 		prBssInfo->u2OperationalRateSet =
+ 		    rNonHTPhyAttributes[prBssInfo->ucNonHTBasicPhyType].u2SupportedRateSet;
+ 
+-		if (prBssInfo->ucAllSupportedRatesLen == 0 || fgIsOOBEAP) {
++		/* The rates the beacon advertises must follow the basic rates set
++		 * above. The P2P init filled them for 11G_P2P (OFDM only), and a
++		 * pure AP switches to mixed 11b/g, whose basic rates are 1, 2, 5.5
++		 * and 11 Mbit/s. Kept from init, the beacon offered only OFDM
++		 * rates, clients offered no others, and every association was
++		 * refused with status 18 (Echo Dot (2nd gen), 2026-11-20).
++		 */
++		if (prBssInfo->ucAllSupportedRatesLen == 0 || fgIsOOBEAP || fgIsPureAP) {
+ 			rateGetDataRatesFromRateSet(prBssInfo->u2OperationalRateSet,
+ 						    prBssInfo->u2BSSBasicRateSet,
+ 						    prBssInfo->aucAllSupportedRates,
+-- 
+2.54.0
+
