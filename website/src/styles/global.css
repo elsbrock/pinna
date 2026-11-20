@@ -241,6 +241,15 @@
   --pf-result-excerpt-font-size: 13px;
   --pf-shadow-md: var(--shadow-pop);
   --pf-dropdown-z-index: 40;
+  /* Pagefind's own dark values apply only under its data-pf-theme attribute,
+     so anything left unset here stays light in dark mode. */
+  --pf-skeleton: var(--surface-sunken);
+  --pf-skeleton-shine: var(--surface);
+  --pf-scroll-shadow: color-mix(in srgb, var(--ink) 8%, transparent);
+  --pf-error-text: var(--danger);
+  --pf-error-text-secondary: var(--ink-muted);
+  --pf-error-bg: var(--danger-soft);
+  --pf-error-border: var(--danger);
 }
 
 /* The dropdown is wider than the 15rem sidebar so excerpts stay readable.
