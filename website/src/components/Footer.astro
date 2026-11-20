@@ -6,9 +6,6 @@ import { docHref, SITE } from "../lib/site";
 // Set by astro.config.mjs from git at build time.
 declare const __PINNA_SITE_VERSION__: { describe: string; commit: string };
 const version = __PINNA_SITE_VERSION__;
-// The release the site was built from: `git describe` without the commits
-// since the tag ("v0.5.0-beta.2-1-g0c3b4ae" is v0.5.0-beta.2).
-const release = version.describe.replace(/-\d+-g[0-9a-f]+(-dirty)?$/, "");
 
 const docs = [
   { slug: "", title: "Overview" },
@@ -94,12 +91,12 @@ const project = [
             <a
               class="text-ink-muted hover:text-ink font-mono"
               href={`${SITE.repo}/commit/${version.commit}`}
-              title={`Built from ${version.describe}`}
+              title="The commit this site was built from"
             >
-              {release}
+              {version.describe}
             </a>
           ) : (
-            <span class="font-mono">{release}</span>
+            <span class="font-mono">{version.describe}</span>
           )
         }
       </p>
