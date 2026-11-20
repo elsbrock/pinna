@@ -1,8 +1,10 @@
 # ADR 0030: Recording the microphones from the dashboard, confirmed at the device
 
-Status: proposed (2026-11-20). Follows ADR 0029 (the confirmation at the
-device), ADR 0004 (the audio graph) and ADR 0005 (the dashboard). Points
-marked *default* are not confirmed by the owner yet. Not built.
+Status: proposed (2026-11-20), accepted (2026-11-21), built (2026-11-21),
+with the tests that run without hardware; the virtual Echo Dot recorded the
+first file. The debugging file and the ring pattern haven't run on an Echo.
+Follows ADR 0029 (the confirmation at the device), ADR 0004 (the audio graph)
+and ADR 0005 (the dashboard).
 
 ## Context
 
@@ -56,7 +58,7 @@ marked *default* are not confirmed by the owner yet. Not built.
 
 - **Debugging the audio pipeline**: by developers, and by owners whom a
   developer asks for a recording. Not an everyday control.
-- **It needs a dashboard password** *(default)*. While the dashboard is
+- **It needs a dashboard password**. While the dashboard is
   open, anyone on the LAN could start a confirmation, and an owner pressing
   Action to talk would hand them the room's audio. With a password, only
   someone signed in can ask, and the press is still needed.
@@ -64,22 +66,23 @@ marked *default* are not confirmed by the owner yet. Not built.
 ### What is recorded
 
 - **Up to 30 seconds.** The dashboard records for 30 seconds, and **Stop**
-  ends it sooner *(default)*. pinnad refuses more than 30.
+  ends it sooner. pinnad refuses more than 30.
 - **What the satellite hears**, on every backend: the frames that the wake
   word and the request get, after beamforming, echo cancellation and
   pinnad's gain, tapped in `capture_loop` after the gain. WAV, 16-bit PCM,
   mono, 16 kHz; 30 seconds is 0.96 MB. It plays anywhere.
 - **Everything for debugging**, on the Echo's PipeWire graph only: one WAV
-  (`WAVE_FORMAT_EXTENSIBLE`), 24-bit PCM, 16 kHz, 11 channels *(default)*:
+  (`WAVE_FORMAT_EXTENSIBLE`), 24-bit PCM, 16 kHz, 11 channels:
   1. to 9. the lanes of `dot_mics` as the codec delivers them, nothing
      mixed, filtered or gained: 7 microphones, then the 2 reference lanes;
   10. the echo canceller's output before pinnad's gain;
-  11. the echo reference that pinnad sends to `dot_ref`.
+  11. the echo reference as the echo canceller gets it.
 
-  30 seconds is 15.84 MB. The lanes come from a second capture stream,
-  `pw-record` on `dot_mics`, that runs only during the recording; channels
-  10 and 11 come from pinnad's own streams. The other backends have nothing
-  this file would add.
+  30 seconds is 15.84 MB. The lanes and the reference come from two
+  `pw-record` streams that run only during the recording: one on
+  `dot_mics`, one on the monitor of `dot_ref_sink`, which the echo
+  canceller's playback feeds. Channel 10 comes from pinnad's own stream. The
+  other backends have nothing this file would add.
 - **The channels are not aligned to the sample.** The streams start within
   a few tens of milliseconds of each other, and the beamformer and echo
   cancellation add their own delay. The dashboard says so; a
@@ -93,16 +96,16 @@ marked *default* are not confirmed by the owner yet. Not built.
   confirmation**: `StartConfirmation` takes a purpose (`PASSWORD`, the
   default and today's meaning, or `RECORDING`). The one-at-a-time rule, the
   cooldowns, **Cancel** and **Stop it** are the confirmation's.
-- **The ring shows its own pattern for a recording** *(default: the confirm
-  pattern's circling light in the Listening colour)*, so the person at the
+- **The ring shows its own pattern for a recording**, the confirm
+  pattern's circling light in the Listening colour, so the person at the
   device can tell it from a password confirmation. `pinna-hal`'s animations
   and `design/ring.ts` change together.
 - **A recording grant is bound to the session that asked**, and is good
-  for 10 seconds *(default)*, not 5 minutes: the recording follows the
+  for 10 seconds, not 5 minutes: the recording follows the
   press. A grant presented from another session is refused.
 - `RecordAudio` takes the grant and starts at once. It is refused, with
-  the reason, if the microphones were muted or a calibration started since
-  the request.
+  the reason, if the microphones are muted or a calibration runs when it is
+  called; a refusal leaves the grant unused.
 - Signed-in dashboards show a waiting confirmation with its purpose ("A
   browser at 192.168.1.23 is waiting for a press of Action to record from
   the microphones. Don't press it unless that was you."), and a running
@@ -117,33 +120,39 @@ marked *default* are not confirmed by the owner yet. Not built.
   announcements, group messages and music. The recording captures them as
   they happen; a reply interrupted by the wake word is what it is for. The
   recording itself ducks nothing.
-- **The ring shows Listening for the whole recording**, except while a
-  request, an alarm or another state shows its own pattern, which also says
-  that the satellite is active.
+- **The ring shows Listening for the whole recording**, above a running
+  timer's arc, a notification, the ring light and the music, so that it
+  always says the microphones record. A request, a ringing alarm, mute, a
+  confirmation, calibration and Bluetooth pairing keep their own patterns,
+  which also say that the satellite is active.
 - **The phase doesn't change.** A recording is its own field in `Status`
   (the seconds left, the address that asked), so Home Assistant, agents and
   automations that act on Listening aren't misled. The Overview shows it.
 - **What ends it**: its length; **Stop** in the dashboard that recorded it
   or **Stop it** in another signed-in one; mute, at once, which is the stop
-  for whoever is in the room; leaving the page or closing the tab; the stream
-  breaking; pinnad stopping. Action keeps its usual job during a recording.
-  The browser keeps what arrived and says why the recording ended.
+  for whoever is in the room; the stream breaking; pinnad stopping; leaving
+  the page or closing the tab, which also loses what arrived. Action keeps
+  its usual job during a recording. Otherwise the browser keeps what arrived
+  and says why the recording ended.
 - An update's restart waits for a recording to end, as it waits for Idle.
 - pinnad logs the start, the end, why it ended, and the address.
 
 ### How the browser receives it
 
 - **`RecordAudio` is a server stream on `DeviceService`.** Its first
-  message describes the files (rate, channels, bits); then chunks of about
-  100 ms of each follow as `bytes` (3.2 KB and 52.8 KB on the Echo Dot
-  (2nd gen)); the last message says how it ended and how many seconds each
-  file holds. The dashboard writes the WAV headers, makes the files from the
-  chunks and offers them to save.
+  message gives the rate, the length, whether the debugging sources follow
+  and how many lanes they have. Then each source comes in its own chunks of
+  about 100 ms as `bytes`: what the satellite hears, the signal before the
+  gain and the reference as 16-bit mono (3.2 KB), the lanes as 24-bit
+  interleaved (43.2 KB on the Echo Dot (2nd gen)). The last message says how
+  it ended, with how many seconds the first file holds. The dashboard puts
+  the debugging sources together into the 11-channel file, writes the WAV
+  headers and offers the files to save.
 - **Nothing is stored on the satellite.** The chunks go from the taps to
   the stream through a bounded queue of 2 seconds (about 1.1 MB). A browser
   that falls further behind ends the recording ("The browser fell behind:
-  the files hold 12 s."); pinnad never buffers more. The extra `pw-record`
-  process lives only for the recording.
+  the files hold 12 s."); pinnad never buffers more. The two `pw-record`
+  processes live only for the recording.
 - The browser holds the files in memory, at most 17 MB.
 
 ### Not in Home Assistant, not for agents
@@ -156,7 +165,7 @@ marked *default* are not confirmed by the owner yet. Not built.
 
 ### In the dashboard
 
-- **A subpage, System > Record audio** *(default)*: it has a flow of its
+- **A subpage, System > Record audio**: it has a flow of its
   own (a confirmation at the satellite, a wait), so it gets a page. While
   there is no password, it says that recording needs one and links to
   setting it. Otherwise: **Record**, the confirmation, a countdown with
@@ -178,8 +187,8 @@ marked *default* are not confirmed by the owner yet. Not built.
   virtual Echo Dot only the first file can be tested. On the Echo (2nd gen)
   its lanes are whatever its capture node delivers, documented once
   measured on a device.
-- Recording raises pinnad's memory by at most the 2-second queue and the
-  `pw-record` process while it runs.
+- Recording raises pinnad's memory by at most the 2-second queue, and adds
+  the two `pw-record` processes while it runs.
 
 ## Alternatives not taken
 
