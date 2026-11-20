@@ -141,6 +141,7 @@ On the devices:
   one answer when several hear the wake word (ADR 0026).
 - **A setup hotspot password that only the owner can learn**, instead of one
   that every device shares (ADR 0028).
+- **The Echo (1st gen)**: bringing Pinna up on it is in the works.
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 - **Pairing for Sendspin through Home Assistant**: Home Assistant would hand
   the satellite's pairing key to Music Assistant, so that only your Music
