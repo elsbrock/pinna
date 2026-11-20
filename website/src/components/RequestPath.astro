@@ -110,7 +110,7 @@ const modes = Object.keys(label) as Mode[];
     </svg>
 
     <div class="satellite">
-      <div class="end">
+      <div class="end end-in">
         <span class="num">1</span>
         <span class="name">Wake word</span>
         <span class="say">The satellite hears it. Until then, no audio leaves the device.</span>
@@ -118,7 +118,7 @@ const modes = Object.keys(label) as Mode[];
       <div class="device" data-device>
         <DeviceDrawing model="echo-dot-2" id="path-dot" effect="listening" width="100%" label="An Echo Dot (2nd gen) running Pinna." />
       </div>
-      <div class="end">
+      <div class="end end-out" data-reply>
         <span class="num">5</span>
         <span class="name">Reply</span>
         <span class="say">Back on the satellite: the speaker plays it, the ring shows each step.</span>
@@ -258,17 +258,29 @@ const modes = Object.keys(label) as Mode[];
     paint-order: stroke;
   }
 
-  /* The wake word above the satellite, the reply below it. */
+  /* On phones the satellite's parts join the loop's own column, so it reads
+     in order: the wake word and the satellite, the stages, then the reply. */
   .satellite {
-    display: grid;
-    justify-items: start;
-    gap: 14px;
+    display: contents;
+  }
+
+  .end-in {
+    order: 1;
   }
 
   .device {
     position: relative;
     z-index: 2;
+    order: 2;
     width: 9rem;
+  }
+
+  .panel {
+    order: 3;
+  }
+
+  .end-out {
+    order: 4;
   }
 
   .end,
@@ -356,35 +368,6 @@ const modes = Object.keys(label) as Mode[];
     line-height: 20px;
   }
 
-  /* ------------------------------------------------------------- facts -- */
-
-  /* Three short facts, each under a hairline in the mark's colours. */
-  .facts {
-    display: grid;
-    gap: 20px;
-  }
-
-  .fact {
-    display: grid;
-    gap: 4px;
-    padding-top: 14px;
-    border-top: 2px solid transparent;
-    border-image: linear-gradient(90deg, var(--brand-start), var(--brand-end)) 1;
-  }
-
-  .fact-title {
-    color: var(--ink);
-    font-size: 15px;
-    line-height: 22px;
-    font-weight: 700;
-  }
-
-  .fact-say {
-    color: var(--ink-muted);
-    font-size: 15px;
-    line-height: 22px;
-  }
-
   .links > span {
     display: flex;
     flex-wrap: wrap;
@@ -405,7 +388,10 @@ const modes = Object.keys(label) as Mode[];
       padding-right: 0;
     }
 
+    /* The wake word above the satellite, the reply below it. */
     .satellite {
+      display: grid;
+      justify-items: start;
       gap: 18px;
     }
 
@@ -442,11 +428,6 @@ const modes = Object.keys(label) as Mode[];
     [data-stage="tts"] {
       grid-area: tts;
     }
-
-    .facts {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 32px;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -475,9 +456,10 @@ const modes = Object.keys(label) as Mode[];
     const stt = stage("stt");
     const brain = stage("brain");
     const tts = stage("tts");
+    const reply = root.querySelector<HTMLElement>("[data-reply]");
     const toggle = root.querySelector<HTMLElement>("[data-switch]");
     const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-set]")];
-    if (!loop || !svg || !track || !pulse || !device || !stt || !brain || !tts) continue;
+    if (!loop || !svg || !track || !pulse || !device || !stt || !brain || !tts || !reply) continue;
 
     if (toggle) toggle.hidden = false;
     for (const button of buttons) {
@@ -541,9 +523,10 @@ const modes = Object.keys(label) as Mode[];
         parts.push(`L${t.l},${t.cy}`);
         parts.push(`C${(back.x + t.l) / 2},${t.cy} ${(back.x + t.l) / 2},${back.y} ${back.x},${back.y}`);
       } else {
-        // Stacked: from the satellite's right side, down the right edge past
-        // the reply, through the stages, and round to come back up into its
-        // side. The wire never crosses the text on the left.
+        // Stacked: out of the satellite's side, down through the stages to
+        // the reply below them, then up the right edge and back into the
+        // satellite. The wire stays right of the text.
+        const e = r(reply);
         const edge = o.width - 10;
         const x = Math.max(s.l + (s.r - s.l) * 0.78, d.r + 12);
         const out = { x: d.r - 6, y: d.t + (d.b - d.t) * 0.3 };
@@ -554,8 +537,8 @@ const modes = Object.keys(label) as Mode[];
         toThink = parts.join(" ");
         parts.push(`L${x},${k.b}`);
         toSpeak = parts.join(" ");
-        parts.push(`L${x},${t.b}`);
-        parts.push(`C${x},${t.b + 24} ${edge},${t.b + 24} ${edge},${t.b - 12}`);
+        parts.push(`L${x},${e.cy - 14}`);
+        parts.push(`C${x},${e.cy + 10} ${edge},${e.cy + 10} ${edge},${e.cy - 14}`);
         parts.push(`L${edge},${back.y + 16}`);
         parts.push(`C${edge},${back.y} ${edge},${back.y} ${back.x},${back.y}`);
       }
@@ -610,7 +593,7 @@ const modes = Object.keys(label) as Mode[];
     };
 
     const resize = new ResizeObserver(draw);
-    for (const el of [loop, stt, brain, tts]) resize.observe(el);
+    for (const el of [loop, stt, brain, tts, reply]) resize.observe(el);
     draw();
     new IntersectionObserver(([entry]) => {
       visible = Boolean(entry?.isIntersecting);

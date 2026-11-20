@@ -74,6 +74,65 @@
     );
   }
 
+  /* Short facts, each under a hairline in the mark's colours: the page's
+     answer to a list of checkmarks. */
+  .facts {
+    display: grid;
+    gap: 20px;
+  }
+
+  @media (min-width: 1024px) {
+    .facts {
+      grid-template-columns: repeat(var(--facts, 3), minmax(0, 1fr));
+      gap: 32px;
+    }
+  }
+
+  .fact {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    padding-top: 14px;
+    border-top: 2px solid transparent;
+    border-image: linear-gradient(90deg, var(--brand-start), var(--brand-end)) 1;
+  }
+
+  .fact-title {
+    @apply text-ink font-semibold;
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  .fact-say {
+    @apply text-ink-muted;
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  /* A list marked with LEDs: --led sets the colour, as on the ring. */
+  .leds {
+    display: grid;
+    gap: 12px;
+  }
+
+  .leds > li {
+    @apply text-ink-muted text-body;
+    position: relative;
+    padding-left: 22px;
+  }
+
+  .leds > li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 8px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--led, var(--brand-mid));
+    box-shadow: 0 0 6px 1px color-mix(in oklab, var(--led, var(--brand-mid)) 55%, transparent);
+  }
+
   /* A soft glow of the mark's colours behind the hero. Full width, so it fades
      out at the screen's edges instead of at the content's. */
   .hero-glow {
