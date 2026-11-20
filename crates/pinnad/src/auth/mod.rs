@@ -285,10 +285,22 @@ impl Auth {
         }
     }
 
-    /// The access state, for `signed_in` as the caller is.
+    /// The access state, for `signed_in` as the caller is. With a password set,
+    /// a caller without a session gets only what the sign-in form needs: the
+    /// failures, their address, the tokens' ends, the agents' names and the
+    /// windows are for the System page, not for anyone on the LAN (ADR 0029).
     pub fn security(&self, signed_in: bool) -> Security {
         let creds = self.credentials();
         let now = Instant::now();
+        if credentials::has_password(&creds) && !signed_in {
+            let wait = self.limiter.lock().unwrap().wait(now);
+            return Security {
+                password_set: true,
+                login_retry_after_s: limit::ceil_secs(wait) as u32,
+                confirmation_cooldown_s: self.confirmations.lock().unwrap().cooldown(now) as u32,
+                ..Default::default()
+            };
+        }
         let (since_login, failure, wait) = {
             let limiter = self.limiter.lock().unwrap();
             (

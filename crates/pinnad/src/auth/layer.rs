@@ -525,14 +525,14 @@ mod tests {
         );
         assert_eq!(text(res).await.lines().count(), 1);
         assert!(
-            !rig.auth.security(false).metrics_read,
+            !rig.auth.security(true).metrics_read,
             "a refusal is no read"
         );
 
         let token = rig.auth.create_token(TokenKind::Metrics).await.unwrap();
         let read = req("GET", "/metrics").header("authorization", format!("Bearer {token}"));
         assert_eq!(send(&app, read).await.status(), StatusCode::OK);
-        assert!(rig.auth.security(false).metrics_read);
+        assert!(rig.auth.security(true).metrics_read);
     }
 
     #[tokio::test]

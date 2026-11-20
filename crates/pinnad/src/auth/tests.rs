@@ -184,14 +184,14 @@ async fn failures_are_counted_with_where_they_came_from() {
     let mut rig = rig();
     rig.with_password().await;
     let _ = rig.auth.login(WHO, "wrong".into()).await;
-    let s = rig.auth.security(false);
+    let s = rig.auth.security(true);
     assert_eq!(s.failures_since_login, 1);
     assert_eq!(s.last_failure_address, "192.168.1.9");
     assert!(s.last_failure_unix_ms > 0);
     assert!(s.login_retry_after_s <= 1, "{s:?}");
     rig.auth.limiter.lock().unwrap().reset();
     rig.auth.login(WHO, PASSWORD.into()).await.unwrap();
-    assert_eq!(rig.auth.security(false).failures_since_login, 0);
+    assert_eq!(rig.auth.security(true).failures_since_login, 0);
 }
 
 #[tokio::test]
@@ -210,7 +210,7 @@ async fn a_refused_attempt_runs_no_pbkdf2_and_counts_for_nothing() {
     }
     // 200 checks at this cost would take seconds.
     assert!(start.elapsed() < Duration::from_millis(500));
-    assert_eq!(rig.auth.security(false).failures_since_login, 1);
+    assert_eq!(rig.auth.security(true).failures_since_login, 1);
 }
 
 #[tokio::test]
@@ -230,7 +230,7 @@ async fn a_change_needs_the_current_password_or_a_press() {
         .unwrap_err();
     assert_eq!(code(e), ErrorCode::PermissionDenied);
     assert_eq!(
-        rig.auth.security(false).failures_since_login,
+        rig.auth.security(true).failures_since_login,
         1,
         "a wrong current password is a failed login"
     );
@@ -272,7 +272,7 @@ async fn of_two_changes_at_once_the_second_has_a_wrong_current_password() {
     );
     a.unwrap();
     assert_eq!(code(b.unwrap_err()), ErrorCode::PermissionDenied);
-    assert_eq!(rig.auth.security(false).failures_since_login, 1);
+    assert_eq!(rig.auth.security(true).failures_since_login, 1);
     rig.auth.limiter.lock().unwrap().reset();
     assert!(rig.auth.login(WHO, "first change".into()).await.is_ok());
 }
@@ -427,6 +427,35 @@ async fn a_confirmation_nobody_presses_expires() {
 }
 
 #[tokio::test]
+async fn without_a_session_the_security_state_says_only_what_signing_in_needs() {
+    let mut rig = rig();
+    rig.service.agent_seen("claude-code".into(), WHO);
+    rig.auth.note_metrics_read();
+    rig.with_password().await;
+    rig.auth.create_token(TokenKind::Agent).await.unwrap();
+    let _ = rig.auth.login(WHO, "wrong".into()).await;
+    rig.auth.open_home_assistant_window().unwrap();
+    let full = rig.auth.security(true);
+    assert!(full.failures_since_login == 1 && !full.agent_token_last4.is_empty());
+    assert!(!full.mcp_clients.is_empty() && full.home_assistant_window_left_s > 0);
+
+    let s = rig.auth.security(false);
+    assert!(s.password_set && !s.signed_in && !s.offer_pending);
+    assert!(
+        s.login_retry_after_s >= 1,
+        "the form says how long to wait: {s:?}"
+    );
+    assert_eq!(s.failures_since_login, 0);
+    assert!(s.last_failure_address.is_empty() && s.last_failure_unix_ms == 0);
+    assert!(s.agent_token_last4.is_empty() && s.metrics_token_last4.is_empty());
+    assert!(s.mcp_clients.is_empty() && !s.metrics_read);
+    assert_eq!(
+        (s.home_assistant_window_left_s, s.group_join_left_s),
+        (0, 0)
+    );
+}
+
+#[tokio::test]
 async fn the_security_state_names_the_clients_and_scrapes_of_the_last_day() {
     let rig = rig();
     let s = rig.auth.security(false);
@@ -502,7 +531,7 @@ async fn with_a_password_and_no_key_the_esphome_api_opens_only_in_its_window() {
     assert!(!takes_connections(&esp).await);
 
     rig.auth.open_home_assistant_window().unwrap();
-    let left = rig.auth.security(false).home_assistant_window_left_s;
+    let left = rig.auth.security(true).home_assistant_window_left_s;
     assert!((14 * 60..=15 * 60).contains(&left), "{left}");
     assert!(takes_connections(&esp).await);
 
@@ -513,7 +542,7 @@ async fn with_a_password_and_no_key_the_esphome_api_opens_only_in_its_window() {
         .remove_password(WHO, String::new(), grant)
         .await
         .unwrap();
-    assert_eq!(rig.auth.security(false).home_assistant_window_left_s, 0);
+    assert_eq!(rig.auth.security(true).home_assistant_window_left_s, 0);
     assert!(takes_connections(&esp).await);
     rig.with_password().await;
     assert!(!takes_connections(&esp).await);
@@ -533,7 +562,7 @@ async fn a_key_makes_the_window_pointless() {
         e.message
             .is_some_and(|m| m.contains("added this satellite already"))
     );
-    assert_eq!(rig.auth.security(false).home_assistant_window_left_s, 0);
+    assert_eq!(rig.auth.security(true).home_assistant_window_left_s, 0);
 }
 
 #[tokio::test]
@@ -544,7 +573,7 @@ async fn joining_a_group_needs_the_window_once_a_password_is_set() {
     assert!(!rig.auth.group_join_open());
     rig.auth.allow_group_join().unwrap();
     assert!(rig.auth.group_join_open());
-    let left = rig.auth.security(false).group_join_left_s;
+    let left = rig.auth.security(true).group_join_left_s;
     assert!((9 * 60..=10 * 60).contains(&left), "{left}");
 }
 
