@@ -1,14 +1,15 @@
-"""End-to-end recording across a request (ADR 0030).
+"""End-to-end recording across a reply that the wake word interrupts (ADR 0030).
 
 pinnad runs with a dashboard password (seeded in secrets.toml, with an
 encryption key so the ESPHome API stays open), the web listener and the wake
 word fixture ("Alexa", twice). The test plays the owner: it signs in, asks for
 a recording confirmation, presses Action (a line on pinnad's stdin) and reads
 `RecordAudio` over Connect's streaming JSON. Meanwhile it plays Home Assistant,
-whose requests run as usual:
+whose requests run as usual: the first gets a long reply, which the second
+"Alexa" interrupts.
 
   login -> StartConfirmation(RECORDING) -> Action -> grant -> RecordAudio
-  -> the wake word starts requests during the recording
+  -> the second wake word interrupts the reply during the recording
   -> StopRecording -> `ended` (STOPPED)
 
 Run: just e2e   (needs `just models`)
@@ -29,8 +30,9 @@ from pathlib import Path
 
 import pytest
 from aioesphomeapi import APIClient, VoiceAssistantEventType
+from aioesphomeapi.model import Event
 
-from test_voice_flow import FIXTURE, MODELS, PINNAD, free_port
+from test_voice_flow import FIXTURE, MODELS, PINNAD, GatedReply, free_port
 
 PASSWORD = "correct horse"
 KEY = base64.b64encode(bytes(range(32))).decode()
@@ -209,6 +211,9 @@ def record(web: int, proc: subprocess.Popen, cookie: str, out: dict, ready: thre
 
 
 async def play_home_assistant(esphome: int, out: dict):
+    """Home Assistant's side: answer the first request with a long reply,
+    which the fixture's second "Alexa" interrupts, as in
+    test_wake_word_interrupts_a_reply."""
     client = APIClient("127.0.0.1", esphome, None, noise_psk=KEY)
     for _ in range(50):
         try:
@@ -216,13 +221,23 @@ async def play_home_assistant(esphome: int, out: dict):
             break
         except Exception:
             await asyncio.sleep(0.1)
+    await client.device_info()
+    entities, _ = await client.list_entities_services()
+    voice_key = next(e.key for e in entities if e.object_id == "voice_assistant")
+    events: list[str] = []
+
+    def on_state(state):
+        if isinstance(state, Event) and state.key == voice_key and state.event_type:
+            events.append(state.event_type)
+
+    client.subscribe_states(on_state)
     starts: list[float] = []
+    first = asyncio.Event()
     second = asyncio.Event()
 
     async def handle_start(conversation_id, flags, audio_settings, wake_word_phrase):
         starts.append(time.monotonic())
-        if len(starts) == 2:
-            second.set()
+        (first if len(starts) == 1 else second).set()
         return 0
 
     async def handle_stop(abort):
@@ -235,24 +250,29 @@ async def play_home_assistant(esphome: int, out: dict):
         handle_start=handle_start, handle_stop=handle_stop, handle_audio=handle_audio
     )
     E = VoiceAssistantEventType
-    # Answer each request the way Home Assistant would, until the second wake word.
-    while not second.is_set():
-        await asyncio.sleep(0.2)
-        if starts and out.get("answered", 0) < len(starts):
-            out["answered"] = len(starts)
-            client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_START, {})
-            client.send_voice_assistant_event(E.VOICE_ASSISTANT_STT_VAD_END, {})
-            client.send_voice_assistant_event(E.VOICE_ASSISTANT_INTENT_END, {"conversation_id": "c"})
-            client.send_voice_assistant_event(
-                E.VOICE_ASSISTANT_TTS_END, {"url": "http://127.0.0.1:9/none.wav"}
-            )
-            client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_END, {})
-    unsub()
-    await client.disconnect()
+    reply = GatedReply()
+    try:
+        await asyncio.wait_for(first.wait(), timeout=15)
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_START, {"url": reply.url})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_STT_VAD_END, {})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_INTENT_PROGRESS, {"tts_start_streaming": "1"})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_INTENT_END, {"conversation_id": "c"})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_TTS_END, {"url": reply.url})
+        client.send_voice_assistant_event(E.VOICE_ASSISTANT_RUN_END, {})
+        # A long reply, still sounding when the second "Alexa" (~8.7 s) comes.
+        await asyncio.sleep(1)
+        assert reply.open.is_set(), "the reply was not requested"
+        reply.release(10)
+        await asyncio.wait_for(second.wait(), timeout=15)
+    finally:
+        reply.shutdown()
+        unsub()
+        await client.disconnect()
+    out["events"] = events
     return starts
 
 
-def test_a_recording_runs_across_a_request(pinnad_with_password):
+def test_a_recording_runs_across_an_interrupted_reply(pinnad_with_password):
     esphome, web, proc = pinnad_with_password
     out: dict = {}
     ready = threading.Event()
@@ -265,7 +285,7 @@ def test_a_recording_runs_across_a_request(pinnad_with_password):
         ha = asyncio.create_task(play_home_assistant(esphome, out))
         await asyncio.wait_for(asyncio.to_thread(ready.wait, 30), 35)
         assert ready.is_set(), "the recording did not start"
-        # The Overview says who records, and the phase is the satellite's own.
+        # The Overview says who records.
         status = unary(web, "GetStatus", {}, cookie)["status"]
         assert status["recording"]["from"] == "127.0.0.1", status
         starts = await asyncio.wait_for(ha, timeout=40)
@@ -273,8 +293,11 @@ def test_a_recording_runs_across_a_request(pinnad_with_password):
 
     starts = asyncio.run(run())
     assert proc.poll() is None, "pinnad exited"
-    # The wake word drove requests while the recording ran.
+    # The wake word still works during a recording: it interrupted the reply
+    # and started a new request while the recording ran.
     assert len(starts) == 2 and starts[1] > out["began"], (starts, out["began"])
+    events = out["events"]
+    assert "replying" in events and events.index("replying") < events.index("stopped"), events
 
     unary(web, "StopRecording", {}, cookie)
     owner.join(timeout=15)
