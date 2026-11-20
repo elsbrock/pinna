@@ -71,6 +71,9 @@
   --color-on-signal: var(--on-signal);
   --color-link: var(--link);
   --color-focus: var(--focus);
+  --color-brand-start: var(--brand-start);
+  --color-brand-mid: var(--brand-mid);
+  --color-brand-end: var(--brand-end);
   --color-listening: var(--listening);
   --color-listening-soft: var(--listening-soft);
   --color-thinking: var(--thinking);

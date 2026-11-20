@@ -38,6 +38,9 @@
   --on-signal: #ffffff;
   --link: var(--signal);
   --focus: var(--signal);
+  --brand-start: #0b69ad;
+  --brand-mid: #4547f2;
+  --brand-end: #6a3dbe;
   --listening: var(--signal);
   --listening-soft: var(--signal-soft);
   --thinking: #6a3dbe;
@@ -108,6 +111,9 @@
     --signal: #48b9ff;
     --signal-soft: #0d2a3d;
     --on-signal: #06131c;
+    --brand-start: #48b9ff;
+    --brand-mid: #7d9efc;
+    --brand-end: #b994f6;
     --thinking: #b994f6;
     --thinking-soft: #261b3b;
     --speaking: #5adce6;
@@ -140,6 +146,9 @@
   --signal: #48b9ff;
   --signal-soft: #0d2a3d;
   --on-signal: #06131c;
+  --brand-start: #48b9ff;
+  --brand-mid: #7d9efc;
+  --brand-end: #b994f6;
   --thinking: #b994f6;
   --thinking-soft: #261b3b;
   --speaking: #5adce6;
