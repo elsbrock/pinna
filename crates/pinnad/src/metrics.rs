@@ -500,26 +500,20 @@ fn state_name(s: &State) -> &'static str {
 
 const STATES: [&str; 5] = ["off", "starting", "ready", "failed", "unavailable"];
 
+/// Playing counts as connected: a series that says when music played is a
+/// record of who was home (ADR 0020).
 fn sendspin_state_name(s: &crate::sendspin::State) -> &'static str {
     use crate::sendspin::State;
     match s {
         State::Off => "off",
         State::Ready => "ready",
-        State::Connected(_) => "connected",
-        State::Playing => "playing",
+        State::Connected(_) | State::Playing => "connected",
         State::Failed(_) => "failed",
         State::Unavailable => "unavailable",
     }
 }
 
-const SENDSPIN_STATES: [&str; 6] = [
-    "off",
-    "ready",
-    "connected",
-    "playing",
-    "failed",
-    "unavailable",
-];
+const SENDSPIN_STATES: [&str; 5] = ["off", "ready", "connected", "failed", "unavailable"];
 
 /// The Sendspin player: its state, and how well it keeps time (ADR 0027 §11).
 fn sendspin(enc: &mut DescriptorEncoder, r: &crate::sendspin::Report) -> fmt::Result {
@@ -1506,8 +1500,9 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
             ..Default::default()
         };
         let t = scrape(s, &Counters::default(), dir.path());
-        has(&t, "pinna_sendspin_state{state=\"playing\"} 1.0");
+        has(&t, "pinna_sendspin_state{state=\"connected\"} 1.0");
         has(&t, "pinna_sendspin_state{state=\"off\"} 0.0");
+        assert!(!t.contains("state=\"playing\""), "{t}");
         has(&t, "pinna_sendspin_sync_error_seconds -0.00025");
         has(&t, "pinna_sendspin_clock_error_seconds 0.00012");
         has(&t, "pinna_sendspin_steady 1.0");
