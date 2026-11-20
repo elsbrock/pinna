@@ -184,11 +184,16 @@ Look at **Voice & sound > Media sources** on the dashboard:
   2.10.7 or later.": a server closed the connection as Music Assistant before
   2.10.7 does. Update Music Assistant.
 - **Connected to …**: Music Assistant is connected, and nothing plays. In
-  Music Assistant, play to the satellite's name.
+  Music Assistant, play to the satellite's name. If another source plays on
+  the satellite, the page says so: play to the satellite's name again, or
+  add it back to its group.
+- **Paused**: you paused the group from the satellite. Resume it on **Now
+  playing** or in Music Assistant.
 - **Not running**, with "Port 8928 is in use.": another program on the
   satellite listens on port 8928. The satellite tries again every 5 seconds.
-- **Not running**, with another reason: **System > Logs** says more. The
-  player's lines contain `sendspin:`.
+- **Not running**, with another reason: the satellite tries again every 5
+  seconds, and **System > Logs** says more. The player's lines contain
+  `sendspin:`.
 - **The Sendspin switch is greyed out, and the page says the satellite has no
   working speaker**: **System > Logs** says why the speaker didn't start. The
   switch is also greyed out while the dashboard has lost the connection to
