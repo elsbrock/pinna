@@ -19,11 +19,15 @@ class SecurityState {
   /** When `state` arrived (Date.now()), for counting a confirmation's seconds down. */
   receivedAt = $state(0);
 
-  #refreshing = false;
+  #refreshing: Promise<void> | null = null;
 
-  async refresh() {
-    if (this.#refreshing) return;
-    this.#refreshing = true;
+  /** Ask the satellite; a call while one runs waits for that one. */
+  refresh(): Promise<void> {
+    this.#refreshing ??= this.#fetch().finally(() => (this.#refreshing = null));
+    return this.#refreshing;
+  }
+
+  async #fetch() {
     try {
       const next = (await client.getSecurity({})).security;
       if (next) {
@@ -33,8 +37,6 @@ class SecurityState {
       }
     } catch {
       // Unreachable: the page shows that already, and asks again at the next change.
-    } finally {
-      this.#refreshing = false;
     }
   }
 
