@@ -5176,7 +5176,7 @@ export const DeviceService: GenService<{
   },
   /**
    * What the dashboard needs to decide between its login form, its offer of a
-   * password and the System page (ADR 0029). Needs no session.
+   * password and the dashboard itself (ADR 0029). Needs no session.
    *
    * @generated from rpc pinna.v1.DeviceService.GetSecurity
    */

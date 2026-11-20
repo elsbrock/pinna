@@ -123,7 +123,7 @@ service DeviceService {
   // Play a URL on the media player, like Home Assistant's "Play media".
   rpc PlayMedia(PlayMediaRequest) returns (PlayMediaResponse);
   // What the dashboard needs to decide between its login form, its offer of a
-  // password and the System page (ADR 0029). Needs no session.
+  // password and the dashboard itself (ADR 0029). Needs no session.
   rpc GetSecurity(GetSecurityRequest) returns (GetSecurityResponse);
   // Set or change the dashboard password. Needs no session, because it checks
   // its own credentials: with a password set, the current one or a grant; with
