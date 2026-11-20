@@ -4,10 +4,11 @@
   import { brainLabel, failureText, isStandalone } from "../lib/assistant.ts";
   import Controls from "../lib/Controls.svelte";
   import Device from "../lib/Device.svelte";
-  import { client, device } from "../lib/device.svelte.ts";
+  import { client, device, errorSentence } from "../lib/device.svelte.ts";
   import Icon from "../lib/Icon.svelte";
   import { network } from "../lib/network.svelte.ts";
   import PhaseBadge from "../lib/PhaseBadge.svelte";
+  import { recorder } from "../lib/recorder.svelte.ts";
   import { security } from "../lib/security.svelte.ts";
   import SignalBars from "../lib/SignalBars.svelte";
   import StatTile from "../lib/StatTile.svelte";
@@ -24,6 +25,7 @@
     heldText,
     homeAssistantBlocked,
     openNotice,
+    recordingWarning,
     ringEffect,
     secondsUntil,
     signalWord,
@@ -58,6 +60,19 @@
     const failed = await security.stopConfirmation();
     stopping = false;
     if (failed) toasts.show(failed, "danger");
+  }
+  // A recording another dashboard runs (ADR 0030); the one that records says so on its own page.
+  const recording = $derived(recordingWarning(s, security.state, recorder.here));
+  const recordingLeft = $derived(recording ? secondsUntil(device.receivedAt + recording.left * 1000, device.now) : 0);
+  let stoppingRecording = $state(false);
+  async function stopRecording() {
+    stoppingRecording = true;
+    try {
+      await client.stopRecording({});
+    } catch (e) {
+      toasts.show(errorSentence(e), "danger");
+    }
+    stoppingRecording = false;
   }
   // With a password and no key, the satellite refuses Home Assistant until the owner opens a window.
   $effect(() => windows.watch());
@@ -141,11 +156,30 @@
       <Icon name="alert" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
         <p class="pn-notice-title">
-          A browser at {waiting.from} is waiting for a press of Action, {waitingLeft} s left. Don't press it unless
-          that was you.
+          {#if waiting.recording}
+            A browser at {waiting.from} is waiting for a press of Action to record from the microphones, {waitingLeft}
+            s left. Don't press it unless that was you.
+          {:else}
+            A browser at {waiting.from} is waiting for a press of Action, {waitingLeft} s left. Don't press it unless
+            that was you.
+          {/if}
         </p>
         <div>
           <button class="pn-btn" disabled={stopping || !live} onclick={stopIt}>Stop it</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if recording && recordingLeft > 0}
+    <div class="pn-notice" data-tone="caution" role="status">
+      <Icon name="alert" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">
+          A browser at {recording.from} is recording from the microphones: {recordingLeft} s left.
+        </p>
+        <div>
+          <button class="pn-btn" disabled={stoppingRecording || !live} onclick={stopRecording}>Stop it</button>
         </div>
       </div>
     </div>

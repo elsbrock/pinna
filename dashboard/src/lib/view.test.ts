@@ -58,6 +58,10 @@ import {
   ago,
   badge,
   confirmationWarning,
+  PURPOSE,
+  recordHint,
+  recordingFile,
+  recordingWarning,
   failuresText,
   gate,
   grantLeft,
@@ -934,6 +938,7 @@ const security = (over: Partial<Security> = {}): Security => ({
   groupJoinLeftS: 0,
   confirmationWaitingFrom: "",
   confirmationLeftS: 0,
+  confirmationPurpose: PURPOSE.password,
   ...over,
 });
 
@@ -1085,11 +1090,49 @@ test("a grant lasts five minutes from when the page got it", () => {
 
 test("the Overview warns of a confirmation another browser started, for a signed-in session", () => {
   const waiting = { signedIn: true, confirmationWaitingFrom: "192.168.1.23", confirmationLeftS: 41 };
-  assert.deepEqual(confirmationWarning(security(waiting), false), { from: "192.168.1.23", left: 41 });
+  assert.deepEqual(confirmationWarning(security(waiting), false), { from: "192.168.1.23", left: 41, recording: false });
+  assert.deepEqual(confirmationWarning(security({ ...waiting, confirmationPurpose: PURPOSE.recording }), false), {
+    from: "192.168.1.23",
+    left: 41,
+    recording: true,
+  });
   assert.equal(confirmationWarning(security(waiting), true), null, "this browser started it");
   assert.equal(confirmationWarning(security({ ...waiting, confirmationLeftS: 0 }), false), null);
   assert.equal(confirmationWarning(security({ ...waiting, signedIn: false }), false), null);
   assert.equal(confirmationWarning(null, false), null);
+});
+
+test("a recording another dashboard runs is named, never to the one that records", () => {
+  const recording = { $typeName: "pinna.v1.Recording", secondsLeft: 12, from: "192.168.1.30" } as const;
+  const signedIn = security({ passwordSet: true, signedIn: true });
+  assert.deepEqual(recordingWarning(status({ recording }), signedIn, false), { from: "192.168.1.30", left: 12 });
+  assert.equal(recordingWarning(status({ recording }), signedIn, true), null, "this dashboard records it");
+  assert.equal(recordingWarning(status({ recording }), security({ passwordSet: true }), false), null, "no session");
+  assert.equal(recordingWarning(status(), signedIn, false), null, "none runs");
+  assert.equal(recordingWarning(null, signedIn, false), null);
+});
+
+test("the Record audio row says what a recording needs, or that one runs", () => {
+  assert.deepEqual(recordHint(false, false), { hint: "Needs a dashboard password", caution: true });
+  assert.deepEqual(recordHint(true, false), { hint: "Up to 30 seconds from the microphones", caution: false });
+  assert.deepEqual(recordHint(undefined, false), { hint: "Up to 30 seconds from the microphones", caution: false });
+  assert.deepEqual(recordHint(true, true), { hint: "Recording…", caution: false });
+});
+
+test("a recording's files are named for the satellite, the kind and the local time", () => {
+  const at = new Date(2026, 10, 20, 9, 5);
+  assert.equal(recordingFile("kitchen", "heard", at), "kitchen-heard-2026-11-20-0905.wav");
+  assert.equal(recordingFile("kitchen", "debug", at), "kitchen-debug-2026-11-20-0905.wav");
+  assert.equal(recordingFile("", "heard", at), "pinna-heard-2026-11-20-0905.wav");
+});
+
+test("a recording shows Listening on the ring while nothing else shows", () => {
+  const recording = { $typeName: "pinna.v1.Recording", secondsLeft: 5, from: "192.168.1.30" } as const;
+  assert.equal(ringEffect(status({ recording }), "live"), "listening");
+  assert.equal(ringEffect(status({ recording, muted: true }), "live"), "muted");
+  assert.equal(ringEffect(status({ recording, alarmRinging: true }), "live"), "timer-ringing");
+  assert.equal(ringEffect(status({ recording, phase: 3 }), "live"), "thinking");
+  assert.equal(ringEffect(status({ recording }), "offline"), "idle");
 });
 
 test("a tab that was signed in and isn't any more was signed out", () => {

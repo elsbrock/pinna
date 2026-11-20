@@ -49,6 +49,8 @@ export function ringEffect(s: Status | null, link: Link, testStep = 0): Effect {
   // The soonest running timer's arc shows above a waiting notification.
   if (s.timers.some((t) => t.active)) return "timer";
   if (s.notification) return "notification";
+  // A recording changes no phase (ADR 0030): the ring shows Listening while nothing else shows.
+  if (s.recording) return "listening";
   return "idle";
 }
 
@@ -660,6 +662,7 @@ export const PATHS = [
   "/system",
   "/system/updates",
   "/system/password",
+  "/system/record",
   "/system/logs",
 ] as const;
 export type Path = (typeof PATHS)[number];
@@ -1043,14 +1046,46 @@ export const PASSWORD_NOTICES: Record<PasswordNotice, string> = {
   changed: "Password changed. Every other browser is signed out.",
 };
 
+/** pinna.v1.ConfirmationPurpose values (generated as a TS enum, which `node --test` cannot load). */
+export const PURPOSE = { password: 0, recording: 1 } as const;
+
 /** The Overview's warning about a confirmation someone else started; null when none waits
- *  or this browser started it. */
+ *  or this browser started it. `recording`: it is for a recording, not a password. */
 export function confirmationWarning(
   sec: Security | null,
   startedHere: boolean,
-): { from: string; left: number } | null {
+): { from: string; left: number; recording: boolean } | null {
   if (!sec?.signedIn || startedHere || sec.confirmationLeftS <= 0) return null;
-  return { from: sec.confirmationWaitingFrom, left: sec.confirmationLeftS };
+  return {
+    from: sec.confirmationWaitingFrom,
+    left: sec.confirmationLeftS,
+    recording: sec.confirmationPurpose === PURPOSE.recording,
+  };
+}
+
+/** The Overview's line about a recording another browser runs (ADR 0030); null when none runs,
+ *  this dashboard records it, or this browser has no session. */
+export function recordingWarning(
+  s: Pick<Status, "recording"> | null,
+  sec: Pick<Security, "signedIn"> | null,
+  recordingHere: boolean,
+): { from: string; left: number } | null {
+  if (!s?.recording || !sec?.signedIn || recordingHere) return null;
+  return { from: s.recording.from, left: s.recording.secondsLeft };
+}
+
+/** A recording's file name, as `<satellite>-heard-2026-11-20-2144.wav`, in local time like the log's. */
+export function recordingFile(name: string, kind: "heard" | "debug", d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  return `${name || "pinna"}-${kind}-${stamp}.wav`;
+}
+
+/** The Record audio row's hint on System: what a recording needs, or that one runs. */
+export function recordHint(passwordSet: boolean | undefined, recording: boolean): { hint: string; caution: boolean } {
+  if (recording) return { hint: "Recording…", caution: false };
+  if (passwordSet === false) return { hint: "Needs a dashboard password", caution: true };
+  return { hint: "Up to 30 seconds from the microphones", caution: false };
 }
 
 /** This tab was signed in and now isn't, with a password still set: the password changed or
