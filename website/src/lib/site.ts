@@ -58,6 +58,7 @@ export const DOCS_NAV: DocGroup[] = [
       { slug: "music", title: "Play music" },
       { slug: "airplay", title: "Play music with AirPlay" },
       { slug: "bluetooth", title: "Play music over Bluetooth" },
+      { slug: "sendspin", title: "Play music with Sendspin" },
       { slug: "settings", title: "Satellite settings" },
     ],
   },
