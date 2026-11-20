@@ -64,7 +64,8 @@ group.
 ### The group
 
 - **A satellite takes part only when its owner switches it on.** The switch
-  *Satellite group* is on the Assistant page, off by default.
+  *Satellite group* is on the Satellite group page, under Assistant, off by
+  default.
 - **The group works in standalone mode only.** A member in Home Assistant
   mode stays a member and keeps the key, but sends, receives and arbitrates
   nothing. The other members list it as in Home Assistant mode, and their
@@ -89,7 +90,7 @@ group.
   restart resolved) on every start. Turning the switch on or off, joining and
   leaving change the record, and restart resolved (amends ADR 0024).
 - **A satellite joins by a click on a member's dashboard.** With the switch
-  on, the Assistant page lists the satellites the search found (ADR 0021):
+  on, the Satellite group page lists the satellites the search found (ADR 0021):
   - members of this group: name, mode, and when it was last seen (kept in
     RAM, not written to disk every minute);
   - a member that answers the search in no group and then refuses its

@@ -161,7 +161,7 @@ measured on one yet.
   HMAC-SHA256 tag under a session key in `secrets.toml`; pinnad keeps no
   list of sessions. A satellite restarts after every update, and a login
   after each would be a nuisance. A new password replaces the session key.
-  So does **Sign out everywhere** on the System page.
+  So does **Sign out everywhere** on the Password and tokens page.
 - **Ending sessions ends their streams.** A new session key closes open
   `WatchStatus`, `WatchRing` and the VM socket, so a session that ended
   doesn't keep receiving.
@@ -170,13 +170,13 @@ measured on one yet.
   after 10 failures in a row, one a minute until the right password is
   given (to sign in, or as the current one) or a press confirms a change.
   *(default)* A refused attempt doesn't run
-  PBKDF2. The form says how long to wait, and the System page shows the
+  PBKDF2. The form says how long to wait, and the Password and tokens page shows the
   failures since the last login and the address of the last one. Sessions
   that already exist keep working.
 
 ### Tokens, for machines
 
-- **Two tokens** *(default)*, each created on the System page: 32 random
+- **Two tokens** *(default)*, each created on the Password and tokens page: 32 random
   bytes, base64url, shown in full once and by their last four characters
   after that. **Create a new token** replaces one, which revokes the old.
   `secrets.toml` keeps their SHA-256, not the tokens.
@@ -188,7 +188,7 @@ measured on one yet.
   strings end up in proxy logs.
 - **A refusal names the fix.** `/mcp` answers 401 with
   `WWW-Authenticate: Bearer realm="pinna"` and a JSON-RPC error: "This
-  satellite needs its agent token. Create one on its System page." It offers
+  satellite needs its agent token. Create one on its dashboard, under System > Password and tokens." It offers
   no OAuth metadata, so clients don't start an OAuth sign-in that can't
   succeed. `/metrics` answers 401 with a one-line text body.
 - **Without a password, `/mcp` and `/metrics` stay open**, as today.
@@ -286,7 +286,7 @@ measured on one yet.
   the dashboard open; the confirmation; creating tokens; signing out
   everywhere; opening the ESPHome and group windows.
 - New in the dashboard: the login form, the first-run offer, the password,
-  tokens and sign-out on the System page, the notice on the Overview, the
+  tokens and sign-out on the Password and tokens page (under System), the notice on the Overview, the
   Home Assistant page's window, the Satellite group page's window and its
   members' password state, and the warning on the Updates page.
 - New on the ring: the confirm pattern, in `pinna-hal`'s animations and
