@@ -24,6 +24,9 @@ mod mic;
 mod network;
 mod satellites;
 mod secrets;
+// The Brain starts the player and routes the media lane to it in the next step (ADR 0027).
+#[allow(dead_code)]
+mod sendspin;
 mod settings;
 mod standalone;
 mod store;

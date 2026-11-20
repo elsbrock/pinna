@@ -18,6 +18,7 @@ pinna-audio = { path = "../pinna-audio" }
 pinna-wakeword = { path = "../pinna-wakeword" }
 pinna-bootctl = { path = "../pinna-bootctl" }
 pinna-image = { path = "../pinna-image" }
+pinna-sendspin = { path = "../pinna-sendspin" }
 anyhow.workspace = true
 clap.workspace = true
 libc.workspace = true

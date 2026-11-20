@@ -2435,6 +2435,7 @@ dependencies = [
  "pinna-http",
  "pinna-image",
  "pinna-mcp",
+ "pinna-sendspin",
  "pinna-vad",
  "pinna-version",
  "pinna-wakeword",
