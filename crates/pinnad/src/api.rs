@@ -4040,6 +4040,16 @@ mod tests {
         }
     }
 
+    /// An install that waits until the test lets it finish, so a test can
+    /// change the policy while it runs without racing it.
+    const HELD_INSTALL: &str =
+        r#"while [ ! -e "$(dirname "$0")/go" ]; do sleep 0.05; done; echo "args: $*""#;
+
+    fn finish_install(rig: &Rig) {
+        let dir = rig.paths.run_dir.parent().unwrap();
+        std::fs::write(dir.join("go"), "").unwrap();
+    }
+
     async fn restarted(rig: &Rig) -> bool {
         for _ in 0..40 {
             if rig.reboot_reason().as_deref() == Some("update") {
@@ -4086,12 +4096,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_automatic_install_restarts_only_in_the_window() {
-        let rig = release_rig_with(
-            "auto-outside",
-            "2.0.0",
-            "null",
-            r#"sleep 1; echo "args: $*""#,
-        );
+        let rig = release_rig_with("auto-outside", "2.0.0", "null", HELD_INSTALL);
         let updater = Arc::new(rig.updater());
         updater.init_source(Source::Channel(UpdateChannel::Stable));
         updater.init_automatic(automatically(window_from(-60)));
@@ -4101,6 +4106,7 @@ mod tests {
         updater.fire_automatic(SystemTime::now()).await;
         // The window ends before the install does.
         updater.set_automatic(automatically(window_from(120)));
+        finish_install(&rig);
         let u = wait_until_idle(&c).await;
         assert!(u.last_install.as_option().unwrap().ok);
         assert!(u.restart_pending && updater.restart_pending());
@@ -4118,12 +4124,7 @@ mod tests {
 
     #[tokio::test]
     async fn switching_to_manually_cancels_a_planned_install_but_not_a_running_one() {
-        let rig = release_rig_with(
-            "auto-manual",
-            "2.0.0",
-            "null",
-            r#"sleep 1; echo "args: $*""#,
-        );
+        let rig = release_rig_with("auto-manual", "2.0.0", "null", HELD_INSTALL);
         let updater = Arc::new(rig.updater());
         updater.init_source(Source::Channel(UpdateChannel::Stable));
         updater.init_automatic(automatically(window_from(-60)));
@@ -4138,6 +4139,7 @@ mod tests {
         let (c, _) = start_device_full(updater.clone(), None, None, None, None, true).await;
         updater.fire_automatic(SystemTime::now()).await;
         updater.set_automatic(crate::updates::Policy::default());
+        finish_install(&rig);
         let u = wait_until_idle(&c).await;
         assert!(u.last_install.as_option().unwrap().ok);
         assert!(!u.restart_pending);
