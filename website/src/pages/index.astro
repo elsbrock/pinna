@@ -9,7 +9,7 @@ import GroupsPlan from "../components/GroupsPlan.astro";
 import WakeMeter from "../components/WakeMeter.astro";
 import MusicDuck from "../components/MusicDuck.astro";
 import UpdateSlots from "../components/UpdateSlots.astro";
-import DeviceDrawing from "../components/DeviceDrawing.astro";
+import GenerationTimeline from "../components/GenerationTimeline.astro";
 import { docHref, href, SITE } from "../lib/site";
 
 const goals = [
@@ -23,45 +23,6 @@ const goals = [
   { title: "Stay open", body: "All of Pinna's code is open source." },
 ];
 
-// What the page says about each device. "Tested on it" follows the status
-// page: only what has run on that model.
-const devices = [
-  {
-    model: "echo-dot-2" as const,
-    name: "Echo Dot (2nd gen)",
-    rows: [
-      { label: "In fastboot", value: "BISCUIT" },
-      { label: "USB", value: "Its micro-USB port, with a cable that carries data" },
-      { label: "Tested on it", value: "Installing, updates that roll back, standalone mode, and echo cancellation" },
-    ],
-  },
-  {
-    model: "echo-2" as const,
-    name: "Echo (2nd gen)",
-    rows: [
-      { label: "In fastboot", value: "RADAR" },
-      { label: "USB", value: "Pins in the base: a pogo-pin adapter, or a cable soldered to the pads" },
-      { label: "Tested on it", value: "The same image runs. The bootloader's rollback and echo cancellation are tested on the Echo Dot only" },
-    ],
-  },
-];
-
-const works = [
-  "The images build and boot in a virtual machine",
-  "Updates install a kernel and a root filesystem into the second slot and roll back when they fail (tested on the Echo Dot)",
-  "The Home Assistant connection passes tests with Home Assistant's own client library",
-  "A complete voice request works against a simulated Home Assistant",
-  "Standalone mode answers requests; tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs",
-  "On the Echo Dot, echo cancellation lowers the device's own music by 23 to 31 dB",
-  "The dashboard sets up and controls the device from a browser on your network",
-  "AirPlay and Bluetooth play music from phones and computers",
-];
-
-const gaps = [
-  "The dashboard's password is optional and it serves plain HTTP: until you set one, anyone on your network can use it. Pinna offers no access from outside your network",
-  "Standalone mode is new and hasn't been tried with every service yet",
-  "With a Kaeru from before 22 October 2026, a new kernel needs fastboot. Pinna finds out at its first update and says so",
-];
 ---
 
 <BaseLayout>
@@ -209,7 +170,7 @@ const gaps = [
 
     <!-- Music -->
     <section id="music" class="scroll-mt-20">
-      <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-16 lg:py-20">
+      <div class="mx-auto grid max-w-6xl items-stretch gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-16 lg:py-20">
         <div class="lg:order-2">
           <p class="eyebrow">Music</p>
           <h2 class="section-title">A speaker that steps aside</h2>
@@ -245,7 +206,7 @@ const gaps = [
             </a>
           </p>
         </div>
-        <div class="lg:order-1">
+        <div class="flex lg:order-1">
           <MusicDuck />
         </div>
       </div>
@@ -293,59 +254,35 @@ const gaps = [
   <section id="hardware" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
       <p class="eyebrow">Devices</p>
-      <h2 class="section-title">Two Echos, one image</h2>
+      <h2 class="section-title">Supported devices</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        The Echo (2nd gen) and the Echo Dot (2nd gen) share the MT8163
-        platform and run the same image. More Echo devices may follow.
+        Pinna runs on the second generation: the Echo (2nd gen) and the Echo
+        Dot (2nd gen), on one image. The Echo (1st gen) is in the works.
       </p>
 
-      <div class="mt-10 grid gap-5 md:grid-cols-2">
-        {
-          devices.map((d) => (
-            <div class="spec">
-              <div class="spec-pic">
-                <DeviceDrawing model={d.model} id={`spec-${d.model}`} effect="idle" width="100%" label={`Illustration of an ${d.name}.`} />
-              </div>
-              <div class="spec-body">
-                <h3 class="text-ink text-heading">{d.name}</h3>
-                <dl class="spec-rows">
-                  {d.rows.map((r) => (
-                    <div>
-                      <dt>{r.label}</dt>
-                      <dd>{r.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            </div>
-          ))
-        }
+      <div class="mt-12">
+        <GenerationTimeline />
       </div>
 
-      <div class="facts mt-10" style="--facts: 3">
-        <div class="fact">
-          <span class="fact-title">It needs an unlocked bootloader</span>
-          <span class="fact-say">
-            The unlock (amonet) installs Kaeru, a small addition to the
-            bootloader. Pinna installs over fastboot, the bootloader's USB mode
-            for writing the device's storage. Holding Volume Down while you
-            plug the device in always opens it.
-          </span>
+      <div class="callout mt-12">
+        <div>
+          <p class="text-ink font-semibold">Help bring Pinna to more Echos</p>
+          <p class="text-ink-muted text-body mt-1">
+            Contributions to support more devices are welcome. Bringing one up
+            takes its device tree, board support for its audio, microphones
+            and ring, and a device to test on. If you have one, say so.
+          </p>
         </div>
-        <div class="fact">
-          <span class="fact-title">You keep a backup</span>
-          <span class="fact-say">
-            You back up your own device before you install, and Pinna can
-            restore that backup.
-          </span>
-        </div>
-        <div class="fact">
-          <span class="fact-title">It's standard Linux</span>
-          <span class="fact-say">
-            Debian trixie with systemd, on a read-only root filesystem. Pinna's
-            own programs are written in Rust.
-          </span>
-        </div>
+        <p class="flex shrink-0 flex-wrap gap-x-5 gap-y-2 text-sm">
+          <a class="link inline-flex items-center gap-1.5" href={`${SITE.repo}/discussions`}>
+            Start a discussion
+            <Icon name="arrow" size={14} />
+          </a>
+          <a class="link inline-flex items-center gap-1.5" href={docHref("architecture")}>
+            Read the architecture
+            <Icon name="arrow" size={14} />
+          </a>
+        </p>
       </div>
     </div>
   </section>
@@ -400,27 +337,6 @@ const gaps = [
               <Icon name="arrow" size={16} />
             </a>
           </div>
-          <div class="pn-notice mt-5" data-tone="caution">
-            <span class="pn-notice-icon"><Icon name="shield" size={20} /></span>
-            <div class="pn-notice-body">
-              <p class="pn-notice-title">Unlocking can brick the device</p>
-              <p class="text-body">
-                Pinna doesn't unlock devices, and its docs don't cover the
-                unlock. A mistake there can leave the device unusable. Pinna
-                itself never writes the bootloader or Kaeru, so fastboot stays
-                reachable after you install it: hold Volume Down while you plug
-                the device in, and restore your backup from there. Making and
-                restoring the backup needs a Linux computer with
-                <code>adb</code> and <code>fastboot</code>.
-              </p>
-              <p class="text-sm">
-                <a class="link inline-flex items-center gap-1.5" href={docHref("recovery")}>
-                  Recover a device
-                  <Icon name="arrow" size={14} />
-                </a>
-              </p>
-            </div>
-          </div>
           <p class="mt-4 flex flex-col gap-2 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("requirements")}>
               Read the full guide, including what you need first
@@ -428,35 +344,6 @@ const gaps = [
             </a>
             <a class="link inline-flex items-center gap-1.5" href={docHref("build")}>
               Build Pinna yourself
-              <Icon name="arrow" size={14} />
-            </a>
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Status -->
-  <section id="status" class="scroll-mt-20">
-    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-      <p class="eyebrow">Status</p>
-      <h2 class="section-title">Where Pinna stands</h2>
-
-      <div class="mt-10 grid gap-10 lg:grid-cols-2 lg:gap-16">
-        <div>
-          <p class="status-head">What works</p>
-          <ul class="leds mt-5" style="--led: var(--ok)">
-            {works.map((item) => <li>{item}</li>)}
-          </ul>
-        </div>
-        <div>
-          <p class="status-head">Known gaps</p>
-          <ul class="leds mt-5" style="--led: var(--caution)">
-            {gaps.map((item) => <li>{item}</li>)}
-          </ul>
-          <p class="mt-6 text-sm">
-            <a class="link inline-flex items-center gap-1.5" href={docHref("status")}>
-              Status and roadmap
               <Icon name="arrow" size={14} />
             </a>
           </p>

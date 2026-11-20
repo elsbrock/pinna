@@ -60,8 +60,11 @@ const sources = [
 </div>
 
 <style>
+  /* Fills the column beside it: the waveform takes the height left over. */
   .music {
+    flex: 1;
     display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 22px;
     padding: 20px;
     border: 1px solid var(--line);
@@ -125,14 +128,17 @@ const sources = [
 
   .track {
     position: relative;
+    display: flex;
+    flex-direction: column;
     padding-top: 76px;
   }
 
   .bars {
     display: flex;
+    flex: 1;
     align-items: center;
     gap: 2px;
-    height: 7rem;
+    min-height: 7rem;
   }
 
   .b {

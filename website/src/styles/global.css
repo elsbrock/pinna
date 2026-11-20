@@ -133,55 +133,21 @@
     box-shadow: 0 0 6px 1px color-mix(in oklab, var(--led, var(--brand-mid)) 55%, transparent);
   }
 
-  /* A device's spec sheet: its drawing beside label/value rows. */
-  .spec {
+  /* A box that asks for something: a dashed edge in the mark's indigo. */
+  .callout {
     display: grid;
-    grid-template-columns: 7.5rem minmax(0, 1fr);
-    align-items: center;
-    gap: 20px;
-    padding: 20px;
-    border: 1px solid var(--line);
+    gap: 14px;
+    padding: 18px 20px;
+    border: 1px dashed color-mix(in oklab, var(--brand-mid) 50%, var(--line));
     border-radius: var(--radius-md);
-    background: var(--surface-raised);
-    box-shadow: var(--shadow-raised);
+    background: color-mix(in oklab, var(--brand-mid) 5%, transparent);
   }
 
-  .spec-rows {
-    display: grid;
-    margin-top: 10px;
-  }
-
-  .spec-rows > div {
-    display: grid;
-    grid-template-columns: 7rem minmax(0, 1fr);
-    gap: 12px;
-    padding: 8px 0;
-    border-top: 1px solid var(--line);
-  }
-
-  .spec-rows dt {
-    @apply text-ink-muted;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 20px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  .spec-rows dd {
-    @apply text-ink;
-    margin: 0;
-    font-size: 14px;
-    line-height: 20px;
-  }
-
-  @media (max-width: 479px) {
-    .spec {
-      grid-template-columns: 1fr;
-    }
-
-    .spec-pic {
-      width: 8rem;
+  @media (min-width: 1024px) {
+    .callout {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 32px;
     }
   }
 
@@ -229,10 +195,6 @@
     font-family: var(--font-mono);
     font-size: 13px;
     font-weight: 700;
-  }
-
-  .status-head {
-    @apply text-ink text-heading;
   }
 
   .goal-num {

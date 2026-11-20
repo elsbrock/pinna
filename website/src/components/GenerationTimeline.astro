@@ -1,0 +1,366 @@
+---
+// The landing page's devices: Echo generations on one floor, at true scale
+// (millimetres times --mm). Supported models are the coloured drawings from
+// design/devices/; the others are flat silhouettes with their own details, in
+// the page's greys, so they never look like Amazon's product photos or show a
+// lit ring. The Echo (1st gen) is in the works, as the owner says; later
+// generations are wanted: nobody works on them yet, and help is welcome.
+import DeviceDrawing from "./DeviceDrawing.astro";
+import { drawingFor } from "../../../design/devices/index.ts";
+
+type Status = "supported" | "working" | "wanted";
+type Ghost = "echo-1" | "dot-1" | "echo-3" | "dot-3" | "echo-4" | "dot-4";
+type Model = { name: string; drawing?: "echo-2" | "echo-dot-2"; ghost?: Ghost; tag?: string };
+
+const generations: { gen: string; year: string; status: Status; models: Model[] }[] = [
+  { gen: "1st gen", year: "2014", status: "working", models: [{ name: "Echo (1st gen)", ghost: "echo-1" }] },
+  {
+    gen: "2nd gen",
+    year: "2016–17",
+    status: "supported",
+    models: [
+      { name: "Echo (2nd gen)", drawing: "echo-2" },
+      // Its own micro-USB port; the Echo needs pins or soldering.
+      { name: "Echo Dot (2nd gen)", drawing: "echo-dot-2", tag: "Easiest to start with" },
+    ],
+  },
+  {
+    gen: "3rd gen",
+    year: "2018–19",
+    status: "wanted",
+    models: [
+      { name: "Echo (3rd gen)", ghost: "echo-3" },
+      { name: "Echo Dot (3rd gen)", ghost: "dot-3" },
+    ],
+  },
+  {
+    gen: "4th gen",
+    year: "2020",
+    status: "wanted",
+    models: [
+      { name: "Echo (4th gen)", ghost: "echo-4" },
+      { name: "Echo Dot (4th gen)", ghost: "dot-4" },
+    ],
+  },
+];
+
+const label: Record<Status, string> = { supported: "Supported", working: "In the works", wanted: "Wanted" };
+
+// Widths in millimetres of each silhouette's viewBox, for true scale.
+const ghostWidth: Record<Ghost, number> = { "echo-1": 92, "dot-1": 92, "echo-3": 107, "dot-3": 107, "echo-4": 152, "dot-4": 108 };
+const drawingWidth = (m: "echo-2" | "echo-dot-2") => {
+  const st = drawingFor(m)!.stage;
+  return st.view.w / st.mm;
+};
+---
+
+<div class="gens" role="list">
+  {
+    generations.map((g) => (
+      <div class="gen" role="listitem" data-status={g.status}>
+        <div class="stand">
+          {g.models.map((m) =>
+            m.drawing ? (
+              <span class="model" style={`--w:${drawingWidth(m.drawing).toFixed(1)}`}>
+                {m.tag && <span class="tag">{m.tag}</span>}
+                <DeviceDrawing model={m.drawing} id={`gen-${m.drawing}`} effect="idle" width="100%" label={`Illustration of an ${m.name}.`} />
+              </span>
+            ) : (
+              <span class="model" style={`--w:${ghostWidth[m.ghost!]}`} role="img" aria-label={`Outline of an ${m.name}.`}>
+                {m.ghost === "echo-1" && (
+                  <svg viewBox="-46 -14 92 262">
+                    <defs>
+                      <pattern id="gen-holes" width="5" height="5" patternUnits="userSpaceOnUse">
+                        <circle cx="2.5" cy="2.5" r="0.7" class="hole" />
+                      </pattern>
+                      <clipPath id="gen-echo1-body">
+                        <path d="M-42,62 V236 A42 10.5 0 0 0 42,236 V62 A42 10.5 0 0 1 -42,62 Z" />
+                      </clipPath>
+                    </defs>
+                    <path class="body" d="M-42,0 V236 A42 10.5 0 0 0 42,236 V0" />
+                    <rect x="-46" y="52" width="92" height="200" fill="url(#gen-holes)" clip-path="url(#gen-echo1-body)" />
+                    <path class="detail" d="M-42,30 A42 10.5 0 0 0 42,30" />
+                    <path class="detail" d="M-42,62 A42 10.5 0 0 0 42,62" />
+                    <ellipse class="top" cx="0" cy="0" rx="42" ry="10.5" />
+                    <ellipse class="detail" cx="0" cy="0" rx="36" ry="9" />
+                    <ellipse class="button" cx="-11" cy="1" rx="3.6" ry="1.4" />
+                    <ellipse class="button" cx="11" cy="1" rx="3.6" ry="1.4" />
+                  </svg>
+                )}
+                {m.ghost === "echo-3" && (
+                  <svg viewBox="-53.5 -16 107 182">
+                    <path class="body" d="M-49.5,0 V148 A49.5 12.4 0 0 0 49.5,148 V0" />
+                    {[18, 30, 42, 54, 66, 78, 90, 102, 114, 126, 138].map((y) => (
+                      <path class="fabric" d={`M-49.5,${y} A49.5 12.4 0 0 0 49.5,${y}`} />
+                    ))}
+                    <ellipse class="top" cx="0" cy="0" rx="49.5" ry="12.4" />
+                    <ellipse class="detail" cx="0" cy="0" rx="44" ry="11" />
+                    <ellipse class="button" cx="0" cy="-6" rx="3.8" ry="1.3" />
+                    <ellipse class="button" cx="-14" cy="0" rx="3.8" ry="1.3" />
+                    <ellipse class="button" cx="14" cy="0" rx="3.8" ry="1.3" />
+                    <ellipse class="button" cx="0" cy="6" rx="3.8" ry="1.3" />
+                  </svg>
+                )}
+                {m.ghost === "dot-3" && (
+                  <svg viewBox="-53.5 -16 107 74">
+                    <path class="body" d="M-49.5,0 V40 A49.5 12.4 0 0 0 49.5,40 V0" />
+                    {[14, 26, 36].map((y) => (
+                      <path class="fabric" d={`M-49.5,${y} A49.5 12.4 0 0 0 49.5,${y}`} />
+                    ))}
+                    <ellipse class="top" cx="0" cy="0" rx="49.5" ry="12.4" />
+                    <ellipse class="detail" cx="0" cy="0" rx="44" ry="11" />
+                    <ellipse class="button" cx="0" cy="-6" rx="3.8" ry="1.3" />
+                    <ellipse class="button" cx="-14" cy="0" rx="3.8" ry="1.3" />
+                    <ellipse class="button" cx="14" cy="0" rx="3.8" ry="1.3" />
+                    <ellipse class="button" cx="0" cy="6" rx="3.8" ry="1.3" />
+                  </svg>
+                )}
+                {m.ghost === "echo-4" && (
+                  <svg viewBox="-76 -76 152 160">
+                    <circle class="body" cx="0" cy="0" r="72" />
+                    {[-40, -16, 8, 32, 52].map((y) => (
+                      <path class="fabric" d={`M${-Math.sqrt(72 * 72 - y * y)},${y} A${Math.sqrt(72 * 72 - y * y)} ${(Math.sqrt(72 * 72 - y * y) * 0.22).toFixed(1)} 0 0 0 ${Math.sqrt(72 * 72 - y * y)},${y}`} />
+                    ))}
+                    <ellipse class="detail" cx="0" cy="66" rx="30" ry="6" />
+                    <ellipse class="button" cx="-9" cy="-60" rx="3.6" ry="1.4" />
+                    <ellipse class="button" cx="9" cy="-60" rx="3.6" ry="1.4" />
+                  </svg>
+                )}
+                {m.ghost === "dot-4" && (
+                  <svg viewBox="-54 -54 108 114">
+                    <circle class="body" cx="0" cy="0" r="50" />
+                    {[-26, -6, 14, 32].map((y) => (
+                      <path class="fabric" d={`M${-Math.sqrt(50 * 50 - y * y)},${y} A${Math.sqrt(50 * 50 - y * y)} ${(Math.sqrt(50 * 50 - y * y) * 0.22).toFixed(1)} 0 0 0 ${Math.sqrt(50 * 50 - y * y)},${y}`} />
+                    ))}
+                    <ellipse class="detail" cx="0" cy="45" rx="20" ry="4" />
+                    <ellipse class="button" cx="-7" cy="-41" rx="3" ry="1.2" />
+                    <ellipse class="button" cx="7" cy="-41" rx="3" ry="1.2" />
+                  </svg>
+                )}
+              </span>
+            ),
+          )}
+        </div>
+        <div class="label">
+          <span class="gen-name">
+            {g.gen} <span class="year">{g.year}</span>
+          </span>
+          {label[g.status] && <span class="chip-status">{label[g.status]}</span>}
+          <span class="models">{g.models.map((m) => m.name).join(", ")}</span>
+        </div>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  /* Millimetres to pixels: the whole line-up shares one scale. */
+  .gens {
+    --mm: 0.62px;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(9rem, 1fr));
+    gap: 0 12px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .gen {
+    display: grid;
+    grid-template-rows: 11rem auto;
+  }
+
+  /* Each generation stands on the floor line. */
+  .stand {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 10px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--line);
+  }
+
+  .stand::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -7px;
+    width: 12px;
+    height: 12px;
+    margin-left: -6px;
+    border: 2px solid var(--line-strong);
+    border-radius: 50%;
+    background: var(--surface);
+  }
+
+  [data-status="supported"] .stand {
+    border-image: linear-gradient(90deg, var(--brand-start), var(--brand-end)) 1;
+  }
+
+  [data-status="supported"] .stand::after {
+    border-color: var(--brand-mid);
+    background: var(--brand-mid);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand-mid) 22%, transparent);
+  }
+
+  [data-status="working"] .stand::after {
+    border-color: var(--brand-mid);
+  }
+
+  .model {
+    display: block;
+    width: calc(var(--w) * var(--mm));
+    flex: none;
+  }
+
+  .model svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* Silhouettes: flat, in the page's greys, with their details drawn in. */
+  .body,
+  .top {
+    fill: color-mix(in oklab, var(--ink) 9%, var(--surface));
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .top {
+    fill: color-mix(in oklab, var(--ink) 14%, var(--surface));
+  }
+
+  .detail,
+  .fabric {
+    fill: none;
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    opacity: 0.55;
+  }
+
+  .fabric {
+    opacity: 0.3;
+  }
+
+  .button {
+    fill: var(--line-strong);
+    opacity: 0.7;
+  }
+
+  .hole {
+    fill: var(--line-strong);
+    opacity: 0.3;
+  }
+
+  /* In the works: the outline in the mark's indigo. */
+  [data-status="working"] :is(.body, .top) {
+    stroke: var(--brand-mid);
+  }
+
+  [data-status="wanted"] .model {
+    opacity: 0.6;
+  }
+
+  .label {
+    display: grid;
+    justify-items: center;
+    align-content: start;
+    gap: 4px;
+    padding-top: 16px;
+    text-align: center;
+  }
+
+  .gen-name {
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .year {
+    color: var(--ink-muted);
+    font-weight: 400;
+  }
+
+  .chip-status {
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 650;
+  }
+
+  [data-status="supported"] .chip-status {
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
+
+  [data-status="wanted"] .chip-status {
+    background: color-mix(in oklab, var(--ink) 8%, transparent);
+    color: var(--ink-muted);
+  }
+
+  [data-status="working"] .chip-status {
+    background: color-mix(in oklab, var(--brand-mid) 14%, transparent);
+    color: var(--brand-mid);
+  }
+
+  .models {
+    color: var(--ink-muted);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  [data-status="supported"] .models {
+    color: var(--ink);
+  }
+
+  /* A tag over one model, pointing down at it. */
+  .model {
+    position: relative;
+  }
+
+  /* Anchored at the model's right edge, so it clears the taller neighbour on
+     its left; the pointer stays over the model's middle. */
+  .tag {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    right: -50px;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    background: color-mix(in oklab, var(--brand-mid) 14%, var(--surface));
+    color: var(--brand-mid);
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .tag::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    right: calc(var(--w) * var(--mm) / 2 + 50px - 4px);
+    border: 4px solid transparent;
+    border-top-color: color-mix(in oklab, var(--brand-mid) 14%, var(--surface));
+  }
+
+  @media (max-width: 639px) {
+    .gens {
+      --mm: 0.5px;
+      grid-template-columns: repeat(4, 8.5rem);
+    }
+
+    .gen {
+      grid-template-rows: 9rem auto;
+    }
+  }
+</style>
