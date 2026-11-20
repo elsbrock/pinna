@@ -36,6 +36,26 @@ If the dashboard doesn't open, start with
   finish. The number of flashes says which; see
   [While the device starts](/docs/ring-and-buttons/#while-the-device-starts).
 
+## I forgot the dashboard password
+
+You don't need a cable or a reset. You need to be at the device:
+
+1. Open the dashboard and select **Forgot the password?** on the sign-in page.
+2. The dashboard says "Press Action on the satellite", and the ring circles
+   white. Press the **Action** button on the device within 60 seconds.
+3. Enter a new password, 8 to 128 characters, and select **Set password**. The
+   dashboard signs you in.
+
+The new password ends every session, so other browsers sign in again. The
+tokens for [Prometheus](/docs/metrics/#who-can-read-them) and
+[agents](/docs/ai-agents/#who-can-use-the-mcp-server) keep working.
+
+If the dashboard says that another confirmation waits or that you must wait,
+the last one ended less than a minute ago: wait the seconds it names and try
+again. If you see "Too many attempts", the sign-in page waits a minute between
+tries after ten wrong passwords in a row. Setting a new password with a press
+of **Action** ends that wait.
+
 ## The device has no Wi-Fi
 
 If the device has no saved network, join its

@@ -98,28 +98,116 @@ isn't on a network yet, only on USB, shows the list without others.
 
 ## Who can use the dashboard
 
-The dashboard has no login. **Anyone on your network can use it.** That
-includes renaming the device, setting its dashboard address, moving it to
+Until you set a password, **anyone on your network can use the dashboard**.
+That includes renaming the device, setting its dashboard address, moving it to
 another Wi-Fi network or forgetting the one it uses, making the device play an
 address from your network, lighting the ring in any colour, the solid red of
-the muted microphones included, restarting the device,
-choosing the update channel, installing an update and switching to the version in the other slot. It also
-includes seeing what plays: the title of the music a phone sends over AirPlay
-or Bluetooth, or Music Assistant over Sendspin, shows on **Now playing**. With
-Sendspin, it includes pausing and stopping the whole Music Assistant group
-that the device plays in. In
+the muted microphones included, restarting the device, resetting it,
+choosing the update channel, installing an update and switching to the version
+in the other slot. It also includes seeing what plays: the title of the music
+a phone sends over AirPlay or Bluetooth, or Music Assistant over Sendspin,
+shows on **Now playing**. With Sendspin, it includes pausing and stopping the
+whole Music Assistant group that the device plays in. In
 [standalone mode](/docs/standalone/) it includes changing your services and
-the prompt, adding MCP servers, and asking questions that you pay for; the
-keys themselves never leave the device. Pinna's MCP server, `/mcp`, is open
-the same way. In a
-[satellite group](/docs/satellite-groups/#pass-messages-between-satellites), it
-includes adding any satellite whose **Satellite group** switch is on and
-that is in no group, removing members, and turning **Group messages** and **Control from the
-group** on or off. Only an update that
-is signed with the device's release key installs, and the device goes back to
-the previous version if the new one doesn't start. An install from a manifest
-URL takes an older signed release too, so someone with a copy of one can
-downgrade the device.
+the prompt, adding MCP servers, and pointing a speech-to-text service at a
+server of someone else's, which then receives what the microphones hear after
+the wake word. The keys themselves never leave the device. Pinna's MCP
+server, `/mcp`, and the [metrics](/docs/metrics/) are open the same way. Only
+an update that is signed with the device's release key installs, and the
+device goes back to the previous version if the new one doesn't start. An
+install from a manifest URL takes an older signed release too, so someone with
+a copy of one can downgrade the device.
+
+The first time you open the dashboard, it offers a password before anything
+else. Choose **Set a password**, or **Leave it open** if you trust everyone on
+your network. The choice is stored on the device, so other browsers don't ask
+again, and **Overview** keeps saying "Anyone on your network can control this
+satellite" until you set one. An update never locks you out: a device that
+updates into this version asks too, and you can leave it open.
+
+### What the password protects
+
+With a password, every request to the device needs you to be signed in, except
+the page's own files and the sign-in itself. That covers the dashboard, the
+control API, and the log. The metrics and `/mcp` need
+[their own tokens](#tokens-for-prometheus-and-agents) instead.
+
+The password doesn't cover everything:
+
+- **It travels unencrypted.** The device serves plain HTTP: it has no
+  certificate that a browser trusts. Someone who can read the traffic on your
+  network, for example another device on your Wi-Fi, can read the password and
+  your session. Don't use a password that you use anywhere else, and don't
+  use one password for every satellite. A reverse proxy with TLS in front of
+  the dashboard address avoids this; see
+  [Set a dashboard address](/docs/settings/#set-a-dashboard-address).
+- **It isn't Home Assistant's key.** Home Assistant connects with its own
+  encryption key, which you can't see or change on the dashboard.
+- **It doesn't stop someone in the room.** The device's buttons work without
+  it.
+- **It can't stop someone from slowing sign-ins down.** After 10 wrong
+  passwords in a row, the sign-in waits a minute between tries, for everyone.
+  Browsers that are signed in keep working.
+- **A Home Assistant iframe panel can't hold the session.** Use the **Visit**
+  link on the device in Home Assistant, which opens the dashboard in its own
+  tab.
+
+An older version of Pinna in the other slot may not ask for a password. If you
+[switch to it](/docs/update/), the dashboard is open until the next update.
+
+### Set, change and remove the password
+
+Open **System > Dashboard password**.
+
+- **Set a password.** Select **Set a password…**. The dashboard says "Press
+  Action on the satellite", and the ring circles white: press the **Action**
+  button on the device within 60 seconds, as in
+  [Confirm a change at the device](/docs/ring-and-buttons/#confirm-a-change-at-the-device).
+  Press it only if you started this yourself. Then enter the password, 8 to
+  128 characters, with no other rules. If an agent or Prometheus called the
+  device in the last 24 hours, the form says so: they need a token once the
+  password is set.
+- **Change it.** Select **Change…** and enter the current password and the
+  new one. Or select **Confirm at the satellite instead** and press **Action**.
+- **Remove it.** Select **Remove…** and enter the current password, or confirm
+  at the satellite. Removing it opens the dashboard, the control API, `/mcp` and
+  the metrics to anyone on your network again.
+
+Changing the password signs every browser out. The dashboard signs this one in
+again with the new password.
+
+### Sign out
+
+On **System > Dashboard password**:
+
+- **Sign out** ends the session of this browser. A session lasts 30 days, and
+  survives a restart of the device.
+- **Sign out everywhere** ends every session, in every browser, and closes the
+  pages they had open. Use it when you signed in on a computer that isn't
+  yours. Tokens keep working.
+- **Failed sign-ins** shows how many wrong passwords were tried since the last
+  sign-in, and the address and time of the last one.
+
+### If you forget the password
+
+You need to be at the device. On the sign-in page, select **Forgot the
+password?** and press **Action** on the device when the ring circles white,
+then set a new password. You need no cable and no reset. See
+[I forgot the dashboard password](/docs/troubleshooting/#i-forgot-the-dashboard-password).
+
+### Tokens for Prometheus and agents
+
+With a password set, the metrics and `/mcp` don't take a session. Each has a
+token that opens it and nothing else. On **System > Tokens**, select **Create a
+token** next to **Metrics token** or **Agent token**. The dashboard shows the
+token once, with a **Copy** button, and afterwards only its last four
+characters. **Create a new token** replaces the old one, which stops working at
+once. A factory reset removes the password and the tokens.
+
+- Prometheus takes the metrics token as `authorization` credentials. See
+  [Prometheus metrics](/docs/metrics/#who-can-read-them).
+- An MCP client sends the agent token in an `Authorization: Bearer` header. See
+  [Connect an agent over MCP](/docs/ai-agents/#who-can-use-the-mcp-server).
 
 The dashboard has no switch to turn it off: on a page without a login, anyone
 could turn it back on. Developers can turn it off in the

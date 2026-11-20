@@ -87,8 +87,11 @@ On the devices:
 
 ## Known gaps
 
-- **The dashboard has no login.** Anyone on your network can use it,
-  including restarting and updating the device. See
+- **The dashboard's password is optional, and it travels unencrypted.** Until
+  you set one, anyone on your network can use the dashboard, including
+  restarting and updating the device. The satellite serves plain HTTP, so
+  someone who can read the traffic on your network can read the password too.
+  A reverse proxy with TLS in front of the dashboard avoids that. See
   [Who can use the dashboard](/docs/dashboard/#who-can-use-the-dashboard).
 - **The built-in wake words' licence doesn't allow commercial use.** Pinna
   listens for up to two of Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy

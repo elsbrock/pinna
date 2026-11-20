@@ -51,8 +51,26 @@ The agent can then set timers, play a stream, speak a text, change the volume
 and the light, mute the microphones, switch the satellite back to Home
 Assistant, read the satellite's status and which version it runs, and check
 for updates. It can't install an update or make the satellite listen, and it
-doesn't get the weather. Like the dashboard, the MCP server has no password:
-anyone on your network can use it. It answers in standalone mode only. The list under it shows the agents that called.
+doesn't get the weather. It answers in standalone mode only. The list under it shows the agents that called.
+
+## Who can use the MCP server
+
+Without a [dashboard password](/docs/dashboard/#who-can-use-the-dashboard),
+anyone on your network can use `/mcp`. Once you set a password, `/mcp` needs
+the **agent token**, which opens nothing else:
+
+1. Select **System**. Under **Tokens**, next to **Agent token**, select
+   **Create a token**.
+2. Copy the token at once. The dashboard shows it only then, and keeps only its
+   last four characters. A new token replaces the old one, which stops working
+   at once.
+3. In the agent's MCP settings, add a header `Authorization` with the value
+   `Bearer <token>`.
+
+An agent that can't send headers can't use the MCP server of a satellite with a
+password: the token doesn't go in the address, because addresses end up in logs.
+Without the token, the device answers `401` and "This satellite needs its agent
+token. Create one on its System page."
 
 ## What's next
 

@@ -35,6 +35,7 @@ this table wins:
 | Cyan, brighter as the voice gets louder | The device is speaking a reply or an announcement |
 | A green arc | Wake word calibration runs. The arc shows the sensitivity, and the volume buttons tune it. It shows in place of a running timer's arc, a notification, the light and the music. See [Calibrate at the device](/docs/wake-words/#calibrate-at-the-device) |
 | Two blue lights that turn slowly around the ring | The Bluetooth pairing window is open: a phone nearby can pair now. It shows in place of a running timer's arc, a notification, the light and the music. See [Pair a phone](/docs/bluetooth/#pair-a-phone) |
+| A white light that circles slowly, one turn every 3 seconds | The dashboard asks you to confirm a change at the device. Press the Action button to confirm; see [Confirm a change at the device](#confirm-a-change-at-the-device). It shows above the red of the muted microphones, for up to 60 seconds |
 | An amber arc | A timer is running. The arc shows how much time is left |
 | Yellow, the whole ring slowly getting brighter and dimmer | A notification is waiting. See [Notifications](#notifications) |
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |
@@ -252,7 +253,7 @@ Seen from above, with the front of the device towards you, the buttons are:
 
 | Button | Press | Hold |
 | --- | --- | --- |
-| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While it speaks an announcement, stops it. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it | Sends a `long_press` event to Home Assistant after 2 seconds |
+| Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While it speaks an announcement, stops it. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it. While the ring circles white, confirms a [change at the device](#confirm-a-change-at-the-device) and does nothing else | Sends a `long_press` event to Home Assistant after 2 seconds |
 | Volume up | Raises the volume by 5. While calibration runs, raises the wake word sensitivity to catch the strongest near miss heard in the last 15 seconds instead | Keeps raising the volume |
 | Volume down | Lowers the volume by 5. While calibration runs, lowers the wake word sensitivity to ignore the last wake instead | Keeps lowering the volume |
 | Microphone off | Turns the microphones off or on | Nothing |
@@ -261,6 +262,23 @@ If you use Home Assistant, every press also sends it an event, so you can use
 the buttons in automations. While calibration runs, the volume buttons tune the
 sensitivity instead and don't send theirs. See
 [Home Assistant entities](/docs/entities/#events).
+
+### Confirm a change at the device
+
+Some changes to the [dashboard password](/docs/dashboard/#who-can-use-the-dashboard)
+need someone at the device: setting the first password, and setting or
+removing it without the current one. The dashboard then says "Press Action on
+the satellite", and for up to 60 seconds the ring shows a white light that
+circles slowly, one turn every 3 seconds. It shows above the red of the muted
+microphones, and the press works while they are off.
+
+While the white light circles, the **Action** button only confirms. It doesn't
+start a request, stop a timer alarm, clear a notification or send an event to
+Home Assistant. Press it only if you started the change yourself: anyone on
+your network can make the ring circle, and a press from you is what lets
+their change through. If nobody presses it, the light goes out after 60
+seconds and nothing changes. A new confirmation can start a minute after the
+last one ended.
 
 ### Microphone off
 
