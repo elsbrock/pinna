@@ -4,6 +4,9 @@ export async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
+    // Selecting the textarea takes the focus: give it back afterwards, so the
+    // keyboard stays on the button that copied.
+    const focused = document.activeElement;
     const area = document.createElement("textarea");
     area.value = text;
     area.setAttribute("readonly", "");
@@ -13,5 +16,6 @@ export async function copyText(text: string): Promise<void> {
     area.select();
     document.execCommand("copy");
     area.remove();
+    if (focused instanceof HTMLElement) focused.focus();
   }
 }
