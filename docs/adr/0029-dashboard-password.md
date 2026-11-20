@@ -73,9 +73,7 @@ confirmed by the owner yet.
 - **What needs a press:**
   - setting the first password;
   - setting or removing the password without the current one, which is how
-    an owner who forgot it gets back in;
-  - opening the ESPHome window and the group window (below) on a satellite
-    without a password. With a password, the session is enough.
+    an owner who forgot it gets back in.
 - The USB link gets no exemption. Rescue mode and recovery still answer
   only there, without a password (ADR 0012, ADR 0019).
 
@@ -245,9 +243,11 @@ confirmed by the owner yet.
   more click on its own dashboard.
 - **A rollback removes the protection while it lasts.** An image from before
   this keeps the password's entries in `secrets.toml` but doesn't check
-  them, so the dashboard is open until the next update. Before switching to
-  such a slot, or keeping an update back in favour of it, the Updates page
-  says: "The version in the other slot doesn't ask for a password."
+  them, so the dashboard is open until the next update. While a password is
+  set, before switching to an older version in the other slot, or keeping an
+  update back in favour of one, the Updates page says: "The version in the
+  other slot is older, and may not ask for a password." It can't tell which
+  older versions do, so it says so for each.
 - New in `DeviceService`: the security state (password set, tokens set,
   failures, windows); setting, changing and removing the password; the
   confirmation; creating tokens; signing out everywhere; opening the
