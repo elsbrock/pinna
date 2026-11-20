@@ -2334,10 +2334,11 @@ impl Brain {
     }
 
     /// What the Home Assistant media player shows as its volume: Sendspin's
-    /// while it owns the media (ADR 0027 §15), the stream volume while
-    /// another stream plays, the speaker volume otherwise.
+    /// while its stream plays (ADR 0027 §15), the stream volume while
+    /// another stream plays, the speaker volume otherwise, also while the
+    /// Sendspin group waits paused.
     fn media_volume(&self) -> u8 {
-        if self.sendspin_media() {
+        if self.sendspin_streams() {
             self.sendspin_report.borrow().volume
         } else if self.media_stream {
             self.stream_volume
@@ -2346,18 +2347,20 @@ impl Brain {
         }
     }
 
-    /// The media player's mute: the lane's, or Sendspin's own while it owns
-    /// the media.
+    /// The media player's mute: the lane's, or Sendspin's own while its
+    /// stream plays.
     fn media_muted(&self) -> bool {
-        self.media_muted || (self.sendspin_media() && self.sendspin_report.borrow().muted)
+        self.media_muted || (self.sendspin_streams() && self.sendspin_report.borrow().muted)
     }
 
-    /// The media player's volume from Home Assistant: Sendspin's own while it
-    /// owns the media, which the server hears (ADR 0027 §15); the stream's
-    /// own volume while another stream plays (the speaker volume stays where
-    /// it is); the speaker volume otherwise.
+    /// The media player's volume from Home Assistant: Sendspin's own while its
+    /// stream plays, which the server hears (ADR 0027 §15); the stream's own
+    /// volume while another stream plays (the speaker volume stays where it
+    /// is); the speaker volume otherwise. A volume set before an announcement
+    /// while the group waits paused sets the speaker's, as on any idle
+    /// satellite.
     async fn set_media_volume(&mut self, v: u8) {
-        if self.sendspin_media() {
+        if self.sendspin_streams() {
             if let Some(s) = &self.sendspin {
                 s.set_volume(v);
             }
@@ -2637,12 +2640,17 @@ impl Brain {
         self.media_phase == MediaPhase::Idle && self.sendspin_report.borrow().group_paused
     }
 
-    /// Sendspin owns the media player: its stream is what the lane shows, or
-    /// its group is paused. Pause, play, stop, mute and the volume then act
-    /// on the group and the stream (ADR 0027 §14, §15).
+    /// The lane plays the Sendspin stream: the media player's volume and mute
+    /// are the stream's own (ADR 0027 §15).
+    fn sendspin_streams(&self) -> bool {
+        self.media_stream && self.media_source == crate::sendspin::SOURCE
+    }
+
+    /// Sendspin owns the media player's transport: its stream is what the
+    /// lane shows, or its group waits paused from here. Pause, play and stop
+    /// then act on the group (ADR 0027 §14).
     fn sendspin_media(&self) -> bool {
-        (self.media_stream && self.media_source == crate::sendspin::SOURCE)
-            || self.sendspin_paused()
+        self.sendspin_streams() || self.sendspin_paused()
     }
 
     /// Pause, play or stop the Sendspin group, while Sendspin owns the media.
@@ -3019,7 +3027,7 @@ impl Brain {
             }
             Some(MediaPlayerCommand::Mute) | Some(MediaPlayerCommand::Unmute) => {
                 let muted = command == Some(MediaPlayerCommand::Mute);
-                if self.sendspin_media()
+                if self.sendspin_streams()
                     && let Some(s) = &self.sendspin
                 {
                     // The stream's own mute, which the server hears (ADR

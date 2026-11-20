@@ -752,7 +752,7 @@ async fn another_source_leaves_a_paused_sendspin_group() {
     assert!(asked(&mut rx).await.is_empty());
 }
 
-/// While Sendspin owns the media, the media player's volume and mute are the
+/// While Sendspin's stream plays, the media player's volume and mute are the
 /// stream's own, which the server hears (ADR 0027 §15); the speaker's volume
 /// stays where it is.
 #[tokio::test]
@@ -781,4 +781,34 @@ async fn the_media_volume_is_sendspins_while_it_plays() {
     d.media(None, Some(0.2)).await;
     assert!(asked(&mut rx).await.is_empty());
     assert_eq!(d.brain.settings.volume, 20);
+}
+
+/// While the Sendspin group only waits paused, the media player's volume and
+/// mute are the speaker's, as on any idle satellite: a volume set before an
+/// announcement reaches the speaker, not the paused stream (ADR 0027 §15).
+#[tokio::test]
+async fn the_media_volume_is_the_speakers_while_the_sendspin_group_is_paused() {
+    let (mut d, report, mut rx) = Device::with_sendspin(true);
+    d.report(&report, |r| {
+        r.volume = 30;
+        r.muted = true;
+    });
+    d.lane(sendspin_stream(MediaPhase::Playing)).await;
+    d.lane(MediaState::default()).await;
+    d.report(&report, |r| r.group_paused = true);
+    assert_eq!(d.brain.media_state, MediaPlayerStateKind::Paused);
+    let m = d.brain.snapshot().media;
+    assert_eq!((m.volume, m.muted), (50, false));
+
+    d.media(None, Some(0.2)).await;
+    d.media(Some(MediaPlayerCommand::VolumeUp), None).await;
+    d.media(Some(MediaPlayerCommand::Mute), None).await;
+    assert!(asked(&mut rx).await.is_empty());
+    assert_eq!(d.brain.settings.volume, 25);
+
+    // The group plays again: the stream's own level is back.
+    d.report(&report, |r| r.group_paused = false);
+    d.lane(sendspin_stream(MediaPhase::Playing)).await;
+    let m = d.brain.snapshot().media;
+    assert_eq!((m.volume, m.muted), (30, true));
 }
