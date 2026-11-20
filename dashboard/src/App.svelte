@@ -57,13 +57,7 @@
 
 <div class="shell" class:fill>
   <aside class="side">
-    <a class="home" href="#/" aria-label="Pinna, overview">
-      {#if s}
-        <Logo><Ring effect={ring} frame={device.ring} size={24} label="Ring: {ring.replace('-', ' ')}" /></Logo>
-      {:else}
-        <Logo />
-      {/if}
-    </a>
+    <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
     <nav class="pn-nav" aria-label="Sections">
       {#each groups as g (g)}
         <span class="pn-nav-label">{g}</span>
@@ -113,6 +107,7 @@
   </aside>
 
   <header class="appbar">
+    <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
     {#if s}
       <Ring effect={ring} frame={device.ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
       <button
@@ -128,8 +123,6 @@
         <Icon name="chevron-down" />
       </button>
       <span class="pn-health" data-tone={line.tone} title={line.text}>{healthWord(line)}</span>
-    {:else}
-      <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
     {/if}
   </header>
 
@@ -299,6 +292,10 @@
       max(var(--space-4), env(safe-area-inset-left, 0px));
     background: var(--surface-raised);
     border-bottom: 1px solid var(--line);
+  }
+  /* The mark alone: the satellite's name needs the width. */
+  .appbar :global(.pn-logo-word) {
+    display: none;
   }
   /* The name opens the satellite switcher; the overview link is in it. */
   .appbar-name {

@@ -1,16 +1,13 @@
-<!-- The mark (design/mark.svg) and the wordmark. A child (the live ring) takes
-     the mark's place. -->
+<!-- The mark (design/mark.svg) and the wordmark. The live ring is beside the
+     satellite's name, not here. -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
   // An image, not inline: the mark's colours are fixed, and two inline copies
   // on a page would share gradient ids.
   import markUrl from "../../../design/mark.svg?url";
-
-  let { children }: { children?: Snippet } = $props();
 </script>
 
 <span class="pn-logo">
-  <span class="mark">{#if children}{@render children()}{:else}<img src={markUrl} alt="" width="28" height="28" />{/if}</span>
+  <span class="mark"><img src={markUrl} alt="" width="28" height="28" /></span>
   <span class="pn-logo-word">Pinna</span>
 </span>
 
