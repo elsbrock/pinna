@@ -252,6 +252,15 @@ apply again after the next update.
   **Install … (older)**. It asks before it installs. Then select **Restart
   now**.
 
+While a [dashboard password](/docs/dashboard/) is set, the dashboard warns you
+before it starts an older version: "The version in the other slot is older, and
+may not ask for a password." An older Pinna keeps the password's entries but
+doesn't check them, so the dashboard is open until the next update. Pinna can't
+tell which older versions check the password, so it warns for each one. The
+warning shows next to **Switch…**, in the dialog that asks you to confirm, on
+**Install … (older)**, and when an older version waits in the other slot to
+start on the next restart.
+
 After you go back, the newer version is still in the other slot, and the next
 check offers it again: **System** shows **Start it**, and Home Assistant shows
 it as an update. Home Assistant's **Install** would start it and restart the
@@ -278,6 +287,10 @@ kept back (**Not started yet**). To run it:
 
 The other version starts on trial, like an update. If it doesn't start, the
 device goes back to the version that ran before.
+
+If a dashboard password is set and the other version is older, the page warns
+you that it may not ask for a password; see
+[Go back to an older version](#go-back-to-an-older-version).
 
 Versions built before the switch was added don't have **Switch…**. If you
 switch to one of them, install an update to leave it.

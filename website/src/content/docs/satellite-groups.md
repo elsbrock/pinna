@@ -78,6 +78,42 @@ while its **Satellite group** switch is on and it is in no group. A member in
 another group can't be added again until its switch has been turned off and
 on again on its dashboard.
 
+## Add a satellite that has a dashboard password
+
+With a [dashboard password](/docs/dashboard/) set, the **Satellite group**
+switch alone doesn't let another satellite add this one. Without a password,
+the switch is all it takes. With one, a satellite takes an **Add** only in the
+10 minutes after you allow it:
+
+1. On the dashboard of the satellite that you want to add, sign in. Select
+   **Assistant**. Under **Satellite group**, with the switch on and the
+   satellite in no group, select **Allow adding to a group**. The page shows
+   how much of the 10 minutes is left.
+2. Within that time, on the dashboard of a member, select **Add** next to it,
+   as in [Set up a satellite group](#set-up-a-satellite-group). If the time
+   passes first, **Add** says that the satellite has a password. Select
+   **Allow adding to a group** again.
+
+A password on the satellite that adds changes nothing for the one added.
+
+## Passwords between members
+
+Members tell each other whether they have a dashboard password. **Members**
+shows **No password** next to a member that has none.
+
+A satellite with a password refuses messages and tool calls from a member
+without one. Otherwise someone on your network could reach a protected
+satellite through an unprotected member. The brain of the member that sent
+them says why, with the name of the satellite that refused, such as "Kitchen
+has a dashboard password and this satellite doesn't. Set one on this
+satellite first." Set a password on the satellite that sends. A member that
+runs an older Pinna can't say that it has a password, so it counts as a
+member without one.
+
+The group's key doesn't change. A member that you removed, and that kept the
+key, can still call the other members. To shut it out, turn off **Satellite
+group** on every member so that the group ends, and set it up again.
+
 ## Pass messages between satellites
 
 With more than one satellite in standalone mode, you can ask one to pass a

@@ -81,6 +81,13 @@ another subnet or VLAN aren't listed, even if your router passes mDNS between
 them. Select one
 to open its dashboard in the same tab.
 
+Anyone on your network can announce a device, so a fake entry could lead to a
+page that looks like a login form. The list marks the members of this device's
+[satellite group](/docs/satellite-groups/) as **In this satellite's group**: the
+group's key confirms them. Every other entry says **Only announced on the
+network**. Check the address before you enter a password on a page you opened
+from the list.
+
 Each device looks for the others once a minute, so the list opens at once. A
 device you just turned on can take a minute to show up. One that you turn off,
 or whose dashboard stops answering, leaves the list within two minutes.

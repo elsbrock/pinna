@@ -43,7 +43,9 @@ older one keeps the connection unencrypted, and the dashboard says so.
 Until it has a key, the device takes the first key that anyone on your network
 sends it. If someone else sets one first, Home Assistant can't connect.
 [Reset the device](/docs/settings/#reset-the-device), which removes the key,
-and add it again.
+and add it again. With a dashboard password set, the device takes a key only
+while you let Home Assistant add it; see
+[Add a device that has a dashboard password](#add-a-device-that-has-a-dashboard-password).
 
 A developer can build the key into the image instead; then Home Assistant
 asks for it when you add the device. See
@@ -68,6 +70,25 @@ If the device doesn't appear, add it by hand: open the **Assistant** page
 of the [dashboard](/docs/dashboard/), copy the host and the port under **Add it
 to Home Assistant**, and enter them in Home Assistant under **Add integration >
 ESPHome**.
+
+## Add a device that has a dashboard password
+
+With a dashboard password set and no key from Home Assistant yet, the device
+refuses every connection to Home Assistant. Home Assistant may still list the
+device, but it can't connect to it. You open a window first:
+
+1. Open the dashboard of the device and sign in. Select **Assistant**.
+2. Select **Let Home Assistant add this satellite**. The page shows how much
+   of the 15 minutes is left.
+3. In Home Assistant, add the device as in [Add the device](#add-the-device).
+   If the 15 minutes pass first, select the button again.
+
+Inside the window, the device takes the first key that anyone on your network
+sends it, as it does without a password, so add it right away. Once Home
+Assistant has set its key, only that key works, and the window no longer
+matters. Setting a password while Home Assistant is connected without a key
+ends that connection: open the window and add the device again. A device that
+already has a key keeps it when you set a password, and needs no window.
 
 ## Choose the Assist pipeline
 
