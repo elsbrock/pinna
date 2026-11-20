@@ -138,8 +138,8 @@ service DeviceService {
   rpc LeaveDashboardOpen(LeaveDashboardOpenRequest) returns (LeaveDashboardOpenResponse);
   // Ask for someone at the satellite: for 60 seconds the ring shows the
   // confirm pattern, and the next press of the Action button confirms.
-  // Needs no session. Refused while another confirmation waits or ran in the
-  // last 60 seconds.
+  // Needs no session, except for a recording (ADR 0030). Refused while
+  // another confirmation waits or ran in the last 60 seconds.
   rpc StartConfirmation(StartConfirmationRequest) returns (StartConfirmationResponse);
   // Follow a confirmation: waiting, then confirmed with a grant, expired or
   // canceled. Needs no session.
@@ -150,6 +150,18 @@ service DeviceService {
   // confirmation waits, and needs a session. Ending one that is not waiting
   // is not an error.
   rpc CancelConfirmation(CancelConfirmationRequest) returns (CancelConfirmationResponse);
+  // Record from the microphones for up to 30 seconds (ADR 0030): what the
+  // wake word hears and, on the Echo's PipeWire graph, every microphone
+  // lane, the echo canceller's output before pinnad's gain and the echo
+  // reference. Needs a dashboard password, a session, and the grant of a
+  // RECORDING confirmation that this session asked for, at most 10 seconds
+  // old. Streams the audio as it is recorded; nothing is stored on the
+  // satellite. Ends when the time is up, at StopRecording, at mute, when the
+  // caller falls more than 2 seconds behind or goes away. One at a time.
+  rpc RecordAudio(RecordAudioRequest) returns (stream RecordAudioResponse);
+  // End the running recording, from any signed-in dashboard. Nothing
+  // running is not an error.
+  rpc StopRecording(StopRecordingRequest) returns (StopRecordingResponse);
   // Create the token for /metrics or for /mcp. It is returned once and
   // replaces the old one.
   rpc CreateToken(CreateTokenRequest) returns (CreateTokenResponse);
@@ -370,6 +382,16 @@ message Status {
   uint32 held_messages = 31;
   // The Sendspin player as it is, not only as switched (ADR 0027).
   Sendspin sendspin = 32;
+  // The running recording (ADR 0030); unset when none runs.
+  Recording recording = 33;
+}
+
+// A recording from the microphones (ADR 0030). The phase doesn't change while
+// it runs; the ring shows Listening whenever nothing else shows.
+message Recording {
+  uint32 seconds_left = 1;
+  // The address of the browser that records.
+  string from = 2;
 }
 
 // Whether standalone mode can run, and how its last request ended. Set up
@@ -1352,6 +1374,9 @@ message Security {
   // Seconds that confirmation still waits; 0 when none does, and without a
   // session.
   uint32 confirmation_left_s = 17;
+  // What that confirmation is for; PASSWORD when none waits, and without a
+  // session.
+  ConfirmationPurpose confirmation_purpose = 18;
 }
 
 message SetDashboardPasswordRequest {
@@ -1382,7 +1407,19 @@ message LeaveDashboardOpenResponse {
   Security security = 1;
 }
 
-message StartConfirmationRequest {}
+// What a press of Action is asked for. A grant is good only for its purpose.
+enum ConfirmationPurpose {
+  // Setting or removing the dashboard password (ADR 0029).
+  CONFIRMATION_PURPOSE_PASSWORD = 0;
+  // A recording (ADR 0030): needs a password and a session; the ring shows
+  // its own pattern, and the grant is good for 10 seconds, for the session
+  // that asked.
+  CONFIRMATION_PURPOSE_RECORDING = 1;
+}
+
+message StartConfirmationRequest {
+  ConfirmationPurpose purpose = 1;
+}
 
 message StartConfirmationResponse {
   // Pass it to WatchConfirmation.
@@ -1418,9 +1455,81 @@ message WatchConfirmationResponse {
   ConfirmationState state = 1;
   // Seconds left while waiting.
   uint32 seconds_left = 2;
-  // One-time grant, valid for 5 minutes, once: with CONFIRMED only.
+  // One-time grant, valid for 5 minutes (10 seconds for a recording), once:
+  // with CONFIRMED only.
   string grant = 3;
 }
+
+message RecordAudioRequest {
+  // From a RECORDING confirmation this session asked for.
+  string grant = 1;
+  // 1 to 30.
+  uint32 seconds = 2;
+}
+
+// The signals of a recording. Each arrives in its own chunks, in order, at
+// 16 kHz from the start of the recording; the streams start within tens of
+// milliseconds of each other but are not aligned to the sample.
+enum AudioSource {
+  AUDIO_SOURCE_UNSPECIFIED = 0;
+  // What the wake word and the request get, after pinnad's gain: s16le mono.
+  AUDIO_SOURCE_HEARD = 1;
+  // The capture node's lanes as the codec delivers them: s24le, interleaved,
+  // RecordingStarted.lanes of them.
+  AUDIO_SOURCE_LANES = 2;
+  // The echo canceller's output before pinnad's gain: s16le mono.
+  AUDIO_SOURCE_BEFORE_GAIN = 3;
+  // The echo reference, as the echo canceller gets it: s16le mono.
+  AUDIO_SOURCE_REFERENCE = 4;
+}
+
+message RecordAudioResponse {
+  oneof event {
+    // First: what follows.
+    RecordingStarted started = 1;
+    RecordingChunk chunk = 2;
+    // Last.
+    RecordingEnded ended = 3;
+  }
+}
+
+message RecordingStarted {
+  uint32 sample_rate = 1;
+  uint32 seconds = 2;
+  // LANES, BEFORE_GAIN and REFERENCE follow too: the Echo's PipeWire graph.
+  // Otherwise HEARD alone.
+  bool debug = 3;
+  // How many lanes LANES has; 0 without `debug`.
+  uint32 lanes = 4;
+}
+
+message RecordingChunk {
+  AudioSource source = 1;
+  bytes data = 2;
+}
+
+enum RecordingEnd {
+  RECORDING_END_UNSPECIFIED = 0;
+  RECORDING_END_TIME_UP = 1;
+  // StopRecording, from this dashboard or another.
+  RECORDING_END_STOPPED = 2;
+  // The microphones were muted.
+  RECORDING_END_MUTED = 3;
+  // The caller fell more than 2 seconds behind.
+  RECORDING_END_FELL_BEHIND = 4;
+  // A capture stream failed; the message says which.
+  RECORDING_END_FAILED = 5;
+}
+
+message RecordingEnded {
+  RecordingEnd reason = 1;
+  // One sentence for the owner.
+  string message = 2;
+}
+
+message StopRecordingRequest {}
+
+message StopRecordingResponse {}
 
 enum TokenKind {
   TOKEN_KIND_UNSPECIFIED = 0;
