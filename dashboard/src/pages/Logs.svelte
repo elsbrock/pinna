@@ -2,7 +2,7 @@
      is the only thing that scrolls; it follows the newest line while it is
      scrolled to the bottom. -->
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
 
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
   import { copyText } from "../lib/copy.ts";
@@ -23,6 +23,8 @@
   let onlyProblems = $state(false);
   let query = $state("");
   let follow = $state(true);
+  /** The log is longer than its box. */
+  let scrollable = $state(false);
   let box = $state<HTMLElement>();
   let updates = $state<GetUpdatesResponse | null>(null);
   let key = 0;
@@ -73,15 +75,15 @@
   });
 
   const needle = $derived(query.trim().toLowerCase());
+  // What the filter searches: the line as shown, without the level's padding.
+  const haystack = (l: Line) => `${l.time} ${l.level} ${l.message}`.toLowerCase();
   const shown = $derived(
     lines.filter(
-      (l) =>
-        (!onlyProblems || l.level === "WARN" || l.level === "ERROR") &&
-        (!needle || text(l).toLowerCase().includes(needle)),
+      (l) => (!onlyProblems || l.level === "WARN" || l.level === "ERROR") && (!needle || haystack(l).includes(needle)),
     ),
   );
   const empty = $derived.by(() => {
-    if (!lines.length) return "No log lines yet.";
+    if (!lines.length) return connected ? "No log lines yet." : "Loading the log…";
     const what = onlyProblems ? "No warnings or errors" : "No lines";
     return needle ? `${what} match “${query.trim()}”.` : `${what}.`;
   });
@@ -90,31 +92,69 @@
     return b.scrollTop + b.clientHeight >= b.scrollHeight - SLACK;
   }
 
-  function toEnd() {
-    if (box) box.scrollTop = box.scrollHeight;
+  // Where this page last put the log. A scroll event at that position isn't the
+  // reader's: it reports the page's own move, or the browser keeping the log
+  // in range as a filter shortens it.
+  let placed = -1;
+  function place(top: number) {
+    if (!box) return;
+    box.scrollTop = top;
+    placed = box.scrollTop;
   }
+  const toEnd = () => box && place(box.scrollHeight);
 
-  // Keep the newest line in view while following. When a filter shortens the
-  // log so that it no longer scrolls, it is at the bottom again.
+  // A filter changes the lines, not whether the log follows. While it doesn't,
+  // the line the reader last scrolled to the top stays there, or the next one
+  // the filter shows. It is kept until they scroll again, so a filter whose few
+  // lines can't be scrolled there doesn't lose it.
+  let anchor: { key: number; offset: number } | null = null;
+  let restore = false;
+  $effect.pre(() => {
+    void onlyProblems;
+    void needle;
+    untrack(() => {
+      if (!box || follow) return;
+      restore = true;
+      if (anchor && placed !== -1) return;
+      const top = box.getBoundingClientRect().top;
+      for (const el of box.querySelectorAll<HTMLElement>(".line")) {
+        const r = el.getBoundingClientRect();
+        if (r.bottom > top) return void (anchor = { key: Number(el.dataset.key), offset: r.top - top });
+      }
+    });
+  });
+
+  // Keep the newest line in view while following.
   $effect(() => {
     void shown;
     tick().then(() => {
       if (!box) return;
       if (follow) toEnd();
-      else if (atEnd(box)) follow = true;
+      else if (restore && anchor) {
+        const { key, offset } = anchor;
+        restore = false;
+        const el = [...box.querySelectorAll<HTMLElement>(".line")].find((e) => Number(e.dataset.key) >= key);
+        if (el) place(box.scrollTop + el.getBoundingClientRect().top - box.getBoundingClientRect().top - offset);
+        else toEnd();
+      }
+      scrollable = box.scrollHeight > box.clientHeight;
     });
   });
 
   // A taller or narrower window moves the bottom: stay on it while following.
   $effect(() => {
     if (!box) return;
-    const watch = new ResizeObserver(() => follow && toEnd());
+    const watch = new ResizeObserver(() => {
+      if (follow) toEnd();
+      if (box) scrollable = box.scrollHeight > box.clientHeight;
+    });
     watch.observe(box);
     return () => watch.disconnect();
   });
 
   function scrolled() {
-    if (!box) return;
+    if (!box || box.scrollTop === placed) return;
+    placed = -1;
     const end = atEnd(box);
     if (follow !== end) follow = end;
   }
@@ -192,7 +232,7 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="log" bind:this={box} onscroll={scrolled} tabindex="0" role="log" aria-label="Log lines">
     {#each shown as l (l.key)}
-      <div class="line" data-level={l.level}>
+      <div class="line" data-level={l.level} data-key={l.key}>
         <span class="time">{l.time}</span>
         <span class="level">{l.level}</span>
         <span class="msg">{l.message}</span>
@@ -201,7 +241,7 @@
       <p class="empty">{empty}</p>
     {/each}
   </div>
-  {#if !follow}
+  {#if !follow && scrollable}
     <button class="pn-btn pn-btn-sm newest" type="button" onclick={newest}>
       <Icon name="chevron-down" />Newest
     </button>
@@ -235,7 +275,6 @@
     flex: 1;
     min-width: 0;
     overflow: auto;
-    overscroll-behavior: contain;
     padding: var(--space-3) var(--space-4);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
@@ -250,11 +289,11 @@
     outline: none;
     box-shadow: var(--focus-ring);
   }
+  /* In the corner, clear of the toasts at the bottom centre. */
   .newest {
     position: absolute;
-    left: 50%;
+    right: var(--space-4);
     bottom: var(--space-4);
-    transform: translateX(-50%);
     box-shadow: var(--shadow-pop);
   }
   .line {
@@ -282,6 +321,7 @@
   }
   .empty {
     margin: 0;
+    overflow-wrap: anywhere;
     color: var(--ink-muted);
     font-family: var(--font-text);
   }
