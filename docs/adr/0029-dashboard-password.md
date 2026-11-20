@@ -74,6 +74,16 @@ measured on one yet.
 - **A press confirms only the request that asked for it.** The dashboard
   that asked gets a one-time grant, valid for 5 minutes, that the next call
   presents.
+- **A waiting confirmation is visible, and can be stopped.** pinnad keeps the
+  address that asked. Signed-in dashboards show it on the Overview while it
+  waits ("A browser at 192.168.1.23 is waiting for a press of Action. Don't
+  press it unless that was you.") with **Stop it**. The browser that asked
+  stops its own with **Cancel**, by the confirmation's id; either ends the
+  ring at once. After a cancel, a new confirmation can start 10 seconds
+  later, not a minute: a stray click shouldn't lock the owner out, and 10
+  seconds still keeps anyone from holding the ring. A second browser that
+  asks while one waits is told that a confirmation from another browser is
+  waiting, and to press Action only if it started it.
 - **What needs a press:**
   - setting the first password;
   - setting a new password without the current one, which is how an owner
