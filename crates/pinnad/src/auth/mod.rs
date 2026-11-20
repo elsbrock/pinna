@@ -546,7 +546,7 @@ impl Auth {
                 .is_some_and(|c| c.ended.is_none());
             return Err(ConnectError::resource_exhausted(if waiting {
                 format!(
-                    "Another confirmation waits for a press of Action at the satellite. Press it there, or try again in {wait} s."
+                    "Another confirmation waits for a press of Action at the satellite. Try again in {wait} s."
                 )
             } else {
                 format!("A confirmation ended just now. Try again in {wait} s.")
