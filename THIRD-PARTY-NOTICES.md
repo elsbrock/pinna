@@ -37,10 +37,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
   output mixer settings in `crates/pinna-audio/src/mixer.rs` follow
   `audio_engine.c` from the earlier firmware's platform tree. That repository
   is GPL-2.0 (its `COPYING`); the file itself has no license header.
-- `kernel/firmware/i2s_to_spi_v34.bin`: Amazon's FPGA bitstream, see
-  `kernel/firmware/README.md`.
-- `firmware/`: Amazon's MT8163 Wi-Fi and Bluetooth firmware files from the
-  Echo Dot (2nd gen)'s stock Fire OS, unmodified, see `firmware/README.md`.
+- Release images and the device kernel carry Amazon's MT8163 Wi-Fi and
+  Bluetooth firmware files from the Echo Dot (2nd gen)'s stock Fire OS and the
+  microphone FPGA bitstream (`i2s_to_spi_v34.bin`), unmodified. The
+  repository doesn't contain them; `just firmware` fetches them during the
+  build, see `scripts/fetch-firmware.sh`.
 - Release images carry the wake word models
   (`/usr/share/pinna/models/openwakeword-0.5.1/`) with a `NOTICE` next to
   them: the openWakeWord v0.5.1 models (CC BY-NC-SA 4.0) and Okay Nabu,

@@ -12,13 +12,12 @@ This page helps you find your way around the
 | --- | --- |
 | `crates/` | Pinna's Rust code, as one Cargo workspace. See [Crates](#crates) |
 | `proto/` | The definition of the control API (`pinna/v1/device.proto`) and of standalone mode's setup API (`pinna/v1/assistant.proto`) |
-| `kernel/` | The kernel source reference (`source.env`), Pinna's patches and configuration, and the build script that packages the kernel as a Debian package. `kernel/firmware/` holds the microphone FPGA bitstream |
+| `kernel/` | The kernel source reference (`source.env`), Pinna's patches and configuration, and the build script that packages the kernel as a Debian package. |
 | `dashboard/` | The dashboard, written in Svelte. `pinnad` serves it |
 | `services/updates/` | The release service behind `updates.getpinna.dev`, a Cloudflare Worker in TypeScript: update channels and release downloads (ADR 0022) |
 | `releases/` | The notes of each release, which the `release-notes` skill drafts |
-| `firmware/` | The MT8163 Wi-Fi and Bluetooth firmware: Amazon's files, unmodified |
 | `mkosi/` | The image definition: Debian packages, configuration files and systemd units that go into the root filesystem |
-| `scripts/` | Build helpers, `flash-gen2.sh` for installing over fastboot, `backup-gen2.sh` and `verify-backup.sh` for the device backup, `fetch-models.sh` and `push-dev.sh` |
+| `scripts/` | Build helpers, `flash-gen2.sh` for installing over fastboot, `backup-gen2.sh` and `verify-backup.sh` for the device backup, `fetch-models.sh`, `fetch-firmware.sh` and `push-dev.sh` |
 | `tools/wmt/` | Small C programs that power up the Wi-Fi and Bluetooth chip |
 | `keys/` | The public key that root filesystem images and update manifests must be signed with |
 | `tests/` | Virtual machine tests (`vm/`), the end-to-end voice test (`e2e/`) and the hardware test (`device/`) |

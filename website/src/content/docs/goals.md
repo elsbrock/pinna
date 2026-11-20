@@ -75,8 +75,8 @@ reinstalling the system.
 
 All of Pinna's code is in the
 [public repository](https://github.com/elsbrock/pinna). Proprietary firmware,
-such as the Wi-Fi firmware, is included unmodified in `firmware/`. It is kept
-apart from Pinna's own code and isn't under Pinna's license.
+such as the Wi-Fi firmware, isn't: the build fetches it, unmodified, and
+Pinna's images carry it. It isn't under Pinna's license.
 
 ## Later
 

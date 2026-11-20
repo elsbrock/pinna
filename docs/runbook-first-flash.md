@@ -21,8 +21,8 @@ a`; at runtime Pinna writes the bootloader command field (fastboot guard) and
 that record (ADR 0019).
 
 The Wi-Fi firmware that used to come from `system_a` is baked into the Pinna
-root (`firmware/` in the repository). The microphone FPGA bitstream is in the
-repository too (`kernel/firmware/`) and built into the kernel.
+root, and the microphone FPGA bitstream is built into the kernel. Neither is
+in the repository: `just firmware` fetches both into `blobs/firmware/`.
 
 ## 0. Tools
 

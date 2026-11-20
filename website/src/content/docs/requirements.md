@@ -4,8 +4,8 @@ description: The device, the computer and the backup that you need before you in
 ---
 
 Collect everything on this page before you [install Pinna](/docs/flash/).
-Only the backup comes from your own device. Pinna includes the device's Wi-Fi
-firmware, unmodified, in `firmware/`.
+Only the backup comes from your own device. Pinna's images include the
+device's Wi-Fi firmware, unmodified.
 
 ## Device
 

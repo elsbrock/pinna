@@ -40,7 +40,6 @@ backs the device up first, and every step says how to undo it.
 | `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
 | `dashboard/` | The dashboard (Svelte, connect-es) that `pinnad` serves on port 80; built into the image by `just web` |
 | `design/` | Design system: tokens, component CSS, fonts and the LED ring for the website and dashboard |
-| `firmware/` | MT8163 Wi-Fi/BT firmware from the stock Fire OS, installed into the root image |
 | `secrets/`, `blobs/` | Owner-local inputs (credentials, wake word models) — never committed |
 
 ## Development
@@ -65,7 +64,7 @@ lives in `website/` (`npm run dev`); it deploys to GitHub Pages from
 ## License
 
 MIT, see `LICENSE`. Exceptions: `kernel/patches/` and `tools/wmt/` are
-GPL-2.0, like the code they patch or come from. `firmware/` and
-`kernel/firmware/` hold Amazon's files, unmodified; the MIT license doesn't
-cover them. Third-party notices for
+GPL-2.0, like the code they patch or come from. Amazon's Wi-Fi/BT firmware and
+microphone FPGA bitstream aren't in the repository: `just firmware` fetches
+them, unmodified, and the MIT license doesn't cover them. Third-party notices for
 ported and copied material are in `THIRD-PARTY-NOTICES.md`.
