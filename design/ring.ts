@@ -42,7 +42,8 @@ export type Effect =
   | "boot"
   | "equalizer"
   | "pairing"
-  | "confirm";
+  | "confirm"
+  | "confirm-recording";
 
 /** Music equalizer, bass to treble. */
 export const EQUALIZER: readonly Rgb[] = [
@@ -180,6 +181,9 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
     case "confirm":
       // One white head, circling slowly (ADR 0029).
       return spin(LED.confirm, t, 3, 4);
+    case "confirm-recording":
+      // The same head in the Listening colour (ADR 0030).
+      return spin(LED.listening, t, 3, 4);
     default:
       return dark();
   }

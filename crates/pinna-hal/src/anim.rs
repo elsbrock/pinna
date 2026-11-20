@@ -83,6 +83,9 @@ pub enum Effect {
     /// Someone must press Action to confirm a change (ADR 0029): one white
     /// head with a tail, circling slowly.
     Confirm,
+    /// The same circling head for a recording (ADR 0030), in the Listening
+    /// colour so it reads differently from a password confirmation.
+    ConfirmRecording,
     Boot,
     /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
     Equalizer([f32; RING_PIXELS]),
@@ -181,6 +184,7 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
         }
         Effect::Equalizer(bands) => equalizer(&bands),
         Effect::Confirm => spin(CONFIRM, t, 3.0, 4.0),
+        Effect::ConfirmRecording => spin(LISTENING, t, 3.0, 4.0),
         Effect::Pairing => {
             let a = spin(PAIRING, t, 2.4, 4.0);
             let b = spin(PAIRING, t + Duration::from_secs_f32(1.2), 2.4, 4.0);
@@ -305,6 +309,16 @@ mod tests {
         // One head moves a pixel every 250 ms and is back after 3 s.
         assert_eq!(render(Effect::Confirm, ms(250))[1], CONFIRM);
         assert_eq!(f, render(Effect::Confirm, ms(3000)));
+    }
+
+    #[test]
+    fn confirm_recording_circles_one_head_in_the_listening_colour() {
+        let f = render(Effect::ConfirmRecording, Duration::ZERO);
+        let heads: Vec<usize> = (0..RING_PIXELS).filter(|&i| f[i] == LISTENING).collect();
+        assert_eq!(heads, [0], "{f:?}");
+        assert!(!Effect::ConfirmRecording.is_finished(Duration::from_secs(600)));
+        assert_eq!(render(Effect::ConfirmRecording, ms(250))[1], LISTENING);
+        assert_eq!(f, render(Effect::ConfirmRecording, ms(3000)));
     }
 
     #[test]

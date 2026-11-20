@@ -118,6 +118,14 @@ test("confirm circles one white head slowly", () => {
   assert.deepEqual(ringFrame("confirm", 3000), f);
 });
 
+test("confirm-recording circles one head in the listening colour", () => {
+  const f = ringFrame("confirm-recording", 0);
+  const heads = f.flatMap((p, i) => (p.c === LED.listening && p.level === 1 ? [i] : []));
+  assert.deepEqual(heads, [0]);
+  assert.ok(full(ringFrame("confirm-recording", 250), 1, LED.listening));
+  assert.deepEqual(ringFrame("confirm-recording", 3000), f);
+});
+
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);
