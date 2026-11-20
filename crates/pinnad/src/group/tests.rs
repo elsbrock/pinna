@@ -3010,7 +3010,21 @@ async fn the_list_of_satellites_marks_the_members_of_this_satellites_group() {
     let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
     let (a, b, c) = (&s[0], &s[1], &s[2]);
     grouped(&[a, b]).await;
-    a.finds(&[b, c]);
+    // Kitchen calls Hall, signed: Hall now knows where Kitchen is.
+    b.exchange(None).await;
+    // Two announcements that copy Kitchen's MAC: one from another address,
+    // one with a dashboard address of its own, which the key can't vouch for.
+    let elsewhere = Found {
+        friendly_name: "Kitchen elsewhere".into(),
+        ipv4: vec![Ipv4Addr::new(192, 0, 2, 7)],
+        ..b.found()
+    };
+    let proxied = Found {
+        friendly_name: "Kitchen proxied".into(),
+        url: "https://kitchen.example.com/".into(),
+        ..b.found()
+    };
+    a.finds_as(vec![b.found(), c.found(), elsewhere, proxied]);
     let info = crate::api::Info {
         version: "0.4.0".into(),
         mac: a.mac.clone(),
@@ -3043,7 +3057,16 @@ async fn the_list_of_satellites_marks_the_members_of_this_satellites_group() {
         .iter()
         .map(|sat| (sat.friendly_name.as_str(), sat.group_member))
         .collect();
-    // The key confirms a member; a satellite only the network announced is
-    // not one, even when it is in no group.
-    assert_eq!(marks, [("Kitchen", true), ("Office", false)]);
+    // The key confirms a member at the address its signed call came from;
+    // a satellite only the network announced is not one, even when it is in
+    // no group or carries a member's MAC.
+    assert_eq!(
+        marks,
+        [
+            ("Kitchen", true),
+            ("Office", false),
+            ("Kitchen elsewhere", false),
+            ("Kitchen proxied", false)
+        ]
+    );
 }

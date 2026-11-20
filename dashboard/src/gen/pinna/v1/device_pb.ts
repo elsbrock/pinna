@@ -2031,8 +2031,10 @@ export type Satellite = Message<"pinna.v1.Satellite"> & {
   host: string;
 
   /**
-   * A member of this satellite's group (ADR 0029). The group's key confirms
-   * it; every other entry is only what the network announced.
+   * A member of this satellite's group (ADR 0029): the entry carries a
+   * member's MAC, announces the address that member's last signed call came
+   * from, and has no dashboard address of its own, which the key can't vouch
+   * for. Every other entry is only what the network announced.
    *
    * @generated from field: bool group_member = 11;
    */

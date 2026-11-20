@@ -468,6 +468,16 @@ impl Group {
         Ok(result)
     }
 
+    /// Each other member's MAC with the address its last signed call came
+    /// from, for the members that have called (ADR 0029): the list of
+    /// satellites checks an announcement against it.
+    pub fn member_addresses(&self) -> Vec<(String, IpAddr)> {
+        self.other_members()
+            .into_iter()
+            .filter_map(|(m, _)| Some((m.mac.clone(), self.peer(&m.mac)?.address?)))
+            .collect()
+    }
+
     /// The other members of the group this satellite is in now, not
     /// removed, each with the mode its last signed call or answer named;
     /// empty in no group.

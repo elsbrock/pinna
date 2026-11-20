@@ -966,19 +966,38 @@ impl DeviceService for DeviceApi {
                 "Couldn't look for other satellites: {why}. The satellite tries again every minute."
             )));
         }
-        let members: Vec<String> = self.group.as_ref().map_or_else(Vec::new, |group| {
-            group
-                .other_members()
-                .into_iter()
-                .map(|(member, _)| satellites::mac_digits(&member.mac))
-                .collect()
-        });
+        // An announcement is unsigned: anyone can copy a member's MAC. The
+        // key vouches for a member only at the address its last signed call
+        // came from, and not for a dashboard address of its own, which the
+        // link would follow (ADR 0029).
+        let members: Vec<(String, std::net::IpAddr)> =
+            self.group.as_ref().map_or_else(Vec::new, |group| {
+                group
+                    .member_addresses()
+                    .into_iter()
+                    .map(|(mac, address)| (satellites::mac_digits(&mac), address))
+                    .collect()
+            });
         Response::ok(ListSatellitesResponse {
             satellites: seen
                 .satellites
                 .into_iter()
                 .map(|found| {
-                    let group_member = members.contains(&satellites::mac_digits(&found.mac));
+                    let mac = satellites::mac_digits(&found.mac);
+                    let announced = |address: &std::net::IpAddr| {
+                        found
+                            .ipv4
+                            .iter()
+                            .any(|a| std::net::IpAddr::V4(*a) == *address)
+                            || found
+                                .ipv6
+                                .iter()
+                                .any(|a| std::net::IpAddr::V6(*a) == *address)
+                    };
+                    let group_member = found.url.is_empty()
+                        && members
+                            .iter()
+                            .any(|(m, address)| *m == mac && announced(address));
                     pinna_api::Satellite {
                         group_member,
                         ..satellite(found)
