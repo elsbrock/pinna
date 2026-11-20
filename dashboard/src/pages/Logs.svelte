@@ -178,9 +178,11 @@
   async function copyForIssue() {
     if (!device.status) return;
     const names = [...(wifi.saved ?? []).map((w) => w.ssid), wifi.trial?.ssid, wifi.last?.ssid, wifi.lost];
-    const known = names.filter((n): n is string => !!n);
-    await copyText(issueReport(device.status, updates, lines.map(text), known));
-    toasts.show("Copied. Read it before you post it: issues are public.");
+    const wifiNames = names.filter((n): n is string => !!n);
+    const { markdown, kept } = issueReport(device.status, updates, lines.map(text), { wifi: wifiNames });
+    await copyText(markdown);
+    const what = kept === lines.length ? `all ${count(kept)}` : `the newest ${kept} of ${count(lines.length)}`;
+    toasts.show(`Copied the details and ${what} of the log. Read it before you post it: issues are public.`);
   }
 
   function download() {
