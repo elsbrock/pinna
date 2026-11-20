@@ -148,6 +148,16 @@ service DeviceService {
   rpc CreateToken(CreateTokenRequest) returns (CreateTokenResponse);
   // End every session, and close the streams they hold open.
   rpc SignOutEverywhere(SignOutEverywhereRequest) returns (SignOutEverywhereResponse);
+  // Let Home Assistant add this satellite for 15 minutes: with a password set
+  // and no ESPHome key yet, the ESPHome API refuses connections otherwise
+  // (ADR 0029). Refused with a sentence when no password is set or Home
+  // Assistant has set its key.
+  rpc OpenHomeAssistantWindow(OpenHomeAssistantWindowRequest) returns (OpenHomeAssistantWindowResponse);
+  // Allow another satellite to add this one to its group for 10 minutes. With
+  // a password set, a Join is accepted only then (ADR 0029). Refused with a
+  // sentence when no password is set: the Satellite group switch is consent
+  // then.
+  rpc AllowGroupJoin(AllowGroupJoinRequest) returns (AllowGroupJoinResponse);
 }
 
 enum Phase {
@@ -859,6 +869,9 @@ message Satellite {
   // resolves. Usually `name`, but systemd-resolved may rename either after
   // a name conflict (ADR 0024).
   string host = 10;
+  // A member of this satellite's group (ADR 0029). The group's key confirms
+  // it; every other entry is only what the network announced.
+  bool group_member = 11;
 }
 
 message UpdateSettingsResponse {
@@ -940,6 +953,10 @@ message Slot {
   bool active = 5;
   // The running system booted from this slot.
   bool booted = 6;
+  // The slot holds a version older than the running one, by the order
+  // updates use. The dashboard warns before it starts: it may not ask for a
+  // password (ADR 0029).
+  bool older_than_running = 7;
 }
 
 message GetUpdatesResponse {
@@ -1314,6 +1331,12 @@ message Security {
   repeated string mcp_clients = 12;
   // /metrics was read in the last 24 hours.
   bool metrics_read = 13;
+  // Seconds left in which the ESPHome API takes connections without a key,
+  // after OpenHomeAssistantWindow; 0 when the window is closed.
+  uint32 home_assistant_window_left_s = 14;
+  // Seconds left in which a Join is accepted, after AllowGroupJoin; 0 when
+  // none is.
+  uint32 group_join_left_s = 15;
 }
 
 message SetDashboardPasswordRequest {
@@ -1391,6 +1414,18 @@ message CreateTokenResponse {
   // Shown once: only its SHA-256 is kept.
   string token = 1;
   Security security = 2;
+}
+
+message OpenHomeAssistantWindowRequest {}
+
+message OpenHomeAssistantWindowResponse {
+  Security security = 1;
+}
+
+message AllowGroupJoinRequest {}
+
+message AllowGroupJoinResponse {
+  Security security = 1;
 }
 
 message SignOutEverywhereRequest {}

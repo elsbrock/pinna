@@ -88,6 +88,9 @@ impl Default for Limits {
 pub struct Peer {
     /// From its last signed call or answer.
     pub mode: Option<Mode>,
+    /// Whether it has a dashboard password, from its last signed call or
+    /// answer (ADR 0029). A sender that leaves the fact out counts as without.
+    pub has_password: Option<bool>,
     /// When it last answered the search, a call, or called.
     pub last_seen: Option<SystemTime>,
     /// Searches in a row that listed it outside this group while it refused
@@ -187,6 +190,7 @@ impl Group {
         PeerSender {
             web_port: self.web_port.into(),
             mode: crate::api::api_mode(self.status.borrow().mode).into(),
+            has_password: crate::auth::has_password(&self.service.dashboard()),
             ..Default::default()
         }
     }
@@ -230,6 +234,7 @@ impl Group {
         };
         self.with_peer(mac, |peer| {
             peer.mode = Some(mode);
+            peer.has_password = Some(sender.has_password);
             peer.last_seen = Some(SystemTime::now());
             peer.failure_logged = false;
             // Signed with the key: it is in this group.

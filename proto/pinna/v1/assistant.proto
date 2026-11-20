@@ -524,6 +524,9 @@ message SatelliteGroupMember {
   // Unix epoch; 0 when it hasn't since pinnad started, and for this
   // satellite. Kept in memory only.
   uint64 last_seen_unix_ms = 5;
+  // It has a dashboard password, from its last signed call or answer (ADR
+  // 0029). Unset until one arrived, and for this satellite.
+  optional bool has_password = 6;
 }
 
 // A satellite the search found, other than a member still in this group.

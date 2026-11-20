@@ -439,3 +439,120 @@ async fn the_security_state_names_the_clients_and_scrapes_of_the_last_day() {
     assert_eq!(s.mcp_clients, ["home-assistant", "claude-code"]);
     assert!(s.metrics_read && s.signed_in);
 }
+
+fn keyless_server() -> pinna_esphome::DeviceConfig {
+    let mut cfg = pinna_esphome::DeviceConfig::new("t", [0; 6]);
+    cfg.port = 0;
+    cfg.bind = Ipv4Addr::LOCALHOST.into();
+    cfg
+}
+
+/// Whether the server takes a connection: it stays open, or it is closed
+/// right after accept.
+async fn takes_connections(esp: &pinna_esphome::EsphomeHandle) -> bool {
+    use tokio::io::AsyncReadExt;
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", esp.local_addr().port()))
+        .await
+        .unwrap();
+    let mut byte = [0u8; 1];
+    tokio::time::timeout(Duration::from_millis(200), stream.read(&mut byte))
+        .await
+        .is_err()
+}
+
+#[tokio::test]
+async fn without_a_password_the_windows_are_refused_and_nothing_closes() {
+    let rig = rig();
+    let (esp, _commands) = pinna_esphome::serve(keyless_server()).await.unwrap();
+    rig.auth.attach_esphome(esp.clone());
+    assert!(takes_connections(&esp).await);
+    let e = rig.auth.open_home_assistant_window().unwrap_err();
+    assert_eq!(code(e), ErrorCode::FailedPrecondition);
+    let e = rig.auth.allow_group_join().unwrap_err();
+    assert_eq!(code(e), ErrorCode::FailedPrecondition);
+    let security = rig.auth.security(false);
+    assert_eq!(
+        (
+            security.home_assistant_window_left_s,
+            security.group_join_left_s
+        ),
+        (0, 0)
+    );
+}
+
+#[tokio::test]
+async fn with_a_password_and_no_key_the_esphome_api_opens_only_in_its_window() {
+    let mut rig = rig();
+    let (esp, _commands) = pinna_esphome::serve(keyless_server()).await.unwrap();
+    rig.auth.attach_esphome(esp.clone());
+    assert!(takes_connections(&esp).await);
+
+    // A connection that is open when the password is set ends.
+    let mut open = tokio::net::TcpStream::connect(("127.0.0.1", esp.local_addr().port()))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    rig.with_password().await;
+    {
+        use tokio::io::AsyncReadExt;
+        let mut byte = [0u8; 1];
+        let ended = tokio::time::timeout(Duration::from_secs(2), open.read(&mut byte)).await;
+        assert!(matches!(ended, Ok(Ok(0)) | Ok(Err(_))), "{ended:?}");
+    }
+    assert!(!takes_connections(&esp).await);
+
+    rig.auth.open_home_assistant_window().unwrap();
+    let left = rig.auth.security(false).home_assistant_window_left_s;
+    assert!((14 * 60..=15 * 60).contains(&left), "{left}");
+    assert!(takes_connections(&esp).await);
+
+    // Removing the password ends the window with it, and a new password
+    // starts with the window shut.
+    let grant = rig.press().await;
+    rig.auth
+        .remove_password(WHO, String::new(), grant)
+        .await
+        .unwrap();
+    assert_eq!(rig.auth.security(false).home_assistant_window_left_s, 0);
+    assert!(takes_connections(&esp).await);
+    rig.with_password().await;
+    assert!(!takes_connections(&esp).await);
+}
+
+#[tokio::test]
+async fn a_key_makes_the_window_pointless() {
+    let mut rig = rig();
+    let mut cfg = keyless_server();
+    cfg.encryption_key = Some([7; 32]);
+    let (esp, _commands) = pinna_esphome::serve(cfg).await.unwrap();
+    rig.auth.attach_esphome(esp.clone());
+    rig.with_password().await;
+    let e = rig.auth.open_home_assistant_window().unwrap_err();
+    assert_eq!(code(e.clone()), ErrorCode::FailedPrecondition);
+    assert!(
+        e.message
+            .is_some_and(|m| m.contains("added this satellite already"))
+    );
+    assert_eq!(rig.auth.security(false).home_assistant_window_left_s, 0);
+}
+
+#[tokio::test]
+async fn joining_a_group_needs_the_window_once_a_password_is_set() {
+    let mut rig = rig();
+    assert!(!rig.auth.group_join_open());
+    rig.with_password().await;
+    assert!(!rig.auth.group_join_open());
+    rig.auth.allow_group_join().unwrap();
+    assert!(rig.auth.group_join_open());
+    let left = rig.auth.security(false).group_join_left_s;
+    assert!((9 * 60..=10 * 60).contains(&left), "{left}");
+}
+
+#[test]
+fn a_window_that_ended_has_no_seconds_left() {
+    let now = Instant::now();
+    assert_eq!(left(None, now), 0);
+    assert_eq!(left(Some(now + Duration::from_millis(1500)), now), 2);
+    assert_eq!(left(Some(now), now), 0);
+    assert_eq!(left(Some(now), now + Duration::from_secs(1)), 0);
+}

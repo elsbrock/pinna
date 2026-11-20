@@ -883,6 +883,21 @@ async fn main() -> Result<()> {
     // The dashboard password and who may reach what (ADR 0029). Only the web
     // listener checks it; the loopback API below stays open.
     let auth = auth::Auth::new(assistant.clone(), &dc_mac, in_tx.clone());
+    // With a password and no key, the ESPHome API refuses connections until
+    // the owner opens its window.
+    auth.attach_esphome(esp.clone());
+
+    // The satellite group (ADR 0026): its calls to the other members, the
+    // calls they make here, and the exchange of lists after every search.
+    let group = Arc::new(group::Group::new(
+        assistant.clone(),
+        &dc_mac,
+        web_port,
+        status_rx.clone(),
+        satellites_rx.clone(),
+        group::Limits::default(),
+    ));
+    tokio::spawn(group::exchange::run(group.clone()));
 
     // Local control API.
     let device_api = api::DeviceApi::with_updater(
@@ -908,6 +923,7 @@ async fn main() -> Result<()> {
     let device_api = Arc::new(
         device_api
             .with_auth(auth.clone())
+            .with_group(group.clone())
             .with_ring(shown_rx)
             .with_satellites(satellites_rx.clone())
             .with_hotspot(has_hotspot, hotspot_rx)
@@ -960,18 +976,6 @@ async fn main() -> Result<()> {
         boot,
     ));
 
-    // The satellite group (ADR 0026): its calls to the other members, the
-    // calls they make here, and the exchange of lists after every search.
-    let group = Arc::new(group::Group::new(
-        assistant.clone(),
-        &dc_mac,
-        web_port,
-        status_rx.clone(),
-        satellites_rx.clone(),
-        group::Limits::default(),
-    ));
-    tokio::spawn(group::exchange::run(group.clone()));
-
     // The dashboard is not essential to the satellite: a failed bind is logged, not fatal.
     let assistant_api = Arc::new(
         assistant_api::AssistantApi::new(assistant.clone(), in_tx.clone())
@@ -992,6 +996,7 @@ async fn main() -> Result<()> {
     // The other members' tool calls run as /mcp's do, sharing its limit.
     let peer_api = Arc::new(
         group::peer::PeerApi::new(group.clone())
+            .with_auth(auth.clone())
             .with_brain(in_tx.clone())
             .with_tools(mcp_server.clone()),
     );

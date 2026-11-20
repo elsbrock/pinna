@@ -414,6 +414,22 @@ impl DeviceService for Fake {
     ) -> ServiceResult<SignOutEverywhereResponse> {
         Err(ConnectError::unimplemented("fake"))
     }
+
+    async fn open_home_assistant_window(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, OpenHomeAssistantWindowRequest>,
+    ) -> ServiceResult<OpenHomeAssistantWindowResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn allow_group_join(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, AllowGroupJoinRequest>,
+    ) -> ServiceResult<AllowGroupJoinResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
 }
 
 async fn pinnactl(addr: std::net::SocketAddr, args: &[&str]) -> (bool, String, String) {

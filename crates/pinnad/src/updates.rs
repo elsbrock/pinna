@@ -1396,11 +1396,17 @@ fn read_slots(paths: &UpdaterPaths) -> GetUpdatesResponse {
         Err(e) => return unavailable(format!("{e:#}")),
     };
     let next = record.next_boot();
+    let booted_version = slot::booted_version(&paths.run_dir)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let slots = [Slot::A, Slot::B].map(|s| {
         let m = record.get(s);
+        let version = slot_version(paths, s);
         ApiSlot {
             name: s.to_string(),
-            version: slot_version(paths, s),
+            older_than_running: older_than(&version, &booted_version),
+            version,
             state: m.state().into(),
             tries_left: m.attempts_left().into(),
             active: next == Some(s),
@@ -1410,13 +1416,18 @@ fn read_slots(paths: &UpdaterPaths) -> GetUpdatesResponse {
     });
     GetUpdatesResponse {
         available: true,
-        booted_version: slot::booted_version(&paths.run_dir)
-            .ok()
-            .flatten()
-            .unwrap_or_default(),
+        booted_version,
         slots: slots.into(),
         ..Default::default()
     }
+}
+
+/// A slot's `version` comes before the `running` one. An empty slot, or an
+/// unknown running version, is no older: nothing starts from it.
+fn older_than(version: &str, running: &str) -> bool {
+    !version.is_empty()
+        && !running.is_empty()
+        && version::compare(version, running) == Ordering::Less
 }
 
 /// The version of the signed image in a slot, empty when there is none. Only
@@ -1538,6 +1549,18 @@ mod channel_tests {
 
     fn action(r: &Release) -> ReleaseAction {
         r.action.as_known().unwrap()
+    }
+
+    #[test]
+    fn a_slot_is_older_by_the_order_updates_use() {
+        assert!(older_than("0.3.0", "0.4.0"));
+        assert!(older_than("0.4.0-beta.2", "0.4.0"));
+        // A development build from before ADR 0022 comes before every release.
+        assert!(older_than("2026.11.17.1405-abc1234", "0.4.0"));
+        assert!(!older_than("0.4.0", "0.4.0"));
+        assert!(!older_than("0.5.0", "0.4.0"));
+        assert!(!older_than("", "0.4.0"));
+        assert!(!older_than("0.3.0", ""));
     }
 
     #[test]

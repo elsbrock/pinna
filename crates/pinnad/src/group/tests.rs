@@ -26,6 +26,7 @@ use super::runtime::{Change, to_wire};
 use super::seal::Key;
 use super::{Group, Joined, Limits, exchange};
 use crate::assistant_api::AssistantApi;
+use crate::auth::Auth;
 use crate::mcp::McpServer;
 use crate::metrics::Counters;
 use crate::satellites::{Found, Seen};
@@ -178,6 +179,8 @@ struct Sat {
     brain: Arc<FakeBrain>,
     /// Its `/mcp`, which runs the other members' calls.
     mcp: Arc<McpServer>,
+    /// The owner's say on a Join, and its windows (ADR 0029).
+    auth: Arc<Auth>,
     counters: Counters,
     _inputs: mpsc::Receiver<Input>,
     _dir: tempfile::TempDir,
@@ -229,8 +232,10 @@ impl Sat {
             ToolKit::new(counters.clone()).with_group(group.clone()),
             "0.4.0",
         ));
+        let auth = Auth::new(service.clone(), &mac, brain.inputs.clone());
         let router = crate::assistant_api::router(Arc::new(assistant)).add_service(Arc::new(
             PeerApi::new(group.clone())
+                .with_auth(auth.clone())
                 .with_brain(brain.inputs.clone())
                 .with_tools(mcp.clone()),
         ));
@@ -249,6 +254,7 @@ impl Sat {
             status,
             brain,
             mcp,
+            auth,
             counters,
             _inputs: inputs_rx,
             _dir: dir,
@@ -498,6 +504,7 @@ fn hello(sat: &Sat) -> PeerHello {
         sender: MessageField::some(PeerSender {
             web_port: sat.port.into(),
             mode: pinna_api::Mode::MODE_STANDALONE.into(),
+            has_password: sat.group.sender().has_password,
             ..Default::default()
         }),
         ..Default::default()
@@ -2874,4 +2881,169 @@ async fn a_member_that_doesnt_answer_in_time_may_still_do_it() {
         ToolOutput::error("Porch didn't answer within 0.5 seconds. It may still do it.")
     );
     assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+/// The members of `sat`'s view by name, with what it knows of their
+/// passwords.
+async fn passwords(sat: &Sat) -> Vec<(String, Option<bool>)> {
+    sat.view()
+        .await
+        .members
+        .into_iter()
+        .map(|m| (m.name, m.has_password))
+        .collect()
+}
+
+#[tokio::test]
+async fn with_a_password_a_join_needs_the_window_the_owner_opens() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    all_find(&[a, b]);
+    b.auth.set_password_for_test("correct horse").await;
+
+    // The switch alone is not consent any more, and the refusal reaches the
+    // dashboard that adds it as it is worded.
+    let e = a.add(b).await.unwrap_err();
+    let sentence = "This satellite has a dashboard password. On its dashboard, open Satellite group \
+         and choose Allow adding to a group, then add it again.";
+    assert_eq!(e.message.as_deref(), Some(sentence));
+    assert_eq!(b.joined(), None);
+    assert_eq!(a.joined(), None);
+
+    b.auth.allow_group_join().unwrap();
+    a.add(b).await.unwrap();
+    assert_eq!(b.current(), macs(&[a, b]));
+}
+
+#[tokio::test]
+async fn without_a_password_the_switch_is_consent_to_a_join() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    all_find(&[a, b]);
+    // A password on the satellite that adds changes nothing for the one added.
+    a.auth.set_password_for_test("correct horse").await;
+    a.add(b).await.unwrap();
+    assert_eq!(b.current(), macs(&[a, b]));
+}
+
+#[tokio::test]
+async fn a_satellite_with_a_password_refuses_messages_and_calls_from_one_without() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    b.auth.set_password_for_test("correct horse").await;
+    let sentence = "Kitchen has a dashboard password and this satellite doesn't. \
+         Set one on this satellite first.";
+
+    let delivery = b.deliver(&group, a, "dinner is ready.").await;
+    assert_eq!(outcome(&delivery), (Outcome::OUTCOME_REFUSED, sentence));
+    let result = b
+        .called(&group, a, "set_volume", r#"{"percent": 40}"#)
+        .await;
+    assert!(result.is_error);
+    assert_eq!(result.text, sentence);
+    assert!(b.brain.took().is_empty() && b.brain.commands().is_empty());
+
+    // Once the caller has one too, both go through.
+    a.auth.set_password_for_test("another horse").await;
+    let delivery = b.deliver(&group, a, "dinner is ready.").await;
+    assert_eq!(outcome(&delivery), (Outcome::OUTCOME_PLAYED, ""));
+    let result = b
+        .called(&group, a, "set_volume", r#"{"percent": 40}"#)
+        .await;
+    assert!(!result.is_error, "{}", result.text);
+}
+
+#[tokio::test]
+async fn a_member_that_sends_no_password_fact_counts_as_without_one() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    // A has a password, but an older Pinna doesn't say so.
+    a.auth.set_password_for_test("correct horse").await;
+    b.auth.set_password_for_test("another horse").await;
+    let message = PeerMessage {
+        sender: MessageField::some(PeerSender {
+            web_port: a.port.into(),
+            mode: pinna_api::Mode::MODE_STANDALONE.into(),
+            ..Default::default()
+        }),
+        text: "dinner is ready.".into(),
+        ..Default::default()
+    };
+    let answer = b
+        .peer
+        .deliver(Sat::sealed(&group, a, Rpc::Deliver, &message))
+        .await
+        .unwrap()
+        .into_view()
+        .to_owned_message();
+    let delivery: PeerDelivery =
+        envelope::open(&group, Rpc::Deliver.answer(), (&answer).into()).unwrap();
+    assert_eq!(outcome(&delivery).0, Outcome::OUTCOME_REFUSED);
+}
+
+#[tokio::test]
+async fn the_member_list_marks_the_members_without_a_password() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b, c]).await;
+    // It says nothing of itself.
+    assert_eq!(passwords(a).await[0], ("Hall".into(), None));
+    b.auth.set_password_for_test("correct horse").await;
+    let mut last = None;
+    search(a, vec![b.found(), c.found()], &mut last).await;
+    assert_eq!(
+        passwords(a).await,
+        [
+            ("Hall".into(), None),
+            ("Kitchen".into(), Some(true)),
+            ("Office".into(), Some(false))
+        ]
+    );
+}
+
+#[tokio::test]
+async fn the_list_of_satellites_marks_the_members_of_this_satellites_group() {
+    let s = Sat::switched_on(&["Hall", "Kitchen", "Office"]).await;
+    let (a, b, c) = (&s[0], &s[1], &s[2]);
+    grouped(&[a, b]).await;
+    a.finds(&[b, c]);
+    let info = crate::api::Info {
+        version: "0.4.0".into(),
+        mac: a.mac.clone(),
+        time_zones: Arc::new(Vec::new()),
+        audio_backend: "none".into(),
+        led_backend: "none".into(),
+        model: "echo-dot-2".into(),
+        virtual_device: false,
+        last_boot: crate::boot::LastBoot::cold(),
+        key_from_image: false,
+    };
+    let api = crate::api::DeviceApi::new(info, a.status.subscribe(), a.brain.inputs.clone())
+        .with_satellites(a.group.satellites())
+        .with_group(a.group.clone());
+    let addr = crate::api::start(Arc::new(api), "127.0.0.1:0")
+        .await
+        .unwrap();
+    let client = pinna_api::DeviceServiceClient::new(
+        HttpClient::plaintext(),
+        ClientConfig::new(format!("http://{addr}").parse().unwrap()),
+    );
+    let list = client
+        .list_satellites(pinna_api::ListSatellitesRequest::default())
+        .await
+        .unwrap()
+        .into_view()
+        .to_owned_message();
+    let marks: Vec<(&str, bool)> = list
+        .satellites
+        .iter()
+        .map(|sat| (sat.friendly_name.as_str(), sat.group_member))
+        .collect();
+    // The key confirms a member; a satellite only the network announced is
+    // not one, even when it is in no group.
+    assert_eq!(marks, [("Kitchen", true), ("Office", false)]);
 }

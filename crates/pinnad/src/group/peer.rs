@@ -16,6 +16,11 @@
 //! satellite's `/mcp` would, within a time limit that keeps the answer
 //! inside the caller's. It never passes a call on. A tool it won't run is a
 //! signed result with the reason, as for a message.
+//!
+//! With a dashboard password (ADR 0029), `Join` is accepted only inside the
+//! window the owner opens on this satellite, and `Call` and `Deliver` are
+//! refused from a member that has none, so nobody reaches a protected
+//! satellite through an unprotected member.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -39,6 +44,7 @@ use super::model::same_mac;
 use super::persisted::Joined;
 use super::runtime::{Change, Group, from_wire, is_member, to_wire};
 use super::seal::{KEY_LEN, Key};
+use crate::auth::{self, Auth};
 use crate::mcp::McpServer;
 use crate::settings::Mode;
 use crate::standalone::service::Refusal;
@@ -55,6 +61,7 @@ const NOT_A_MEMBER: &str = "The caller isn't a member of this group.";
 const BAD_KEY: &str = "The group's key isn't 32 bytes.";
 const ADDING: &str = "This satellite is adding another one. Try again in a moment.";
 const JOINING: &str = "This satellite is joining a group. Try again in a moment.";
+const JOIN_CLOSED: &str = "This satellite has a dashboard password. On its dashboard, open Satellite group and choose Allow adding to a group, then add it again.";
 const EMPTY: &str = "The message is empty.";
 const NOT_JSON: &str = "The call's arguments aren't JSON.";
 
@@ -68,6 +75,9 @@ pub struct PeerApi {
     brain: Option<mpsc::Sender<Input>>,
     /// The device tools as `/mcp` runs them, for the other members' calls.
     tools: Option<Arc<McpServer>>,
+    /// Where the owner allows a `Join` (ADR 0029). Without it, a satellite
+    /// with a password accepts none.
+    auth: Option<Arc<Auth>>,
 }
 
 impl PeerApi {
@@ -76,7 +86,36 @@ impl PeerApi {
             group,
             brain: None,
             tools: None,
+            auth: None,
         }
+    }
+
+    /// Take the owner's say on a `Join` from `auth` (ADR 0029).
+    pub fn with_auth(mut self, auth: Arc<Auth>) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
+    /// Whether this satellite takes a `Join` now: without a password the
+    /// switch is consent, with one the owner has to allow it first.
+    fn join_allowed(&self) -> bool {
+        !auth::has_password(&self.group.service().dashboard())
+            || self
+                .auth
+                .as_ref()
+                .is_some_and(|auth| auth.group_join_open())
+    }
+
+    /// Why a call from a member whose facts are `sender` is refused: this
+    /// satellite has a password and the member doesn't (ADR 0029). Worded
+    /// for the caller's owner, who is the one who can fix it.
+    fn password_refusal(&self, sender: &PeerSender) -> Option<String> {
+        (auth::has_password(&self.group.service().dashboard()) && !sender.has_password).then(|| {
+            format!(
+                "{} has a dashboard password and this satellite doesn't. Set one on this satellite first.",
+                self.group.own_name()
+            )
+        })
     }
 
     /// Hand messages from the other members to the Brain on `inputs`.
@@ -96,7 +135,14 @@ impl PeerApi {
     /// What this satellite does with a call of `tool` from the member named
     /// `from`, which may take `within`: the tool's result, or why it won't
     /// run it. The checks come in the order the owner can act on them.
-    async fn run(&self, from: &str, tool: &str, arguments: &str, within: Duration) -> ToolOutput {
+    async fn run(
+        &self,
+        from: &str,
+        sender: &PeerSender,
+        tool: &str,
+        arguments: &str,
+        within: Duration,
+    ) -> ToolOutput {
         let name = self.group.own_name();
         // A name from the wire is repeated only when it is a tool's.
         let shown = tools::device_tool_name(tool).unwrap_or("that tool");
@@ -104,6 +150,9 @@ impl PeerApi {
             tracing::info!("satellite group: {from} asked for {shown}: refused: {why}");
             ToolOutput::error(why)
         };
+        if let Some(why) = self.password_refusal(sender) {
+            return refused(why);
+        }
         let mode = self.group.status().mode;
         if mode != Mode::Standalone {
             return refused(format!("{name} is in Home Assistant mode, out of reach."));
@@ -145,8 +194,11 @@ impl PeerApi {
     /// `from`: the Brain's answer, or why it won't take it. The checks come
     /// in the order the owner can act on them, and the text is never part
     /// of a reason.
-    async fn take(&self, from: &str, text: &str) -> Taken {
+    async fn take(&self, from: &str, sender: &PeerSender, text: &str) -> Taken {
         let name = self.group.own_name();
+        if let Some(why) = self.password_refusal(sender) {
+            return Taken::Refused(why);
+        }
         let refused = {
             let status = self.group.status();
             if status.mode != Mode::Standalone {
@@ -325,6 +377,9 @@ impl PeerService for PeerApi {
         _ctx: RequestContext,
         request: ServiceRequest<'_, PeerJoinRequest>,
     ) -> ServiceResult<PeerJoinResponse> {
+        if !self.join_allowed() {
+            return Err(ConnectError::failed_precondition(JOIN_CLOSED));
+        }
         // A satellite adding another one refuses to be added itself: two
         // that add each other at once both fail, and try again.
         let _joining = self.group.begin(Change::Joining).map_err(|busy| {
@@ -439,7 +494,7 @@ impl PeerService for PeerApi {
             .verified_member(joined, &caller, sender, ctx.peer_addr())
             .await?;
         let from = name_in(&joined, &caller);
-        let taken = self.take(&from, &message.text).await;
+        let taken = self.take(&from, sender, &message.text).await;
         let (outcome, reason) = match taken {
             Taken::Played => (Outcome::OUTCOME_PLAYED, String::new()),
             Taken::Held => (Outcome::OUTCOME_HELD, String::new()),
@@ -484,7 +539,13 @@ impl PeerService for PeerApi {
         let from = name_in(&joined, &caller);
         let left = self.group.limits().run.saturating_sub(started.elapsed());
         let output = self
-            .run(&from, &call.tool, &call.arguments_json, tenths(left))
+            .run(
+                &from,
+                sender,
+                &call.tool,
+                &call.arguments_json,
+                tenths(left),
+            )
             .await;
         let result = PeerToolResult {
             sender: MessageField::some(self.group.sender()),

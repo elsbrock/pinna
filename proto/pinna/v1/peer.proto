@@ -71,6 +71,10 @@ message PeerSender {
   // restart systemd-resolved (ADR 0024). The group works in standalone mode
   // only; a sender that leaves it out reads as Home Assistant mode.
   Mode mode = 2;
+  // It has a dashboard password (ADR 0029). A satellite with a password
+  // refuses Call and Deliver from a member without one; a sender that leaves
+  // it out, an older Pinna, reads as without.
+  bool has_password = 3;
 }
 
 // The body of a call that carries nothing else, and of PutGroup's answer.

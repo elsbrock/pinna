@@ -17,6 +17,10 @@ use connectrpc::{ServiceResult, ServiceStream};
 use futures::{Stream, StreamExt};
 use pinna_api::{AddWakeWordRequest, AddWakeWordResponse};
 use pinna_api::{
+    AllowGroupJoinRequest, AllowGroupJoinResponse, OpenHomeAssistantWindowRequest,
+    OpenHomeAssistantWindowResponse,
+};
+use pinna_api::{
     Calibration, CalibrationEvent, CalibrationEventKind, ClearNotificationRequest,
     ClearNotificationResponse, DeviceService, GetNetworkRequest, GetNetworkResponse,
     GetStatusRequest, GetStatusResponse, GetUpdatesRequest, GetUpdatesResponse,
@@ -61,6 +65,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::auth::{Auth, ConfirmProgress, TokenKind, layer::Session};
 use crate::boot;
+use crate::group::Group;
 use crate::leds::LightEffect;
 #[cfg(test)]
 use crate::updates::UpdaterPaths;
@@ -110,6 +115,8 @@ pub struct DeviceApi {
     hotspot: watch::Receiver<crate::hotspot::State>,
     /// The dashboard password, tokens and confirmation (ADR 0029).
     auth: Option<Arc<Auth>>,
+    /// Whose satellites in the list are members (ADR 0029).
+    group: Option<Arc<Group>>,
 }
 
 /// WatchRing sends at most one frame per this interval.
@@ -140,6 +147,7 @@ impl DeviceApi {
             has_hotspot: false,
             hotspot: watch::channel(crate::hotspot::State::default()).1,
             auth: None,
+            group: None,
         }
     }
 
@@ -156,6 +164,13 @@ impl DeviceApi {
     /// The Wi-Fi the dashboard drives, for the setup hotspot (ADR 0028).
     pub fn wifi(&self) -> Arc<Wifi> {
         self.wifi.clone()
+    }
+
+    /// Mark the satellites in the list that are members of this satellite's
+    /// group, which their key confirms (ADR 0029).
+    pub fn with_group(mut self, group: Arc<Group>) -> Self {
+        self.group = Some(group);
+        self
     }
 
     /// Answer the calls about the dashboard password with `auth`.
@@ -951,8 +966,25 @@ impl DeviceService for DeviceApi {
                 "Couldn't look for other satellites: {why}. The satellite tries again every minute."
             )));
         }
+        let members: Vec<String> = self.group.as_ref().map_or_else(Vec::new, |group| {
+            group
+                .other_members()
+                .into_iter()
+                .map(|(member, _)| satellites::mac_digits(&member.mac))
+                .collect()
+        });
         Response::ok(ListSatellitesResponse {
-            satellites: seen.satellites.into_iter().map(satellite).collect(),
+            satellites: seen
+                .satellites
+                .into_iter()
+                .map(|found| {
+                    let group_member = members.contains(&satellites::mac_digits(&found.mac));
+                    pinna_api::Satellite {
+                        group_member,
+                        ..satellite(found)
+                    }
+                })
+                .collect(),
             on_network: seen.on_network,
             searched: seen.searched,
             ..Default::default()
@@ -1624,6 +1656,32 @@ impl DeviceService for DeviceApi {
         auth.sign_out_everywhere().await?;
         Response::ok(SignOutEverywhereResponse {
             security: MessageField::some(auth.security(false)),
+            ..Default::default()
+        })
+    }
+
+    async fn open_home_assistant_window(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, OpenHomeAssistantWindowRequest>,
+    ) -> ServiceResult<OpenHomeAssistantWindowResponse> {
+        let auth = self.auth()?;
+        auth.open_home_assistant_window()?;
+        Response::ok(OpenHomeAssistantWindowResponse {
+            security: MessageField::some(auth.security(signed_in(&ctx))),
+            ..Default::default()
+        })
+    }
+
+    async fn allow_group_join(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, AllowGroupJoinRequest>,
+    ) -> ServiceResult<AllowGroupJoinResponse> {
+        let auth = self.auth()?;
+        auth.allow_group_join()?;
+        Response::ok(AllowGroupJoinResponse {
+            security: MessageField::some(auth.security(signed_in(&ctx))),
             ..Default::default()
         })
     }

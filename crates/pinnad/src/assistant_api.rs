@@ -272,6 +272,7 @@ fn render_group(v: GroupView, group: Option<&Group>) -> SatelliteGroupView {
                     .unwrap_or_default();
                 SatelliteGroupMember {
                     mode: peer.mode.map(|mode| crate::api::api_mode(mode).into()),
+                    has_password: peer.has_password,
                     last_seen_unix_ms: peer.last_seen.map_or(0, unix_ms),
                     mac: m.mac,
                     name: m.name,

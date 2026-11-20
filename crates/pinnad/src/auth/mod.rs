@@ -14,7 +14,7 @@ mod limit;
 mod session;
 
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
@@ -22,6 +22,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use connectrpc::ConnectError;
 use pinna_api::Security;
 use pinna_assist::secrets::DashboardFile;
+use pinna_esphome::EsphomeHandle;
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -29,7 +30,13 @@ use crate::standalone::service::Service;
 use crate::voice::{Input, Presence};
 use confirm::{Confirmations, Current, Grants, Progress};
 pub use confirm::{Progress as ConfirmProgress, WINDOW as CONFIRM_WINDOW};
-pub use credentials::TokenKind;
+pub use credentials::{TokenKind, has_password};
+
+/// How long the ESPHome API takes connections without a key after the owner
+/// chose **Let Home Assistant add this satellite** (ADR 0029).
+pub const HOME_ASSISTANT_WINDOW: Duration = Duration::from_secs(15 * 60);
+/// How long a `Join` is accepted after **Allow adding to a group** (ADR 0029).
+pub const GROUP_JOIN_WINDOW: Duration = Duration::from_secs(10 * 60);
 
 /// What the System page and the first-password form look back over.
 const LOOK_BACK: Duration = Duration::from_secs(24 * 3600);
@@ -46,6 +53,12 @@ const NO_PASSWORD: &str = "No password is set.";
 const HAS_PASSWORD: &str = "A password is set. Remove it first.";
 const UNKNOWN_CONFIRMATION: &str = "That confirmation is unknown or has ended. Start a new one.";
 const NO_RING: &str = "The satellite can't take a confirmation right now. Try again in a moment.";
+const WINDOW_NEEDS_PASSWORD: &str =
+    "No password is set, so Home Assistant can add this satellite without opening a window.";
+const WINDOW_HAS_KEY: &str =
+    "Home Assistant has added this satellite already. Nothing needs opening.";
+const GROUP_NEEDS_PASSWORD: &str =
+    "No password is set, so the Satellite group switch is all it takes to be added to a group.";
 const NO_RANDOM: &str = "The satellite couldn't make random numbers. Try again.";
 
 /// Why a login didn't give a session.
@@ -82,6 +95,24 @@ pub struct Auth {
     metrics_read: Mutex<Option<SystemTime>>,
     /// How long a confirmation waits for a press.
     window: Duration,
+    /// The ESPHome API, whose keyless connections the password closes.
+    esphome: OnceLock<EsphomeHandle>,
+    /// When the windows end, while they are open.
+    windows: Mutex<Windows>,
+}
+
+/// The two windows a password closes until the owner opens them (ADR 0029).
+#[derive(Default)]
+struct Windows {
+    home_assistant: Option<Instant>,
+    group_join: Option<Instant>,
+}
+
+/// Whole seconds until `end`, rounded up; 0 once it passed or none is open.
+fn left(end: Option<Instant>, now: Instant) -> u32 {
+    end.map_or(0, |end| {
+        limit::ceil_secs(end.saturating_duration_since(now)) as u32
+    })
 }
 
 fn unix_now() -> u64 {
@@ -118,7 +149,78 @@ impl Auth {
             confirmations: Mutex::default(),
             grants: Mutex::default(),
             metrics_read: Mutex::new(None),
+            esphome: OnceLock::new(),
+            windows: Mutex::default(),
         })
+    }
+
+    /// The ESPHome API this closes to keyless connections while a password is
+    /// set and its window is shut. Applies the state now.
+    pub fn attach_esphome(&self, esphome: EsphomeHandle) {
+        if self.esphome.set(esphome).is_ok() {
+            self.sync_esphome();
+        }
+    }
+
+    /// Tell the ESPHome API whether it takes connections without a key: not
+    /// with a password set, except inside the window. With a key it doesn't
+    /// matter.
+    fn sync_esphome(&self) {
+        let Some(esphome) = self.esphome.get() else {
+            return;
+        };
+        let open = left(self.windows.lock().unwrap().home_assistant, Instant::now()) > 0;
+        let closed = credentials::has_password(&self.credentials()) && !open;
+        esphome.set_keyless_closed(closed);
+    }
+
+    /// Let Home Assistant add this satellite for [`HOME_ASSISTANT_WINDOW`].
+    pub fn open_home_assistant_window(self: &Arc<Self>) -> Result<(), ConnectError> {
+        if !credentials::has_password(&self.credentials()) {
+            return Err(ConnectError::failed_precondition(WINDOW_NEEDS_PASSWORD));
+        }
+        if self.esphome.get().is_some_and(|e| e.has_key()) {
+            return Err(ConnectError::failed_precondition(WINDOW_HAS_KEY));
+        }
+        self.windows.lock().unwrap().home_assistant = Some(Instant::now() + HOME_ASSISTANT_WINDOW);
+        self.sync_esphome();
+        // The API closes again when the window ends, also over a connection
+        // that is still open.
+        let auth = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(HOME_ASSISTANT_WINDOW).await;
+            auth.sync_esphome();
+        });
+        Ok(())
+    }
+
+    /// Allow a `Join` for [`GROUP_JOIN_WINDOW`].
+    pub fn allow_group_join(&self) -> Result<(), ConnectError> {
+        if !credentials::has_password(&self.credentials()) {
+            return Err(ConnectError::failed_precondition(GROUP_NEEDS_PASSWORD));
+        }
+        self.windows.lock().unwrap().group_join = Some(Instant::now() + GROUP_JOIN_WINDOW);
+        Ok(())
+    }
+
+    /// The owner allowed a `Join` and its window is still open.
+    pub fn group_join_open(&self) -> bool {
+        left(self.windows.lock().unwrap().group_join, Instant::now()) > 0
+    }
+
+    /// A password, set without a press or the full cost of a hash, for tests
+    /// of what a password changes elsewhere.
+    #[cfg(test)]
+    pub(crate) async fn set_password_for_test(&self, password: &str) {
+        let mut hashed = DashboardFile::default();
+        credentials::set_password(&mut hashed, password, 1000).unwrap();
+        self.save(|file| {
+            file.hash = hashed.hash;
+            file.salt = hashed.salt;
+            file.iterations = hashed.iterations;
+        })
+        .await
+        .unwrap();
     }
 
     pub fn credentials(&self) -> Arc<DashboardFile> {
@@ -165,6 +267,12 @@ impl Auth {
         if key_changed {
             self.ended.send_modify(|generation| *generation += 1);
         }
+        // Without a password the windows mean nothing, and a later password
+        // starts with them shut.
+        if !credentials::has_password(&self.credentials()) {
+            *self.windows.lock().unwrap() = Windows::default();
+        }
+        self.sync_esphome();
     }
 
     async fn save(&self, edit: impl FnOnce(&mut DashboardFile)) -> Result<(), ConnectError> {
@@ -197,6 +305,13 @@ impl Auth {
             }
         }
         let password_set = credentials::has_password(&creds);
+        let (home_assistant_window_left_s, group_join_left_s) = {
+            let windows = self.windows.lock().unwrap();
+            (
+                left(windows.home_assistant, Instant::now()),
+                left(windows.group_join, Instant::now()),
+            )
+        };
         Security {
             password_set,
             left_open: creds.left_open,
@@ -213,6 +328,8 @@ impl Auth {
             confirmation_cooldown_s: self.confirmations.lock().unwrap().cooldown(now) as u32,
             mcp_clients: clients,
             metrics_read: self.metrics_read.lock().unwrap().is_some_and(recent),
+            home_assistant_window_left_s,
+            group_join_left_s,
             ..Default::default()
         }
     }
