@@ -464,6 +464,20 @@ pub(crate) struct TimedPlayer {
     disturbed: Option<Instant>,
     err_us: Option<f64>,
     jumps: u64,
+    /// A format change in place that the resampler holds but doesn't play yet.
+    switch: Option<Switch>,
+}
+
+/// Where a format change in place begins among the resampler's input frames. The resampler
+/// reads [`PullResampler::HALF`] frames ahead of what it plays, so the frames before the change
+/// still play at the old rate's speed, and keep the old rate's time, after it reads the first
+/// new one.
+struct Switch {
+    /// The first frame at the new rate, counted from the resampler's first.
+    at: f64,
+    rate: u32,
+    /// Server time of that frame, in µs.
+    ts_us: f64,
 }
 
 impl TimedPlayer {
@@ -482,6 +496,7 @@ impl TimedPlayer {
             disturbed: None,
             err_us: None,
             jumps: 0,
+            switch: None,
         }
     }
 
@@ -497,6 +512,43 @@ impl TimedPlayer {
     /// Server time of the next output frame, in µs.
     fn pos_us(&self) -> f64 {
         self.buf0_us + self.rs.pos() * 1e6 / f64::from(self.rate)
+    }
+
+    /// Server time where the audio the resampler holds ends, in µs.
+    fn held_end_us(&self) -> f64 {
+        match &self.switch {
+            Some(s) => s.ts_us + (self.rs.len() as f64 - s.at) * 1e6 / f64::from(s.rate),
+            None => self.buf0_us + self.rs.len() as f64 * 1e6 / f64::from(self.rate),
+        }
+    }
+
+    /// Moves the resampler on by one output frame. Where the frame reaches a format change,
+    /// the rest of its way runs at the new rate's speed, and the new rate takes over.
+    fn advance(&mut self) {
+        let mut step = self.step;
+        let ratio = self
+            .switch
+            .as_ref()
+            .map(|s| f64::from(s.rate) / f64::from(self.rate));
+        if let (Some(s), Some(ratio)) = (&self.switch, ratio) {
+            let to = (s.at - self.rs.pos()).max(0.0);
+            if to < step {
+                step = to + (step - to) * ratio;
+            }
+        }
+        let gone = self.rs.advance(step);
+        self.buf0_us += gone as f64 * 1e6 / f64::from(self.rate);
+        if let (Some(s), Some(ratio)) = (&mut self.switch, ratio) {
+            s.at -= gone as f64;
+            if self.rs.pos() >= s.at {
+                self.step *= ratio;
+                self.rate = s.rate;
+                // The old frames still held are only the kernel's past: timed as if at the
+                // new rate, every position from the change on comes out right.
+                self.buf0_us = s.ts_us - s.at * 1e6 / f64::from(s.rate);
+                self.switch = None;
+            }
+        }
     }
 
     /// Append `n` frames of interleaved stereo to `out`: the frames heard
@@ -569,8 +621,7 @@ impl TimedPlayer {
             let g = self.gain.tick() * self.fade.tick();
             out.push((l * g).round().clamp(-32768.0, 32767.0) as i16);
             out.push((r * g).round().clamp(-32768.0, 32767.0) as i16);
-            let gone = self.rs.advance(self.step);
-            self.buf0_us += gone as f64 * 1e6 / f64::from(self.rate);
+            self.advance();
             if let Mode::FadeOut { flush, skip_to } = self.mode
                 && self.fade.value() <= 0.0
             {
@@ -660,8 +711,7 @@ impl TimedPlayer {
         let need = (n + fade) as f64 * self.step + PullResampler::HALF as f64 + 1.0;
         let mut have = self.rs.len() as f64 - self.rs.pos();
         let mut off = b.front_off;
-        // Where the audio the resampler holds ends.
-        let mut end = self.buf0_us + self.rs.len() as f64 * 1e6 / f64::from(self.rate);
+        let mut end = self.held_end_us();
         for c in b.chunks.iter().take_while(|c| c.epoch == self.epoch) {
             if have >= need || (off == 0 && gap(end, c)) {
                 break;
@@ -717,6 +767,7 @@ impl TimedPlayer {
         };
         let next_us = ts + b.front_off as f64 * upf;
         self.rate = rate;
+        self.switch = None;
         self.rs.restart((at_us - next_us) / upf);
         self.buf0_us = next_us - PullResampler::HALF as f64 * upf;
         self.wait = wait;
@@ -752,16 +803,26 @@ impl TimedPlayer {
             if b.front_off < c.frames() {
                 let i = 2 * b.front_off;
                 if b.front_off == 0 {
-                    // A format change in place: the rest of this render
-                    // reads the new rate at the same speed, not 8 % off
-                    // until the next one steers.
-                    if c.rate != self.rate {
-                        self.step *= f64::from(c.rate) / f64::from(self.rate);
+                    let rate = self.switch.as_ref().map_or(self.rate, |s| s.rate);
+                    if c.rate != rate {
+                        // A format change in place, which takes over where what plays
+                        // reaches this frame (`advance`). One that a chunk shorter than the
+                        // resampler's reach overtakes takes over now.
+                        if let Some(s) = self.switch.take() {
+                            self.step *= f64::from(s.rate) / f64::from(self.rate);
+                            self.rate = s.rate;
+                            self.buf0_us = s.ts_us - s.at * 1e6 / f64::from(s.rate);
+                        }
+                        self.switch = Some(Switch {
+                            at: self.rs.len() as f64,
+                            rate: c.rate,
+                            ts_us: c.ts_us,
+                        });
+                    } else if self.switch.is_none() {
+                        // Each chunk sets its own time: rounding in the server's
+                        // timestamps never adds up.
+                        self.buf0_us = c.ts_us - self.rs.len() as f64 * c.us_per_frame();
                     }
-                    // Each chunk sets its own time: rounding in the server's
-                    // timestamps never adds up.
-                    self.rate = c.rate;
-                    self.buf0_us = c.ts_us - self.rs.len() as f64 * c.us_per_frame();
                 }
                 b.front_off += 1;
                 return Some([f32::from(c.pcm[i]), f32::from(c.pcm[i + 1])]);
@@ -1319,6 +1380,35 @@ mod tests {
                     sim.max_speed(mark)
                 );
                 assert_eq!(sim.sink.stats().jumps, 1, "{at}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_format_change_in_place_leaves_the_timeline_where_it_was() {
+        // The resampler reads PullResampler::HALF frames ahead of what it plays. The new speed
+        // applies once what it plays reaches the new chunk: the old frames before it, played
+        // at the new rate's speed, put everything after them 1.4 frames off, under the dead
+        // band, for good.
+        let mean = |e: &[f32]| {
+            let e: Vec<f64> = e
+                .iter()
+                .filter(|e| !e.is_nan())
+                .map(|&e| f64::from(e))
+                .collect();
+            e.iter().sum::<f64>() / e.len() as f64
+        };
+        for (from, to) in [(48_000, 44_100), (44_100, 48_000)] {
+            for k in 0..6 {
+                let mut sim = playing(0.0, 0.0, from, 2.0 + 0.04 * f64::from(k));
+                let before = mean(&sim.err[sim.err.len() - frames(0.5)..]);
+                sim.rate = to;
+                sim.run(1.5);
+                let after = mean(&sim.err[sim.err.len() - frames(0.5)..]);
+                assert!(
+                    (after - before).abs() < 2.0,
+                    "{from} to {to} Hz, {k}: {before:+.1} µs, then {after:+.1} µs"
+                );
             }
         }
     }
