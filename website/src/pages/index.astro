@@ -3,25 +3,9 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import Icon from "../components/Icon.astro";
 import RingDemo from "../components/RingDemo.astro";
+import RequestPath from "../components/RequestPath.astro";
+import Switchboard from "../components/Switchboard.astro";
 import { docHref, href, SITE } from "../lib/site";
-
-const steps = [
-  {
-    number: "1",
-    title: "The device hears the wake word",
-    body: "Pinna listens for “Alexa”, or the wake words you choose, on the device itself. Until it hears the wake word, no audio leaves the device.",
-  },
-  {
-    number: "2",
-    title: "Your assistant handles the request",
-    body: "With Home Assistant, the device streams your request to your Assist pipeline over the ESPHome API. In standalone mode, it sends the request to the speech-to-text, the language model or AI agent, and the text-to-speech that you set up.",
-  },
-  {
-    number: "3",
-    title: "The device answers",
-    body: "The reply plays on the speaker, and the light ring shows each step. Timers and music play on the device too.",
-  },
-];
 
 const features = [
   {
@@ -69,20 +53,6 @@ const features = [
     title: "A way back to your backup",
     body: "Fastboot stays reachable on every start, and one command restores the backup you made before installing.",
   },
-];
-
-const services = [
-  "OpenAI",
-  "OpenRouter",
-  "Anthropic",
-  "Google Gemini",
-  "Groq",
-  "Mistral",
-  "ElevenLabs",
-  "Ollama",
-  "LM Studio",
-  "Hermes",
-  "OpenClaw",
 ];
 
 const hardware: { device: string; soc: string; status: string; tone: string }[] = [
@@ -186,18 +156,31 @@ const gaps = [
   <section id="how" class="scroll-mt-20">
     <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
       <p class="eyebrow">How it works</p>
-      <h2 class="section-title">How a voice request works</h2>
+      <h2 class="section-title">From the wake word to the reply</h2>
+      <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
+        Home Assistant answers, or the satellite answers itself with services
+        you choose. You switch on the dashboard, or by voice. The ring, music
+        and updates work the same in both modes.
+      </p>
+      <div class="mt-10">
+        <RequestPath />
+      </div>
+    </div>
+  </section>
 
-      <div class="mt-10 grid gap-8 md:grid-cols-3">
-        {
-          steps.map((step) => (
-            <div class="border-line border-t pt-5">
-              <p class="text-brand-mid font-mono text-sm">{step.number}</p>
-              <h3 class="text-ink text-heading mt-2">{step.title}</h3>
-              <p class="text-ink-muted text-body mt-2">{step.body}</p>
-            </div>
-          ))
-        }
+  <!-- Standalone -->
+  <section id="standalone" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <p class="eyebrow">Standalone mode</p>
+      <h2 class="section-title">An assistant from parts you choose</h2>
+      <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
+        Without Home Assistant, the satellite hands each request to the brain
+        you set up on its dashboard, and the brain uses the tools you allow.
+        Standalone mode is new: it has been tried on an Echo Dot (2nd gen)
+        with OpenRouter and ElevenLabs, not yet with every service.
+      </p>
+      <div class="mt-12">
+        <Switchboard />
       </div>
     </div>
   </section>
@@ -221,105 +204,6 @@ const gaps = [
           ))
         }
       </div>
-    </div>
-  </section>
-
-  <!-- Modes -->
-  <section id="modes" class="scroll-mt-20">
-    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-      <p class="eyebrow">Two modes</p>
-      <h2 class="section-title">With Home Assistant, or on its own</h2>
-      <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        You choose who answers your requests on the device's dashboard, and you
-        can switch at any time. Everything else, from the ring to music and
-        updates, works in both modes.
-      </p>
-
-      <div class="mt-10 grid gap-5 lg:grid-cols-2">
-        <div class="card flex flex-col p-6">
-          <div class="brand-tile">
-            <Icon name="home" size={18} />
-          </div>
-          <h3 class="text-ink text-heading mt-4">Home Assistant answers</h3>
-          <p class="text-ink-muted text-body mt-2">
-            Pinna uses the ESPHome native API. Home Assistant finds the device
-            on your network and adds it like any ESPHome device, without YAML
-            or an add-on. Choose an Assist pipeline for it, and say the wake
-            word.
-          </p>
-          <ul class="mt-4 space-y-2.5">
-            {
-              [
-                "Your Assist pipeline turns speech into text, acts on it and speaks the reply",
-                "The ring, the buttons, mute, volume, timers and a media player are entities for your automations",
-                "Home Assistant encrypts the connection itself",
-                "New releases show in Home Assistant, and install from there",
-              ].map((item) => (
-                <li class="text-ink-muted text-body flex items-start gap-2.5">
-                  <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
-                  {item}
-                </li>
-              ))
-            }
-          </ul>
-          <p class="mt-auto flex flex-wrap gap-x-5 gap-y-2 pt-5 text-sm">
-            <a class="link inline-flex items-center gap-1.5" href={docHref("home-assistant")}>
-              Connect to Home Assistant
-              <Icon name="arrow" size={14} />
-            </a>
-            <a class="link inline-flex items-center gap-1.5" href={docHref("entities")}>
-              Home Assistant entities
-              <Icon name="arrow" size={14} />
-            </a>
-          </p>
-        </div>
-
-        <div class="card flex flex-col p-6">
-          <div class="brand-tile">
-            <Icon name="bolt" size={18} />
-          </div>
-          <h3 class="text-ink text-heading mt-4">The satellite answers itself</h3>
-          <p class="text-ink-muted text-body mt-2">
-            In standalone mode the device needs no Home Assistant. You set up
-            three services on the dashboard: speech-to-text, a brain, and
-            text-to-speech. Use hosted services with your own keys, or servers
-            on your own network.
-          </p>
-          <ul class="mt-4 space-y-2.5">
-            {
-              [
-                "The brain is a language model, or an AI agent such as Hermes or OpenClaw",
-                "The brain can set timers, tell the weather, play radio and light the ring",
-                "It can use the tools of your MCP servers, and your agents can use the device over MCP",
-                "Audio goes only to the services you chose, and only after the wake word or a press of the Action button",
-              ].map((item) => (
-                <li class="text-ink-muted text-body flex items-start gap-2.5">
-                  <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
-                  {item}
-                </li>
-              ))
-            }
-          </ul>
-          <div class="mt-5 flex flex-wrap gap-2">
-            {services.map((service) => <span class="chip">{service}</span>)}
-          </div>
-          <p class="mt-auto pt-5 text-sm">
-            <a class="link inline-flex items-center gap-1.5" href={docHref("standalone")}>
-              Use Pinna without Home Assistant
-              <Icon name="arrow" size={14} />
-            </a>
-          </p>
-        </div>
-      </div>
-
-      <p class="text-ink-muted text-body mt-5 flex max-w-3xl items-start gap-2.5">
-        <Icon name="broadcast" size={16} class="text-brand-mid mt-1 shrink-0" />
-        <span>
-          Home Assistant can stay connected in standalone mode. It keeps the
-          media player, announcements, the ring and the buttons, but it no
-          longer hears requests.
-        </span>
-      </p>
     </div>
   </section>
 

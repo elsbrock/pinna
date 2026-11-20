@@ -1,0 +1,396 @@
+---
+// The landing page's standalone section: a switchboard. The brains a
+// satellite can use are on the left, the satellite in the middle, and what
+// the brain can reach on the right. Wires join them; one brain at a time is
+// live, in turn, or the one under the pointer. On phones the columns
+// stack and the wires go. Everything named here is in the standalone,
+// AI agent and satellite group docs.
+import DeviceDrawing from "./DeviceDrawing.astro";
+import Icon from "./Icon.astro";
+import { docHref } from "../lib/site";
+
+const brains = [
+  {
+    title: "Cloud models",
+    say: "With your own key, paid per request.",
+    names: ["OpenAI", "Anthropic", "Google Gemini", "OpenRouter", "Groq", "Mistral"],
+  },
+  {
+    title: "At home",
+    say: "On a computer on your network. With speech on your own servers too, nothing leaves it.",
+    names: ["Ollama", "LM Studio", "Any server with OpenAI's API"],
+  },
+  {
+    title: "AI agents",
+    say: "They keep their own memory and tools, and answer as the satellite.",
+    names: ["Hermes", "OpenClaw"],
+  },
+];
+
+const reach = [
+  {
+    title: "Pinna's tools",
+    say: "Built in, each with its own switch.",
+    names: ["Timers", "Weather", "Radio", "Music", "Volume", "Ring light", "Mute", "Updates"],
+  },
+  {
+    title: "Your MCP servers",
+    say: "Add a server on your network, and the brain calls its tools next to Pinna's.",
+    names: [],
+  },
+  {
+    title: "Other satellites",
+    say: "In a group, it passes messages and acts on the others by name: “turn the kitchen down”.",
+    names: [],
+    link: { label: "Satellite groups", href: docHref("satellite-groups") },
+  },
+];
+---
+
+<div class="board" data-board>
+  <svg class="wires" aria-hidden="true" data-wires>
+    <defs>
+      <linearGradient id="board-wire" gradientUnits="userSpaceOnUse" data-gradient>
+        <stop offset="0" style="stop-color: var(--brand-start)"></stop>
+        <stop offset="0.5" style="stop-color: var(--brand-mid)"></stop>
+        <stop offset="1" style="stop-color: var(--brand-end)"></stop>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <div class="side" role="list" aria-label="Brains">
+    <p class="side-label">The brain</p>
+    {
+      brains.map((b, i) => (
+        <div class="jack" role="listitem" data-jack="brain" data-index={i}>
+          <span class="socket" aria-hidden="true" />
+          <span class="jack-title">{b.title}</span>
+          <span class="jack-say">{b.say}</span>
+          <span class="names">
+            {b.names.map((n) => (
+              <span class="chip">{n}</span>
+            ))}
+          </span>
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="hub" data-hub>
+    <DeviceDrawing model="echo-dot-2" id="board-dot" effect="thinking" width="100%" label="An Echo Dot (2nd gen) in standalone mode, thinking." />
+    <span class="hub-say">One brain at a time, chosen on the dashboard.</span>
+  </div>
+
+  <div class="side" role="list" aria-label="What the brain can use">
+    <p class="side-label">What it can use</p>
+    {
+      reach.map((r) => (
+        <div class="jack" role="listitem" data-jack="reach">
+          <span class="socket" aria-hidden="true" />
+          <span class="jack-title">{r.title}</span>
+          <span class="jack-say">
+            {r.say}
+            {r.link && (
+              <>
+                {" "}
+                <a class="link" href={r.link.href}>
+                  {r.link.label}
+                </a>
+              </>
+            )}
+          </span>
+          {r.names.length > 0 && (
+            <span class="names">
+              {r.names.map((n) => (
+                <span class="chip">{n}</span>
+              ))}
+            </span>
+          )}
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="reverse">
+    <span class="reverse-icon" aria-hidden="true"><Icon name="arrow" size={16} /></span>
+    <p>
+      <span class="text-ink font-semibold">And the other way round.</span>
+      The satellite is an MCP server too: your AI agent can speak through it, play a stream, set a timer and change the
+      light, and becomes its voice and speaker.
+    </p>
+    <a class="link inline-flex shrink-0 items-center gap-1.5 text-sm" href={docHref("ai-agents")}>
+      Use an AI agent
+      <Icon name="arrow" size={14} />
+    </a>
+  </div>
+</div>
+
+<style>
+  .board {
+    position: relative;
+    display: grid;
+    gap: 28px;
+  }
+
+  .wires {
+    display: none;
+  }
+
+  .side {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+
+  .side-label {
+    margin: 0;
+    color: var(--ink-muted);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .jack {
+    position: relative;
+    display: grid;
+    gap: 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    transition:
+      border-color 200ms ease,
+      box-shadow 200ms ease;
+  }
+
+  .jack-title {
+    color: var(--ink);
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 700;
+  }
+
+  .jack-say {
+    color: var(--ink-muted);
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  .names {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .socket {
+    display: none;
+  }
+
+  .jack[data-live] {
+    border-color: color-mix(in oklab, var(--brand-mid) 55%, var(--line));
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-mid) 14%, transparent);
+  }
+
+  .hub {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    width: min(12rem, 60%);
+    margin: 0 auto;
+  }
+
+  .hub-say {
+    color: var(--ink-muted);
+    font-size: 13px;
+    line-height: 18px;
+    text-align: center;
+  }
+
+  .reverse {
+    display: grid;
+    gap: 10px;
+    padding: 16px 18px;
+    border: 1px dashed color-mix(in oklab, var(--brand-mid) 45%, var(--line));
+    border-radius: var(--radius-md);
+    color: var(--ink-muted);
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  .reverse p {
+    margin: 0;
+  }
+
+  .reverse-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    color: var(--brand-mid);
+    background: color-mix(in oklab, var(--brand-mid) 14%, transparent);
+    transform: rotate(180deg);
+  }
+
+  @media (min-width: 1024px) {
+    .board {
+      grid-template-columns: minmax(0, 1fr) 13rem minmax(0, 1fr);
+      column-gap: 72px;
+      row-gap: 32px;
+    }
+
+    .wires {
+      display: block;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+
+    .hub {
+      align-self: center;
+      width: 100%;
+    }
+
+    /* A socket on the edge that faces the satellite. */
+    .socket {
+      display: block;
+      position: absolute;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      margin-top: -5px;
+      border: 2px solid color-mix(in oklab, var(--brand-mid) 60%, var(--line));
+      border-radius: 50%;
+      background: var(--surface);
+      transition:
+        background-color 200ms ease,
+        box-shadow 200ms ease;
+    }
+
+    [data-jack="brain"] .socket {
+      right: -6px;
+    }
+
+    [data-jack="reach"] .socket {
+      left: -6px;
+    }
+
+    .jack[data-live] .socket {
+      background: var(--brand-mid);
+      box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand-mid) 22%, transparent);
+    }
+
+    .reverse {
+      grid-column: 1 / -1;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+    }
+  }
+
+  /* The wires: quiet at rest; the live one carries the mark's gradient. */
+  .wires :global(path) {
+    fill: none;
+    stroke: var(--line-strong);
+    stroke-width: 1.5;
+    opacity: 0.45;
+    transition: opacity 200ms ease;
+  }
+
+  .wires :global(path[data-live]) {
+    stroke: url(#board-wire);
+    stroke-width: 2;
+    stroke-dasharray: 6 6;
+    opacity: 1;
+    animation: flow 0.9s linear infinite;
+  }
+
+  @keyframes flow {
+    to {
+      stroke-dashoffset: -12;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wires :global(path[data-live]) {
+      animation: none;
+      stroke-dasharray: none;
+    }
+  }
+</style>
+
+<script>
+  const NS = "http://www.w3.org/2000/svg";
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+  for (const board of document.querySelectorAll<HTMLElement>("[data-board]")) {
+    const svg = board.querySelector<SVGSVGElement>("[data-wires]");
+    const gradient = board.querySelector<SVGLinearGradientElement>("[data-gradient]");
+    const hub = board.querySelector<HTMLElement>("[data-hub] .pn-drawing");
+    const brains = [...board.querySelectorAll<HTMLElement>('[data-jack="brain"]')];
+    const reach = [...board.querySelectorAll<HTMLElement>('[data-jack="reach"]')];
+    if (!svg || !hub) continue;
+
+    let wires: SVGPathElement[] = [];
+    let live = 0;
+    let held = false;
+
+    // One cubic curve from each socket to the satellite's side, redrawn
+    // whenever the board changes size.
+    const draw = () => {
+      for (const w of wires) w.remove();
+      wires = [];
+      const box = board.getBoundingClientRect();
+      if (getComputedStyle(svg).display === "none") return;
+      const h = hub.getBoundingClientRect();
+      const hy = h.top + h.height * 0.42 - box.top;
+      const curve = (x1: number, y1: number, x2: number, y2: number) => {
+        const dx = (x2 - x1) / 2;
+        const path = document.createElementNS(NS, "path");
+        path.setAttribute("d", `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`);
+        svg.appendChild(path);
+        return path;
+      };
+      for (const b of brains) {
+        const r = b.getBoundingClientRect();
+        wires.push(curve(r.right - box.left + 4, r.top + r.height / 2 - box.top, h.left - box.left + 8, hy));
+      }
+      for (const t of reach) {
+        const r = t.getBoundingClientRect();
+        curve(h.right - box.left - 8, hy, r.left - box.left - 4, r.top + r.height / 2 - box.top);
+      }
+      gradient?.setAttribute("x1", "0");
+      gradient?.setAttribute("x2", String(box.width));
+      show(live);
+    };
+
+    const show = (n: number) => {
+      live = n;
+      brains.forEach((b, i) => b.toggleAttribute("data-live", i === n));
+      wires.forEach((w, i) => w.toggleAttribute("data-live", i === n));
+    };
+
+    // In turn, every few seconds, unless the reader points at one.
+    setInterval(() => {
+      if (!held && !reduceMotion.matches && !document.hidden) show((live + 1) % brains.length);
+    }, 3500);
+    brains.forEach((b, i) => {
+      const hold = () => {
+        held = true;
+        show(i);
+      };
+      const release = () => (held = false);
+      b.addEventListener("pointerenter", hold);
+      b.addEventListener("pointerleave", release);
+    });
+
+    new ResizeObserver(draw).observe(board);
+    draw();
+  }
+</script>

@@ -1,0 +1,486 @@
+---
+// The landing page's "How it works": the path of one request, from the wake
+// word on the satellite to the reply on its speaker, with a switch between
+// the two modes. With Home Assistant the three middle stages fold into one
+// panel, the Assist pipeline; in standalone mode they open into the services
+// set up on the dashboard. Without JavaScript it shows Home Assistant mode,
+// and the details of both modes.
+import Icon from "./Icon.astro";
+import { docHref } from "../lib/site";
+
+type Mode = "home-assistant" | "standalone";
+
+const stages: { n: string; name: Record<Mode, string>; standalone: string }[] = [
+  {
+    n: "2",
+    name: { "home-assistant": "Speech-to-text", standalone: "Speech-to-text" },
+    standalone: "OpenAI, Groq, ElevenLabs, or your own server",
+  },
+  {
+    n: "3",
+    name: { "home-assistant": "Conversation agent", standalone: "Brain" },
+    standalone: "A language model, in the cloud or at home, or an AI agent",
+  },
+  {
+    n: "4",
+    name: { "home-assistant": "Text-to-speech", standalone: "Text-to-speech" },
+    standalone: "OpenAI, ElevenLabs, or your own server",
+  },
+];
+
+const details: Record<Mode, { facts: string[]; links: { label: string; href: string }[] }> = {
+  "home-assistant": {
+    facts: [
+      "Home Assistant finds the satellite and adds it like any ESPHome device, without YAML or an add-on",
+      "The ring, the buttons, mute, volume, timers and a media player are entities for your automations",
+      "Home Assistant encrypts the connection, and new releases install from there",
+    ],
+    links: [
+      { label: "Connect to Home Assistant", href: docHref("home-assistant") },
+      { label: "Home Assistant entities", href: docHref("entities") },
+    ],
+  },
+  standalone: {
+    facts: [
+      "You set up each service on the satellite's dashboard, with your own keys or servers",
+      "Audio goes only to those services, and only after the wake word or a press of the Action button",
+      "Home Assistant can stay connected for the media player, announcements, the ring and the buttons",
+    ],
+    links: [
+      { label: "Set up standalone mode", href: docHref("standalone") },
+      { label: "What it can use", href: "#standalone" },
+    ],
+  },
+};
+---
+
+<div class="path" data-path data-mode="home-assistant">
+  <div class="pn-segmented" role="group" aria-label="Who answers" data-switch hidden>
+    <button type="button" data-set="home-assistant" aria-pressed="true">Home Assistant</button>
+    <button type="button" data-set="standalone" aria-pressed="false">Standalone</button>
+  </div>
+
+  <ol class="track" aria-label="The path of a request">
+    <li class="end">
+      <span class="puck" style="--led: var(--led-listening)" aria-hidden="true"></span>
+      <span class="num">1</span>
+      <span class="name">Wake word</span>
+      <span class="where">On the satellite</span>
+      <span class="say">Until it hears the wake word, no audio leaves the device.</span>
+    </li>
+
+    <li class="middle">
+      <span class="group-label">
+        <span data-show="home-assistant"><Icon name="home" size={14} /> Home Assistant: your Assist pipeline</span>
+        <span data-show="standalone"><Icon name="sliders" size={14} /> Standalone: services you choose</span>
+      </span>
+      <ol class="stages">
+        {
+          stages.map((s) => (
+            <li class="stage">
+              <span class="num">{s.n}</span>
+              <span class="name">
+                <span data-show="home-assistant">{s.name["home-assistant"]}</span>
+                <span data-show="standalone">{s.name.standalone}</span>
+              </span>
+              <span class="say" data-show="standalone">
+                {s.standalone}
+              </span>
+            </li>
+          ))
+        }
+      </ol>
+    </li>
+
+    <li class="end">
+      <span class="puck" style="--led: var(--led-speaking)" aria-hidden="true"></span>
+      <span class="num">5</span>
+      <span class="name">Reply</span>
+      <span class="where">On the satellite</span>
+      <span class="say">The speaker plays it, and the ring shows each step.</span>
+    </li>
+  </ol>
+
+  <div class="details">
+    {
+      (Object.keys(details) as Mode[]).map((mode) => (
+        <div class="detail" data-detail={mode}>
+          <ul class="space-y-2.5">
+            {details[mode].facts.map((fact) => (
+              <li class="text-ink-muted text-body flex items-start gap-2.5">
+                <Icon name="check" size={14} class="text-ok mt-1 shrink-0" />
+                {fact}
+              </li>
+            ))}
+          </ul>
+          <p class="flex flex-wrap gap-x-5 gap-y-2 text-sm lg:flex-col lg:gap-y-3">
+            {details[mode].links.map((link) => (
+              <a class="link inline-flex items-center gap-1.5" href={link.href}>
+                {link.label}
+                <Icon name="arrow" size={14} />
+              </a>
+            ))}
+          </p>
+        </div>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .path {
+    --gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  [data-switch] {
+    align-self: flex-start;
+  }
+
+  [data-switch][hidden] {
+    display: none;
+  }
+
+  /* ------------------------------------------------------------- track -- */
+
+  .track {
+    position: relative;
+    display: grid;
+    gap: 20px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* The wire the request travels along, and the pulse on it. */
+  .track::before,
+  .track::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .track::before {
+    background: linear-gradient(var(--wire-dir, 180deg), var(--brand-start), var(--brand-mid), var(--brand-end));
+    opacity: 0.55;
+  }
+
+  .track::after {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--brand-mid);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand-mid) 25%, transparent);
+  }
+
+  .end,
+  .stage {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 12px;
+    align-items: baseline;
+  }
+
+  .end {
+    padding: 4px 0;
+  }
+
+  .puck {
+    grid-row: span 3;
+    align-self: start;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--puck);
+    box-shadow:
+      inset 0 0 0 5px var(--puck),
+      inset 0 0 0 8px var(--led),
+      0 0 18px -2px color-mix(in oklab, var(--led) 60%, transparent);
+    position: relative;
+    z-index: 1;
+  }
+
+  .num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--brand-mid);
+  }
+
+  .end .num {
+    display: none;
+  }
+
+  .name {
+    color: var(--ink);
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 700;
+  }
+
+  .where {
+    grid-column: 2;
+    color: var(--brand-mid);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .say {
+    grid-column: 2;
+    margin-top: 4px;
+    color: var(--ink-muted);
+    font-size: 15px;
+    line-height: 22px;
+  }
+
+  /* The middle: Home Assistant's panel, or the services side by side. */
+  .middle {
+    position: relative;
+    z-index: 1;
+    margin-left: 52px;
+    padding: 14px 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+    transition:
+      background-color 250ms ease,
+      border-color 250ms ease,
+      box-shadow 250ms ease;
+  }
+
+  .group-label {
+    display: block;
+    color: var(--ink-muted);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .group-label :global(svg) {
+    display: inline;
+    vertical-align: -2px;
+    margin-right: 4px;
+  }
+
+  .stages {
+    display: grid;
+    gap: 6px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+    transition: gap 250ms ease;
+  }
+
+  .stage {
+    grid-template-columns: 1.5rem 1fr;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-sunken);
+    transition:
+      padding 250ms ease,
+      background-color 250ms ease;
+  }
+
+  .stage .say {
+    margin-top: 2px;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  /* Standalone: the panel opens up, and each service stands on its own. */
+  [data-mode="standalone"] .middle {
+    border-style: dashed;
+    border-color: color-mix(in oklab, var(--brand-mid) 45%, var(--line));
+    /* The page's own colour, so the wire passes behind the panel, not through its label. */
+    background: var(--surface);
+    box-shadow: none;
+  }
+
+  [data-mode="standalone"] .stages {
+    gap: 10px;
+  }
+
+  [data-mode="standalone"] .stage {
+    padding: 12px 14px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+  }
+
+  /* What each mode shows. */
+  [data-mode="home-assistant"] [data-show="standalone"],
+  [data-mode="standalone"] [data-show="home-assistant"] {
+    display: none;
+  }
+
+  /* ----------------------------------------------------------- details -- */
+
+  .details {
+    display: grid;
+    gap: 24px;
+  }
+
+  .detail {
+    display: grid;
+    gap: 16px;
+  }
+
+  /* With the switch working, only the chosen mode's details show. */
+  [data-js][data-mode="home-assistant"] [data-detail="standalone"],
+  [data-js][data-mode="standalone"] [data-detail="home-assistant"] {
+    display: none;
+  }
+
+  /* ----------------------------------------------------------- phones -- */
+
+  @media (max-width: 1023px) {
+    /* The wire runs down the pucks' centre line. */
+    .track::before {
+      left: 19px;
+      top: 24px;
+      bottom: 24px;
+      width: 2px;
+    }
+
+    .track::after {
+      left: 16px;
+      top: 24px;
+      animation: pulse-down 5s ease-in-out infinite;
+    }
+  }
+
+  @keyframes pulse-down {
+    0% {
+      top: 24px;
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    90% {
+      opacity: 1;
+    }
+    100% {
+      top: calc(100% - 32px);
+      opacity: 0;
+    }
+  }
+
+  /* ---------------------------------------------------------- desktop -- */
+
+  @media (min-width: 1024px) {
+    .track {
+      --wire-dir: 90deg;
+      grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) minmax(0, 13rem);
+      align-items: start;
+      gap: 28px;
+    }
+
+    .track::before {
+      left: 20px;
+      right: 20px;
+      top: 23px;
+      height: 2px;
+    }
+
+    .track::after {
+      top: 20px;
+      left: 16px;
+      animation: pulse-across 6s ease-in-out infinite;
+    }
+
+    .end {
+      grid-template-columns: 1fr;
+      row-gap: 0;
+    }
+
+    .end .puck {
+      grid-row: auto;
+      margin-bottom: 14px;
+    }
+
+    .end .where,
+    .end .say {
+      grid-column: 1;
+    }
+
+    .middle {
+      margin-left: 0;
+      padding: 14px 18px 18px;
+    }
+
+    .stages {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .stage {
+      grid-template-columns: 1fr;
+      align-content: start;
+    }
+
+    .stage .say {
+      grid-column: 1;
+    }
+
+    .details {
+      max-width: 52rem;
+    }
+
+    .detail {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 40px;
+    }
+  }
+
+  @keyframes pulse-across {
+    0% {
+      left: 16px;
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    92% {
+      opacity: 1;
+    }
+    100% {
+      left: calc(100% - 24px);
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .track::after {
+      display: none;
+    }
+
+    .middle,
+    .stages,
+    .stage {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-path]")) {
+    const toggle = root.querySelector<HTMLElement>("[data-switch]");
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-set]")];
+    root.dataset.js = "";
+    if (toggle) toggle.hidden = false;
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        root.dataset.mode = button.dataset.set;
+        for (const b of buttons) b.setAttribute("aria-pressed", String(b === button));
+      });
+    }
+  }
+</script>
