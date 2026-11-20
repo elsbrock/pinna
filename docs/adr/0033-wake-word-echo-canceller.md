@@ -9,7 +9,8 @@ reference from the loopback lane the speaker plays (lane 8, not 7), adapts
 with a step of 0.1 instead of 0.5, and carries the ring's direction. Measured
 offline only. Amended 2026-11-24 by ADR 0035 (Decision 8): the Echo Dot (5th
 gen)'s graph has the same `dot_wake`, over its three microphones with
-loopback lane 4 as the reference.
+loopback lane 4 as the reference. Amended 2026-11-27: pinnad turns on the
+detector's playback rule while the satellite plays.
 
 ## Context
 
@@ -163,9 +164,15 @@ a least-squares fit per frequency over the music (2048-point frames):
   mostly Hey Jarvis, once Hey Mycroft at 1.00, with either step. WebRTC's
   suppressor never did. The cutoff and a playback ceiling wait for counted
   takes with a real talker.
-- **pinnad doesn't call `Detector::set_playback`**, so the playback rule
-  counted on above is off on the device. The offline takes showed no
-  difference with it on; that also waits for counted takes.
+- **pinnad turns on the playback rule while anything plays** (amended
+  2026-11-27; until then it never called `Detector::set_playback`): the voice
+  lane, or media that plays unmuted. On the loopback takes of 2026-11-21,
+  music and speech from the speaker with no talker (three on the Echo Dot
+  (2nd gen) at volume 50, three on the Echo (2nd gen) at volume 75, 49 s
+  each), micbench counted the same detections with the rule as without, on
+  `dot_wake`'s front end and step: Alexa 4, Hey Jarvis 0 (1 at 0.45), Hey
+  Mycroft 0. Whether it catches more wake words said over playback on a
+  device waits for counted takes with a real talker.
 
 ## Consequences
 

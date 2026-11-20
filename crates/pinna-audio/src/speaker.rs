@@ -648,6 +648,19 @@ impl Speaker {
         *self.inner.state.borrow() != PlaybackState::Idle
     }
 
+    /// Whether anything plays: the voice lane ([`is_playing`](Self::is_playing):
+    /// replies, announcements, chimes, a ringing alarm) or unmuted media
+    /// (music, AirPlay, Bluetooth, Sendspin). Paused or buffering media
+    /// plays nothing.
+    pub fn plays_anything(&self) -> bool {
+        if self.is_playing() {
+            return true;
+        }
+        let media = self.inner.media.state();
+        let media = media.borrow();
+        media.phase == MediaPhase::Playing && !media.muted
+    }
+
     /// Whether the hardware session (aplay + amp) is currently open.
     pub fn is_session_open(&self) -> bool {
         self.inner.session_open.load(Ordering::Relaxed)
@@ -2413,6 +2426,34 @@ mod tests {
         assert!(sp.is_session_open());
         tokio::time::sleep(Duration::from_millis(700)).await;
         assert!(!sp.is_session_open());
+    }
+
+    #[tokio::test]
+    async fn plays_anything_follows_the_voice_lane() {
+        let sp = null_speaker(Duration::from_secs(5));
+        assert!(!sp.plays_anything());
+        let play = {
+            let sp = sp.clone();
+            tokio::spawn(async move { sp.play_pcm(crate::tone::beep(440.0, 300, 0.5)).await })
+        };
+        let mut st = sp.state();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *st.borrow() != PlaybackState::Playing {
+                st.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert!(sp.plays_anything());
+        play.await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *st.borrow() != PlaybackState::Idle {
+                st.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!sp.plays_anything());
     }
 
     #[test]

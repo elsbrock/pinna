@@ -726,7 +726,7 @@ fn report(
     s.push('\n');
     let _ = writeln!(
         s,
-        "SNR is the talker over {} in each band. Hits are utterances detected, of {}; relief is the detector's playback rule (one supporting score), which pinnad doesn't enable. False accepts count the target word outside utterances, plus every detection of a word nobody said (\"never\").\n",
+        "SNR is the talker over {} in each band. Hits are utterances detected, of {}; relief is the detector's playback rule (one supporting score), which pinnad turns on while the satellite plays. False accepts count the target word outside utterances, plus every detection of a word nobody said (\"never\").\n",
         if f.has_playback {
             "the residual echo and noise"
         } else {

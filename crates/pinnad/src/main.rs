@@ -373,9 +373,29 @@ fn wake_detail(word: &str, shared: &Shared) -> String {
     }
 }
 
+/// One frame into the wake word detector, which is told first whether the
+/// satellite plays anything. After echo cancellation, a wake word said over
+/// playback can clear the threshold in one block with no block around it
+/// above the support line (LibreEcho's `wake_worker.c`), so while anything
+/// plays the detector takes one supporting score instead of two.
+fn feed_detector(
+    d: &mut pinna_wakeword::Detector,
+    speaker: Option<&Speaker>,
+    frame: &[i16],
+    on_block: impl FnMut(&pinna_wakeword::BlockScore),
+) -> Vec<pinna_wakeword::Detection> {
+    d.set_playback(speaker.is_some_and(Speaker::plays_anything));
+    d.push_with(frame, on_block)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is one input of the capture task"
+)]
 async fn capture_loop(
     (capture, mut gain): (CaptureConfig, CaptureGain),
     mut detector: Option<pinna_wakeword::Detector>,
+    speaker: Option<Arc<Speaker>>,
     mut keywords: mpsc::UnboundedReceiver<KeywordSet>,
     shared: Arc<Shared>,
     esp: EsphomeHandle,
@@ -492,7 +512,7 @@ async fn capture_loop(
                 let mut speech = false;
                 levels.frame(pre_gain);
                 let detections = tokio::task::block_in_place(|| {
-                    d.push_with(&frame, |b| {
+                    feed_detector(d, speaker.as_deref(), &frame, |b| {
                         levels.block(b);
                         speech |= b.vad_active;
                         if b.score > peak {
@@ -1021,6 +1041,7 @@ async fn main() -> Result<()> {
         tokio::spawn(capture_loop(
             (capture, gain),
             detector,
+            speaker.clone(),
             rx,
             shared.clone(),
             esp.clone(),
@@ -1439,5 +1460,47 @@ mod tests {
                 .check()
                 .unwrap_or_else(|e| panic!("{model:?}: {e}"));
         }
+    }
+
+    #[tokio::test]
+    async fn the_wake_word_detector_knows_when_the_satellite_plays() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../blobs/models/openwakeword-0.5.1");
+        if !dir.join("melspectrogram.onnx").exists() {
+            eprintln!(
+                "SKIP: models missing in {}; run `just models`",
+                dir.display()
+            );
+            return;
+        }
+        let mut d = pinna_wakeword::Detector::new(&dir, vec![], Default::default()).unwrap();
+        let mut cfg = SpeakerConfig::new(Backend::WavFile("unused".into()));
+        cfg.idle_timeout = Some(std::time::Duration::from_secs(5));
+        let speaker = Speaker::new(cfg);
+        // One block of silence per call.
+        let block = [0i16; pinna_wakeword::BLOCK_SAMPLES];
+        let mut seen = Vec::new();
+        feed_detector(&mut d, Some(&speaker), &block, |b| seen.push(b.playback));
+        let play = {
+            let speaker = speaker.clone();
+            tokio::spawn(async move {
+                speaker
+                    .play_pcm(pinna_audio::tone::beep(440.0, 1_000, 0.5))
+                    .await
+            })
+        };
+        let mut st = speaker.state();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while *st.borrow() != pinna_audio::PlaybackState::Playing {
+                st.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        feed_detector(&mut d, Some(&speaker), &block, |b| seen.push(b.playback));
+        speaker.stop();
+        let _ = play.await;
+        feed_detector(&mut d, None, &block, |b| seen.push(b.playback));
+        assert_eq!(seen, [false, true, false]);
     }
 }

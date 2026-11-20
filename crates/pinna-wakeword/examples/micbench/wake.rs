@@ -81,8 +81,8 @@ pub fn score(
 
 /// The detections `blocks` give at `threshold`: `Detector::decode`'s rule,
 /// with the playback relief (one supporting score instead of two) only when
-/// `playback_rule` is set. pinnad doesn't call `Detector::set_playback`, so
-/// on the device the relief is off.
+/// `playback_rule` is set. pinnad turns the relief on while the satellite
+/// plays (`Detector::set_playback`).
 pub fn replay(blocks: &[BlockScore], threshold: f32, playback_rule: bool) -> Vec<(u64, f32)> {
     let mut scores = [0f32; 3];
     let mut obs = [(0u64, false, false); 3];

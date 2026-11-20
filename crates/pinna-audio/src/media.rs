@@ -2782,6 +2782,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn plays_anything_follows_media_that_sounds() {
+        let srv = serve(vec![]).await;
+        let rig = rig(Duration::from_secs(5));
+        let m = rig.speaker.media();
+        assert!(!rig.speaker.plays_anything());
+        m.play_url(&srv.url("/live.wav")).await.unwrap();
+        wait_phase(&m, MediaPhase::Playing, Duration::from_secs(2)).await;
+        // Media alone: the voice lane is idle.
+        assert!(!rig.speaker.is_playing());
+        assert!(rig.speaker.plays_anything());
+        m.set_muted(true);
+        assert!(until(Duration::from_secs(1), || !rig.speaker.plays_anything()).await);
+        m.set_muted(false);
+        assert!(until(Duration::from_secs(1), || rig.speaker.plays_anything()).await);
+        m.pause();
+        wait_phase(&m, MediaPhase::Paused, Duration::from_secs(1)).await;
+        assert!(!rig.speaker.plays_anything());
+        m.resume();
+        wait_phase(&m, MediaPhase::Playing, Duration::from_secs(1)).await;
+        assert!(rig.speaker.plays_anything());
+        m.stop();
+        wait_phase(&m, MediaPhase::Idle, Duration::from_secs(1)).await;
+        assert!(!rig.speaker.plays_anything());
+    }
+
+    #[tokio::test]
     async fn paused_session_closes_after_idle_and_resume_reopens() {
         let srv = serve(vec![]).await;
         let rig = rig(Duration::from_millis(400));
