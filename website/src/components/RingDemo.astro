@@ -4,10 +4,10 @@
 // ringDemoScenes.ts, with Home Assistant or in standalone mode, each to its own
 // wake word: a device that takes part steps through the phases with its own
 // timings and a speech bubble shows what was said; a device that doesn't
-// stays dark, and both rest between requests. The phase badge follows the
-// device that leads. A row of dots names the request and jumps to another.
-// Starts paused (on the first request) under reduced motion. The Pause button
-// stops it at any time and mutes both satellites until Play.
+// stays dark, and both rest between requests. A row of dots names the request
+// and jumps to another. Starts paused (on the first request) under reduced
+// motion. The Pause button beside the dots stops it at any time and mutes both
+// satellites until Play.
 import DeviceDrawing from "./DeviceDrawing.astro";
 import { drawingFor } from "../../../design/devices/index.ts";
 import { MODE_NAME, SCENES, sceneTitle } from "./ringDemoScenes.ts";
@@ -103,15 +103,8 @@ const anchor = (b: (typeof boxes)[number]) => {
       })
     }
   </div>
-  <figcaption class="flex max-w-[18rem] flex-col items-center gap-2 text-center">
+  <figcaption class="flex max-w-[18rem] flex-col items-center gap-1 text-center">
     <span class="flex items-center gap-2">
-      <span class="pn-badge" data-phase={opening(1)?.effect ?? "idle"}>
-        <span class="pn-badge-dot" aria-hidden="true"></span>
-        <span data-word>Listening</span>
-      </span>
-      <button type="button" class="pn-btn pn-btn-quiet pn-btn-sm" data-toggle hidden>Pause</button>
-    </span>
-    <span class="flex flex-col items-center gap-1">
       <span class="scenes" role="group" aria-label="Demo requests" data-scenes hidden>
         {
           SCENES.map((s, i) => (
@@ -125,8 +118,9 @@ const anchor = (b: (typeof boxes)[number]) => {
           ))
         }
       </span>
-      <span class="text-ink-muted text-caption" data-scene-title>{sceneTitle(first)}</span>
+      <button type="button" class="pn-btn pn-btn-quiet pn-btn-sm" data-toggle hidden>Pause</button>
     </span>
+    <span class="text-ink-muted text-caption" data-scene-title>{sceneTitle(first)}</span>
   </figcaption>
 </figure>
 
@@ -269,14 +263,6 @@ const anchor = (b: (typeof boxes)[number]) => {
   import { displayLevel, ringFrame, type Effect } from "../../../design/ring";
   import { MODE_NAME, REST_MS, SCENES, sceneTitle, type Part } from "./ringDemoScenes";
 
-  const WORD: Partial<Record<Effect, string>> = {
-    idle: "Idle",
-    listening: "Listening",
-    thinking: "Thinking",
-    speaking: "Speaking",
-    muted: "Muted",
-  };
-
   // The whole demo as one timeline: each beat with its start, and a rest
   // after each request.
   type Step = { start: number; ms: number; scene: number; parts: Part[] };
@@ -302,8 +288,6 @@ const anchor = (b: (typeof boxes)[number]) => {
       request: el.querySelector<HTMLElement>('[data-bubble="request"]'),
       reply: el.querySelector<HTMLElement>('[data-bubble="reply"]'),
     }));
-    const badge = root.querySelector<HTMLElement>("[data-phase]");
-    const word = root.querySelector<HTMLElement>("[data-word]");
     const toggle = root.querySelector<HTMLButtonElement>("[data-toggle]");
     const row = root.querySelector<HTMLElement>("[data-scenes]");
     const dots = [...root.querySelectorAll<HTMLButtonElement>("[data-scene]")];
@@ -341,11 +325,6 @@ const anchor = (b: (typeof boxes)[number]) => {
       el.setAttribute("data-shown", "");
     };
 
-    const setPhase = (effect: Effect) => {
-      if (badge) badge.dataset.phase = effect;
-      if (word) word.textContent = WORD[effect] ?? "";
-    };
-
     const markScene = (s: number) => {
       shownScene = s;
       dots.forEach((d, i) => (i === s ? d.setAttribute("aria-current", "true") : d.removeAttribute("aria-current")));
@@ -359,12 +338,11 @@ const anchor = (b: (typeof boxes)[number]) => {
       const step = STEPS[n];
       const into = t - step.start;
 
-      // Badge, bubbles, the scene row and the dark devices change only with the beat.
+      // Bubbles, the scene row and the dark devices change only with the beat.
       if (n !== shown) {
         shown = n;
         const scene = SCENES[step.scene];
         if (step.scene !== shownScene) markScene(step.scene);
-        setPhase(step.parts[0]?.effect ?? "idle");
         bubbles.forEach((b, d) => {
           const part = step.parts.find((p) => p.device === d);
           say(b.request, part?.request);
@@ -407,7 +385,6 @@ const anchor = (b: (typeof boxes)[number]) => {
     const mute = () => {
       muted = true;
       shown = -1;
-      setPhase("muted");
       bubbles.forEach((b) => {
         say(b.request, undefined);
         say(b.reply, undefined);

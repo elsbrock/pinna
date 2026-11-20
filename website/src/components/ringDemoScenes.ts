@@ -3,9 +3,8 @@
 //
 // A device is an index into the drawings: 0 the Echo (2nd gen), named Hall,
 // 1 the Echo Dot (2nd gen), named Kitchen. Each listens for its own wake
-// word. A beat lights the devices it names and leaves the others dark; its
-// first part sets the phase badge. The phase lengths are the demo's, not
-// measured response times.
+// word. A beat lights the devices it names and leaves the others dark. The
+// phase lengths are the demo's, not measured response times.
 import type { Effect } from "../../../design/ring";
 
 export type Part = { device: number; effect: Effect; request?: string; reply?: string };
