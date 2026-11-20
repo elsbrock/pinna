@@ -199,12 +199,6 @@
     if (endInput) endInput.value = savedEnd;
   }
 
-  function showTimeZone() {
-    const zone = document.getElementById("time-zone");
-    zone?.scrollIntoView({ block: "center" });
-    zone?.focus();
-  }
-
   async function install() {
     const url = manifest.trim();
     if (!/^https?:\/\/\S+$/.test(url)) {
@@ -403,9 +397,7 @@
                 Local time, in the time zone {zone}.
               {:else}
                 No time zone is set, so the window is in UTC.
-                <button class="pn-btn pn-btn-quiet pn-btn-sm" type="button" onclick={showTimeZone}>
-                  Set the time zone
-                </button>
+                <a class="pn-btn pn-btn-quiet pn-btn-sm" href="#/system">Set the time zone</a>
               {/if}
               The window may cross midnight, for example 23:00 to 01:00.
             </span>

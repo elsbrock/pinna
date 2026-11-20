@@ -1,5 +1,5 @@
-<!-- The dashboard password and the tokens for machines (ADR 0029), on the System
-     page: set, change and remove the password, sign out, and create the metrics
+<!-- The dashboard password and the tokens for machines (ADR 0029), on the Password
+     and tokens page: set, change and remove the password, sign out, and create the metrics
      and agent tokens. Anything that changes the password ends every session, so
      a new password signs this browser in again. -->
 <script lang="ts">

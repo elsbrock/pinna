@@ -1,14 +1,14 @@
 <script lang="ts">
   import Confirm from "../lib/Confirm.svelte";
   import { onMount } from "svelte";
-  import { device, errorSentence } from "../lib/device.svelte.ts";
+  import { client, device, errorSentence } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
-  import SecurityPanel from "../lib/SecurityPanel.svelte";
+  import { LastBootOutcome, type GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
+  import { security } from "../lib/security.svelte.ts";
   import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
-  import UpdatePanel from "../lib/UpdatePanel.svelte";
-  import { displayName, uptime } from "../lib/view.ts";
+  import { displayName, updateSummary, uptime } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -62,6 +62,41 @@
     if (zoneError) zoneRedraw++;
   }
 
+  // The Access and Software rows summarize their pages (ADR 0029, ADR 0022).
+  onMount(() => {
+    void security.refresh();
+  });
+  const passwordSet = $derived(security.state?.passwordSet);
+
+  // GetUpdates once on mount and when the link comes back live; every 5 s while
+  // an install runs, so the row turns from "Installing" without a reload. A
+  // failed read counts as no answer.
+  let updates = $state.raw<GetUpdatesResponse | null>(null);
+  async function readUpdates() {
+    try {
+      updates = await client.getUpdates({}, { timeoutMs: 10_000 });
+    } catch {
+      updates = null;
+    }
+  }
+  onMount(() => {
+    void readUpdates();
+  });
+  $effect(() => {
+    if (!updates?.installing) return;
+    const timer = setInterval(() => void readUpdates(), 5_000);
+    return () => clearInterval(timer);
+  });
+  let wasLive = device.link === "live";
+  $effect(() => {
+    if (live && !wasLive) void readUpdates();
+    wasLive = live;
+  });
+  const summary = $derived(updateSummary(updates, s?.version ?? "", s?.settings));
+  const crashed = $derived(
+    s?.lastBoot?.outcome === LastBootOutcome.CRASHED || s?.lastBoot?.outcome === LastBootOutcome.RESCUE,
+  );
+
   async function restart() {
     const failed = await device.restart();
     if (failed) toasts.show(failed, "danger");
@@ -69,7 +104,7 @@
 </script>
 
 {#if s}
-  <Group title="Name">
+  <Group title="Name and time zone">
     {#snippet foot()}
       Home Assistant takes a new name the next time it connects, once the satellite is idle. Its entity IDs keep the
       name the satellite had when you added it.
@@ -114,9 +149,6 @@
         {/if}
       </div>
     </form>
-  </Group>
-
-  <Group title="Time zone">
     {#key zoneRedraw}
       <Select
         id="time-zone"
@@ -144,13 +176,49 @@
       </div>
     {/if}
   </Group>
-{/if}
 
-<SecurityPanel />
+  <Group title="Access">
+    <a class="pn-row" href="#/system/password">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Password and tokens</span>
+        {#if passwordSet === undefined}
+          <span class="pn-row-hint">Who can use the dashboard, and tokens for Prometheus and agents</span>
+        {:else if passwordSet}
+          <span class="pn-row-hint">Signing in, and tokens for Prometheus and agents</span>
+        {:else}
+          <span class="pn-row-hint is-caution">Anyone on your network can control this satellite.</span>
+        {/if}
+      </span>
+      {#if passwordSet !== undefined}<span class="pn-row-value">{passwordSet ? "Set" : "Not set"}</span>{/if}
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+  </Group>
 
-<UpdatePanel />
+  <Group title="Software">
+    <a class="pn-row" href="#/system/updates">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Updates</span>
+        <span
+          class="pn-row-hint"
+          class:is-danger={summary.tone === "danger"}
+          class:is-caution={summary.tone === "caution"}>{summary.hint}</span
+        >
+      </span>
+      <span class="pn-row-value is-mono">{summary.value}</span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+    <a class="pn-row" href="#/system/logs">
+      <span class="pn-row-icon"><Icon name="logs" /></span>
+      <span class="pn-row-text">
+        <span class="pn-row-label">Logs</span>
+        <span class="pn-row-hint" class:is-danger={crashed}>
+          {s.lastBoot ? `Last start: ${s.lastBoot.summary}` : "What the satellite is doing, as it happens"}
+        </span>
+      </span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+  </Group>
 
-{#if s}
   <Group title="Power">
     <div class="pn-row">
       <div class="pn-row-text">
@@ -183,25 +251,6 @@
         Reset…
       </button>
     </div>
-  </Group>
-
-  <Group title="Troubleshooting">
-    {#if s.lastBoot}
-      <div class="pn-row">
-        <div class="pn-row-text">
-          <span class="pn-row-label">Last start</span>
-          <span class="pn-row-hint">{s.lastBoot.summary}</span>
-        </div>
-      </div>
-    {/if}
-    <a class="pn-row" href="#/system/logs">
-      <span class="pn-row-icon"><Icon name="logs" /></span>
-      <span class="pn-row-text">
-        <span class="pn-row-label">Logs</span>
-        <span class="pn-row-hint">What the satellite is doing, as it happens</span>
-      </span>
-      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
-    </a>
   </Group>
 
   <Group title="Details">

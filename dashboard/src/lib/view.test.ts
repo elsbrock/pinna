@@ -418,6 +418,100 @@ test("update phases come from the slots", async () => {
   assert.equal(switchTarget(trial), undefined);
 });
 
+test("updateSummary: the first matching state wins, failures first", async () => {
+  const { ACTION, CHANNEL, INSTALL, updateSummary } = await import("./view.ts");
+  const slot = (name: string, over: object = {}) => ({
+    name,
+    version: "0.1.0",
+    state: "good",
+    triesLeft: 0,
+    active: false,
+    booted: false,
+    ...over,
+  });
+  const slots = [slot("a", { active: true, booted: true, version: "0.1.0" }), slot("b", { version: "0.0.9" })];
+  const u = (over: object = {}) =>
+    ({ available: true, installing: false, restartPending: false, unavailableReason: "", slots, ...over }) as never;
+  const settings = (over: object = {}) =>
+    ({
+      updateChannel: CHANNEL.stable,
+      installUpdates: INSTALL.manually,
+      installWindowStart: "03:00",
+      installWindowEnd: "05:00",
+      ...over,
+    }) as never;
+  const run = "0.1.0";
+
+  assert.deepEqual(updateSummary(null, run, settings()), {
+    value: run,
+    hint: "Where updates come from, and installing them",
+  });
+  assert.deepEqual(updateSummary(u({ available: false, unavailableReason: "No A/B slots." }), run, settings()), {
+    value: run,
+    hint: "No A/B slots.",
+  });
+  assert.equal(updateSummary(u({ available: false }), run, settings()).hint, "Updates aren't available here");
+  assert.deepEqual(updateSummary(u({ installing: true }), run, settings()), {
+    value: "Installing",
+    hint: "Writing the other slot",
+  });
+  assert.deepEqual(updateSummary(u({ release: { version: "0.2.0", action: ACTION.failed } }), run, settings()), {
+    value: "0.2.0",
+    hint: "It didn't start, so the satellite went back",
+    tone: "danger",
+  });
+  assert.deepEqual(updateSummary(u({ lastInstall: { ok: false } }), run, settings()), {
+    value: run,
+    hint: "The last install failed",
+    tone: "danger",
+  });
+  const trial = [slot("a", { active: true, booted: true, state: "trial" }), slot("b")];
+  assert.deepEqual(updateSummary(u({ slots: trial }), run, settings()), {
+    value: run,
+    hint: "On trial until its check passes",
+  });
+  // Another slot boots next: its version waits for the restart.
+  const pending = [slot("a", { booted: true }), slot("b", { active: true, version: "0.2.0" })];
+  assert.deepEqual(updateSummary(u({ slots: pending }), run, settings()), {
+    value: "0.2.0",
+    hint: "Starts at the next restart",
+  });
+  // A restart pending with the booted slot still active: the slot an install writes.
+  assert.deepEqual(updateSummary(u({ restartPending: true }), run, settings()), {
+    value: "0.0.9",
+    hint: "Starts at the next restart",
+  });
+  assert.deepEqual(updateSummary(u({ release: { version: "0.3.0", action: ACTION.blocked } }), run, settings()), {
+    value: "0.3.0",
+    hint: "Needs a new boot image, installed over USB",
+    tone: "caution",
+  });
+  assert.deepEqual(updateSummary(u({ release: { version: "0.3.0", action: ACTION.install } }), run, settings()), {
+    value: "0.3.0",
+    hint: "Ready to install",
+  });
+  assert.deepEqual(updateSummary(u(), run, settings({ updateChannel: CHANNEL.off })), {
+    value: run,
+    hint: "Updates are off",
+    tone: "caution",
+  });
+  assert.deepEqual(updateSummary(u({ check: { error: "no route" } }), run, settings()), {
+    value: run,
+    hint: "The last check failed",
+    tone: "caution",
+  });
+  assert.deepEqual(updateSummary(u(), run, settings({ updateChannel: CHANNEL.beta })), {
+    value: run,
+    hint: "Beta channel. You install updates.",
+  });
+  assert.deepEqual(updateSummary(u(), run, settings({ installUpdates: INSTALL.automatically })), {
+    value: run,
+    hint: "Stable channel. Installs automatically between 03:00 and 05:00.",
+  });
+  // Up to date, with a release that is not newer: the quiet line.
+  assert.equal(updateSummary(u({ release: { version: run, action: ACTION.upToDate } }), run, settings()).tone, undefined);
+});
+
 test("routeOf: sections, sub-pages, moved paths and unknowns", () => {
   assert.equal(routeOf(""), "/");
   assert.equal(routeOf("#/"), "/");
@@ -427,7 +521,9 @@ test("routeOf: sections, sub-pages, moved paths and unknowns", () => {
   assert.equal(routeOf("#/voice/wake-words"), "/voice/wake-words");
   assert.equal(routeOf("#/voice/media-sources"), "/voice/media-sources");
   assert.equal(routeOf("#/settings"), "/voice");
-  assert.equal(routeOf("#/updates"), "/system");
+  assert.equal(routeOf("#/updates"), "/system/updates");
+  assert.equal(routeOf("#/system/updates"), "/system/updates");
+  assert.equal(routeOf("#/system/password"), "/system/password");
   assert.equal(routeOf("#/logs"), "/system/logs");
   assert.equal(routeOf("#/assistant"), "/assistant");
   assert.equal(routeOf("#/assistant/services"), "/assistant/services");
@@ -889,7 +985,7 @@ test("the first password lists who will need a token", () => {
   assert.match(tokenNeeds(security({ metricsRead: true })) ?? "", /\/metrics/);
   assert.equal(
     tokenNeeds(security({ mcpClients: ["cursor"], metricsRead: true })),
-    "In the last 24 hours, MCP clients (cursor) called it and something read /metrics, such as Prometheus. With a password, they need a token from the System page.",
+    "In the last 24 hours, MCP clients (cursor) called it and something read /metrics, such as Prometheus. With a password, they need a token from System > Password and tokens.",
   );
   // A token that exists already is not news.
   assert.equal(tokenNeeds(security({ metricsRead: true, metricsTokenLast4: "a1b2" })), null);

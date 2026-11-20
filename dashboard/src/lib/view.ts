@@ -3,8 +3,10 @@
 import type { Effect } from "../../../design/ring.ts";
 import type {
   CalibrationEvent,
+  GetUpdatesResponse,
   Satellite,
   Security,
+  Settings,
   Status,
   Timer,
   WakeEvent,
@@ -570,6 +572,51 @@ export function updatePhase(u: UpdatesLike): UpdatePhase {
   return "ready";
 }
 
+/** The System page's Updates row: the version it shows, a line under it, and a tone for what needs a look. */
+export type UpdateSummary = { value: string; hint: string; tone?: "danger" | "caution" };
+
+/**
+ * What the Updates row says. `u` is GetUpdates' answer, null while there is none;
+ * `running` is the version that runs. The first match wins, failures first, so
+ * the row never reads calm while something needs the owner.
+ */
+export function updateSummary(
+  u: (UpdatesLike & Pick<GetUpdatesResponse, "unavailableReason" | "lastInstall" | "release" | "restartPending" | "check">) | null,
+  running: string,
+  settings: Pick<Settings, "updateChannel" | "installUpdates" | "installWindowStart" | "installWindowEnd"> | undefined,
+): UpdateSummary {
+  if (!u) return { value: running, hint: "Where updates come from, and installing them" };
+  if (!u.available) return { value: running, hint: u.unavailableReason || "Updates aren't available here" };
+  if (u.installing) return { value: "Installing", hint: "Writing the other slot" };
+  const action = u.release?.action;
+  if (u.release && action === ACTION.failed) {
+    return { value: u.release.version, hint: "It didn't start, so the satellite went back", tone: "danger" };
+  }
+  if (u.lastInstall && !u.lastInstall.ok) return { value: running, hint: "The last install failed", tone: "danger" };
+  const phase = updatePhase(u);
+  if (phase === "trial") return { value: running, hint: "On trial until its check passes" };
+  if (phase === "pending" || u.restartPending) {
+    const booted = u.slots.find((s) => s.booted);
+    const active = u.slots.find((s) => s.active);
+    const waiting = active && booted && active.name !== booted.name ? active : targetSlot(u);
+    return { value: waiting?.version || running, hint: "Starts at the next restart" };
+  }
+  if (u.release && action === ACTION.blocked) {
+    return { value: u.release.version, hint: "Needs a new boot image, installed over USB", tone: "caution" };
+  }
+  if (u.release && action === ACTION.install) return { value: u.release.version, hint: "Ready to install" };
+  if (!settings) return { value: running, hint: "Where updates come from, and installing them" };
+  const channel = channelName(settings.updateChannel);
+  if (channel === "off") return { value: running, hint: "Updates are off", tone: "caution" };
+  if (u.check?.error) return { value: running, hint: "The last check failed", tone: "caution" };
+  const name = channel === "stable" ? "Stable" : "Beta";
+  const hint =
+    installName(settings.installUpdates) === "automatically"
+      ? `${name} channel. Installs automatically between ${settings.installWindowStart} and ${settings.installWindowEnd}.`
+      : `${name} channel. You install updates.`;
+  return { value: running, hint };
+}
+
 /** Said before the satellite starts an older version while a password is set (ADR 0029):
  *  an image from before the password doesn't check it, so the dashboard is open until the next update. */
 export const OLDER_SLOT_WARNING =
@@ -607,6 +654,8 @@ export const PATHS = [
   "/assistant/tools",
   "/network",
   "/system",
+  "/system/updates",
+  "/system/password",
   "/system/logs",
 ] as const;
 export type Path = (typeof PATHS)[number];
@@ -614,7 +663,7 @@ export type Path = (typeof PATHS)[number];
 // Addresses that people may have bookmarked.
 const MOVED: Record<string, Path> = {
   "/settings": "/voice",
-  "/updates": "/system",
+  "/updates": "/system/updates",
   "/logs": "/system/logs",
   "/home-assistant": "/assistant",
 };
@@ -938,7 +987,7 @@ export function ago(thenMs: number, nowMs: number): string {
   return unit(Math.floor(s / 86_400), "day");
 }
 
-/** The System page's line about failed sign-ins since the last one. */
+/** The Password and tokens page's line about failed sign-ins since the last one. */
 export function failuresText(sec: Security, nowMs: number): string {
   const n = sec.failuresSinceLogin;
   if (n === 0) return "None since the last sign-in.";
@@ -1011,7 +1060,7 @@ export function windowLength(start: string, end: string): string | null {
   return [h ? `${h} h` : "", m ? `${m} min` : ""].filter(Boolean).join(" ");
 }
 
-/** A token as the System page shows it: its last four characters, or "None". */
+/** A token as the Password and tokens page shows it: its last four characters, or "None". */
 export function tokenShown(last4: string): string {
   return last4 ? `••••${last4}` : "None";
 }
@@ -1024,7 +1073,7 @@ export function tokenNeeds(sec: Security | null): string | null {
   if (sec.mcpClients.length && !sec.agentTokenLast4) did.push(`MCP clients (${sec.mcpClients.join(", ")}) called it`);
   if (sec.metricsRead && !sec.metricsTokenLast4) did.push("something read /metrics, such as Prometheus");
   if (!did.length) return null;
-  return `In the last 24 hours, ${did.join(" and ")}. With a password, they need a token from the System page.`;
+  return `In the last 24 hours, ${did.join(" and ")}. With a password, they need a token from System > Password and tokens.`;
 }
 
 /** The Overview's notice while no password is set; null once one is. */

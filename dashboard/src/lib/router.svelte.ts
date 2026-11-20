@@ -46,7 +46,7 @@ export const SECTIONS: Section[] = [
     short: "System",
     icon: "cpu",
     group: "Maintenance",
-    description: "Name, software, updates, restarts and logs.",
+    description: "Name, time zone, access, updates, restarts and logs.",
   },
 ];
 
@@ -88,6 +88,16 @@ const SUBPAGES: Omit<Page, "section">[] = [
     path: "/assistant/tools",
     title: "Tools",
     description: "What the brain and MCP clients may do on the satellite, the radio stations it knows, and MCP.",
+  },
+  {
+    path: "/system/updates",
+    title: "Updates",
+    description: "Where updates come from, installing them, and the version in each slot.",
+  },
+  {
+    path: "/system/password",
+    title: "Password and tokens",
+    description: "Who can use the dashboard: its password, signing out, and tokens for Prometheus and agents.",
   },
   {
     path: "/system/logs",
