@@ -418,6 +418,18 @@ test("update phases come from the slots", async () => {
   assert.equal(switchTarget(trial), undefined);
 });
 
+test("lastStart: one line per outcome, crashes and rescue mode marked", async () => {
+  const { BOOT, lastStart } = await import("./view.ts");
+  assert.deepEqual(lastStart(undefined), { hint: "What the satellite is doing, as it happens", danger: false });
+  const b = (outcome: number, reason = "") => ({ outcome, reason, summary: "pinnad's summary" });
+  assert.deepEqual(lastStart(b(BOOT.coldStart)), { hint: "Last start: from power off, or after a power cut", danger: false });
+  assert.deepEqual(lastStart(b(BOOT.restarted, "update")), { hint: "Last start: a restart (update)", danger: false });
+  assert.deepEqual(lastStart(b(BOOT.restarted)), { hint: "Last start: a restart", danger: false });
+  assert.deepEqual(lastStart(b(BOOT.rescue, "fsck")), { hint: "Last start: rescue mode (fsck)", danger: true });
+  assert.deepEqual(lastStart(b(BOOT.crashed)), { hint: "Last start: after a crash, a kernel panic or oops", danger: true });
+  assert.deepEqual(lastStart(b(0)), { hint: "Last start: pinnad's summary", danger: false });
+});
+
 test("updateSummary: the first matching state wins, failures first", async () => {
   const { ACTION, CHANNEL, INSTALL, updateSummary } = await import("./view.ts");
   const slot = (name: string, over: object = {}) => ({
@@ -446,9 +458,10 @@ test("updateSummary: the first matching state wins, failures first", async () =>
     value: run,
     hint: "Where updates come from, and installing them",
   });
+  // The reason stays on the Updates page.
   assert.deepEqual(updateSummary(u({ available: false, unavailableReason: "No A/B slots." }), run, settings()), {
     value: run,
-    hint: "No A/B slots.",
+    hint: "Updates aren't available here",
   });
   assert.equal(updateSummary(u({ available: false }), run, settings()).hint, "Updates aren't available here");
   assert.deepEqual(updateSummary(u({ installing: true }), run, settings()), {
@@ -990,7 +1003,7 @@ test("the first password lists who will need a token", () => {
   assert.match(tokenNeeds(security({ metricsRead: true })) ?? "", /\/metrics/);
   assert.equal(
     tokenNeeds(security({ mcpClients: ["cursor"], metricsRead: true })),
-    "In the last 24 hours, MCP clients (cursor) called it and something read /metrics, such as Prometheus. With a password, they need a token from System > Password and tokens.",
+    "In the last 24 hours, MCP clients (cursor) called it and something read /metrics, such as Prometheus. With a password, they need a token from System › Password and tokens.",
   );
   // A token that exists already is not news.
   assert.equal(tokenNeeds(security({ metricsRead: true, metricsTokenLast4: "a1b2" })), null);

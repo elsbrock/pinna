@@ -156,7 +156,7 @@
       <Icon name="alert" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
         <p class="pn-notice-title">{notice.join(" ")}</p>
-        <p><a href="#/system/password">Set a password under System > Password and tokens</a></p>
+        <p><a href="#/system/password">Set a password under System › Password and tokens</a></p>
       </div>
     </div>
   {/if}

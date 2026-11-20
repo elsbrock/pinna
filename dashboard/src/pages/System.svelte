@@ -4,11 +4,11 @@
   import { client, device, errorSentence } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
-  import { LastBootOutcome, type GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
+  import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
   import { security } from "../lib/security.svelte.ts";
   import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
-  import { displayName, updateSummary, uptime } from "../lib/view.ts";
+  import { displayName, lastStart, updateSummary, uptime } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -93,9 +93,7 @@
     wasLive = live;
   });
   const summary = $derived(updateSummary(updates, s?.version ?? "", s?.settings));
-  const crashed = $derived(
-    s?.lastBoot?.outcome === LastBootOutcome.CRASHED || s?.lastBoot?.outcome === LastBootOutcome.RESCUE,
-  );
+  const start = $derived(lastStart(s?.lastBoot));
 
   async function restart() {
     const failed = await device.restart();
@@ -189,7 +187,7 @@
           <span class="pn-row-hint is-caution">Anyone on your network can control this satellite.</span>
         {/if}
       </span>
-      {#if passwordSet !== undefined}<span class="pn-row-value">{passwordSet ? "Set" : "Not set"}</span>{/if}
+      {#if passwordSet !== undefined}<span class="pn-row-value">{passwordSet ? "Password set" : "No password"}</span>{/if}
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
   </Group>
@@ -210,9 +208,7 @@
     <a class="pn-row" href="#/system/logs">
       <span class="pn-row-text">
         <span class="pn-row-label">Logs</span>
-        <span class="pn-row-hint" class:is-danger={crashed}>
-          {s.lastBoot ? `Last start: ${s.lastBoot.summary}` : "What the satellite is doing, as it happens"}
-        </span>
+        <span class="pn-row-hint" class:is-danger={start.danger}>{start.hint}</span>
       </span>
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>

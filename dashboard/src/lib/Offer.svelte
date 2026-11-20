@@ -32,7 +32,7 @@
     {/if}
     <p>
       A password asks for a sign-in first. To set it, you press the Action button (the one with the dot) on the
-      satellite, which proves that you are there. You can change it later under System > Password and tokens.
+      satellite, which proves that you are there. You can change it later under System › Password and tokens.
     </p>
     <div class="actions">
       <button class="pn-btn pn-btn-primary" type="button" disabled={busy} onclick={() => (setting = true)}>

@@ -586,7 +586,8 @@ export function updateSummary(
   settings: Pick<Settings, "updateChannel" | "installUpdates" | "installWindowStart" | "installWindowEnd"> | undefined,
 ): UpdateSummary {
   if (!u) return { value: running, hint: "Where updates come from, and installing them" };
-  if (!u.available) return { value: running, hint: u.unavailableReason || "Updates aren't available here" };
+  // The reason is for the Updates page; the row says it plainly.
+  if (!u.available) return { value: running, hint: "Updates aren't available here" };
   if (u.installing) return { value: "Installing", hint: "Writing the other slot" };
   const action = u.release?.action;
   if (u.release && action === ACTION.failed) {
@@ -679,6 +680,27 @@ export function routeOf(hash: string): Path | null {
 }
 
 /** pinna.v1.ReleaseAction values: what Install does with the release a check found (ADR 0022). */
+/** pinna.v1.LastBootOutcome values. */
+export const BOOT = { coldStart: 1, restarted: 2, rescue: 3, crashed: 4 } as const;
+
+/** The Logs row's line on System about how the last start ended (ADR 0012), and whether it needs a look. */
+export function lastStart(b: { outcome: number; reason: string; summary: string } | undefined): { hint: string; danger: boolean } {
+  if (!b) return { hint: "What the satellite is doing, as it happens", danger: false };
+  const why = b.reason ? ` (${b.reason})` : "";
+  switch (b.outcome) {
+    case BOOT.coldStart:
+      return { hint: "Last start: from power off, or after a power cut", danger: false };
+    case BOOT.restarted:
+      return { hint: `Last start: a restart${why}`, danger: false };
+    case BOOT.rescue:
+      return { hint: `Last start: rescue mode${why}`, danger: true };
+    case BOOT.crashed:
+      return { hint: "Last start: after a crash, a kernel panic or oops", danger: true };
+    default:
+      return { hint: `Last start: ${b.summary}`, danger: false };
+  }
+}
+
 export const ACTION = {
   install: 1,
   upToDate: 2,
@@ -1076,7 +1098,7 @@ export function tokenNeeds(sec: Security | null): string | null {
   if (sec.mcpClients.length && !sec.agentTokenLast4) did.push(`MCP clients (${sec.mcpClients.join(", ")}) called it`);
   if (sec.metricsRead && !sec.metricsTokenLast4) did.push("something read /metrics, such as Prometheus");
   if (!did.length) return null;
-  return `In the last 24 hours, ${did.join(" and ")}. With a password, they need a token from System > Password and tokens.`;
+  return `In the last 24 hours, ${did.join(" and ")}. With a password, they need a token from System › Password and tokens.`;
 }
 
 /** The Overview's notice while no password is set; null once one is. */
