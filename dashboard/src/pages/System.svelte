@@ -4,6 +4,7 @@
   import { device, errorSentence } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
+  import SecurityPanel from "../lib/SecurityPanel.svelte";
   import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
   import UpdatePanel from "../lib/UpdatePanel.svelte";
@@ -144,6 +145,8 @@
     {/if}
   </Group>
 {/if}
+
+<SecurityPanel />
 
 <UpdatePanel />
 

@@ -1,7 +1,15 @@
 // What the page shows, derived from Status: words, tones, disabled reasons and
 // ticking numbers. No Svelte and no runtime imports, so `node --test` runs it.
 import type { Effect } from "../../../design/ring.ts";
-import type { CalibrationEvent, Satellite, Status, Timer, WakeEvent, WakeWordOption } from "../gen/pinna/v1/device_pb.ts";
+import type {
+  CalibrationEvent,
+  Satellite,
+  Security,
+  Status,
+  Timer,
+  WakeEvent,
+  WakeWordOption,
+} from "../gen/pinna/v1/device_pb.ts";
 import { isStandalone } from "./assistant.ts";
 
 /** The connection to the satellite's WatchStatus stream. */
@@ -835,4 +843,90 @@ export function shortUrl(url: string): string {
     // Not percent-encoded as it should be: show it as it is.
   }
   return parts.length > 1 ? `${u.host}/…/${file}` : `${u.host}/${file}`;
+}
+
+// The dashboard password (ADR 0029).
+
+/** What the page shows first: the offer of a password, the sign-in form, or the app.
+ *  Until the security state arrives, the app, which shows its own connecting state. */
+export type Gate = "offer" | "signin" | "app";
+
+export function gate(sec: Security | null): Gate {
+  if (!sec) return "app";
+  if (sec.offerPending) return "offer";
+  if (sec.passwordSet && !sec.signedIn) return "signin";
+  return "app";
+}
+
+export const PASSWORD_MIN = 8;
+export const PASSWORD_MAX = 128;
+
+/** Why a new password won't do, or null. The satellite counts characters, not bytes. */
+export function passwordProblem(password: string): string | null {
+  const n = [...password].length;
+  return n < PASSWORD_MIN || n > PASSWORD_MAX ? `Use ${PASSWORD_MIN} to ${PASSWORD_MAX} characters.` : null;
+}
+
+/** POST /auth/login's answer: signed in, or the server's sentence and how long to wait. */
+export type LoginOutcome = { ok: true } | { ok: false; message: string; wait: number };
+
+export function loginOutcome(status: number, body: unknown): LoginOutcome {
+  if (status === 204) return { ok: true };
+  const b = (body ?? {}) as { error?: unknown; retry_after_s?: unknown };
+  const message = typeof b.error === "string" && b.error ? b.error : "The satellite refused the sign-in. Try again.";
+  const wait = status === 429 && typeof b.retry_after_s === "number" ? Math.max(1, Math.ceil(b.retry_after_s)) : 0;
+  return { ok: false, message, wait };
+}
+
+/** Whole seconds until `until` (Date.now() milliseconds), never below 0. */
+export function secondsUntil(until: number, now: number): number {
+  return Math.max(0, Math.ceil((until - now) / 1000));
+}
+
+export function secondsWord(n: number): string {
+  return n === 1 ? "1 second" : `${n} seconds`;
+}
+
+/** How long ago, in the largest unit that fits: "just now", "5 minutes ago". */
+export function ago(thenMs: number, nowMs: number): string {
+  const s = Math.max(0, Math.round((nowMs - thenMs) / 1000));
+  if (s < 60) return "just now";
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"} ago`;
+  if (s < 3_600) return unit(Math.floor(s / 60), "minute");
+  if (s < 86_400) return unit(Math.floor(s / 3_600), "hour");
+  return unit(Math.floor(s / 86_400), "day");
+}
+
+/** The System page's line about failed sign-ins since the last one. */
+export function failuresText(sec: Security, nowMs: number): string {
+  const n = sec.failuresSinceLogin;
+  if (n === 0) return "None since the last sign-in.";
+  const count = n === 1 ? "1 failed sign-in" : `${n} failed sign-ins`;
+  const when = sec.lastFailureUnixMs ? Number(sec.lastFailureUnixMs) : 0;
+  const from = sec.lastFailureAddress ? `from ${sec.lastFailureAddress}` : "";
+  const last = [from, when ? ago(when, nowMs) : ""].filter(Boolean).join(", ");
+  return last ? `${count} since the last sign-in. The last was ${last}.` : `${count} since the last sign-in.`;
+}
+
+/** A token as the System page shows it: its last four characters, or "None". */
+export function tokenShown(last4: string): string {
+  return last4 ? `••••${last4}` : "None";
+}
+
+/** Before a first password is saved: who will need a token. Null when nobody called. */
+export function tokenNeeds(sec: Security | null): string | null {
+  if (!sec) return null;
+  const who: string[] = [];
+  if (sec.mcpClients.length) who.push(`MCP clients (${sec.mcpClients.join(", ")})`);
+  if (sec.metricsRead) who.push("something that reads /metrics, such as Prometheus");
+  if (!who.length) return null;
+  return `In the last 24 hours, ${who.join(" and ")} used this satellite. With a password, they need a token from the System page.`;
+}
+
+/** The Overview's notice while no password is set; null once one is. */
+export function openNotice(sec: Security | null, standalone: boolean): string[] | null {
+  if (!sec || sec.passwordSet) return null;
+  const lines = ["Anyone on your network can control this satellite."];
+  if (standalone) lines.push("That includes where your voice goes.");
+  return lines;
 }

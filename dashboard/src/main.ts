@@ -1,8 +1,10 @@
 import { mount } from "svelte";
 
 import "./app.css";
-import App from "./App.svelte";
+import Root from "./Root.svelte";
 import { device } from "./lib/device.svelte.ts";
+import { security } from "./lib/security.svelte.ts";
 
 device.start();
-mount(App, { target: document.getElementById("app")! });
+void security.refresh();
+mount(Root, { target: document.getElementById("app")! });

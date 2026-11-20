@@ -13,6 +13,8 @@ export default defineConfig({
     proxy: {
       "/pinna.v1.DeviceService": { target, changeOrigin: true },
       "/pinna.v1.AssistantService": { target, changeOrigin: true },
+      // Sign-in and sign-out (ADR 0029).
+      "/auth": { target, changeOrigin: true },
       // The virtual Echo Dot's socket (ADR 0014), on the development VM.
       "/virtual-device": { target, changeOrigin: true, ws: true },
     },

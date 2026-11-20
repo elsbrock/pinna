@@ -14,10 +14,38 @@ import {
   type UpdateSettingsRequest,
 } from "../gen/pinna/v1/device_pb.ts";
 import { frameFromBytes } from "./ledframe.ts";
+import { security } from "./security.svelte.ts";
 import { toasts } from "./toast.svelte.ts";
-import { LED_TEST_STEP_MS, type Link } from "./view.ts";
+import { displayName, LED_TEST_STEP_MS, type Link } from "./view.ts";
 
-const client = createClient(DeviceService, createConnectTransport({ baseUrl: location.origin }));
+/** localStorage key for the satellite's name, as the page last saw it. */
+const NAME_KEY = "pinna.name";
+
+/** The name this browser last saw the satellite under; empty when it hasn't. */
+export function savedName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// A call the satellite refuses without a session (ADR 0029) brings the page back
+// to the sign-in form, whichever page or stream made it.
+const transport = createConnectTransport({
+  baseUrl: location.origin,
+  interceptors: [
+    (next) => async (req) => {
+      try {
+        return await next(req);
+      } catch (e) {
+        if (ConnectError.from(e).code === Code.Unauthenticated) security.expire();
+        throw e;
+      }
+    },
+  ],
+});
+const client = createClient(DeviceService, transport);
 
 // WatchStatus only sends on change, so a satellite that drops off Wi-Fi leaves
 // a quiet but open stream. A cheap GetStatus every PING_MS tells the two apart.
@@ -90,6 +118,12 @@ class Device {
       this.#testTimer = setInterval(() => this.testStep++, LED_TEST_STEP_MS);
     } else if (!s.ledTest) clearInterval(this.#testTimer);
     this.status = s;
+    // The sign-in form (ADR 0029) names the satellite before any Status can arrive.
+    try {
+      localStorage.setItem(NAME_KEY, displayName(s));
+    } catch {
+      // Storage refused: the form shows the address instead.
+    }
     this.receivedAt = Date.now();
     this.link = "live";
     this.restarting = false;
@@ -107,8 +141,10 @@ class Device {
         for await (const res of client.watchRing({}, { signal: stream.signal })) {
           this.ring = frameFromBytes(res.frame) ?? this.ring;
         }
-      } catch {
-        // Unreachable or aborted: WatchStatus and the ping tell which.
+      } catch (e) {
+        // Unreachable or aborted: WatchStatus and the ping tell which. A
+        // session that ended cuts the stream, and the retry finds out.
+        if (ConnectError.from(e).code === Code.Unauthenticated) security.expire();
       }
       if (this.#ringStream !== stream) return;
       this.#stopRing();
@@ -146,6 +182,7 @@ class Device {
       } catch (e) {
         // Unreachable, pinnad restarting, or aborted by a failed ping.
         this.#misdirected(e);
+        if (ConnectError.from(e).code === Code.Unauthenticated) security.expire();
       }
       this.#offline();
       const delay = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];

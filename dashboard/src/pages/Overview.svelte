@@ -8,6 +8,7 @@
   import Icon from "../lib/Icon.svelte";
   import { network } from "../lib/network.svelte.ts";
   import PhaseBadge from "../lib/PhaseBadge.svelte";
+  import { security } from "../lib/security.svelte.ts";
   import SignalBars from "../lib/SignalBars.svelte";
   import StatTile from "../lib/StatTile.svelte";
   import NowPlaying from "../lib/NowPlaying.svelte";
@@ -19,6 +20,7 @@
     displayName,
     health,
     heldText,
+    openNotice,
     ringEffect,
     signalWord,
     since,
@@ -33,6 +35,8 @@
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
   const modelName = $derived(drawingFor(s?.model ?? "")?.name);
   const standalone = $derived(isStandalone(s));
+  // While no password is set, anyone on the network can control the satellite (ADR 0029).
+  const notice = $derived(openNotice(security.state, standalone));
   // Messages from the satellite group that wait to be said (ADR 0026).
   const held = $derived(heldText(s?.heldMessages ?? 0, !!s?.muted));
   // Uptime only arrives with a change; count on between messages.
@@ -105,6 +109,16 @@
       </div>
     </div>
   </section>
+
+  {#if notice}
+    <div class="pn-notice" data-tone="caution" role="status">
+      <Icon name="alert" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">{notice.join(" ")}</p>
+        <p><a href="#/system">Set a password on the System page</a></p>
+      </div>
+    </div>
+  {/if}
 
   {#if live && !s.haConnected && !standalone}
     <div class="pn-notice" data-tone="caution" role="status">

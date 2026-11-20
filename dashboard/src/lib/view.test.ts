@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { Satellite, Settings, Status, Timer, WakeWord, WakeWordOption } from "../gen/pinna/v1/device_pb.ts";
+import type {
+  Satellite,
+  Security,
+  Settings,
+  Status,
+  Timer,
+  WakeWord,
+  WakeWordOption,
+} from "../gen/pinna/v1/device_pb.ts";
 
 // node's type stripping can't run the generated module (it holds a TS enum),
 // so the tests build message shapes by hand.
@@ -47,7 +55,16 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
 });
 import {
   addedNextStep,
+  ago,
   badge,
+  failuresText,
+  gate,
+  loginOutcome,
+  openNotice,
+  passwordProblem,
+  secondsUntil,
+  tokenNeeds,
+  tokenShown,
   byline,
   CAL_KIND,
   calibrationAdvice,
@@ -770,4 +787,98 @@ test("after adding a wake word the next step follows who chooses", () => {
   assert.match(addedNextStep(status({ haConnected: false })), /Voice & sound/);
   assert.match(addedNextStep(standalone(true, { haConnected: true })), /Voice & sound/);
   assert.match(addedNextStep(null), /recent wakes under Sensitivity/);
+});
+
+const security = (over: Partial<Security> = {}): Security => ({
+  $typeName: "pinna.v1.Security",
+  passwordSet: false,
+  leftOpen: false,
+  offerPending: false,
+  signedIn: false,
+  metricsTokenLast4: "",
+  agentTokenLast4: "",
+  failuresSinceLogin: 0,
+  lastFailureAddress: "",
+  lastFailureUnixMs: 0n,
+  loginRetryAfterS: 0,
+  confirmationCooldownS: 0,
+  mcpClients: [],
+  metricsRead: false,
+  ...over,
+});
+
+test("the page opens on the offer, the sign-in form or the app", () => {
+  assert.equal(gate(null), "app");
+  assert.equal(gate(security({ offerPending: true })), "offer");
+  assert.equal(gate(security({ leftOpen: true })), "app");
+  assert.equal(gate(security({ passwordSet: true })), "signin");
+  assert.equal(gate(security({ passwordSet: true, signedIn: true })), "app");
+});
+
+test("a new password has 8 to 128 characters, counted as characters", () => {
+  assert.match(passwordProblem("short") ?? "", /8 to 128/);
+  assert.equal(passwordProblem("12345678"), null);
+  assert.equal(passwordProblem("ä".repeat(128)), null);
+  assert.match(passwordProblem("a".repeat(129)) ?? "", /8 to 128/);
+});
+
+test("the sign-in answer gives the server's sentence and how long to wait", () => {
+  assert.deepEqual(loginOutcome(204, null), { ok: true });
+  assert.deepEqual(loginOutcome(401, { error: "Wrong password." }), { ok: false, message: "Wrong password.", wait: 0 });
+  assert.deepEqual(loginOutcome(429, { error: "Too many attempts. Try again in 7 s.", retry_after_s: 7 }), {
+    ok: false,
+    message: "Too many attempts. Try again in 7 s.",
+    wait: 7,
+  });
+  const odd = loginOutcome(502, "<html>");
+  assert.equal(odd.ok, false);
+  assert.equal(odd.ok === false && odd.wait, 0);
+});
+
+test("the wait counts down in whole seconds and stops at zero", () => {
+  assert.equal(secondsUntil(10_000, 7_500), 3);
+  assert.equal(secondsUntil(10_000, 10_000), 0);
+  assert.equal(secondsUntil(10_000, 12_000), 0);
+});
+
+test("a time reads as the largest unit that fits", () => {
+  const now = 10_000_000_000;
+  assert.equal(ago(now - 20_000, now), "just now");
+  assert.equal(ago(now - 60_000, now), "1 minute ago");
+  assert.equal(ago(now - 5 * 3_600_000, now), "5 hours ago");
+  assert.equal(ago(now - 2 * 86_400_000, now), "2 days ago");
+});
+
+test("failed sign-ins are counted with the last address and time", () => {
+  const now = 10_000_000_000;
+  assert.equal(failuresText(security(), now), "None since the last sign-in.");
+  assert.equal(
+    failuresText(
+      security({ failuresSinceLogin: 3, lastFailureAddress: "192.168.1.9", lastFailureUnixMs: BigInt(now - 300_000) }),
+      now,
+    ),
+    "3 failed sign-ins since the last sign-in. The last was from 192.168.1.9, 5 minutes ago.",
+  );
+  assert.equal(failuresText(security({ failuresSinceLogin: 1 }), now), "1 failed sign-in since the last sign-in.");
+});
+
+test("a token shows by its last four characters, or as none", () => {
+  assert.equal(tokenShown(""), "None");
+  assert.equal(tokenShown("a1b2"), "••••a1b2");
+});
+
+test("the first password lists who will need a token", () => {
+  assert.equal(tokenNeeds(security()), null);
+  assert.match(tokenNeeds(security({ mcpClients: ["claude-code", "cursor"] })) ?? "", /claude-code, cursor.*token/);
+  assert.match(tokenNeeds(security({ metricsRead: true })) ?? "", /\/metrics/);
+});
+
+test("the Overview warns while no password is set, and adds the voice in standalone mode", () => {
+  assert.equal(openNotice(null, false), null);
+  assert.equal(openNotice(security({ passwordSet: true }), true), null);
+  assert.deepEqual(openNotice(security(), false), ["Anyone on your network can control this satellite."]);
+  assert.deepEqual(openNotice(security({ leftOpen: true }), true), [
+    "Anyone on your network can control this satellite.",
+    "That includes where your voice goes.",
+  ]);
 });
