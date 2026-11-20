@@ -682,9 +682,27 @@ async fn only_a_pause_from_here_leaves_the_group_paused() {
     s.server.group("playing").await;
     s.server.stream_start().await;
     wait(&mut s.report, |r| r.state == State::Playing).await;
-    s.server.send(end).await;
+    s.server.send(end.clone()).await;
     s.server.group("stopped").await;
     assert!(!settled(&mut s, 34).await.group_paused);
+
+    // Paused from here, then a stop the server doesn't take now: Idle all the same, since
+    // the lane has nothing to stop.
+    s.server.group("playing").await;
+    s.server.stream_start().await;
+    wait(&mut s.report, |r| r.state == State::Playing).await;
+    assert!(s.handle.control(Control::Pause).await);
+    s.server.expect("client/command").await;
+    s.server.send(end).await;
+    s.server.group("stopped").await;
+    s.server
+        .send(json!({"type": "server/state", "payload": {"controller": {
+            "supported_commands": ["play"], "volume": 50, "muted": false,
+            "repeat": "off", "shuffle": false}}}))
+        .await;
+    wait(&mut s.report, |r| r.group_paused).await;
+    assert!(!s.handle.control(Control::Stop).await);
+    assert!(!settled(&mut s, 35).await.group_paused);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

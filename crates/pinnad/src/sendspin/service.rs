@@ -425,15 +425,17 @@ impl Service {
             return false;
         };
         let p = &mut self.peers[i];
+        // A group stopped from here is not waiting to resume (ADR 0027 §14), even when the
+        // server takes no stop now: the owner asked for Idle, and the lane has nothing to stop.
+        if control == Control::Stop {
+            p.paused_group = None;
+        }
         if p.conn.command(command).is_err() {
             return false;
         }
-        match control {
-            Control::Pause => p.paused_group = p.group.as_ref().map(|g| g.group_id.clone()),
-            // A group stopped from here is not waiting to resume (ADR 0027 §14).
-            Control::Stop => p.paused_group = None,
-            // Paused until the group says it plays.
-            Control::Play => {}
+        // Paused until the group says it plays, or the satellite stops or leaves it.
+        if control == Control::Pause {
+            p.paused_group = p.group.as_ref().map(|g| g.group_id.clone());
         }
         true
     }
