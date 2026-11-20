@@ -8,6 +8,11 @@ Pinna is in early development. You can build it, install it on an Echo
 own in [standalone mode](/docs/standalone/), and with its own dashboard. Parts
 of it are still being tuned on real hardware.
 
+Until Pinna 1.0, how it works and how you set it up can change from one
+release to the next, standalone mode most of all. The release notes say what
+changed. What owners report shapes these changes; see
+[How you can help](#how-you-can-help).
+
 ## What works
 
 These parts are covered by tests that run without hardware:
@@ -145,6 +150,10 @@ These plans follow the project's [goals](/docs/goals/).
 
 ## How you can help
 
+- **Say what you think.** Before 1.0, feedback changes the most. Say what
+  works for you, what doesn't and what you miss, in
+  [Discussions](https://github.com/elsbrock/pinna/discussions). Standalone
+  mode needs it most.
 - **Test it on a device.** Problems show up on real hardware first. Report
   what you see in an [issue](https://github.com/elsbrock/pinna/issues), with
   the version and the log from the dashboard, as

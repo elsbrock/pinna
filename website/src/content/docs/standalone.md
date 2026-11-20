@@ -12,7 +12,10 @@ tools.
 
 > **Standalone mode is new.** Its tests run against simulated services, and it
 > has been tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs, not
-> yet with every service; see [Status and roadmap](/docs/status/).
+> yet with every service; see [Status and roadmap](/docs/status/). Until
+> Pinna 1.0 it can change from one release to the next. Say what works for
+> you and what doesn't in
+> [Discussions](https://github.com/elsbrock/pinna/discussions).
 
 ## Before you begin
 

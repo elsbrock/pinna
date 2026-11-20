@@ -534,7 +534,9 @@ const gaps = [
       <h2 class="section-title">Help with Pinna</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
         Pinna is a small project in early development, and most of the useful
-        work happens on real devices. You can help in three ways:
+        work happens on real devices. Until 1.0 it can change from one release
+        to the next, standalone mode most of all, and what owners report
+        shapes those changes. You can help in three ways:
       </p>
 
       <div class="mt-10 grid gap-5 md:grid-cols-3">
@@ -542,15 +544,19 @@ const gaps = [
           <div class="bg-signal-soft text-signal grid h-9 w-9 place-items-center rounded-sm">
             <Icon name="bug" size={18} />
           </div>
-          <h3 class="text-ink text-heading mt-4">Report problems</h3>
+          <h3 class="text-ink text-heading mt-4">Give feedback</h3>
           <p class="text-ink-muted text-body mt-2">
-            Problems show up on real devices first. If an installation fails,
-            the ring stays dark or the wake word doesn't trigger, open an issue
-            with the version and the log, as
+            Say what works for you, what doesn't and what you miss. If an
+            installation fails, the ring stays dark or the wake word doesn't
+            trigger, open an issue with the version and the log, as
             <a class="link" href={docHref("troubleshooting") + "#report-a-problem"}>Report a problem</a>
             describes.
           </p>
-          <p class="mt-4 text-sm">
+          <p class="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+            <a class="link inline-flex items-center gap-1.5" href={`${SITE.repo}/discussions`}>
+              Start a discussion
+              <Icon name="arrow" size={14} />
+            </a>
             <a class="link inline-flex items-center gap-1.5" href={`${SITE.repo}/issues`}>
               Open an issue
               <Icon name="arrow" size={14} />
@@ -583,9 +589,9 @@ const gaps = [
           </div>
           <h3 class="text-ink text-heading mt-4">Support another device</h3>
           <p class="text-ink-muted text-body mt-2">
-            Pinna supports the Echo (2nd gen) and the Echo Dot (2nd gen).
-            Other Echo devices need a device tree, board support and a device
-            to test on.
+            Pinna supports the Echo (2nd gen) and the Echo Dot (2nd gen), and
+            aims to support more Echo devices. Each needs a device tree, board
+            support and a device to test on.
           </p>
           <p class="mt-4 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("architecture")}>

@@ -36,7 +36,7 @@ published as the Goals page on the website. In short:
   - use standard parts;
   - make development pleasant;
   - stay open.
-- Later: more Echo devices.
+- Later: more Echo devices, and perhaps a Raspberry Pi if people ask for it.
 - Out of scope:
   - replacing Alexa;
   - a Pinna account, cloud service or remote access;

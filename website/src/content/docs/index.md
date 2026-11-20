@@ -11,7 +11,8 @@ the speech services and the language model or AI agent you choose. The wake
 word detection runs on the device, and Pinna doesn't use Amazon's services.
 
 > **Early development.** Pinna works, but it installs only on a device whose
-> bootloader is unlocked. See [Status and roadmap](/docs/status/).
+> bootloader is unlocked, and until 1.0 it can change from one release to the
+> next. See [Status and roadmap](/docs/status/).
 
 ## How it works
 
