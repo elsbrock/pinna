@@ -54,6 +54,12 @@ esphome-conformance:
     cargo build -p pinna-esphome --example demo
     uv run --with aioesphomeapi==46.2.0 --with pytest --with pytest-asyncio pytest crates/pinna-esphome/tests/aio -q
 
+# Sendspin interoperability (ADR 0027): a pinnad on free ports, so beside a dev one, against aiosendspin as pinned by Music Assistant 2.10.7 and 2.11.0b9
+sendspin-conformance:
+    cargo build --release -p pinnad
+    uv run --with 'aiosendspin[server]==10.2.0' --with av==16.1.0 --with pytest --with pytest-asyncio pytest tests/sendspin -q
+    uv run --with 'aiosendspin[server]==10.3.0' --with av==19.0.2 --with pytest --with pytest-asyncio pytest tests/sendspin -q
+
 # the release service's tests (ADR 0022): recorded GitHub answers, no accounts
 updates-test:
     node --test 'services/updates/test/*.test.ts'
