@@ -350,7 +350,7 @@ impl Service {
             };
             match made {
                 Ok(keys) => self.keys = Some(keys),
-                Err(e) => return self.fail("could not save the player's keys", &format!("{e:#}")),
+                Err(e) => return self.fail("couldn't save the player's keys", &format!("{e:#}")),
             }
         }
         match socket::listen(&self.listen, self.shared.clone()).await {
@@ -362,7 +362,7 @@ impl Service {
             }
             Err(e @ BindError::InUse(_)) => self.fail(&e.to_string(), ""),
             Err(BindError::Other { port, error }) => self.fail(
-                &format!("could not listen on port {port}"),
+                &format!("couldn't listen on port {port}"),
                 &error.to_string(),
             ),
         }
