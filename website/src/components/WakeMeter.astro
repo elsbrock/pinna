@@ -1,0 +1,298 @@
+---
+// The landing page's wake word section: the dashboard's tuning, shown working
+// on example data. Each bar is a recent wake or near miss with its score; the
+// slider is the sensitivity, and the line the score it needs, from the same
+// formula as pinna-wakeword (WakeConfig::threshold_for_sensitivity). Bars
+// that reach the line wake the device. Without JavaScript it shows the
+// default sensitivity, 68.
+
+// Example wakes and near misses: who it was, and the score.
+const events = [
+  { who: "You", score: 0.93, at: "07:12" },
+  { who: "TV", score: 0.31, at: "08:40" },
+  { who: "You", score: 0.71, at: "09:05" },
+  { who: "TV", score: 0.61, at: "12:18" },
+  { who: "You", score: 0.58, at: "12:30" },
+  { who: "Radio", score: 0.44, at: "14:02" },
+  { who: "You", score: 0.88, at: "17:45" },
+  { who: "TV", score: 0.26, at: "19:10" },
+  { who: "You", score: 0.64, at: "19:33" },
+  { who: "TV", score: 0.52, at: "20:51" },
+  { who: "You", score: 0.97, at: "21:15" },
+  { who: "TV", score: 0.39, at: "22:04" },
+];
+
+const DEFAULT = 68;
+const threshold = (s: number) => Math.min(0.85, Math.max(0.3, 0.85 - s * 0.0044));
+const t0 = threshold(DEFAULT);
+---
+
+<div class="meter" data-meter>
+  <div class="head">
+    <label class="head-label" for="meter-sensitivity">Sensitivity</label>
+    <span class="value" data-value>{DEFAULT}</span>
+    <span class="hint" data-hint>Needs a score of {t0.toFixed(2)}</span>
+  </div>
+  <input
+    id="meter-sensitivity"
+    class="slider"
+    type="range"
+    min="0"
+    max="100"
+    value={DEFAULT}
+    data-slider
+    aria-describedby="meter-summary"
+  />
+
+  <div class="chart" aria-hidden="true">
+    <div class="plot">
+      <div class="line" style={`bottom:${(t0 * 100).toFixed(1)}%`} data-line>
+        <span>{t0.toFixed(2)}</span>
+      </div>
+    </div>
+    {
+      events.map((e) => (
+        <div class="col" data-score={e.score} data-wakes={e.score >= t0 ? "" : undefined}>
+          <div class="bar" style={`height:${(e.score * 100).toFixed(1)}%`}>
+            <span class="score">{e.score.toFixed(2)}</span>
+          </div>
+          <span class:list={["who", { you: e.who === "You" }]}>{e.who}</span>
+        </div>
+      ))
+    }
+  </div>
+
+  <p class="summary" id="meter-summary" data-summary>
+    Example. At {DEFAULT}, it wakes on {events.filter((e) => e.score >= t0 && e.who === "You").length} of your{" "}
+    {events.filter((e) => e.who === "You").length} wakes and {events.filter((e) => e.score >= t0 && e.who !== "You").length} other
+    sounds.
+  </p>
+</div>
+
+<style>
+  .meter {
+    display: grid;
+    gap: 14px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+  }
+
+  .head-label {
+    color: var(--ink);
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .value {
+    color: var(--brand-mid);
+    font-family: var(--font-mono);
+    font-size: 22px;
+    line-height: 28px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hint {
+    color: var(--ink-muted);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .slider {
+    width: 100%;
+    accent-color: var(--brand-mid);
+  }
+
+  .slider:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 4px;
+  }
+
+  /* --------------------------------------------------------- the chart -- */
+
+  .chart {
+    --axis: 22px;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: end;
+    gap: 6px;
+    height: 14rem;
+    padding-bottom: var(--axis);
+    border-bottom: 1px solid var(--line);
+    background: repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent calc(25% - 1px),
+      color-mix(in oklab, var(--line) 60%, transparent) calc(25% - 1px),
+      color-mix(in oklab, var(--line) 60%, transparent) 25%
+    );
+    background-size: 100% calc(100% - var(--axis));
+    background-repeat: no-repeat;
+  }
+
+  /* Exactly the bars' area, so the line's percentage is a score. */
+  .plot {
+    position: absolute;
+    inset: 0 0 var(--axis) 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .col {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    height: 100%;
+  }
+
+  .bar {
+    position: relative;
+    border-radius: 4px 4px 1px 1px;
+    background: color-mix(in oklab, var(--line-strong) 55%, transparent);
+    transition:
+      background-color 200ms ease,
+      box-shadow 200ms ease;
+  }
+
+  [data-wakes] .bar {
+    background: linear-gradient(to top, var(--brand-start), var(--brand-end));
+    box-shadow: 0 0 12px -2px color-mix(in oklab, var(--brand-mid) 60%, transparent);
+  }
+
+  .score {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 14px;
+    white-space: nowrap;
+  }
+
+  .who {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--ink-muted);
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .who.you {
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  /* The score the setting needs, across the chart. */
+  .line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 0;
+    border-top: 2px dashed var(--brand-mid);
+    transition: bottom 120ms ease;
+  }
+
+  .line span {
+    position: absolute;
+    right: 0;
+    bottom: 4px;
+    padding: 0 4px;
+    border-radius: var(--radius-xs);
+    background: var(--surface-raised);
+    color: var(--brand-mid);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .summary {
+    margin: 0;
+    color: var(--ink-muted);
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  @media (max-width: 639px) {
+    .score {
+      display: none;
+    }
+
+    .chart {
+      gap: 3px;
+    }
+
+    .who {
+      writing-mode: vertical-rl;
+      transform: translateX(-50%) rotate(180deg);
+      top: calc(100% + 2px);
+    }
+
+    .chart {
+      --axis: 40px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar,
+    .line {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  const threshold = (s: number) => Math.min(0.85, Math.max(0.3, 0.85 - s * 0.0044));
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-meter]")) {
+    const slider = root.querySelector<HTMLInputElement>("[data-slider]");
+    const value = root.querySelector<HTMLElement>("[data-value]");
+    const hint = root.querySelector<HTMLElement>("[data-hint]");
+    const line = root.querySelector<HTMLElement>("[data-line]");
+    const summary = root.querySelector<HTMLElement>("[data-summary]");
+    const cols = [...root.querySelectorAll<HTMLElement>("[data-score]")];
+    if (!slider) continue;
+
+    const update = () => {
+      const s = Number(slider.value);
+      const t = threshold(s);
+      if (value) value.textContent = String(s);
+      if (hint) hint.textContent = `Needs a score of ${t.toFixed(2)}`;
+      if (line) {
+        line.style.bottom = `${(t * 100).toFixed(1)}%`;
+        const label = line.querySelector("span");
+        if (label) label.textContent = t.toFixed(2);
+      }
+      let you = 0;
+      let yours = 0;
+      let others = 0;
+      for (const col of cols) {
+        const wakes = Number(col.dataset.score) >= t;
+        col.toggleAttribute("data-wakes", wakes);
+        const isYou = col.querySelector(".you") !== null;
+        if (isYou) yours++;
+        if (wakes && isYou) you++;
+        if (wakes && !isYou) others++;
+      }
+      if (summary)
+        summary.textContent = `Example. At ${s}, it wakes on ${you} of your ${yours} wakes and ${others} other ${others === 1 ? "sound" : "sounds"}.`;
+    };
+
+    slider.addEventListener("input", update);
+    update();
+  }
+</script>

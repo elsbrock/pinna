@@ -1,0 +1,353 @@
+---
+// The landing page's updates section: the two system slots as lanes. An
+// update goes into the other slot, starts on trial, and is either kept or
+// the device goes back to the old slot by itself (update.md, architecture.md).
+// The steps light in turn and the outcome alternates; under reduced motion,
+// and without JavaScript, every step shows with the update kept. Steps run
+// left to right on wide screens and top to bottom on phones.
+
+type Cell = { step: number; lane: 1 | 3; version: string; state: string; led: "ok" | "trial" | "fail"; outcome?: "keep" | "back" };
+
+// Lane 1 is slot A, lane 3 slot B; lane 2 holds the arrows between them.
+const cells: Cell[] = [
+  { step: 1, lane: 1, version: "0.4", state: "Good, running", led: "ok" },
+  { step: 2, lane: 3, version: "0.5", state: "Installed", led: "trial" },
+  { step: 3, lane: 3, version: "0.5", state: "On trial", led: "trial" },
+  { step: 4, lane: 3, version: "0.5", state: "Good, kept", led: "ok", outcome: "keep" },
+  { step: 4, lane: 3, version: "0.5", state: "Didn't start", led: "fail", outcome: "back" },
+  { step: 4, lane: 1, version: "0.4", state: "Back by itself", led: "ok", outcome: "back" },
+];
+
+const steps = ["Runs from one slot", "Installs into the other", "Starts on trial", "Kept, or back by itself"];
+---
+
+<div class="updates" data-updates data-step="4" data-outcome="keep">
+  <div class="slots" aria-hidden="true">
+    <span class="lane-name" style="--c: 1; --r: 1">Slot A</span>
+    <span class="lane-name" style="--c: 1; --r: 3">Slot B</span>
+    <span class="rail" style="--r: 1"></span>
+    <span class="rail" style="--r: 3"></span>
+
+    <span class="arrow down" style="--c: 3; --r: 2" data-at="2">
+      <svg viewBox="0 0 24 24"><path d="M4.5 12h15"></path><path d="m13.5 6 6 6-6 6"></path></svg>
+      <span>install</span>
+    </span>
+    <span class="arrow up" style="--c: 5; --r: 2" data-at="4" data-outcome="back">
+      <svg viewBox="0 0 24 24"><path d="M4.5 12h15"></path><path d="m13.5 6 6 6-6 6"></path></svg>
+      <span>back</span>
+    </span>
+
+    {
+      cells.map((c) => (
+        <span class="cell" style={`--c: ${c.step + 1}; --r: ${c.lane}`} data-at={c.step} data-outcome={c.outcome}>
+          <span class="led" data-led={c.led} />
+          <span class="version">{c.version}</span>
+          <span class="state">{c.state}</span>
+        </span>
+      ))
+    }
+  </div>
+
+  <ol class="steps">
+    {
+      steps.map((s, i) => (
+        <li data-at={i + 1}>
+          <span class="num">{i + 1}</span>
+          {s}
+        </li>
+      ))
+    }
+  </ol>
+  <p class="sr" data-summary>
+    An update installs into the second slot and starts on trial. If it works, the satellite keeps it; if it doesn't
+    start, the satellite goes back to the old slot by itself.
+  </p>
+</div>
+
+<style>
+  .updates {
+    display: grid;
+    gap: 18px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+  }
+
+  /* Phones: slots are columns, steps run down. */
+  .slots {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 4.5rem minmax(0, 1fr);
+    grid-template-rows: auto repeat(4, 4rem);
+    align-items: center;
+    justify-items: center;
+  }
+
+  .lane-name,
+  .cell,
+  .arrow {
+    grid-column: var(--r);
+    grid-row: var(--c);
+  }
+
+  .lane-name {
+    padding-bottom: 6px;
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rail {
+    grid-column: var(--r);
+    grid-row: 2 / -1;
+    align-self: stretch;
+    width: 2px;
+    border-radius: 1px;
+    background: linear-gradient(to bottom, var(--brand-start), var(--brand-end));
+    opacity: 0.35;
+  }
+
+  .cell {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-full);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+    white-space: nowrap;
+    transition:
+      opacity 250ms ease,
+      transform 250ms ease;
+  }
+
+  .version {
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .state {
+    color: var(--ink-muted);
+    font-size: 13px;
+  }
+
+  .led {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--led);
+    box-shadow: 0 0 6px 1px color-mix(in oklab, var(--led) 55%, transparent);
+  }
+
+  [data-led="ok"] {
+    --led: var(--ok);
+  }
+
+  [data-led="trial"] {
+    --led: var(--caution);
+  }
+
+  [data-led="fail"] {
+    --led: var(--danger);
+  }
+
+  .arrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--brand-mid);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    transition: opacity 250ms ease;
+  }
+
+  .arrow svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* On phones the arrows go without their words, which don't fit. */
+  .arrow span {
+    display: none;
+  }
+
+  /* On phones slot B is to the right: install points right, back points left. */
+  .arrow.up svg {
+    transform: rotate(180deg);
+  }
+
+  .steps {
+    display: none;
+  }
+
+  .num {
+    margin-right: 8px;
+    color: var(--brand-mid);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  /* What's lit: the steps up to the current one, and only this round's outcome. */
+  [data-at] {
+    opacity: 0.18;
+  }
+
+  [data-updates][data-step="1"] [data-at="1"],
+  [data-updates][data-step="2"] :is([data-at="1"], [data-at="2"]),
+  [data-updates][data-step="3"] :is([data-at="1"], [data-at="2"], [data-at="3"]),
+  [data-updates][data-step="4"] [data-at] {
+    opacity: 1;
+  }
+
+  [data-updates][data-outcome="keep"] [data-outcome="back"],
+  [data-updates][data-outcome="back"] [data-outcome="keep"] {
+    display: none;
+  }
+
+  /* With the old slot back, the update's slot dims and the old one is current. */
+  [data-updates][data-outcome="back"][data-step="4"] .cell[data-at="1"] {
+    opacity: 0.35;
+  }
+
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* Wide screens: slots are lanes, steps run left to right. */
+  @media (min-width: 768px) {
+    .slots {
+      grid-template-columns: 4.5rem repeat(4, minmax(0, 1fr));
+      grid-template-rows: auto 3.5rem auto;
+    }
+
+    .lane-name,
+    .cell,
+    .arrow {
+      grid-column: var(--c);
+      grid-row: var(--r);
+    }
+
+    .lane-name {
+      justify-self: start;
+      padding-bottom: 0;
+    }
+
+    .rail {
+      grid-column: 2 / -1;
+      grid-row: var(--r);
+      align-self: center;
+      justify-self: stretch;
+      width: auto;
+      height: 2px;
+      background: linear-gradient(to right, var(--brand-start), var(--brand-end));
+    }
+
+    .arrow span {
+      display: inline;
+    }
+
+    .arrow.down svg {
+      transform: rotate(90deg);
+    }
+
+    .arrow.up svg {
+      transform: rotate(-90deg);
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: 4.5rem repeat(4, minmax(0, 1fr));
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--ink-muted);
+      font-size: 14px;
+      line-height: 20px;
+    }
+
+    .steps li:first-child {
+      grid-column: 2;
+    }
+
+    .steps li {
+      justify-self: center;
+      text-align: center;
+      padding: 0 6px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cell,
+    .arrow {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  const STEP = 1500;
+  const HOLD = 2800;
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-updates]")) {
+    let timer = 0;
+    let step = 1;
+    let outcome: "keep" | "back" = "keep";
+    let visible = false;
+
+    const set = () => {
+      root.dataset.step = String(step);
+      root.dataset.outcome = outcome;
+    };
+
+    const next = () => {
+      if (step < 4) step++;
+      else {
+        step = 1;
+        outcome = outcome === "keep" ? "back" : "keep";
+      }
+      set();
+      timer = window.setTimeout(next, step === 4 ? HOLD : STEP);
+    };
+
+    const run = () => {
+      clearTimeout(timer);
+      if (visible && !reduceMotion.matches) {
+        step = 1;
+        set();
+        timer = window.setTimeout(next, STEP);
+      } else {
+        step = 4;
+        outcome = "keep";
+        set();
+      }
+    };
+
+    new IntersectionObserver(([entry]) => {
+      visible = Boolean(entry?.isIntersecting);
+      run();
+    }).observe(root);
+    reduceMotion.addEventListener("change", run);
+  }
+</script>

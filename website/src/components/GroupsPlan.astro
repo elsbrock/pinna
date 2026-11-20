@@ -1,0 +1,563 @@
+---
+// The landing page's satellite groups: a floor plan with three satellites
+// seen from above, each in its room and to its own wake word. They play three
+// scenes: the hall passes a message to the kitchen, the kitchen sets a timer
+// in the office, and the office turns the kitchen down. Rings use the
+// devices' own frames (design/ring.ts). Runs only on screen; under reduced
+// motion, and without JavaScript, it shows the message arriving.
+import Icon from "./Icon.astro";
+import { docHref } from "../lib/site";
+
+const rooms = [
+  { key: "hall", name: "Hall", device: "Echo (2nd gen)", wake: "Hey Jarvis", big: true },
+  { key: "kitchen", name: "Kitchen", device: "Echo Dot (2nd gen)", wake: "Okay Nabu", big: false },
+  { key: "office", name: "Office", device: "Echo Dot (2nd gen)", wake: "Hey Mycroft", big: false },
+];
+---
+
+<div class="groups" data-groups>
+  <div class="plan" data-plan>
+    <svg class="route" aria-hidden="true" data-link-svg>
+      <defs>
+        <linearGradient id="plan-link" gradientUnits="userSpaceOnUse" data-link-gradient>
+          <stop offset="0" style="stop-color: var(--brand-start)"></stop>
+          <stop offset="1" style="stop-color: var(--brand-end)"></stop>
+        </linearGradient>
+        <marker id="plan-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M1,1 L9,5 L1,9" fill="none" stroke="var(--brand-end)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        </marker>
+      </defs>
+      <path data-link marker-end="url(#plan-arrow)"></path>
+    </svg>
+
+    {
+      rooms.map((r) => (
+        <div class="room" data-room={r.key}>
+          <span class="room-name">{r.name}</span>
+          <span class="room-device">
+            {r.device} · “{r.wake}”
+          </span>
+          <span class:list={["puck", { big: r.big }]} data-puck={r.key} aria-hidden="true">
+            <svg viewBox="-24 -24 48 48">
+              <circle class="body" r="22" />
+              <g data-leds />
+              <circle class="button" cx="0" cy="-7" r="2.2" />
+              <circle class="button" cx="-7" cy="0" r="2.2" />
+              <circle class="button" cx="7" cy="0" r="2.2" />
+              <circle class="button" cx="0" cy="7" r="2.2" />
+            </svg>
+            <span class="readout" data-readout />
+          </span>
+          <p class="bubble" data-bubble={r.key} aria-hidden="true">
+            <span class="who" data-who />
+            <span data-text />
+          </p>
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="facts" style="--facts: 3">
+    <div class="fact">
+      <span class="fact-title">Pass messages</span>
+      <span class="fact-say">
+        Ask one satellite to tell another. It says the message in its own voice, or holds it until it's free.
+      </span>
+    </div>
+    <div class="fact">
+      <span class="fact-title">Act on each other</span>
+      <span class="fact-say">
+        The volume, the ring light, music and radio, and timers, by the other satellite's name.
+      </span>
+    </div>
+    <div class="fact">
+      <span class="fact-title">Found on your network</span>
+      <span class="fact-say">
+        Satellites on the same network find each other, and you add each to the group on its dashboard.
+      </span>
+    </div>
+  </div>
+
+  <p class="note">
+    <span>
+      Groups need standalone mode with a language model as the brain. They are new, and haven't been tested on two
+      devices yet.
+    </span>
+    <a class="link inline-flex items-center gap-1.5" href={docHref("satellite-groups")}>
+      Satellite groups
+      <Icon name="arrow" size={14} />
+    </a>
+  </p>
+</div>
+
+<style>
+  .groups {
+    display: grid;
+    gap: 36px;
+  }
+
+  /* ------------------------------------------------------------- plan -- */
+
+  /* Walls are the plan's lines; the hall runs the full depth on the left. */
+  .plan {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(3, 13rem);
+    border: 2px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    background:
+      radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--ink) 12%, transparent) 1px, transparent 0) 0 0 / 18px
+        18px,
+      var(--surface-raised);
+  }
+
+  .room {
+    position: relative;
+    padding: 14px 16px;
+  }
+
+  .room + .room {
+    border-top: 2px solid var(--line-strong);
+  }
+
+  /* A doorway in each inner wall. */
+  .room + .room::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    left: 58%;
+    width: 52px;
+    height: 2px;
+    background: var(--surface-raised);
+  }
+
+  .room-name {
+    display: block;
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .room-device {
+    display: block;
+    color: var(--ink-muted);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .puck {
+    position: absolute;
+    left: 22%;
+    top: 58%;
+    z-index: 2;
+    width: 52px;
+    height: 52px;
+    margin: -26px 0 0 -26px;
+    filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.25));
+  }
+
+  .puck.big {
+    width: 62px;
+    height: 62px;
+    margin: -31px 0 0 -31px;
+  }
+
+  .puck svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .body {
+    fill: var(--puck);
+    stroke: var(--puck-rim);
+    stroke-width: 1.5;
+  }
+
+  .button {
+    fill: color-mix(in oklab, var(--puck-rim) 70%, var(--puck));
+  }
+
+  .puck :global([data-leds] path) {
+    fill: none;
+    stroke-width: 3.2;
+    stroke-linecap: round;
+  }
+
+  .readout {
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--timer);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .route {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .route path {
+    fill: none;
+    stroke: url(#plan-link);
+    stroke-width: 2;
+    stroke-dasharray: 6 6;
+    opacity: 0;
+    transition: opacity 250ms ease;
+    animation: flow 0.9s linear infinite;
+  }
+
+  .route path[data-on] {
+    opacity: 1;
+  }
+
+  @keyframes flow {
+    to {
+      stroke-dashoffset: -12;
+    }
+  }
+
+  /* Bubbles stand beside their satellite, clear of the room's label. */
+  .bubble {
+    position: absolute;
+    left: calc(22% + 38px);
+    top: 58%;
+    z-index: 3;
+    width: max-content;
+    max-width: min(16rem, calc(78% - 50px));
+    margin: 0;
+    padding: 6px 12px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 20px;
+    opacity: 0;
+    transform: translate(6px, -50%);
+    transition:
+      opacity 200ms ease,
+      transform 200ms ease;
+  }
+
+  .bubble[data-shown] {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+
+  .bubble[data-kind="reply"] {
+    border-color: color-mix(in oklab, var(--brand-mid) 35%, var(--line));
+    background: color-mix(in oklab, var(--brand-mid) 12%, var(--surface-raised));
+  }
+
+  /* The tail points left, at the satellite. */
+  .bubble::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: -6px;
+    width: 10px;
+    height: 10px;
+    margin-top: -5px;
+    border-left: 1px solid;
+    border-bottom: 1px solid;
+    border-color: inherit;
+    background: inherit;
+    transform: rotate(45deg);
+  }
+
+  .who {
+    display: block;
+    color: var(--ink-muted);
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 20px;
+    margin: 0;
+    color: var(--ink-muted);
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  @media (min-width: 1024px) {
+    .plan {
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      grid-template-rows: repeat(2, 13.5rem);
+    }
+
+    .room[data-room="hall"] {
+      grid-row: span 2;
+      border-right: 2px solid var(--line-strong);
+    }
+
+    .room + .room {
+      border-top: 0;
+    }
+
+    .room + .room[data-room="office"] {
+      border-top: 2px solid var(--line-strong);
+    }
+
+    /* The doorways: hall to kitchen, kitchen to office. (After .room + .room,
+       so these win.) */
+    .room + .room[data-room="kitchen"]::before {
+      top: 54%;
+      left: -2px;
+      width: 2px;
+      height: 52px;
+    }
+
+    .room + .room[data-room="office"]::before {
+      top: -2px;
+      left: 64%;
+      width: 52px;
+      height: 2px;
+    }
+
+    .room[data-room="hall"] .puck {
+      left: 30%;
+      top: 58%;
+    }
+
+    .room[data-room="hall"] .bubble {
+      left: calc(30% + 44px);
+      top: 58%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .route path {
+      animation: none;
+      stroke-dasharray: none;
+    }
+
+    .bubble {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  import { displayLevel, ringFrame, type Effect } from "../../../design/ring";
+
+  type Room = "hall" | "kitchen" | "office";
+  type Ring = { effect: Effect; value?: number };
+  type Say = { kind: "request" | "reply"; text: string };
+  type Beat = {
+    ms: number;
+    rings?: Partial<Record<Room, Ring>>;
+    say?: Partial<Record<Room, Say>>;
+    link?: [Room, Room];
+    /** The office timer starts with this beat. */
+    timer?: true;
+  };
+
+  const TIMER_S = 600;
+  const BEATS: Beat[] = [
+    // The hall passes a message to the kitchen.
+    { ms: 2600, rings: { hall: { effect: "listening" } }, say: { hall: { kind: "request", text: "Hey Jarvis, tell the kitchen that dinner is ready." } } },
+    { ms: 1400, rings: { hall: { effect: "thinking" } }, link: ["hall", "kitchen"] },
+    {
+      ms: 3000,
+      rings: { hall: { effect: "thinking" }, kitchen: { effect: "speaking" } },
+      say: { kitchen: { kind: "reply", text: "Message from Hall: dinner is ready." } },
+      link: ["hall", "kitchen"],
+    },
+    { ms: 2200, rings: { hall: { effect: "speaking" } }, say: { hall: { kind: "reply", text: "I told the kitchen." } } },
+    { ms: 1600 },
+    // The kitchen sets a timer in the office.
+    { ms: 2800, rings: { kitchen: { effect: "listening" } }, say: { kitchen: { kind: "request", text: "Okay Nabu, set a 10 minute timer in the office." } } },
+    { ms: 1400, rings: { kitchen: { effect: "thinking" } }, link: ["kitchen", "office"] },
+    { ms: 1200, rings: { kitchen: { effect: "thinking" } }, link: ["kitchen", "office"], timer: true },
+    { ms: 2600, rings: { kitchen: { effect: "speaking" } }, say: { kitchen: { kind: "reply", text: "The office timer runs for 10 minutes." } } },
+    { ms: 1600 },
+    // The office turns the kitchen down.
+    { ms: 2600, rings: { office: { effect: "listening" } }, say: { office: { kind: "request", text: "Hey Mycroft, turn the kitchen down." } } },
+    { ms: 1400, rings: { office: { effect: "thinking" } }, link: ["office", "kitchen"] },
+    { ms: 1400, rings: { office: { effect: "thinking" }, kitchen: { effect: "volume", value: 30 } }, link: ["office", "kitchen"] },
+    { ms: 2400, rings: { office: { effect: "speaking" } }, say: { office: { kind: "reply", text: "The kitchen is quieter now." } } },
+    { ms: 2200 },
+  ];
+  const STARTS: number[] = [];
+  let sum = 0;
+  for (const b of BEATS) {
+    STARTS.push(sum);
+    sum += b.ms;
+  }
+  const CYCLE = sum;
+  const TIMER_AT = STARTS[BEATS.findIndex((b) => b.timer)];
+  const STILL = 2; // the message arriving: shown under reduced motion
+  const ROOMS: Room[] = ["hall", "kitchen", "office"];
+  const NS = "http://www.w3.org/2000/svg";
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-groups]")) {
+    const plan = root.querySelector<HTMLElement>("[data-plan]");
+    const link = root.querySelector<SVGPathElement>("[data-link]");
+    const gradient = root.querySelector<SVGLinearGradientElement>("[data-link-gradient]");
+    if (!plan || !link) continue;
+
+    // Twelve LEDs round each puck, as many as a frame has.
+    const count = ringFrame("idle", 0).length;
+    const rooms = Object.fromEntries(
+      ROOMS.map((key) => {
+        const puck = root.querySelector<HTMLElement>(`[data-puck="${key}"]`)!;
+        const g = puck.querySelector<SVGGElement>("[data-leds]")!;
+        const leds: SVGPathElement[] = [];
+        for (let i = 0; i < count; i++) {
+          const gap = 0.12;
+          const a0 = ((i + gap) / count) * Math.PI * 2 - Math.PI / 2;
+          const a1 = ((i + 1 - gap) / count) * Math.PI * 2 - Math.PI / 2;
+          const r = 16;
+          const p = document.createElementNS(NS, "path");
+          p.setAttribute("d", `M${r * Math.cos(a0)},${r * Math.sin(a0)} A${r},${r} 0 0 1 ${r * Math.cos(a1)},${r * Math.sin(a1)}`);
+          g.appendChild(p);
+          leds.push(p);
+        }
+        return [
+          key,
+          {
+            puck,
+            leds,
+            readout: puck.querySelector<HTMLElement>("[data-readout]")!,
+            bubble: root.querySelector<HTMLElement>(`[data-bubble="${key}"]`)!,
+          },
+        ];
+      }),
+    ) as Record<Room, { puck: HTMLElement; leds: SVGPathElement[]; readout: HTMLElement; bubble: HTMLElement }>;
+
+    const paint = (key: Room, ring: Ring, t: number) =>
+      ringFrame(ring.effect, t, ring.value).forEach((p, i) => {
+        const led = rooms[key].leds[i];
+        if (!led) return;
+        led.setAttribute("stroke", p.c ? `rgb(${p.c.join(",")})` : "var(--led-off)");
+        led.setAttribute("stroke-opacity", p.c ? Math.max(0.25, displayLevel(p.level)).toFixed(3) : "0.9");
+      });
+
+    const centre = (key: Room) => {
+      const o = plan.getBoundingClientRect();
+      const b = rooms[key].puck.getBoundingClientRect();
+      return { x: b.left - o.left + b.width / 2, y: b.top - o.top + b.height / 2, r: b.width / 2 };
+    };
+
+    const route = (from: Room, to: Room) => {
+      const a = centre(from);
+      const b = centre(to);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      const s = { x: a.x + ux * (a.r + 6), y: a.y + uy * (a.r + 6) };
+      const e = { x: b.x - ux * (b.r + 8), y: b.y - uy * (b.r + 8) };
+      // Bow the line a little to one side, like a thrown message.
+      const c = { x: (s.x + e.x) / 2 - uy * len * 0.18, y: (s.y + e.y) / 2 + ux * len * 0.18 };
+      link.setAttribute("d", `M${s.x},${s.y} Q${c.x},${c.y} ${e.x},${e.y}`);
+      gradient?.setAttribute("x1", String(s.x));
+      gradient?.setAttribute("y1", String(s.y));
+      gradient?.setAttribute("x2", String(e.x));
+      gradient?.setAttribute("y2", String(e.y));
+    };
+
+    let shown = -1;
+    let linked = "";
+
+    const show = (ms: number) => {
+      const t = ((ms % CYCLE) + CYCLE) % CYCLE;
+      let n = 0;
+      while (n < BEATS.length - 1 && t >= STARTS[n + 1]) n++;
+      const beat = BEATS[n];
+      const into = t - STARTS[n];
+
+      if (n !== shown) {
+        shown = n;
+        for (const key of ROOMS) {
+          const say = beat.say?.[key];
+          const bubble = rooms[key].bubble;
+          if (say) {
+            bubble.dataset.kind = say.kind;
+            bubble.querySelector<HTMLElement>("[data-who]")!.textContent = say.kind === "request" ? "You" : "Standalone mode";
+            bubble.querySelector<HTMLElement>("[data-text]")!.textContent = say.text;
+            bubble.setAttribute("data-shown", "");
+          } else bubble.removeAttribute("data-shown");
+        }
+        const key = beat.link ? beat.link.join(">") : "";
+        if (key !== linked) {
+          linked = key;
+          if (beat.link) route(beat.link[0], beat.link[1]);
+          link.toggleAttribute("data-on", Boolean(beat.link));
+        }
+      }
+
+      // The office timer runs from its beat to the end of the cycle.
+      const left = t >= TIMER_AT ? Math.max(0, TIMER_S - (t - TIMER_AT) / 1000) : -1;
+      rooms.office.readout.textContent =
+        left >= 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, "0")}` : "";
+      for (const key of ROOMS) {
+        const own = beat.rings?.[key];
+        if (own) paint(key, own, into);
+        else if (key === "office" && left >= 0) paint(key, { effect: "timer", value: left / TIMER_S }, 0);
+        else paint(key, { effect: "idle" }, 0);
+      }
+    };
+
+    let elapsed = 0;
+    let last = 0;
+    let raf = 0;
+    let visible = false;
+
+    const tick = (now: number) => {
+      elapsed += Math.max(0, now - last);
+      last = now;
+      show(elapsed);
+      raf = requestAnimationFrame(tick);
+    };
+
+    const run = () => {
+      cancelAnimationFrame(raf);
+      if (visible && !reduceMotion.matches) {
+        last = performance.now();
+        raf = requestAnimationFrame(tick);
+      } else {
+        shown = -1;
+        linked = "";
+        show(STARTS[STILL] + 600);
+      }
+    };
+
+    new ResizeObserver(() => {
+      linked = "";
+      shown = -1;
+      show(elapsed);
+    }).observe(plan);
+    show(STARTS[STILL] + 600);
+    new IntersectionObserver(([entry]) => {
+      visible = Boolean(entry?.isIntersecting);
+      run();
+    }).observe(plan);
+    reduceMotion.addEventListener("change", run);
+  }
+</script>

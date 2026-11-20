@@ -5,55 +5,11 @@ import Icon from "../components/Icon.astro";
 import RingDemo from "../components/RingDemo.astro";
 import RequestPath from "../components/RequestPath.astro";
 import Switchboard from "../components/Switchboard.astro";
+import GroupsPlan from "../components/GroupsPlan.astro";
+import WakeMeter from "../components/WakeMeter.astro";
+import MusicDuck from "../components/MusicDuck.astro";
+import UpdateSlots from "../components/UpdateSlots.astro";
 import { docHref, href, SITE } from "../lib/site";
-
-const features = [
-  {
-    icon: "mic",
-    title: "Wake word on the device",
-    body: "Pinna detects the wake word with openWakeWord, on the device. It doesn't use Amazon's services.",
-  },
-  {
-    icon: "broadcast",
-    title: "Adds itself to Home Assistant",
-    body: "Home Assistant finds the device on your network, adds it like an ESPHome device, and encrypts the connection.",
-  },
-  {
-    icon: "bolt",
-    title: "Works without Home Assistant",
-    body: "In standalone mode the device answers requests itself, with the speech services and the language model or AI agent you choose. It keeps timers, tells the weather and plays radio.",
-  },
-  {
-    icon: "window",
-    title: "A dashboard in your browser",
-    body: "The device serves a web page with every setting: Wi-Fi, the wake words, who answers, your services, music sources and updates. Open it from a browser on your network.",
-  },
-  {
-    icon: "sliders",
-    title: "A wake word you can tune",
-    body: "The dashboard lists the recent wakes and near misses, and the sensitivity that catches or ignores each one. You can also tune it at the device, with its + and − buttons.",
-  },
-  {
-    icon: "ring",
-    title: "Light ring and buttons",
-    body: "The ring shows what the device is doing and also works as a light. With Home Assistant, the buttons are events for your automations.",
-  },
-  {
-    icon: "speaker",
-    title: "Music over AirPlay, Bluetooth and Sendspin",
-    body: "Phones and computers can play music to the device, and Music Assistant can play to it in step with other speakers over Sendspin, its protocol for synchronised playback (experimental). Each source is off until you turn it on, and the wake word keeps working while music plays.",
-  },
-  {
-    icon: "layer",
-    title: "Updates that roll back",
-    body: "You install updates from the dashboard or from Home Assistant. An update goes to a second copy of the system, and the device returns to the old one if the new one doesn't start.",
-  },
-  {
-    icon: "shield",
-    title: "A way back to your backup",
-    body: "Fastboot stays reachable on every start, and one command restores the backup you made before installing.",
-  },
-];
 
 const hardware: { device: string; soc: string; status: string; tone: string }[] = [
   {
@@ -188,26 +144,141 @@ const gaps = [
   </section>
 
   <!-- Features -->
-  <section id="features" class="scroll-mt-20">
-    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-      <p class="eyebrow">Features</p>
-      <h2 class="section-title">What Pinna does</h2>
-
-      <div class="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {
-          features.map((feature) => (
-            <div class="card p-5">
-              <div class="brand-tile">
-                <Icon name={feature.icon} size={18} />
-              </div>
-              <h3 class="text-ink text-heading mt-4">{feature.title}</h3>
-              <p class="text-ink-muted text-body mt-2">{feature.body}</p>
-            </div>
-          ))
-        }
+  <div id="features" class="scroll-mt-20">
+    <!-- Satellite groups -->
+    <section id="groups" class="scroll-mt-20">
+      <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+        <p class="eyebrow">Satellite groups</p>
+        <h2 class="section-title">Satellites that work together</h2>
+        <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
+          Put the satellites in your home in one group, and ask any of them to
+          pass a message or act on another by its name.
+        </p>
+        <div class="mt-10">
+          <GroupsPlan />
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
+
+    <!-- Wake words -->
+    <section id="wake-words" class="scroll-mt-20">
+      <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16 lg:py-20">
+        <div>
+          <p class="eyebrow">Wake words</p>
+          <h2 class="section-title">A wake word you can tune</h2>
+          <p class="text-ink-muted text-body-l mt-4">
+            The satellite keeps its recent wakes and near misses with their
+            scores, so you can see what a sensitivity catches and what it
+            ignores. Try the slider.
+          </p>
+          <div class="facts mt-8" style="--facts: 1">
+            <div class="fact">
+              <span class="fact-title">Five built in, or your own</span>
+              <span class="fact-say">
+                Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy and Okay Nabu, up to two at once. Or upload an openWakeWord
+                model for a phrase of your own.
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact-title">Calibrate where you stand</span>
+              <span class="fact-say">
+                Say the wake word, then press + if it missed you or − if something else woke it. The ring shows the
+                setting.
+              </span>
+            </div>
+          </div>
+          <p class="mt-6 text-sm">
+            <a class="link inline-flex items-center gap-1.5" href={docHref("wake-words")}>
+              Wake words
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+        <WakeMeter />
+      </div>
+    </section>
+
+    <!-- Music -->
+    <section id="music" class="scroll-mt-20">
+      <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-16 lg:py-20">
+        <div class="lg:order-2">
+          <p class="eyebrow">Music</p>
+          <h2 class="section-title">A speaker that steps aside</h2>
+          <p class="text-ink-muted text-body-l mt-4">
+            Play from your phone, your computer or Music Assistant. When you
+            speak to the satellite, the music makes room and comes back.
+          </p>
+          <div class="facts mt-8" style="--facts: 1">
+            <div class="fact">
+              <span class="fact-title">Off until you turn it on</span>
+              <span class="fact-say">
+                AirPlay, Bluetooth, radio by name, and Sendspin, which plays in step with Music Assistant's other speakers
+                (experimental).
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact-title">Replies come first</span>
+              <span class="fact-say">
+                Music drops 20 dB while the satellite listens, works on a request or speaks.
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact-title">The wake word still hears you</span>
+              <span class="fact-say">
+                Echo cancellation lowers the device's own music by 23 to 31 dB, measured on the Echo Dot (2nd gen).
+              </span>
+            </div>
+          </div>
+          <p class="mt-6 text-sm">
+            <a class="link inline-flex items-center gap-1.5" href={docHref("music")}>
+              Play music
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+        <div class="lg:order-1">
+          <MusicDuck />
+        </div>
+      </div>
+    </section>
+
+    <!-- Updates -->
+    <section id="updates" class="scroll-mt-20">
+      <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+        <p class="eyebrow">Updates</p>
+        <h2 class="section-title">Updates that roll back by themselves</h2>
+        <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
+          The satellite has two copies of its system. An update goes into the
+          one it isn't running, and if that one doesn't start, the satellite
+          goes back to the other by itself, kernel included.
+        </p>
+        <div class="mt-10">
+          <UpdateSlots />
+        </div>
+        <div class="facts mt-10" style="--facts: 3">
+          <div class="fact">
+            <span class="fact-title">Signed releases</span>
+            <span class="fact-say">
+              It checks the Stable or Beta channel once a day, unless you turn updates off, and installs only releases whose signature checks
+              out.
+            </span>
+          </div>
+          <div class="fact">
+            <span class="fact-title">When you want</span>
+            <span class="fact-say">
+              Install from the dashboard or Home Assistant, or let it install by itself in a window you choose.
+            </span>
+          </div>
+          <div class="fact">
+            <span class="fact-title">Always a way back</span>
+            <span class="fact-say">
+              Fastboot stays reachable on every start, and your backup restores the original firmware.
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <!-- Hardware -->
   <section id="hardware" class="scroll-mt-20">
