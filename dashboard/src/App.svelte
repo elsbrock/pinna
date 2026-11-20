@@ -71,12 +71,14 @@
           <a class="pn-nav-item" href="#{x.path}" aria-current={open ? (page.path === x.path ? "page" : "true") : undefined}>
             <Icon name={x.icon} />{x.title}
           </a>
-          {#if open}
-            {#each subpagesOf(x.path) as sub (sub.path)}
-              <a class="pn-nav-sub" href="#{sub.path}" aria-current={page.path === sub.path ? "page" : undefined}>
-                {sub.title}
-              </a>
-            {/each}
+          {#if open && subpagesOf(x.path).length}
+            <div class="pn-nav-subs">
+              {#each subpagesOf(x.path) as sub (sub.path)}
+                <a class="pn-nav-sub" href="#{sub.path}" aria-current={page.path === sub.path ? "page" : undefined}>
+                  {sub.title}
+                </a>
+              {/each}
+            </div>
           {/if}
         {/each}
       {/each}

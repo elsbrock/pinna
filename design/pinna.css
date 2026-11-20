@@ -362,14 +362,18 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* The open section while one of its sub-pages is shown. */
 .pn-nav-item[aria-current="true"] { color: var(--ink); }
 .pn-nav-item[aria-current="true"] .pn-icon { color: var(--signal); }
-/* A sub-page, under its open section: indented to the section's text. */
+/* The open section's sub-pages hang from a line under its icon (the icon's centre
+   is 18px in), so they read as its children; their text lines up with the section's. */
+.pn-nav-subs { display: flex; flex-direction: column; gap: 2px; margin: 0 0 4px 17px; border-left: 1px solid var(--line); }
 .pn-nav-sub {
-  display: flex; align-items: center; height: 32px; padding: 0 10px 0 36px; box-sizing: border-box;
-  border-radius: var(--radius-sm); color: var(--ink-muted); font-size: 14px; line-height: 20px; font-weight: 550;
-  text-decoration: none; transition: background-color .12s, color .12s;
+  display: flex; align-items: center; height: 32px; margin-left: -1px; padding: 0 10px 0 17px; box-sizing: border-box;
+  border-left: 2px solid transparent; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--ink-muted); font-size: 14px; line-height: 20px; font-weight: 550;
+  text-decoration: none; transition: background-color .12s, color .12s, border-color .12s;
 }
 .pn-nav-sub:hover { background: var(--surface-sunken); color: var(--ink); }
-.pn-nav-sub[aria-current="page"] { background: var(--signal-soft); color: var(--ink); font-weight: 650; }
+/* The selected sub-page: its stretch of the line turns to the signal colour. */
+.pn-nav-sub[aria-current="page"] { background: var(--signal-soft); border-left-color: var(--signal); color: var(--ink); font-weight: 650; }
 .pn-nav-sub:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* ---------- Tab bar (phones) ---------- */
