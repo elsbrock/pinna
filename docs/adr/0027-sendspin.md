@@ -150,7 +150,8 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
    depth 10); a handshake step that takes longer than 30 s, or a
    connection that is not activated within 30 s, is closed; and so is a
    server whose clock the filter finds drifting more than 1 % from the
-   player's, twice what the lane follows (§11). The server's time replies
+   player's: real clocks differ by parts per million, and the lane follows
+   whatever drift the filter finds (§11). The server's time replies
    alone set the filter's drift, and at -100 % the conversion to local time
    runs backward, so that audio due later counts as already played.
    Every other range is rc1's. A limit that only a later draft sets, and
@@ -193,7 +194,10 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
     - **Drift** is followed by the resampler: its ratio is the product of
       the server clock's drift (from the filter) and the speaker clock's
       (from the pointer), and a proportional correction on the remaining
-      error, within a dead band of 0.1 ms. The speed never leaves ±0.5 %.
+      error, within a dead band of 0.1 ms. The correction never takes the
+      speed more than ±0.5 % off the server's timeline; the drift itself is
+      followed as the filter measures it, below the 1 % at which the server
+      is closed (§6).
     - **Jumps.** At the start, after a full clear, after an underrun, or
       when the error is too large to correct within 10 s at that speed, the
       source starts at the right sample: it skips audio or waits in
@@ -209,10 +213,11 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
       `min_buffer_ms` is the 99th percentile of how late chunks arrive over
       the last minute, reported only when it changes by more than 20 ms.
     - The sync error and the filter's error are metrics (ADR 0020), so a
-      device can show that it keeps ±1 ms. They exist only while a stream
-      sounds, so they show when music played: the one exception to ADR
-      0020's rule, kept for the release gate. The state metric doesn't add
-      to it: playing counts as connected there.
+      device can show that it keeps ±1 ms. The sync error exists, and
+      `steady` is 1, only while a stream sounds, so they show when music
+      played: the one exception to ADR 0020's rule, kept for the release
+      gate. The filter's error is there whenever a server is connected. The
+      state metric doesn't add to it: playing counts as connected there.
 12. **Other backends.** On PipeWire (the virtual Echo Dot, laptops) there is
     no hardware pointer to read: the source plays at the pacing clock, in
     time to within the PipeWire graph's latency, not to 1 ms. The status
@@ -227,11 +232,14 @@ added on its main branch up to 2026-11-11 (commit 9d2f15e).
     The media state names the source `sendspin`; the dashboard shows "From
     Music Assistant" and the metadata role's title, artist and album.
 14. **Pause and play act on the group.** Pause, play and stop from Home
-    Assistant's media player, a voice request or the dashboard, while the
-    satellite is in a Sendspin group, go to the server as controller
-    commands, so the whole group pauses, plays or stops, as grouped
-    speakers and Music Assistant's own controls do. The server ends the
-    stream (`stream/end`). A group reports `stopped` whether it was paused,
+    Assistant's media player, a voice request or the dashboard, while
+    Sendspin plays or its group waits paused from the satellite, go to the
+    server as controller commands, so the whole group pauses, plays or
+    stops, as grouped speakers and Music Assistant's own controls do. The
+    server ends the stream (`stream/end`). A server that takes no such
+    command now (no controller role, or the command not among those it
+    lists) leaves it to the lane, which pauses or stops the stream: the
+    satellite then leaves the group, as for another source. A group reports `stopped` whether it was paused,
     stopped or came to the end of its queue, so the satellite goes by what
     it sent itself. After its own Pause, the media state shows Paused with
     the source `sendspin` until the group plays again, the satellite stops
