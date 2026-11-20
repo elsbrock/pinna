@@ -2,6 +2,8 @@
 //! the satellite proves they are there. The state machine here knows nothing
 //! of the Brain or the clock; [`super::Auth`] connects them.
 
+use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::credentials::same;
@@ -11,6 +13,9 @@ pub const WINDOW: Duration = Duration::from_secs(60);
 /// After a confirmation ended, before the next may start: nobody on the LAN
 /// can keep the ring busy.
 pub const COOLDOWN: Duration = Duration::from_secs(60);
+/// After a confirmation was canceled: a stray click shouldn't lock the owner
+/// out for a minute, and ten seconds still keep anyone from holding the ring.
+pub const COOLDOWN_AFTER_CANCEL: Duration = Duration::from_secs(10);
 /// How long a grant stays good.
 pub const GRANT_TTL: Duration = Duration::from_secs(300);
 /// Grants held at once. Each needs a press, so this is never reached by one
@@ -24,15 +29,23 @@ pub enum Progress {
     /// Action was pressed; the grant is the dashboard's to present once.
     Confirmed(String),
     Expired,
+    /// The browser that asked, or a signed-in owner, stopped it.
+    Canceled,
 }
 
 /// The latest confirmation.
 #[derive(Debug)]
 pub struct Current {
     pub id: String,
+    /// Who asked, for the Overview's warning.
+    pub from: IpAddr,
     pub started: Instant,
-    /// When it was confirmed or expired.
+    /// When it was confirmed, expired or canceled.
     pub ended: Option<Instant>,
+    /// After it ended, before the next may start.
+    pub cooldown: Duration,
+    /// Wakes the task that waits for the press, when it is canceled.
+    pub cancel: Arc<tokio::sync::Notify>,
     pub progress: tokio::sync::watch::Sender<Progress>,
 }
 
@@ -49,7 +62,7 @@ impl Confirmations {
             return 0;
         };
         let end = current.ended.unwrap_or(current.started + WINDOW);
-        super::limit::ceil_secs((end + COOLDOWN).saturating_duration_since(now))
+        super::limit::ceil_secs((end + current.cooldown).saturating_duration_since(now))
     }
 }
 
@@ -128,8 +141,11 @@ mod tests {
         let (tx, _rx) = tokio::sync::watch::channel(Progress::Waiting);
         c.current = Some(Current {
             id: "a".into(),
+            from: "192.168.1.9".parse().unwrap(),
             started: t,
             ended: None,
+            cooldown: COOLDOWN,
+            cancel: Arc::default(),
             progress: tx,
         });
         // While it waits: the rest of its window and the minute after.

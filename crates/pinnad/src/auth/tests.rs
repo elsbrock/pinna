@@ -43,7 +43,7 @@ impl Rig {
     pub async fn press(&mut self) -> String {
         // The minute between two confirmations isn't what these tests are about.
         self.auth.confirmations.lock().unwrap().current = None;
-        let (id, _) = self.auth.start_confirmation().unwrap();
+        let (id, _) = self.auth.start_confirmation(WHO).unwrap();
         let mut progress = self.auth.watch_confirmation(&id).unwrap();
         let Some(Input::Presence(presence)) = self.inputs.recv().await else {
             panic!("the Brain was not asked to wait for a press");
@@ -356,7 +356,7 @@ async fn a_token_is_shown_once_and_opens_only_its_own_door() {
 #[tokio::test]
 async fn a_confirmation_waits_for_one_press_and_then_for_a_minute() {
     let mut rig = rig();
-    let (id, seconds) = rig.auth.start_confirmation().unwrap();
+    let (id, seconds) = rig.auth.start_confirmation(WHO).unwrap();
     assert_eq!(seconds, 60);
     let Some(Input::Presence(presence)) = rig.inputs.recv().await else {
         panic!("no presence");
@@ -365,7 +365,7 @@ async fn a_confirmation_waits_for_one_press_and_then_for_a_minute() {
     assert!(presence.until > Instant::now() + Duration::from_secs(58));
 
     // One at a time.
-    let e = rig.auth.start_confirmation().unwrap_err();
+    let e = rig.auth.start_confirmation(WHO).unwrap_err();
     assert_eq!(code(e), ErrorCode::ResourceExhausted);
     assert_eq!(
         code(rig.auth.watch_confirmation("nope").unwrap_err()),
@@ -384,7 +384,7 @@ async fn a_confirmation_waits_for_one_press_and_then_for_a_minute() {
     // A minute after it ended, not before.
     let s = rig.auth.security(false);
     assert!((59..=61).contains(&s.confirmation_cooldown_s), "{s:?}");
-    let e = rig.auth.start_confirmation().unwrap_err();
+    let e = rig.auth.start_confirmation(WHO).unwrap_err();
     assert_eq!(code(e), ErrorCode::ResourceExhausted);
 }
 
@@ -413,7 +413,7 @@ async fn a_confirmation_nobody_presses_expires() {
         rig.tx.clone(),
         Duration::from_millis(100),
     );
-    let (id, _) = rig.auth.start_confirmation().unwrap();
+    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
     let mut progress = rig.auth.watch_confirmation(&id).unwrap();
     let Some(Input::Presence(presence)) = rig.inputs.recv().await else {
         panic!("no presence");
@@ -584,4 +584,112 @@ fn a_window_that_ended_has_no_seconds_left() {
     assert_eq!(left(Some(now + Duration::from_millis(1500)), now), 2);
     assert_eq!(left(Some(now), now), 0);
     assert_eq!(left(Some(now), now + Duration::from_secs(1)), 0);
+}
+
+#[tokio::test]
+async fn a_second_asker_is_told_a_confirmation_from_another_browser_waits() {
+    let rig = rig();
+    rig.auth.start_confirmation(WHO).unwrap();
+    let e = rig.auth.start_confirmation(WHO).unwrap_err();
+    assert_eq!(code(e.clone()), ErrorCode::ResourceExhausted);
+    let message = e.message.unwrap_or_default();
+    assert!(
+        message.starts_with(
+            "A confirmation from another browser is waiting. Press Action only if you started it. Try again in "
+        ) && message.ends_with(" s."),
+        "{message}"
+    );
+}
+
+#[tokio::test]
+async fn a_signed_in_caller_sees_who_waits_and_for_how_long() {
+    let mut rig = rig();
+    rig.with_password().await;
+    let s = rig.auth.security(true);
+    assert!(s.confirmation_waiting_from.is_empty() && s.confirmation_left_s == 0);
+    rig.auth.confirmations.lock().unwrap().current = None;
+    rig.auth.start_confirmation(WHO).unwrap();
+    let s = rig.auth.security(true);
+    assert_eq!(s.confirmation_waiting_from, "192.168.1.9");
+    assert!((59..=60).contains(&s.confirmation_left_s), "{s:?}");
+    // Without a session, only the cooldown is told.
+    let s = rig.auth.security(false);
+    assert!(s.confirmation_waiting_from.is_empty() && s.confirmation_left_s == 0);
+    assert!(s.confirmation_cooldown_s > 0);
+}
+
+#[tokio::test]
+async fn the_id_cancels_a_confirmation_without_a_session() {
+    let mut rig = rig();
+    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let mut progress = rig.auth.watch_confirmation(&id).unwrap();
+    let Some(Input::Presence(mut presence)) = rig.inputs.recv().await else {
+        panic!("no presence");
+    };
+    rig.auth.cancel_confirmation(&id, false).unwrap();
+    assert_eq!(*progress.borrow_and_update(), ConfirmProgress::Canceled);
+    // The Brain's side of the press is gone, so the ring stops.
+    tokio::time::timeout(Duration::from_secs(2), presence.pressed.closed())
+        .await
+        .expect("the wait ended");
+    let s = rig.auth.security(true);
+    assert!(s.confirmation_waiting_from.is_empty() && s.confirmation_left_s == 0);
+    // Ending it again is not an error.
+    rig.auth.cancel_confirmation(&id, false).unwrap();
+}
+
+#[tokio::test]
+async fn a_canceled_confirmation_gives_the_next_one_ten_seconds_not_a_minute() {
+    let mut rig = rig();
+    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    rig.auth.cancel_confirmation(&id, false).unwrap();
+    let wait = rig.auth.security(false).confirmation_cooldown_s;
+    assert!((9..=10).contains(&wait), "{wait}");
+    let e = rig.auth.start_confirmation(WHO).unwrap_err();
+    assert_eq!(code(e), ErrorCode::ResourceExhausted);
+    // Ten seconds after it ended, the next may start.
+    let ended = Instant::now() - Duration::from_secs(10);
+    {
+        let mut confirmations = rig.auth.confirmations.lock().unwrap();
+        confirmations.current.as_mut().unwrap().ended = Some(ended);
+    }
+    rig.auth.start_confirmation(WHO).unwrap();
+    assert!(matches!(rig.inputs.recv().await, Some(Input::Presence(_))));
+}
+
+#[tokio::test]
+async fn an_empty_id_cancels_whichever_waits_but_only_for_a_session() {
+    let mut rig = rig();
+    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let progress = rig.auth.watch_confirmation(&id).unwrap();
+    let e = rig.auth.cancel_confirmation("", false).unwrap_err();
+    assert_eq!(code(e), ErrorCode::Unauthenticated);
+    assert_eq!(*progress.borrow(), ConfirmProgress::Waiting);
+    rig.auth.cancel_confirmation("", true).unwrap();
+    assert_eq!(*progress.borrow(), ConfirmProgress::Canceled);
+    // Nothing waits now: a second click finds it done.
+    rig.auth.cancel_confirmation("", true).unwrap();
+    let Some(Input::Presence(mut presence)) = rig.inputs.recv().await else {
+        panic!("no presence");
+    };
+    tokio::time::timeout(Duration::from_secs(2), presence.pressed.closed())
+        .await
+        .expect("the wait ended");
+}
+
+#[tokio::test]
+async fn an_unknown_id_cancels_nothing_and_a_press_is_not_undone() {
+    let mut rig = rig();
+    let (id, _) = rig.auth.start_confirmation(WHO).unwrap();
+    let e = rig.auth.cancel_confirmation("nope", true).unwrap_err();
+    assert_eq!(code(e), ErrorCode::NotFound);
+    let mut progress = rig.auth.watch_confirmation(&id).unwrap();
+    let Some(Input::Presence(presence)) = rig.inputs.recv().await else {
+        panic!("no presence");
+    };
+    presence.pressed.send(()).unwrap();
+    progress.changed().await.unwrap();
+    assert!(matches!(*progress.borrow(), ConfirmProgress::Confirmed(_)));
+    rig.auth.cancel_confirmation(&id, false).unwrap();
+    assert!(matches!(*progress.borrow(), ConfirmProgress::Confirmed(_)));
 }

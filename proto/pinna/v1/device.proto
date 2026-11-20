@@ -6,7 +6,8 @@ package pinna.v1;
 // authentication: anyone who can reach it is on the device. Served with the
 // dashboard on the LAN (`[web]`, ADR 0005) too, where a dashboard password
 // (ADR 0029) makes every call except GetSecurity, StartConfirmation,
-// WatchConfirmation and SetDashboardPassword need a session cookie; without a
+// WatchConfirmation, CancelConfirmation and SetDashboardPassword need a
+// session cookie; without a
 // password anyone who can reach it can control the device. A call without a
 // session fails with the `unauthenticated` code.
 service DeviceService {
@@ -140,9 +141,15 @@ service DeviceService {
   // Needs no session. Refused while another confirmation waits or ran in the
   // last 60 seconds.
   rpc StartConfirmation(StartConfirmationRequest) returns (StartConfirmationResponse);
-  // Follow a confirmation: waiting, then confirmed with a grant or expired.
-  // Needs no session.
+  // Follow a confirmation: waiting, then confirmed with a grant, expired or
+  // canceled. Needs no session.
   rpc WatchConfirmation(WatchConfirmationRequest) returns (stream WatchConfirmationResponse);
+  // End a confirmation: the ring stops at once, its watchers see CANCELED,
+  // and the next one may start 10 seconds later. With its id, needs no
+  // session (the id is the capability); with an empty id, ends whichever
+  // confirmation waits, and needs a session. Ending one that is not waiting
+  // is not an error.
+  rpc CancelConfirmation(CancelConfirmationRequest) returns (CancelConfirmationResponse);
   // Create the token for /metrics or for /mcp. It is returned once and
   // replaces the old one.
   rpc CreateToken(CreateTokenRequest) returns (CreateTokenResponse);
@@ -1339,6 +1346,12 @@ message Security {
   // Seconds left in which a Join is accepted, after AllowGroupJoin; 0 when
   // none is.
   uint32 group_join_left_s = 15;
+  // The address that asked for the confirmation that waits; empty when none
+  // does, and without a session.
+  string confirmation_waiting_from = 16;
+  // Seconds that confirmation still waits; 0 when none does, and without a
+  // session.
+  uint32 confirmation_left_s = 17;
 }
 
 message SetDashboardPasswordRequest {
@@ -1382,6 +1395,13 @@ message WatchConfirmationRequest {
   string id = 1;
 }
 
+message CancelConfirmationRequest {
+  // The confirmation to end. Empty: whichever one waits (needs a session).
+  string id = 1;
+}
+
+message CancelConfirmationResponse {}
+
 enum ConfirmationState {
   CONFIRMATION_STATE_UNSPECIFIED = 0;
   // The ring shows the confirm pattern; nobody pressed Action yet.
@@ -1390,6 +1410,8 @@ enum ConfirmationState {
   CONFIRMATION_STATE_CONFIRMED = 2;
   // Nobody pressed it in time.
   CONFIRMATION_STATE_EXPIRED = 3;
+  // The browser that asked, or a signed-in owner, stopped it.
+  CONFIRMATION_STATE_CANCELED = 4;
 }
 
 message WatchConfirmationResponse {

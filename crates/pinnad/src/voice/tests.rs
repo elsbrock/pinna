@@ -338,6 +338,38 @@ async fn a_confirmation_nobody_presses_ends_on_its_own() {
 }
 
 #[tokio::test]
+async fn the_ring_stops_when_the_waiting_side_goes_away() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    let (pressed, press) = oneshot::channel();
+    d.brain
+        .handle(Input::Presence(Presence {
+            until: Instant::now() + Duration::from_secs(60),
+            pressed,
+        }))
+        .await;
+    d.brain.refresh();
+    assert_eq!(d.brain.leds.borrow().base, Effect::Confirm);
+    // The confirmation was canceled or stopped: the next tick ends the ring,
+    // not the next button event.
+    drop(press);
+    d.brain.tick().await;
+    d.brain.refresh();
+    assert_ne!(d.brain.leds.borrow().base, Effect::Confirm);
+
+    let (pressed, _press) = oneshot::channel();
+    d.brain
+        .handle(Input::Presence(Presence {
+            until: Instant::now() - Duration::from_millis(1),
+            pressed,
+        }))
+        .await;
+    d.brain.tick().await;
+    d.brain.refresh();
+    assert_ne!(d.brain.leds.borrow().base, Effect::Confirm);
+}
+
+#[tokio::test]
 async fn announcement_reports_completion() {
     let mut d = Device::new();
     d.ha(HaCommand::Announce {

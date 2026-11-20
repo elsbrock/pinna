@@ -52,6 +52,8 @@ const NEEDS_PRESS: &str = "Setting the first password needs someone at the satel
 const NO_PASSWORD: &str = "No password is set.";
 const HAS_PASSWORD: &str = "A password is set. Remove it first.";
 const UNKNOWN_CONFIRMATION: &str = "That confirmation is unknown or has ended. Start a new one.";
+const CANCEL_NEEDS_ID: &str =
+    "Sign in to stop the confirmation that waits, or give the id of the one you started.";
 const NO_RING: &str = "The satellite can't take a confirmation right now. Try again in a moment.";
 const WINDOW_NEEDS_PASSWORD: &str =
     "No password is set, so Home Assistant can add this satellite without opening a window.";
@@ -317,6 +319,7 @@ impl Auth {
             }
         }
         let password_set = credentials::has_password(&creds);
+        let (confirmation_waiting_from, confirmation_left_s) = self.waiting_confirmation(now);
         let (home_assistant_window_left_s, group_join_left_s) = {
             let windows = self.windows.lock().unwrap();
             (
@@ -342,8 +345,25 @@ impl Auth {
             metrics_read: self.metrics_read.lock().unwrap().is_some_and(recent),
             home_assistant_window_left_s,
             group_join_left_s,
+            confirmation_waiting_from,
+            confirmation_left_s,
             ..Default::default()
         }
+    }
+
+    /// The address that asked for the confirmation that waits and the seconds
+    /// it still waits; empty and 0 when none does.
+    fn waiting_confirmation(&self, now: Instant) -> (String, u32) {
+        let confirmations = self.confirmations.lock().unwrap();
+        confirmations
+            .current
+            .as_ref()
+            .filter(|c| c.ended.is_none())
+            .map_or((String::new(), 0), |c| {
+                let left =
+                    limit::ceil_secs((c.started + self.window).saturating_duration_since(now));
+                (c.from.to_string(), left as u32)
+            })
     }
 
     /// Check `password` against the stored one, within the rate limit. A
@@ -535,7 +555,10 @@ impl Auth {
     }
 
     /// Ask for someone at the satellite. The id and the seconds the ring waits.
-    pub fn start_confirmation(self: &Arc<Self>) -> Result<(String, u32), ConnectError> {
+    pub fn start_confirmation(
+        self: &Arc<Self>,
+        from: IpAddr,
+    ) -> Result<(String, u32), ConnectError> {
         let now = Instant::now();
         let mut confirmations = self.confirmations.lock().unwrap();
         let wait = confirmations.cooldown(now);
@@ -546,7 +569,7 @@ impl Auth {
                 .is_some_and(|c| c.ended.is_none());
             return Err(ConnectError::resource_exhausted(if waiting {
                 format!(
-                    "Another confirmation waits for a press of Action at the satellite. Try again in {wait} s."
+                    "A confirmation from another browser is waiting. Press Action only if you started it. Try again in {wait} s."
                 )
             } else {
                 format!("A confirmation ended just now. Try again in {wait} s.")
@@ -565,25 +588,39 @@ impl Auth {
             }))
             .map_err(|_| ConnectError::unavailable(NO_RING))?;
         let (progress, _) = watch::channel(Progress::Waiting);
+        let cancel = Arc::new(tokio::sync::Notify::new());
         confirmations.current = Some(Current {
             id: id.clone(),
+            from,
             started: now,
             ended: None,
+            cooldown: confirm::COOLDOWN,
+            cancel: cancel.clone(),
             progress,
         });
         drop(confirmations);
         let auth = self.clone();
         let task_id = id.clone();
         tokio::spawn(async move {
-            let pressed = matches!(tokio::time::timeout(auth.window, press).await, Ok(Ok(())));
-            auth.finish_confirmation(&task_id, pressed);
+            tokio::select! {
+                result = tokio::time::timeout(auth.window, press) => {
+                    let pressed = matches!(result, Ok(Ok(())));
+                    auth.finish_confirmation(&task_id, pressed);
+                }
+                // Dropping `press` tells the Brain, which ends the ring.
+                () = cancel.notified() => {}
+            }
         });
         Ok((id, self.window.as_secs() as u32))
     }
 
     fn finish_confirmation(&self, id: &str, pressed: bool) {
         let mut confirmations = self.confirmations.lock().unwrap();
-        let Some(current) = confirmations.current.as_mut().filter(|c| c.id == id) else {
+        let Some(current) = confirmations
+            .current
+            .as_mut()
+            .filter(|c| c.id == id && c.ended.is_none())
+        else {
             return;
         };
         let now = Instant::now();
@@ -604,6 +641,35 @@ impl Auth {
             tracing::info!("dashboard: confirmation expired");
             current.progress.send_replace(Progress::Expired);
         }
+    }
+
+    /// End the confirmation `id`, or with an empty `id` whichever one waits,
+    /// which only a session may do: the id is the capability of the browser
+    /// that started it. The ring stops, the watchers are told, and the next
+    /// confirmation may start after [`confirm::COOLDOWN_AFTER_CANCEL`].
+    /// Nothing waiting is not an error: a second click finds it done.
+    pub fn cancel_confirmation(&self, id: &str, signed_in: bool) -> Result<(), ConnectError> {
+        if id.is_empty() && !signed_in {
+            return Err(ConnectError::unauthenticated(CANCEL_NEEDS_ID));
+        }
+        let mut confirmations = self.confirmations.lock().unwrap();
+        let current = confirmations.current.as_mut();
+        let Some(current) = current.filter(|c| id.is_empty() || c.id == id) else {
+            return if id.is_empty() {
+                Ok(())
+            } else {
+                Err(ConnectError::not_found(UNKNOWN_CONFIRMATION))
+            };
+        };
+        if current.ended.is_some() {
+            return Ok(());
+        }
+        current.ended = Some(Instant::now());
+        current.cooldown = confirm::COOLDOWN_AFTER_CANCEL;
+        current.cancel.notify_one();
+        current.progress.send_replace(Progress::Canceled);
+        tracing::info!("dashboard: confirmation canceled");
+        Ok(())
     }
 
     /// The progress of confirmation `id`, if it is the latest one.

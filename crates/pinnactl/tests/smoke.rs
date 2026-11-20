@@ -399,6 +399,14 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn cancel_confirmation(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, CancelConfirmationRequest>,
+    ) -> ServiceResult<CancelConfirmationResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn create_token(
         &self,
         _: RequestContext,

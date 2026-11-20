@@ -7,7 +7,7 @@
 //! nobody has to remember to say so. Once a password is set:
 //!
 //! - the dashboard's own files (GET and HEAD on whatever no route matches),
-//!   `POST /auth/login`, `POST /auth/logout`, and four `DeviceService` calls
+//!   `POST /auth/login`, `POST /auth/logout`, and five `DeviceService` calls
 //!   that check their own credentials are public;
 //! - `/mcp` and `/metrics` need their token as a bearer token;
 //! - `PeerService` has its own group key (ADR 0026);
@@ -45,10 +45,11 @@ const ASSISTANT_PREFIX: &str = "/pinna.v1.AssistantService/";
 
 /// The `DeviceService` calls that need no session: they say who may call them
 /// themselves.
-const PUBLIC_METHODS: [&str; 4] = [
+const PUBLIC_METHODS: [&str; 5] = [
     "GetSecurity",
     "StartConfirmation",
     "WatchConfirmation",
+    "CancelConfirmation",
     "SetDashboardPassword",
 ];
 
@@ -419,7 +420,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_four_device_calls_are_public_and_the_rest_say_to_sign_in() {
+    async fn only_five_device_calls_are_public_and_the_rest_say_to_sign_in() {
         let mut rig = rig();
         rig.with_password().await;
         let app = app(&rig.auth);

@@ -35,15 +35,15 @@ use pinna_api::{
     WatchInstallResponse, WatchLogsRequest, WatchLogsResponse, WatchRingRequest, WatchRingResponse,
     WatchStatusRequest, WatchStatusResponse,
 };
-use pinna_api::{CheckForUpdatesRequest, CheckForUpdatesResponse};
 use pinna_api::{
-    ConfirmationState, CreateTokenRequest, CreateTokenResponse, GetSecurityRequest,
-    GetSecurityResponse, LeaveDashboardOpenRequest, LeaveDashboardOpenResponse,
-    RemoveDashboardPasswordRequest, RemoveDashboardPasswordResponse, SetDashboardPasswordRequest,
-    SetDashboardPasswordResponse, SignOutEverywhereRequest, SignOutEverywhereResponse,
-    StartConfirmationRequest, StartConfirmationResponse, WatchConfirmationRequest,
-    WatchConfirmationResponse,
+    CancelConfirmationRequest, CancelConfirmationResponse, ConfirmationState, CreateTokenRequest,
+    CreateTokenResponse, GetSecurityRequest, GetSecurityResponse, LeaveDashboardOpenRequest,
+    LeaveDashboardOpenResponse, RemoveDashboardPasswordRequest, RemoveDashboardPasswordResponse,
+    SetDashboardPasswordRequest, SetDashboardPasswordResponse, SignOutEverywhereRequest,
+    SignOutEverywhereResponse, StartConfirmationRequest, StartConfirmationResponse,
+    WatchConfirmationRequest, WatchConfirmationResponse,
 };
+use pinna_api::{CheckForUpdatesRequest, CheckForUpdatesResponse};
 use pinna_api::{
     ControlMediaRequest, ControlMediaResponse, Media, MediaCommand, MediaState, PlayMediaRequest,
     PlayMediaResponse, RingLight, SetRingLightRequest, SetRingLightResponse,
@@ -1591,10 +1591,10 @@ impl DeviceService for DeviceApi {
 
     async fn start_confirmation(
         &self,
-        _ctx: RequestContext,
+        ctx: RequestContext,
         _request: ServiceRequest<'_, StartConfirmationRequest>,
     ) -> ServiceResult<StartConfirmationResponse> {
-        let (id, seconds) = self.auth()?.start_confirmation()?;
+        let (id, seconds) = self.auth()?.start_confirmation(caller(&ctx))?;
         Response::ok(StartConfirmationResponse {
             id,
             seconds,
@@ -1636,11 +1636,25 @@ impl DeviceService for DeviceApi {
                         state: ConfirmationState::CONFIRMATION_STATE_EXPIRED.into(),
                         ..Default::default()
                     },
+                    ConfirmProgress::Canceled => WatchConfirmationResponse {
+                        state: ConfirmationState::CONFIRMATION_STATE_CANCELED.into(),
+                        ..Default::default()
+                    },
                 };
                 let done = !matches!(progress, ConfirmProgress::Waiting);
                 Some((Ok(msg), (rx, false, done)))
             });
         Response::ok(Box::pin(stream))
+    }
+
+    async fn cancel_confirmation(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CancelConfirmationRequest>,
+    ) -> ServiceResult<CancelConfirmationResponse> {
+        self.auth()?
+            .cancel_confirmation(request.id, signed_in(&ctx))?;
+        Response::ok(CancelConfirmationResponse::default())
     }
 
     async fn create_token(

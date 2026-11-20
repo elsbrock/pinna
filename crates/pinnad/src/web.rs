@@ -645,7 +645,10 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "open until a password is set");
 
         // Someone presses Action: the grant sets the first password.
-        let (id, _) = f.auth.start_confirmation().unwrap();
+        let (id, _) = f
+            .auth
+            .start_confirmation(Ipv4Addr::LOCALHOST.into())
+            .unwrap();
         let mut progress = f.auth.watch_confirmation(&id).unwrap();
         let Some(crate::voice::Input::Presence(presence)) = f._inputs.recv().await else {
             panic!("no presence")
