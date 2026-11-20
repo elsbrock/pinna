@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use pinna_sendspin::{Identity, PairingStore};
@@ -101,22 +102,39 @@ pub fn save(path: &Path, saved: &Saved) -> Result<()> {
         .with_context(|| format!("writing {}", path.display()))
 }
 
+/// The least time between two writes from [`Saver::save`]. Any host on the network can send
+/// volume and mute commands as fast as it likes (ADR 0027 §4), and each one changes the state:
+/// the gap bounds the wear that puts on the flash.
+const GAP: Duration = Duration::from_secs(2);
+
 /// Writes the file from the blocking pool, one write at a time, each the latest state handed
 /// over: a volume slider dragged in Music Assistant sends many changes, and only the last one
-/// needs to reach the flash.
+/// needs to reach the flash. One task writes while changes keep coming, at most once per
+/// [`GAP`]; a change made meanwhile waits for it rather than starting another.
 #[derive(Clone)]
 pub struct Saver {
     path: PathBuf,
-    latest: Arc<Mutex<Option<Saved>>>,
+    pending: Arc<Mutex<Pending>>,
     one_at_a_time: Arc<Mutex<()>>,
+    #[cfg(test)]
+    writes: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[derive(Default)]
+struct Pending {
+    latest: Option<Saved>,
+    /// The writer task runs: it takes `latest` when its turn comes.
+    writer: bool,
 }
 
 impl Saver {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
-            latest: Arc::default(),
+            pending: Arc::default(),
             one_at_a_time: Arc::default(),
+            #[cfg(test)]
+            writes: Arc::default(),
         }
     }
 
@@ -125,20 +143,52 @@ impl Saver {
         &self.path
     }
 
-    /// Saves `saved` later. Returns at once.
+    /// How many times the file was written.
+    #[cfg(test)]
+    fn writes(&self) -> usize {
+        self.writes.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn pending(&self) -> std::sync::MutexGuard<'_, Pending> {
+        self.pending.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Saves `saved` later: at once if nothing was written in the last [`GAP`], otherwise
+    /// when it has passed. Returns at once.
     pub fn save(&self, saved: Saved) {
-        *self.latest.lock().unwrap_or_else(PoisonError::into_inner) = Some(saved);
-        let saver = self.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Err(e) = saver.write_latest() {
-                tracing::warn!("sendspin: {e:#}");
+        let mut pending = self.pending();
+        pending.latest = Some(saved);
+        if std::mem::replace(&mut pending.writer, true) {
+            return;
+        }
+        drop(pending);
+        tokio::spawn(self.clone().write_while_pending());
+    }
+
+    /// The writer task: writes the latest state and waits out the gap, until no change came
+    /// in meanwhile.
+    async fn write_while_pending(self) {
+        loop {
+            {
+                let mut pending = self.pending();
+                if pending.latest.is_none() {
+                    pending.writer = false;
+                    return;
+                }
             }
-        });
+            let saver = self.clone();
+            match tokio::task::spawn_blocking(move || saver.write_latest()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("sendspin: {e:#}"),
+                Err(e) => tracing::warn!("sendspin: saving the state: {e}"),
+            }
+            tokio::time::sleep(GAP).await;
+        }
     }
 
     /// Saves `saved` and waits until it is on the flash.
     pub async fn save_now(&self, saved: Saved) -> Result<()> {
-        *self.latest.lock().unwrap_or_else(PoisonError::into_inner) = Some(saved);
+        self.pending().latest = Some(saved);
         let saver = self.clone();
         tokio::task::spawn_blocking(move || saver.write_latest())
             .await
@@ -150,13 +200,14 @@ impl Saver {
             .one_at_a_time
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let latest = self
-            .latest
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let latest = self.pending().latest.take();
         match latest {
-            Some(saved) => save(&self.path, &saved),
+            Some(saved) => {
+                #[cfg(test)]
+                self.writes
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                save(&self.path, &saved)
+            }
             None => Ok(()),
         }
     }
@@ -237,5 +288,31 @@ mod tests {
         s.volume = 77;
         saver.save_now(s.clone()).await.unwrap();
         assert_eq!(load(saver.path()).unwrap().volume, 77);
+    }
+
+    /// A server that sends volume commands as fast as it likes starts one write, not one per
+    /// command, and the file is written at most once per gap: the first change at once, the
+    /// last one when the gap has passed.
+    #[tokio::test]
+    async fn a_stream_of_changes_writes_once_per_gap() {
+        let dir = tempfile::tempdir().unwrap();
+        let saver = Saver::new(dir.path().join("sendspin.toml"));
+        let mut s = saved();
+        let start = tokio::time::Instant::now();
+        for volume in 0..50 {
+            s.volume = volume;
+            saver.save(s.clone());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(start.elapsed() < GAP, "the test ran too slowly to tell");
+        assert_eq!(saver.writes(), 1);
+
+        let deadline = start + GAP + Duration::from_secs(3);
+        while load(saver.path()).is_none_or(|l| l.volume != 49) {
+            assert!(tokio::time::Instant::now() < deadline, "the last change");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(start.elapsed() >= GAP);
+        assert_eq!(saver.writes(), 2);
     }
 }
