@@ -490,6 +490,10 @@ test("updateSummary: the first matching state wins, failures first", async () =>
     value: "0.3.0",
     hint: "Ready to install",
   });
+  assert.deepEqual(updateSummary(u({ manifestOverride: "http://192.168.1.5:8000/manifest.json" }), run, settings()), {
+    value: run,
+    hint: "Updates come from a developer's address",
+  });
   assert.deepEqual(updateSummary(u(), run, settings({ updateChannel: CHANNEL.off })), {
     value: run,
     hint: "Updates are off",

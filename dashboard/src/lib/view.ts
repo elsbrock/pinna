@@ -581,7 +581,7 @@ export type UpdateSummary = { value: string; hint: string; tone?: "danger" | "ca
  * the row never reads calm while something needs the owner.
  */
 export function updateSummary(
-  u: (UpdatesLike & Pick<GetUpdatesResponse, "unavailableReason" | "lastInstall" | "release" | "restartPending" | "check">) | null,
+  u: (UpdatesLike & Pick<GetUpdatesResponse, "unavailableReason" | "lastInstall" | "release" | "restartPending" | "check" | "manifestOverride">) | null,
   running: string,
   settings: Pick<Settings, "updateChannel" | "installUpdates" | "installWindowStart" | "installWindowEnd"> | undefined,
 ): UpdateSummary {
@@ -605,6 +605,8 @@ export function updateSummary(
     return { value: u.release.version, hint: "Needs a new boot image, installed over USB", tone: "caution" };
   }
   if (u.release && action === ACTION.install) return { value: u.release.version, hint: "Ready to install" };
+  // A developer's own update address replaces the channel (ADR 0022), so the channel says nothing.
+  if (u.manifestOverride) return { value: running, hint: "Updates come from a developer's address" };
   if (!settings) return { value: running, hint: "Where updates come from, and installing them" };
   const channel = channelName(settings.updateChannel);
   if (channel === "off") return { value: running, hint: "Updates are off", tone: "caution" };
