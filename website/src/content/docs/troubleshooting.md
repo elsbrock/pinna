@@ -408,6 +408,44 @@ Otherwise, install Pinna again. This erases the data partition:
 2. Install the root filesystem and the boot image again with
    `scripts/flash-gen2.sh root` and `scripts/flash-gen2.sh boot`.
 
+## Record what the satellite hears
+
+If the wake word or the echo cancellation misbehaves, a recording of what the
+satellite hears shows a developer why. **Record audio** records up to 30
+seconds from the microphones, as the wake word and requests get them. On the
+Echo Dot (2nd gen) and the Echo (2nd gen), it also records the signal of each
+microphone lane, the signal before Pinna's gain, and the echo reference.
+
+Recording needs a dashboard password and a press of Action on the satellite,
+so that nobody can start it without being there. The satellite doesn't store
+anything. The audio goes only to the browser that asked, and you save it
+from there.
+
+1. Set a [dashboard password](/docs/dashboard/#set-change-and-remove-the-password),
+   if you haven't.
+2. On the dashboard, open **System > Record audio** and select **Record**.
+3. Press Action on the satellite. Its ring circles in the Listening colour
+   while it waits. Press it only if you started the recording yourself.
+4. Make the problem happen, such as saying the wake word while the satellite
+   replies. During the recording, the ring shows Listening, and the satellite
+   works as usual. Muting the microphones ends the recording at once.
+5. Select **Stop**, or wait for the 30 seconds to pass. The page says why
+   the recording ended, and lists the files.
+6. Select **Save** next to each file.
+
+Leaving the page also ends the recording, and what it recorded is lost.
+
+The first file, **What the satellite hears**, has one channel. The second,
+**Microphone lanes and echo cancellation**, isn't made on the virtual Echo
+Dot. Its first channels are the microphone lanes as the codec delivers them
+(9 on the Echo Dot (2nd gen): 7 microphones, then 2 reference lanes), then
+the signal before Pinna's gain, then the echo reference. The channels come
+from separate streams, so they aren't aligned to the sample.
+
+The files are the audio of your room: they can hold what people said. Send
+them privately, and attach them to a reply only when a developer asks. Don't
+attach them to a public issue.
+
 ## Report a problem
 
 If you can't solve it,
