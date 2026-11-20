@@ -34,10 +34,10 @@ This page helps you find your way around the
 
 | Crate | Purpose |
 | --- | --- |
-| `pinnad` | The voice satellite: wake word, buttons, light ring, requests to Home Assistant or, in standalone mode, to your own services, timers, announcements, media playback, mute and volume. Also serves the control API, the dashboard and the MCP server, and checks the update channel |
+| `pinnad` | The voice satellite: wake word, buttons, light ring, requests to Home Assistant or, in standalone mode, to your own services, timers, announcements, media playback, the Sendspin player, mute and volume. Also serves the control API, the dashboard and the MCP server, and checks the update channel |
 | `pinna-esphome` | The server side of the ESPHome native API, with or without encryption |
 | `pinna-wakeword` | Wake word detection for `.onnx` and `.tflite` models (the openWakeWord words and compatible classifiers), run on the `tract` inference library |
-| `pinna-audio` | Microphone capture and speaker playback, through ALSA or PipeWire, with mixing, ducking and audio decoding |
+| `pinna-audio` | Microphone capture and speaker playback, through ALSA or PipeWire, with mixing, ducking and audio decoding, and timed sources that play each sample at the time a server's clock sets (ADR 0027) |
 | `pinna-ladspa` | The microphone beamformer, as a LADSPA plugin for PipeWire |
 | `pinna-hal` | Access to the LED ring, the buttons, the microphone privacy switch and the device identity, with mock versions for tests |
 | `pinna-api` | The control API service, generated from `proto/` |
@@ -49,6 +49,7 @@ This page helps you find your way around the
 | `pinna-airplay` | Runs `shairport-sync` and passes its audio, the sender's volume and the sender's track to `pinnad` (ADR 0011) |
 | `pinna-bt` | Opens the Bluetooth pairing window in BlueZ, accepts pairings only then, reports the paired phones, and passes a phone's audio (BlueALSA), volume and track to `pinnad` (ADR 0011) |
 | `pinna-bridge` | What `pinna-airplay` and `pinna-bt` share: sessions on the stream socket and the control API on `127.0.0.1` |
+| `pinna-sendspin` | The Sendspin protocol for a player that servers connect to (ADR 0027): the messages and their range checks, binary frames, the Noise handshake, the clock filter, pairing records and the connection that ties them together. It does no audio and no I/O |
 | `pinna-assist` | One standalone request, without device state (ADR 0017): the adapters for speech-to-text (OpenAI-compatible and ElevenLabs), the brain (OpenAI-compatible chat completions, Anthropic's Messages API and Gemini) and text-to-speech (OpenAI-compatible and ElevenLabs), the presets, the checks a connection gets when it is saved, the tool loop, the sentence splitter, the system prompt and the format of `standalone.toml` |
 | `pinna-mcp` | The MCP protocol (ADR 0017): JSON-RPC messages and tool types, the server logic behind `pinnad`'s `/mcp`, and the Streamable HTTP client for your own MCP servers |
 | `pinna-vad` | The energy VAD and the end-of-speech detector, without dependencies. The wake word detection and standalone requests use it (ADR 0017) |
@@ -75,6 +76,21 @@ These modules of `pinnad` run [standalone mode](/docs/standalone/) (ADR 0017):
 | `store.rs` | Writes `settings.toml` and the standalone files durably, and keeps the entries this version can't read |
 | `secrets.rs` | Reads and writes `secrets.toml`, which only its owner can read (mode 0600) |
 | `clock.rs` | The local time, from the time zone setting, for the time tool and the brain |
+
+### Sendspin in `pinnad`
+
+The `sendspin/` module of `pinnad` runs the [Sendspin player](/docs/sendspin/)
+(ADR 0027) on `pinna-sendspin`:
+
+| File | Purpose |
+| --- | --- |
+| `mod.rs` | The service's interface to the state machine: on and off, renames, pause, play and stop for the group, the volume and mute, and the report that `Status` and the metrics show |
+| `service.rs` | The task that runs every connection: the listener and the mDNS record, which server is admitted, the stream's timed source in the media lane, the player's state as servers hear it, and the report |
+| `socket.rs` | The listener on port 8928, which takes only a WebSocket upgrade at `/sendspin`, refuses browsers and a third connection, and moves frames between each socket and the service |
+| `clock.rs` | The server's clock for the media lane, from the connection's clock filter |
+| `lateness.rs` | How late audio arrives, for the buffer the player asks the server for |
+| `record.rs` | The player's name and its `_sendspin._tcp` record, which systemd-resolved publishes |
+| `saved.rs` | `sendspin.toml`: the player's identity, pairing key and pairings, the last server that played, and the volume and mute |
 
 ### On your computer
 
