@@ -33,6 +33,27 @@ Without Tailwind, import `tokens.css` and `pinna.css` alone. Serve the fonts
 yourself: the dashboard runs on the satellite and must work offline, so nothing
 loads from a font CDN.
 
+## Pages
+
+How the dashboard cuts its screens into pages. `pages/Voice.svelte` and its
+subpages are the model.
+
+- **One page, one job.** A page answers one question an owner comes with:
+  update the satellite, lock the dashboard, choose the wake word. The flows of
+  that job share its page: installing and switching slots are both updates.
+- **A section page is a hub.** It holds the everyday settings of its area and
+  one row per subpage (`pn-row` as a link, with a chevron). The row's value and
+  hint show that subpage's state, a failure first, so the hub still says where
+  things stand: an install that failed, a dashboard open to the network.
+- **A topic gets a subpage** when it has a flow of its own (steps, a
+  confirmation at the satellite, a wait) or needs more than one group.
+- **Look again at a page with more than four groups,** counting the ones that
+  show only in some states.
+- **Two levels only**: a section and its subpages, at `/section/subpage`. A
+  subpage has no subpages.
+- **Overview is the status page.** Its tiles and notices link to the page that
+  explains them or fixes the cause.
+
 ## Change
 
 - Edit `tokens.json`, then run `node design/build.mjs` and commit both generated
