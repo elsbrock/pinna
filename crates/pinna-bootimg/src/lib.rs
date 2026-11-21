@@ -392,6 +392,394 @@ pub mod arm64 {
     }
 }
 
+/// The boot image for the Echo Dot (5th gen) (`cannoli`, MT8519, ADR 0034):
+/// a U-Boot FIT (`.itb`), not the Android boot image the MT8163 and MT8516
+/// use. U-Boot reads it from `boot_a`/`boot_b` with `ubi read`, then
+/// `bootm <addr>#conf-1`. A FIT is a flattened device tree holding the
+/// 32-bit `zImage`, the `cannoli-*.dtb` device trees, and one configuration
+/// per board revision (plus recovery configurations that add a ramdisk).
+///
+/// ```text
+/// / {
+///   images {
+///     kernel-1 { data=<zImage>; type="kernel"; arch="arm"; load; entry; }
+///     fdt-1    { data=<dtb>;    type="flat_dt"; … }   (one per board rev)
+///     ramdisk-1 { data=<cpio>; type="ramdisk"; … }    (if a ramdisk is given)
+///   }
+///   configurations {
+///     default = "conf-1";
+///     conf-1 { kernel="kernel-1"; fdt="fdt-1"; }       (one per fdt)
+///     conf-1-recovery { … ramdisk="ramdisk-1"; }       (if a ramdisk is given)
+///   }
+/// }
+/// ```
+///
+/// The load and entry addresses and the configuration names are read from the
+/// stock boot FIT on a unit before the first image is written; the defaults
+/// here are provisional. Integrity is a `crc32` hash per image; signing
+/// follows the installed bootloader's trust model, also read on a unit.
+pub mod fit {
+    use super::ZIMAGE_MAGIC;
+    use anyhow::{Result, bail, ensure};
+    use std::collections::HashMap;
+
+    /// Where U-Boot's `bootm` places the kernel. Provisional: SDRAM base
+    /// (`0x40000000`) plus 64 MiB, clear of the kernel's own load window.
+    /// Confirm against the stock FIT on a unit (ADR 0034).
+    pub const LOAD_ADDR: u32 = 0x4400_0000;
+    /// The zImage entry; a self-relocating zImage takes the load address.
+    pub const ENTRY_ADDR: u32 = 0x4400_0000;
+
+    const FDT_MAGIC: u32 = 0xD00D_FEED;
+    const FDT_BEGIN_NODE: u32 = 1;
+    const FDT_END_NODE: u32 = 2;
+    const FDT_PROP: u32 = 3;
+    const FDT_NOP: u32 = 4;
+    const FDT_END: u32 = 9;
+
+    /// One device tree to offer, with the board revision it describes.
+    pub struct Dtb<'a> {
+        /// Human description, e.g. the board revision (`cannoli-hvt`).
+        pub description: &'a str,
+        pub data: &'a [u8],
+    }
+
+    /// One configuration: a `(kernel, fdt[, ramdisk])` choice U-Boot can boot.
+    pub struct Conf<'a> {
+        /// The node name U-Boot selects, e.g. `conf-1` (`loadcfg` default).
+        pub node: &'a str,
+        pub description: &'a str,
+        /// Index into the `dtbs` slice.
+        pub fdt: usize,
+        /// Add the ramdisk (a recovery configuration).
+        pub recovery: bool,
+    }
+
+    /// Build a FIT image from a 32-bit `zImage`, the board device trees, an
+    /// optional ramdisk, and the configurations. `default` is the first
+    /// configuration.
+    pub fn build(
+        description: &str,
+        zimage: &[u8],
+        dtbs: &[Dtb],
+        ramdisk: Option<&[u8]>,
+        configs: &[Conf],
+        load: u32,
+        entry: u32,
+    ) -> Result<Vec<u8>> {
+        ensure!(is_zimage(zimage), "the kernel is not a 32-bit zImage");
+        ensure!(!dtbs.is_empty(), "no device tree");
+        ensure!(!configs.is_empty(), "no configuration");
+        for (i, d) in dtbs.iter().enumerate() {
+            ensure!(
+                fdt_totalsize(d.data) == Some(d.data.len()),
+                "DTB {i} is not a DTB"
+            );
+        }
+        for c in configs {
+            ensure!(
+                c.fdt < dtbs.len(),
+                "configuration {} names fdt {} of {}",
+                c.node,
+                c.fdt,
+                dtbs.len()
+            );
+            if c.recovery && ramdisk.is_none() {
+                bail!(
+                    "configuration {} is a recovery one but no ramdisk was given",
+                    c.node
+                );
+            }
+        }
+
+        let mut w = Writer::new();
+        w.begin_node(""); // root
+        w.prop_str("description", description);
+        w.prop_u32("#address-cells", 1);
+
+        w.begin_node("images");
+        w.begin_node("kernel-1");
+        w.prop("data", zimage);
+        w.prop_str("type", "kernel");
+        w.prop_str("arch", "arm");
+        w.prop_str("os", "linux");
+        w.prop_str("compression", "none");
+        w.prop_u32("load", load);
+        w.prop_u32("entry", entry);
+        w.hash(zimage);
+        w.end_node();
+        for (i, d) in dtbs.iter().enumerate() {
+            w.begin_node(&format!("fdt-{}", i + 1));
+            w.prop_str("description", d.description);
+            w.prop("data", d.data);
+            w.prop_str("type", "flat_dt");
+            w.prop_str("arch", "arm");
+            w.prop_str("compression", "none");
+            w.hash(d.data);
+            w.end_node();
+        }
+        if let Some(rd) = ramdisk {
+            w.begin_node("ramdisk-1");
+            w.prop("data", rd);
+            w.prop_str("type", "ramdisk");
+            w.prop_str("arch", "arm");
+            w.prop_str("os", "linux");
+            w.prop_str("compression", "none");
+            w.hash(rd);
+            w.end_node();
+        }
+        w.end_node(); // images
+
+        w.begin_node("configurations");
+        w.prop_str("default", configs[0].node);
+        for c in configs {
+            w.begin_node(c.node);
+            w.prop_str("description", c.description);
+            w.prop_str("kernel", "kernel-1");
+            w.prop_str("fdt", &format!("fdt-{}", c.fdt + 1));
+            if c.recovery {
+                w.prop_str("ramdisk", "ramdisk-1");
+            }
+            w.end_node();
+        }
+        w.end_node(); // configurations
+
+        w.end_node(); // root
+        Ok(w.finish())
+    }
+
+    fn is_zimage(z: &[u8]) -> bool {
+        z.len() >= 0x30 && super::u32_at(z, 0x24) == ZIMAGE_MAGIC
+    }
+
+    /// A DTB's totalsize when `b` starts with a plausible one that fits.
+    fn fdt_totalsize(b: &[u8]) -> Option<usize> {
+        let be = |o: usize| Some(u32::from_be_bytes(b.get(o..o + 4)?.try_into().ok()?));
+        if be(0)? != FDT_MAGIC {
+            return None;
+        }
+        let total = be(4)? as usize;
+        (total >= 40 && total <= b.len()).then_some(total)
+    }
+
+    /// Table-less CRC-32 (IEEE), the FIT `crc32` hash.
+    pub(crate) fn crc32(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in data {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg(); // all ones if the low bit is set
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    /// A flattened-device-tree writer: the FIT is an FDT.
+    struct Writer {
+        structs: Vec<u8>,
+        strings: Vec<u8>,
+        offsets: HashMap<String, u32>,
+    }
+
+    impl Writer {
+        fn new() -> Self {
+            Self {
+                structs: Vec::new(),
+                strings: Vec::new(),
+                offsets: HashMap::new(),
+            }
+        }
+        fn tok(&mut self, t: u32) {
+            self.structs.extend_from_slice(&t.to_be_bytes());
+        }
+        fn align(&mut self) {
+            while !self.structs.len().is_multiple_of(4) {
+                self.structs.push(0);
+            }
+        }
+        fn begin_node(&mut self, name: &str) {
+            self.tok(FDT_BEGIN_NODE);
+            self.structs.extend_from_slice(name.as_bytes());
+            self.structs.push(0);
+            self.align();
+        }
+        fn end_node(&mut self) {
+            self.tok(FDT_END_NODE);
+        }
+        fn string_off(&mut self, name: &str) -> u32 {
+            if let Some(&o) = self.offsets.get(name) {
+                return o;
+            }
+            let o = self.strings.len() as u32;
+            self.strings.extend_from_slice(name.as_bytes());
+            self.strings.push(0);
+            self.offsets.insert(name.to_string(), o);
+            o
+        }
+        fn prop(&mut self, name: &str, value: &[u8]) {
+            let noff = self.string_off(name);
+            self.tok(FDT_PROP);
+            self.structs
+                .extend_from_slice(&(value.len() as u32).to_be_bytes());
+            self.structs.extend_from_slice(&noff.to_be_bytes());
+            self.structs.extend_from_slice(value);
+            self.align();
+        }
+        fn prop_u32(&mut self, name: &str, v: u32) {
+            self.prop(name, &v.to_be_bytes());
+        }
+        fn prop_str(&mut self, name: &str, v: &str) {
+            let mut b = v.as_bytes().to_vec();
+            b.push(0);
+            self.prop(name, &b);
+        }
+        /// A `hash-1 { algo = "crc32"; value = <crc>; }` child.
+        fn hash(&mut self, data: &[u8]) {
+            self.begin_node("hash-1");
+            self.prop_str("algo", "crc32");
+            self.prop_u32("value", crc32(data));
+            self.end_node();
+        }
+        fn finish(mut self) -> Vec<u8> {
+            self.tok(FDT_END);
+            let header = 40u32;
+            let rsvmap = 16u32; // one terminating (0, 0) entry
+            let off_struct = header + rsvmap;
+            let off_strings = off_struct + self.structs.len() as u32;
+            let total = off_strings + self.strings.len() as u32;
+            let mut out = Vec::with_capacity(total as usize);
+            for v in [
+                FDT_MAGIC,
+                total,
+                off_struct,
+                off_strings,
+                header, // off_mem_rsvmap
+                17,     // version
+                16,     // last_comp_version
+                0,      // boot_cpuid_phys
+                self.strings.len() as u32,
+                self.structs.len() as u32,
+            ] {
+                out.extend_from_slice(&v.to_be_bytes());
+            }
+            out.extend_from_slice(&[0u8; 16]); // rsvmap terminator
+            out.extend_from_slice(&self.structs);
+            out.extend_from_slice(&self.strings);
+            out
+        }
+    }
+
+    /// A node of a parsed FDT, enough to read a FIT back.
+    #[derive(Debug, Default)]
+    pub struct Node {
+        pub name: String,
+        pub props: Vec<(String, Vec<u8>)>,
+        pub children: Vec<Node>,
+    }
+
+    impl Node {
+        /// A child node by name.
+        pub fn child(&self, name: &str) -> Option<&Node> {
+            self.children.iter().find(|n| n.name == name)
+        }
+        /// A property's bytes.
+        pub fn prop(&self, name: &str) -> Option<&[u8]> {
+            self.props
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.as_slice())
+        }
+        /// A string property (one string, trailing nul trimmed).
+        pub fn prop_str(&self, name: &str) -> Option<String> {
+            let v = self.prop(name)?;
+            let end = v.iter().position(|&c| c == 0).unwrap_or(v.len());
+            Some(String::from_utf8_lossy(&v[..end]).into_owned())
+        }
+        /// A big-endian u32 property.
+        pub fn prop_u32(&self, name: &str) -> Option<u32> {
+            let v = self.prop(name)?;
+            Some(u32::from_be_bytes(v.get(..4)?.try_into().ok()?))
+        }
+    }
+
+    /// Parse a FIT (an FDT) into its root node.
+    pub fn parse(data: &[u8]) -> Result<Node> {
+        let be = |o: usize| -> Result<u32> {
+            Ok(u32::from_be_bytes(
+                data.get(o..o + 4)
+                    .ok_or_else(|| anyhow::anyhow!("short FDT"))?
+                    .try_into()
+                    .unwrap(),
+            ))
+        };
+        ensure!(be(0)? == FDT_MAGIC, "not an FDT (bad magic)");
+        let off_struct = be(8)? as usize;
+        let off_strings = be(12)? as usize;
+        let str_at = |o: usize| -> Result<String> {
+            let s = data
+                .get(off_strings + o..)
+                .ok_or_else(|| anyhow::anyhow!("bad string offset"))?;
+            let end = s
+                .iter()
+                .position(|&c| c == 0)
+                .ok_or_else(|| anyhow::anyhow!("unterminated string"))?;
+            Ok(String::from_utf8_lossy(&s[..end]).into_owned())
+        };
+        let align = |p: usize| (p + 3) & !3;
+
+        let mut pos = off_struct;
+        let mut stack: Vec<Node> = Vec::new();
+        let mut root: Option<Node> = None;
+        loop {
+            match be(pos)? {
+                FDT_BEGIN_NODE => {
+                    let name_start = pos + 4;
+                    let name_end = name_start
+                        + data
+                            .get(name_start..)
+                            .and_then(|s| s.iter().position(|&c| c == 0))
+                            .ok_or_else(|| anyhow::anyhow!("unterminated node name"))?;
+                    let name = String::from_utf8_lossy(&data[name_start..name_end]).into_owned();
+                    stack.push(Node {
+                        name,
+                        ..Node::default()
+                    });
+                    pos = align(name_end + 1);
+                }
+                FDT_END_NODE => {
+                    let node = stack
+                        .pop()
+                        .ok_or_else(|| anyhow::anyhow!("unbalanced FDT"))?;
+                    match stack.last_mut() {
+                        Some(parent) => parent.children.push(node),
+                        None => root = Some(node),
+                    }
+                    pos += 4;
+                }
+                FDT_PROP => {
+                    let len = be(pos + 4)? as usize;
+                    let name = str_at(be(pos + 8)? as usize)?;
+                    let value = data
+                        .get(pos + 12..pos + 12 + len)
+                        .ok_or_else(|| anyhow::anyhow!("short property"))?
+                        .to_vec();
+                    stack
+                        .last_mut()
+                        .ok_or_else(|| anyhow::anyhow!("property outside a node"))?
+                        .props
+                        .push((name, value));
+                    pos = align(pos + 12 + len);
+                }
+                FDT_NOP => pos += 4,
+                FDT_END => break,
+                t => bail!("bad FDT token {t:#x}"),
+            }
+        }
+        root.ok_or_else(|| anyhow::anyhow!("no root node"))
+    }
+}
+
 /// One member of a newc cpio archive (permissions in `perm`, type from the variant).
 #[derive(Debug, Clone, Copy)]
 pub enum CpioEntry<'a> {
@@ -850,5 +1238,192 @@ mod tests {
             BootImage::parse(&bytes).unwrap().header.kernel_addr,
             0x4008_0000
         );
+    }
+
+    #[test]
+    fn crc32_matches_the_known_check_value() {
+        // The IEEE CRC-32 of "123456789" is 0xCBF43926.
+        assert_eq!(fit::crc32(b"123456789"), 0xCBF4_3926);
+        assert_eq!(fit::crc32(b""), 0);
+    }
+
+    #[test]
+    fn fit_holds_the_kernel_the_dtbs_and_a_config_each() {
+        let z = fake_zimage(4096);
+        let hvt = fake_dtb(256);
+        let dvt = fake_dtb(256);
+        let itb = fit::build(
+            "test",
+            &z,
+            &[
+                fit::Dtb {
+                    description: "cannoli-hvt",
+                    data: &hvt,
+                },
+                fit::Dtb {
+                    description: "cannoli-dvt",
+                    data: &dvt,
+                },
+            ],
+            None,
+            &[
+                fit::Conf {
+                    node: "conf-1",
+                    description: "cannoli-hvt",
+                    fdt: 0,
+                    recovery: false,
+                },
+                fit::Conf {
+                    node: "conf-2",
+                    description: "cannoli-dvt",
+                    fdt: 1,
+                    recovery: false,
+                },
+            ],
+            fit::LOAD_ADDR,
+            fit::ENTRY_ADDR,
+        )
+        .unwrap();
+
+        let root = fit::parse(&itb).unwrap();
+        assert_eq!(root.prop_str("description").as_deref(), Some("test"));
+
+        let images = root.child("images").unwrap();
+        let kernel = images.child("kernel-1").unwrap();
+        assert_eq!(kernel.prop("data").unwrap(), z.as_slice());
+        assert_eq!(kernel.prop_str("type").as_deref(), Some("kernel"));
+        assert_eq!(kernel.prop_u32("load"), Some(fit::LOAD_ADDR));
+        assert_eq!(kernel.prop_u32("entry"), Some(fit::ENTRY_ADDR));
+        assert_eq!(
+            images.child("fdt-1").unwrap().prop("data").unwrap(),
+            hvt.as_slice()
+        );
+        assert_eq!(
+            images.child("fdt-2").unwrap().prop("data").unwrap(),
+            dvt.as_slice()
+        );
+        assert!(images.child("ramdisk-1").is_none());
+        // The crc32 hash child is present and correct.
+        let h = kernel.child("hash-1").unwrap();
+        assert_eq!(h.prop_str("algo").as_deref(), Some("crc32"));
+        assert_eq!(h.prop_u32("value"), Some(fit::crc32(&z)));
+
+        let cfgs = root.child("configurations").unwrap();
+        assert_eq!(cfgs.prop_str("default").as_deref(), Some("conf-1"));
+        assert_eq!(
+            cfgs.child("conf-2").unwrap().prop_str("fdt").as_deref(),
+            Some("fdt-2")
+        );
+        assert!(cfgs.child("conf-1").unwrap().prop("ramdisk").is_none());
+    }
+
+    #[test]
+    fn fit_adds_recovery_configs_with_the_ramdisk() {
+        let z = fake_zimage(2048);
+        let dtb = fake_dtb(128);
+        let rd = vec![0x42u8; 512];
+        let itb = fit::build(
+            "test",
+            &z,
+            &[fit::Dtb {
+                description: "cannoli-hvt",
+                data: &dtb,
+            }],
+            Some(&rd),
+            &[
+                fit::Conf {
+                    node: "conf-1",
+                    description: "cannoli-hvt",
+                    fdt: 0,
+                    recovery: false,
+                },
+                fit::Conf {
+                    node: "conf-1-recovery",
+                    description: "cannoli-hvt",
+                    fdt: 0,
+                    recovery: true,
+                },
+            ],
+            fit::LOAD_ADDR,
+            fit::ENTRY_ADDR,
+        )
+        .unwrap();
+        let root = fit::parse(&itb).unwrap();
+        let ramdisk = root.child("images").unwrap().child("ramdisk-1").unwrap();
+        assert_eq!(ramdisk.prop("data").unwrap(), rd.as_slice());
+        let rec = root
+            .child("configurations")
+            .unwrap()
+            .child("conf-1-recovery")
+            .unwrap();
+        assert_eq!(rec.prop_str("ramdisk").as_deref(), Some("ramdisk-1"));
+    }
+
+    #[test]
+    fn fit_refuses_what_u_boot_would_not_boot() {
+        let z = fake_zimage(2048);
+        let dtb = fake_dtb(128);
+        let conf = |fdt| fit::Conf {
+            node: "conf-1",
+            description: "x",
+            fdt,
+            recovery: false,
+        };
+        let rec = fit::Conf {
+            node: "conf-1",
+            description: "x",
+            fdt: 0,
+            recovery: true,
+        };
+        // Not a zImage.
+        assert!(
+            fit::build(
+                "x",
+                &[0u8; 64],
+                &[fit::Dtb {
+                    description: "x",
+                    data: &dtb
+                }],
+                None,
+                &[conf(0)],
+                0,
+                0
+            )
+            .is_err()
+        );
+        // A configuration naming a device tree that isn't there.
+        assert!(
+            fit::build(
+                "x",
+                &z,
+                &[fit::Dtb {
+                    description: "x",
+                    data: &dtb
+                }],
+                None,
+                &[conf(1)],
+                0,
+                0
+            )
+            .is_err()
+        );
+        // A recovery configuration with no ramdisk.
+        assert!(
+            fit::build(
+                "x",
+                &z,
+                &[fit::Dtb {
+                    description: "x",
+                    data: &dtb
+                }],
+                None,
+                &[rec],
+                0,
+                0
+            )
+            .is_err()
+        );
+        // No device tree at all.
+        assert!(fit::build("x", &z, &[], None, &[conf(0)], 0, 0).is_err());
     }
 }

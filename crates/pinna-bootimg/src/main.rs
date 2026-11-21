@@ -6,7 +6,9 @@ use clap::{Parser, Subcommand};
 use pinna_bootimg::*;
 
 #[derive(Parser)]
-#[command(about = "Android v0 boot images for the MT8163 and MT8516 Echo devices")]
+#[command(
+    about = "Boot images for the Echo devices: Android v0 for the MT8163 and MT8516, a U-Boot FIT for the MT8519"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -45,6 +47,25 @@ enum Cmd {
     },
     /// Re-serialize an image and check it is byte-identical.
     Roundtrip { image: PathBuf },
+    /// Build a U-Boot FIT (`.itb`) for the Echo Dot (5th gen) (MT8519, ADR
+    /// 0034): a 32-bit zImage, one DTB per board revision, and one
+    /// configuration each (plus `-recovery` configurations when a ramdisk is
+    /// given). The default configuration is `conf-1`.
+    FitPack {
+        #[arg(long)]
+        zimage: PathBuf,
+        /// One or more device trees; each becomes `fdt-N` and `conf-N`.
+        #[arg(long, required = true)]
+        dtb: Vec<PathBuf>,
+        /// A ramdisk (cpio, optionally compressed) for the recovery
+        /// configurations.
+        #[arg(long)]
+        ramdisk: Option<PathBuf>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Print a FIT's description, images and configurations.
+    FitInfo { image: PathBuf },
     /// Build the initramfs (newc cpio) around a static pinna-init.
     Initramfs {
         #[arg(long)]
@@ -193,6 +214,119 @@ fn main() -> Result<()> {
             let again = img.to_bytes(Some(data.len()))?;
             ensure!(again == data, "round-trip differs");
             println!("{}: byte-identical round-trip", image.display());
+        }
+        Cmd::FitPack {
+            zimage,
+            dtb,
+            ramdisk,
+            out,
+        } => {
+            let read =
+                |p: &PathBuf| fs::read(p).with_context(|| format!("reading {}", p.display()));
+            let z = read(&zimage)?;
+            let dtb_bytes = dtb.iter().map(read).collect::<Result<Vec<_>>>()?;
+            let ramdisk_bytes = ramdisk.as_ref().map(read).transpose()?;
+            // Each configuration is described by its device tree's first root
+            // compatible (the board revision), or its index as a fallback.
+            let descs: Vec<String> = dtb_bytes
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    arm64::root_compatibles(d)
+                        .and_then(|c| c.into_iter().next())
+                        .unwrap_or_else(|| format!("cannoli-{}", i + 1))
+                })
+                .collect();
+            let dtbs: Vec<fit::Dtb> = dtb_bytes
+                .iter()
+                .zip(&descs)
+                .map(|(d, desc)| fit::Dtb {
+                    description: desc,
+                    data: d,
+                })
+                .collect();
+            let names: Vec<String> = (1..=dtbs.len()).map(|n| format!("conf-{n}")).collect();
+            let rec_names: Vec<String> = (1..=dtbs.len())
+                .map(|n| format!("conf-{n}-recovery"))
+                .collect();
+            let mut confs: Vec<fit::Conf> = (0..dtbs.len())
+                .map(|i| fit::Conf {
+                    node: &names[i],
+                    description: &descs[i],
+                    fdt: i,
+                    recovery: false,
+                })
+                .collect();
+            if ramdisk_bytes.is_some() {
+                confs.extend((0..dtbs.len()).map(|i| fit::Conf {
+                    node: &rec_names[i],
+                    description: &descs[i],
+                    fdt: i,
+                    recovery: true,
+                }));
+            }
+            let itb = fit::build(
+                "Pinna Echo Dot (5th gen) (cannoli)",
+                &z,
+                &dtbs,
+                ramdisk_bytes.as_deref(),
+                &confs,
+                fit::LOAD_ADDR,
+                fit::ENTRY_ADDR,
+            )?;
+            fs::write(&out, &itb)?;
+            println!(
+                "{}: {} bytes ({} device tree(s), {} configuration(s))",
+                out.display(),
+                itb.len(),
+                dtbs.len(),
+                confs.len()
+            );
+        }
+        Cmd::FitInfo { image } => {
+            let data = fs::read(&image)?;
+            let root = fit::parse(&data)?;
+            println!(
+                "description     {}",
+                root.prop_str("description").unwrap_or_default()
+            );
+            if let Some(images) = root.child("images") {
+                for img in &images.children {
+                    print!(
+                        "image {:<12} {:<8} {} bytes",
+                        img.name,
+                        img.prop_str("type").unwrap_or_default(),
+                        img.prop("data").map_or(0, <[u8]>::len)
+                    );
+                    if let (Some(l), Some(e)) = (img.prop_u32("load"), img.prop_u32("entry")) {
+                        print!(" load {l:#010x} entry {e:#010x}");
+                    }
+                    if let Some(d) = img.prop_str("description") {
+                        print!("  ({d})");
+                    }
+                    println!();
+                }
+            }
+            if let Some(cfgs) = root.child("configurations") {
+                println!(
+                    "default         {}",
+                    cfgs.prop_str("default").unwrap_or_default()
+                );
+                for c in &cfgs.children {
+                    let ramdisk = c
+                        .prop_str("ramdisk")
+                        .map(|r| format!(" ramdisk={r}"))
+                        .unwrap_or_default();
+                    println!(
+                        "config {:<16} kernel={} fdt={}{}  ({})",
+                        c.name,
+                        c.prop_str("kernel").unwrap_or_default(),
+                        c.prop_str("fdt").unwrap_or_default(),
+                        ramdisk,
+                        c.prop_str("description").unwrap_or_default()
+                    );
+                }
+            }
         }
     }
     Ok(())
