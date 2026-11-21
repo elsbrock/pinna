@@ -197,6 +197,10 @@ kernel-x86:
 kernel-qemu-arm64:
     kernel/build.sh qemu-arm64
 
+# the MT8516 Echos' arm64 kernel and the Echo Dot (3rd gen) device tree (ADR 0031)
+kernel-mt8516:
+    kernel/build.sh mt8516
+
 # boot the x86_64 image under KVM and check it (needs: just kernel-x86 image-x86)
 vm-test-x86: initramfs-x86
     ARCH=x86_64 tests/vm/boot-test.sh
@@ -211,7 +215,7 @@ vm-hotspot-test: initramfs-x86
 
 # kernel config assertions for every variant (no build)
 kernel-config:
-    for v in device qemu qemu-arm64 x86; do CHECK_ONLY=1 kernel/build.sh $v; done
+    for v in device qemu qemu-arm64 mt8516 x86; do CHECK_ONLY=1 kernel/build.sh $v; done
 
 # boot image round trips: a saved boot_a from before Pinna and our own
 bootimg-roundtrip:

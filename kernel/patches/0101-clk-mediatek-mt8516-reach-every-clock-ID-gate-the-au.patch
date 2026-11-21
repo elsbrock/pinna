@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 10:45:15 +0100
+Subject: [PATCH 101/111] clk: mediatek: mt8516: reach every clock ID, gate the
+ audio dividers by read-modify-write, add the infracfg resets
+
+From lidar-mainline by LeagueRaINi (GPL-2.0, commit db8242a), which runs
+mainline Linux on the Echo Plus (2nd gen), backported to 6.12 for the
+MT8516 Echos (ADR 0031).
+
+- The onecell table is sized by the highest clock ID, not by the number of
+  clocks: the MT8516 leaves IDs unregistered (the DDR muxes), so clock ID
+  176 was out of reach.
+- CLK_AUDDIV_0 has no set/clear aliases; its gates (the APLL12 dividers)
+  are read-modify-write.
+- infracfg provides the INFRA_RST0 resets (set at 0x30, clear at 0x34),
+  which MSDC2 needs.
+---
+ drivers/clk/mediatek/clk-mt8516.c | 19 ++++++++++++++++++-
+ drivers/clk/mediatek/clk-mtk.c    | 26 ++++++++++++++++++++++++++
+ 2 files changed, 44 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/mediatek/clk-mt8516.c b/drivers/clk/mediatek/clk-mt8516.c
+index 21eb052b0..c3db81b6f 100644
+--- a/drivers/clk/mediatek/clk-mt8516.c
++++ b/drivers/clk/mediatek/clk-mt8516.c
+@@ -541,8 +541,13 @@ static const struct mtk_gate_regs top5_cg_regs = {
+ #define GATE_TOP4_I(_id, _name, _parent, _shift)			\
+ 	GATE_MTK(_id, _name, _parent, &top4_cg_regs, _shift, &mtk_clk_gate_ops_setclr_inv)
+ 
++/*
++ * CLK_AUDDIV_0 (0x44) is a plain read/write register that also holds the
++ * aud_i2sN_m_sel muxes; it has no set/clr aliases, so gates must use
++ * read-modify-write.
++ */
+ #define GATE_TOP5(_id, _name, _parent, _shift)				\
+-	GATE_MTK(_id, _name, _parent, &top5_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++	GATE_MTK(_id, _name, _parent, &top5_cg_regs, _shift, &mtk_clk_gate_ops_no_setclr)
+ 
+ static const struct mtk_gate top_clks[] __initconst = {
+ 	/* TOP1 */
+@@ -654,9 +659,21 @@ static const struct mtk_clk_desc topck_desc = {
+ 	.clk_lock = &mt8516_clk_lock,
+ };
+ 
++/* INFRA_RST0: set (assert) at 0x30, clear (deassert) at 0x34 */
++static u16 infra_rst_ofs[] = {
++	0x30,
++};
++
++static const struct mtk_clk_rst_desc infra_rst_desc = {
++	.version = MTK_RST_SET_CLR,
++	.rst_bank_ofs = infra_rst_ofs,
++	.rst_bank_nr = ARRAY_SIZE(infra_rst_ofs),
++};
++
+ static const struct mtk_clk_desc infra_desc = {
+ 	.composite_clks = ifr_muxes,
+ 	.num_composite_clks = ARRAY_SIZE(ifr_muxes),
++	.rst_desc = &infra_rst_desc,
+ 	.clk_lock = &mt8516_clk_lock,
+ };
+ 
+diff --git a/drivers/clk/mediatek/clk-mtk.c b/drivers/clk/mediatek/clk-mtk.c
+index 644e5a854..2d47d0e86 100644
+--- a/drivers/clk/mediatek/clk-mtk.c
++++ b/drivers/clk/mediatek/clk-mtk.c
+@@ -464,6 +464,31 @@ void mtk_clk_unregister_dividers(const struct mtk_clk_divider *mcds, int num,
+ }
+ EXPORT_SYMBOL_GPL(mtk_clk_unregister_dividers);
+ 
++/*
++ * The onecell table is indexed by clock ID. Some SoCs leave IDs in their
++ * binding unregistered (e.g. MT8516 DDR muxes), so the number of clocks can
++ * be smaller than the highest ID + 1.
++ */
++static int mtk_clk_desc_num_ids(const struct mtk_clk_desc *mcd)
++{
++	int i, n = 0;
++
++	for (i = 0; i < mcd->num_clks; i++)
++		n = max(n, mcd->clks[i].id + 1);
++	for (i = 0; i < mcd->num_composite_clks; i++)
++		n = max(n, mcd->composite_clks[i].id + 1);
++	for (i = 0; i < mcd->num_divider_clks; i++)
++		n = max(n, mcd->divider_clks[i].id + 1);
++	for (i = 0; i < mcd->num_fixed_clks; i++)
++		n = max(n, mcd->fixed_clks[i].id + 1);
++	for (i = 0; i < mcd->num_factor_clks; i++)
++		n = max(n, mcd->factor_clks[i].id + 1);
++	for (i = 0; i < mcd->num_mux_clks; i++)
++		n = max(n, mcd->mux_clks[i].id + 1);
++
++	return n;
++}
++
+ static int __mtk_clk_simple_probe(struct platform_device *pdev,
+ 				  struct device_node *node)
+ {
+@@ -513,6 +538,7 @@ static int __mtk_clk_simple_probe(struct platform_device *pdev,
+ 	num_clks = mcd->num_clks + mcd->num_composite_clks;
+ 	num_clks += mcd->num_fixed_clks + mcd->num_factor_clks;
+ 	num_clks += mcd->num_mux_clks + mcd->num_divider_clks;
++	num_clks = max(num_clks, mtk_clk_desc_num_ids(mcd));
+ 
+ 	clk_data = mtk_alloc_clk_data(num_clks);
+ 	if (!clk_data) {
+-- 
+2.54.0
+

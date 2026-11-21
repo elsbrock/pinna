@@ -6,6 +6,8 @@
 #   kernel/build.sh qemu       -> build/kernel-qemu/ (ARM QEMU virt variant for boot tests, no package)
 #   kernel/build.sh qemu-arm64 -> build/kernel-qemu-arm64/ (arm64 QEMU virt variant that boots the
 #                                 armhf image as 32-bit EL0, ADR 0031; no package)
+#   kernel/build.sh mt8516     -> build/kernel-mt8516/{Image.gz,dtbs} (the MT8516 Echos, ADR 0031;
+#                                 no package yet)
 #   kernel/build.sh x86        -> build/kernel-x86/ (x86_64 QEMU/KVM variant for smoke tests, no package)
 #
 #   DEBUG=1       also merge kernel/debug.config (ftrace, debugfs, sysrq, …)
@@ -36,6 +38,9 @@ case "$variant" in
   qemu)   out=$root/build/kernel-qemu; fragments+=("$here/qemu.config"); targets=(zImage) ;;
   qemu-arm64)
           out=$root/build/kernel-qemu-arm64; fragments+=("$here/qemu-arm64.config"); targets=(Image)
+          arch=arm64; cross=aarch64-unknown-linux-gnu-; compat=armv7l-unknown-linux-gnueabihf- ;;
+  mt8516) out=$root/build/kernel-mt8516; fragments+=("$here/mt8516.config")
+          targets=(Image.gz mediatek/mt8516-amazon-donut.dtb)
           arch=arm64; cross=aarch64-unknown-linux-gnu-; compat=armv7l-unknown-linux-gnueabihf- ;;
   x86)    out=$root/build/kernel-x86; fragments+=("$here/x86.config"); targets=(bzImage)
           arch=x86_64; cross= ;;
@@ -124,6 +129,16 @@ if [ "$variant" = device ]; then
   end_phys=$(( 0x$end_virt - 0xC0000000 + 0x40000000 ))
   printf 'vmlinux _end: virt 0x%s phys 0x%x (limit 0x43000000)\n' "$end_virt" "$end_phys"
   [ "$end_phys" -lt $((0x43000000)) ] || { echo "kernel image overlaps ATF" >&2; exit 1; }
+fi
+
+if [ "$variant" = mt8516 ]; then
+  # LK gunzips the Image to 0x40080000; with its BSS (the header's
+  # image_size) it must end below BL31 at 0x43000000 (lidar-mainline,
+  # tools/lidarboot.py).
+  size=$(od -An -t u8 -j 16 -N 8 "$out/arch/arm64/boot/Image" | tr -d ' ')
+  end=$(( 0x40080000 + size ))
+  printf 'Image end: 0x%x (limit 0x43000000)\n' "$end"
+  [ "$end" -lt $((0x43000000)) ] || { echo "kernel image overlaps BL31" >&2; exit 1; }
 fi
 
 krel=$(cat "$out/include/config/kernel.release")

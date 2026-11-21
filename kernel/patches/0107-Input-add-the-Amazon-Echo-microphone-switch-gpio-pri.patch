@@ -1,0 +1,297 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 10:51:35 +0100
+Subject: [PATCH 107/111] Input: add the Amazon Echo microphone switch
+ (gpio-privacy)
+
+The microphone switch of Amazon's MT8516 Echos is a hardware latch that
+cuts the microphones. Only its button opens it; software reads it and can
+close it. Ported to 6.12 from gpio_privacy.c in Amazon's Echo Dot (3rd
+gen) source release 6.5.7.1 (Linux 4.4, GPL-2.0), which Fire OS and
+TECHO5 run on the Dot (ADR 0031):
+
+- sysfs "state" reads 1 while the microphones are cut;
+- sysfs "enable" takes only 1, holds the enable line until the latch
+  reads closed, for up to 100 ms, then releases it;
+- each change of the latch is a press and release of linux,code.
+
+The MT8163's amz_privacy (patch 0012) behaves the same under other names
+(privacy_state, privacy_trigger) and adds mute_lamp; each board's
+description names its switch's files (ADR 0032). Written with gpiod
+and devm; the compatible is "amazon,gpio-privacy" rather than the
+vendor's bare "gpio-privacy", and the properties sit on the node instead
+of an input_event child.
+---
+ drivers/input/misc/Kconfig        |  11 ++
+ drivers/input/misc/Makefile       |   1 +
+ drivers/input/misc/gpio-privacy.c | 224 ++++++++++++++++++++++++++++++
+ 3 files changed, 236 insertions(+)
+ create mode 100644 drivers/input/misc/gpio-privacy.c
+
+diff --git a/drivers/input/misc/Kconfig b/drivers/input/misc/Kconfig
+index 6a852c763..b30335217 100644
+--- a/drivers/input/misc/Kconfig
++++ b/drivers/input/misc/Kconfig
+@@ -325,6 +325,17 @@ config INPUT_GPIO_DECODER
+ 	 To compile this driver as a module, choose M here: the module
+ 	 will be called gpio_decoder.
+ 
++config INPUT_GPIO_PRIVACY
++	tristate "Amazon Echo microphone switch"
++	depends on GPIOLIB && (OF || COMPILE_TEST)
++	help
++	  Say Y here for the microphone switch of Amazon's MT8516 Echos, a
++	  hardware latch that cuts the microphones. Its state and a control
++	  that closes it are in sysfs; each change is an input event.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called gpio-privacy.
++
+ config INPUT_GPIO_VIBRA
+ 	tristate "GPIO vibrator support"
+ 	depends on GPIOLIB || COMPILE_TEST
+diff --git a/drivers/input/misc/Makefile b/drivers/input/misc/Makefile
+index 4f7f73683..0c059cc1c 100644
+--- a/drivers/input/misc/Makefile
++++ b/drivers/input/misc/Makefile
+@@ -40,6 +40,7 @@ obj-$(CONFIG_INPUT_DRV2665_HAPTICS)	+= drv2665.o
+ obj-$(CONFIG_INPUT_DRV2667_HAPTICS)	+= drv2667.o
+ obj-$(CONFIG_INPUT_GPIO_BEEPER)		+= gpio-beeper.o
+ obj-$(CONFIG_INPUT_GPIO_DECODER)	+= gpio_decoder.o
++obj-$(CONFIG_INPUT_GPIO_PRIVACY)	+= gpio-privacy.o
+ obj-$(CONFIG_INPUT_GPIO_VIBRA)		+= gpio-vibra.o
+ obj-$(CONFIG_INPUT_HISI_POWERKEY)	+= hisi_powerkey.o
+ obj-$(CONFIG_HP_SDC_RTC)		+= hp_sdc_rtc.o
+diff --git a/drivers/input/misc/gpio-privacy.c b/drivers/input/misc/gpio-privacy.c
+new file mode 100644
+index 000000000..cf7e9757b
+--- /dev/null
++++ b/drivers/input/misc/gpio-privacy.c
+@@ -0,0 +1,224 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * The microphone switch of Amazon's MT8516 Echos: a hardware latch that
++ * cuts the microphones. Only its button opens the latch. Software reads it
++ * and can close it, never open it.
++ *
++ * sysfs, on the platform device:
++ *   state   1 while the microphones are cut, else 0
++ *   enable  write 1 to close the latch; anything else is refused
++ *
++ * Each change of the latch is reported as a press and release of the
++ * device tree's linux,code (KEY_MUTE on the Echo Dot (3rd gen)).
++ *
++ * Ported to current kernels from gpio_privacy.c in Amazon's Echo Dot (3rd
++ * gen) source release 6.5.7.1 (drivers/input/keyboard, Linux 4.4, GPL-2.0),
++ * which Fire OS and TECHO5 run on the Dot: the same sysfs files, the same
++ * 100 ms wait for the latch to close, the same event.
++ *
++ * Copyright (C) 2018 Amazon.com, Inc. or its affiliates.
++ */
++
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/input.h>
++#include <linux/interrupt.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/platform_device.h>
++#include <linux/pm_wakeup.h>
++#include <linux/property.h>
++#include <linux/workqueue.h>
++
++#define GPIO_PRIVACY_DEBOUNCE_MS	5
++/* How long the enable line is held while the latch closes. */
++#define GPIO_PRIVACY_CLOSE_WAIT_MS	100
++
++struct gpio_privacy {
++	struct device *dev;
++	struct gpio_descs *state;
++	struct gpio_desc *enable;
++	struct mutex lock;		/* the enable pulse against state reads */
++	struct input_dev *input;
++	unsigned int code;
++	unsigned int debounce_ms;
++	struct delayed_work work;
++};
++
++/* 1 while any state line says the microphones are cut. */
++static int gpio_privacy_read(struct gpio_privacy *p)
++{
++	int i, v;
++
++	for (i = 0; i < p->state->ndescs; i++) {
++		v = gpiod_get_value_cansleep(p->state->desc[i]);
++		if (v < 0)
++			return v;
++		if (v)
++			return 1;
++	}
++
++	return 0;
++}
++
++static ssize_t state_show(struct device *dev, struct device_attribute *attr,
++			  char *buf)
++{
++	struct gpio_privacy *p = dev_get_drvdata(dev);
++	int v;
++
++	mutex_lock(&p->lock);
++	v = gpio_privacy_read(p);
++	mutex_unlock(&p->lock);
++	if (v < 0)
++		return v;
++
++	return sysfs_emit(buf, "%d\n", v);
++}
++static DEVICE_ATTR_RO(state);
++
++static ssize_t enable_store(struct device *dev, struct device_attribute *attr,
++			    const char *buf, size_t count)
++{
++	struct gpio_privacy *p = dev_get_drvdata(dev);
++	int enable, i, ret = -ETIMEDOUT;
++
++	if (kstrtoint(buf, 10, &enable))
++		return -EINVAL;
++	/* Software never opens the latch: only the button does. */
++	if (enable != 1)
++		return -EINVAL;
++
++	mutex_lock(&p->lock);
++	gpiod_set_value_cansleep(p->enable, 1);
++	for (i = 0; i < GPIO_PRIVACY_CLOSE_WAIT_MS; i++) {
++		if (gpio_privacy_read(p) == 1) {
++			ret = 0;
++			break;
++		}
++		usleep_range(1000, 1100);
++	}
++	gpiod_set_value_cansleep(p->enable, 0);
++	mutex_unlock(&p->lock);
++
++	return ret ? ret : count;
++}
++static DEVICE_ATTR_WO(enable);
++
++static struct attribute *gpio_privacy_attrs[] = {
++	&dev_attr_state.attr,
++	&dev_attr_enable.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(gpio_privacy);
++
++static void gpio_privacy_work(struct work_struct *work)
++{
++	struct gpio_privacy *p = container_of(work, struct gpio_privacy,
++					      work.work);
++
++	input_report_key(p->input, p->code, 1);
++	input_sync(p->input);
++	input_report_key(p->input, p->code, 0);
++	input_sync(p->input);
++
++	pm_relax(p->dev);
++}
++
++static irqreturn_t gpio_privacy_irq(int irq, void *data)
++{
++	struct gpio_privacy *p = data;
++
++	pm_stay_awake(p->dev);
++	mod_delayed_work(system_wq, &p->work,
++			 msecs_to_jiffies(p->debounce_ms));
++
++	return IRQ_HANDLED;
++}
++
++static void gpio_privacy_cancel(void *data)
++{
++	struct gpio_privacy *p = data;
++
++	cancel_delayed_work_sync(&p->work);
++}
++
++static int gpio_privacy_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct gpio_privacy *p;
++	int i, irq, ret;
++
++	p = devm_kzalloc(dev, sizeof(*p), GFP_KERNEL);
++	if (!p)
++		return -ENOMEM;
++	p->dev = dev;
++	mutex_init(&p->lock);
++	INIT_DELAYED_WORK(&p->work, gpio_privacy_work);
++	platform_set_drvdata(pdev, p);
++
++	p->state = devm_gpiod_get_array(dev, "state", GPIOD_IN);
++	if (IS_ERR(p->state))
++		return dev_err_probe(dev, PTR_ERR(p->state),
++				     "no state-gpios\n");
++
++	/* Released at probe: the latch is the button's to close or open. */
++	p->enable = devm_gpiod_get(dev, "enable", GPIOD_OUT_LOW);
++	if (IS_ERR(p->enable))
++		return dev_err_probe(dev, PTR_ERR(p->enable),
++				     "no enable-gpios\n");
++
++	if (device_property_read_u32(dev, "linux,code", &p->code))
++		p->code = KEY_MUTE;
++	if (device_property_read_u32(dev, "debounce-interval", &p->debounce_ms))
++		p->debounce_ms = GPIO_PRIVACY_DEBOUNCE_MS;
++
++	p->input = devm_input_allocate_device(dev);
++	if (!p->input)
++		return -ENOMEM;
++	p->input->name = "gpio-privacy";
++	p->input->phys = "gpio-privacy/input0";
++	input_set_capability(p->input, EV_KEY, p->code);
++	ret = input_register_device(p->input);
++	if (ret)
++		return ret;
++
++	ret = devm_add_action_or_reset(dev, gpio_privacy_cancel, p);
++	if (ret)
++		return ret;
++
++	for (i = 0; i < p->state->ndescs; i++) {
++		irq = gpiod_to_irq(p->state->desc[i]);
++		if (irq < 0)
++			return dev_err_probe(dev, irq, "state line %d has no IRQ\n", i);
++		ret = devm_request_irq(dev, irq, gpio_privacy_irq,
++				       IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
++				       "gpio-privacy", p);
++		if (ret)
++			return ret;
++	}
++
++	device_init_wakeup(dev, device_property_read_bool(dev, "wakeup-source"));
++
++	return 0;
++}
++
++static const struct of_device_id gpio_privacy_of_match[] = {
++	{ .compatible = "amazon,gpio-privacy" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, gpio_privacy_of_match);
++
++static struct platform_driver gpio_privacy_driver = {
++	.driver = {
++		.name = "gpio-privacy",
++		.of_match_table = gpio_privacy_of_match,
++		.dev_groups = gpio_privacy_groups,
++	},
++	.probe = gpio_privacy_probe,
++};
++module_platform_driver(gpio_privacy_driver);
++
++MODULE_DESCRIPTION("Amazon Echo microphone switch (privacy latch)");
++MODULE_LICENSE("GPL");
+-- 
+2.54.0
+

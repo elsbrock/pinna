@@ -1,0 +1,386 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 10:52:43 +0100
+Subject: [PATCH 108/111] ASoC: mediatek: mt8516: add the Amazon Echo Dot (3rd
+ gen) machine driver
+
+For the MT8516 Echos (ADR 0031). Playback goes from DL1 over I2S to the
+TAS2770 speaker amplifier; the two TLV320ADC3101s share one TDM line
+with four microphones; AWB loops DL1 back as the echo reference.
+
+After lidar-mainline's driver for the Echo Plus (2nd gen) by LeagueRaINi
+(GPL-2.0, commit db8242a), which has the same AFE paths and ADCs, without
+its DAC, output switch and crossover. The links follow donut.c in
+Amazon's Echo Dot (3rd gen) source release 6.5.7.1. Playback takes 16 and
+24 bit samples: on the stock kernel the TAS2770 plays S24_LE and stays
+silent on S32_LE (TECHO5). Not yet run on a Dot.
+---
+ sound/soc/mediatek/Kconfig                    |  13 +
+ sound/soc/mediatek/mt8516/Makefile            |   3 +
+ .../soc/mediatek/mt8516/mt8516-amazon-donut.c | 322 ++++++++++++++++++
+ 3 files changed, 338 insertions(+)
+ create mode 100644 sound/soc/mediatek/mt8516/mt8516-amazon-donut.c
+
+diff --git a/sound/soc/mediatek/Kconfig b/sound/soc/mediatek/Kconfig
+index 97323b9a3..466d0bb2d 100644
+--- a/sound/soc/mediatek/Kconfig
++++ b/sound/soc/mediatek/Kconfig
+@@ -361,3 +361,16 @@ config SND_SOC_MT8516
+ 	  of the MediaTek MT8516 chip that can be used with other codecs.
+ 	  Select Y if you have such device.
+ 	  If unsure select "N".
++
++config SND_SOC_MT8516_AMAZON_DONUT
++	tristate "ASoC Audio driver for the MT8516 based Amazon Echo Dot (3rd gen)"
++	depends on SND_SOC_MT8516 && I2C && GPIOLIB
++	select SND_SOC_TAS2770
++	select SND_SOC_TLV320ADC3XXX
++	imply RESET_GPIO
++	help
++	  This adds support for ASoC machine driver for the Amazon Echo
++	  Dot (3rd generation), codename "donut", with a TAS2770 speaker
++	  amplifier and two TLV320ADC3101 microphone ADCs.
++	  Select Y if you have such device.
++	  If unsure select "N".
+diff --git a/sound/soc/mediatek/mt8516/Makefile b/sound/soc/mediatek/mt8516/Makefile
+index 752fbe0bf..be92f2205 100644
+--- a/sound/soc/mediatek/mt8516/Makefile
++++ b/sound/soc/mediatek/mt8516/Makefile
+@@ -6,3 +6,6 @@ snd-soc-mt8516-afe-y := \
+ 	mt8516-afe-pcm.o
+ 
+ obj-$(CONFIG_SND_SOC_MT8516) += snd-soc-mt8516-afe.o
++
++# machine driver
++obj-$(CONFIG_SND_SOC_MT8516_AMAZON_DONUT) += mt8516-amazon-donut.o
+diff --git a/sound/soc/mediatek/mt8516/mt8516-amazon-donut.c b/sound/soc/mediatek/mt8516/mt8516-amazon-donut.c
+new file mode 100644
+index 000000000..02862f8eb
+--- /dev/null
++++ b/sound/soc/mediatek/mt8516/mt8516-amazon-donut.c
+@@ -0,0 +1,322 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Amazon Echo Dot (3rd generation, "donut") ALSA SoC machine driver
++ *
++ * Playback: AFE DL1 -> I2S -> TI TAS2770 speaker amplifier.
++ * Capture: four microphones on two TLV320ADC3101 stereo ADCs, sharing one
++ * TDM data line into the AFE; the echo reference is the AFE's loopback of
++ * DL1 (AWB).
++ *
++ * After lidar-mainline's driver for the Echo Plus (2nd generation)
++ * (mt8516-amazon-lidar.c, LeagueRaINi), which has the same AFE paths and
++ * the same ADCs. The links follow donut.c in Amazon's Echo Dot (3rd gen)
++ * source release 6.5.7.1. The 3.5 mm socket is the SoC's internal codec,
++ * which this kernel has no driver for yet. Not yet run on a Dot.
++ */
++
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <sound/pcm_params.h>
++#include <sound/soc.h>
++
++/* Every microphone ADC fills two 32 bit slots of the TDM frame. */
++#define DONUT_MIC_SLOT_WIDTH	32
++#define DONUT_MIC_MAX_CODECS	2
++
++enum {
++	/* FE */
++	DAI_LINK_DL1_PLAYBACK,
++	DAI_LINK_MIC_CAPTURE,
++	DAI_LINK_AWB_CAPTURE,
++	/* BE */
++	DAI_LINK_SPEAKER,
++	DAI_LINK_MIC,
++	DAI_LINK_DL_LOOPBACK,
++};
++
++/*
++ * On the stock kernel the TAS2770 plays S24_LE and stays silent on S32_LE
++ * (TECHO5, techo5-dot docs/hardware-donut.md), so the speaker takes 16 and
++ * 24 bit samples only. Whether S32_LE works with the mainline codec driver
++ * is to be measured.
++ */
++static int donut_playback_startup(struct snd_pcm_substream *substream)
++{
++	return snd_pcm_hw_constraint_mask64(substream->runtime,
++					    SNDRV_PCM_HW_PARAM_FORMAT,
++					    SNDRV_PCM_FMTBIT_S16_LE |
++					    SNDRV_PCM_FMTBIT_S24_LE);
++}
++
++static const struct snd_soc_ops donut_playback_ops = {
++	.startup = donut_playback_startup,
++};
++
++/*
++ * As on lidar: the ADCs share the data line of one TDM frame in DSP mode
++ * B, each sending its stereo pair in the next two slots. They are clocked
++ * from the bit clock and launch data on its rising edge, the inverted bit
++ * clock polarity in ASoC terms, while the SoC's TDM input samples with its
++ * default polarity.
++ */
++static int donut_mic_init(struct snd_soc_pcm_runtime *rtd)
++{
++	unsigned int slots = 2 * rtd->dai_link->num_codecs;
++	struct snd_soc_dai *codec_dai;
++	int i, ret;
++
++	ret = snd_soc_dai_set_fmt(snd_soc_rtd_to_cpu(rtd, 0),
++				  SND_SOC_DAIFMT_DSP_B | SND_SOC_DAIFMT_NB_NF |
++				  SND_SOC_DAIFMT_BP_FP);
++	if (ret)
++		return ret;
++
++	for_each_rtd_codec_dais(rtd, i, codec_dai) {
++		unsigned int mask = 0x3 << (2 * i);
++
++		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_B |
++					  SND_SOC_DAIFMT_IB_NF |
++					  SND_SOC_DAIFMT_BC_FC);
++		if (ret)
++			return ret;
++
++		ret = snd_soc_dai_set_tdm_slot(codec_dai, mask, mask, slots,
++					       DONUT_MIC_SLOT_WIDTH);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++/*
++ * The TDM frame layout is fixed by the ADCs: two channels per ADC, S32_LE
++ * with 24 bits (TECHO5 captures the same from the stock driver).
++ */
++static int donut_mic_fe_startup(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
++	struct snd_soc_dai_link *mic_link = &rtd->card->dai_link[DAI_LINK_MIC];
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	int ret;
++
++	ret = snd_pcm_hw_constraint_single(runtime, SNDRV_PCM_HW_PARAM_CHANNELS,
++					   2 * mic_link->num_codecs);
++	if (ret < 0)
++		return ret;
++
++	ret = snd_pcm_hw_constraint_mask64(runtime, SNDRV_PCM_HW_PARAM_FORMAT,
++					   SNDRV_PCM_FMTBIT_S32_LE);
++	if (ret < 0)
++		return ret;
++
++	return 0;
++}
++
++static const struct snd_soc_ops donut_mic_fe_ops = {
++	.startup = donut_mic_fe_startup,
++};
++
++SND_SOC_DAILINK_DEFS(playback,
++		     DAILINK_COMP_ARRAY(COMP_CPU("DL1")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(mic_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("TDM_IN")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(awb_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("AWB")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++
++SND_SOC_DAILINK_DEFS(speaker,
++		     DAILINK_COMP_ARRAY(COMP_CPU("I2S")),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(mic,
++		     DAILINK_COMP_ARRAY(COMP_CPU("TDM_IN_IO")),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(dl_loopback,
++		     DAILINK_COMP_ARRAY(COMP_CPU("DL Input")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++
++static struct snd_soc_dai_link donut_dai_links[] = {
++	/* Front End DAI links */
++	[DAI_LINK_DL1_PLAYBACK] = {
++		.name = "DL1_FE",
++		.stream_name = "Playback",
++		.id = DAI_LINK_DL1_PLAYBACK,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.playback_only = 1,
++		.dpcm_merged_format = 1,
++		.dpcm_merged_rate = 1,
++		.ops = &donut_playback_ops,
++		SND_SOC_DAILINK_REG(playback),
++	},
++	[DAI_LINK_MIC_CAPTURE] = {
++		.name = "TDM_IN_FE",
++		.stream_name = "Microphone Capture",
++		.id = DAI_LINK_MIC_CAPTURE,
++		/* Start the memory interface before the TDM input feeds it. */
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_PRE,
++			SND_SOC_DPCM_TRIGGER_PRE
++		},
++		.dynamic = 1,
++		.capture_only = 1,
++		.dpcm_merged_format = 1,
++		.dpcm_merged_rate = 1,
++		.ops = &donut_mic_fe_ops,
++		SND_SOC_DAILINK_REG(mic_capture),
++	},
++	[DAI_LINK_AWB_CAPTURE] = {
++		.name = "AWB_FE",
++		.stream_name = "Playback Reference Capture",
++		.id = DAI_LINK_AWB_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.capture_only = 1,
++		SND_SOC_DAILINK_REG(awb_capture),
++	},
++	/* Back End DAI links */
++	[DAI_LINK_SPEAKER] = {
++		.name = "I2S_BE",
++		.id = DAI_LINK_SPEAKER,
++		.no_pcm = 1,
++		.playback_only = 1,
++		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
++			   SND_SOC_DAIFMT_CBC_CFC,
++		SND_SOC_DAILINK_REG(speaker),
++	},
++	[DAI_LINK_MIC] = {
++		.name = "TDM_IN_BE",
++		.id = DAI_LINK_MIC,
++		.no_pcm = 1,
++		.capture_only = 1,
++		.init = donut_mic_init,
++		SND_SOC_DAILINK_REG(mic),
++	},
++	[DAI_LINK_DL_LOOPBACK] = {
++		.name = "DL_BE",
++		.id = DAI_LINK_DL_LOOPBACK,
++		.no_pcm = 1,
++		.capture_only = 1,
++		SND_SOC_DAILINK_REG(dl_loopback),
++	},
++};
++
++static struct snd_soc_card donut_card = {
++	.name = "amazon-donut",
++	.owner = THIS_MODULE,
++	.dai_link = donut_dai_links,
++	.num_links = ARRAY_SIZE(donut_dai_links),
++};
++
++static void donut_put_node(void *data)
++{
++	of_node_put(data);
++}
++
++static void donut_put_codecs(void *data)
++{
++	struct snd_soc_card *card = data;
++
++	snd_soc_of_put_dai_link_codecs(&card->dai_link[DAI_LINK_SPEAKER]);
++	snd_soc_of_put_dai_link_codecs(&card->dai_link[DAI_LINK_MIC]);
++}
++
++static int donut_parse_codecs(struct device *dev, const char *name,
++			      struct snd_soc_dai_link *link)
++{
++	struct device_node *link_node __free(device_node) =
++		of_get_child_by_name(dev->of_node, name);
++	struct device_node *codec_node __free(device_node) =
++		of_get_child_by_name(link_node, "codec");
++	int ret;
++
++	if (!codec_node)
++		return dev_err_probe(dev, -EINVAL, "missing %s codec node\n",
++				     name);
++
++	ret = snd_soc_of_get_dai_link_codecs(dev, codec_node, link);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to get %s codecs\n",
++				     name);
++
++	return 0;
++}
++
++static int donut_probe(struct platform_device *pdev)
++{
++	struct snd_soc_card *card = &donut_card;
++	struct device *dev = &pdev->dev;
++	struct device_node *platform_node;
++	struct snd_soc_dai_link *link;
++	int i, ret;
++
++	platform_node = of_parse_phandle(dev->of_node, "mediatek,platform", 0);
++	if (!platform_node)
++		return dev_err_probe(dev, -EINVAL,
++				     "missing mediatek,platform property\n");
++
++	/* The DAI links refer to the node for as long as the card exists. */
++	ret = devm_add_action_or_reset(dev, donut_put_node, platform_node);
++	if (ret)
++		return ret;
++
++	card->dev = dev;
++
++	for_each_card_prelinks(card, i, link) {
++		link->cpus->of_node = platform_node;
++		link->platforms->of_node = platform_node;
++	}
++
++	ret = devm_add_action(dev, donut_put_codecs, card);
++	if (ret)
++		return ret;
++
++	ret = donut_parse_codecs(dev, "speaker-dai-link",
++				 &card->dai_link[DAI_LINK_SPEAKER]);
++	if (ret)
++		return ret;
++
++	link = &card->dai_link[DAI_LINK_MIC];
++	ret = donut_parse_codecs(dev, "mic-dai-link", link);
++	if (ret)
++		return ret;
++
++	if (link->num_codecs > DONUT_MIC_MAX_CODECS)
++		return dev_err_probe(dev, -EINVAL, "too many microphone ADCs\n");
++
++	return devm_snd_soc_register_card(dev, card);
++}
++
++static const struct of_device_id donut_dt_match[] = {
++	{ .compatible = "amazon,donut-sound" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, donut_dt_match);
++
++static struct platform_driver donut_driver = {
++	.driver = {
++		.name = "mt8516-amazon-donut",
++		.of_match_table = donut_dt_match,
++		.pm = &snd_soc_pm_ops,
++	},
++	.probe = donut_probe,
++};
++module_platform_driver(donut_driver);
++
++MODULE_DESCRIPTION("Amazon Echo Dot (3rd generation) ALSA SoC machine driver");
++MODULE_LICENSE("GPL");
+-- 
+2.54.0
+

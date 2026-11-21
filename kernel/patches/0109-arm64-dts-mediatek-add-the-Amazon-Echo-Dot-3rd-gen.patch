@@ -1,0 +1,603 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 10:52:53 +0100
+Subject: [PATCH 109/111] arm64: dts: mediatek: add the Amazon Echo Dot (3rd
+ gen)
+
+The Echo Dot (3rd gen), model D9N29T, codename "donut" (ADR 0031).
+Written for the mainline bindings after lidar-mainline's board for the
+Echo Plus (2nd gen) by LeagueRaINi (GPL-2.0 OR MIT, commit db8242a). Pins,
+bus addresses and rails come from Amazon's Echo Dot (3rd gen) source
+release 6.5.7.1 (donut.dtsi, donut-pvt.dts, mt8516-dcdc.dtsi); TECHO5's
+notes on a retail unit confirm the parts.
+
+- The first compatible is "amzn,donut-pvt", which LK matches on retail
+  units.
+- 512 MB, less the top 6.25 MiB that LK keeps for the TEE on lidar; the
+  stock crash log area at 0x44410000 is pstore.
+- Keys on GPIO7, 12 and 42 (KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_HELP); the
+  microphone switch on GPIO108 (state) and GPIO107 (close).
+- The ring: IS31FL3236 at 0x3f with channel offset 3, as on the Echo Dot
+  (2nd gen); its SDB pin GPIO4 held high.
+- Audio: TAS2770 at 0x44 on i2c2 (SDZ on GPIO10), ADC3101s at 0x18 and
+  0x1a on i2c0 (shared reset GPIO2).
+- Vproc from the RT5738 at 0x57; no MT6392.
+- eMMC on MSDC0, the MT7668 on MSDC2, USB as peripheral.
+
+Retail units drop the IS31FL3208 and the temperature sensors that
+donut.dtsi lists. What only a unit can confirm is marked where it is
+set: the TEE carve-out, which GPIO is the latch, the RT5738 bank. Not
+yet run on a Dot.
+---
+ arch/arm64/boot/dts/mediatek/Makefile         |   1 +
+ .../boot/dts/mediatek/mt8516-amazon-donut.dts | 546 ++++++++++++++++++
+ 2 files changed, 547 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/mediatek/mt8516-amazon-donut.dts
+
+diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
+index 8fd7b2bb7..fda3ed0a7 100644
+--- a/arch/arm64/boot/dts/mediatek/Makefile
++++ b/arch/arm64/boot/dts/mediatek/Makefile
+@@ -85,6 +85,7 @@ dtb-$(CONFIG_ARCH_MEDIATEK) += mt8395-genio-1200-evk.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt8390-genio-700-evk.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt8395-kontron-3-5-sbc-i1200.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt8395-radxa-nio-12l.dtb
++dtb-$(CONFIG_ARCH_MEDIATEK) += mt8516-amazon-donut.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt8516-pumpkin.dtb
+ 
+ # Device tree overlays support
+diff --git a/arch/arm64/boot/dts/mediatek/mt8516-amazon-donut.dts b/arch/arm64/boot/dts/mediatek/mt8516-amazon-donut.dts
+new file mode 100644
+index 000000000..513fc77f6
+--- /dev/null
++++ b/arch/arm64/boot/dts/mediatek/mt8516-amazon-donut.dts
+@@ -0,0 +1,546 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++/*
++ * Amazon Echo Dot (3rd generation), model D9N29T, codename "donut".
++ *
++ * Written for the mainline bindings after lidar-mainline's board for the
++ * Echo Plus (2nd generation), which shares the SoC and most of the wiring
++ * (mt8516-amazon-lidar.dts, LeagueRaINi). Pins, bus addresses and rails come
++ * from the device tree in Amazon's Echo Dot (3rd gen) source release 6.5.7.1
++ * (donut.dtsi, donut-pvt.dts, mt8516-dcdc.dtsi). TECHO5's notes on a retail
++ * unit (techo5-dot docs/hardware-donut.md) confirm the parts.
++ *
++ * Nothing here has run on a Dot yet (Pinna ADR 0031). The values that differ
++ * from lidar, or that only a unit can confirm, say so where they are set.
++ *
++ * Power: no MT6392 PMIC; Vproc comes from a Richtek RT5738 on i2c1, every
++ * other rail is fixed.
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/sound/tlv320adc3xxx.h>
++#include "mt8516.dtsi"
++
++/ {
++	model = "Amazon Echo Dot (3rd generation)";
++	/*
++	 * LK hands over the appended DTB whose first compatible matches the
++	 * board revision exactly; retail units are PVT (donut-pvt.dts).
++	 */
++	compatible = "amzn,donut-pvt", "amzn,donut", "mediatek,mt8516";
++	chassis-type = "embedded";
++
++	aliases {
++		serial0 = &uart0;
++		mmc0 = &mmc0;
++		mmc1 = &mmc2;
++	};
++
++	chosen {
++		stdout-path = "serial0:921600n8";
++	};
++
++	memory@40000000 {
++		device_type = "memory";
++		/*
++		 * 512 MB (donut.dtsi). On lidar LK reserves the top 6.25 MiB
++		 * for the TEE; the same is assumed here until a unit's LK
++		 * memory node has been read.
++		 */
++		reg = <0 0x40000000 0 0x1f9c0000>;
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		/*
++		 * The stock kernel's crash log area (mt8167.dtsi:
++		 * pstore-reserved-memory@44410000), which a warm reboot keeps.
++		 * The boot image puts the initramfs below it, at 0x43478000.
++		 */
++		ramoops@44410000 {
++			compatible = "ramoops";
++			reg = <0 0x44410000 0 0xe0000>;
++			record-size = <0x20000>;
++			console-size = <0x80000>;
++			pmsg-size = <0x20000>;
++		};
++	};
++
++	/*
++	 * As on lidar: Amazon's BL31 does not give the kernel access to the
++	 * PMU registers, so the armv8_pmu probe hangs.
++	 */
++	pmu {
++		status = "disabled";
++	};
++
++	vcc33: regulator-vcc33 {
++		compatible = "regulator-fixed";
++		regulator-name = "vcc33";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	vio18: regulator-vio18 {
++		compatible = "regulator-fixed";
++		regulator-name = "vio18";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	/* MT7668 power: PMU_EN on GPIO24, 500 ms after enable (donut.dtsi) */
++	wifi_3v3: regulator-wifi-3v3 {
++		compatible = "regulator-fixed";
++		regulator-name = "wifi_3v3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&pio 24 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <500000>;
++		/* the vendor driver holds PMU_EN low 5 ms to reset the chip */
++		off-on-delay-us = <5000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&wifi_pmu_en_pins>;
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++		pinctrl-names = "default";
++		pinctrl-0 = <&gpio_keys_pins>;
++
++		key-volume-up {
++			label = "volume_up";
++			gpios = <&pio 7 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEUP>;
++			debounce-interval = <50>;
++			wakeup-source;
++		};
++
++		key-volume-down {
++			label = "volume_down";
++			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEDOWN>;
++			debounce-interval = <50>;
++			wakeup-source;
++		};
++
++		key-action {
++			label = "action";
++			/* GPIO42 on PVT units (donut-pvt.dts), GPIO3 on earlier ones */
++			gpios = <&pio 42 GPIO_ACTIVE_LOW>;
++			/* as stock: KEY_HELP (138) */
++			linux,code = <KEY_HELP>;
++			debounce-interval = <50>;
++			wakeup-source;
++		};
++	};
++
++	/*
++	 * The microphone switch: a hardware latch that cuts the microphones.
++	 * Only its button releases it; software reads the latch and can close
++	 * it. GPIO108 is the latch state on PVT units (donut-pvt.dts, active
++	 * low), GPIO107 closes it (active low). On lidar, lidar-mainline found
++	 * GPIO108 to be the button and GPIO18 the latch; which holds on a Dot
++	 * is to be checked on a unit.
++	 */
++	privacy {
++		compatible = "amazon,gpio-privacy";
++		pinctrl-names = "default";
++		pinctrl-0 = <&privacy_pins>;
++		state-gpios = <&pio 108 GPIO_ACTIVE_LOW>;
++		enable-gpios = <&pio 107 GPIO_ACTIVE_LOW>;
++		linux,code = <KEY_MUTE>;
++		debounce-interval = <200>;
++	};
++
++	sound {
++		compatible = "amazon,donut-sound";
++		mediatek,platform = <&afe>;
++
++		speaker-dai-link {
++			codec {
++				sound-dai = <&amp>;
++			};
++		};
++
++		mic-dai-link {
++			codec {
++				sound-dai = <&adc0>, <&adc1>;
++			};
++		};
++	};
++};
++
++&afe {
++	pinctrl-names = "default";
++	pinctrl-0 = <&audio_pins>;
++	status = "okay";
++};
++
++&pio {
++	gpio-line-names =
++		/*  0 */ "", "", "MIC_ADC_RESET", "", "LED_SDB",
++		/*  5 */ "", "", "KEY_VOL_UP", "", "AMP_IRQ",
++		/* 10 */ "AMP_SDZ", "", "KEY_VOL_DOWN", "", "",
++		/* 15 */ "", "", "", "", "",
++		/* 20 */ "", "", "", "", "WIFI_PMU_EN";
++
++	led_sdb_pins: led-sdb-pins {
++		pins-led-sdb {
++			/* IS31FL3236 SDB: low = hardware shutdown (donut.dtsi enable-gpio) */
++			pinmux = <MT8516_PIN_4_EINT4__FUNC_GPIO4>;
++			output-high;
++		};
++	};
++
++	gpio_keys_pins: gpio-keys-pins {
++		pins-keys {
++			pinmux = <MT8516_PIN_7_EINT7__FUNC_GPIO7>,
++				 <MT8516_PIN_12_EINT12__FUNC_GPIO12>,
++				 <MT8516_PIN_42_KPCOL0__FUNC_GPIO42>;
++			bias-pull-up;
++			input-enable;
++		};
++	};
++
++	privacy_pins: privacy-pins {
++		pins-state {
++			pinmux = <MT8516_PIN_108_MSDC1_DAT2__FUNC_GPIO108>;
++			bias-disable;
++			input-enable;
++		};
++
++		pins-enable {
++			pinmux = <MT8516_PIN_107_MSDC1_DAT1__FUNC_GPIO107>;
++			bias-disable;
++		};
++	};
++
++	audio_pins: audio-pins {
++		pins-i2s-tdm {
++			pinmux = <MT8516_PIN_25_EINT25__FUNC_I2S_8CH_MCK>,
++				 <MT8516_PIN_55_I2S_DATA_IN__FUNC_I2S_8CH_DO1>,
++				 <MT8516_PIN_56_I2S_LRCK__FUNC_I2S_8CH_LRCK>,
++				 <MT8516_PIN_57_I2S_BCK__FUNC_I2S_8CH_BCK>,
++				 <MT8516_PIN_101_CMDAT1__FUNC_TDM_RX_BCK>,
++				 <MT8516_PIN_102_CMMCLK__FUNC_TDM_RX_LRCK>,
++				 <MT8516_PIN_103_CMPCLK__FUNC_TDM_RX_DI>;
++			drive-strength = <4>;
++		};
++	};
++
++	i2c0_pins: i2c0-pins {
++		pins-bus {
++			pinmux = <MT8516_PIN_58_SDA0__FUNC_SDA0_0>,
++				 <MT8516_PIN_59_SCL0__FUNC_SCL0_0>;
++			bias-disable;
++		};
++	};
++
++	i2c1_pins: i2c1-pins {
++		pins-bus {
++			pinmux = <MT8516_PIN_52_SDA1__FUNC_SDA1_0>,
++				 <MT8516_PIN_53_SCL1__FUNC_SCL1_0>;
++			bias-disable;
++		};
++	};
++
++	i2c2_pins: i2c2-pins {
++		pins-bus {
++			pinmux = <MT8516_PIN_60_SDA2__FUNC_SDA2_0>,
++				 <MT8516_PIN_61_SCL2__FUNC_SCL2_0>;
++			bias-disable;
++		};
++	};
++
++	mmc0_pins_default: mmc0-default-pins {
++		pins-cmd-dat {
++			pinmux = <MT8516_PIN_120_MSDC0_DAT0__FUNC_MSDC0_DAT0>,
++				 <MT8516_PIN_119_MSDC0_DAT1__FUNC_MSDC0_DAT1>,
++				 <MT8516_PIN_118_MSDC0_DAT2__FUNC_MSDC0_DAT2>,
++				 <MT8516_PIN_117_MSDC0_DAT3__FUNC_MSDC0_DAT3>,
++				 <MT8516_PIN_113_MSDC0_DAT4__FUNC_MSDC0_DAT4>,
++				 <MT8516_PIN_112_MSDC0_DAT5__FUNC_MSDC0_DAT5>,
++				 <MT8516_PIN_111_MSDC0_DAT6__FUNC_MSDC0_DAT6>,
++				 <MT8516_PIN_110_MSDC0_DAT7__FUNC_MSDC0_DAT7>,
++				 <MT8516_PIN_115_MSDC0_CMD__FUNC_MSDC0_CMD>;
++			input-enable;
++			bias-pull-up;
++		};
++
++		pins-clk {
++			pinmux = <MT8516_PIN_116_MSDC0_CLK__FUNC_MSDC0_CLK>;
++			bias-pull-down;
++		};
++
++		pins-rst {
++			pinmux = <MT8516_PIN_114_MSDC0_RSTB__FUNC_MSDC0_RSTB>;
++			bias-pull-up;
++		};
++	};
++
++	mmc0_pins_uhs: mmc0-uhs-pins {
++		pins-cmd-dat {
++			pinmux = <MT8516_PIN_120_MSDC0_DAT0__FUNC_MSDC0_DAT0>,
++				 <MT8516_PIN_119_MSDC0_DAT1__FUNC_MSDC0_DAT1>,
++				 <MT8516_PIN_118_MSDC0_DAT2__FUNC_MSDC0_DAT2>,
++				 <MT8516_PIN_117_MSDC0_DAT3__FUNC_MSDC0_DAT3>,
++				 <MT8516_PIN_113_MSDC0_DAT4__FUNC_MSDC0_DAT4>,
++				 <MT8516_PIN_112_MSDC0_DAT5__FUNC_MSDC0_DAT5>,
++				 <MT8516_PIN_111_MSDC0_DAT6__FUNC_MSDC0_DAT6>,
++				 <MT8516_PIN_110_MSDC0_DAT7__FUNC_MSDC0_DAT7>,
++				 <MT8516_PIN_115_MSDC0_CMD__FUNC_MSDC0_CMD>;
++			input-enable;
++			drive-strength = <6>;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
++		};
++
++		pins-clk {
++			pinmux = <MT8516_PIN_116_MSDC0_CLK__FUNC_MSDC0_CLK>;
++			drive-strength = <8>;
++			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
++		};
++
++		pins-rst {
++			pinmux = <MT8516_PIN_114_MSDC0_RSTB__FUNC_MSDC0_RSTB>;
++			bias-pull-up;
++		};
++	};
++
++	mmc2_pins_default: mmc2-default-pins {
++		pins-cmd-dat {
++			pinmux = <MT8516_PIN_70_MSDC2_DAT0__FUNC_MSDC2_DAT0>,
++				 <MT8516_PIN_71_MSDC2_DAT1__FUNC_MSDC2_DAT1>,
++				 <MT8516_PIN_72_MSDC2_DAT2__FUNC_MSDC2_DAT2>,
++				 <MT8516_PIN_73_MSDC2_DAT3__FUNC_MSDC2_DAT3>,
++				 <MT8516_PIN_68_MSDC2_CMD__FUNC_MSDC2_CMD>;
++			input-enable;
++			drive-strength = <8>;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
++		};
++
++		pins-clk {
++			pinmux = <MT8516_PIN_69_MSDC2_CLK__FUNC_MSDC2_CLK>;
++			drive-strength = <6>;
++			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
++		};
++	};
++
++	uart0_pins: uart0-pins {
++		pins-rx {
++			pinmux = <MT8516_PIN_62_URXD0__FUNC_URXD0>;
++			bias-pull-up;
++		};
++
++		pins-tx {
++			pinmux = <MT8516_PIN_63_UTXD0__FUNC_UTXD0>;
++		};
++	};
++
++	wifi_pmu_en_pins: wifi-pmu-en-pins {
++		pins-pmu-en {
++			pinmux = <MT8516_PIN_24_EINT24__FUNC_GPIO24>;
++			bias-disable;
++		};
++	};
++};
++
++/* No MT6392 PMIC behind the wrapper on this board (mt8516-dcdc.dtsi) */
++&pwrap {
++	status = "disabled";
++};
++
++/* Debug console, 921600 8N1; where its pads are on a Dot is not recorded */
++&uart0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart0_pins>;
++	status = "okay";
++};
++
++&i2c0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c0_pins>;
++	status = "okay";
++
++	/*
++	 * The two microphone ADCs; their RESET pins share GPIO2. Amazon's
++	 * driver sets both microphone biases to 2.5 V, as lidar-mainline
++	 * does.
++	 */
++	adc0: audio-codec@18 {
++		compatible = "ti,tlv320adc3101";
++		reg = <0x18>;
++		#sound-dai-cells = <0>;
++		reset-gpios = <&pio 2 GPIO_ACTIVE_LOW>;
++		ti,micbias1-vg = <ADC3XXX_MICBIAS_2_5V>;
++		ti,micbias2-vg = <ADC3XXX_MICBIAS_2_5V>;
++		sound-name-prefix = "ADC1";
++	};
++
++	adc1: audio-codec@1a {
++		compatible = "ti,tlv320adc3101";
++		reg = <0x1a>;
++		#sound-dai-cells = <0>;
++		reset-gpios = <&pio 2 GPIO_ACTIVE_LOW>;
++		ti,micbias1-vg = <ADC3XXX_MICBIAS_2_5V>;
++		ti,micbias2-vg = <ADC3XXX_MICBIAS_2_5V>;
++		sound-name-prefix = "ADC2";
++	};
++
++	/*
++	 * The light ring: 12 RGB LEDs, the same controller, address and
++	 * channel offset as on the Echo Dot (2nd gen). Without child LEDs the
++	 * driver offers the ring's frame interface (Pinna's patch 0011).
++	 */
++	led-controller@3f {
++		compatible = "issi,is31fl3236";
++		pinctrl-names = "default";
++		pinctrl-0 = <&led_sdb_pins>;
++		reg = <0x3f>;
++		channel-offset = /bits/ 8 <3>;
++		play-boot-animation;
++	};
++
++	/*
++	 * Ambient light (TECHO5: tsl2572). donut-pvt.dts also lists an
++	 * OPT3001 at 0x44. It lists temperature sensors on i2c0 and i2c2 and
++	 * then deletes them all; a retail unit reads its temperatures from
++	 * thermistors on the AUXADC.
++	 */
++	light-sensor@39 {
++		compatible = "amstaos,tsl2572";
++		reg = <0x39>;
++	};
++};
++
++&i2c1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c1_pins>;
++	status = "okay";
++
++	/*
++	 * Vproc buck, at 0x57 as on lidar. donut-pvt.dts drops its VSEL GPIO
++	 * (GPIO9 is the amplifier's interrupt here), so the bank in use is
++	 * the one VSEL selects by its pull; lidar-mainline measured NSEL1 on
++	 * lidar. To be checked on a unit.
++	 */
++	vproc: regulator@57 {
++		compatible = "richtek,rt5738";
++		reg = <0x57>;
++		regulator-name = "vproc";
++		regulator-min-microvolt = <1150000>;
++		regulator-max-microvolt = <1300000>;
++		regulator-always-on;
++		regulator-boot-on;
++		richtek,vsel-active-high;
++	};
++};
++
++&i2c2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c2_pins>;
++	status = "okay";
++
++	/*
++	 * The speaker amplifier. Its SDZ pin is GPIO10 ("ti,reset-gpio" in
++	 * donut-pvt.dts); its interrupt (GPIO9) is not used. It plays
++	 * S24_LE and stays silent on S32_LE (TECHO5).
++	 */
++	amp: audio-codec@44 {
++		compatible = "ti,tas2770";
++		reg = <0x44>;
++		#sound-dai-cells = <0>;
++		shutdown-gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
++		sound-name-prefix = "Speaker";
++	};
++};
++
++/* eMMC, 4 GB */
++&mmc0 {
++	pinctrl-names = "default", "state_uhs";
++	pinctrl-0 = <&mmc0_pins_default>;
++	pinctrl-1 = <&mmc0_pins_uhs>;
++	bus-width = <8>;
++	max-frequency = <200000000>;
++	cap-mmc-highspeed;
++	mmc-hs200-1_8v;
++	cap-mmc-hw-reset;
++	vmmc-supply = <&vcc33>;
++	vqmmc-supply = <&vio18>;
++	non-removable;
++	status = "okay";
++};
++
++/* MediaTek MT7668 Wi-Fi/Bluetooth combo, SDIO 3.0 */
++&mmc2 {
++	pinctrl-names = "default", "state_uhs";
++	pinctrl-0 = <&mmc2_pins_default>;
++	pinctrl-1 = <&mmc2_pins_default>;
++	bus-width = <4>;
++	max-frequency = <200000000>;
++	cap-sd-highspeed;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
++	cap-sdio-irq;
++	keep-power-in-suspend;
++	wakeup-source;
++	non-removable;
++	vmmc-supply = <&wifi_3v3>;
++	no-sd;
++	no-mmc;
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = "okay";
++
++	/* SDIO function 1 = WLAN (037a:7608), function 2 = Bluetooth (btmtksdio) */
++	wifi: wifi@1 {
++		reg = <1>;
++	};
++};
++
++/* No USB port on the case: D-/D+ on test pads TM4/TM5 (TECHO5) */
++&usb0 {
++	dr_mode = "peripheral";
++	status = "okay";
++};
++
++&usb_phy {
++	status = "okay";
++};
++
++/*
++ * As on lidar: the PSCI idle states need the MediaTek SPM firmware, which
++ * mainline does not load, so a CPU entering them never returns.
++ */
++&cpu0 {
++	/delete-property/ cpu-idle-states;
++	proc-supply = <&vproc>;
++};
++
++&cpu1 {
++	/delete-property/ cpu-idle-states;
++	proc-supply = <&vproc>;
++};
++
++&cpu2 {
++	/delete-property/ cpu-idle-states;
++	proc-supply = <&vproc>;
++};
++
++&cpu3 {
++	/delete-property/ cpu-idle-states;
++	proc-supply = <&vproc>;
++};
++
++&auxadc {
++	status = "okay";
++};
+-- 
+2.54.0
+

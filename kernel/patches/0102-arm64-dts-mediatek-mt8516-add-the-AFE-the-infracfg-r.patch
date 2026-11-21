@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 10:45:15 +0100
+Subject: [PATCH 102/111] arm64: dts: mediatek: mt8516: add the AFE, the
+ infracfg reset cells and fix MSDC2's clocks
+
+From lidar-mainline by LeagueRaINi (GPL-2.0, commit db8242a), backported
+to 6.12 for the MT8516 Echos (ADR 0031).
+
+- The audio front end at 0x11140000, with APLL1 for the 44.1 kHz family
+  and APLL2 for the 48 kHz family.
+- infracfg is a reset controller.
+- MSDC2's "source" and "hclk" were swapped: the bus gate was never
+  enabled and the probe spun waiting for MSDC_CFG_CKSTB. It also needs
+  its reset (INFRA_RST0 bit 23) released. The Echos' Wi-Fi sits on MSDC2.
+---
+ arch/arm64/boot/dts/mediatek/mt8516.dtsi | 79 +++++++++++++++++++++++-
+ 1 file changed, 77 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/mediatek/mt8516.dtsi b/arch/arm64/boot/dts/mediatek/mt8516.dtsi
+index e30623eba..d8d873cc3 100644
+--- a/arch/arm64/boot/dts/mediatek/mt8516.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt8516.dtsi
+@@ -189,6 +189,7 @@ infracfg: infracfg@10001000 {
+ 			compatible = "mediatek,mt8516-infracfg", "syscon";
+ 			reg = <0 0x10001000 0 0x1000>;
+ 			#clock-cells = <1>;
++			#reset-cells = <1>;
+ 		};
+ 
+ 		pericfg: pericfg@10003050 {
+@@ -419,14 +420,88 @@ mmc1: mmc@11130000 {
+ 			status = "disabled";
+ 		};
+ 
++		afe: audio-controller@11140000 {
++			compatible = "mediatek,mt8516-afe-pcm";
++			reg = <0 0x11140000 0 0x1000>;
++			interrupts = <GIC_SPI 120 IRQ_TYPE_LEVEL_LOW>;
++			clocks = <&topckgen CLK_TOP_AUDIO>,
++				 <&topckgen CLK_TOP_RG_AUD1>,
++				 <&topckgen CLK_TOP_RG_AUD2>,
++				 <&topckgen CLK_TOP_RG_AUD_ENGEN1>,
++				 <&topckgen CLK_TOP_RG_AUD_ENGEN2>,
++				 <&topckgen CLK_TOP_AUD_I2S0_M_SEL>,
++				 <&topckgen CLK_TOP_AUD_I2S1_M_SEL>,
++				 <&topckgen CLK_TOP_AUD_I2S2_M_SEL>,
++				 <&topckgen CLK_TOP_AUD_I2S3_M_SEL>,
++				 <&topckgen CLK_TOP_AUD_I2S4_M_SEL>,
++				 <&topckgen CLK_TOP_AUD_I2S5_M_SEL>,
++				 <&topckgen CLK_TOP_APLL12_DIV0>,
++				 <&topckgen CLK_TOP_APLL12_DIV1>,
++				 <&topckgen CLK_TOP_APLL12_DIV2>,
++				 <&topckgen CLK_TOP_APLL12_DIV3>,
++				 <&topckgen CLK_TOP_APLL12_DIV4>,
++				 <&topckgen CLK_TOP_APLL12_DIV4B>,
++				 <&topckgen CLK_TOP_APLL12_DIV5>,
++				 <&topckgen CLK_TOP_APLL12_DIV5B>;
++			clock-names = "top_pdn_audio",
++				      "aud1",
++				      "aud2",
++				      "engen1",
++				      "engen2",
++				      "i2s0_m_sel",
++				      "i2s1_m_sel",
++				      "i2s2_m_sel",
++				      "i2s3_m_sel",
++				      "i2s4_m_sel",
++				      "i2s5_m_sel",
++				      "apll12_div0",
++				      "apll12_div1",
++				      "apll12_div2",
++				      "apll12_div3",
++				      "apll12_div4",
++				      "apll12_div4b",
++				      "apll12_div5",
++				      "apll12_div5b";
++			/*
++			 * APLL1 serves the 44.1 kHz sample rate family (8 x
++			 * 22.5792 MHz), APLL2 the 48 kHz family (8 x 24.576 MHz).
++			 */
++			assigned-clocks = <&apmixedsys CLK_APMIXED_APLL1>,
++					  <&apmixedsys CLK_APMIXED_APLL2>,
++					  <&topckgen CLK_TOP_AUD1_SEL>,
++					  <&topckgen CLK_TOP_AUD2_SEL>,
++					  <&topckgen CLK_TOP_AUD_ENGEN1_SEL>,
++					  <&topckgen CLK_TOP_AUD_ENGEN2_SEL>;
++			assigned-clock-parents = <0>, <0>,
++						 <&topckgen CLK_TOP_APLL1>,
++						 <&topckgen CLK_TOP_APLL2>,
++						 <&topckgen CLK_TOP_RG_APLL1_D8_EN>,
++						 <&topckgen CLK_TOP_RG_APLL2_D8_EN>;
++			assigned-clock-rates = <180633600>, <196608000>;
++			status = "disabled";
++		};
++
+ 		mmc2: mmc@11170000 {
+ 			compatible = "mediatek,mt8516-mmc";
+ 			reg = <0 0x11170000 0 0x1000>;
+ 			interrupts = <GIC_SPI 109 IRQ_TYPE_LEVEL_LOW>;
+-			clocks = <&topckgen CLK_TOP_MSDC2>,
+-				 <&topckgen CLK_TOP_RG_MSDC2>,
++			/*
++			 * msdc2 is only the AHB bus gate; the functional clock
++			 * is rg_msdc2 (msdc2_sel). With them swapped the bus
++			 * gate is never enabled and the probe spins forever
++			 * waiting for MSDC_CFG_CKSTB.
++			 */
++			clocks = <&topckgen CLK_TOP_RG_MSDC2>,
++				 <&topckgen CLK_TOP_MSDC2>,
+ 				 <&topckgen CLK_TOP_MSDC2_INFRA>;
+ 			clock-names = "source", "hclk", "source_cg";
++			/*
++			 * INFRA_RST0 bit 23. The controller stays in reset unless
++			 * a previous stage used it, and every register then reads
++			 * back 0 (stock driver pulses this in probe).
++			 */
++			resets = <&infracfg 23>;
++			reset-names = "hrst";
+ 			status = "disabled";
+ 		};
+ 
+-- 
+2.54.0
+

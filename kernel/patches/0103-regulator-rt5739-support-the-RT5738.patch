@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 10:45:22 +0100
+Subject: [PATCH 103/111] regulator: rt5739: support the RT5738
+
+From lidar-mainline by LeagueRaINi (GPL-2.0, commit db8242a), backported
+to 6.12 for the MT8516 Echos (ADR 0031).
+
+The MT8516 Echos take the CPU supply (Vproc) from a Richtek RT5738 on
+I2C at 0x57: lidar-mainline's device tree, and Amazon's donut.dtsi and
+cupcake.dtsi. It uses the RT5739 register map and its 300-1300 mV range
+in 5 mV steps; on an Echo Plus (2nd gen) PVT unit its ID registers read
+0, so it is matched by its compatible and never given the RT5733 table.
+---
+ .../bindings/regulator/richtek,rt5739.yaml         |  3 +++
+ drivers/regulator/rt5739.c                         | 14 +++++++++++++-
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/regulator/richtek,rt5739.yaml b/Documentation/devicetree/bindings/regulator/richtek,rt5739.yaml
+index e95e046e9..282cd8342 100644
+--- a/Documentation/devicetree/bindings/regulator/richtek,rt5739.yaml
++++ b/Documentation/devicetree/bindings/regulator/richtek,rt5739.yaml
+@@ -15,6 +15,8 @@ description: |
+   supply of 2.5V to 5.5V. It can provide up to 3.5A continuous current
+   capability at over 80% high efficiency.
+ 
++  The RT5738 uses the RT5739 register map and voltage range.
++
+ allOf:
+   - $ref: regulator.yaml#
+ 
+@@ -22,6 +24,7 @@ properties:
+   compatible:
+     enum:
+       - richtek,rt5733
++      - richtek,rt5738
+       - richtek,rt5739
+ 
+   reg:
+diff --git a/drivers/regulator/rt5739.c b/drivers/regulator/rt5739.c
+index 91412c905..6633e7831 100644
+--- a/drivers/regulator/rt5739.c
++++ b/drivers/regulator/rt5739.c
+@@ -42,6 +42,7 @@
+ #define RT5733_VOLT_STPUV	6250
+ #define RT5733_N_VOLTS		182
+ 
++#define RT5739_CHIPDIE_ID	0x0
+ #define RT5739_VOLT_MINUV	300000
+ #define RT5739_VOLT_MAXUV	1300000
+ #define RT5739_VOLT_STPUV	5000
+@@ -253,6 +254,7 @@ static int rt5739_probe(struct i2c_client *i2c)
+ 	struct regulator_dev *rdev;
+ 	bool vsel_acth;
+ 	unsigned int vid;
++	u8 did;
+ 	int ret;
+ 
+ 	desc = devm_kzalloc(dev, sizeof(*desc), GFP_KERNEL);
+@@ -279,7 +281,16 @@ static int rt5739_probe(struct i2c_client *i2c)
+ 
+ 	vsel_acth = device_property_read_bool(dev, "richtek,vsel-active-high");
+ 
+-	rt5739_init_regulator_desc(desc, vsel_acth, vid & RT5739_DID_MASK);
++	did = vid & RT5739_DID_MASK;
++	/*
++	 * RT5738 shares the RT5739 register map and its 300-1300 mV range in
++	 * 5 mV steps. Its die ID is not documented, so never let it select
++	 * the RT5733 voltage table.
++	 */
++	if (device_is_compatible(dev, "richtek,rt5738"))
++		did = RT5739_CHIPDIE_ID;
++
++	rt5739_init_regulator_desc(desc, vsel_acth, did);
+ 
+ 	cfg.dev = dev;
+ 	cfg.of_node = dev_of_node(dev);
+@@ -293,6 +304,7 @@ static int rt5739_probe(struct i2c_client *i2c)
+ 
+ static const struct of_device_id rt5739_device_table[] = {
+ 	{ .compatible = "richtek,rt5733" },
++	{ .compatible = "richtek,rt5738" },
+ 	{ .compatible = "richtek,rt5739" },
+ 	{ /* sentinel */ }
+ };
+-- 
+2.54.0
+

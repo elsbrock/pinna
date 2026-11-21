@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 10:45:28 +0100
+Subject: [PATCH 104/111] Bluetooth: btmtksdio: report the MT7668's LE commands
+
+From lidar-mainline by LeagueRaINi (GPL-2.0, commit db8242a), backported
+to 6.12 for the MT8516 Echos (ADR 0031).
+
+The MT7668 firmware in linux-firmware (mt7668pr2h.bin) leaves octets
+25-28 of Read Local Supported Commands empty, although it executes the
+Bluetooth 4.0 LE commands. The core then never enables the LE Advertising
+Report and LE Connection Complete events, and LE scans find nothing.
+lidar-mainline reports Bluetooth working next to Wi-Fi on two Echo Plus
+(2nd gen) units.
+---
+ drivers/bluetooth/btmtksdio.c | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+diff --git a/drivers/bluetooth/btmtksdio.c b/drivers/bluetooth/btmtksdio.c
+index 575bac139..51a154486 100644
+--- a/drivers/bluetooth/btmtksdio.c
++++ b/drivers/bluetooth/btmtksdio.c
+@@ -405,6 +405,35 @@ static int btmtksdio_drv_pmctrl(struct btmtksdio_dev *bdev)
+ 	return err;
+ }
+ 
++/* The MT7668 firmware in linux-firmware (mt7668pr2h.bin) leaves octets 25-28
++ * of Read Local Supported Commands empty, i.e. all Bluetooth 4.0 LE commands,
++ * although it executes them. The core then never enables the LE Advertising
++ * Report and LE Connection Complete events, so LE scans find nothing. Report
++ * the Bluetooth 4.0 LE commands, which this controller executes.
++ */
++static void btmtksdio_fixup_local_cmds(struct btmtksdio_dev *bdev,
++				       struct sk_buff *skb)
++{
++	static const u8 le_cmds[] = { 0xf7, 0xff, 0xff, 0x7f };
++	struct hci_event_hdr *hdr = (void *)skb->data;
++	struct hci_ev_cmd_complete *cc;
++	struct hci_rp_read_local_commands *rp;
++
++	if (bdev->data->chipid != 0x7668 || hdr->evt != HCI_EV_CMD_COMPLETE ||
++	    skb->len < sizeof(*hdr) + sizeof(*cc) + sizeof(*rp))
++		return;
++
++	cc = (void *)(hdr + 1);
++	if (le16_to_cpu(cc->opcode) != HCI_OP_READ_LOCAL_COMMANDS)
++		return;
++
++	rp = (void *)(cc + 1);
++	if (rp->status || memchr_inv(&rp->commands[25], 0, sizeof(le_cmds)))
++		return;
++
++	memcpy(&rp->commands[25], le_cmds, sizeof(le_cmds));
++}
++
+ static int btmtksdio_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
+ {
+ 	struct btmtksdio_dev *bdev = hci_get_drvdata(hdev);
+@@ -412,6 +441,9 @@ static int btmtksdio_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
+ 	u8 evt = hdr->evt;
+ 	int err;
+ 
++	/* before the clone below, which shares the data */
++	btmtksdio_fixup_local_cmds(bdev, skb);
++
+ 	/* When someone waits for the WMT event, the skb is being cloned
+ 	 * and being processed the events from there then.
+ 	 */
+-- 
+2.54.0
+
