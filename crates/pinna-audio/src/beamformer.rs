@@ -182,7 +182,20 @@ fn steering(px: &[f64], py: &[f64], n: usize, frequency: f64, azimuth: f64, d: &
     }
 }
 
-fn fft(
+/// The twiddle factors [`fft`] takes.
+pub(crate) fn twiddles() -> ([f32; FFT / 2], [f32; FFT / 2]) {
+    let mut twiddle_re = [0f32; FFT / 2];
+    let mut twiddle_im = [0f32; FFT / 2];
+    for i in 0..FFT / 2 {
+        twiddle_re[i] = (-2.0 * PI * i as f64 / FFT as f64).cos() as f32;
+        twiddle_im[i] = (-2.0 * PI * i as f64 / FFT as f64).sin() as f32;
+    }
+    (twiddle_re, twiddle_im)
+}
+
+/// In-place radix-2 FFT of `FFT` points (forward; the inverse is the
+/// conjugate trick).
+pub(crate) fn fft(
     twiddle_re: &[f32; FFT / 2],
     twiddle_im: &[f32; FFT / 2],
     re: &mut [f32; FFT],
@@ -280,12 +293,7 @@ impl Beamformer {
             // product sums to exactly one, so a pass-through reconstructs.
             *w = (0.5 - 0.5 * (2.0 * PI * i as f64 / FFT as f64).cos()).sqrt() as f32;
         }
-        let mut twiddle_re = [0f32; FFT / 2];
-        let mut twiddle_im = [0f32; FFT / 2];
-        for i in 0..FFT / 2 {
-            twiddle_re[i] = (-2.0 * PI * i as f64 / FFT as f64).cos() as f32;
-            twiddle_im[i] = (-2.0 * PI * i as f64 / FFT as f64).sin() as f32;
-        }
+        let (twiddle_re, twiddle_im) = twiddles();
         let mut bf = Beamformer {
             mic_count,
             mics,

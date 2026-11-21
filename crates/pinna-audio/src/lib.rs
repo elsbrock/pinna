@@ -12,6 +12,7 @@ pub mod chunk;
 pub mod clock;
 pub mod decode;
 pub mod dsp;
+pub mod echocancel;
 pub mod media;
 pub(crate) mod mix;
 pub mod mixer;
