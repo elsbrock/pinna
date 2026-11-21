@@ -224,7 +224,7 @@ vm-hotspot-test: initramfs-x86
 
 # kernel config assertions for every variant (no build)
 kernel-config:
-    for v in device qemu qemu-arm64 mt8516 x86; do CHECK_ONLY=1 kernel/build.sh $v; done
+    for v in device qemu qemu-arm64 mt8516 mt8519 x86; do CHECK_ONLY=1 kernel/build.sh $v; done
 
 # boot image round trips: a saved boot_a from before Pinna and our own
 bootimg-roundtrip:
