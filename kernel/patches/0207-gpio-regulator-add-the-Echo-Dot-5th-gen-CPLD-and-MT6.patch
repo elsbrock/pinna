@@ -1,0 +1,1901 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 16:45:01 +0100
+Subject: [PATCH] gpio, regulator: add the Echo Dot (5th gen) CPLD and MT6395
+ PMIC, ported to 6.12
+
+Two self-contained Amazon drivers from the 5.4 release (ADR 0034):
+- gpio-amzncpld, the SLG4BZ45165 CPLD GPIO expander the volume, action and
+  mute buttons hang off. The gpiolib irqchip is migrated to 6.12's model: the
+  irq is set up through gpio_chip.irq before gpiochip_add_data (selecting
+  GPIOLIB_IRQCHIP), and the removed gpiochip_irqchip_add() /
+  gpiochip_set_chained_irqchip() calls are dropped; its own threaded handler
+  still demuxes into the domain.
+- mt6395-regulator, the MT6395 PMIC.
+
+Both take the 6.12 i2c probe (no id argument; fetched with
+i2c_client_get_device_id) and void remove. Off in every current variant.
+---
+ drivers/gpio/Kconfig                 |   9 +
+ drivers/gpio/Makefile                |   1 +
+ drivers/gpio/gpio-amzncpld.c         | 875 +++++++++++++++++++++++++
+ drivers/regulator/Kconfig            |   7 +
+ drivers/regulator/Makefile           |   1 +
+ drivers/regulator/mt6395-regulator.c | 936 +++++++++++++++++++++++++++
+ 6 files changed, 1829 insertions(+)
+ create mode 100644 drivers/gpio/gpio-amzncpld.c
+ create mode 100644 drivers/regulator/mt6395-regulator.c
+
+diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
+index d93cd4f72..5c33596ac 100644
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -1930,3 +1930,12 @@ config GPIO_VIRTUSER
+ endmenu
+ 
+ endif
++
++config GPIO_AMZNCPLD
++	tristate "Amazon CPLD GPIO expander (MT8519 Echo)"
++	depends on I2C && OF
++	select GPIOLIB_IRQCHIP
++	help
++	  GPIO expander behind the Amazon CPLD (SLG4BZ45165) on the Echo Dot
++	  (5th gen); the volume and action buttons and the microphone switch
++	  hang off it.
+diff --git a/drivers/gpio/Makefile b/drivers/gpio/Makefile
+index 9fe91a876..5bf4e0512 100644
+--- a/drivers/gpio/Makefile
++++ b/drivers/gpio/Makefile
+@@ -204,3 +204,4 @@ obj-$(CONFIG_GPIO_XTENSA)		+= gpio-xtensa.o
+ obj-$(CONFIG_GPIO_ZEVIO)		+= gpio-zevio.o
+ obj-$(CONFIG_GPIO_ZYNQ)			+= gpio-zynq.o
+ obj-$(CONFIG_GPIO_ZYNQMP_MODEPIN)	+= gpio-zynqmp-modepin.o
++obj-$(CONFIG_GPIO_AMZNCPLD)	+= gpio-amzncpld.o
+diff --git a/drivers/gpio/gpio-amzncpld.c b/drivers/gpio/gpio-amzncpld.c
+new file mode 100644
+index 000000000..3a8f5aa90
+--- /dev/null
++++ b/drivers/gpio/gpio-amzncpld.c
+@@ -0,0 +1,875 @@
++/*
++ * Copyright 2021-2022 Amazon Technologies, Inc. All Rights Reserved.
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ */
++
++#include <linux/module.h>
++#include <linux/slab.h>
++#include <linux/i2c.h>
++#include <linux/err.h>
++#include <linux/delay.h>
++#include <linux/sysfs.h>
++#include <dt-bindings/gpio/amzncpld-gpio.h>
++
++#include <linux/string.h>
++#include <linux/gpio/driver.h>
++#include <linux/interrupt.h>
++#include <linux/of.h>
++#include <linux/delay.h>
++
++#define AMZ_CPLD_INTERRUPT_POLLING_INTERVAL_MS 50
++#define DEVICE_NAME "amz-cpld"
++
++enum cpld_model {
++	CPLD45575,	/* 3 buttons */
++	CPLD45165,	/* 4 buttons */
++};
++
++struct amzncpld_regs {
++	unsigned short reg_io;
++	unsigned short reg_mute_l;
++	unsigned short reg_interrupt_1;
++	unsigned short reg_mute;
++	unsigned short reg_i2c;
++	unsigned short reg_interrupt;
++	unsigned short reg_i2c_exp;
++
++	/* reg_interrupt */
++	unsigned long mask_mute_state_delta;
++	unsigned long mask_mute_int;
++	unsigned long mask_action_int;
++	unsigned long mask_vol_up_int;
++	unsigned long mask_vol_dn_int;
++	unsigned long mask_ext_int;
++
++	/* reg_io */
++	unsigned long mask_btn_mute_l;
++	unsigned long mask_btn_act_l;
++	unsigned long mask_btn_vol_up_l;
++	unsigned long mask_btn_vol_dn_l;
++	unsigned long mask_ext_int_l;
++
++	/* reg_mute_l */
++	unsigned long mask_mute_state_l;
++
++	/* reg_i2c_exp */
++	unsigned long mask_mute_pwm_l;
++
++	unsigned long mask_sw_mute_set;
++	unsigned long mask_adc_rst;
++
++	unsigned long bit_interrupt_clear;
++	unsigned long bit_sw_mute_set;
++	unsigned long bit_sw_mute_dir;
++	unsigned long bit_adc_rst_dir;
++	unsigned long bit_adc_rst;
++	unsigned long bit_ext_int_mask;
++};
++
++static const struct amzncpld_regs cpld45575_regs = {
++	.reg_io = 0xF0,
++	.reg_mute_l = 0xF1,
++	.reg_interrupt_1 = 0xF2,
++	.reg_mute = 0xF3,
++	.reg_i2c = 0xF4,
++	.reg_interrupt = 0xF5,
++	.reg_i2c_exp = 0xF6,
++
++	.mask_mute_state_delta = BIT(0),
++	.mask_mute_int = BIT(1),
++	.mask_action_int = 0,	/* unused */
++	.mask_vol_up_int = BIT(2),
++	.mask_vol_dn_int = BIT(3),
++	.mask_ext_int = BIT(4),
++	.mask_btn_mute_l = BIT(1),
++	.mask_btn_act_l = 0,	/* unused */
++	.mask_btn_vol_up_l = BIT(2),
++	.mask_btn_vol_dn_l = BIT(3),
++	.mask_ext_int_l = BIT(4),
++	.mask_mute_state_l = BIT(5),
++	.mask_mute_pwm_l = BIT(5),
++	.mask_sw_mute_set = BIT(1),
++	.mask_adc_rst = BIT(2),
++
++	.bit_interrupt_clear = 0,
++	.bit_sw_mute_set = 1,
++	.bit_sw_mute_dir = 0,	/* unused */
++	.bit_adc_rst_dir = 2,
++	.bit_adc_rst = 3,
++	.bit_ext_int_mask = 6,
++};
++
++static const struct amzncpld_regs cpld45165_regs = {
++	.reg_io = 0xF0,
++	.reg_mute_l = 0xF1,
++	.reg_interrupt_1 = 0xF2,
++	.reg_mute = 0xF3,
++	.reg_i2c = 0xF4,
++	.reg_interrupt = 0xF5,
++	.reg_i2c_exp = 0xF6,
++
++	.mask_mute_state_delta = BIT(0),
++	.mask_mute_int = BIT(1),
++	.mask_action_int = BIT(2),
++	.mask_vol_up_int = BIT(3),
++	.mask_vol_dn_int = BIT(4),
++	.mask_ext_int = BIT(6),
++
++	.mask_btn_mute_l = BIT(1),
++	.mask_btn_act_l = BIT(2),
++	.mask_btn_vol_up_l = BIT(3),
++	.mask_btn_vol_dn_l = BIT(4),
++	.mask_ext_int_l = BIT(6),
++	.mask_mute_state_l = BIT(5),
++	.mask_mute_pwm_l = BIT(5),
++	.mask_sw_mute_set = BIT(1),
++	.mask_adc_rst = BIT(2),
++
++	.bit_interrupt_clear = 0,
++	.bit_sw_mute_set = 1,
++	.bit_sw_mute_dir = 2,
++	.bit_adc_rst = 3,
++	.bit_ext_int_mask = 0,	/* unused */
++	.bit_adc_rst_dir = 4,
++};
++
++struct amzncpld_data {
++	struct device *dev;
++	struct i2c_client *client;
++	struct mutex lock;
++	struct mutex irq_lock;
++	struct mutex i2c_lock;
++	struct regmap_irq_chip_data *irq_data;
++	struct gpio_chip gpio_chip;
++	struct timer_list key_timer;
++	struct delayed_work work;
++	unsigned int sw_debounce_ms;	/* msecs */
++	char irq_type[AMZ_CPLD_GPIO_NR];
++	bool irq_mask[AMZ_CPLD_GPIO_NR];
++	bool ext_irq_mask_pending;
++	bool wakeup_capable;
++	enum cpld_model model_id;
++	const struct amzncpld_regs *regs;
++};
++
++static int amzncpld_read_reg(struct i2c_client *client,
++			   uint32_t reg)
++{
++	return i2c_smbus_read_byte_data(client, reg);
++}
++
++static int amzncpld_set_bit(struct i2c_client *client,
++			    uint32_t reg, uint8_t bit,
++			    uint8_t value)
++{
++	struct amzncpld_data *data = dev_get_drvdata(&client->dev);
++	uint8_t val, mask = 1 << bit;
++	int ret;
++
++	mutex_lock(&data->i2c_lock);
++	val = i2c_smbus_read_byte_data(client, reg);
++	if (val < 0) {
++		mutex_unlock(&data->i2c_lock);
++		return val;
++	}
++
++	val = (val & ~mask) | ((value << bit) & mask);
++	ret = i2c_smbus_write_byte_data(client, reg, val);
++	mutex_unlock(&data->i2c_lock);
++	return ret;
++}
++
++static int amzncpld_gpio_get_direction(struct gpio_chip *chip, unsigned int offset)
++{
++	struct amzncpld_data *data = gpiochip_get_data(chip);
++
++	switch (offset) {
++	case AMZ_CPLD_GPIO_SW_MUTE_SET:
++		if (data->model_id != CPLD45165)
++			return 0;
++
++		if (amzncpld_read_reg(data->client, data->regs->reg_i2c) &
++		    data->regs->bit_sw_mute_dir)
++			return 0;
++		else
++			return 1;
++	case AMZ_CPLD_GPIO_ADC_RST:
++		if (amzncpld_read_reg(data->client, data->regs->reg_i2c) &
++		    data->regs->bit_adc_rst_dir)
++			return 0;
++		else
++			return 1;
++	case AMZ_CPLD_GPIO_BTN_VOL_DN_L:
++	case AMZ_CPLD_GPIO_BTN_VOL_UP_L:
++	case AMZ_CPLD_GPIO_BTN_ACT_L:
++	case AMZ_CPLD_GPIO_BTN_MUTE_L:
++	case AMZ_CPLD_GPIO_MUTE_STATE_L:
++	case AMZ_CPLD_GPIO_INT_STATUS:
++	case AMZ_CPLD_GPIO_MUTE_STATE:
++	case AMZ_CPLD_GPIO_MUTE_PWM_L:
++		return 1;
++	default:
++		return -EINVAL;
++	}
++}
++
++static int amzncpld_gpio_direction_output(struct gpio_chip *chip,
++				     unsigned int offset, int value)
++{
++	struct amzncpld_data *data = gpiochip_get_data(chip);
++
++	switch (offset) {
++	case AMZ_CPLD_GPIO_SW_MUTE_SET:
++		if (data->model_id != CPLD45165)
++			return 0;
++
++		if (amzncpld_set_bit(data->client, data->regs->reg_i2c,
++				     data->regs->bit_sw_mute_dir, 0x1))
++			return -EIO;
++		return amzncpld_set_bit(data->client, data->regs->reg_i2c,
++					data->regs->bit_sw_mute_set, !!value);
++	case AMZ_CPLD_GPIO_ADC_RST:
++		if (amzncpld_set_bit(data->client, data->regs->reg_i2c,
++				     data->regs->bit_adc_rst_dir, 0x1))
++			return -EIO;
++		return amzncpld_set_bit(data->client, data->regs->reg_i2c,
++					data->regs->bit_adc_rst, !!value);
++	default:
++		return -EINVAL;
++	}
++}
++
++static int amzncpld_gpio_direction_input(struct gpio_chip *chip,
++				      unsigned int offset)
++{
++	struct amzncpld_data *data = gpiochip_get_data(chip);
++
++	switch (offset) {
++	case AMZ_CPLD_GPIO_BTN_VOL_DN_L:
++	case AMZ_CPLD_GPIO_BTN_VOL_UP_L:
++	case AMZ_CPLD_GPIO_BTN_ACT_L:
++	case AMZ_CPLD_GPIO_BTN_MUTE_L:
++	case AMZ_CPLD_GPIO_MUTE_STATE_L:
++	case AMZ_CPLD_GPIO_INT_STATUS:
++	case AMZ_CPLD_GPIO_MUTE_STATE:
++	case AMZ_CPLD_GPIO_MUTE_PWM_L:
++		return 0;
++	case AMZ_CPLD_GPIO_ADC_RST:
++		return amzncpld_set_bit(data->client, data->regs->reg_i2c,
++					data->regs->bit_adc_rst_dir, 0);
++	case AMZ_CPLD_GPIO_SW_MUTE_SET:
++		if (data->model_id != CPLD45165)
++			return 0;
++		return amzncpld_set_bit(data->client, data->regs->reg_i2c,
++					data->regs->bit_sw_mute_dir, 0);
++	default:
++		return 1;
++	}
++}
++
++static void amzncpld_gpio_set(struct gpio_chip *chip, unsigned int offset,
++			  int value)
++{
++	struct amzncpld_data *data = gpiochip_get_data(chip);
++
++	switch (offset) {
++	case AMZ_CPLD_GPIO_SW_MUTE_SET:
++		amzncpld_set_bit(data->client, data->regs->reg_i2c,
++				 data->regs->bit_sw_mute_set, !!(value));
++		return;
++	case AMZ_CPLD_GPIO_ADC_RST:
++		amzncpld_set_bit(data->client, data->regs->reg_i2c,
++				 data->regs->bit_adc_rst, !!(value));
++		return;
++	default:
++		return;
++	}
++}
++
++static int amzncpld_gpio_get(struct gpio_chip *chip, unsigned int offset)
++{
++	u32 reg;
++	struct amzncpld_data *data = gpiochip_get_data(chip);
++
++	switch (offset) {
++	case AMZ_CPLD_GPIO_BTN_MUTE_L:
++		reg = amzncpld_read_reg(data->client, data->regs->reg_io) &
++		      data->regs->mask_btn_mute_l;
++		break;
++	case AMZ_CPLD_GPIO_BTN_ACT_L:
++		if (data->model_id != CPLD45165)
++			return -EINVAL;
++
++		reg = amzncpld_read_reg(data->client, data->regs->reg_io) &
++		      data->regs->mask_btn_act_l;
++		break;
++	case AMZ_CPLD_GPIO_BTN_VOL_UP_L:
++		reg = amzncpld_read_reg(data->client, data->regs->reg_io) &
++		      data->regs->mask_btn_vol_up_l;
++		break;
++	case AMZ_CPLD_GPIO_BTN_VOL_DN_L:
++		reg = amzncpld_read_reg(data->client, data->regs->reg_io) &
++		      data->regs->mask_btn_vol_dn_l;
++		break;
++	case AMZ_CPLD_GPIO_MUTE_STATE_L:
++		reg = amzncpld_read_reg(data->client, data->regs->reg_mute_l) &
++		      data->regs->mask_mute_state_l;
++		break;
++	case AMZ_CPLD_GPIO_INT_STATUS:
++		reg = amzncpld_read_reg(data->client,
++					data->regs->reg_interrupt_1) &
++		      data->regs->mask_ext_int_l;
++		break;
++	case AMZ_CPLD_GPIO_MUTE_PWM_L:
++		reg = amzncpld_read_reg(data->client, data->regs->reg_i2c_exp) &
++		      data->regs->mask_mute_pwm_l;
++		break;
++	case AMZ_CPLD_GPIO_SW_MUTE_SET:
++		reg = amzncpld_read_reg(data->client, data->regs->reg_i2c) &
++		      data->regs->mask_sw_mute_set;
++		break;
++	case AMZ_CPLD_GPIO_ADC_RST:
++		reg = amzncpld_read_reg(data->client, data->regs->reg_i2c) &
++		      data->regs->mask_adc_rst;
++		break;
++	default :
++		return -EINVAL;
++	}
++
++	return !!reg;
++}
++
++static void amzncpld_irq_mask(struct irq_data *d)
++{
++	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
++	struct amzncpld_data *chip = gpiochip_get_data(gc);
++
++	chip->irq_mask[d->hwirq] = true;
++	if (chip->model_id == CPLD45575 && d->hwirq == AMZ_CPLD_GPIO_INT_STATUS)
++		chip->ext_irq_mask_pending = true;
++}
++
++static void amzncpld_irq_unmask(struct irq_data *d)
++{
++	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
++	struct amzncpld_data *chip = gpiochip_get_data(gc);
++
++	chip->irq_mask[d->hwirq] = false;
++	if (chip->model_id == CPLD45575 && d->hwirq == AMZ_CPLD_GPIO_INT_STATUS)
++		chip->ext_irq_mask_pending = true;
++}
++
++static void amzncpld_irq_bus_lock(struct irq_data *d)
++{
++	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
++	struct amzncpld_data *chip = gpiochip_get_data(gc);
++
++	mutex_lock(&chip->irq_lock);
++}
++
++static void amzncpld_irq_bus_sync_unlock(struct irq_data *d)
++{
++	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
++	struct amzncpld_data *chip = gpiochip_get_data(gc);
++
++	if (chip->model_id == CPLD45575 &&
++	    d->hwirq == AMZ_CPLD_GPIO_INT_STATUS &&
++	    chip->ext_irq_mask_pending) {
++		if (chip->irq_mask[d->hwirq])
++			amzncpld_set_bit(chip->client, chip->regs->reg_i2c,
++					 chip->regs->bit_ext_int_mask, 1);
++		else
++			amzncpld_set_bit(chip->client, chip->regs->reg_i2c,
++					 chip->regs->bit_ext_int_mask, 0);
++		chip->ext_irq_mask_pending = false;
++	}
++	mutex_unlock(&chip->irq_lock);
++}
++
++static int amzncpld_irq_set_type(struct irq_data *d, unsigned int type)
++{
++	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
++	struct amzncpld_data *chip = gpiochip_get_data(gc);
++
++	chip->irq_type[d->hwirq] = type;
++
++	return 0;
++}
++
++static struct irq_chip amzncpld_irq_chip = {
++	.name			= "cpld",
++	.irq_mask		= amzncpld_irq_mask,
++	.irq_unmask		= amzncpld_irq_unmask,
++	.irq_bus_lock		= amzncpld_irq_bus_lock,
++	.irq_bus_sync_unlock	= amzncpld_irq_bus_sync_unlock,
++	.irq_set_type		= amzncpld_irq_set_type,
++};
++
++static inline int cpld_generic_handle_irq(unsigned int irq)
++{
++	int ret;
++	unsigned long flags;
++
++	local_irq_save(flags);
++	ret = generic_handle_irq(irq);
++	local_irq_restore(flags);
++
++	return ret;
++}
++
++static int amzncpld_clear_irqs(struct amzncpld_data *data)
++{
++	int ret;
++	ret = amzncpld_set_bit(data->client, data->regs->reg_i2c,
++			       data->regs->bit_interrupt_clear , 0x1);
++	if (ret < 0) {
++		dev_err(&data->client->dev, "failed to clear irq %d\n", ret);
++		return ret;
++	}
++
++	usleep_range(1000, 1100);
++
++	ret = amzncpld_set_bit(data->client, data->regs->reg_i2c,
++			       data->regs->bit_interrupt_clear , 0);
++	if (ret < 0) {
++		dev_err(&data->client->dev, "failed to clear irq %d\n", ret);
++		return ret;
++	}
++
++	return 0;
++}
++
++struct amzncpld_irq_handler {
++	int model_bit;
++	u8 irq_bit;
++	int gpio_num;
++};
++
++static void amzncpld_handle_ext_irqs(struct amzncpld_data *data, u8 pending)
++{
++	/*
++	 * Incase of gpios we have to detect and handle the rising and falling
++	 * edge of interrupt by handling nested irq twice for every interrupt
++	 * event.
++	 */
++	if (!data->irq_mask[AMZ_CPLD_GPIO_INT_STATUS] &&
++	    pending & data->regs->mask_ext_int) {
++		u8 gpio_int;
++
++		switch (data->irq_type[AMZ_CPLD_GPIO_INT_STATUS]) {
++		case IRQ_TYPE_EDGE_RISING:
++		case IRQ_TYPE_LEVEL_HIGH:
++			gpio_int = (pending & data->regs->mask_ext_int);
++			break;
++		case IRQ_TYPE_EDGE_FALLING:
++		case IRQ_TYPE_LEVEL_LOW:
++			gpio_int = !(pending & data->regs->mask_ext_int);
++			break;
++		case IRQ_TYPE_EDGE_BOTH:
++		default:
++			gpio_int = 1;
++		}
++
++		if (gpio_int)
++			cpld_generic_handle_irq(
++				irq_find_mapping(data->gpio_chip.irq.domain,
++				AMZ_CPLD_GPIO_INT_STATUS));
++	}
++}
++
++static void amzncpld_handle_irqs(struct amzncpld_data *data, u8 pending)
++{
++	int i;
++	struct amzncpld_irq_handler irq_handlers[] = {
++		{
++			.model_bit = BIT(CPLD45575) | BIT(CPLD45165),
++			.irq_bit = data->regs->mask_mute_int,
++			.gpio_num = AMZ_CPLD_GPIO_BTN_MUTE_L,
++		},
++		{
++			.model_bit = BIT(CPLD45165),
++			.irq_bit = data->regs->mask_action_int,
++			.gpio_num = AMZ_CPLD_GPIO_BTN_ACT_L,
++		},
++		{
++			.model_bit = BIT(CPLD45575) | BIT(CPLD45165),
++			.irq_bit = data->regs->mask_vol_up_int,
++			.gpio_num = AMZ_CPLD_GPIO_BTN_VOL_UP_L,
++		},
++		{
++			.model_bit = BIT(CPLD45575) | BIT(CPLD45165),
++			.irq_bit = data->regs->mask_vol_dn_int,
++			.gpio_num = AMZ_CPLD_GPIO_BTN_VOL_DN_L,
++		},
++		{
++			.model_bit = BIT(CPLD45575) | BIT(CPLD45165),
++			.irq_bit = data->regs->mask_mute_state_delta,
++			.gpio_num = AMZ_CPLD_GPIO_MUTE_STATE_L,
++		},
++		{
++			.model_bit = BIT(CPLD45575) | BIT(CPLD45165),
++			.irq_bit = data->regs->mask_ext_int,
++			.gpio_num = AMZ_CPLD_GPIO_INT_STATUS,
++		},
++	};
++
++	for (i = 0; i < ARRAY_SIZE(irq_handlers); i++) {
++		struct amzncpld_irq_handler *mapping = &irq_handlers[i];
++
++		if (BIT(data->model_id) & mapping->model_bit &&
++		    !data->irq_mask[mapping->gpio_num] &&
++		    mapping->irq_bit & pending) {
++			cpld_generic_handle_irq(
++				irq_find_mapping(data->gpio_chip.irq.domain,
++				mapping->gpio_num));
++		}
++	}
++
++	/*
++	 * Incase of gpios we have to detect and handle the rising and falling
++	 * edge of interrupt by handling nested irq twice for every interrupt
++	 * event.
++	 */
++	amzncpld_handle_ext_irqs(data, pending);
++
++	dev_dbg(data->dev, "%s: irqs handled=0x%x\n", __func__, pending);
++}
++
++static inline int amzncpld_irq_status_read_and_clear(struct amzncpld_data *data,
++						     u8* status)
++{
++	int ret;
++
++	ret = amzncpld_read_reg(data->client, data->regs->reg_interrupt);
++	if (unlikely(ret < 0))
++		return ret;
++	*status = ret;
++
++	/*
++	 * XXX: Due to the current version of cpld hardware design flaw if
++	 * another interrupt raises the time between read interrupt status
++	 * register and clear interrupt, we lose the newly raised interrupts.
++	 * This lose of critical irqs should be fixed up by sending bogus
++	 * interrupts once all the interrupts are cleared.
++	 */
++	ret = amzncpld_clear_irqs(data);
++	if (unlikely(ret))
++		return ret;
++
++	return 0;
++}
++
++static void amzncpld_irq_work_func(struct work_struct *work)
++{
++	u8 irq_mask, cur_status_mask;
++	u8 cur_status, prev_status = 0, pending = 0;
++	struct amzncpld_data *data = container_of(work, struct amzncpld_data,
++						  work.work);
++	const int sleep_us = AMZ_CPLD_INTERRUPT_POLLING_INTERVAL_MS * 1000;
++
++	irq_mask = data->regs->mask_mute_int | data->regs->mask_vol_up_int |
++		   data->regs->mask_vol_dn_int | data->regs->mask_ext_int |
++		   data->regs->mask_mute_state_delta |
++		   data->regs->mask_action_int;
++
++	if (amzncpld_irq_status_read_and_clear(data, &cur_status))
++		goto out;
++	cur_status &= irq_mask;
++
++	dev_dbg(data->dev, "%s: enter cur_status=0x%x\n", __func__, cur_status);
++
++	if (!cur_status) {
++		/*
++		 * cpld finally cleared all the interrupt so the kernel recieved
++		 * the rising edge interrupt as an indication. The hardware's
++		 * flaw and the workaround inevitably bring another problem
++		 * where the workaround can clear unhandled irq, which can
++		 * happen to any types of interrupts.  Among the all interrupt
++		 * types, a missing mute_state_delta interrupt is crucial as a
++		 * missed interrupt causes privacy state mis-representation.
++		 * Forefully raise the mute_state_delta interrupt to avoid the
++		 * problem.  It will be bogus interrupt for most of time  and
++		 * fix up of the missing mute state delta happens rarely. The
++		 * bogus interrupt is not harmful as the consumer of this driver
++		 * should rely on the mute state upon the interrupt receiption.
++		 */
++		pending = data->regs->mask_mute_state_delta;
++		goto rising_edge;
++	}
++
++	/* Handle the currently pending interrupts first such as button press */
++	amzncpld_handle_irqs(data, cur_status);
++
++	/*
++	 * Flawed cpld hardware doesn't allow software to clear the interrupt
++	 * when a button is pressed. This is an ugly workaround to keep trying
++	 * clear the button interrupt.
++	 */
++	while (1) {
++		if (amzncpld_irq_status_read_and_clear(data, &cur_status))
++			goto out;
++		cur_status &= irq_mask;
++
++		if (prev_status != cur_status) {
++			dev_dbg(data->dev,
++				"%s: prev_status=0x%x -> cur_status=0x%x\n",
++				__func__, prev_status, cur_status);
++			prev_status = cur_status;
++		}
++
++		cur_status_mask = cur_status & (data->regs->mask_ext_int |
++			data->regs->mask_mute_state_delta |
++			data->regs->mask_vol_up_int |
++			data->regs->mask_vol_dn_int);
++
++		if (!cur_status) {
++			break;
++		} else if (cur_status_mask) {
++			amzncpld_handle_irqs(data, cur_status_mask);
++		} else {
++			pending |= cur_status;
++		}
++		usleep_range(sleep_us, sleep_us + 10000);
++	}
++
++rising_edge:
++	/* Interrupt is cleared as the button released */
++	dev_dbg(data->dev, "%s: pending irqs=0x%x\n", __func__, pending);
++
++	if (pending)
++		amzncpld_handle_irqs(data, pending);
++out:
++	if (data->wakeup_capable)
++		pm_relax(&data->client->dev);
++
++	dev_dbg(data->dev, "%s: exit\n", __func__);
++}
++
++static irqreturn_t amzncpld_irq_handler(int irq, void *d)
++{
++	bool ret;
++	struct amzncpld_data *data = d;
++
++	dev_dbg(data->dev, "%s: enter\n", __func__);
++
++	if (data->wakeup_capable)
++		pm_stay_awake(&data->client->dev);
++
++	ret = mod_delayed_work(system_wq, &data->work,
++			       msecs_to_jiffies(data->sw_debounce_ms));
++
++	dev_dbg(data->dev, "%s: mod_delayed_work ret=%d exit\n", __func__, ret);
++
++	return IRQ_HANDLED;
++}
++
++static int amzncpld_irq_setup(struct amzncpld_data *data)
++{
++	struct i2c_client *client = data->client;
++	int ret;
++
++	if (client->irq) {
++		mutex_init(&data->irq_lock);
++
++		INIT_DELAYED_WORK(&data->work, amzncpld_irq_work_func);
++		ret = devm_request_threaded_irq(&client->dev,
++					client->irq,
++					   NULL,
++					   amzncpld_irq_handler,
++					   IRQF_ONESHOT | IRQF_SHARED,
++					   dev_name(&client->dev), data);
++		if (ret) {
++			dev_err(&client->dev, "failed to request irq %d\n",
++				client->irq);
++			return ret;
++		}
++
++		/* 6.12: the irq domain is set up by gpiochip_add_data from
++		 * gpio_chip.irq (populated in amzncpld_gpio_init); the threaded
++		 * handler above demuxes into it. gpiochip_irqchip_add() and
++		 * gpiochip_set_chained_irqchip() were removed upstream.
++		 */
++
++	/* Schedule irq work func to clear interrupt status at boot time */
++		mod_delayed_work(system_wq,
++			 &data->work, msecs_to_jiffies(data->sw_debounce_ms));
++	}
++
++	return 0;
++}
++
++static int amzncpld_gpio_init(struct amzncpld_data *cpld)
++{
++	int ret = 0;
++
++	cpld->gpio_chip.parent = cpld->dev;
++	cpld->gpio_chip.owner = THIS_MODULE;
++	cpld->gpio_chip.label = DEVICE_NAME;
++	cpld->gpio_chip.ngpio = AMZ_CPLD_GPIO_NR;
++	cpld->gpio_chip.get_direction = amzncpld_gpio_get_direction;
++	cpld->gpio_chip.direction_input = amzncpld_gpio_direction_input;
++	cpld->gpio_chip.direction_output = amzncpld_gpio_direction_output;
++	cpld->gpio_chip.set = amzncpld_gpio_set;
++	cpld->gpio_chip.get = amzncpld_gpio_get;
++	cpld->gpio_chip.base = -1;
++	cpld->gpio_chip.can_sleep = 1;
++
++	if (cpld->client->irq) {
++		struct gpio_irq_chip *girq = &cpld->gpio_chip.irq;
++
++		girq->chip = &amzncpld_irq_chip;
++		girq->handler = handle_simple_irq;
++		girq->default_type = IRQ_TYPE_NONE;
++		girq->threaded = true;
++	}
++
++	ret = devm_gpiochip_add_data(cpld->dev, &cpld->gpio_chip, cpld);
++	if (ret < 0) {
++		dev_err(&cpld->client->dev, "failed to add gpiochip %d\n", ret);
++		goto out;
++	}
++
++	ret = amzncpld_irq_setup(cpld);
++	if (ret) {
++		dev_err(&cpld->client->dev,
++			"failed to initialize gpio irq, ret=%d\n", ret);
++	}
++out:
++	return ret;
++
++}
++
++static int amzncpld_probe(struct i2c_client *client)
++{
++	int ret = 0;
++	struct amzncpld_data *data = devm_kzalloc(&client->dev,
++						 sizeof(struct amzncpld_data),
++						 GFP_KERNEL);
++	if (!data) {
++		dev_err(&client->dev,
++			"Failed to allocate memory for cpld data, ret=%d\n",
++			ret);
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA)) {
++		dev_err(&client->dev,
++			"Required i2c functionality is not supported\n");
++		return -EIO;
++	}
++
++	data->client = client;
++	data->dev = &client->dev;
++	const struct i2c_device_id *id = i2c_client_get_device_id(client);
++
++	data->model_id = id->driver_data;
++
++	mutex_init(&data->lock);
++	mutex_init(&data->i2c_lock);
++	if (of_property_read_u32(client->dev.of_node, "swdebounce-interval",
++				&data->sw_debounce_ms))
++		data->sw_debounce_ms = 50;
++
++	data->wakeup_capable = of_property_read_bool(client->dev.of_node,
++						"wakeup-source");
++	i2c_set_clientdata(client, data);
++
++	if (data->model_id == CPLD45575) {
++		data->regs = &cpld45575_regs;
++	} else if (data->model_id == CPLD45165) {
++		data->regs = &cpld45165_regs;
++	} else {
++		dev_err(&client->dev,
++			"unknown cpld model_id=%d\n", data->model_id);
++		ret = -EINVAL;
++		goto out;
++	}
++
++	ret = amzncpld_gpio_init(data);
++	if (ret) {
++		dev_err(&client->dev,
++			"failed to initialize gpio, ret=%d\n", ret);
++		goto out;
++	}
++
++	device_init_wakeup(&client->dev, data->wakeup_capable);
++
++	dev_info(&client->dev,
++		 "%s cpld chip model=%d sw_debounce_ms=%d probed\n",
++		 client->name, data->sw_debounce_ms, data->model_id);
++out:
++	return ret;
++}
++
++static void amzncpld_remove(struct i2c_client *client)
++{
++}
++
++#ifdef CONFIG_PM_SLEEP
++static int amzncpld_suspend(struct device *dev)
++{
++	struct amzncpld_data *data = dev_get_drvdata(dev);
++
++	if (device_may_wakeup(dev)) {
++		enable_irq_wake(data->client->irq);
++	}
++
++	return 0;
++}
++
++static int amzncpld_resume(struct device *dev)
++{
++	struct amzncpld_data *data = dev_get_drvdata(dev);
++
++	if (device_may_wakeup(dev)) {
++		disable_irq_wake(data->client->irq);
++	}
++
++	return 0;
++}
++
++static SIMPLE_DEV_PM_OPS(amzncpld_pm_ops, amzncpld_suspend, amzncpld_resume);
++#endif
++
++static struct i2c_device_id amzncpld_id[] = {
++	{ "cpld45575", CPLD45575 },
++	{ "cpld45165", CPLD45165 },
++	{ }
++};
++
++MODULE_DEVICE_TABLE(i2c, amzncpld_id);
++
++static const struct of_device_id amzncpld_of_match[] = {
++	{ .compatible = "amzn,cpld45575"},
++	{ .compatible = "amzn,cpld45165"},
++	{},
++};
++MODULE_DEVICE_TABLE(of, amzncpld_of_match);
++
++static struct i2c_driver amzncpld_driver = {
++	.driver = {
++		.name = "amzn_cpld",
++		.of_match_table = of_match_ptr(amzncpld_of_match),
++#ifdef CONFIG_PM_SLEEP
++		.pm = &amzncpld_pm_ops,
++#endif
++	},
++	.probe = amzncpld_probe,
++	.remove = amzncpld_remove,
++	.id_table = amzncpld_id,
++};
++
++module_i2c_driver(amzncpld_driver);
++
++MODULE_AUTHOR("Yadwinder Singh Brar <ybbrar@amazon.com>");
++MODULE_DESCRIPTION("Amazon Custom CPLD Driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/regulator/Kconfig b/drivers/regulator/Kconfig
+index 39297f7d8..9f036364b 100644
+--- a/drivers/regulator/Kconfig
++++ b/drivers/regulator/Kconfig
+@@ -1721,3 +1721,10 @@ config REGULATOR_QCOM_LABIBB
+ 	  for LCD display panel.
+ 
+ endif
++
++config REGULATOR_MT6395
++	tristate "MediaTek MT6395 PMIC regulator (MT8519 Echo)"
++	depends on I2C && OF
++	select REGMAP_I2C
++	help
++	  Regulator driver for the MediaTek MT6395 PMIC on the Echo Dot (5th gen).
+diff --git a/drivers/regulator/Makefile b/drivers/regulator/Makefile
+index 3d5a803dc..2fc8469f9 100644
+--- a/drivers/regulator/Makefile
++++ b/drivers/regulator/Makefile
+@@ -203,3 +203,4 @@ obj-$(CONFIG_REGULATOR_WM8400) += wm8400-regulator.o
+ obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
+ 
+ ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG
++obj-$(CONFIG_REGULATOR_MT6395) += mt6395-regulator.o
+diff --git a/drivers/regulator/mt6395-regulator.c b/drivers/regulator/mt6395-regulator.c
+new file mode 100644
+index 000000000..6a652bc76
+--- /dev/null
++++ b/drivers/regulator/mt6395-regulator.c
+@@ -0,0 +1,936 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (c) 2014-2021 MediaTek Inc.
++ * Author: Shufan.Lee <shufan_lee@richtek.com>
++ */
++
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/err.h>
++#include <linux/kernel.h>
++#include <linux/i2c.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_device.h>
++#include <linux/of_gpio.h>
++#include <linux/of_irq.h>
++#include <linux/device.h>
++#include <linux/gpio.h>
++#include <linux/gpio/consumer.h>
++#include <linux/pinctrl/consumer.h>
++#include <linux/gpio.h>
++#include <linux/version.h>
++#include <linux/interrupt.h>
++#include <linux/regulator/driver.h>
++#include <linux/regulator/of_regulator.h>
++#include <linux/regulator/machine.h>
++#include <linux/regmap.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++
++/*
++ * For development
++ * Remove version after driver is verified and ready to upstream
++ */
++#define MT6395_DRV_VERSION	"1.0.4"
++
++#define MT6395_PRODUCT_ID				0x00
++#define MT6395_MANUFACTURE_ID				0x01
++#define MT6395_REVISION_NUMBER				0x02
++#define MT6395_PG_INFO					0x03
++#define MT6395_UV_INFO					0x04
++#define MT6395_OV_INFO					0x05
++#define MT6395_CH1_VID					0x06
++#define MT6395_CH1_SLEEP_VID				0x07
++#define MT6395_INTERNAL_ENABLE				0x08
++#define MT6395_BUCK_MODE_CTRL				0x09
++#define MT6395_PROTECTION_MODE				0x0A
++#define MT6395_WDOG_RST_CTRL				0x0B
++#define MT6395_SLEEP_MODE_CTRL				0x0C
++#define MT6395_SEQUENCE_CONFIG				0x0D
++#define MT6395_CH1_TIME_CONFIG				0x0E
++#define MT6395_CH2_TIME_CONFIG				0x0F
++#define MT6395_CH3_TIME_CONFIG				0x10
++#define MT6395_CH4_TIME_CONFIG				0x11
++#define MT6395_CH5_TIME_CONFIG				0x12
++#define MT6395_EXEN1_TIME_CONFIG			0x13
++#define MT6395_RST_DLY_TIME				0x1C
++#define MT6395_INT_ENABLE				0x1D
++#define MT6395_INT_STATUS				0x1E
++#define MT6395_DISCHG_CTRL				0x1F
++#define MT6395_CH2_VOLT_OFFSET				0x20
++#define MT6395_SLEW_RATE_CTRL				0x45
++
++#define MT6395_CH1_ENABLE_MASK				BIT(1)
++#define MT6395_CH2_ENABLE_MASK				BIT(2)
++#define MT6395_CH3_ENABLE_MASK				BIT(3)
++#define MT6395_CH4_ENABLE_MASK				BIT(4)
++#define MT6395_CH5_ENABLE_MASK				BIT(5)
++
++#define MT6395_CH1_MODE_MASK				BIT(1)
++#define MT6395_CH2_MODE_MASK				BIT(2)
++#define MT6395_CH3_MODE_MASK				BIT(3)
++#define MT6395_CH4_MODE_MASK				BIT(4)
++
++#define MT6395_SLEEP_MODE_MASK				BIT(0)
++#define MT6395_SLEEP_CTRL_MASK				BIT(7)
++
++#define MT6395_INT_STATUS_MASK				0x61
++
++#define MT6395_CH1_SLEW_RATE_MASK			0xC0
++#define MT6395_CH1_SLEW_RATE_SHFT			6
++
++enum mt6395_regulator {
++	MT6395_RG_BUCK1 = 0,
++	MT6395_RG_BUCK2,
++	MT6395_RG_BUCK3,
++	MT6395_RG_BUCK4,
++	MT6395_RG_BUCK_MAX,
++	MT6395_RG_LDO1 = MT6395_RG_BUCK_MAX,
++	MT6395_RG_MAX,
++};
++
++#define mt6395_buck1_id			MT6395_RG_BUCK1
++#define mt6395_buck1_min_uV		600000
++#define mt6395_buck1_uV_step		6250
++#define mt6395_buck1_n_voltages		127
++#define mt6395_buck1_vsel_reg		MT6395_CH1_VID
++#define mt6395_buck1_vsel_mask		0x7F
++#define mt6395_buck1_enable_reg		MT6395_INTERNAL_ENABLE
++#define mt6395_buck1_enable_mask	MT6395_CH1_ENABLE_MASK
++#define mt6395_buck1_linear_min_sel	0
++
++#define mt6395_buck2_id			MT6395_RG_BUCK2
++#define mt6395_buck2_fixed_uV		1100000
++#define mt6395_buck2_enable_reg		MT6395_INTERNAL_ENABLE
++#define mt6395_buck2_enable_mask	MT6395_CH2_ENABLE_MASK
++
++#define mt6395_buck3_id			MT6395_RG_BUCK3
++#define mt6395_buck3_fixed_uV		1800000
++#define mt6395_buck3_enable_reg		MT6395_INTERNAL_ENABLE
++#define mt6395_buck3_enable_mask	MT6395_CH3_ENABLE_MASK
++
++#define mt6395_buck4_id			MT6395_RG_BUCK4
++#define mt6395_buck4_fixed_uV		3300000
++#define mt6395_buck4_enable_reg		MT6395_INTERNAL_ENABLE
++#define mt6395_buck4_enable_mask	MT6395_CH4_ENABLE_MASK
++
++#define mt6395_ldo1_id			MT6395_RG_LDO1
++#define mt6395_ldo1_fixed_uV		1200000
++#define mt6395_ldo1_enable_reg		MT6395_INTERNAL_ENABLE
++#define mt6395_ldo1_enable_mask		MT6395_CH5_ENABLE_MASK
++
++struct mt6395_chip;
++
++struct mt6395_regulator_drvdata {
++	struct regulator_desc rdesc;
++};
++
++#ifdef CONFIG_DEBUG_FS
++enum mt6395_dbg_node {
++	MT6395_DBG_REGS,
++	MT6395_DBG_REGADDR,
++	MT6395_DBG_DATA,
++	MT6395_DBG_MAX,
++};
++
++static const char * const mt6395_dentry_name[] = {
++	"regs", "reg_addr", "data",
++};
++
++struct mt6395_dbg_info {
++	struct mt6395_chip *chip;
++	enum mt6395_dbg_node node;
++};
++
++static u8 mt6395_regaddr[] = {
++	MT6395_PRODUCT_ID,
++	MT6395_MANUFACTURE_ID,
++	MT6395_REVISION_NUMBER,
++	MT6395_PG_INFO,
++	MT6395_UV_INFO,
++	MT6395_OV_INFO,
++	MT6395_CH1_VID,
++	MT6395_CH1_SLEEP_VID,
++	MT6395_INTERNAL_ENABLE,
++	MT6395_BUCK_MODE_CTRL,
++	MT6395_PROTECTION_MODE,
++	MT6395_WDOG_RST_CTRL,
++	MT6395_SLEEP_MODE_CTRL,
++	MT6395_SEQUENCE_CONFIG,
++	MT6395_CH1_TIME_CONFIG,
++	MT6395_CH2_TIME_CONFIG,
++	MT6395_CH3_TIME_CONFIG,
++	MT6395_CH4_TIME_CONFIG,
++	MT6395_CH5_TIME_CONFIG,
++	MT6395_EXEN1_TIME_CONFIG,
++	MT6395_RST_DLY_TIME,
++	MT6395_INT_ENABLE,
++	MT6395_INT_STATUS,
++	MT6395_DISCHG_CTRL,
++	MT6395_CH2_VOLT_OFFSET,
++	MT6395_SLEW_RATE_CTRL,
++};
++#endif /* CONFIG_DEBUG_FS */
++
++struct mt6395_chip {
++	struct device *dev;
++	struct regmap *regmap;
++	struct i2c_client *client;
++	struct gpio_desc *irq_gpio;
++	int irq;
++	struct mutex io_lock;
++
++#ifdef CONFIG_DEBUG_FS
++	struct mt6395_dbg_info dbg_info[MT6395_DBG_MAX];
++	struct dentry *dbg_dir;
++	struct dentry *dbg_entry[MT6395_DBG_MAX];
++	u8 dbg_regaddr;
++#endif /* CONFIG_DEBUG_FS */
++};
++#ifdef CONFIG_KPD_PWRKEY_USE_PMIC
++extern void kpd_pwrkey_pmic_handler(unsigned long pressed);
++#endif
++
++static int __regmap_write_bits(struct regmap *map, unsigned int reg,
++					unsigned int mask, unsigned int val)
++{
++	int ret = 0;
++
++	ret = regmap_write_bits(map, reg, mask, val);
++
++	return ret;
++}
++
++static int __maybe_unused __regmap_write(struct regmap *map,
++					unsigned int reg, unsigned int val)
++{
++	int ret = 0;
++
++	ret = regmap_write(map, reg, val);
++
++	return ret;
++}
++
++static int __regmap_read(struct regmap *map,
++					unsigned int reg, unsigned int *val)
++{
++	int ret = 0;
++
++	ret = regmap_read(map, reg, val);
++
++	return ret;
++}
++
++#ifdef CONFIG_DEBUG_FS
++static int mt6395_regs_show(struct mt6395_chip *chip, struct seq_file *s)
++{
++	int ret = 0, i = 0;
++	u32 data = 0;
++
++	for (i = 0; i < ARRAY_SIZE(mt6395_regaddr); i++) {
++		ret = __regmap_read(chip->regmap, mt6395_regaddr[i], &data);
++		if (ret < 0)
++			continue;
++
++		seq_printf(s, "reg0x%02X=0x%02X\n", mt6395_regaddr[i], data);
++	}
++	return 0;
++}
++
++static int mt6395_regaddr_show(struct mt6395_chip *chip, struct seq_file *s)
++{
++	seq_printf(s, "0x%02X\n", chip->dbg_regaddr);
++	return 0;
++}
++
++static int mt6395_data_show(struct mt6395_chip *chip, struct seq_file *s)
++{
++	int ret = 0;
++	u32 data = 0;
++
++	ret = __regmap_read(chip->regmap, chip->dbg_regaddr, &data);
++	if (ret < 0)
++		return ret;
++
++	seq_printf(s, "reg0x%02X=0x%02X\n", chip->dbg_regaddr, data);
++	return 0;
++}
++
++static int mt6395_dbg_show(struct seq_file *s, void *v)
++{
++	int ret = 0;
++	struct mt6395_dbg_info *dinfo = s->private;
++	struct mt6395_chip *chip = dinfo->chip;
++
++	switch (dinfo->node) {
++	case MT6395_DBG_REGS:
++		ret = mt6395_regs_show(chip, s);
++		break;
++	case MT6395_DBG_REGADDR:
++		ret = mt6395_regaddr_show(chip, s);
++		break;
++	case MT6395_DBG_DATA:
++		ret = mt6395_data_show(chip, s);
++		break;
++	default:
++		ret = -EINVAL;
++		break;
++	}
++	return ret;
++}
++
++static int mt6395_dbg_open(struct inode *inode, struct file *file)
++{
++	if (file->f_mode & FMODE_READ)
++		return single_open(file, mt6395_dbg_show, inode->i_private);
++	file->private_data = inode->i_private;
++	return 0;
++}
++
++static int mt6395_dbg_extract_param(const char *buf, u8 *param)
++{
++	char token[5];
++	long value = 0;
++
++	if (buf[0] != '0' || (buf[1] != 'x' && buf[1] != 'X'))
++		return -EINVAL;
++	memcpy(token, buf, 5);
++	if (kstrtoul(token, 16, &value) != 0)
++		return -EINVAL;
++	*param = value;
++	return 0;
++}
++
++static bool mt6395_is_regaddr_valid(u8 regaddr)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(mt6395_regaddr); i++) {
++		if (mt6395_regaddr[i] == regaddr)
++			return true;
++	}
++	return false;
++}
++
++static ssize_t mt6395_dbg_write(struct file *file, const char __user *ubuf,
++				size_t count, loff_t *ppos)
++{
++	int ret;
++	struct mt6395_dbg_info *dinfo = file->private_data;
++	struct mt6395_chip *chip = dinfo->chip;
++	char lbuf[5];
++	u8 param = 0;
++
++	if (count != 5)
++		return -EFAULT;
++
++	ret = copy_from_user(lbuf, ubuf, count);
++	if (ret)
++		return -EFAULT;
++	lbuf[count - 1] = '\0';
++
++	switch (dinfo->node) {
++	case MT6395_DBG_REGADDR:
++		ret = mt6395_dbg_extract_param(lbuf, &param);
++		if (ret < 0) {
++			dev_err(chip->dev, "%s get regaddr fail\n", __func__);
++			goto out;
++		}
++		if (!mt6395_is_regaddr_valid(param))
++			return -EINVAL;
++		chip->dbg_regaddr = param;
++		break;
++	case MT6395_DBG_DATA:
++		ret = mt6395_dbg_extract_param(lbuf, &param);
++		if (ret < 0) {
++			dev_err(chip->dev, "%s get data fail\n", __func__);
++			goto out;
++		}
++		ret = __regmap_write(chip->regmap, chip->dbg_regaddr, param);
++		if (ret < 0)
++			dev_err(chip->dev, "%s write data fail\n", __func__);
++		break;
++	default:
++		ret = -EINVAL;
++		break;
++	}
++out:
++	return ret < 0 ? ret : count;
++}
++
++static int mt6395_dbg_release(struct inode *inode, struct file *file)
++{
++	if (file->f_mode & FMODE_READ)
++		return single_release(inode, file);
++	return 0;
++}
++
++static const struct file_operations mt6395_dbg_ops = {
++	.open = mt6395_dbg_open,
++	.llseek = seq_lseek,
++	.read = seq_read,
++	.write = mt6395_dbg_write,
++	.release = mt6395_dbg_release,
++};
++
++static int mt6395_init_debugfs(struct mt6395_chip *chip)
++{
++	int i, len;
++	char *dirname;
++	struct mt6395_dbg_info *dinfo;
++
++	len = strlen(dev_name(chip->dev));
++	dirname = devm_kzalloc(chip->dev, len + 8, GFP_KERNEL);
++	if (!dirname)
++		return -ENOMEM;
++	snprintf(dirname, len + 8, "mt6395-%s", dev_name(chip->dev));
++	chip->dbg_dir = debugfs_create_dir(dirname, NULL);
++	if (!chip->dbg_dir)
++		return -ENOMEM;
++
++	for (i = 0; i < MT6395_DBG_MAX; i++) {
++		dinfo = &chip->dbg_info[i];
++		dinfo->chip = chip;
++		dinfo->node = i;
++		chip->dbg_entry[i] = debugfs_create_file(mt6395_dentry_name[i],
++							 S_IFREG | 0444,
++							 chip->dbg_dir, dinfo,
++							 &mt6395_dbg_ops);
++	}
++	return 0;
++}
++
++static void mt6395_uninit_debugfs(struct mt6395_chip *chip)
++{
++	debugfs_remove_recursive(chip->dbg_dir);
++}
++#else
++static int mt6395_init_debugfs(struct mt6395_chip *chip)
++{
++	return 0;
++}
++
++static int mt6395_uninit_debugfs(struct mt6395_chip *chip)
++{
++	return 0;
++}
++#endif /* CONFIG_DEBUG_FS */
++
++static const u8 mt6395_buck_mode_mask[MT6395_RG_BUCK_MAX] = {
++	MT6395_CH1_MODE_MASK, MT6395_CH2_MODE_MASK, MT6395_CH3_MODE_MASK,
++	MT6395_CH4_MODE_MASK,
++};
++
++static bool mt6395_volatile_reg(struct device *dev, unsigned int reg)
++{
++	if (reg == MT6395_INT_STATUS)
++		return true;
++	return false;
++}
++
++static const struct regmap_config mt6395_regmap_config = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = 0x45,
++	.cache_type = REGCACHE_NONE,
++	.volatile_reg = mt6395_volatile_reg,
++};
++
++static inline bool mt6395_is_buck(int rid)
++{
++	if (rid >= MT6395_RG_BUCK1 && rid <= MT6395_RG_BUCK4)
++		return true;
++	return false;
++}
++
++static int mt6395_regulator_get_status(struct regulator_dev *rdev)
++{
++	int ret = 0;
++	u32 regval = 0;
++	struct mt6395_regulator_drvdata *drvdata = rdev_get_drvdata(rdev);
++	struct regulator_desc *rdesc = &drvdata->rdesc;
++
++	ret = __regmap_read(rdev->regmap, rdesc->enable_reg, &regval);
++	if (ret < 0) {
++		dev_err(&rdev->dev, "%s get enable status fail(%d)\n",
++			__func__, ret);
++		return ret;
++	}
++
++	return (regval & rdesc->enable_mask) ? REGULATOR_STATUS_ON :
++					       REGULATOR_STATUS_OFF;
++}
++
++static inline int mt6395_set_pwm_mode(struct regulator_dev *rdev, int rid,
++				      bool pwm)
++{
++	u8 mask = mt6395_buck_mode_mask[rid];
++	u8 val = pwm ? mask : 0;
++
++	return regmap_update_bits(rdev->regmap, MT6395_BUCK_MODE_CTRL, mask,
++				  val);
++}
++
++static inline int mt6395_set_standby_mode(struct regulator_dev *rdev,
++					  bool standby)
++{
++	u8 val = standby ? MT6395_SLEEP_MODE_MASK : 0;
++
++	return regmap_update_bits(rdev->regmap, MT6395_SLEEP_MODE_CTRL,
++				  MT6395_SLEEP_MODE_MASK, val);
++}
++
++static int mt6395_regulator_set_mode(struct regulator_dev *rdev,
++				     unsigned int mode)
++{
++	int ret;
++	struct mt6395_regulator_drvdata *drvdata = rdev_get_drvdata(rdev);
++	struct regulator_desc *rdesc = &drvdata->rdesc;
++	int rid = rdesc->id;
++
++	switch (mode) {
++	case REGULATOR_MODE_FAST:
++		if (!mt6395_is_buck(rid))
++			return -EINVAL;
++		ret = mt6395_set_pwm_mode(rdev, rid, true);
++		break;
++	case REGULATOR_MODE_NORMAL:
++		if (mt6395_is_buck(rid)) {
++			ret = mt6395_set_pwm_mode(rdev, rid, false);
++			if (ret < 0)
++				return ret;
++		}
++		ret = mt6395_set_standby_mode(rdev, false);
++		break;
++	case REGULATOR_MODE_STANDBY:
++		ret = mt6395_set_standby_mode(rdev, true);
++		break;
++	default:
++		return -EINVAL;
++	}
++	return ret;
++}
++
++/*
++ * Even though the return type is unsigned int,
++ * regulator framework returns negative value when it fails
++ */
++static unsigned int mt6395_regulator_get_mode(struct regulator_dev *rdev)
++{
++	int ret = 0;
++	struct mt6395_regulator_drvdata *drvdata = rdev_get_drvdata(rdev);
++	struct regulator_desc *rdesc = &drvdata->rdesc;
++	int rid = rdesc->id;
++	u32 regval = 0;
++
++	ret = __regmap_read(rdev->regmap, MT6395_SLEEP_MODE_CTRL, &regval);
++	if (ret < 0)
++		return ret;
++
++	if (regval & MT6395_SLEEP_MODE_MASK)
++		return REGULATOR_MODE_STANDBY;
++	if (!mt6395_is_buck(rid))
++		return REGULATOR_MODE_NORMAL;
++	ret = __regmap_read(rdev->regmap, MT6395_BUCK_MODE_CTRL, &regval);
++	if (ret < 0)
++		return ret;
++	if (regval & mt6395_buck_mode_mask[rid])
++		return REGULATOR_MODE_FAST;
++	return REGULATOR_MODE_NORMAL;
++}
++
++static const u8 mt6395_ramp_delay_regval[] = {
++	0x03, 0x02, 0x01, 0x00
++};
++
++static int mt6395_regulator_set_ramp_delay(struct regulator_dev *rdev,
++					   int ramp_delay)
++{
++	u8 regval = 0;
++
++	if (ramp_delay < 0)
++		return -EINVAL;
++	if (ramp_delay < 5000)
++		ramp_delay = 5000;
++	else if (ramp_delay > 20000)
++		ramp_delay = 20000;
++
++	/*
++	 * (ramp delay + (step - 1000) - step) / step
++	 * (ramp delay - 1000) / step
++	 */
++	regval = (ramp_delay - 1000) / 5000;
++
++	/* map ramp delay to register value */
++	regval = mt6395_ramp_delay_regval[regval];
++
++	return regmap_update_bits(rdev->regmap, MT6395_SLEW_RATE_CTRL,
++				  MT6395_CH1_SLEW_RATE_MASK,
++				  regval << MT6395_CH1_SLEW_RATE_SHFT);
++}
++
++static int mt6395_get_voltage_sel(struct regulator_dev *rdev)
++{
++
++	int ret = 0;
++	u32 regval = 0;
++	struct mt6395_regulator_drvdata *drvdata = rdev_get_drvdata(rdev);
++	struct regulator_desc *rdesc = &drvdata->rdesc;
++
++	ret = __regmap_read(rdev->regmap, rdesc->vsel_reg, &regval);
++	if (ret < 0) {
++		dev_info(&rdev->dev, "%s get volt fail(%d)\n", __func__, ret);
++		return ret;
++	}
++
++	regval &= rdev->desc->vsel_mask;
++	regval >>= ffs(rdev->desc->vsel_mask) - 1;
++
++	return regval;
++}
++
++/* Modifiable regulator */
++static const struct regulator_ops mt6395_regulator_ops = {
++	.list_voltage = regulator_list_voltage_linear,
++	.enable = regulator_enable_regmap,
++	.disable = regulator_disable_regmap,
++	.is_enabled = regulator_is_enabled_regmap,
++	.set_voltage_sel = regulator_set_voltage_sel_regmap,
++	.get_voltage_sel = mt6395_get_voltage_sel,
++	.set_mode = mt6395_regulator_set_mode,
++	.get_mode = mt6395_regulator_get_mode,
++	.get_status = mt6395_regulator_get_status,
++	.set_ramp_delay = mt6395_regulator_set_ramp_delay,
++	.set_voltage_time_sel = regulator_set_voltage_time_sel,
++};
++
++/* Fixed regulator */
++static const struct regulator_ops mt6395_fixed_regulator_ops = {
++	.enable = regulator_enable_regmap,
++	.disable = regulator_disable_regmap,
++	.is_enabled = regulator_is_enabled_regmap,
++	.set_mode = mt6395_regulator_set_mode,
++	.get_mode = mt6395_regulator_get_mode,
++	.get_status = mt6395_regulator_get_status,
++};
++
++#define MT6395_REGULATOR_LINEAR(_name, _match) \
++{ \
++	.rdesc = { \
++		.name = #_name, \
++		.of_match = #_match, \
++		.ops = &mt6395_regulator_ops, \
++		.type = REGULATOR_VOLTAGE, \
++		.id = _name##_id, \
++		.owner = THIS_MODULE, \
++		.n_voltages = _name##_n_voltages, \
++		.linear_min_sel = _name##_linear_min_sel, \
++		.min_uV = _name##_min_uV, \
++		.uV_step = _name##_uV_step, \
++		.vsel_reg = _name##_vsel_reg, \
++		.vsel_mask = _name##_vsel_mask, \
++		.enable_reg = _name##_enable_reg, \
++		.enable_mask = _name##_enable_mask, \
++		.enable_val = _name##_enable_mask, \
++		.disable_val = 0, \
++	}, \
++}
++
++#define MT6395_REGULATOR_FIXED(_name, _match) \
++{ \
++	.rdesc = { \
++		.name = #_name, \
++		.of_match = #_match, \
++		.ops = &mt6395_fixed_regulator_ops, \
++		.type = REGULATOR_VOLTAGE, \
++		.id = _name##_id, \
++		.owner = THIS_MODULE, \
++		.n_voltages = 1, \
++		.fixed_uV = _name##_fixed_uV, \
++		.enable_reg = _name##_enable_reg, \
++		.enable_mask = _name##_enable_mask, \
++		.enable_val = _name##_enable_mask, \
++		.disable_val = 0, \
++	}, \
++}
++
++static struct mt6395_regulator_drvdata
++mt6395_regulator_drvdata_tbl[MT6395_RG_MAX] = {
++	MT6395_REGULATOR_LINEAR(mt6395_buck1, mt6395_buck1),
++	MT6395_REGULATOR_FIXED(mt6395_buck2, mt6395_buck2),
++	MT6395_REGULATOR_FIXED(mt6395_buck3, mt6395_buck3),
++	MT6395_REGULATOR_FIXED(mt6395_buck4, mt6395_buck4),
++	MT6395_REGULATOR_FIXED(mt6395_ldo1, mt6395_ldo1),
++};
++
++static int mt6395_register_regulator(struct mt6395_chip *chip)
++{
++	int ret, i;
++	struct device_node *np = chip->dev->of_node;
++	struct device_node *chd_np;
++	struct regulator_desc *rdesc;
++	struct regulator_config rcfg = {};
++	struct regulator_init_data *init_data;
++	struct regulator_dev *rdev;
++	struct mt6395_regulator_drvdata *drvdata;
++	struct regulation_constraints *constraints;
++
++	for (i = 0; i < MT6395_RG_MAX; i++) {
++		drvdata = &mt6395_regulator_drvdata_tbl[i];
++		rdesc = &drvdata->rdesc;
++		chd_np = of_get_child_by_name(np, rdesc->name);
++		if (!chd_np)
++			continue;
++		init_data = of_get_regulator_init_data(chip->dev, chd_np,
++						       rdesc);
++		if (!init_data)
++			continue;
++		rcfg.init_data = init_data;
++		rcfg.dev = chip->dev;
++		rcfg.regmap = chip->regmap;
++		rcfg.driver_data = drvdata;
++		rcfg.of_node = chd_np;
++
++		rdev = devm_regulator_register(chip->dev, rdesc, &rcfg);
++		if (IS_ERR(rdev)) {
++			ret = PTR_ERR(rdev);
++			dev_err(chip->dev, "%s register %s fail(%d)\n",
++				__func__, rdesc->name, ret);
++			return ret;
++		}
++
++		constraints = rdev->constraints;
++		constraints->valid_modes_mask |= REGULATOR_MODE_NORMAL |
++						 REGULATOR_MODE_STANDBY |
++						 REGULATOR_MODE_FAST;
++		constraints->valid_ops_mask |= REGULATOR_CHANGE_MODE;
++	}
++	return 0;
++}
++
++static int mt6395_hotdie_irq_handler(struct mt6395_chip *chip)
++{
++	dev_err(chip->dev, "%s\n", __func__);
++	return 0;
++}
++
++static int mt6395_pwrkey_release_irq_handler(struct mt6395_chip *chip)
++{
++#ifdef CONFIG_KPD_PWRKEY_USE_PMIC
++	kpd_pwrkey_pmic_handler(0);
++#endif
++	return 0;
++}
++
++static int mt6395_pwrkey_press_irq_handler(struct mt6395_chip *chip)
++{
++#ifdef CONFIG_KPD_PWRKEY_USE_PMIC
++	kpd_pwrkey_pmic_handler(1);
++#endif
++	return 0;
++}
++
++struct irq_mapping_tbl {
++	const char *name;
++	int (*hdlr)(struct mt6395_chip *chip);
++	int num;
++};
++
++#define MT6395_IRQ_MAPPING(_name, _num) \
++	{.name = #_name, .hdlr = mt6395_##_name##_irq_handler, .num = _num}
++
++static const struct irq_mapping_tbl mt6395_irq_mapping_tbl[] = {
++	MT6395_IRQ_MAPPING(hotdie, 0),
++	MT6395_IRQ_MAPPING(pwrkey_press, 6),
++	MT6395_IRQ_MAPPING(pwrkey_release, 5),
++};
++
++static int __mt6395_irq_handler(struct mt6395_chip *chip)
++{
++	int i = 0, ret = 0;
++	u32 event = 0, mask = 0;
++
++	ret = __regmap_read(chip->regmap, MT6395_INT_STATUS, &event);
++	if (ret < 0)
++		goto err;
++	ret = __regmap_read(chip->regmap, MT6395_INT_ENABLE, &mask);
++	if (ret < 0)
++		goto err;
++	ret = __regmap_write_bits(chip->regmap, MT6395_INT_STATUS,
++				MT6395_INT_STATUS_MASK, event);
++	if (ret < 0)
++		goto err;
++	event &= mask;
++	for (i = 0; i < ARRAY_SIZE(mt6395_irq_mapping_tbl); i++) {
++		if (event & BIT(mt6395_irq_mapping_tbl[i].num))
++			mt6395_irq_mapping_tbl[i].hdlr(chip);
++	}
++err:
++	return ret;
++}
++
++static irqreturn_t mt6395_irq_handler(int irq, void *data)
++{
++	int ret;
++	struct mt6395_chip *chip = (struct mt6395_chip *)data;
++
++	dev_dbg(chip->dev, "%s\n", __func__);
++	do {
++		ret = __mt6395_irq_handler(chip);
++		if (ret < 0)
++			dev_err(chip->dev, "%s handle irq fail(%d)\n",
++				__func__, ret);
++		ret = gpiod_get_value(chip->irq_gpio);
++		if (ret < 0)
++			dev_err(chip->dev, "%s get irq gpio status fail(%d)\n",
++				__func__, ret);
++	} while (ret == 0);
++
++	return IRQ_HANDLED;
++}
++
++static int mt6395_register_irq(struct mt6395_chip *chip)
++{
++	int ret, len;
++	char *name;
++
++	/* Mask & clear all events */
++	regmap_update_bits(chip->regmap, MT6395_INT_ENABLE,
++			   MT6395_INT_STATUS_MASK, 0x00);
++	__regmap_write_bits(chip->regmap, MT6395_INT_STATUS,
++			  MT6395_INT_STATUS_MASK, MT6395_INT_STATUS_MASK);
++
++	chip->irq_gpio = devm_gpiod_get(chip->dev, "mt6395,irq", GPIOD_IN);
++	if (IS_ERR(chip->irq_gpio))
++		return PTR_ERR(chip->irq_gpio);
++	chip->irq = gpiod_to_irq(chip->irq_gpio);
++
++	len = strlen(dev_name(chip->dev));
++	name = devm_kzalloc(chip->dev, len + 5, GFP_KERNEL);
++	if (!name)
++		return -ENOMEM;
++	snprintf(name, len + 5, "%s_irq", dev_name(chip->dev));
++	/* Request threaded IRQ */
++	ret = devm_request_threaded_irq(chip->dev, chip->irq, NULL,
++					mt6395_irq_handler,
++					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
++					name, chip);
++	if (ret < 0) {
++		dev_err(chip->dev, "%s request thread irq fail\n", __func__);
++		return ret;
++	}
++	device_init_wakeup(chip->dev, true);
++	return 0;
++}
++
++static int mt6395_init_irq(struct mt6395_chip *chip)
++{
++	u8 mask = MT6395_INT_STATUS_MASK;
++
++	return regmap_update_bits(chip->regmap, MT6395_INT_ENABLE,
++				  MT6395_INT_STATUS_MASK, mask);
++}
++
++static int mt6395_i2c_probe(struct i2c_client *client)
++{
++	int ret = 0;
++	struct mt6395_chip *chip;
++
++	dev_info(&client->dev, "%s %s\n", __func__, MT6395_DRV_VERSION);
++
++	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
++	if (!chip)
++		return -ENOMEM;
++
++	chip->regmap = devm_regmap_init_i2c(client, &mt6395_regmap_config);
++	if (IS_ERR(chip->regmap))
++		return PTR_ERR(chip->regmap);
++
++	mutex_init(&chip->io_lock);
++	chip->client = client;
++	chip->dev = &client->dev;
++	i2c_set_clientdata(client, chip);
++
++	ret = mt6395_register_regulator(chip);
++	if (ret < 0)
++		goto err;
++
++	ret = mt6395_register_irq(chip);
++	if (ret < 0)
++		goto err;
++
++	ret = mt6395_init_debugfs(chip);
++	if (ret < 0)
++		dev_err(chip->dev, "%s init debugfs fail\n", __func__);
++
++	ret = mt6395_init_irq(chip);
++	if (ret < 0)
++		goto err;
++
++	dev_info(chip->dev, "%s successfully\n", __func__);
++	return 0;
++err:
++	return ret;
++}
++
++static void mt6395_remove(struct i2c_client *client)
++{
++	struct mt6395_chip *chip = i2c_get_clientdata(client);
++
++	if (chip)
++		mt6395_uninit_debugfs(chip);
++}
++
++static int mt6395_suspend(struct device *dev)
++{
++	struct mt6395_chip *chip = dev_get_drvdata(dev);
++
++	dev_info(dev, "%s\n", __func__);
++	if (device_may_wakeup(dev))
++		enable_irq_wake(chip->irq);
++
++	return 0;
++}
++
++static int mt6395_resume(struct device *dev)
++{
++	struct mt6395_chip *chip = dev_get_drvdata(dev);
++
++	dev_info(dev, "%s\n", __func__);
++	if (device_may_wakeup(dev))
++		disable_irq_wake(chip->irq);
++
++	return 0;
++}
++
++static SIMPLE_DEV_PM_OPS(mt6395_pm_ops, mt6395_suspend, mt6395_resume);
++
++static const struct of_device_id mt6395_match_table[] = {
++	{ .compatible = "mediatek,mt6395-regulator", },
++	{},
++};
++MODULE_DEVICE_TABLE(of, mt6395_match_table);
++
++static const struct i2c_device_id mt6395_dev_id[] = {
++	{"mt6395-regulator", 0},
++	{},
++};
++MODULE_DEVICE_TABLE(i2c, mt6395_dev_id);
++
++static struct i2c_driver mt6395_i2c_driver = {
++	.driver = {
++		.name = "mt6395-regulator",
++		.owner = THIS_MODULE,
++		.of_match_table = of_match_ptr(mt6395_match_table),
++		.pm = &mt6395_pm_ops,
++	},
++	.probe = mt6395_i2c_probe,
++	.remove = mt6395_remove,
++	.id_table = mt6395_dev_id,
++};
++module_i2c_driver(mt6395_i2c_driver);
++
++MODULE_LICENSE("GPL v2");
++MODULE_AUTHOR("ShuFan Lee <shufan_lee@richtek.com>");
++MODULE_DESCRIPTION("Regulator driver for MT6395");
