@@ -7,10 +7,12 @@ word on its own microphone.
 aec (the device's PipeWire microphone graph with echo cancellation; run it in
 a quiet room — sound the device did not play cannot be cancelled): the device
 plays ~12 s of music followed by the same clip, while the beamformer output
-(dot_beam) and the echo-cancelled stream (dot_mic_aec) are recorded on the
-device. The music must reach the beamformer (speaker -> microphones ->
-beamformer), the echo canceller must remove at least MIN_REDUCTION_DB of it in
-the speech band, and the device must NOT wake on its own voice.
+(dot_beam), the echo-cancelled stream (dot_mic_aec) and the wake word's stream
+(dot_wake, ADR 0033) are recorded on the device. The music must reach the
+beamformer (speaker -> microphones -> beamformer), the echo canceller must
+remove at least MIN_REDUCTION_DB of it in the speech band, dot_wake must be at
+least MIN_WAKE_REDUCTION_DB below the beamformer, and the device must NOT wake
+on its own voice.
 
 Any Assist run that starts is cancelled right away.
 """
@@ -43,6 +45,9 @@ CLIP = FIXTURES / "alexa-what-time.wav"
 MUSIC = [FIXTURES / "music-clean.wav", FIXTURES / "music-bedonly.wav"]
 REMOTE_DIR = "/var/lib/pinna/test"
 MIN_REDUCTION_DB = 20.0
+# dot_wake has no suppressor, only a linear canceller (ADR 0033): offline it
+# removed 14-20 dB of a reply on an Echo Dot (2nd gen); without it, none.
+MIN_WAKE_REDUCTION_DB = 10.0
 MIN_MUSIC_OVER_QUIET_DB = 15.0
 
 EXPECTED = {
@@ -223,9 +228,10 @@ async def main() -> None:
         path = f"{REMOTE_DIR}/aec-test.wav"
         remote(f"mkdir -p {REMOTE_DIR} && cat > {path}", aec_test_wav())
         rec = (
-            f"cd {REMOTE_DIR} && rm -f beam.wav aec.wav && export PIPEWIRE_RUNTIME_DIR=/run/pipewire && "
+            f"cd {REMOTE_DIR} && rm -f beam.wav aec.wav wake.wav && export PIPEWIRE_RUNTIME_DIR=/run/pipewire && "
             "{ timeout 22 pw-record --target dot_beam --rate 16000 --channels 1 --format s16 beam.wav & "
-            "timeout 22 pw-record --target dot_mic_aec --rate 16000 --channels 1 --format s16 aec.wav & wait; }"
+            "timeout 22 pw-record --target dot_mic_aec --rate 16000 --channels 1 --format s16 aec.wav & "
+            "timeout 22 pw-record --target dot_wake --rate 16000 --channels 1 --format s16 wake.wav & wait; }"
         )
         recorder = subprocess.Popen(ssh + [rec], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # Start playback only once the recording runs, and note where in it.
@@ -243,16 +249,21 @@ async def main() -> None:
         client.media_player_command(player, command=MediaPlayerCommand.STOP)
         beam, rate = read_wav(remote(f"cat {REMOTE_DIR}/beam.wav"))
         aec, _ = read_wav(remote(f"cat {REMOTE_DIR}/aec.wav"))
+        wake, _ = read_wav(remote(f"cat {REMOTE_DIR}/wake.wav"))
         # Quiet: before playback. Music: 8-13 s into it (the canceller has converged).
         quiet = band_db(beam, rate, 0.1, max(0.5, started - 0.1))
         music_beam = band_db(beam, rate, started + 8.0, started + 13.0)
         music_aec = band_db(aec, rate, started + 8.0, started + 13.0)
+        music_wake = band_db(wake, rate, started + 8.0, started + 13.0)
         say(f"beamformer: quiet {quiet:.1f} dB, music {music_beam:.1f} dB; "
             f"after echo cancellation {music_aec:.1f} dB ({music_beam - music_aec:.1f} dB removed)")
         if music_beam - quiet < MIN_MUSIC_OVER_QUIET_DB:
             fail("the music does not reach the beamformer (speaker or microphones not working)")
         if music_beam - music_aec < MIN_REDUCTION_DB:
             fail(f"echo cancellation removed less than {MIN_REDUCTION_DB:.0f} dB")
+        say(f"wake word stream: music {music_wake:.1f} dB ({music_beam - music_wake:.1f} dB under the beamformer)")
+        if music_beam - music_wake < MIN_WAKE_REDUCTION_DB:
+            fail(f"the wake word stream is less than {MIN_WAKE_REDUCTION_DB:.0f} dB under the beamformer")
         if woke.is_set():
             fail("the device woke on its own voice (echo cancellation not effective)")
         say("no wake word on the device's own voice")
