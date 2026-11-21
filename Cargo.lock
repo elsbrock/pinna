@@ -2335,6 +2335,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "libc",
+ "pinna-board",
  "pinna-bootctl",
  "pinna-image",
  "pinna-version",

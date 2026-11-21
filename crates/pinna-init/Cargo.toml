@@ -10,6 +10,7 @@ rust-version.workspace = true
 pinna-version = { path = "../pinna-version" }
 pinna-image = { path = "../pinna-image" }
 pinna-bootctl = { path = "../pinna-bootctl" }
+pinna-board = { path = "../pinna-board" }
 anyhow.workspace = true
 libc.workspace = true
 sha2.workspace = true

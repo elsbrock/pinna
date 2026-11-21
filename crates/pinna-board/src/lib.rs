@@ -83,6 +83,8 @@ pub struct Board {
     /// The product fastboot reports (`fastboot getvar product`).
     pub fastboot_product: &'static str,
     pub soc: Soc,
+    /// Where the partitions live, and so how the initramfs finds them.
+    pub storage: StorageKind,
     pub ring: Ring,
     /// Key codes the board's input devices send, and the button each is.
     pub keys: &'static [(u16, Button)],
@@ -106,6 +108,20 @@ impl Soc {
             Soc::Mt8163 => "mediatek,mt8163",
         }
     }
+}
+
+/// Where a board keeps its partitions, and so how the initramfs finds them.
+/// The logical names are the same either way (`misc`, `boot_a`, `boot_b`,
+/// `system_a`, `system_b`, `userdata`); only how a name resolves to a device
+/// differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StorageKind {
+    /// A GPT partition table on eMMC: a name is a partition's GPT `PARTNAME`,
+    /// and its device node is a block device. The MT8163 and MT8516 Echos.
+    Gpt,
+    /// UBI volumes on raw NAND: a name is a UBI volume's name, and its device
+    /// node is the volume's character device. The MT8519 Echos (ADR 0034).
+    Ubi,
 }
 
 /// The light ring.
@@ -442,6 +458,7 @@ pub static ECHO_DOT_2: Board = Board {
     device_type_id: "A3S5BH2HU6VAYF",
     fastboot_product: "BISCUIT",
     soc: Soc::Mt8163,
+    storage: StorageKind::Gpt,
     ring: MT8163_RING,
     keys: MT8163_KEYS,
     privacy: AMZ_PRIVACY,
@@ -457,6 +474,7 @@ pub static ECHO_2: Board = Board {
     device_type_id: "A7WXQPH584YP",
     fastboot_product: "RADAR",
     soc: Soc::Mt8163,
+    storage: StorageKind::Gpt,
     ring: MT8163_RING,
     keys: MT8163_KEYS,
     privacy: AMZ_PRIVACY,
@@ -514,6 +532,14 @@ mod tests {
         assert_eq!(Model::Echo2.home_assistant_name(), "Echo (2nd Gen)");
         assert_eq!(Model::EchoDot2.short_name(), "Echo Dot");
         assert_eq!(Model::Echo2.short_name(), "Echo");
+    }
+
+    #[test]
+    fn the_mt8163_echos_boot_from_gpt() {
+        for m in Model::ALL {
+            assert_eq!(m.board().storage, StorageKind::Gpt);
+        }
+        assert_ne!(StorageKind::Gpt, StorageKind::Ubi);
     }
 
     #[test]

@@ -27,6 +27,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
+use pinna_board::StorageKind;
 use pinna_bootctl::bcb;
 use pinna_bootctl::slot::{self, Slot};
 use pinna_bootctl::stages;
@@ -157,10 +158,19 @@ pub fn early_mounts() -> Result<()> {
     Ok(())
 }
 
+/// Whether a partition's device node is a block device (a GPT partition, a
+/// dm-verity device) or a character device (a UBI volume).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NodeKind {
+    Block,
+    Char,
+}
+
 #[derive(Debug, Clone)]
 struct Part {
     devname: String,
     dev: (u32, u32),
+    node: NodeKind,
 }
 
 impl Part {
@@ -173,11 +183,15 @@ impl Part {
         let p = self.path();
         if !p.exists() {
             let c = cstr(p.to_str().unwrap());
+            let mode = match self.node {
+                NodeKind::Block => libc::S_IFBLK,
+                NodeKind::Char => libc::S_IFCHR,
+            };
             // SAFETY: plain mknod.
             unsafe {
                 libc::mknod(
                     c.as_ptr(),
-                    libc::S_IFBLK | 0o600,
+                    mode | 0o600,
                     libc::makedev(self.dev.0, self.dev.1),
                 );
             }
@@ -199,10 +213,26 @@ fn uevent(path: &Path) -> HashMap<String, String> {
         .collect()
 }
 
-/// Block devices by GPT partition name.
+/// The partitions, found the way this board keeps them (ADR 0034): GPT
+/// partitions on the MT8163/MT8516 Echos, UBI volumes on the MT8519 ones.
+/// The board is read once; hardware Pinna doesn't know, and the VMs, have no
+/// board and fall back to GPT, so existing devices are unchanged.
 fn scan_parts() -> HashMap<String, Part> {
+    static STORAGE: Mutex<Option<StorageKind>> = Mutex::new(None);
+    let kind = *STORAGE
+        .lock()
+        .unwrap()
+        .get_or_insert_with(|| pinna_board::detect().map_or(StorageKind::Gpt, |b| b.storage));
+    match kind {
+        StorageKind::Gpt => scan_gpt(Path::new("/sys/class/block")),
+        StorageKind::Ubi => scan_ubi(Path::new("/sys/class/ubi")),
+    }
+}
+
+/// Block devices by GPT partition name (`PARTNAME` in sysfs).
+fn scan_gpt(sys_block: &Path) -> HashMap<String, Part> {
     let mut parts = HashMap::new();
-    let Ok(dir) = fs::read_dir("/sys/class/block") else {
+    let Ok(dir) = fs::read_dir(sys_block) else {
         return parts;
     };
     for e in dir.flatten() {
@@ -221,6 +251,44 @@ fn scan_parts() -> HashMap<String, Part> {
         parts.entry(name.clone()).or_insert(Part {
             devname: devname.clone(),
             dev: (maj, min),
+            node: NodeKind::Block,
+        });
+    }
+    parts
+}
+
+/// Character devices by UBI volume name. Each `ubiN_M` under `sys_ubi` has a
+/// `name` (the volume name Pinna looks up) and a `dev` (`major:minor`); the
+/// node is the volume's character device `/dev/ubiN_M`.
+fn scan_ubi(sys_ubi: &Path) -> HashMap<String, Part> {
+    let mut parts = HashMap::new();
+    let Ok(dir) = fs::read_dir(sys_ubi) else {
+        return parts;
+    };
+    for e in dir.flatten() {
+        let devname = e.file_name().to_string_lossy().into_owned();
+        // A volume is `ubiN_M`; the device `ubiN` (no underscore) is not one.
+        if !devname.contains('_') {
+            continue;
+        }
+        let read = |f: &str| fs::read_to_string(e.path().join(f));
+        let (Ok(name), Ok(dev)) = (read("name"), read("dev")) else {
+            continue;
+        };
+        let name = name.trim().to_string();
+        let Some((maj, min)) = dev.trim().split_once(':') else {
+            continue;
+        };
+        let (Ok(maj), Ok(min)) = (maj.parse(), min.parse()) else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        parts.entry(name).or_insert(Part {
+            devname,
+            dev: (maj, min),
+            node: NodeKind::Char,
         });
     }
     parts
@@ -304,6 +372,7 @@ fn try_slot(part: &Part) -> Result<Footer> {
                 .cloned()
                 .unwrap_or_else(|| format!("dm-{}", dm_dev.1)),
             dev: dm_dev,
+            node: NodeKind::Block,
         };
         drop(dm.open(false)?);
         let _ = fs::create_dir_all(SYSROOT);
@@ -589,5 +658,53 @@ mod tests {
         assert_eq!(root_protocol(d.path()), Some(2));
         fs::write(d.path().join("usr/lib/pinna/boot-protocol"), "soon").unwrap();
         assert_eq!(root_protocol(d.path()), None);
+    }
+
+    #[test]
+    fn gpt_finds_partitions_by_partname() {
+        let d = tempfile::tempdir().unwrap();
+        let part = |name: &str, dev: &str, uevent: &str| {
+            let p = d.path().join(name);
+            fs::create_dir_all(&p).unwrap();
+            fs::write(p.join("uevent"), uevent).unwrap();
+            let _ = dev;
+        };
+        part(
+            "mmcblk0p5",
+            "",
+            "MAJOR=179\nMINOR=5\nDEVNAME=mmcblk0p5\nPARTNAME=system_a\n",
+        );
+        part("mmcblk0", "", "MAJOR=179\nMINOR=0\nDEVNAME=mmcblk0\n"); // no PARTNAME
+        let parts = scan_gpt(d.path());
+        let p = parts.get("system_a").expect("system_a");
+        assert_eq!(p.devname, "mmcblk0p5");
+        assert_eq!(p.dev, (179, 5));
+        assert_eq!(p.node, NodeKind::Block);
+        assert_eq!(parts.len(), 1);
+    }
+
+    #[test]
+    fn ubi_finds_volumes_by_name() {
+        let d = tempfile::tempdir().unwrap();
+        let vol = |dir: &str, name: &str, dev: &str| {
+            let p = d.path().join(dir);
+            fs::create_dir_all(&p).unwrap();
+            if !name.is_empty() {
+                fs::write(p.join("name"), format!("{name}\n")).unwrap();
+            }
+            fs::write(p.join("dev"), format!("{dev}\n")).unwrap();
+        };
+        vol("ubi0_2", "system_a", "247:2");
+        vol("ubi0_3", "system_b", "247:3");
+        vol("ubi0", "", "246:0"); // the ubi device itself, not a volume
+        vol("ubi0_9", "", "247:9"); // a volume with no name file: skipped
+
+        let parts = scan_ubi(d.path());
+        let a = parts.get("system_a").expect("system_a");
+        assert_eq!(a.devname, "ubi0_2");
+        assert_eq!(a.dev, (247, 2));
+        assert_eq!(a.node, NodeKind::Char);
+        assert_eq!(parts.get("system_b").unwrap().dev, (247, 3));
+        assert_eq!(parts.len(), 2);
     }
 }
