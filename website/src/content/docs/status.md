@@ -135,17 +135,17 @@ On the devices:
 
 - **A score for each wake word**: the highest score of the last thing each
   word heard, so that you can tell a word that never wakes from one that
-  nearly does (ADR 0013).
+  nearly does.
 - **More for standalone mode**: MCP servers that need a sign-in, and several
-  satellites that share one conversation (ADR 0017). In a satellite group,
-  one answer when several hear the wake word (ADR 0026).
+  satellites that share one conversation. In a satellite group,
+  one answer when several hear the wake word.
 - **A setup hotspot password that only the owner can learn**, instead of one
-  that every device shares (ADR 0028).
+  that every device shares.
 - **The Echo (1st gen)**: bringing Pinna up on it is in the works.
 - **64-bit ARM**: the processor supports it, but nobody has started on it.
 - **Pairing for Sendspin through Home Assistant**: Home Assistant would hand
   the satellite's pairing key to Music Assistant, so that only your Music
-  Assistant could play to it (ADR 0027).
+  Assistant could play to it.
 
 These plans follow the project's [goals](/docs/goals/).
 

@@ -8,7 +8,6 @@ export const SITE = {
     "the language model or AI agent you choose.",
   repo: "https://github.com/elsbrock/pinna",
   repoDocs: "https://github.com/elsbrock/pinna/tree/main/docs",
-  adr: "https://github.com/elsbrock/pinna/tree/main/docs/adr",
   runbook:
     "https://github.com/elsbrock/pinna/blob/main/docs/runbook-first-flash.md",
 };

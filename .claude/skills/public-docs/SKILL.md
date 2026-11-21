@@ -34,7 +34,9 @@ These pages fall behind most often. Check them on every change:
 - The README's feature list.
 
 ADRs are decision records, not user docs. Update the record that the change
-contradicts, but don't copy its text into the website.
+contradicts, but don't copy its text into the website, and don't name or link
+the records there, not even on the developer pages: no ADR numbers, no links to
+`docs/adr/`.
 
 ## 2. Write
 

@@ -4,8 +4,7 @@ description: How Pinna starts, how its storage is laid out, which services run, 
 ---
 
 This page explains how Pinna is put together, from the bootloader to the
-voice request. The reasons behind each decision are in the decision records in
-[`docs/adr/`](https://github.com/elsbrock/pinna/tree/main/docs/adr).
+voice request.
 
 ## Hardware
 

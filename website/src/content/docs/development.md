@@ -280,8 +280,7 @@ other ports: `WEB_PORT=18190 SSH_PORT=2323 ESPHOME_PORT=6153 just dev-vm`, and
 `SSH_PORT=2323 just push-vm` to update it. There is one `just dev-ha` per
 computer: running it from another worktree replaces the containers. Images
 built from the same checkout are the same device to Home Assistant, so
-connect only one of them to it at a time. The decision record is
-[ADR 0014](https://github.com/elsbrock/pinna/tree/main/docs/adr/0014-virtual-echo-dot.md).
+connect only one of them to it at a time.
 
 ## Work on one part
 
@@ -292,9 +291,7 @@ cargo test -p pinna-wakeword                      # tests of one crate
 cargo run -p pinna-bootimg -- info build/pinna-boot.img
 ```
 
-To find your way around the code, see [Repository layout](/docs/crates/). For
-the reasons behind the design, read the decision records in
-[`docs/adr/`](https://github.com/elsbrock/pinna/tree/main/docs/adr).
+To find your way around the code, see [Repository layout](/docs/crates/).
 
 ## Send a change
 

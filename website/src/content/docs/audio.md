@@ -125,5 +125,3 @@ and set it, and Music Assistant's slider follows.
 - Set the volume and the reply volume on the [dashboard](/docs/dashboard/#what-the-dashboard-shows).
 - For developers: the audio backends and the stream socket, in
   [Developer settings](/docs/configure/#audio).
-- The full reasoning, with the alternatives that were tried, is in
-  [ADR 0004](https://github.com/elsbrock/pinna/blob/main/docs/adr/0004-audio-graph.md).
