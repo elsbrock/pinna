@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use pinna_bootimg::*;
 
 #[derive(Parser)]
-#[command(about = "Android v0 boot images for the MT8163 Echo devices")]
+#[command(about = "Android v0 boot images for the MT8163 and MT8516 Echo devices")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -16,14 +16,23 @@ struct Cli {
 enum Cmd {
     /// Print header fields and section sizes.
     Info { image: PathBuf },
-    /// Extract zImage, DTB, ramdisk and second into a directory.
+    /// Extract the kernel (zImage, or Image.gz in the 64-bit layout), the
+    /// DTBs, ramdisk and second into a directory.
     Unpack { image: PathBuf, dir: PathBuf },
-    /// Build a boot image from a zImage, DTB and optional ramdisk.
+    /// Build a boot image from a kernel, DTB and optional ramdisk: a zImage
+    /// and one DTB for the MT8163, or an Image.gz and one DTB per board
+    /// revision in the 64-bit layout for the MT8516 (ADR 0031).
     Pack {
+        #[arg(
+            long,
+            conflicts_with = "image_gz",
+            required_unless_present = "image_gz"
+        )]
+        zimage: Option<PathBuf>,
         #[arg(long)]
-        zimage: PathBuf,
-        #[arg(long)]
-        dtb: PathBuf,
+        image_gz: Option<PathBuf>,
+        #[arg(long, required = true)]
+        dtb: Vec<PathBuf>,
         /// Ramdisk (cpio, optionally compressed). Defaults to a placeholder
         /// cpio without /init, so the kernel mounts root= itself.
         #[arg(long)]
@@ -70,7 +79,13 @@ fn main() -> Result<()> {
                 hex(&img.id[..20]),
                 if ok { "valid" } else { "MISMATCH" }
             );
-            if let Ok((z, d)) = split_kernel_blob(&img.kernel) {
+            if let Some((gz, dtbs)) = arm64::split_kernel_blob(&img.kernel) {
+                println!("Image.gz        {} bytes", gz.len());
+                for d in &dtbs {
+                    let compat = arm64::root_compatibles(d).unwrap_or_default();
+                    println!("dtb             {} bytes {}", d.len(), compat.join(" "));
+                }
+            } else if let Ok((z, d)) = split_kernel_blob(&img.kernel) {
                 println!("zImage          {} bytes", z.len());
                 println!("dtb             {} bytes", d.len());
             }
@@ -78,9 +93,16 @@ fn main() -> Result<()> {
         Cmd::Unpack { image, dir } => {
             let img = BootImage::parse(&fs::read(&image)?)?;
             fs::create_dir_all(&dir)?;
-            let (z, d) = split_kernel_blob(&img.kernel)?;
-            fs::write(dir.join("zImage"), z)?;
-            fs::write(dir.join("dtb"), d)?;
+            if let Some((gz, dtbs)) = arm64::split_kernel_blob(&img.kernel) {
+                fs::write(dir.join("Image.gz"), gz)?;
+                for (i, d) in dtbs.iter().enumerate() {
+                    fs::write(dir.join(format!("dtb-{i}")), d)?;
+                }
+            } else {
+                let (z, d) = split_kernel_blob(&img.kernel)?;
+                fs::write(dir.join("zImage"), z)?;
+                fs::write(dir.join("dtb"), d)?;
+            }
             fs::write(dir.join("ramdisk"), &img.ramdisk)?;
             if !img.second.is_empty() {
                 fs::write(dir.join("second"), &img.second)?;
@@ -89,13 +111,15 @@ fn main() -> Result<()> {
         }
         Cmd::Pack {
             zimage,
+            image_gz,
             dtb,
             ramdisk,
             out,
             no_pad,
         } => {
-            let z = fs::read(&zimage).with_context(|| format!("reading {}", zimage.display()))?;
-            let d = fs::read(&dtb).with_context(|| format!("reading {}", dtb.display()))?;
+            let read =
+                |p: &PathBuf| fs::read(p).with_context(|| format!("reading {}", p.display()));
+            let dtbs = dtb.iter().map(read).collect::<Result<Vec<_>>>()?;
             let ramdisk = match ramdisk {
                 Some(p) => fs::read(&p).with_context(|| format!("reading {}", p.display()))?,
                 None => newc_cpio(&[(
@@ -103,17 +127,35 @@ fn main() -> Result<()> {
                     b"Pinna boots without an initramfs; the kernel mounts root= itself.\n",
                 )]),
             };
+            let (header, kernel, pad) = match (zimage, image_gz) {
+                (Some(z), _) => {
+                    ensure!(dtbs.len() == 1, "the MT8163 layout takes one DTB");
+                    let header = Header {
+                        cmdline: default_cmdline().into_bytes(),
+                        ..Header::default()
+                    };
+                    (header, kernel_blob(&read(&z)?, &dtbs[0])?, !no_pad)
+                }
+                // The MT8516 boot partitions' size isn't measured yet, so
+                // these images are not padded.
+                (None, Some(gz)) => {
+                    let dtbs: Vec<&[u8]> = dtbs.iter().map(Vec::as_slice).collect();
+                    (
+                        arm64::header(),
+                        arm64::kernel_blob(&read(&gz)?, &dtbs)?,
+                        false,
+                    )
+                }
+                (None, None) => unreachable!("clap requires --zimage or --image-gz"),
+            };
             let img = BootImage {
-                header: Header {
-                    cmdline: default_cmdline().into_bytes(),
-                    ..Header::default()
-                },
-                kernel: kernel_blob(&z, &d)?,
+                header,
+                kernel,
                 ramdisk,
                 second: Vec::new(),
                 id: [0; 32],
             };
-            let bytes = img.to_bytes((!no_pad).then_some(PARTITION_SIZE))?;
+            let bytes = img.to_bytes(pad.then_some(PARTITION_SIZE))?;
             fs::write(&out, &bytes)?;
             println!(
                 "{}: {} bytes (kernel {}, ramdisk {})",

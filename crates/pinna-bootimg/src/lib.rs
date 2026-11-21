@@ -1,5 +1,6 @@
 //! Android boot image (header v0) as consumed by the Amazon LK on the MT8163
-//! Echo devices.
+//! Echo devices, and on the MT8516 ones in their 64-bit layout ([`arm64`],
+//! ADR 0031).
 //!
 //! Layout, all sections page-aligned (page size 2048):
 //!
@@ -227,6 +228,168 @@ pub fn split_kernel_blob(blob: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     let zlen = zimage_len(body).context("kernel blob")?;
     ensure!(body.len() > zlen, "no DTB appended to zImage");
     Ok((body[..zlen].to_vec(), body[zlen..].to_vec()))
+}
+
+/// The 64-bit layout LK takes on the MT8516 Echos (ADR 0031), as
+/// lidar-mainline's `tools/lidarboot.py` writes it, which was checked there
+/// against a stock Echo Plus (2nd gen) boot image:
+///
+/// ```text
+/// kernel blob = MediaTek "KERNEL" header (512 bytes) ++ gzip(Image) ++ DTB ++ DTB ...
+/// ```
+///
+/// LK gunzips the Image to [`arm64::KERNEL_ADDR`] and copies the appended
+/// DTB whose first root `compatible` matches the board exactly to the tags
+/// address. It takes the 64-bit path only when the command line starts with
+/// [`arm64::BOOTOPT`]. That the decompressed kernel ends below BL31 is
+/// checked on the uncompressed Image by `kernel/build.sh`.
+pub mod arm64 {
+    use super::{BOOT_LEVEL, Header, LEVEL_TAG, u32_at};
+    use anyhow::{Result, bail, ensure};
+
+    pub const KERNEL_ADDR: u32 = 0x4008_0000;
+    /// LK copies the chosen DTB here (lidar-mainline's address).
+    pub const TAGS_ADDR: u32 = 0x4E00_0000;
+    pub const BOOTOPT: &str = "bootopt=64S3,32N2,64N2";
+    /// The most of a DTB LK copies.
+    pub const DTB_MAX: usize = 0x8_0000;
+    const MTK_MAGIC: u32 = 0x5888_1688;
+    const MTK_HEADER: usize = 512;
+    const GZIP_MAGIC: [u8; 3] = [0x1f, 0x8b, 0x08];
+    /// What LK matches the first root compatible against starts like this.
+    const BOARD_VENDOR: &str = "amzn,";
+
+    /// The header for a 64-bit image: the MT8163 one's ramdisk address
+    /// (TECHO5 uses the same on the Echo Dot (3rd gen)), the 64-bit kernel
+    /// and tags addresses and boot option.
+    pub fn header() -> Header {
+        Header {
+            kernel_addr: KERNEL_ADDR,
+            tags_addr: TAGS_ADDR,
+            cmdline: default_cmdline().into_bytes(),
+            ..Header::default()
+        }
+    }
+
+    /// The header command line of a 64-bit image this tree packs.
+    pub fn default_cmdline() -> String {
+        format!("{BOOTOPT} {LEVEL_TAG}{BOOT_LEVEL}")
+    }
+
+    /// The MediaTek header, then the gzip'd Image, then the DTBs.
+    pub fn kernel_blob(image_gz: &[u8], dtbs: &[&[u8]]) -> Result<Vec<u8>> {
+        ensure!(
+            image_gz.starts_with(&GZIP_MAGIC),
+            "the kernel is not a gzip'd Image (Image.gz)"
+        );
+        ensure!(!dtbs.is_empty(), "no DTB: LK needs one to hand over");
+        let mut payload = image_gz.to_vec();
+        for (i, dtb) in dtbs.iter().enumerate() {
+            let len = fdt_len(dtb).ok_or_else(|| anyhow::anyhow!("DTB {i} is not a DTB"))?;
+            ensure!(
+                len == dtb.len(),
+                "DTB {i}: totalsize {len}, file {}",
+                dtb.len()
+            );
+            ensure!(
+                len <= DTB_MAX,
+                "DTB {i} is larger than LK copies ({DTB_MAX} bytes)"
+            );
+            let compat = root_compatibles(dtb).unwrap_or_default();
+            match compat.first() {
+                Some(c) if c.starts_with(BOARD_VENDOR) => {}
+                _ => bail!(
+                    "DTB {i}: LK matches the first root compatible against the board, \
+                     and {compat:?} does not start with {BOARD_VENDOR:?}"
+                ),
+            }
+            payload.extend_from_slice(dtb);
+        }
+        let mut blob = Vec::with_capacity(MTK_HEADER + payload.len());
+        blob.extend_from_slice(&MTK_MAGIC.to_le_bytes());
+        blob.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        let mut name = [0u8; 32];
+        name[..6].copy_from_slice(b"KERNEL");
+        blob.extend_from_slice(&name);
+        blob.resize(MTK_HEADER, 0xff);
+        blob.extend_from_slice(&payload);
+        Ok(blob)
+    }
+
+    /// Split a 64-bit kernel blob into the gzip'd Image and its DTBs.
+    /// `None` when the blob doesn't have this layout.
+    pub fn split_kernel_blob(blob: &[u8]) -> Option<(Vec<u8>, Vec<Vec<u8>>)> {
+        if blob.len() < MTK_HEADER || u32_at(blob, 0) != MTK_MAGIC {
+            return None;
+        }
+        let payload = blob.get(MTK_HEADER..MTK_HEADER + u32_at(blob, 4) as usize)?;
+        if !payload.starts_with(&GZIP_MAGIC) {
+            return None;
+        }
+        // The DTBs are the first run of whole DTBs that ends exactly at the
+        // end of the payload; a DTB magic inside the gzip stream doesn't.
+        let magic = 0xD00D_FEEDu32.to_be_bytes();
+        (GZIP_MAGIC.len()..payload.len())
+            .filter(|&at| payload[at..].starts_with(&magic))
+            .find_map(|at| {
+                let mut dtbs = Vec::new();
+                let mut pos = at;
+                while pos < payload.len() {
+                    let len = fdt_len(&payload[pos..])?;
+                    dtbs.push(payload[pos..pos + len].to_vec());
+                    pos += len;
+                }
+                Some((payload[..at].to_vec(), dtbs))
+            })
+    }
+
+    /// A DTB's totalsize, when `b` starts with a plausible one that fits.
+    fn fdt_len(b: &[u8]) -> Option<usize> {
+        let be = |off: usize| Some(u32::from_be_bytes(b.get(off..off + 4)?.try_into().ok()?));
+        if be(0)? != 0xD00D_FEED {
+            return None;
+        }
+        let total = be(4)? as usize;
+        let (off_struct, off_strings) = (be(8)? as usize, be(12)? as usize);
+        let ok = total >= 40 && total <= b.len() && off_struct < total && off_strings < total;
+        ok.then_some(total)
+    }
+
+    /// The root node's `compatible` strings.
+    pub fn root_compatibles(dtb: &[u8]) -> Option<Vec<String>> {
+        let be = |off: usize| Some(u32::from_be_bytes(dtb.get(off..off + 4)?.try_into().ok()?));
+        let (off_struct, off_strings) = (be(8)? as usize, be(12)? as usize);
+        let align = |p: usize| (p + 3) & !3;
+        let mut pos = off_struct;
+        if be(pos)? != 1 {
+            return None; // not FDT_BEGIN_NODE
+        }
+        let name_end = pos + 4 + dtb.get(pos + 4..)?.iter().position(|&c| c == 0)?;
+        pos = align(name_end + 1);
+        loop {
+            match be(pos)? {
+                4 => pos += 4, // FDT_NOP
+                3 => {
+                    let (len, name_off) = (be(pos + 4)? as usize, be(pos + 8)? as usize);
+                    let names = dtb.get(off_strings + name_off..)?;
+                    let name = &names[..names.iter().position(|&c| c == 0)?];
+                    let value = dtb.get(pos + 12..pos + 12 + len)?;
+                    if name == b"compatible" {
+                        return Some(
+                            value
+                                .split(|&c| c == 0)
+                                .filter(|s| !s.is_empty())
+                                .map(|s| String::from_utf8_lossy(s).into_owned())
+                                .collect(),
+                        );
+                    }
+                    pos = align(pos + 12 + len);
+                }
+                // A child node or the end: the root has no compatible.
+                _ => return Some(Vec::new()),
+            }
+        }
+    }
 }
 
 /// One member of a newc cpio archive (permissions in `perm`, type from the variant).
@@ -572,5 +735,120 @@ mod tests {
         assert_eq!(c.len() % 512, 0);
         let without = String::from_utf8_lossy(&initramfs(b"\x7fELF-init", None)).into_owned();
         assert!(!without.contains("bin/busybox"));
+    }
+
+    /// A minimal DTB whose root node has `compatible` (and one more property).
+    fn dtb_with(compatible: &[&str]) -> Vec<u8> {
+        let be = |v: u32| v.to_be_bytes();
+        let value: Vec<u8> = compatible
+            .iter()
+            .flat_map(|c| [c.as_bytes(), b"\0"].concat())
+            .collect();
+        let strings = b"model\0compatible\0";
+        let mut st = Vec::new();
+        st.extend_from_slice(&be(1)); // BEGIN_NODE ""
+        st.extend_from_slice(&[0; 4]);
+        for (name_off, val) in [(0u32, &b"m\0"[..]), (6, &value[..])] {
+            st.extend_from_slice(&be(3)); // PROP
+            st.extend_from_slice(&be(val.len() as u32));
+            st.extend_from_slice(&be(name_off));
+            st.extend_from_slice(val);
+            while st.len() % 4 != 0 {
+                st.push(0);
+            }
+        }
+        st.extend_from_slice(&be(2)); // END_NODE
+        st.extend_from_slice(&be(9)); // END
+        let off_mem = 40;
+        let off_struct = off_mem + 16;
+        let off_strings = off_struct + st.len();
+        let total = off_strings + strings.len();
+        let mut d = Vec::new();
+        for v in [
+            0xD00D_FEED,
+            total as u32,
+            off_struct as u32,
+            off_strings as u32,
+            off_mem as u32,
+            17,
+            16,
+            0,
+            strings.len() as u32,
+            st.len() as u32,
+        ] {
+            d.extend_from_slice(&be(v));
+        }
+        d.extend_from_slice(&[0; 16]);
+        d.extend_from_slice(&st);
+        d.extend_from_slice(strings);
+        assert_eq!(d.len(), total);
+        d
+    }
+
+    #[test]
+    fn arm64_blob_has_the_mediatek_header_the_image_and_the_dtbs() {
+        // A gzip stream with a DTB magic inside it, which must not be taken
+        // for the first DTB.
+        let mut gz = vec![0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0];
+        gz.extend_from_slice(&0xD00D_FEEDu32.to_be_bytes());
+        gz.extend_from_slice(&[7; 21]);
+        let pvt = dtb_with(&["amzn,donut-pvt", "amzn,donut", "mediatek,mt8516"]);
+        let evt = dtb_with(&["amzn,donut-evt", "amzn,donut"]);
+        let blob = arm64::kernel_blob(&gz, &[&pvt, &evt]).unwrap();
+
+        assert_eq!(&blob[..4], &[0x88, 0x16, 0x88, 0x58]);
+        assert_eq!(u32_at(&blob, 4) as usize, gz.len() + pvt.len() + evt.len());
+        assert_eq!(&blob[8..15], b"KERNEL\0");
+        assert!(blob[40..512].iter().all(|&b| b == 0xff));
+        assert_eq!(&blob[512..512 + gz.len()], &gz[..]);
+
+        let (image, dtbs) = arm64::split_kernel_blob(&blob).unwrap();
+        assert_eq!(image, gz);
+        assert_eq!(dtbs, vec![pvt.clone(), evt]);
+        assert_eq!(arm64::root_compatibles(&pvt).unwrap()[0], "amzn,donut-pvt");
+        // The MT8163 layout isn't taken for this one.
+        assert!(
+            arm64::split_kernel_blob(&kernel_blob(&fake_zimage(4096), &fake_dtb(64)).unwrap())
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn arm64_blob_refuses_what_lk_would_not_boot() {
+        let gz = [0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0];
+        let pvt = dtb_with(&["amzn,donut-pvt"]);
+        assert!(arm64::kernel_blob(&[0u8; 8], &[&pvt]).is_err(), "not gzip");
+        assert!(arm64::kernel_blob(&gz, &[]).is_err(), "no DTB");
+        let pumpkin = dtb_with(&["mediatek,mt8516-pumpkin", "mediatek,mt8516"]);
+        assert!(
+            arm64::kernel_blob(&gz, &[&pumpkin]).is_err(),
+            "LK matches amzn,<board>"
+        );
+        let mut short = pvt.clone();
+        short.pop();
+        assert!(arm64::kernel_blob(&gz, &[&short]).is_err(), "truncated DTB");
+    }
+
+    #[test]
+    fn arm64_header_takes_the_64_bit_path() {
+        let h = arm64::header();
+        assert_eq!(h.kernel_addr, 0x4008_0000);
+        assert_eq!(h.ramdisk_addr, RAMDISK_ADDR);
+        assert!(String::from_utf8_lossy(&h.cmdline).starts_with("bootopt=64S3,32N2,64N2 "));
+        let img = BootImage {
+            header: h,
+            kernel: vec![1; 16],
+            ramdisk: vec![2; 16],
+            second: Vec::new(),
+            id: [0; 32],
+        };
+        let mut bytes = img.to_bytes(None).unwrap();
+        assert_eq!(level(&bytes), Some(BOOT_LEVEL));
+        tag_slot(&mut bytes, 'b').unwrap();
+        assert_eq!(slot_tag(&bytes), Some('b'));
+        assert_eq!(
+            BootImage::parse(&bytes).unwrap().header.kernel_addr,
+            0x4008_0000
+        );
     }
 }

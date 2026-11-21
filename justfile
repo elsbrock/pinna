@@ -126,6 +126,15 @@ bootimg: initramfs
         --out {{build}}/pinna-boot.img
     cargo run -q -p pinna-bootimg -- info {{build}}/pinna-boot.img
 
+# boot image for the Echo Dot (3rd gen) in LK's 64-bit layout (ADR 0031; not yet booted on one)
+bootimg-mt8516: initramfs
+    cargo run -q -p pinna-bootimg -- pack \
+        --image-gz {{build}}/kernel-mt8516/arch/arm64/boot/Image.gz \
+        --dtb {{build}}/kernel-mt8516/arch/arm64/boot/dts/mediatek/mt8516-amazon-donut.dtb \
+        --ramdisk {{build}}/initramfs.cpio \
+        --out {{build}}/pinna-boot-mt8516.img
+    cargo run -q -p pinna-bootimg -- info {{build}}/pinna-boot-mt8516.img
+
 # everything needed for a flash: kernel, wake word models, root filesystem, boot image
 all: kernel models image bootimg
     ls -l {{build}}/pinna-boot.img {{build}}/pinna.root.img
