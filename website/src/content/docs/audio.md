@@ -33,9 +33,18 @@ microphones' native 16 kHz:
 2. **Echo cancellation.** PipeWire's WebRTC echo canceller removes the
    device's own playback from that channel. As a reference, it uses a copy of
    everything `pinnad` plays.
-3. **`pinnad`** reads the result in 20 ms frames and sets its gain
-   automatically, for the wake word detection and for the requests it sends,
-   to Home Assistant or to your speech-to-text service.
+3. **The wake word's stream.** A second LADSPA plugin, `pinna_wake`, averages
+   the same microphones and removes the device's own sound with a simpler,
+   linear echo canceller. As a reference, it uses the speaker signal that the
+   microphone interface delivers alongside the microphones. WebRTC's echo
+   canceller also mutes a person who talks while the device plays; this one
+   doesn't, so you can say the wake word to interrupt a reply.
+4. **`pinnad`** reads both in 20 ms frames and sets the gain of each
+   automatically. The wake word detection hears the wake word's stream; the
+   requests it sends, to Home Assistant or to your speech-to-text service,
+   use the echo-cancelled channel. If the wake word's stream delivers nothing
+   for a second, the wake word detection hears the echo-cancelled channel
+   instead.
 
 On the device, the echo cancellation lowers the device's own music by 23 to
 31 dB in the speech range, after it has adapted to the room. In the first
