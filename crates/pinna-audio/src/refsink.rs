@@ -239,42 +239,96 @@ fn unread_bytes(fd: RawFd) -> Option<usize> {
     (r == 0).then_some(bytes as usize)
 }
 
+/// The wait before starting pw-play again after it exited, doubling while it
+/// keeps failing.
+const RESTART_FIRST: std::time::Duration = std::time::Duration::from_secs(1);
+const RESTART_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn spawn_player(pw_play: &str, target: &str) -> std::io::Result<tokio::process::Child> {
+    Command::new(pw_play)
+        .args([
+            "--raw",
+            "--rate",
+            "16000",
+            "--channels",
+            "1",
+            "--format",
+            "s16",
+            "--latency",
+            "100ms",
+            "--target",
+            target,
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+}
+
+/// Why [`feed`] stopped.
+enum Fed {
+    /// The tap was dropped.
+    Closed,
+    /// pw-play stopped taking audio; `any` says whether it took some first.
+    Exited { any: bool },
+}
+
+/// Feed `child` until its input closes or the tap is dropped.
+async fn feed(child: &mut tokio::process::Child, rx: &mut mpsc::Receiver<Vec<u8>>) -> Fed {
+    let Some(mut stdin) = child.stdin.take() else {
+        return Fed::Exited { any: false };
+    };
+    let fd = stdin.as_raw_fd();
+    let mut any = false;
+    while let Some(chunk) = rx.recv().await {
+        if unread_bytes(fd).is_some_and(|n| n + chunk.len() > MAX_WAITING) {
+            continue;
+        }
+        if stdin.write_all(&chunk).await.is_err() {
+            return Fed::Exited { any };
+        }
+        any = true;
+    }
+    Fed::Closed
+}
+
 impl RefTap {
+    /// Start pw-play into `target`. When it exits (PipeWire restarted, for
+    /// one), a new one is started: without it the echo canceller gets no
+    /// reference until pinnad restarts.
     pub fn spawn(pw_play: &str, target: &str) -> std::io::Result<Self> {
-        let mut child = Command::new(pw_play)
-            .args([
-                "--raw",
-                "--rate",
-                "16000",
-                "--channels",
-                "1",
-                "--format",
-                "s16",
-                "--latency",
-                "100ms",
-                "--target",
-                target,
-                "-",
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
-        let mut stdin = child.stdin.take().expect("piped");
+        let first = spawn_player(pw_play, target)?;
+        let (pw_play, target) = (pw_play.to_owned(), target.to_owned());
         let (tx, mut rx) = mpsc::channel::<Vec<u8>>(QUEUE);
         let task = tokio::spawn(async move {
-            let fd = stdin.as_raw_fd();
-            while let Some(chunk) = rx.recv().await {
-                if unread_bytes(fd).is_some_and(|n| n + chunk.len() > MAX_WAITING) {
-                    continue;
+            let mut child = Some(first);
+            let mut wait = RESTART_FIRST;
+            loop {
+                if let Some(mut c) = child.take() {
+                    let fed = feed(&mut c, &mut rx).await;
+                    let _ = c.kill().await;
+                    match fed {
+                        Fed::Closed => return,
+                        Fed::Exited { any: true } => {
+                            tracing::warn!("echo reference: pw-play exited; starting it again");
+                            wait = RESTART_FIRST;
+                        }
+                        Fed::Exited { any: false } => {
+                            tracing::debug!("echo reference: pw-play took no audio")
+                        }
+                    }
                 }
-                if stdin.write_all(&chunk).await.is_err() {
-                    break;
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(RESTART_MAX);
+                // What queued up meanwhile is late, and a late reference cancels nothing.
+                while rx.try_recv().is_ok() {}
+                match spawn_player(&pw_play, &target) {
+                    Ok(c) => child = Some(c),
+                    Err(e) => tracing::debug!("echo reference: pw-play: {e}"),
                 }
             }
-            drop(stdin);
-            let _ = child.kill().await;
         });
         Ok(Self {
             tx,
@@ -351,20 +405,13 @@ mod tests {
         assert!((159_948..=159_951).contains(&got), "{got}");
     }
 
-    #[tokio::test]
-    async fn the_reference_never_waits_seconds_behind_the_speaker() {
+    /// A stand-in for pw-play: a shell script, started like the real one.
+    async fn fake_player(dir: &std::path::Path, script: &str) -> RefTap {
         use std::os::unix::fs::PermissionsExt;
-        // A pw-play that reads nothing for half a second, as while it connects.
-        let dir = tempfile::tempdir().unwrap();
-        let got = dir.path().join("got.raw");
-        let bin = dir.path().join("pw-play");
-        std::fs::write(
-            &bin,
-            format!("#!/bin/sh\nsleep 0.5\nexec cat > '{}'\n", got.display()),
-        )
-        .unwrap();
+        let bin = dir.join("pw-play");
+        std::fs::write(&bin, format!("#!/bin/sh\n{script}\n")).unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let mut tap = loop {
+        loop {
             match RefTap::spawn(bin.to_str().unwrap(), "dot_ref") {
                 // Another test's fork may still hold the new script open.
                 Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) => {
@@ -372,7 +419,19 @@ mod tests {
                 }
                 r => break r.unwrap(),
             }
-        };
+        }
+    }
+
+    #[tokio::test]
+    async fn the_reference_never_waits_seconds_behind_the_speaker() {
+        // A pw-play that reads nothing for half a second, as while it connects.
+        let dir = tempfile::tempdir().unwrap();
+        let got = dir.path().join("got.raw");
+        let mut tap = fake_player(
+            dir.path(),
+            &format!("sleep 0.5\nexec cat > '{}'", got.display()),
+        )
+        .await;
         // Meanwhile the speaker plays 2 s, 20 ms at a time.
         let chunk = stereo_tone(1_000.0, 960, 10_000.0);
         for _ in 0..100 {
@@ -384,6 +443,34 @@ mod tests {
         let waited = std::fs::metadata(&got).unwrap().len();
         assert!(waited > 0, "no reference at all");
         assert!(waited <= MAX_WAITING as u64, "{waited} bytes waited");
+    }
+
+    #[tokio::test]
+    async fn a_new_pw_play_takes_over_when_the_old_one_exits() {
+        // The first pw-play exits after one chunk, as when PipeWire restarts.
+        let dir = tempfile::tempdir().unwrap();
+        let (runs, got) = (dir.path().join("runs"), dir.path().join("got.raw"));
+        let mut tap = fake_player(
+            dir.path(),
+            &format!(
+                "echo run >> '{runs}'\n\
+                 [ \"$(wc -l < '{runs}')\" -eq 1 ] && {{ head -c 640 > /dev/null; exit 1; }}\n\
+                 exec cat >> '{got}'",
+                runs = runs.display(),
+                got = got.display()
+            ),
+        )
+        .await;
+        // The speaker keeps playing, 20 ms at a time, for 3 s.
+        let chunk = stereo_tone(1_000.0, 960, 10_000.0);
+        for _ in 0..150 {
+            tap.push(&chunk);
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let started = std::fs::read_to_string(&runs).unwrap().lines().count();
+        assert_eq!(started, 2, "pw-play runs");
+        let fed = std::fs::metadata(&got).map(|m| m.len()).unwrap_or(0);
+        assert!(fed > 0, "the second pw-play got no reference");
     }
 
     #[test]
