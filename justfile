@@ -193,9 +193,17 @@ kernel-qemu:
 kernel-x86:
     kernel/build.sh x86
 
+# arm64 QEMU virt variant of the kernel for vm-test-arm64 (ADR 0031)
+kernel-qemu-arm64:
+    kernel/build.sh qemu-arm64
+
 # boot the x86_64 image under KVM and check it (needs: just kernel-x86 image-x86)
 vm-test-x86: initramfs-x86
     ARCH=x86_64 tests/vm/boot-test.sh
+
+# boot the armhf image on the arm64 kernel, as 32-bit EL0 (ADR 0031; needs: just kernel-qemu-arm64 image)
+vm-test-arm64: initramfs
+    ARCH=arm64 tests/vm/boot-test.sh
 
 # the setup hotspot on x86_64 with simulated radios, driven over ssh (ADR 0028; needs: just kernel-x86 image-x86, SSH_KEY)
 vm-hotspot-test: initramfs-x86
@@ -203,7 +211,7 @@ vm-hotspot-test: initramfs-x86
 
 # kernel config assertions for every variant (no build)
 kernel-config:
-    for v in device qemu x86; do CHECK_ONLY=1 kernel/build.sh $v; done
+    for v in device qemu qemu-arm64 x86; do CHECK_ONLY=1 kernel/build.sh $v; done
 
 # boot image round trips: a saved boot_a from before Pinna and our own
 bootimg-roundtrip:

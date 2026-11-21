@@ -15,11 +15,13 @@
 #
 #   tests/vm/boot-test.sh                      # armhf: build/pinna.root.img, QEMU virt (TCG)
 #   ARCH=x86_64 tests/vm/boot-test.sh          # x86_64: build/pinna-x86.root.img, KVM
+#   ARCH=arm64 tests/vm/boot-test.sh           # armhf image on the arm64 kernel (ADR 0031), TCG
 #   SSH_KEY=~/.ssh/key tests/vm/boot-test.sh   # also run checks over ssh
 #   KEEP=1 tests/vm/boot-test.sh               # leave the VM running
 #
-# Needs: just kernel-qemu image initramfs (or kernel-x86 image-x86
-# initramfs-x86); sgdisk, debugfs, journalctl on the host.
+# Needs: just kernel-qemu image initramfs (kernel-qemu-arm64 image initramfs
+# for arm64, kernel-x86 image-x86 initramfs-x86 for x86_64); sgdisk, debugfs,
+# journalctl on the host.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -30,6 +32,11 @@ case "$arch" in
   armhf)
     work=${WORK:-$root/build/vm}
     kernel=$root/build/kernel-qemu/arch/arm/boot/zImage
+    initrd=$root/build/initramfs.cpio
+    image=$root/build/pinna.root.img ;;
+  arm64)
+    work=${WORK:-$root/build/vm-arm64}
+    kernel=$root/build/kernel-qemu-arm64/arch/arm64/boot/Image
     initrd=$root/build/initramfs.cpio
     image=$root/build/pinna.root.img ;;
   x86_64)
@@ -73,7 +80,7 @@ log "ESPHome API via aioesphomeapi"
 # Owner device images carry the Home Assistant API key
 # (secrets/device/esphome-key); the x86_64 image does not (ADR 0014).
 api_key=""
-[ "$arch" = armhf ] && [ -s "$root/secrets/device/esphome-key" ] && api_key=$(tr -d '\n' <"$root/secrets/device/esphome-key")
+[ "$arch" != x86_64 ] && [ -s "$root/secrets/device/esphome-key" ] && api_key=$(tr -d '\n' <"$root/secrets/device/esphome-key")
 if uv run -q --with aioesphomeapi==46.2.0 python - "$api_port" "$api_key" <<'EOF'
 import asyncio, sys
 from aioesphomeapi import APIClient

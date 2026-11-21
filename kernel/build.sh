@@ -4,6 +4,8 @@
 #
 #   kernel/build.sh            -> build/kernel/{zImage,vmlinux,.config} + build/debs/linux-image-*.deb
 #   kernel/build.sh qemu       -> build/kernel-qemu/ (ARM QEMU virt variant for boot tests, no package)
+#   kernel/build.sh qemu-arm64 -> build/kernel-qemu-arm64/ (arm64 QEMU virt variant that boots the
+#                                 armhf image as 32-bit EL0, ADR 0031; no package)
 #   kernel/build.sh x86        -> build/kernel-x86/ (x86_64 QEMU/KVM variant for smoke tests, no package)
 #
 #   DEBUG=1       also merge kernel/debug.config (ftrace, debugfs, sysrq, …)
@@ -26,10 +28,15 @@ src=$root/build/linux
 deb=$root/build/linux-debian
 arch=arm
 cross=armv7l-unknown-linux-gnueabihf-
+# The armhf cross compiler, for the vDSO an arm64 kernel gives 32-bit processes.
+compat=
 fragments=("$here/common.config")
 case "$variant" in
   device) out=$root/build/kernel; fragments+=("$here/device.config"); targets=(zImage mediatek/mt8163-radar-puffin.dtb) ;;
   qemu)   out=$root/build/kernel-qemu; fragments+=("$here/qemu.config"); targets=(zImage) ;;
+  qemu-arm64)
+          out=$root/build/kernel-qemu-arm64; fragments+=("$here/qemu-arm64.config"); targets=(Image)
+          arch=arm64; cross=aarch64-unknown-linux-gnu-; compat=armv7l-unknown-linux-gnueabihf- ;;
   x86)    out=$root/build/kernel-x86; fragments+=("$here/x86.config"); targets=(bzImage)
           arch=x86_64; cross= ;;
   *) echo "unknown variant: $variant" >&2; exit 2 ;;
@@ -72,7 +79,7 @@ done
 # --- config ---------------------------------------------------------------
 # LOCALVERSION= (set, empty): the release is exactly <version>-pinna, no "+"
 # for the patched tree.
-mk() { make -C "$src" O="$out" ARCH="$arch" ${cross:+CROSS_COMPILE="$cross"} LOCALVERSION= "$@"; }
+mk() { make -C "$src" O="$out" ARCH="$arch" ${cross:+CROSS_COMPILE="$cross"} ${compat:+CROSS_COMPILE_COMPAT="$compat"} LOCALVERSION= "$@"; }
 
 log "config ($variant): allnoconfig + ${fragments[*]##*/}"
 cat "${fragments[@]}" > "$out/fragments.config"
@@ -122,7 +129,7 @@ fi
 krel=$(cat "$out/include/config/kernel.release")
 log "kernel release $krel"
 if [ "$variant" != device ]; then
-  log "done: $out/arch/$([ "$arch" = x86_64 ] && echo x86/boot/bzImage || echo arm/boot/zImage)"
+  log "done: $out/arch/${arch%_64}/boot/${targets[0]}"
   exit 0
 fi
 

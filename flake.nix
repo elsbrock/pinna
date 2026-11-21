@@ -8,8 +8,9 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
-      # Cross toolchain for the ARM32 kernel.
+      # Cross toolchains for the ARM32 kernel and the arm64 one (ADR 0031).
       armCross = pkgs.pkgsCross.armv7l-hf-multiplatform.buildPackages;
+      arm64Cross = pkgs.pkgsCross.aarch64-multiplatform.buildPackages;
     in
     {
       devShells.${system}.default = pkgs.mkShell {
@@ -44,6 +45,8 @@
           # kernel build — gcc 15 (gcc 16 is untested against the kernel tree)
           armCross.gcc15
           armCross.binutils
+          arm64Cross.gcc15
+          arm64Cross.binutils
           gnumake
           flex
           bison

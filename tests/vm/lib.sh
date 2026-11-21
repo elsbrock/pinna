@@ -82,7 +82,19 @@ slot_status() {
 # QEMU_APPEND: appended to the x86_64 kernel's own command line.
 qemu_start() {
   local arch=$1 kernel=$2 initrd=$3 disk=$4 console=$5 pidfile=$6 netdev=$7
-  if [ "$arch" = armhf ]; then
+  if [ "$arch" = arm64 ]; then
+    # The armhf image on the arm64 kernel (ADR 0031). The Cortex-A53 runs
+    # AArch32 at EL0, as the MT8516's Cortex-A35 does.
+    qemu-system-aarch64 \
+      -M virt -cpu cortex-a53 -smp 2 -m 512 \
+      -kernel "$kernel" -initrd "$initrd" \
+      -drive if=none,file="$disk",format=raw,id=hd0 \
+      -device virtio-blk-device,drive=hd0 \
+      -netdev "$netdev" -device virtio-net-device,netdev=n0 \
+      -device virtio-rng-device \
+      -display none -serial file:"$console" \
+      -pidfile "$pidfile" -daemonize
+  elif [ "$arch" = armhf ]; then
     qemu-system-arm \
       -M virt,highmem=off -cpu max -smp 2 -m 512 \
       -kernel "$kernel" -initrd "$initrd" \
