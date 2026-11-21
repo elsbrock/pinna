@@ -150,7 +150,7 @@
           {#if srv.enabled && srv.listed.length}
             {@const open = shownTools.has(srv.id)}
             <button
-              class="pn-row"
+              class="pn-row is-nested"
               type="button"
               aria-expanded={open}
               aria-controls="mcp-{srv.id}-tools"
@@ -166,7 +166,7 @@
               <Icon name={open ? "chevron-down" : "chevron-right"} class="pn-icon pn-row-chev" />
             </button>
             {#if open}
-              <div id="mcp-{srv.id}-tools" class="server-tools">
+              <div id="mcp-{srv.id}-tools" class="pn-row-children">
                 {#each srv.listed as t (t.name)}
                   <SwitchRow
                     id="tool-{t.name}"

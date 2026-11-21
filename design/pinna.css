@@ -465,6 +465,13 @@ a.pn-row:focus-visible, button.pn-row:focus-visible { outline: none; box-shadow:
 .pn-row.is-actions { flex-wrap: wrap; gap: 12px; padding: 14px 16px; }
 .pn-row .pn-switch-control { flex: none; }
 @media (pointer: coarse) { .pn-row .pn-switch-control { margin: 10px 0; } }
+/* A row that belongs to the row above it, such as the disclosure of that
+   row's details: no divider between the two, so they read as one entry. */
+.pn-row.is-nested { min-height: 0; padding: 0 16px 10px 32px; border-top: 0; }
+.pn-row.is-nested .pn-row-label { font-weight: 500; }
+/* The rows a nested row unfolds, set apart from the group's own. */
+.pn-row-children { border-top: 1px solid var(--line); background: var(--surface-sunken); }
+.pn-row-children > .pn-row { padding-left: 32px; }
 
 /* ---------- StatTile ---------- */
 .pn-stat {
