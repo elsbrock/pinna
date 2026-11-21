@@ -66,7 +66,7 @@ yet.
   | Request | Answer |
   | --- | --- |
   | `GET /v1/channels/<channel>` | A redirect to the manifest of the newest release on `stable` or `beta` |
-  | `GET /v1/releases/<tag>/<file>` | A file of that release, streamed from GitHub: `manifest.json`, `manifest.json.sig`, the images, `SHA256SUMS` |
+  | `GET /v1/releases/<tag>/<file>` | A file of that release, streamed from GitHub or the data centre's cache: `manifest.json`, `manifest.json.sig`, the images, `SHA256SUMS` |
 
   Every answer carries `Access-Control-Allow-Origin: *`. File URLs in a
   manifest are relative, so they resolve next to the manifest.
@@ -77,6 +77,13 @@ yet.
   into a draft: its web interface can't, and nothing can for an immutable
   release. Satellites that already installed a withdrawn release stay on it,
   because channels never go back in version; a newer release fixes them.
+- Cloudflare doesn't cache what a Worker returns, so the Worker keeps the
+  files it served in the Cloudflare data centre's cache, keyed by GitHub's
+  asset id: a file uploaded again under the same tag misses once the release
+  list has its new id, within 5 minutes. It checks the
+  release before it looks there, so a withdrawn release's files stay
+  unavailable. A miss streams from GitHub, and a second download fills the
+  cache in the background.
 - The Worker is not trusted. Whoever controls it can withhold updates, but
   can't make a satellite install anything the release key didn't sign, or go
   back in version.
