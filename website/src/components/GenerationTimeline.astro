@@ -3,17 +3,18 @@
 // (millimetres times --mm). Supported models are the coloured drawings from
 // design/devices/; the others are flat silhouettes with their own details, in
 // the page's greys, so they never look like Amazon's product photos or show a
-// lit ring. The Echo (1st gen) is in the works, as the owner says; later
-// generations are wanted: nobody works on them yet, and help is welcome.
+// lit ring. The Echo (1st gen) is not planned: its single Cortex-A8 is too
+// slow for Pinna's audio; later generations are wanted: nobody works on them
+// yet, and help is welcome.
 import DeviceDrawing from "./DeviceDrawing.astro";
 import { drawingFor } from "../../../design/devices/index.ts";
 
-type Status = "supported" | "working" | "wanted";
+type Status = "supported" | "working" | "wanted" | "unplanned";
 type Ghost = "echo-1" | "dot-1" | "echo-3" | "dot-3" | "echo-4" | "dot-4";
 type Model = { name: string; drawing?: "echo-2" | "echo-dot-2"; ghost?: Ghost; tag?: string };
 
 const generations: { gen: string; year: string; status: Status; models: Model[] }[] = [
-  { gen: "1st gen", year: "2014", status: "working", models: [{ name: "Echo (1st gen)", ghost: "echo-1" }] },
+  { gen: "1st gen", year: "2014", status: "unplanned", models: [{ name: "Echo (1st gen)", ghost: "echo-1" }] },
   {
     gen: "2nd gen",
     year: "2016–17",
@@ -44,7 +45,12 @@ const generations: { gen: string; year: string; status: Status; models: Model[] 
   },
 ];
 
-const label: Record<Status, string> = { supported: "Supported", working: "In the works", wanted: "Wanted" };
+const label: Record<Status, string> = {
+  supported: "Supported",
+  working: "In the works",
+  wanted: "Wanted",
+  unplanned: "Not planned",
+};
 
 // Widths in millimetres of each silhouette's viewBox, for true scale.
 const ghostWidth: Record<Ghost, number> = { "echo-1": 92, "dot-1": 92, "echo-3": 107, "dot-3": 107, "echo-4": 152, "dot-4": 108 };
@@ -262,7 +268,7 @@ const drawingWidth = (m: "echo-2" | "echo-dot-2") => {
     stroke: var(--brand-mid);
   }
 
-  [data-status="wanted"] .model {
+  :is([data-status="wanted"], [data-status="unplanned"]) .model {
     opacity: 0.6;
   }
 
@@ -303,7 +309,7 @@ const drawingWidth = (m: "echo-2" | "echo-dot-2") => {
     color: var(--ok);
   }
 
-  [data-status="wanted"] .chip-status {
+  :is([data-status="wanted"], [data-status="unplanned"]) .chip-status {
     background: color-mix(in oklab, var(--ink) 8%, transparent);
     color: var(--ink-muted);
   }

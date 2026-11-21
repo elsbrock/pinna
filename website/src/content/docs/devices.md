@@ -25,9 +25,8 @@ These docs don't cover the unlock itself.
 ## Other Echo devices
 
 Pinna doesn't run on any device in this table yet, so you don't need to
-unlock one now. Bringing Pinna up on the Echo (1st gen) is in the works; see
-[Status and roadmap](/docs/status/#planned). Any other device needs two
-things first: a public way to unlock it, and a port of Pinna to its hardware.
+unlock one now. A device needs two things first: a public way to unlock it,
+and a port of Pinna to its hardware.
 
 The Echo Dot (3rd gen) is sold as two different boards: model D9N29T from
 2018 and model C78MP8 from 2019. Only the D9N29T has a public unlock, so check
@@ -76,6 +75,10 @@ for example, has the Echo Dot (4th gen)'s model number, B7W64E.
 
 Some ports take more work than others:
 
+- Pinna doesn't plan to support the Echo (1st gen). Its processor has one
+  1 GHz core, which can't keep up with Pinna's wake word and echo canceller.
+  Even while it waits for the wake word, Pinna uses about one core of the
+  Echo Dot (2nd gen)'s faster processor.
 - The MediaTek MT8516 models need board support in Pinna's kernel, and a
   driver for their Wi-Fi chip, the MT7668.
 - The C78MP8 stores its system on raw NAND flash instead of eMMC. Pinna finds
