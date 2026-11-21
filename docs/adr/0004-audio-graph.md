@@ -49,6 +49,12 @@ and the speaker chain — a 150 Hz high-pass, the stock firmware's extra gain
 above 70 % volume (up to +14.5 dB at 100 %) and a look-ahead peak limiter at
 −0.1 dBFS), and writes a 16 kHz mono copy of every chunk it plays into
 `dot_ref` through a bounded queue (dropped, never blocking, if PipeWire lags).
+A chunk is also dropped while more than 40 ms of reference still waits in
+`pw-play`'s input pipe: the speaker writes 100 ms ahead, so the reference
+reaches the canceller before its echo. Without that bound the pipe (64 KiB,
+2 s) filled while `pw-play` started and never drained. Measured on an Echo
+Dot (2nd gen), 2026-11-21: the reference came 2.05–2.16 s after its echo, and
+`dot_mic_aec` was as loud as `dot_beam` at every volume.
 The two clocks drift apart (speaker ≈ +320 ppm, microphones ≈ +5 ppm against
 the CPU), so pinnad fits both from the PCMs' hardware pointers
 (`/proc/asound/card0/pcm*/sub0/status`), paces the speaker at its measured rate
