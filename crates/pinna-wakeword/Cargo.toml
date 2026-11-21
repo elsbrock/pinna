@@ -16,5 +16,6 @@ tract-tflite = "0.22"
 # The version tract-tflite builds with, for the TFLite fixture in tests/upload.rs.
 flatbuffers = "23.1.21"
 hound = "3"
+pinna-audio = { path = "../pinna-audio" }
 serde_json = "1"
 prost = "0.11"

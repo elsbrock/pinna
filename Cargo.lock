@@ -2396,6 +2396,7 @@ dependencies = [
  "anyhow",
  "flatbuffers",
  "hound",
+ "pinna-audio",
  "pinna-vad",
  "prost 0.11.9",
  "serde_json",
