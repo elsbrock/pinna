@@ -67,6 +67,7 @@ changed:
 | `pinna-wakeword` | `just wakeword-parity` |
 | `dashboard/`, `design/` or `proto/` | `just web-check` |
 | The kernel configuration | `just kernel-config` |
+| The arm64 kernel or the MT8516 patches (ADR 0031) | `just kernel-config`, `just kernel-mt8516`, `just vm-test-arm64` |
 | `pinna-init`, `pinna-bootimg`, boot, slots or updates | `just vm-test`, `just vm-update-test`, `just bootimg-roundtrip` |
 | Rescue mode or boot stages | `just vm-rescue-test`, `just vm-rescue-test-x86` |
 | The image in `mkosi/`, or anything else the virtual machine runs | `just vm-test-x86` |
