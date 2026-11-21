@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 12:18:24 +0100
+Subject: [PATCH 112/112] wifi: mt7668: read its configuration as
+ wifi_mt7668.cfg
+
+The driver asked the firmware loader for "wifi.cfg". Pinna's root image
+is the same for the MT8163 and the MT8516 Echos (ADR 0031), and the
+MT8163's CONSYS driver reads /etc/firmware/wifi.cfg, where /etc/firmware
+links to /usr/lib/firmware. Installing the Echo Dot (3rd gen)'s wifi.cfg
+there would hand the MT7668's settings to the MT8163's Wi-Fi.
+
+Every place that reads the configuration now uses CFG_WIFI_FILENAME,
+which is "wifi_mt7668.cfg"; two of the three requests had the name
+written out. The image installs Amazon's file under that name.
+---
+ .../mediatek/mt7668/os/linux/gl_init.c        | 22 +++++++++++--------
+ 1 file changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c
+index ea25099ba..3b0cbb68d 100644
+--- a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c
++++ b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c
+@@ -164,7 +164,11 @@ BOOLEAN	g_fgIsCalDataBackuped = FALSE;
+ /**20150205 added work queue for sched_scan to avoid cfg80211 stop schedule scan dead loack**/
+ struct delayed_work sched_workq;
+ 
+-#define CFG_WIFI_FILENAME     "wifi.cfg"
++/*
++ * Not "wifi.cfg": a satellite's root also carries the MT8163 CONSYS driver,
++ * which reads /etc/firmware/wifi.cfg, and /etc/firmware is /usr/lib/firmware.
++ */
++#define CFG_WIFI_FILENAME     "wifi_mt7668.cfg"
+ 
+ #ifdef CFG_SUPPORT_DUAL_CARD_DUAL_DRIVER
+ #if defined(_HIF_USB)
+@@ -2196,16 +2200,16 @@ VOID wlanGetParseConfig(P_ADAPTER_T prAdapter)
+ 		} else
+ #endif
+ #endif
+-		if (kalRequestFirmware("wifi.cfg", pucConfigBuf,
++		if (kalRequestFirmware(CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen, prAdapter->prGlueInfo->prDev) == 0) {
+ 			/* ToDo:: Nothing */
+-		} else if (kalReadToFile("/storage/sdcard0/wifi.cfg", pucConfigBuf,
++		} else if (kalReadToFile("/storage/sdcard0/" CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen) == 0) {
+ 			/* ToDo:: Nothing */
+-		} else if (kalReadToFile("/data/misc/wifi.cfg", pucConfigBuf,
++		} else if (kalReadToFile("/data/misc/" CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen) == 0) {
+ 			/* ToDo:: Nothing */
+-		} else if (kalReadToFile("/data/misc/wifi/wifi.cfg", pucConfigBuf,
++		} else if (kalReadToFile("/data/misc/wifi/" CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen) == 0) {
+ 			/* ToDo:: Nothing */
+ 		}
+@@ -2261,16 +2265,16 @@ VOID wlanGetConfig(P_ADAPTER_T prAdapter)
+ 
+ 		kalMemFree(pucConfigBuf, VIR_MEM_TYPE, WLAN_CFG_FILE_BUF_SIZE);
+ #else
+-		if (kalRequestFirmware("wifi.cfg", pucConfigBuf,
++		if (kalRequestFirmware(CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen, prAdapter->prGlueInfo->prDev) == 0) {
+ 			/* ToDo:: Nothing */
+-		} else if (kalReadToFile("/storage/sdcard0/wifi.cfg", pucConfigBuf,
++		} else if (kalReadToFile("/storage/sdcard0/" CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen) == 0) {
+ 			/* ToDo:: Nothing */
+-		} else if (kalReadToFile("/data/misc/wifi.cfg", pucConfigBuf,
++		} else if (kalReadToFile("/data/misc/" CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen) == 0) {
+ 			/* ToDo:: Nothing */
+-		} else if (kalReadToFile("/data/misc/wifi/wifi.cfg", pucConfigBuf,
++		} else if (kalReadToFile("/data/misc/wifi/" CFG_WIFI_FILENAME, pucConfigBuf,
+ 					 WLAN_CFG_FILE_BUF_SIZE, &u4ConfigReadLen) == 0) {
+ 			/* ToDo:: Nothing */
+ 		}
+-- 
+2.54.0
+
