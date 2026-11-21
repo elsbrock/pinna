@@ -1,8 +1,8 @@
 # ADR 0032: One description per board, and drivers that read it
 
-Status: proposed (2026-11-21), built on the `more-devices` branch
-(2026-11-21). Unit tests and the virtual Echo Dot only; not run on an Echo.
-Prepares the port in ADR 0031.
+Status: proposed (2026-11-21), accepted (2026-11-21), built (2026-11-21),
+with the tests that run without hardware and the virtual Echo Dot. Not run
+on an Echo. Prepares the port in ADR 0031.
 
 ## Context
 
