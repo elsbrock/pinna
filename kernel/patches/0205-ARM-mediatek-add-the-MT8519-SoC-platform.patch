@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 16:29:25 +0100
+Subject: [PATCH] ARM: mediatek: add the MT8519 SoC platform
+
+A MACH_MT8519 Kconfig symbol for the Echo Dot (5th gen)'s SoC (ADR 0034),
+beside the other 32-bit MediaTek machines. It selects the ARM architected
+timer and GIC-v3, which the MT8519 has (the Cortex-A55 brings its secondaries
+up through PSCI, so no machine SMP code is needed). This is what lets an
+allnoconfig arm kernel enable the architected timer for the MT8519.
+---
+ arch/arm/mach-mediatek/Kconfig | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm/mach-mediatek/Kconfig b/arch/arm/mach-mediatek/Kconfig
+index 066a879a2..db8b75abf 100644
+--- a/arch/arm/mach-mediatek/Kconfig
++++ b/arch/arm/mach-mediatek/Kconfig
+@@ -45,4 +45,10 @@ config MACH_MT8163
+ 	default ARCH_MEDIATEK
+ 	select HAVE_ARM_ARCH_TIMER
+ 
++config MACH_MT8519
++	bool "MediaTek MT8519 SoC support"
++	default ARCH_MEDIATEK
++	select HAVE_ARM_ARCH_TIMER
++	select ARM_GIC_V3
++
+ endif

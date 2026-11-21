@@ -1,0 +1,4302 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 16:32:07 +0100
+Subject: [PATCH] arm: dts: mediatek: add the Echo Dot (5th gen) (cannoli)
+ device tree
+
+The MT8519 SoC and the cannoli board device tree (ADR 0034), from Amazon's
+5.4 release: mt8519.dtsi and mt8519-amzn.dtsi for the SoC, mt6395.dtsi for
+the PMIC, cannoli-cheesecake.dtsi and cannoli-hvt.dts for the board, with the
+MT8519 pinfunc, memory-port, EMI and the Amazon CPLD GPIO binding headers.
+The tree compiles to cannoli-hvt.dtb on 6.12's dtc unchanged beyond the
+binding headers it needs; nodes whose drivers are not yet ported are present
+but inert until those land.
+
+Built: mediatek/cannoli-hvt.dtb (ARCH=arm).
+---
+ arch/arm/boot/dts/mediatek/Makefile           |    3 +-
+ .../boot/dts/mediatek/cannoli-cheesecake.dtsi | 1192 ++++++++++++++
+ arch/arm/boot/dts/mediatek/cannoli-hvt.dts    |  112 ++
+ .../cannoli_cheesecake_thermal_zones.dtsi     |  192 +++
+ arch/arm/boot/dts/mediatek/mt6395.dtsi        |   59 +
+ arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi   |  338 ++++
+ arch/arm/boot/dts/mediatek/mt8519-clkitg.dtsi |  207 +++
+ arch/arm/boot/dts/mediatek/mt8519.dtsi        | 1373 +++++++++++++++++
+ include/dt-bindings/gpio/amzncpld-gpio.h      |   30 +
+ .../dt-bindings/interconnect/mtk,mt8519-emi.h |   43 +
+ .../dt-bindings/memory/mt8519-memory-port.h   |   15 +
+ .../dt-bindings/memory/mtk-smi-larb-port.h    |   21 +
+ include/dt-bindings/pinctrl/mt8519-pinfunc.h  |  569 +++++++
+ include/dt-bindings/soc/mediatek,boot-mode.h  |   17 +
+ 14 files changed, 4170 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
+ create mode 100644 arch/arm/boot/dts/mediatek/cannoli-hvt.dts
+ create mode 100644 arch/arm/boot/dts/mediatek/cannoli_cheesecake_thermal_zones.dtsi
+ create mode 100644 arch/arm/boot/dts/mediatek/mt6395.dtsi
+ create mode 100644 arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi
+ create mode 100644 arch/arm/boot/dts/mediatek/mt8519-clkitg.dtsi
+ create mode 100755 arch/arm/boot/dts/mediatek/mt8519.dtsi
+ create mode 100644 include/dt-bindings/gpio/amzncpld-gpio.h
+ create mode 100644 include/dt-bindings/interconnect/mtk,mt8519-emi.h
+ create mode 100644 include/dt-bindings/memory/mt8519-memory-port.h
+ create mode 100644 include/dt-bindings/memory/mtk-smi-larb-port.h
+ create mode 100644 include/dt-bindings/pinctrl/mt8519-pinfunc.h
+ create mode 100644 include/dt-bindings/soc/mediatek,boot-mode.h
+
+diff --git a/arch/arm/boot/dts/mediatek/Makefile b/arch/arm/boot/dts/mediatek/Makefile
+index 12d87915b..ac2d473f2 100644
+--- a/arch/arm/boot/dts/mediatek/Makefile
++++ b/arch/arm/boot/dts/mediatek/Makefile
+@@ -13,4 +13,5 @@ dtb-$(CONFIG_ARCH_MEDIATEK) += \
+ 	mt7629-rfb.dtb \
+ 	mt8127-moose.dtb \
+ 	mt8135-evbp1.dtb \
+-	mt8163-radar-puffin.dtb
++	mt8163-radar-puffin.dtb \
++	cannoli-hvt.dtb
+diff --git a/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi b/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
+new file mode 100644
+index 000000000..c633d00d4
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
+@@ -0,0 +1,1192 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++
++#include "mt8519-amzn.dtsi"
++#include <dt-bindings/gpio/amzncpld-gpio.h>
++#include <dt-bindings/input/linux-event-codes.h>
++
++/ {
++	aliases {
++		ringled0 = &lp5036_i2c0_31;
++		display0 = &disp_lp5036_i2c0_30;
++		display1 = &disp_lp5036_i2c0_32;
++		display2 = &disp_lp5036_i2c0_33;
++	};
++
++	chosen {
++		bootargs = "";
++		atag,chipid = <0x6000000 0x19850000 0x8a0000 0xca0000 0x0>;
++	};
++
++	led_power: fixedregulator@6 {
++		compatible = "regulator-fixed";
++		regulator-name = "led_power";
++		gpio = <&pio 64 GPIO_ACTIVE_HIGH>;
++		startup-delay-us = <10000>;
++		enable-active-high;
++		regulator-boot-on;
++		pinctrl-names = "default";
++		pinctrl-0 = <&led_power_pins>;
++		status = "okay";
++	};
++
++	reset_adc: fixedregulator@7 {
++		compatible = "regulator-fixed";
++		regulator-name = "reset_adc";
++		gpio = <&cpld AMZ_CPLD_GPIO_ADC_RST GPIO_ACTIVE_HIGH>;
++		startup-delay-us = <10000>;
++		enable-active-high;
++		status = "okay";
++	};
++
++	disp_power: fixedregulator@8 {
++		compatible = "regulator-fixed";
++		regulator-name = "disp_power";
++		gpio = <&pio 17 GPIO_ACTIVE_HIGH>;
++		startup-delay-us = <10000>;
++		enable-active-high;
++		regulator-boot-on;
++		pinctrl-names = "default";
++		pinctrl-0 = <&disp_power_pins>;
++		status = "okay";
++	};
++
++	therm_sel: fixedregulator@9 {
++		compatible = "regulator-fixed";
++		regulator-name = "therm_sel";
++		gpio = <&pio 62 GPIO_ACTIVE_HIGH>;
++		startup-delay-us = <0>;
++		enable-active-high;
++		regulator-boot-on;
++		status = "okay";
++	};
++
++	sound: sound {
++		compatible = "mediatek,mt8519-mendocino";
++		mediatek,platform = <&afe>;
++		mediatek,adsp-platform = <&adsp_pcm>;
++
++		/* Spkr Out - over etdm2 */
++		mediatek,etdm2-out-audio-codec = <&max98396_1_dac>;
++		mediatek,etdm2-out-audio-codec-name = "max98396_1-dac";
++		mediatek,etdm2-out-codec-dai-name = "max98396-aif1-a";
++
++		/* etdmout2 fix format */
++		mediatek,etdm2-out-fix-rate = <96000>;
++		mediatek,etdm2-out-fix-channels = <2>;
++		mediatek,etdm2-out-fix-bit-width = <32>;
++
++		/* Mic In - ADC5140 */
++		mediatek,etdm1-in-audio-codec = <&tlv320adc5140_1>;
++		mediatek,etdm1-in-audio-codec-name = "tlv320adc5140_1";
++		mediatek,etdm1-in-codec-dai-name = "tlv320adc5140-codec-a";
++		mediatek,etdm1-in-format = "dsp_b";
++		mediatek,etdm1-in-bck-inverse=<1>;
++		mediatek,etdm1-in-mclk-multiplier=<256>;
++		mediatek,etdm1-in-master-clock=<0>;
++
++		/* etdmin1 fix format */
++		mediatek,etdm1-in-fix-channels=<4>;
++		mediatek,etdm1-in-fix-rate = <96000>;
++		mediatek,etdm1-in-fix-bit-width = <32>;
++
++		/* etdmin2 fix format */
++		mediatek,etdm2-in-fix-rate = <96000>;
++		mediatek,etdm2-in-fix-channels = <2>;
++		mediatek,etdm2-in-fix-bit-width = <32>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&aud_pins_default>;
++		status = "okay";
++
++		woofer_irq-gpios = <&pio 7 1>;
++		/* debounce time in microseconds */
++		woofer-irq-debounce = <512000>;
++	};
++
++	therm0: thermistor_0 {
++		compatible = "murata,ncp03wf104";
++		#thermal-sensor-cells = <0>;
++		pullup-uv = <1800000>;
++		pullup-ohm = <100000>;
++		pulldown-ohm = <0>;
++		io-channels = <&auxadc 0>;
++		mux-supply = <&therm_sel>;
++		read-state = <0>;
++		settle-time-ms = <5>;
++	};
++
++	therm1: thermistor_1 {
++		compatible = "murata,ncp03wf104";
++		#thermal-sensor-cells = <0>;
++		pullup-uv = <1800000>;
++		pullup-ohm = <100000>;
++		pulldown-ohm = <0>;
++		io-channels = <&auxadc 0>;
++		mux-supply = <&therm_sel>;
++		read-state = <1>;
++		settle-time-ms = <5>;
++	};
++
++	therm2: thermistor_2 {
++		compatible = "murata,ncp03wf104";
++		#thermal-sensor-cells = <0>;
++		pullup-uv = <1800000>;
++		pullup-ohm = <100000>;
++		pulldown-ohm = <0>;
++		io-channels = <&auxadc 1>;
++		mux-supply = <&therm_sel>;
++		read-state = <1>;
++		settle-time-ms = <5>;
++	};
++
++	therm3: thermistor_3 {
++		compatible = "murata,ncp03wf104";
++		#thermal-sensor-cells = <0>;
++		pullup-uv = <1800000>;
++		pullup-ohm = <100000>;
++		pulldown-ohm = <0>;
++		io-channels = <&auxadc 2>;
++	};
++
++	therm4: thermistor_4 {
++		compatible = "murata,ncp03wf104";
++		#thermal-sensor-cells = <0>;
++		pullup-uv = <1800000>;
++		pullup-ohm = <100000>;
++		pulldown-ohm = <0>;
++		io-channels = <&auxadc 3>;
++	};
++
++	wifi_temp_sensor: wifi_temp_sensor {
++		compatible = "amazon,wifi_temp_sensor";
++		#thermal-sensor-cells = <0>;
++	};
++
++	/* bottom */
++	case_virtual_sensor: case-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 37000 976 802 (-40000) 125000>;
++			ap_ntc1 = <1 83300 680 (-262) (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 89300 2 (-389) (-40000) 125000>;
++			ap_ntc4 = <1 28100 547 666 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <1 63200 0 138 0 0>;
++		};
++	};
++
++	/* top */
++	skin_virtual_sensor: skin-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 31200 1000 981 (-40000) 125000>;
++			ap_ntc1 = <1 86300 24 (-279) (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 90600 3 (-339) (-40000) 125000>;
++			ap_ntc4 = <1 36000 895 469 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <1 76200 279 115 0 0>;
++		};
++	};
++
++	back_virtual_sensor: back-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 (-15800) 549 568 (-40000) 125000>;
++			ap_ntc1 = <1 79100 869 100 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 75000 873 100 (-40000) 125000>;
++			ap_ntc4 = <1 19500 970 200 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <1 96500 233 50 0 0>;
++		};
++	};
++
++	display_virtual_sensor: display-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 9400 921 1 (-40000) 125000>;
++			ap_ntc1 = <1 9400 921 1 (-40000) 125000>;
++			ap_ntc2 = <1 9400 921 940 (-40000) 125000>;
++			ap_ntc3 = <1 9400 921 1 (-40000) 125000>;
++			ap_ntc4 = <1 9400 921 1 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	cpu_virtual_sensor: cpu-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 1000 1000 0 0>;
++		};
++	};
++
++	cpufilter_virtual_sensor: cpufilter-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++		moving-average-prop = <1000 5 100 0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 1000 1000 0 0>;
++		};
++	};
++
++	wifi_cooler: wifi {
++		compatible = "amazon,thermal_cooler";
++		#cooling-cells = <2>;
++		max_state = <8>;
++	};
++
++	audio_cooler: audio_cooler {
++		compatible = "amazon,thermal_cooler";
++		#cooling-cells = <2>;
++		max_level = <3>;
++		max_state = <8>;
++	};
++
++	led_cooler: led_cooler {
++		compatible = "amazon,thermal_cooler";
++		#cooling-cells = <2>;
++		max_state = <3>;
++	};
++
++	display_cooler: display_cooler {
++		compatible = "amazon,thermal_cooler";
++		#cooling-cells = <2>;
++		max_state = <3>;
++	};
++
++	usb_p1_vbus: usb_vbus1@0 {
++		compatible = "regulator-fixed";
++		regulator-name = "usb1_vbus";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		gpio = <&pio 20 0>;
++		enable-active-high;
++	};
++
++	gpio_keys: gpio-keys {
++		compatible = "gpio-keys";
++		autorepeat;
++		status = "okay";
++
++		volumeup_button: button@0 {
++			debounce-interval = <50>;
++			label = "volumeup";
++			linux,input-type = <0x1>;
++			linux,code = <115>;
++			gpios = <&cpld AMZ_CPLD_GPIO_BTN_VOL_UP_L GPIO_ACTIVE_LOW>;
++			swdebounce-interval = <100>;
++			dyndebounce-interval = <0>;
++			dyndebounce-duration = <10000>;		/* 10 sec */
++		};
++
++		volumedown_button: button@1 {
++			debounce-interval = <50>;
++			label = "volumedown";
++			linux,input-type = <0x1>;
++			linux,code = <114>;
++			gpios = <&cpld AMZ_CPLD_GPIO_BTN_VOL_DN_L GPIO_ACTIVE_LOW>;
++			swdebounce-interval = <100>;
++			dyndebounce-interval = <0>;
++			dyndebounce-duration = <10000>;		/* 10 sec */
++		};
++
++		action_button: button@2 {
++			debounce-interval = <50>;
++			label = "action";
++			linux,input-type = <0x1>;
++			linux,code = <138>;
++			gpios = <&cpld AMZ_CPLD_GPIO_BTN_ACT_L GPIO_ACTIVE_LOW>;
++			swdebounce-interval = <100>;
++			dyndebounce-interval = <0>;
++			dyndebounce-duration = <10000>;		/* 10 sec */
++		};
++	};
++
++	gpio_privacy: gpio-privacy {
++		compatible = "gpio-privacy";
++		status="okay";
++
++		enable-gpio = <&cpld AMZ_CPLD_GPIO_SW_MUTE_SET GPIO_ACTIVE_HIGH>;
++		enable-gpio-toggle-duration = <50>;
++
++		state_event {
++			label = "mute state";
++			linux,input-type = <EV_SW>;
++			linux,code = <0x0e>;
++
++			gpios = <&cpld AMZ_CPLD_GPIO_MUTE_STATE_L GPIO_ACTIVE_LOW>;
++
++		};
++
++		button_event {
++			label = "mute";
++			linux,input-type = <EV_KEY>;
++			linux,code = <KEY_MUTE>;
++			debounce-interval = <50>;
++
++			gpios = <&cpld AMZ_CPLD_GPIO_BTN_MUTE_L GPIO_ACTIVE_LOW>;
++		};
++	};
++
++	led_sku_bias: led-sku-bias {
++		compatible = "led-sku-bias";
++		pinctrl-names = "default", "sku_bias_enabled", "sku_bias_disabled";
++		pinctrl-0 = <&led_sku_bias_disabled>;
++		pinctrl-1 = <&led_sku_bias_enabled>;
++		pinctrl-2 = <&led_sku_bias_disabled>;
++		status="okay";
++	};
++};
++
++&adsp {
++	status = "okay";
++};
++
++&adsp_pcm {
++	mediatek,tdmin-mem-type = <2>;
++	mediatek,ul9-mem-type = <2>;
++	mediatek,ul2-mem-type = <2>;
++	mediatek,dl2-mem-type = <2>;
++	mediatek,dsp-boot-run = <0>;
++	status = "okay";
++};
++
++&adsp_mem_reserved {
++	reg = <0 0x50000000 0 0xf00000>;
++};
++
++#include "cannoli_cheesecake_thermal_zones.dtsi"
++
++&afe {
++	mediatek,etdm-out-data-modes = <0 1>;
++	mediatek,etdm2-out-force-on;
++	mediatek,etdm2-out-force-format = "i2s";
++	mediatek,etdm2-out-force-rate = <96000>;
++	mediatek,etdm2-out-force-channels = <2>;
++	mediatek,etdm2-out-force-bit-width = <32>;
++	mediatek,etdm1-in-force-on;
++	mediatek,etdm1-in-force-mclk-freq = <24576000>;
++	mediatek,etdm1-in-force-format = "dsp_b";
++	mediatek,etdm1-in-force-bck-inverse;
++	mediatek,etdm1-in-force-rate = <96000>;
++	mediatek,etdm1-in-force-channels = <4>;
++	mediatek,etdm1-in-force-bit-width = <32>;
++	mediatek,etdm1-in-force-master-clock = <0>;
++	mediatek,gasrc0-fix-rate = <0 96000>;
++	mediatek,gasrc1-fix-rate = <0 96000>;
++	mediatek,gasrc2-fix-rate = <0 96000>;
++	mediatek,gasrc3-fix-rate = <0 96000>;
++	status = "okay";
++};
++
++&audio_asrc {
++	status = "disabled";
++};
++
++&auxadc {
++	expected-divider-voltage-raw = <900>;
++	ref-voltage-adc-channel = <1>;
++	has-error-correction;
++	status = "okay";
++};
++
++&dramc {
++	dram_type = <2>;
++	support_ch_cnt = <2>;
++	ch_cnt = <2>;
++	rk_cnt = <1>; /* dummy */
++	mr_cnt = <4>;
++	freq_cnt = <2>;
++	rk_size = <0x40000000>;  /* dummy */
++	mr = <0 0 0 0 0 0 0 0>;  /* dummy */
++	freq_step = <3200 2400>;
++};
++
++&extcon_usb {
++	id-gpios = <&pio 16 GPIO_ACTIVE_HIGH>;
++	vbus-gpios = <&pio 19 0>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&usbextcon_pins_default>;
++	wakeup-source;
++	status = "okay";
++};
++
++&hifidsp_audio_ipi {
++	status = "okay";
++};
++
++&i2c0 {
++	lp5036_i2c0_31: lp5036@31 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	compatible = "ti,lp5036";
++	reg = <0x31>;
++	vled-supply = <&led_power>;
++	regmap-read-cache-disable;
++	status = "disabled";
++		led@0 {
++			reg = <0>;
++			label = "ledmod_0";
++			ti,led-module = <3>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@1 {
++			reg = <1>;
++			label = "ledmod_1";
++			ti,led-module = <4>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@2 {
++			reg = <2>;
++			label = "ledmod_2";
++			ti,led-module = <5>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@3 {
++			reg = <3>;
++			label = "ledmod_3";
++			ti,led-module = <6>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@4 {
++			reg = <4>;
++			label = "ledmod_4";
++			ti,led-module = <7>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@5 {
++			reg = <5>;
++			label = "ledmod_5";
++			ti,led-module = <8>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@6 {
++			reg = <6>;
++			label = "ledmod_6";
++			ti,led-module = <9>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@7 {
++			reg = <7>;
++			label = "ledmod_7";
++			ti,led-module = <10>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@8 {
++			reg = <8>;
++			label = "ledmod_8";
++			ti,led-module = <11>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@9 {
++			reg = <9>;
++			label = "ledmod_9";
++			ti,led-module = <0>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@10 {
++			reg = <10>;
++			label = "ledmod_10";
++			ti,led-module = <1>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@11 {
++			reg = <11>;
++			label = "ledmod_11";
++			ti,led-module = <2>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++	};
++
++	is31fl3246_i2c0_31: is31fl3246@31 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	compatible = "issi,is31fl3246";
++	reg = <0x31>;
++	vled-supply = <&led_power>;
++	regmap-read-cache-disable;
++	status = "disabled";
++		led@0 {
++			reg = <0>;
++			label = "ledmod_0";
++			issi,led-module = <3>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@1 {
++			reg = <1>;
++			label = "ledmod_1";
++			issi,led-module = <4>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@2 {
++			reg = <2>;
++			label = "ledmod_2";
++			issi,led-module = <5>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@3 {
++			reg = <3>;
++			label = "ledmod_3";
++			issi,led-module = <6>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@4 {
++			reg = <4>;
++			label = "ledmod_4";
++			issi,led-module = <7>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@5 {
++			reg = <5>;
++			label = "ledmod_5";
++			issi,led-module = <8>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@6 {
++			reg = <6>;
++			label = "ledmod_6";
++			issi,led-module = <9>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@7 {
++			reg = <7>;
++			label = "ledmod_7";
++			issi,led-module = <10>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@8 {
++			reg = <8>;
++			label = "ledmod_8";
++			issi,led-module = <11>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@9 {
++			reg = <9>;
++			label = "ledmod_9";
++			issi,led-module = <0>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@10 {
++			reg = <10>;
++			label = "ledmod_10";
++			issi,led-module = <1>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@11 {
++			reg = <11>;
++			label = "ledmod_11";
++			issi,led-module = <2>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++	};
++
++	aw21036_i2c0_36: aw21036@36 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	compatible = "aw,aw21036";
++	reg = <0x36>;
++	vled-supply = <&led_power>;
++	regmap-read-cache-disable;
++	status = "disabled";
++		led@0 {
++			reg = <0>;
++			label = "ledmod_0";
++			aw,led-module = <3>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@1 {
++			reg = <1>;
++			label = "ledmod_1";
++			aw,led-module = <4>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@2 {
++			reg = <2>;
++			label = "ledmod_2";
++			aw,led-module = <5>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@3 {
++			reg = <3>;
++			label = "ledmod_3";
++			aw,led-module = <6>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@4 {
++			reg = <4>;
++			label = "ledmod_4";
++			aw,led-module = <7>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@5 {
++			reg = <5>;
++			label = "ledmod_5";
++			aw,led-module = <8>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@6 {
++			reg = <6>;
++			label = "ledmod_6";
++			aw,led-module = <9>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@7 {
++			reg = <7>;
++			label = "ledmod_7";
++			aw,led-module = <10>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@8 {
++			reg = <8>;
++			label = "ledmod_8";
++			aw,led-module = <11>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@9 {
++			reg = <9>;
++			label = "ledmod_9";
++			aw,led-module = <0>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@10 {
++			reg = <10>;
++			label = "ledmod_10";
++			aw,led-module = <1>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++		led@11 {
++			reg = <11>;
++			label = "ledmod_11";
++			aw,led-module = <2>;
++			rgb-map = /bits/ 8 <1 0 2>;
++			linux,default-trigger = "boot-anim";
++		};
++	};
++
++	disp_lp5036_i2c0_30: lp5036@30 {
++		compatible = "ti,lp5036";
++		reg = <0x30>;
++		enable-gpio = <&pio 63 GPIO_ACTIVE_HIGH>;
++		vled-supply = <&disp_power>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_0";
++			frame-channel-map = /bits/ 8 <35 34 33 32
++			31 30 29 28 27 26 25 24 23 22 21 20 19 18
++			17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0>;
++		};
++	};
++
++	disp_lp5036_i2c0_32: lp5036@32 {
++		compatible = "ti,lp5036";
++		reg = <0x32>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_1";
++			frame-channel-map = /bits/ 8 <31 32 33 34
++			35 26 27 28 29 30 21 22 23 24 25 16 17 18
++			19 20 11 12 13 14 15 6 7 8 9 10 1 2 3 4 5 0>;
++		};
++	};
++
++	disp_lp5036_i2c0_33: lp5036@33 {
++		compatible = "ti,lp5036";
++		reg = <0x33>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_2";
++			frame-channel-map = /bits/ 8 <32 33 34 35
++			27 28 29 30 31 22 23 24 25 26 17 18 19 20
++			21 12 13 14 15 16 7 8 9 10 11 2 3 4 5 6 0 1>;
++		};
++	};
++
++	disp_is31fl3246_i2c0_30: is31fl3246@30 {
++		compatible = "issi,is31fl3246";
++		reg = <0x30>;
++		enable-gpio = <&pio 63 GPIO_ACTIVE_HIGH>;
++		vled-supply = <&disp_power>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_0";
++			frame-channel-map = /bits/ 8 <35 34 33 32
++			31 30 29 28 27 26 25 24 23 22 21 20 19 18
++			17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0>;
++		};
++	};
++
++	disp_is31fl3246_i2c0_32: is31fl3246@32 {
++		compatible = "issi,is31fl3246";
++		reg = <0x32>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_1";
++			frame-channel-map = /bits/ 8 <31 32 33 34
++			35 26 27 28 29 30 21 22 23 24 25 16 17 18
++			19 20 11 12 13 14 15 6 7 8 9 10 1 2 3 4 5 0>;
++		};
++	};
++
++	disp_is31fl3246_i2c0_33: is31fl3246@33 {
++		compatible = "issi,is31fl3246";
++		reg = <0x33>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_2";
++			frame-channel-map = /bits/ 8 <32 33 34 35
++			27 28 29 30 31 22 23 24 25 26 17 18 19 20
++			21 12 13 14 15 16 7 8 9 10 11 2 3 4 5 6 0 1>;
++		};
++	};
++
++	disp_aw21036_i2c0_34: aw21036@34 {
++		compatible = "aw,aw21036";
++		reg = <0x34>;
++		enable-gpio = <&pio 63 GPIO_ACTIVE_HIGH>;
++		vled-supply = <&disp_power>;
++		status = "disbled";
++		frame@0 {
++			label = "frame_0";
++			frame-channel-map = /bits/ 8 <35 34 33 32
++			31 30 29 28 27 26 25 24 23 22 21 20 19 18
++			17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0>;
++		};
++	};
++
++	disp_aw21036_i2c0_37: aw21036@37 {
++		compatible = "aw,aw21036";
++		reg = <0x37>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_1";
++			frame-channel-map = /bits/ 8 <31 32 33 34
++			35 26 27 28 29 30 21 22 23 24 25 16 17 18
++			19 20 11 12 13 14 15 6 7 8 9 10 1 2 3 4 5 0>;
++		};
++	};
++
++	disp_aw21036_i2c0_35: aw21036@35 {
++		compatible = "aw,aw21036";
++		reg = <0x35>;
++		status = "disabled";
++		frame@0 {
++			label = "frame_2";
++			frame-channel-map = /bits/ 8 <32 33 34 35
++			27 28 29 30 31 22 23 24 25 26 17 18 19 20
++			21 12 13 14 15 16 7 8 9 10 11 2 3 4 5 6 0 1>;
++		};
++	};
++
++	tmp_sensor_i2c0_4b: tmp108@4b {
++		compatible = "ti,tmp108";
++		reg = <0x4B>;
++		status = "okay";
++	};
++};
++
++&i2c1 {
++};
++
++&i2c2 {
++	/* Will be used by DSP to directly access accelerometer */
++	status = "disabled";
++};
++
++&i2c3 {
++	status = "okay";
++
++	max98396_1_dac: max98396@38 {
++		compatible = "maxim,max98396";
++		reg = <0x38>;
++		maxim,reset-gpio = <&pio 46 GPIO_ACTIVE_HIGH/*0*/>;
++		dac-num = <0>;
++                NOVBAT = <0>;
++		disable-suspend;
++		status = "disabled";
++		#thermal-sensor-cells = <0>;
++	};
++	tas2764_1_dac: tas2764@3e {
++		compatible = "ti,tas2764";
++		reg = <0x3e>;
++		reset-gpio = <&pio 46 GPIO_ACTIVE_HIGH/*0*/>;
++		dac-num = <0>;
++                NOVBAT = <1>;
++		disable-suspend;
++		status = "disabled";
++		#thermal-sensor-cells = <0>;
++	};
++
++	current_sense_i2c3_40: ina231@40 {
++		compatible = "ti,ina231";
++		reg = <0x40>;
++		shunt-resistor = <20000>;
++		i-sense-alert = <&pio 60 GPIO_ACTIVE_LOW>;
++		threshold = <24>; /* 24W */
++		status = "disabled";
++	};
++
++	tmp_sensor_i2c3_48: tmp108@48 {
++		compatible = "ti,tmp108";
++		reg = <0x48>;
++		status = "okay";
++	};
++
++	tmp_sensor_i2c3_49: tmp108@49 {
++		compatible = "ti,tmp108";
++		reg = <0x49>;
++		status = "okay";
++	};
++
++	tmp_sensor_i2c3_4a: tmp108@4a {
++		compatible = "ti,tmp108";
++		reg = <0x4A>;
++		status = "okay";
++	};
++};
++
++&i2c4 {
++	status = "okay";
++
++	tlv320adc5140_1: tlv320adc5140@4c {
++		compatible = "ti,tlv320adc5140";
++		reg = <0x4c>;
++		reset-adc-regulator-supply = <&reset_adc>;
++		adc-num = <0>;
++		disable-suspend;
++		status = "disabled";
++	};
++
++        ak5704_1_adc: ak5704@10 {
++		compatible = "akm,ak5704";
++		reg = <0x10>;
++		reset-adc-regulator-supply = <&reset_adc>;
++                phandle = <0x41>; // Force phandle to be created for u-boot to link sound card.
++		adc-num = <0>;
++		disable-suspend;
++		status = "disabled";
++	};
++
++	tsl25403_i2c2_39: tsl25403@39 {
++		compatible = "ams,tsl2540";
++		reg = <0x39>;
++		auto-gain;
++		autozero;
++		enable-wait;
++		wakeup-source;
++		enable-interrupts;
++		interrupt-parent = <&cpld>;
++		interrupts = <AMZ_CPLD_GPIO_INT_STATUS (IRQ_TYPE_LEVEL_HIGH)>;
++		status = "okay";
++	};
++
++	cpld: cpld@8 {
++		compatible = "amzn,cpld45165"; /* SLG4BZ45165 */
++		gpio-controller;
++		wakeup-source;
++		#gpio-cells = <2>;
++		reg = <0x8>;
++		interrupt-parent = <&pio>;
++		interrupts = <86 (IRQ_TYPE_EDGE_BOTH)>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&sirq_pin>;
++		status = "okay";
++	};
++
++	tmp_sensor_i2c4_48: tmp108@48 {
++		compatible = "ti,tmp108";
++		reg = <0x48>;
++		status = "okay";
++	};
++};
++
++&pio {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_gpio>;
++
++	pinctrl_gpio: gpio_pin {
++		gpio_pins {
++			pinmux = <PINMUX_GPIO12__FUNC_GPIO12>,
++				<PINMUX_GPIO60__FUNC_GPIO60>,
++				<PINMUX_GPIO61__FUNC_GPIO61>;
++			input-enable;
++			bias-pull-up;
++		};
++
++		gpio_ol_pins {
++			pinmux = <PINMUX_GPIO84__FUNC_GPIO84>,
++				<PINMUX_GPIO18__FUNC_GPIO18>,
++				<PINMUX_GPIO47__FUNC_GPIO47>,
++				<PINMUX_GPIO97__FUNC_GPIO97>;
++			output-low;
++		};
++
++		gpio_pd_pins {
++			pinmux = <PINMUX_GPIO0__FUNC_GPIO0>,
++				<PINMUX_GPIO1__FUNC_GPIO1>,
++				<PINMUX_GPIO2__FUNC_GPIO2>,
++				<PINMUX_GPIO3__FUNC_GPIO3>,
++				<PINMUX_GPIO8__FUNC_GPIO8>,
++				<PINMUX_GPIO9__FUNC_GPIO9>,
++				<PINMUX_GPIO10__FUNC_GPIO10>,
++				<PINMUX_GPIO11__FUNC_GPIO11>,
++				<PINMUX_GPIO13__FUNC_GPIO13>,
++				<PINMUX_GPIO65__FUNC_GPIO65>,
++				<PINMUX_GPIO72__FUNC_GPIO72>,
++				<PINMUX_GPIO83__FUNC_GPIO83>,
++				<PINMUX_GPIO89__FUNC_GPIO89>,
++				<PINMUX_GPIO91__FUNC_GPIO91>,
++				<PINMUX_GPIO92__FUNC_GPIO92>,
++				<PINMUX_GPIO96__FUNC_GPIO96>,
++				<PINMUX_GPIO98__FUNC_GPIO98>,
++				<PINMUX_GPIO99__FUNC_GPIO99>,
++				<PINMUX_GPIO100__FUNC_GPIO100>,
++				<PINMUX_GPIO101__FUNC_GPIO101>,
++				<PINMUX_GPIO102__FUNC_GPIO102>,
++				<PINMUX_GPIO103__FUNC_GPIO103>,
++				<PINMUX_GPIO105__FUNC_GPIO105>,
++				<PINMUX_GPIO106__FUNC_GPIO106>;
++			input-enable;
++			bias-pull-down;
++		};
++	};
++
++	aud_pins_default: audiodefault {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO87__FUNC_I2SO_LRCK>,
++				 <PINMUX_GPIO88__FUNC_I2SO_BCK>,
++				 <PINMUX_GPIO93__FUNC_I2SO_DAT0>,
++				 <PINMUX_GPIO73__FUNC_PCM_TX>,
++				 <PINMUX_GPIO74__FUNC_PCM_RX>,
++				 <PINMUX_GPIO75__FUNC_PCM_WS>,
++				 <PINMUX_GPIO76__FUNC_PCM_CLK>,
++				 <PINMUX_GPIO56__FUNC_TDMIN_BCK>,
++				 <PINMUX_GPIO57__FUNC_TDMIN_LRCK>,
++				 <PINMUX_GPIO58__FUNC_TDMIN_MCK>,
++				 <PINMUX_GPIO59__FUNC_TDMIN_DI>,
++				 <PINMUX_GPIO46__FUNC_GPIO46>;
++		};
++
++		pin_cmd_irq {
++			pinmux = <PINMUX_GPIO7__FUNC_GPIO7>;
++			input-enable;
++			bias-pull-up;
++		};
++	};
++
++	led_power_pins: led_pwr_pins {
++		pins_fixed_regulator {
++			pinmux = <PINMUX_GPIO64__FUNC_GPIO64>;
++			bias-pull-up;
++		};
++	};
++
++	i_alert_default: i_alert_default {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO60__FUNC_GPIO60>;
++			bias-pull-up;
++		};
++	};
++
++	thermistor_mux_default: therm_mux {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO62__FUNC_GPIO62>;
++			output-low;
++			bias-pull-down;
++		};
++	};
++
++	led_sku_bias_disabled: led_sku_bias_disabled {
++		pins_sku_bias {
++			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
++			output-low;
++		};
++	};
++
++	led_sku_bias_enabled: led_sku_bias_enabled {
++		pins_sku_bias {
++			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
++			input-enable;
++			bias-disable;
++		};
++	};
++
++	sirq_pin: sirq_pin {
++		pins_dat {
++			pinmux = <PINMUX_GPIO86__FUNC_GPIO86>;
++			input-enable;
++			bias-pull-up;
++		};
++	};
++
++	spim_pins: spim{
++		pins_spim{
++			pinmux = <PINMUX_GPIO8__FUNC_GPIO8>,
++				 <PINMUX_GPIO9__FUNC_GPIO9>,
++				 <PINMUX_GPIO10__FUNC_GPIO10>,
++				 <PINMUX_GPIO11__FUNC_GPIO11>,
++				 <PINMUX_GPIO61__FUNC_GPIO61>,
++				 <PINMUX_GPIO83__FUNC_GPIO83>;
++			input-enable;
++			bias-pull-down;
++		};
++	};
++
++	spis_pins: spis0 {
++		pins_spis {
++			pinmux = <PINMUX_GPIO84__FUNC_SPIS0_SO>,
++				<PINMUX_GPIO85__FUNC_SPIS0_CSB>,
++				<PINMUX_GPIO86__FUNC_SPIS0_CLK>;
++			bias-disable;
++			input-enable;
++		};
++	};
++
++	pmic_pins_eint: pmic_pins_eint{
++		pmic_pins {
++			pinmux = <PINMUX_GPIO49__FUNC_GPIO49>;
++			bias-disable;
++		};
++	};
++
++	uart1_pin: uart1_pin {
++		uart1_pins {
++			pinmux = <PINMUX_GPIO14__FUNC_URXD2>,
++				 <PINMUX_GPIO15__FUNC_UTXD2>;
++		};
++	};
++
++	usbextcon_pins_default: usbextcon_pins_default {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO19__FUNC_GPIO19>,
++				<PINMUX_GPIO16__FUNC_GPIO16>;
++			bias-disable;
++			input-enable;
++		};
++	};
++
++	disp_power_pins: disp_pwr_pins {
++		pins_fixed_regulator {
++			pinmux = <PINMUX_GPIO17__FUNC_GPIO17>;
++			bias-pull-up;
++		};
++	};
++};
++
++&spi {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spim_pins>;
++	status = "disabled";
++
++	spidev: spi@0 {
++		compatible = "mediatek,spi-mt65xx-test";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++	};
++};
++
++&spis {
++	pinctrl-names = "default";
++	pinctrl-0 = <&spis_pins>;
++	status = "disabled";
++
++	slave: spis@0 {
++		compatible = "spi-slave-mt27xx-test";
++		reg = <0>;
++	};
++};
++
++&ssusb {
++	/*vusb33-supply = <&mt6395_vio33>;*/
++	dr_mode = "otg"; /* 1: host, 2: device, 3 dual-mode */
++	extcon = <&extcon_usb>;
++	vbus-supply = <&usb_p1_vbus>;
++	maximum-speed = "high-speed";
++	mediatek,force-vbus;
++	phys = <&u2port0 PHY_TYPE_USB2>,
++			<&u2port1 PHY_TYPE_USB2>;
++	/*enable-manual-drd;*/
++	status = "okay";
++};
++
++&usb_host0 {
++	vbus-supply = <&usb_p1_vbus>;
++};
++
++&u3phy0 {
++	status = "okay";
++};
++
++&uart2 {
++	status = "okay";
++};
++
++#include "mt6395.dtsi"
+diff --git a/arch/arm/boot/dts/mediatek/cannoli-hvt.dts b/arch/arm/boot/dts/mediatek/cannoli-hvt.dts
+new file mode 100644
+index 000000000..4cbe4ffad
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/cannoli-hvt.dts
+@@ -0,0 +1,112 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++
++/dts-v1/;
++#include "cannoli-cheesecake.dtsi"
++
++/ {
++	model = "Cannoli HVT MT8519";
++	compatible = "mediatek,cannoli", "mediatek,mt8519";
++
++	chosen {
++		bootargs = "";
++	};
++
++	/* bottom */
++	case_virtual_sensor: case-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 28800 17 346 (-40000) 125000>;
++			ap_ntc1 = <1 64200 4 29 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 79400 372 (-35) (-40000) 125000>;
++			ap_ntc4 = <1 (-35900) 629 463 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	/* top */
++	skin_virtual_sensor: skin-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 25900 189 853 (-40000) 125000>;
++			ap_ntc1 = <1 114000 59 (-342) (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 39600 53 276 (-40000) 125000>;
++			ap_ntc4 = <1 71300 720 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	back_virtual_sensor: back-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 36800 298 135 (-40000) 125000>;
++			ap_ntc1 = <1 48600 6 52 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 72300 417 (-6) (-40000) 125000>;
++			ap_ntc4 = <1 (-63500) 719 366 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	display_virtual_sensor: display-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	cpu_virtual_sensor: cpu-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 1000 1000 0 0>;
++		};
++	};
++
++	cpufilter_virtual_sensor: cpufilter-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++		moving-average-prop = <1000 5 100 0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 1000 1000 0 0>;
++		};
++	};
++};
+diff --git a/arch/arm/boot/dts/mediatek/cannoli_cheesecake_thermal_zones.dtsi b/arch/arm/boot/dts/mediatek/cannoli_cheesecake_thermal_zones.dtsi
+new file mode 100644
+index 000000000..f94601519
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/cannoli_cheesecake_thermal_zones.dtsi
+@@ -0,0 +1,192 @@
++/*
++ * arch/arm/boot/dts/mediatek/cheesecake_thermal_zones.dtsi
++ *
++ * Copyright (C) 2019-2022 Amazon, Inc. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++*/
++
++#include <dt-bindings/thermal/thermal.h>
++
++/ {
++
++	thermal_zones: thermal-zones {
++		soc_max {
++			polling-delay = <500>; /* milliseconds */
++			polling-delay-passive = <200>; /* milliseconds */
++			thermal-sensors = <&thermal 255>;
++			sustainable-power = <1500>;
++		};
++
++		cpu_little0 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&thermal 0>;
++		};
++
++		ADSP {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&thermal 1>;
++		};
++
++		IPNNA {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&thermal 2>;
++		};
++
++		cpu_little1 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&thermal 3>;
++		};
++
++		cpu_little2 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&thermal 4>;
++		};
++
++		cpu_little3 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&thermal 5>;
++		};
++
++		skin_virtual {
++			polling-delay = <15000>;
++			polling-delay-passive = <15000>;
++			policy = "step_wise";
++			thermal-sensors = <&skin_virtual_sensor>;
++
++			trips {
++				svt_trip_critical1: trip-point@0 {
++					temperature = <60000>;
++					hysteresis = <500>;
++					type = "critical";
++				};
++			};
++		};
++
++		case_virtual {
++			polling-delay = <15000>;
++			polling-delay-passive = <15000>;
++			policy = "step_wise";
++			thermal-sensors = <&case_virtual_sensor>;
++
++			trips {
++				cvt_trip_critical1: trip-point@0 {
++					temperature = <60000>;
++					hysteresis = <500>;
++					type = "critical";
++				};
++			};
++		};
++
++		back_virtual: back_virtual {
++			polling-delay = <15000>;
++			polling-delay-passive = <15000>;
++			policy = "step_wise";
++			thermal-sensors = <&back_virtual_sensor>;
++
++			trips {
++				bvt_trip_critical1: trip-point@0 {
++					temperature = <60000>;
++					hysteresis = <500>;
++					type = "critical";
++				};
++			};
++		};
++
++		display_virtual: display_virtual {
++			polling-delay = <15000>;
++			polling-delay-passive = <15000>;
++			policy = "step_wise";
++			thermal-sensors = <&display_virtual_sensor>;
++
++			trips {
++				btvt_trip_critical1: trip-point@0 {
++					temperature = <60000>;
++					hysteresis = <500>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu_virtual: cpu_virtual {
++			polling-delay = <15000>;
++			polling-delay-passive = <15000>;
++			policy = "step_wise";
++			thermal-sensors = <&cpu_virtual_sensor>;
++
++			trips {
++				cpuvt_trip_critical1: trip-point@0 {
++					temperature = <97000>;
++					hysteresis = <500>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpufilter_virtual: cpufilter_virtual {
++			polling-delay = <15000>;
++			polling-delay-passive = <15000>;
++			policy = "step_wise";
++			thermal-sensors = <&cpufilter_virtual_sensor>;
++		};
++
++		wifi_temp {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			policy = "step_wise";
++			thermal-sensors = <&wifi_temp_sensor>;
++		};
++
++		amp_temp {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			policy = "step_wise";
++			thermal-sensors = <&max98396_1_dac>;
++		};
++
++		ap_ntc0: ap_ntc0 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&therm0>;
++		};
++
++		ap_ntc1: ap_ntc1 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&therm1>;
++		};
++
++		ap_ntc2: ap_ntc2 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&therm2>;
++		};
++
++		ap_ntc3: ap_ntc3 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&therm3>;
++		};
++
++		ap_ntc4: ap_ntc4 {
++			polling-delay = <1000>; /* milliseconds */
++			polling-delay-passive = <1000>; /* milliseconds */
++			thermal-sensors = <&therm4>;
++		};
++	};
++};
+diff --git a/arch/arm/boot/dts/mediatek/mt6395.dtsi b/arch/arm/boot/dts/mediatek/mt6395.dtsi
+new file mode 100644
+index 000000000..6188c321f
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/mt6395.dtsi
+@@ -0,0 +1,59 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++/*
++ * Copyright (C) 2021 MediaTek Inc.
++ */
++
++&mt6395 {
++	mt6395_vproc: mt6395_buck1 {
++		regulator-compatible = "mt6395_buck1";
++		regulator-name = "VPROC";
++		regulator-min-microvolt = <600000>;
++		regulator-max-microvolt = <1393750>;
++		/*
++		 * There are 4 levels for mt6395_buck1
++		 * (1) 5000 uV/us
++		 * (2) 10000 uV/us
++		 * (3) 15000 uV/us
++		 * (4) 20000 uV/us
++		 */
++		regulator-ramp-delay = <20000>; /* uV/us */
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	mt6395_avdd2: mt6395_buck2 {
++		regulator-compatible = "mt6395_buck2";
++		regulator-name = "AVDD2";
++		regulator-min-microvolt = <1100000>;
++		regulator-max-microvolt = <1100000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	mt6395_vio18: mt6395_buck3 {
++		regulator-compatible = "mt6395_buck3";
++		regulator-name = "VIO18";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	mt6395_vio33: mt6395_buck4 {
++		regulator-compatible = "mt6395_buck4";
++		regulator-name = "VIO33";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
++	mt6395_ldo1: mt6395_ldo1 {
++		regulator-compatible = "mt6395_ldo1";
++		regulator-name = "mt6395_ldo1";
++		regulator-min-microvolt = <1200000>;
++		regulator-max-microvolt = <1200000>;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++};
+diff --git a/arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi b/arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi
+new file mode 100644
+index 000000000..044913a11
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi
+@@ -0,0 +1,338 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++
++#include "mt8519.dtsi"
++
++/ {
++	aliases {
++		serial0 = &uart0;
++	};
++
++	memory@40000000 {
++		device_type = "memory";
++		reg = <0 0x40000000 0 0x20000000>;
++	};
++
++	sdio_fixed_3v3: fixedregulator@0 {
++		compatible = "regulator-fixed";
++		regulator-name = "sdio_power";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		enable-active-high;
++	};
++
++	sdio_fixed_1v8_io: fixedregulator@1 {
++		compatible = "regulator-fixed";
++		regulator-name = "sdio_io";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		startup-delay-us = <200000>;
++		enable-active-high;
++		gpio = <&pio 68 0>;     /* WIFICHIP RST_WIFI0_L */
++	};
++
++	/* WoW */
++	mediatek,mt7663-wifi {
++		compatible = "mediatek,mt7663_wifi_ctrl";
++		interrupt-parent = <&pio>;
++		interrupts = <71 IRQ_TYPE_EDGE_FALLING>; /* WOW IRQ */
++		status = "okay";
++	};
++
++	/* WoBLE */
++	mediatek,mt76xx-bt {
++		compatible = "mediatek,mt76xx_bt_ctrl";
++		interrupt-parent = <&pio>;
++		interrupts = <70 IRQ_TYPE_EDGE_FALLING>; /* WOBLE IRQ */
++		status = "okay";
++	};
++};
++
++&i2c0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c0_pin>;
++	status = "okay";
++};
++
++&i2c1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c1_pin>;
++	status = "okay";
++	clock-frequency = <1000000>;
++
++	mt6395: mt6395@62 {
++		compatible = "mediatek,mt6395-regulator";
++		mt6395,irq-gpios = <&pio 49 0x0>;
++		reg = <0x62>;
++		status = "okay";
++		pinctrl-names = "default";
++		pinctrl-0 = <&pmic_pins_eint>;
++	};
++};
++
++&i2c2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c2_pin>;
++	status = "okay";
++};
++
++&i2c3 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c3_pin>;
++	status = "disabled";
++};
++
++&i2c4 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&i2c4_pin>;
++	status = "disabled";
++};
++
++&nandc {
++	pinctrl-names = "default", "state_drive_high";
++	pinctrl-0 = <&nandc_pins_default>;
++	pinctrl-1 = <&nandc_pins_drive_high>;
++	status = "okay";
++};
++
++&mmc1 {
++	status = "okay";
++	pinctrl-names = "default", "state_uhs", "state_eint", "state_dat1";
++	pinctrl-0 = <&mmc1_pins_default>;
++	pinctrl-1 = <&mmc1_pins_uhs>;
++	pinctrl-2 = <&mmc1_pins_eint>;
++	pinctrl-3 = <&mmc1_pins_dat1>;
++	eint-gpios = <&pio 79 0>;
++	bus-width = <4>;
++	max-frequency = <200000000>;
++	cap-sd-highspeed;
++	cap-sdio-async-int;
++	sd-uhs-sdr104;
++	sd-uhs-sdr50;
++	sd-uhs-sdr25;
++	keep-power-in-suspend;
++	enable-sdio-wakeup;
++	cap-sdio-irq;
++	no-mmc;
++	no-sd;
++	non-removable;
++	vmmc-supply = <&sdio_fixed_3v3>;
++	vqmmc-supply = <&sdio_fixed_1v8_io>;
++};
++
++&auxadc {
++	status = "okay";
++};
++
++&pwm {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pwm_pins_default>;
++	invert = <1>;
++	status = "okay";
++};
++
++&pio {
++	pinctrl-names = "default";
++
++	dsp_uart_pin: dsp_uart_pin {
++		pins_rx {
++			pinmux = <PINMUX_GPIO14__FUNC_ADSP_URXD0>;
++			input-enable;
++			bias-pull-up;
++		};
++		pins_tx {
++			pinmux = <PINMUX_GPIO15__FUNC_ADSP_UTXD0>;
++		};
++	};
++
++	i2c0_pin: i2c0_pin {
++		pins_bus {
++			pinmux = <PINMUX_GPIO52__FUNC_SCL0>,
++				 <PINMUX_GPIO53__FUNC_SDA0>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			mediatek,drive-strength-adv = <7>;
++		};
++	};
++
++	i2c1_pin: i2c1_pin {
++		pins_bus {
++			pinmux = <PINMUX_GPIO54__FUNC_SCL1>,
++				 <PINMUX_GPIO55__FUNC_SDA1>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			mediatek,drive-strength-adv = <7>;
++		};
++	};
++
++	i2c2_pin: i2c2_pin {
++		pins_bus {
++			pinmux = <PINMUX_GPIO66__FUNC_SCL2>,
++				 <PINMUX_GPIO67__FUNC_SDA2>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			mediatek,drive-strength-adv = <7>;
++		};
++	};
++
++	i2c3_pin: i2c3_pin {
++		pins_bus {
++			pinmux = <PINMUX_GPIO94__FUNC_SCL3>,
++				 <PINMUX_GPIO95__FUNC_SDA3>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			mediatek,drive-strength-adv = <7>;
++		};
++	};
++
++	i2c4_pin: i2c4_pin {
++		pins_bus {
++			pinmux = <PINMUX_GPIO4__FUNC_SDA4>,
++				 <PINMUX_GPIO5__FUNC_SCL4>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			mediatek,drive-strength-adv = <7>;
++		};
++	};
++
++	mmc1_pins_default: mmc1default {
++		pins_clk {
++			pinmux = <PINMUX_GPIO81__FUNC_MSDC1_CLK>;
++			drive-strength = <MTK_DRIVE_6mA>;
++			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
++		};
++
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO80__FUNC_MSDC1_DAT0>,
++				<PINMUX_GPIO79__FUNC_MSDC1_DAT1>,
++				<PINMUX_GPIO78__FUNC_MSDC1_DAT2>,
++				<PINMUX_GPIO77__FUNC_MSDC1_DAT3>,
++				<PINMUX_GPIO82__FUNC_MSDC1_CMD>;
++			input-enable;
++			drive-strength = <MTK_DRIVE_6mA>;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
++		};
++	};
++
++	mmc1_pins_uhs: mmc1 {
++		pins_clk {
++			pinmux = <PINMUX_GPIO81__FUNC_MSDC1_CLK>;
++			drive-strength = <MTK_DRIVE_6mA>;
++			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
++		};
++
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO80__FUNC_MSDC1_DAT0>,
++				<PINMUX_GPIO79__FUNC_MSDC1_DAT1>,
++				<PINMUX_GPIO78__FUNC_MSDC1_DAT2>,
++				<PINMUX_GPIO77__FUNC_MSDC1_DAT3>,
++				<PINMUX_GPIO82__FUNC_MSDC1_CMD>;
++			input-enable;
++			drive-strength = <MTK_DRIVE_6mA>;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
++		};
++	};
++
++	mmc1_pins_eint: dat1_eint {
++		pins_dat1 {
++			pinmux = <PINMUX_GPIO79__FUNC_GPIO79>;
++			input-enable;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
++		};
++	};
++
++	mmc1_pins_dat1: sdio_dat1 {
++		pins_dat1 {
++			pinmux = <PINMUX_GPIO79__FUNC_MSDC1_DAT1>;
++			input-enable;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
++		};
++	};
++
++	nandc_pins_default: nandcdefault {
++		pins_dat {
++			pinmux = <PINMUX_GPIO25__FUNC_SNFI_MISO>,
++				<PINMUX_GPIO26__FUNC_SNFI_WP>,
++				<PINMUX_GPIO27__FUNC_SNFI_HOLD>,
++				<PINMUX_GPIO22__FUNC_SNFI_MOSI>;
++			input-enable;
++		};
++
++		pins_cmd {
++			pinmux = <PINMUX_GPIO24__FUNC_SNFI_CS>,
++				<PINMUX_GPIO23__FUNC_SNFI_CLK>;
++			bias-pull-up;
++		};
++	};
++
++	nandc_pins_drive_high: nandchigh {
++		pins_dat {
++			pinmux = <PINMUX_GPIO25__FUNC_SNFI_MISO>,
++				<PINMUX_GPIO26__FUNC_SNFI_WP>,
++				<PINMUX_GPIO27__FUNC_SNFI_HOLD>,
++				<PINMUX_GPIO22__FUNC_SNFI_MOSI>;
++			drive-strength = <MTK_DRIVE_4mA>;
++			input-enable;
++		};
++
++		pins_cmd {
++			pinmux = <PINMUX_GPIO24__FUNC_SNFI_CS>,
++				<PINMUX_GPIO23__FUNC_SNFI_CLK>;
++			drive-strength = <MTK_DRIVE_4mA>;
++			bias-pull-up;
++		};
++	};
++
++	spim_pins: spim{
++		pins_spim{
++			pinmux = <PINMUX_GPIO8__FUNC_SPIM0_MO>,
++				 <PINMUX_GPIO9__FUNC_SPIM0_MI>,
++				 <PINMUX_GPIO10__FUNC_SPIM0_CSB>,
++				 <PINMUX_GPIO11__FUNC_SPIM0_CLK>;
++			bias-disable;
++		};
++	};
++
++	spis_pins: spis0 {
++		pins_spis {
++			pinmux = <PINMUX_GPIO83__FUNC_SPIS0_SI>,
++				<PINMUX_GPIO84__FUNC_SPIS0_SO>,
++				<PINMUX_GPIO85__FUNC_SPIS0_CSB>,
++				<PINMUX_GPIO86__FUNC_SPIS0_CLK>;
++			bias-disable;
++			input-enable;
++		};
++	};
++
++	pmic_pins_eint: pmic_pins_eint{
++		pmic_pins {
++			pinmux = <PINMUX_GPIO49__FUNC_GPIO49>;
++			bias-disable;
++		};
++	};
++
++	uart1_pin: uart1_pin {
++		uart1_pins {
++			pinmux = <PINMUX_GPIO14__FUNC_URXD2>,
++				 <PINMUX_GPIO15__FUNC_UTXD2>;
++		};
++	};
++
++	pwm_pins_default: pwmdefault {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO6__FUNC_PWM_2>;
++		};
++	};
++};
++
++&uart0 {
++	status = "okay";
++};
++
++&uart1 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&uart1_pin>;
++	status = "disabled";
++};
++
++&uart2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&dsp_uart_pin>;
++	status = "disabled";
++};
++
++#include "mt6395.dtsi"
+diff --git a/arch/arm/boot/dts/mediatek/mt8519-clkitg.dtsi b/arch/arm/boot/dts/mediatek/mt8519-clkitg.dtsi
+new file mode 100644
+index 000000000..376124682
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/mt8519-clkitg.dtsi
+@@ -0,0 +1,207 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++/*
++ * Copyright (c) 2021 MediaTek Inc.
++ */
++
++&clkitg {
++	bringup {
++		compatible = "mediatek,clk-bring-up";
++		clocks =
++			<&apmixedsys CLK_APMIXED_MAINPLL>,
++			<&apmixedsys CLK_APMIXED_UNIVPLL>,
++			<&apmixedsys CLK_APMIXED_MSDCPLL>,
++			<&apmixedsys CLK_APMIXED_APLL1>,
++			<&apmixedsys CLK_APMIXED_APLL2>,
++			<&apmixedsys CLK_APMIXED_MPLL>,
++			<&clk26m>,
++			<&clk26m>,
++			<&apmixedsys CLK_APMIXED_DSPPLL>,
++			<&topckgen CLK_TOP_SYSPLL_D2>,
++			<&topckgen CLK_TOP_SYSPLL1_D2>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_SYSPLL1_D8>,
++			<&topckgen CLK_TOP_SYSPLL_D3>,
++			<&topckgen CLK_TOP_SYSPLL2_D2>,
++			<&topckgen CLK_TOP_SYSPLL2_D4>,
++			<&topckgen CLK_TOP_SYSPLL2_D8>,
++			<&topckgen CLK_TOP_SYSPLL_D5>,
++			<&topckgen CLK_TOP_SYSPLL3_D4>,
++			<&topckgen CLK_TOP_SYSPLL_D7>,
++			<&topckgen CLK_TOP_SYSPLL4_D2>,
++			<&topckgen CLK_TOP_UNIVPLL_D4>,
++			<&topckgen CLK_TOP_UNIVPLL1_D2>,
++			<&topckgen CLK_TOP_UNIVPLL1_D4>,
++			<&topckgen CLK_TOP_UNIVPLL1_D8>,
++			<&clk26m>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_UNIVPLL2_D4>,
++			<&topckgen CLK_TOP_UNIVPLL2_D8>,
++			<&topckgen CLK_TOP_UNIVPLL_D5>,
++			<&topckgen CLK_TOP_UNIVPLL3_D4>,
++			<&topckgen CLK_TOP_UNIVPLL3_D8>,
++			<&topckgen CLK_TOP_SYS_26M_D2>,
++			<&topckgen CLK_TOP_CLKRTC_INT>,
++			<&topckgen CLK_TOP_MSDCPLL>,
++			<&topckgen CLK_TOP_MSDCPLL_D2>,
++			<&topckgen CLK_TOP_MSDCPLL_D4>,
++			<&topckgen CLK_TOP_APLL1>,
++			<&topckgen CLK_TOP_APLL1_D2>,
++			<&topckgen CLK_TOP_APLL1_D3>,
++			<&topckgen CLK_TOP_APLL1_D4>,
++			<&topckgen CLK_TOP_APLL1_D8>,
++			<&topckgen CLK_TOP_APLL1_D16>,
++			<&topckgen CLK_TOP_APLL2>,
++			<&topckgen CLK_TOP_APLL2_D2>,
++			<&topckgen CLK_TOP_APLL2_D3>,
++			<&topckgen CLK_TOP_APLL2_D4>,
++			<&topckgen CLK_TOP_APLL2_D8>,
++			<&topckgen CLK_TOP_APLL2_D16>,
++			<&clk26m>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_MPLL_D2>,
++			<&topckgen CLK_TOP_MPLL_D4>,
++			<&topckgen CLK_TOP_DSPPLL>,
++			<&topckgen CLK_TOP_DSPPLL_D2>,
++			<&topckgen CLK_TOP_DSPPLL_D4>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_BIST2FPC>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_FREE_26M>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_F_BIST2FPC_CK_EN>,
++			<&clk26m>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_CLKRTC_INT_EN>,
++			<&topckgen CLK_TOP_APLL1_D3_EN>,
++			<&topckgen CLK_TOP_APLL2_D3_EN>,
++			<&topckgen CLK_TOP_IPPLL_D3_EN>,
++			<&topckgen CLK_TOP_IPSYS_F26M_CGEN>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_CUPM_SEL>,
++			<&clk26m>,
++			<&topckgen CLK_TOP_CLKRTC_SEL>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&infracfg_ao CLK_INFRA_AO_TOPAXI_DISABLE>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&infracfg_ao CLK_INFRA_AO_BIST2FPC_SET>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&infracfg_ao CLK_INFRA_AO_IRRX_PERI_26M_SET>,
++			<&infracfg_ao CLK_INFRA_AO_IRRX_PERI_32K_SET>,
++			<&clk26m>,
++			<&infracfg_ao CLK_INFRA_AO_RG_IIC_AO_BCLK_CK_SET>,
++			<&infracfg_ao CLK_INFRA_AO_RG_IIC_PERI_BCLK_CK_SET>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&infracfg_ao CLK_INFRA_AO_PERI_RG_FORCE>,
++			<&clk26m>,
++			<&pericfg CLK_PERICFG_PERIAXI_DISABLE>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>,
++			<&clk26m>;
++	};
++
++};
+diff --git a/arch/arm/boot/dts/mediatek/mt8519.dtsi b/arch/arm/boot/dts/mediatek/mt8519.dtsi
+new file mode 100755
+index 000000000..e8ea7545e
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/mt8519.dtsi
+@@ -0,0 +1,1373 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++/*
++ * Copyright (C) 2021 MediaTek Inc.
++ * Author: Joe Yang <joe.yang@mediatek.com>
++ */
++
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++#include <dt-bindings/memory/mt8519-memory-port.h>
++#include <dt-bindings/phy/phy.h>
++#include <dt-bindings/pinctrl/mt8519-pinfunc.h>
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/clock/mt8519-clk.h>
++#include <dt-bindings/power/mt8519-power.h>
++#include <dt-bindings/interconnect/mtk,mt8519-emi.h>
++#include <dt-bindings/soc/mediatek,boot-mode.h>
++#include <dt-bindings/reset/ti-syscon.h>
++
++/ {
++	model = "MT8519";
++	compatible = "mediatek,mt8519";
++	interrupt-parent = <&gic>;
++	#address-cells = <2>;
++	#size-cells = <2>;
++
++	aliases {
++		i2c0 = &i2c0;
++		i2c1 = &i2c1;
++		i2c2 = &i2c2;
++		i2c3 = &i2c3;
++		i2c4 = &i2c4;
++		serial0 = &uart0;
++		serial1 = &uart1;
++		serial2 = &uart2;
++	};
++
++	/* ATF logger SW IRQ number 227 = 32 + 195 */
++	atf_logger {
++		compatible = "mediatek,atf_logger";
++		interrupts = <GIC_SPI 195 IRQ_TYPE_EDGE_RISING>;
++	};
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu0: cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x0>;
++			enable-method = "psci";
++			cpu-release-addr = <0x0 0x40000200>;
++			clock-frequency = <1700000000>;
++			cpu-idle-states = <&cpuoff &clusteroff &mcusysoff>;
++			performance-domains = <&performance 0>;
++			capacity-dmips-mhz = <1024>;
++			#cooling-cells = <2>;
++		};
++
++		cpu1: cpu@1 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x0100>;
++			enable-method = "psci";
++			cpu-release-addr = <0x0 0x40000200>;
++			clock-frequency = <1700000000>;
++			cpu-idle-states = <&cpuoff &clusteroff &mcusysoff>;
++			performance-domains = <&performance 0>;
++			capacity-dmips-mhz = <1024>;
++		};
++
++		cpu2: cpu@2 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x0200>;
++			enable-method = "psci";
++			cpu-release-addr = <0x0 0x40000200>;
++			clock-frequency = <1700000000>;
++			cpu-idle-states = <&cpuoff &clusteroff &mcusysoff>;
++			performance-domains = <&performance 0>;
++			capacity-dmips-mhz = <1024>;
++		};
++
++		cpu3: cpu@3 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x0300>;
++			enable-method = "psci";
++			cpu-release-addr = <0x0 0x40000200>;
++			clock-frequency = <1700000000>;
++			cpu-idle-states = <&cpuoff &clusteroff &mcusysoff>;
++			performance-domains = <&performance 0>;
++			capacity-dmips-mhz = <1024>;
++		};
++
++		cpu-map {
++			cluster0 {
++				core0 {
++					cpu = <&cpu0>;
++				};
++				core1 {
++					cpu = <&cpu1>;
++				};
++				core2 {
++					cpu = <&cpu2>;
++				};
++				core3 {
++					cpu = <&cpu3>;
++				};
++			};
++		};
++
++		idle-states {
++			entry-method = "psci";
++
++			cpuoff: cpuoff {
++				compatible = "arm,idle-state";
++				local-timer-stop;
++				arm,psci-suspend-param = <0x00010001>;
++				entry-latency-us = <100>;
++				exit-latency-us = <250>;
++				min-residency-us = <1600>;
++			};
++
++			clusteroff: clusteroff {
++				compatible = "arm,idle-state";
++				local-timer-stop;
++				arm,psci-suspend-param = <0x01010001>;
++				entry-latency-us = <100>;
++				exit-latency-us = <350>;
++				min-residency-us = <2100>;
++			};
++
++			mcusysoff: mcusysoff {
++				compatible = "arm,idle-state";
++				local-timer-stop;
++				arm,psci-suspend-param = <0x01010002>;
++				entry-latency-us = <300>;
++				exit-latency-us = <1200>;
++				min-residency-us = <2600>;
++			};
++		};
++	};
++
++	clocks {
++		clk_null: clk_null {
++			compatible = "fixed-clock";
++			#clock-cells = <0>;
++			clock-frequency = <0>;
++		};
++
++		clk26m: clk26m {
++			compatible = "fixed-clock";
++			#clock-cells = <0>;
++			clock-frequency = <26000000>;
++		};
++
++		clk13m: clk13m {
++			compatible = "fixed-clock";
++			#clock-cells = <0>;
++			clock-frequency = <13000000>;
++		};
++
++		clk32k: clk32k {
++			compatible = "fixed-clock";
++			#clock-cells = <0>;
++			clock-frequency = <32768>;
++		};
++	};
++
++	extcon_usb: extcon_iddig {
++		compatible = "linux,extcon-usb-gpio";
++		status = "disabled";
++	};
++
++	firmware: firmware {
++		optee {
++			compatible = "linaro,optee-tz";
++			method = "smc";
++			clocks = <&topckgen CLK_TOP_ECC_SEL>,
++				 <&topckgen CLK_TOP_GCPU_SEL>,
++				 <&infracfg_ao CLK_INFRA_AO_GCPU_SET>;
++			clock-names = "ECC",
++				      "GCPU",
++				      "GCPU_B";
++		};
++	};
++
++	mtee {
++		compatible = "mediatek,mtee";
++		status = "disabled";
++	};
++
++	pmu {
++		compatible = "arm,armv8-pmuv3",
++			     "arm,cortex-a7-pmu";
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_PPI 7 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	pmu-dsu-0 {
++		compatible = "arm,dsu-pmu";
++		interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
++		cpus = <&cpu0>, <&cpu1>, <&cpu2>, <&cpu3>;
++	};
++
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "smc";
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		atf-logbuf-memory@42fc0000 {
++			compatible = "mediatek,mt8512-atf-logbuf-memory";
++			no-map;
++			reg = <0 0x42fc0000 0 0x40000>;
++		};
++
++		atf-reserved-memory@43000000 {
++			compatible = "mediatek,mt8512-atf-reserved-memory";
++			no-map;
++			reg = <0 0x43000000 0 0x30000>;
++		};
++
++		optee-reserved-memory@43040000 {
++			compatible = "mediatek,mt8519-optee-reserved-memory";
++			no-map;
++			reg = <0 0x43040000 0 0x00300000>;
++		};
++
++		mboot_params_reserved_memory {
++			compatible = "mediatek,mt8519-mboot_params_reserved-memory";
++			no-map;
++			reg = <0 0x44400000 0 0x10000>;
++		};
++
++		ramoops@0x44410000 {
++			compatible = "ramoops";
++			no-map;
++			reg = <0 0x44410000 0 0xe0000>;
++			console-size = <0x40000>;
++			pmsg-size = <0x10000>;
++			record-size = <0x1000>;
++			ftrace-size = <0x1000>;
++		};
++
++		minidump_reserved_memory {
++			compatible = "mediatek,mt8519-minidump_reserved-memory";
++			no-map;
++			reg = <0 0x444f0000 0 0x10000>;
++		};
++
++		tinysys_mem_reserved: tinysys_mem_region {
++			compatible = "mediatek,tinysys-reserved-memory";
++			no-map;
++			reg = <0 0x48000000 0 0x0E0000>;
++		};
++
++		tinysys_ipc_rx_reserved: tinysys_ipc_rx_reserved {
++			compatible = "amazon,tinysys-ipc-reserved-memory";
++			no-map;
++			reg = <0 0x480E0000 0 0x10000>;
++		};
++
++		tinysys_ipc_tx_reserved: tinysys_ipc_tx_reserved {
++			compatible = "amazon,tinysys-ipc-reserved-memory";
++			no-map;
++			reg = <0 0x480F0000 0 0x10000>;
++		};
++
++		mrdump_cb_reserved_memory {
++			compatible = "mediatek,mt8519-mrdump_cb-reserved-memory";
++			no-map;
++			reg = <0 0x44500000 0 0x2000>;
++		};
++
++		kedump-reserved-memory@44500000{
++			compatible = "mediatek,mt8519-kedump_reserved-memory";
++			no-map;
++			reg = <0 0x44502000 0 0x10000>;
++		};
++
++		adsp_mem_reserved: adsp_mem_region {
++			compatible = "mediatek,adsp-reserved-memory";
++			no-map;
++			reg = <0 0x50000000 0 0x1a00000>;
++		};
++
++		acenna_reserved: acenna_reserved {
++			compatible = "shared-dma-pool";
++			size = <0 0x04000000>;
++			reusable;
++		};
++	};
++
++	timer: timer {
++		compatible = "arm,armv8-timer";
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_PPI 14 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_PPI 11 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_PPI 10 IRQ_TYPE_LEVEL_HIGH>;
++		clock-frequency = <13000000>;
++	};
++
++	soc {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		compatible = "simple-bus";
++		ranges;
++
++		cpuhvfs: cpuhvfs@105c00 {
++			compatible = "mediatek,cpufreq-hybrid";
++			reg = <0 0x00105c00 0 0x400>,
++				<0 0x0010bd00 0 0x1300>,
++				<0 0x00105000 0 0x400>;
++			reg-names = "USRAM", "CSRAM", "ESRAM";
++			cslog-range = <0x0578>, <0x0d48>;
++			tbl-off = <4>, <76>;
++
++			/* pll mcucfg */
++			mcucfg-ver = <1>;
++			apmixedsys = <&apmixedsys>;
++			clk-div-base = <&cpu_mcucfg>;
++			pll-con = <0x310>, <0x3c4>;
++			clk-div = <0xa2a0>, <0xa2e0>;
++
++			/* regulator */
++			proc1-supply = <&mt6395_vproc>; //L
++			proc2-supply = <&mt6395_vproc>; //CCI
++		};
++
++		performance: performance-controller@10bd10 {
++			compatible = "mediatek,cpufreq-hw";
++			reg = <0 0x0010bd10 0 0x120>;
++			#performance-domain-cells = <1>;
++		};
++
++		scp: scp@338000 {
++			compatible = "mediatek,mt8519-scp";
++			reg = <0 0x280000 0 0x3f000>,	/* tcm */
++			      <0 0x338000 0 0x1000>,	/* cfg */
++			      <0 0x2bf000 0 0x100>,	/* mbox0 base */
++			      <0 0x33a000 0 0x4>,	/* mbox0 set */
++			      <0 0x33a00c 0 0x4>,	/* mbox0 clr */
++			      <0 0x2bf100 0 0x100>,	/* mbox1 base */
++			      <0 0x33b000 0 0x4>,	/* mbox1 set */
++			      <0 0x33b00c 0 0x4>,	/* mbox1 clr */
++			      <0 0x2bf200 0 0x100>,	/* mbox2 base */
++			      <0 0x33c000 0 0x4>,	/* mbox2 set */
++			      <0 0x33c00c 0 0x4>,	/* mbox2 clr */
++			      <0 0x2bf300 0 0x100>,	/* mbox3 base */
++			      <0 0x33d000 0 0x4>,	/* mbox3 set */
++			      <0 0x33d00c 0 0x4>,	/* mbox3 clr */
++			      <0 0x2bf400 0 0x100>,	/* mbox4 base */
++			      <0 0x33e000 0 0x4>,	/* mbox4 set */
++			      <0 0x33e00c 0 0x4>;	/* mbox4 clr */
++
++			reg-names = "sram",
++				    "cfg",
++				    "mbox0_base",
++				    "mbox0_set",
++				    "mbox0_clr",
++				    "mbox1_base",
++				    "mbox1_set",
++				    "mbox1_clr",
++				    "mbox2_base",
++				    "mbox2_set",
++				    "mbox2_clr",
++				    "mbox3_base",
++				    "mbox3_set",
++				    "mbox3_clr",
++				    "mbox4_base",
++				    "mbox4_set",
++				    "mbox4_clr";
++
++			interrupts = <GIC_SPI 269 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 274 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 273 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 272 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 271 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 270 IRQ_TYPE_LEVEL_HIGH>;
++
++			interrupt-names = "wdt",
++					  "mbox0",
++					  "mbox1",
++					  "mbox2",
++					  "mbox3",
++					  "mbox4";
++
++			clocks = <&topckgen CLK_TOP_RV33_SEL>;
++			clock-names = "main";
++			status = "okay";
++		};
++
++		gic: interrupt-controller@c000000 {
++			compatible = "arm,gic-v3";
++			#interrupt-cells = <3>;
++			interrupt-parent = <&gic>;
++			#redistributor-regions = <1>;
++			interrupt-controller;
++			reg = <0 0x0c000000 0 0x40000>,  /* GICD */
++			      <0 0x0c040000 0 0x200000>; /* GICR */
++			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		cpu_mcucfg: mcusys_ao_cfg@c530000 {
++			reg = <0 0x0c530000 0 0x10000>; /* 64KB */
++		};
++
++		mcupm: mcupm@c540000 {
++			compatible = "mediatek,mcupm";
++			reg = <0 0x0c540000 0 0x22000>,
++			      <0 0x0c55fb00 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>,
++			      <0 0x0c55fba0 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>,
++			      <0 0x0c55fc40 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>,
++			      <0 0x0c55fce0 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>,
++			      <0 0x0c55fd80 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>,
++			      <0 0x0c55fe20 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>,
++			      <0 0x0c55fec0 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>,
++			      <0 0x0c55ff60 0 0xa0>,
++			      <0 0x0c562004 0 0x4>,
++			      <0 0x0c562018 0 0x4>,
++			      <0 0x0c562000 0 0x4>,
++			      <0 0x0c562010 0 0x4>;
++			reg-names = "mcupm_base",
++				    "mbox0_base",
++				    "mbox0_set",
++				    "mbox0_clr",
++				    "mbox0_send",
++				    "mbox0_recv",
++				    "mbox1_base",
++				    "mbox1_set",
++				    "mbox1_clr",
++				    "mbox1_send",
++				    "mbox1_recv",
++				    "mbox2_base",
++				    "mbox2_set",
++				    "mbox2_clr",
++				    "mbox2_send",
++				    "mbox2_recv",
++				    "mbox3_base",
++				    "mbox3_set",
++				    "mbox3_clr",
++				    "mbox3_send",
++				    "mbox3_recv",
++				    "mbox4_base",
++				    "mbox4_set",
++				    "mbox4_clr",
++				    "mbox4_send",
++				    "mbox4_recv",
++				    "mbox5_base",
++				    "mbox5_set",
++				    "mbox5_clr",
++				    "mbox5_send",
++				    "mbox5_recv",
++				    "mbox6_base",
++				    "mbox6_set",
++				    "mbox6_clr",
++				    "mbox6_send",
++				    "mbox6_recv",
++				    "mbox7_base",
++				    "mbox7_set",
++				    "mbox7_clr",
++				    "mbox7_send",
++				    "mbox7_recv";
++			interrupts = <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "mbox0",
++					  "mbox1",
++					  "mbox2",
++					  "mbox3",
++					  "mbox4",
++					  "mbox5",
++					  "mbox6",
++					  "mbox7";
++		};
++
++		topckgen: syscon@10000000 {
++			compatible = "mediatek,mt8519-topckgen", "syscon";
++			reg = <0 0x10000000 0 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		infracfg_ao: syscon@10001000 {
++			compatible = "mediatek,mt8519-infracfg_ao", "syscon", "simple-mfd";
++			reg = <0 0x10001000 0 0x1000>;
++			#clock-cells = <1>;
++			infracfg_rst: reset-controller {
++				compatible = "ti,syscon-reset";
++				#reset-cells = <1>;
++				ti,reset-bits = <
++				0x120 0 0x124 0 0 0 (ASSERT_SET | DEASSERT_SET | STATUS_NONE)
++				>;
++				};
++		};
++
++		pericfg: syscon@10003000 {
++			compatible = "mediatek,mt8519-pericfg", "syscon";
++			reg = <0 0x10003000 0 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		pio: pinctrl@10005000 {
++			compatible = "mediatek,mt8519-pinctrl";
++			reg = <0 0x10005000 0 0x1000>,
++			      <0 0x11f30000 0 0x1000>,
++			      <0 0x11f20000 0 0x1000>,
++			      <0 0x11f10000 0 0x1000>,
++			      <0 0x11d40000 0 0x1000>,
++			      <0 0x11d50000 0 0x1000>,
++			      <0 0x11e20000 0 0x1000>,
++			      <0 0x11e30000 0 0x1000>,
++			      <0 0x1000b000 0 0x1000>;
++			reg-names = "gpio_base", "iocfg_tr_base", "iocfg_tm_base", "iocfg_tl_base",
++				"iocfg_rt_base", "iocfg_rb_base", "iocfg_lt_base", "iocfg_lb_base",
++				"eint";
++			gpio-controller;
++			#gpio-cells = <2>;
++			gpio-ranges = <&pio 0 0 108>;
++			interrupt-controller;
++			interrupts = <GIC_SPI 163 IRQ_TYPE_LEVEL_HIGH>;
++			#interrupt-cells = <2>;
++		};
++
++		scpsys: syscon@10006000 {
++			compatible = "syscon", "simple-mfd";
++			reg = <0 0x10006000 0 0x1000>;
++			#power-domain-cells = <1>;
++
++			/* System Power Manager */
++			spm: power-controller {
++				compatible = "mediatek,mt8519-power-controller";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				#power-domain-cells = <1>;
++
++				/* power domain of the SoC */
++				ssusbx@MT8519_POWER_DOMAIN_SSUSBX {
++					reg = <MT8519_POWER_DOMAIN_SSUSBX>;
++					clocks =
++						<&topckgen CLK_TOP_RG_SSUSB_TOP_REF_CK_EN>;
++					clock-names = "ssusbx0";
++					mediatek,infracfg = <&infracfg_ao>;
++					#power-domain-cells = <0>;
++				};
++
++				ip0@MT8519_POWER_DOMAIN_IP0 {
++					reg = <MT8519_POWER_DOMAIN_IP0>;
++					clocks = <&nna CLK_NNA_26M>,
++						   <&nna CLK_NNA_AXI>,
++						   <&nna CLK_NNA_EMI>;
++					clock-names = "ip00", "ip01", "ip02";
++					mediatek,infracfg = <&infracfg_ao>;
++					#power-domain-cells = <0>;
++				};
++
++				ip1@MT8519_POWER_DOMAIN_IP1 {
++					reg = <MT8519_POWER_DOMAIN_IP1>;
++					clocks = <&nna CLK_NNA_26M>,
++						   <&nna CLK_NNA_AXI>,
++						   <&nna CLK_NNA_EMI>;
++					clock-names = "ip00", "ip01", "ip02";
++					mediatek,infracfg = <&infracfg_ao>;
++					#power-domain-cells = <0>;
++				};
++
++				adsp_ao@MT8519_POWER_DOMAIN_ADSP_AO {
++					reg = <MT8519_POWER_DOMAIN_ADSP_AO>;
++					clocks = <&topckgen CLK_TOP_DSP_SEL>,
++						   <&topckgen CLK_TOP_ADSP_BUS_SEL>;
++					clock-names = "adsp_ao0","adsp_ao1";
++					mediatek,infracfg = <&infracfg_ao>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					#power-domain-cells = <1>;
++
++					adsp_infra@MT8519_POWER_DOMAIN_ADSP_INFRA {
++						reg = <MT8519_POWER_DOMAIN_ADSP_INFRA>;
++						clocks = <&topckgen CLK_TOP_ADSP_BUS_SEL>;
++						clock-names = "adsp_infra0";
++						mediatek,infracfg = <&infracfg_ao>;
++						#address-cells = <1>;
++						#size-cells = <0>;
++						#power-domain-cells = <1>;
++
++						adsp_top@MT8519_POWER_DOMAIN_ADSP_TOP {
++							reg = <MT8519_POWER_DOMAIN_ADSP_TOP>;
++							clocks = <&topckgen CLK_TOP_DSP_SEL>,
++								<&topckgen CLK_TOP_ADSP_BUS_SEL>;
++							clock-names = "adsp_top0","adsp_top1";
++							mediatek,infracfg = <&infracfg_ao>;
++							#power-domain-cells = <0>;
++						};
++
++						audsrc@MT8519_POWER_DOMAIN_AUDSRC {
++							reg = <MT8519_POWER_DOMAIN_AUDSRC>;
++							mediatek,infracfg = <&infracfg_ao>;
++							#power-domain-cells = <0>;
++						};
++
++						audio@MT8519_POWER_DOMAIN_AUDIO {
++							reg = <MT8519_POWER_DOMAIN_AUDIO>;
++							mediatek,infracfg = <&infracfg_ao>;
++							#power-domain-cells = <0>;
++						};
++					};
++				};
++
++			};
++		};
++
++		toprgu: toprgu@10007000 {
++			compatible = "mediatek,mt8519-rgu",
++					 "syscon", "simple-mfd";
++			reg = <0 0x10007000 0 0x1000>;
++			interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
++			#reset-cells = <1>;
++			reboot-mode {
++				compatible = "syscon-reboot-mode";
++				offset = <0x24>;
++				mask = <0xf>;
++				mode-charger = <BOOT_CHARGER>;
++				mode-recovery = <BOOT_RECOVERY>;
++				mode-bootloader = <BOOT_BOOTLOADER>;
++				mode-dm-verity-dev-corrupt = <BOOT_DM_VERITY>;
++				mode-kpoc = <BOOT_KPOC>;
++				mode-ddr-reserve = <BOOT_DDR_RSVD>;
++				mode-meta = <BOOT_META>;
++				mode-rpmbpk = <BOOT_RPMBPK>;
++			};
++		};
++
++		gpt_rtc: gpt_rtc@10008000 {
++			compatible = "mediatek,gpt-rtc";
++			reg = <0 0x10008000 0 0x1000>;
++			interrupts = <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>;
++			gpt-index = <4>;
++		};
++
++		apmixedsys: syscon@1000c000 {
++			compatible = "mediatek,mt8519-apmixedsys", "syscon";
++			reg = <0 0x1000c000 0 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		uart1: serial@1000e000 {
++			compatible = "mediatek,mt8519-uart",
++				     "mediatek,mt6577-uart";
++			reg = <0 0x1000e000 0 0x1000>;
++			interrupts = <GIC_SPI 104 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk26m>, <&infracfg_ao CLK_INFRA_AO_UART1_SET>;
++			clock-names = "baud", "bus";
++			status = "disabled";
++		};
++
++		uart2: serial@1000f000 {
++			compatible = "mediatek,mt8519-uart",
++				     "mediatek,mt6577-uart";
++			reg = <0 0x1000f000 0 0x1000>;
++			interrupts = <GIC_SPI 105 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk26m>, <&infracfg_ao CLK_INFRA_AO_UART2_SET>;
++			clock-names = "baud", "bus";
++			status = "disabled";
++		};
++
++		imp_iic_wrap_ao: syscon@1000d000 {
++			compatible = "mediatek,mt8519-imp_iic_wrap_ao", "syscon";
++			reg = <0 0x1000d000 0 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		keypad: kp@10010000 {
++			compatible = "mediatek,kp";
++			reg = <0 0x10010000 0 0x1000>;
++			interrupts = <GIC_SPI 67 IRQ_TYPE_EDGE_RISING>;
++			clocks = <&clk26m>;
++			clock-names = "kpd";
++		};
++
++		ddr_emi: dvfsrc@10012000 {
++			compatible = "mediatek,mt8519-dvfsrc";
++			reg = <0 0x10012000 0 0x1000>;
++			reg-names = "dvfsrc";
++			#interconnect-cells = <1>;
++			dvfsrc-helper {
++				compatible = "mediatek,dvfsrc-helper";
++			};
++			dvfsrc-met {
++				compatible = "mediatek,dvfsrc-met";
++			};
++		};
++
++		i2c2: i2c@10013100 {
++			compatible = "mediatek,mt8519-i2c";
++			reg = <0 0x10013100 0 0x100>,
++				  <0 0x11000280 0 0x80>;
++			interrupts = <GIC_SPI 278 IRQ_TYPE_LEVEL_HIGH>;
++			clock-div = <1>;
++			clocks = <&imp_iic_wrap_ao CLK_IMP_IIC_WRAP_AO_AP_CLOCK_I2C2_RO>,
++				 <&infracfg_ao CLK_INFRA_AO_AP_DMA_SET>;
++			clock-names = "main", "dma";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			mediatek,enable-multi-user;
++			status = "disabled";
++		};
++
++		sys_timer@10017000 {
++			compatible = "mediatek,mt8519-timer",
++				     "mediatek,mt6765-timer";
++			reg = <0 0x10017000 0 0x1000>;
++			reg-names = "sys_timer_base";
++			interrupts = <GIC_SPI 182 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk13m>;
++			clock-names = "clk13m";
++		};
++
++		i2c0: i2c@10019100 {
++			compatible = "mediatek,mt8519-i2c";
++			reg = <0 0x10019100 0 0x100>,
++				  <0 0x11000080 0 0x80>;
++			interrupts = <GIC_SPI 200 IRQ_TYPE_LEVEL_HIGH>;
++			clock-div = <1>;
++			clocks = <&imp_iic_wrap_ao CLK_IMP_IIC_WRAP_AO_AP_CLOCK_I2C0_RO>,
++				 <&infracfg_ao CLK_INFRA_AO_AP_DMA_SET>;
++			clock-names = "main", "dma";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			mediatek,enable-multi-user;
++			status = "disabled";
++		};
++
++		i2c1: i2c@1001c100 {
++			compatible = "mediatek,mt8519-i2c";
++			reg = <0 0x1001c100 0 0x100>,
++				  <0 0x11000180 0 0x80>;
++			interrupts = <GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>;
++			clock-div = <1>;
++			clocks = <&imp_iic_wrap_ao CLK_IMP_IIC_WRAP_AO_AP_CLOCK_I2C1_RO>,
++				 <&infracfg_ao CLK_INFRA_AO_AP_DMA_SET>;
++			clock-names = "main", "dma";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			mediatek,enable-multi-user;
++			status = "disabled";
++		};
++
++		pwm: pwm@1001d000 {
++			compatible = "mediatek,mt8519-pwm";
++			reg = <0 0x1001d000 0 0x1000>;
++			interrupts = <GIC_SPI 134 IRQ_TYPE_LEVEL_HIGH>;
++			#pwm-cells=<2>;
++			clocks = <&infracfg_ao CLK_INFRA_AO_PWM1_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_PWM2_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_PWM3_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_PWM4_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_PWM5_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_RG_PWM_FBCLK6_CK_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_RG_PWM_FBCLK7_CK_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_PWM_SET>,
++				 <&topckgen CLK_TOP_PWM_SEL>;
++			clock-names = "pwm1", "pwm2", "pwm3", "pwm4", "pwm5",
++				      "pwm6", "pwm7", "main", "top";
++			status = "okay";
++		};
++
++		nna: syscon@10200000 {
++			compatible = "mediatek,mt8519-nna", "syscon";
++			reg = <0 0x10200000 0 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		nna_top_ports_wrapper_0: nna_top_ports_wrapper@10201000 {
++			compatible = "amazon,nna-1.0";
++			interrupt-names = "nna_interrupt";
++			interrupt-parent = <&gic>;
++			interrupts = <GIC_SPI 206 IRQ_TYPE_LEVEL_HIGH>;
++			memory-region = <&acenna_reserved>;
++			reg = <0x0 0x10201000 0x0 0x1000>;
++			clocks = <&topckgen CLK_TOP_IP0_NNA_SEL>,
++				 <&apmixedsys CLK_APMIXED_IPPLL>,
++				 <&topckgen CLK_TOP_IPPLL>,
++				 <&topckgen CLK_TOP_IPPLL_D2>,
++				 <&topckgen CLK_TOP_IPPLL_D4>,
++				 <&topckgen CLK_TOP_IPPLL_D8>,
++				 <&clk26m>;
++			clock-names = "nna_sel", "apmixed_nnapll", "nnapll",
++				      "nnapll_d2", "nnapll_d4",
++				      "nnapll_d8", "clk26m";
++			power-domains = <&spm MT8519_POWER_DOMAIN_IP0>;
++			power-domain-names = "nna0";
++			device-name = "acenna0";
++		};
++
++		nna_top_ports_wrapper_1: nna_top_ports_wrapper@10202000 {
++			compatible = "amazon,nna-1.0";
++			interrupt-names = "nna_interrupt";
++			interrupt-parent = <&gic>;
++			interrupts = <GIC_SPI 203 IRQ_TYPE_LEVEL_HIGH>;
++			reg = <0x0 0x10202000 0x0 0x1000>;
++			clocks = <&topckgen CLK_TOP_IP1_NNA_SEL>,
++				 <&apmixedsys CLK_APMIXED_NNAPLL>,
++				 <&topckgen CLK_TOP_NNAPLL>,
++				 <&topckgen CLK_TOP_NNAPLL_D2>,
++				 <&topckgen CLK_TOP_NNAPLL_D4>,
++				 <&topckgen CLK_TOP_NNAPLL_D8>,
++				 <&clk26m>;
++			clock-names = "nna_sel", "apmixed_nnapll", "nnapll",
++				      "nnapll_d2", "nnapll_d4",
++				      "nnapll_d8", "clk26m";
++			power-domains = <&spm MT8519_POWER_DOMAIN_IP1>;
++			power-domain-names = "nna1";
++			device-name = "acenna1";
++		};
++
++		devapc_infra: devapc@10207000 {
++			compatible = "mediatek,mt8519-devapc";
++			reg = <0 0x10207000 0 0x1000>;
++			vio-idx-num = <22>;
++			interrupts = <GIC_SPI 138 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		systracker: systracker@10208000 {
++			compatible = "mediatek,bus_dbg-v2";
++			reg = <0 0x10208000 0 0x1000>,
++			      <0 0x10001000 0 0x1000>;
++			mediatek,bus_dbg_con_offset = <0x2fc>;
++			interrupts = <GIC_SPI 137 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		m4u: syscon@10209000 {
++			compatible = "mediatek,mt8519-m4u", "syscon";
++			reg = <0 0x10209000 0 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		emicen: emicen@10219000 {
++			compatible = "mediatek,common-emicen";
++			reg = <0 0x10219000 0 0x1000>;
++			mediatek,emi-reg = <&emichn>;
++			ch_cnt = <2>;
++			rk_cnt = <2>;
++		};
++
++		devapc_peri: devapc@1021C000 {
++			compatible = "mediatek,mt8519-devapc";
++			reg = <0 0x1021C000 0 0x1000>;
++			vio-idx-num = <89>;
++			interrupts = <GIC_SPI 138 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		devapc_peri2: devapc@1021D000 {
++			compatible = "mediatek,mt8519-devapc";
++			reg = <0 0x1021D000 0 0x1000>;
++			vio-idx-num = <111>;
++			interrupts = <GIC_SPI 138 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		emimpu@10226000 {
++			compatible = "mediatek,common-emimpu";
++			reg = <0 0x10226000 0 0x1000>;
++			mediatek,emi-reg = <&emicen>;
++			interrupts = <GIC_SPI 139 IRQ_TYPE_LEVEL_HIGH>;
++			region_cnt = <32>;
++			domain_cnt = <16>;
++			addr_align = <16>;
++			dram_base = <0 0x40000000>;
++			dump = <0x1f0 0x1f8 0x1fc>;
++			clear = <0x160 0xffffffff 16>,
++				<0x200 0x00000003 16>,
++				<0x1f0 0x80000000 1>;
++			clear_md = <0x1fc 0x80000000 1>;
++			ctrl_intf = <1>;
++			slverr = <0>;
++		};
++
++		dramc: dramc@1022A000 {
++			compatible = "mediatek,common-dramc";
++			reg = <0 0x1022A000 0 0x2000>, /* DRAMC AO CHA */
++				<0 0x10232000 0 0x2000>, /* DRAMC AO CHB */
++				<0 0x1022C000 0 0x1000>, /* DRAMC NAO CHA */
++				<0 0x10234000 0 0x1000>, /* DRAMC NAO CHB */
++				<0 0x10228000 0 0x2000>, /* DDRPHY AO CHA */
++				<0 0x10230000 0 0x2000>, /* DDRPHY AO CHB */
++				<0 0x1022E000 0 0x1000>, /* DDRPHY NAO CHA */
++				<0 0x10236000 0 0x1000>, /* DDRPHY NAO CHB */
++				<0 0x10006000 0 0x1000>; /* SLEEP BASE */
++			mr4_version = <1>;
++			mr4_rg = <0x0090 0x0000ffff 0>;
++			fmeter_version = <1>;
++			fmeter_sub_version = <1>;
++			crystal_freq = <52>;
++			pll_id = <0x0510 0x80000000 31>;
++			shu_lv = <0x00e4 0x00000006 1>;
++			shu_of = <0x500>;
++			sdmpcw = <0x0d9c 0xffff0000 16>,
++				<0x0d94 0xffff0000 16>;
++			prediv = <0x0da8 0x000c0000 18>,
++				<0x0da0 0x000c0000 18>;
++			posdiv = <0x0da8 0x00000007 0>,
++				<0x0da0 0x00000007 0>;
++			ckdiv4 = <0x0d18 0x08000000 27>,
++				<0x0d18 0x08000000 27>;
++			pll_md = <0x0d80 0x00000010 4>,  /* semi open */
++				<0x0d80 0x00000010 4>;
++			cldiv2 = <0x0d90 0x000000000 0>, /* dummy */
++				<0x0d90 0x000000000 0>;
++			fbksel = <0x0d90 0x000002000 13>, /* CKMUL2 */
++				<0x0d90 0x000002000 13>;
++			dqopen = <0x0d90 0x000000000 0>, /* dummy */
++				<0x0d90 0x000000000 0>;
++		};
++
++		emichn: emichn@1022D000 {
++			compatible = "mediatek,common-emichn";
++			reg = <0 0x1022D000 0 0x1000>,
++			      <0 0x10235000 0 0x1000>;
++		};
++
++		infra_iommu_0: iommu@10240000 {
++			compatible = "mediatek,mt8519-iommu-infra";
++			reg = <0 0x10240000 0 0x1000>;
++			interrupts = <GIC_SPI 302 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk26m>;
++			clock-names = "bclk";
++			#iommu-cells = <1>;
++			status = "disabled";
++		};
++
++		infra_iommu_1: iommu@10245000 {
++			compatible = "mediatek,mt8519-iommu-infra";
++			reg = <0 0x10245000 0 0x1000>;
++			interrupts = <GIC_SPI 307 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk26m>;
++			clock-names = "bclk";
++			#iommu-cells = <1>;
++			status = "disabled";
++		};
++
++		audio_asrc: audio_asrc@10600000 {
++			compatible = "mediatek,mt8519-audio-asrc";
++			reg = <0 0x10600000 0 0x2000>;
++			interrupts = <GIC_SPI 209 IRQ_TYPE_LEVEL_HIGH>,
++					<GIC_SPI 210 IRQ_TYPE_LEVEL_HIGH>,
++					<GIC_SPI 211 IRQ_TYPE_LEVEL_HIGH>,
++					<GIC_SPI 212 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_ASM_L_SEL>,
++				<&apmixedsys CLK_APMIXED_APLL1>,
++				<&apmixedsys CLK_APMIXED_APLL2>;
++			clock-names = "fasm_l",
++				"apll1",
++				"apll2";
++			power-domains = <&spm MT8519_POWER_DOMAIN_AUDSRC>;
++			status = "disabled";
++		};
++
++		afe: audio-controller@10610000 {
++			compatible = "mediatek,mt8519-afe-pcm", "syscon";
++			reg = <0 0x10610000 0 0x4000>,
++			      <0 0x10620000 0 0x10000>;
++			interrupts = <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_AUDIO_SEL>,
++				<&topckgen CLK_TOP_AUD_INTBUS_SEL>,
++				<&topckgen CLK_TOP_A1SYS_SEL>,
++				<&topckgen CLK_TOP_A2SYS_SEL>,
++				<&topckgen CLK_TOP_APLL1_SEL>,
++				<&topckgen CLK_TOP_APLL2_SEL>,
++				<&topckgen CLK_TOP_AUD_1_SEL>,
++				<&topckgen CLK_TOP_AUD_2_SEL>,
++				<&topckgen CLK_TOP_ASM_L_SEL>,
++				<&topckgen CLK_TOP_ASM_M_SEL>,
++				<&topckgen CLK_TOP_ASM_H_SEL>,
++				<&topckgen CLK_TOP_UD_SPDIF_IN_SEL>,
++				<&topckgen CLK_TOP_I2SI1_MCK_PRE>,
++				<&topckgen CLK_TOP_TDMIN_MCK_PRE>,
++				<&topckgen CLK_TOP_I2SO1_MCK_PRE>,
++				<&topckgen CLK_TOP_APLL12_DIV7>,
++				<&topckgen CLK_TOP_APLL12_DIV8>,
++				<&topckgen CLK_TOP_APLL12_DIV9>,
++				<&topckgen CLK_TOP_I2SI1_MCK>,
++				<&topckgen CLK_TOP_TDMIN_MCK>,
++				<&topckgen CLK_TOP_I2SO1_MCK>,
++				<&clk26m>,
++				<&topckgen CLK_TOP_SYSPLL1_D4>,
++				<&topckgen CLK_TOP_UNIVPLL_D6>;
++			clock-names = "top_aud_26m",
++				"top_aud_intbus",
++				"fa1sys",
++				"fa2sys",
++				"hapll1",
++				"hapll2",
++				"aud1",
++				"aud2",
++				"fasm_l",
++				"fasm_m",
++				"fasm_h",
++				"spdif_in",
++				"i2si1_m_sel",
++				"tdmin_m_sel",
++				"i2so1_m_sel",
++				"apll12_div0",
++				"apll12_div1",
++				"apll12_div2",
++				"i2si1_mck",
++				"tdmin_mck",
++				"i2so1_mck",
++				"top_clk26m_clk",
++				"syspll1_d4",
++				"univpll_d6";
++			mediatek,topckgen-regmap = <&topckgen>;
++			power-domains = <&spm MT8519_POWER_DOMAIN_AUDIO>;
++			status = "disabled";
++		};
++
++		adsp: adsp@10680000 {
++			compatible = "mediatek,mt8519-audio_dsp";
++			reg = <0 0x10680000 0 0x2000>,
++				<0 0x10800000 0 0x60000>,
++				<0 0x10686000 0 0x1000>,
++				<0 0x1068b000 0 0x20>,
++				<0 0x10620000 0 0x10000>,
++				<0 0x40000000 0 0x0>,
++				<0 0x50000000 0 0x0>;
++			reg-names = "cfg", "sram", "mbox0", "secure",
++				"afesram", "cpudram", "dspdram";
++			interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH>,
++					<GIC_SPI 294 IRQ_TYPE_LEVEL_HIGH>,
++					<GIC_SPI 145 IRQ_TYPE_LEVEL_HIGH>;
++			interrupts-name = "ipi", "wdt", "audio";
++			clocks = <&topckgen CLK_TOP_DSP_SEL>,
++				<&topckgen CLK_TOP_ADSP_BUS_SEL>;
++			clock-names = "clk_top_dsp_sel",
++					"clk_top_adsp_bus_sel";
++			power-domains = <&spm MT8519_POWER_DOMAIN_ADSP_TOP>;
++			memory-region = <&adsp_mem_reserved>;
++			status = "disabled";
++		};
++
++		auxadc: adc@11001000 {
++			compatible = "mediatek,mt8519-auxadc", "mediatek,mt8173-auxadc";
++			reg = <0 0x11001000 0 0x1000>;
++			clocks = <&infracfg_ao CLK_INFRA_AO_AUXADC_SET>;
++			clock-names = "main";
++			#io-channel-cells = <1>;
++			status = "disabled";
++		};
++
++		uart0: serial@11002000 {
++			compatible = "mediatek,mt8519-uart",
++				     "mediatek,mt6577-uart";
++			reg = <0 0x11002000 0 0x1000>;
++			interrupts = <GIC_SPI 103 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk26m>, <&infracfg_ao CLK_INFRA_AO_UART0_SET>;
++			clock-names = "baud", "bus";
++			status = "disabled";
++		};
++
++		i2c3: i2c@11007000 {
++			compatible = "mediatek,mt8519-i2c";
++			reg = <0 0x11007000 0 0x1000>,
++				  <0 0x11000380 0 0x80>;
++			interrupts = <GIC_SPI 102 IRQ_TYPE_LEVEL_HIGH>;
++			clock-div = <1>;
++			clocks = <&imp_iic_wrap_peri CLK_IMP_IIC_WRAP_PERI_AP_CLOCK_I2C3_RO>,
++				 <&infracfg_ao CLK_INFRA_AO_AP_DMA_SET>;
++			clock-names = "main", "dma";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
++		i2c4: i2c@11008000 {
++			compatible = "mediatek,mt8519-i2c";
++			reg = <0 0x11008000 0 0x1000>,
++				  <0 0x11000480 0 0x80>;
++			interrupts = <GIC_SPI 277 IRQ_TYPE_LEVEL_HIGH>;
++			clock-div = <1>;
++			clocks = <&imp_iic_wrap_peri CLK_IMP_IIC_WRAP_PERI_AP_CLOCK_I2C4_RO>,
++				 <&infracfg_ao CLK_INFRA_AO_AP_DMA_SET>;
++			clock-names = "main", "dma";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
++		imp_iic_wrap_peri: syscon@11009000 {
++			compatible = "mediatek,mt8519-imp_iic_wrap_peri", "syscon";
++			reg = <0 0x11009000 0 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		spi: spi@1100a000 {
++			compatible = "mediatek,ipm-spi-single-mt8519";
++			reg = <0 0x1100a000 0 0x100>;
++			interrupts = <GIC_SPI 120 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_UNIVPLL2_D2>,
++				 <&topckgen CLK_TOP_SPI_SEL>,
++				 <&infracfg_ao CLK_INFRA_AO_SPI_SET>;
++			clock-names = "parent-clk", "sel-clk", "spi-clk";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
++		thermal: thermal@1100b0000 {
++			compatible = "mediatek,mt8519-thermal";
++			reg = <0 0x1100b000 0 0x1000>;
++			interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_LOW>;
++			clocks = <&infracfg_ao CLK_INFRA_AO_THERM_SET>,
++				<&infracfg_ao CLK_INFRA_AO_AUXADC_SET>;
++			clock-names = "therm", "auxadc";
++			mediatek,auxadc = <&auxadc>;
++			mediatek,apmixedsys = <&apmixedsys>;
++			mediatek,therm-rst = <&infracfg_ao 0x120 0x1 0x124 0x1 0x128 0x1>;
++			/*
++			 * if have two reset bank, please add node
++			 * eg <&infracfg_ao 0x120 0x1 0x124 0x1 0x128 0x1>,
++			 * <&apmixedsys 0x180 0x1 0x184 0x1 0x188 0x1>
++			 */
++			therm-rst-name = "thermrst1";
++			mediatek,hw-reset-temp = <117000>;
++			/*nvmem-cells = <&thermal_calibration>;*/
++			nvmem-cell-names = "efuse-data";
++			calibration-map = <0	29	29>,/*cali_en*/
++					<0	9	0>,/*adc_ge*/
++					<3	14	9>,/*degc_cali*/
++					<0	30	30>,/*slope_sign*/
++					<2	31	27>,/*slope*/
++					<0	30	30>;/*id*/
++			calibration-map-name = "cali_en", "adc_ge",
++						"degc_cali", "slope_sign",
++						"slope", "id";
++			calibration-map-vts = <
++						1	20	12	/*vts1*/
++						1	29	21	/*vts2*/
++						2	8	0	/*vts3*/
++						2	17	9	/*vts4*/
++						2	26	18	/*vts5*/
++						3	8	0	/*vts6*/
++						>;
++			#thermal-sensor-cells = <1>;
++		};
++
++		spis: spi@1100d000 {
++			compatible = "mediatek,mt8519-spi-slave",
++				     "mediatek,mt8512-spi-slave";
++			reg = <0 0x1100d000 0 0x100>;
++			interrupts = <GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&infracfg_ao CLK_INFRA_AO_INFRA_SPIS_CK_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_SPIS_SET>;
++			clock-names = "spi", "axi";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
++		nandc: nfi@11018000 {
++			compatible = "mediatek,mt8519-nfc";
++			reg = <0 0x11018000 0 0x1000>,
++				<0 0x11019000 0 0x1000>;
++			interrupts = <GIC_SPI 125 IRQ_TYPE_LEVEL_HIGH>,
++				<GIC_SPI 126 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&infracfg_ao CLK_INFRA_AO_NFI_BCLK_CK_SET>,
++				<&infracfg_ao CLK_INFRA_AO_NFI_HCLK_CK_SET>,
++				<&infracfg_ao CLK_INFRA_AO_NFIECC_BCLK_CK_SET>,
++				<&infracfg_ao CLK_INFRA_AO_NFI_INFRA_BCLK_CK_SET>,
++				<&topckgen CLK_TOP_NFI1X_SEL>,
++				<&clk26m>,
++				<&topckgen CLK_TOP_SYSPLL4_D2>,
++				<&topckgen CLK_TOP_SYSPLL2_D4>,
++				<&topckgen CLK_TOP_SPINFI_BCLK_SEL>,
++				<&clk26m>,
++				<&topckgen CLK_TOP_UNIVPLL2_D8>,
++				<&topckgen CLK_TOP_SYSPLL4_D2>,
++				<&topckgen CLK_TOP_SYSPLL2_D4>;
++			clock-names = "nfi_clk",
++					"nfi_hclk",
++					"ecc_clk",
++					"snfi_clk",
++					"nfi1x_sel",
++					"nfi1x_clk_parent_26m",
++					"nfi1x_clk_parent_78m",
++					"nfi1x_clk_parent_91m",
++					"snfi_clk_sel",
++					"snfi_parent_26m",
++					"snfi_parent_52m",
++					"snfi_parent_78m",
++					"snfi_parent_91m";
++			nand-on-flash-bbt;
++			nand-ecc-mode = "hw";
++			status = "disabled";
++		};
++
++		ssusb: usb@11211000 {
++			compatible = "mediatek,mtu3";
++			reg = <0 0x11211000 0 0x2dff>,
++				<0 0x11213e00 0 0x0100>;
++			reg-names = "mac", "ippc";
++			interrupts = <GIC_SPI 96 IRQ_TYPE_LEVEL_HIGH>;
++			phys = <&u2port0 PHY_TYPE_USB2>;
++			/* power domain */
++			power-domains = <&spm MT8519_POWER_DOMAIN_SSUSBX>;
++			wakeup-source;
++			mediatek,syscon-wakeup = <&pericfg 0x460 2>;
++			clocks = <&infracfg_ao CLK_INFRA_AO_ICUSB_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_SSUSB_TOP_SYS_CK_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_SSUSB_TOP_XHCI_CK_SET>;
++			clock-names = "sys_ck", "ref_ck", "mcu_ck";
++			#address-cells = <2>;
++			#size-cells = <2>;
++			ranges;
++			status = "disabled";
++
++			usb_host0: xhci@11210000 {
++				compatible = "mediatek,mtk-xhci";
++				reg = <0 0x11210000 0 0x1000>;
++				reg-names = "mac";
++				interrupts-extended = <&gic GIC_SPI 131 IRQ_TYPE_LEVEL_HIGH>,
++					<&pio 122 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&infracfg_ao CLK_INFRA_AO_SSUSB_TOP_XHCI_CK_SET>;
++				clock-names = "sys_ck";
++				status = "okay";
++			};
++		};
++
++		mmc0: mmc@11230000 {
++			compatible = "mediatek,mt8519-mmc", "mediatek,mt8183-mmc";
++			reg = <0 0x11230000 0 0x1000>,
++			      <0 0x11d00000 0 0x1000>;
++			clocks = <&topckgen CLK_TOP_MSDC50_0_SEL>,
++				 <&infracfg_ao CLK_INFRA_AO_MSDC0_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_MSDC0_SRC_SET>;
++			clock-names = "source", "hclk", "source_cg";
++			interrupts = <GIC_SPI 99 IRQ_TYPE_LEVEL_HIGH>;
++			status = "disabled";
++		};
++
++		mmc1: sdio@11240000 {
++			compatible = "mediatek,mt8519-sdio";
++			reg = <0 0x11240000 0 0x1000>,
++			      <0 0x11f00000 0 0x1000>;
++			interrupts = <GIC_SPI 100 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_MSDC30_1_SEL>,
++				 <&infracfg_ao CLK_INFRA_AO_MSDC1_SET>,
++				 <&infracfg_ao CLK_INFRA_AO_MSDC1_SRC_SET>;
++			clock-names = "source", "hclk", "source_cg";
++			status = "disabled";
++		};
++
++		u3phy0: usb-phy@11e00000 {
++			compatible = "mediatek,generic-tphy-v2";
++			#address-cells = <2>;
++			#size-cells = <2>;
++			ranges;
++			status = "disabled";
++
++			u2port0: usb-phy@11e00000 {
++				reg = <0 0x11e00000 0 0x700>;
++				clocks = <&topckgen CLK_TOP_RG_SSUSB_PHY_REF_CK_EN>;
++				clock-names = "ref";
++				#phy-cells = <1>;
++				status = "okay";
++			};
++
++			u2port1: usb-phy@11e10000 {
++				reg = <0 0x11e10000 0 0x700>;
++				clocks = <&topckgen CLK_TOP_SSUSB_U2_PHY_REF_CK_1P>;
++				clock-names = "ref";
++				#phy-cells = <1>;
++				status = "okay";
++			};
++
++		};
++
++		tinysys_ipc: tinysys-ipc {
++		        compatible = "amazon,mt8519-tinysys-ipc";
++			memory-region-rx = <&tinysys_ipc_rx_reserved>;
++			memory-region-tx = <&tinysys_ipc_tx_reserved>;
++		        status = "okay";
++		};
++	};
++
++	adsp_pcm: adsp_pcm {
++		compatible = "mediatek,mt8519-adsp-pcm";
++		status = "disabled";
++	};
++
++	hifidsp_audio_ipi: hifidsp_audio_ipi {
++		compatible = "mediatek,hifidsp-audio-ipi";
++		status = "disabled";
++	};
++
++	met {
++		met_emi: met_emi {
++			compatible = "mediatek,met_emi";
++			emi_num = <1>;
++			dram_num = <2>;
++			dramc_ver = <2>;
++			/* 0: dram ebg, 1:emi_freq, 2: DRAMC_DCM_CTRL 3:chn_emi_low_effi */
++			/* 4: SLC */
++			met_emi_support_list = <0x4>;
++			cen_emi_reg_base = <0x10219000>;
++			cen_emi_reg_size = <0x1000>;
++			chn_emi_reg_base = <0x1022D000 0x10235000>;
++			chn_emi_reg_size = <0x1000>;
++			dramc_nao_reg_base = <0x1022C000 0x10234000>;
++			dramc_nao_reg_size = <0x1000>;
++			dramc_ao_reg_base = <0x1022A000 0x10232000>;
++			dramc_ao_reg_size = <0x2000>;
++			ddrphy_ao_reg_base = <0x10228000 0x10230000>;
++			ddrphy_ao_reg_size = <0x2000>;
++			ddrphy_ao_misc_cg_ctrl0 = <0x284>;
++			ddrphy_ao_misc_cg_ctrl2 = <0x28c>;
++			dram_freq_default = <6400>;
++			ddr_ratio_default = <8>;
++			dram_type_default = <8>;
++			apmixedsys_reg_base = <0x1000C000>;
++			apmixedsys_reg_size = <0x410>;
++			slc_pmu_reg_base = <0x10342000 0x10343000>;
++			slc_pmu_reg_size = <0x1000>;
++		};
++	};
++
++	ice: ice_debug {
++		compatible = "mediatek,ice_debug";
++		clocks = <&infracfg_ao CLK_INFRA_AO_DEBUGSYS_SET>;
++		clock-names = "ice_dbg";
++	};
++
++	mtk_lpm: mtk_lpm {
++		compatible = "mediatek,mtk-lpm";
++		suspend-method = "enable";
++	};
++};
+diff --git a/include/dt-bindings/gpio/amzncpld-gpio.h b/include/dt-bindings/gpio/amzncpld-gpio.h
+new file mode 100644
+index 000000000..b92e83799
+--- /dev/null
++++ b/include/dt-bindings/gpio/amzncpld-gpio.h
+@@ -0,0 +1,30 @@
++/*
++ * GPIO definitions for Amazon custom CPLD
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * version 2 as published by the Free Software Foundation.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program. If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#ifndef _DT_BINDINGS_CPLD_GPIO_H
++#define _DT_BINDINGS_CPLD_GPIO_H
++
++#include <dt-bindings/gpio/gpio.h>
++
++/* GPIOs implemented by CPLD */
++#define AMZ_CPLD_GPIO_BTN_VOL_DN_L 0
++#define AMZ_CPLD_GPIO_BTN_VOL_UP_L 1
++#define AMZ_CPLD_GPIO_BTN_ACT_L 2
++#define AMZ_CPLD_GPIO_BTN_MUTE_L 3
++#define AMZ_CPLD_GPIO_MUTE_STATE_L 4
++#define AMZ_CPLD_GPIO_INT_STATUS 5
++#define AMZ_CPLD_GPIO_MUTE_STATE 6
++#define AMZ_CPLD_GPIO_SW_MUTE_SET 7
++#define AMZ_CPLD_GPIO_MUTE_PWM_L 8
++#define AMZ_CPLD_GPIO_ADC_RST 9
++#define AMZ_CPLD_GPIO_NR 10
++
++#endif
+diff --git a/include/dt-bindings/interconnect/mtk,mt8519-emi.h b/include/dt-bindings/interconnect/mtk,mt8519-emi.h
+new file mode 100644
+index 000000000..2d45ff07d
+--- /dev/null
++++ b/include/dt-bindings/interconnect/mtk,mt8519-emi.h
+@@ -0,0 +1,43 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (c) 2021 MediaTek Inc.
++ */
++
++
++#ifndef __DT_BINDINGS_INTERCONNECT_MTK_MT8519_EMI_H
++#define __DT_BINDINGS_INTERCONNECT_MTK_MT8519_EMI_H
++
++#define MT8519_SLAVE_DDR_EMI		0
++#define MT8519_MASTER_MCUSYS		1
++#define MT8519_MASTER_GPUSYS		2
++#define MT8519_MASTER_MMSYS		3
++#define MT8519_MASTER_MM_VPU		4
++#define MT8519_MASTER_MM_DISP		5
++#define MT8519_MASTER_MM_VDEC		6
++#define MT8519_MASTER_MM_VENC		7
++#define MT8519_MASTER_MM_CAM		8
++#define MT8519_MASTER_MM_IMG		9
++#define MT8519_MASTER_MM_MDP		10
++#define MT8519_MASTER_VPUSYS		11
++#define MT8519_MASTER_VPU_0		12
++#define MT8519_MASTER_VPU_1		13
++#define MT8519_MASTER_MDLASYS		14
++#define MT8519_MASTER_MDLA_0		15
++#define MT8519_MASTER_UFS		16
++#define MT8519_MASTER_PCIE_0		17
++#define MT8519_MASTER_PCIE_1		18
++#define MT8519_MASTER_USB		19
++#define MT8519_MASTER_DBGIF		20
++#define MT8519_SLAVE_HRT_DDR_EMI	21
++#define MT8519_MASTER_HRT_MMSYS		22
++#define MT8519_MASTER_HRT_MM_DISP	23
++#define MT8519_MASTER_HRT_MM_VDEC	24
++#define MT8519_MASTER_HRT_MM_VENC	25
++#define MT8519_MASTER_HRT_MM_CAM	26
++#define MT8519_MASTER_HRT_MM_IMG	27
++#define MT8519_MASTER_HRT_MM_MDP	28
++#define MT8519_MASTER_HRT_DBGIF		29
++#define MT8519_MASTER_WIFI		30
++#define MT8519_MASTER_BT		31
++#define MT8519_MASTER_NETSYS		32
++#endif
+diff --git a/include/dt-bindings/memory/mt8519-memory-port.h b/include/dt-bindings/memory/mt8519-memory-port.h
+new file mode 100644
+index 000000000..1cc547198
+--- /dev/null
++++ b/include/dt-bindings/memory/mt8519-memory-port.h
+@@ -0,0 +1,15 @@
++/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
++/*
++ * Copyright (C) 2021 MediaTek Inc.
++ */
++#ifndef _DTS_IOMMU_PORT_MT8519_H_
++#define _DTS_IOMMU_PORT_MT8519_H_
++
++#include <dt-bindings/memory/mtk-smi-larb-port.h>
++
++/* INFRA CFG */
++#define M4U_PORT_INFRA_NNA_0		MTK_M4U_DOM_ID(0, 0, 0)
++#define M4U_PORT_INFRA_NNA_1		MTK_M4U_DOM_ID(0, 0, 1)
++#define M4U_PORT_INFRA_NNA_2		MTK_M4U_DOM_ID(0, 0, 2)
++
++#endif
+diff --git a/include/dt-bindings/memory/mtk-smi-larb-port.h b/include/dt-bindings/memory/mtk-smi-larb-port.h
+new file mode 100644
+index 000000000..584fc5b0f
+--- /dev/null
++++ b/include/dt-bindings/memory/mtk-smi-larb-port.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (c) 2015-2016 MediaTek Inc.
++ * Author: Yong Wu <yong.wu@mediatek.com>
++ */
++#ifndef __DTS_MTK_IOMMU_PORT_H_
++#define __DTS_MTK_IOMMU_PORT_H_
++
++#define MTK_LARB_NR_MAX			32
++#define MTK_M4U_DOM_NR_MAX		8
++
++#define MTK_M4U_DOM_ID(dom, larb, port)	((dom & 0x7) << 16 |\
++					 ((larb & 0x1f) << 5) | (port & 0x1f))
++
++/* The default dom is 0. */
++#define MTK_M4U_ID(larb, port)		MTK_M4U_DOM_ID(0, larb, port)
++#define MTK_M4U_TO_LARB(id)		(((id) >> 5) & 0x1f)
++#define MTK_M4U_TO_PORT(id)		((id) & 0x1f)
++#define MTK_M4U_TO_DOM(id)		(((id) >> 16) & 0x7)
++
++#endif
+diff --git a/include/dt-bindings/pinctrl/mt8519-pinfunc.h b/include/dt-bindings/pinctrl/mt8519-pinfunc.h
+new file mode 100644
+index 000000000..22ca08047
+--- /dev/null
++++ b/include/dt-bindings/pinctrl/mt8519-pinfunc.h
+@@ -0,0 +1,569 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2021 MediaTek Inc.
++ */
++
++#ifndef __MT8519_PINFUNC_H
++#define __MT8519_PINFUNC_H
++
++#include "mt65xx.h"
++
++#define PINMUX_GPIO0__FUNC_GPIO0 (MTK_PIN_NO(0) | 0)
++#define PINMUX_GPIO0__FUNC_UCTS1 (MTK_PIN_NO(0) | 1)
++#define PINMUX_GPIO0__FUNC_DMIC1_CLK (MTK_PIN_NO(0) | 3)
++#define PINMUX_GPIO0__FUNC_TDMIN_BCK (MTK_PIN_NO(0) | 4)
++#define PINMUX_GPIO0__FUNC_DBG_MON_A0 (MTK_PIN_NO(0) | 7)
++
++#define PINMUX_GPIO1__FUNC_GPIO1 (MTK_PIN_NO(1) | 0)
++#define PINMUX_GPIO1__FUNC_URTS1 (MTK_PIN_NO(1) | 1)
++#define PINMUX_GPIO1__FUNC_DMIC2_CLK (MTK_PIN_NO(1) | 3)
++#define PINMUX_GPIO1__FUNC_TDMIN_LRCK (MTK_PIN_NO(1) | 4)
++#define PINMUX_GPIO1__FUNC_DBG_MON_A1 (MTK_PIN_NO(1) | 7)
++
++#define PINMUX_GPIO2__FUNC_GPIO2 (MTK_PIN_NO(2) | 0)
++#define PINMUX_GPIO2__FUNC_URXD1 (MTK_PIN_NO(2) | 1)
++#define PINMUX_GPIO2__FUNC_DMIC1_DAT (MTK_PIN_NO(2) | 3)
++#define PINMUX_GPIO2__FUNC_TDMIN_MCK (MTK_PIN_NO(2) | 4)
++#define PINMUX_GPIO2__FUNC_DBG_MON_A2 (MTK_PIN_NO(2) | 7)
++
++#define PINMUX_GPIO3__FUNC_GPIO3 (MTK_PIN_NO(3) | 0)
++#define PINMUX_GPIO3__FUNC_UTXD1 (MTK_PIN_NO(3) | 1)
++#define PINMUX_GPIO3__FUNC_DMIC1_DAT_R (MTK_PIN_NO(3) | 3)
++#define PINMUX_GPIO3__FUNC_TDMIN_DI (MTK_PIN_NO(3) | 4)
++#define PINMUX_GPIO3__FUNC_DBG_MON_A3 (MTK_PIN_NO(3) | 7)
++
++#define PINMUX_GPIO4__FUNC_GPIO4 (MTK_PIN_NO(4) | 0)
++#define PINMUX_GPIO4__FUNC_SDA4 (MTK_PIN_NO(4) | 1)
++#define PINMUX_GPIO4__FUNC_ADSP_URXD0 (MTK_PIN_NO(4) | 2)
++#define PINMUX_GPIO4__FUNC_DMIC2_DAT (MTK_PIN_NO(4) | 3)
++#define PINMUX_GPIO4__FUNC_KPCOL0 (MTK_PIN_NO(4) | 4)
++#define PINMUX_GPIO4__FUNC_PWM_0 (MTK_PIN_NO(4) | 5)
++#define PINMUX_GPIO4__FUNC_DBG_MON_A4 (MTK_PIN_NO(4) | 7)
++
++#define PINMUX_GPIO5__FUNC_GPIO5 (MTK_PIN_NO(5) | 0)
++#define PINMUX_GPIO5__FUNC_SCL4 (MTK_PIN_NO(5) | 1)
++#define PINMUX_GPIO5__FUNC_ADSP_UTXD0 (MTK_PIN_NO(5) | 2)
++#define PINMUX_GPIO5__FUNC_DMIC2_DAT_R (MTK_PIN_NO(5) | 3)
++#define PINMUX_GPIO5__FUNC_KPCOL1 (MTK_PIN_NO(5) | 4)
++#define PINMUX_GPIO5__FUNC_PWM_1 (MTK_PIN_NO(5) | 5)
++#define PINMUX_GPIO5__FUNC_DBG_MON_A5 (MTK_PIN_NO(5) | 7)
++
++#define PINMUX_GPIO6__FUNC_GPIO6 (MTK_PIN_NO(6) | 0)
++#define PINMUX_GPIO6__FUNC_URXD0 (MTK_PIN_NO(6) | 3)
++#define PINMUX_GPIO6__FUNC_KPCOL2 (MTK_PIN_NO(6) | 4)
++#define PINMUX_GPIO6__FUNC_PWM_2 (MTK_PIN_NO(6) | 5)
++#define PINMUX_GPIO6__FUNC_DBG_MON_A6 (MTK_PIN_NO(6) | 7)
++
++#define PINMUX_GPIO7__FUNC_GPIO7 (MTK_PIN_NO(7) | 0)
++#define PINMUX_GPIO7__FUNC_UTXD0 (MTK_PIN_NO(7) | 3)
++#define PINMUX_GPIO7__FUNC_KPCOL3 (MTK_PIN_NO(7) | 4)
++#define PINMUX_GPIO7__FUNC_IR_IN (MTK_PIN_NO(7) | 5)
++#define PINMUX_GPIO7__FUNC_DBG_MON_A7 (MTK_PIN_NO(7) | 7)
++
++#define PINMUX_GPIO8__FUNC_GPIO8 (MTK_PIN_NO(8) | 0)
++#define PINMUX_GPIO8__FUNC_SPIM0_MO (MTK_PIN_NO(8) | 1)
++#define PINMUX_GPIO8__FUNC_SPIS0_SI (MTK_PIN_NO(8) | 2)
++#define PINMUX_GPIO8__FUNC_DMIC3_CLK (MTK_PIN_NO(8) | 3)
++#define PINMUX_GPIO8__FUNC_PCM_TX (MTK_PIN_NO(8) | 4)
++#define PINMUX_GPIO8__FUNC_DBG_MON_A8 (MTK_PIN_NO(8) | 7)
++
++#define PINMUX_GPIO9__FUNC_GPIO9 (MTK_PIN_NO(9) | 0)
++#define PINMUX_GPIO9__FUNC_SPIM0_MI (MTK_PIN_NO(9) | 1)
++#define PINMUX_GPIO9__FUNC_SPIS0_SO (MTK_PIN_NO(9) | 2)
++#define PINMUX_GPIO9__FUNC_DMIC3_DAT (MTK_PIN_NO(9) | 3)
++#define PINMUX_GPIO9__FUNC_PCM_RX (MTK_PIN_NO(9) | 4)
++#define PINMUX_GPIO9__FUNC_DBG_MON_A9 (MTK_PIN_NO(9) | 7)
++
++#define PINMUX_GPIO10__FUNC_GPIO10 (MTK_PIN_NO(10) | 0)
++#define PINMUX_GPIO10__FUNC_SPIM0_CSB (MTK_PIN_NO(10) | 1)
++#define PINMUX_GPIO10__FUNC_SPIS0_CSB (MTK_PIN_NO(10) | 2)
++#define PINMUX_GPIO10__FUNC_DMIC3_DAT_R (MTK_PIN_NO(10) | 3)
++#define PINMUX_GPIO10__FUNC_PCM_WS (MTK_PIN_NO(10) | 4)
++#define PINMUX_GPIO10__FUNC_DBG_MON_A10 (MTK_PIN_NO(10) | 7)
++
++#define PINMUX_GPIO11__FUNC_GPIO11 (MTK_PIN_NO(11) | 0)
++#define PINMUX_GPIO11__FUNC_SPIM0_CLK (MTK_PIN_NO(11) | 1)
++#define PINMUX_GPIO11__FUNC_SPIS0_CLK (MTK_PIN_NO(11) | 2)
++#define PINMUX_GPIO11__FUNC_DMIC4_CLK (MTK_PIN_NO(11) | 3)
++#define PINMUX_GPIO11__FUNC_PCM_CLK (MTK_PIN_NO(11) | 4)
++#define PINMUX_GPIO11__FUNC_DBG_MON_A11 (MTK_PIN_NO(11) | 7)
++
++#define PINMUX_GPIO12__FUNC_GPIO12 (MTK_PIN_NO(12) | 0)
++#define PINMUX_GPIO12__FUNC_DMIC4_DAT (MTK_PIN_NO(12) | 3)
++#define PINMUX_GPIO12__FUNC_SPDIF_IN0 (MTK_PIN_NO(12) | 4)
++#define PINMUX_GPIO12__FUNC_PWM_3 (MTK_PIN_NO(12) | 5)
++#define PINMUX_GPIO12__FUNC_DBG_MON_A12 (MTK_PIN_NO(12) | 7)
++
++#define PINMUX_GPIO13__FUNC_GPIO13 (MTK_PIN_NO(13) | 0)
++#define PINMUX_GPIO13__FUNC_DMIC4_DAT_R (MTK_PIN_NO(13) | 3)
++#define PINMUX_GPIO13__FUNC_SPDIF_IN1 (MTK_PIN_NO(13) | 4)
++#define PINMUX_GPIO13__FUNC_PWM_4 (MTK_PIN_NO(13) | 5)
++#define PINMUX_GPIO13__FUNC_DBG_MON_A13 (MTK_PIN_NO(13) | 7)
++
++#define PINMUX_GPIO14__FUNC_GPIO14 (MTK_PIN_NO(14) | 0)
++#define PINMUX_GPIO14__FUNC_URXD2 (MTK_PIN_NO(14) | 1)
++#define PINMUX_GPIO14__FUNC_ADSP_URXD0 (MTK_PIN_NO(14) | 2)
++#define PINMUX_GPIO14__FUNC_SPDIF_IN2 (MTK_PIN_NO(14) | 4)
++#define PINMUX_GPIO14__FUNC_PWM_5 (MTK_PIN_NO(14) | 5)
++#define PINMUX_GPIO14__FUNC_DBG_MON_A14 (MTK_PIN_NO(14) | 7)
++
++#define PINMUX_GPIO15__FUNC_GPIO15 (MTK_PIN_NO(15) | 0)
++#define PINMUX_GPIO15__FUNC_UTXD2 (MTK_PIN_NO(15) | 1)
++#define PINMUX_GPIO15__FUNC_ADSP_UTXD0 (MTK_PIN_NO(15) | 2)
++#define PINMUX_GPIO15__FUNC_IR_IN (MTK_PIN_NO(15) | 5)
++#define PINMUX_GPIO15__FUNC_DBG_MON_A15 (MTK_PIN_NO(15) | 7)
++
++#define PINMUX_GPIO16__FUNC_GPIO16 (MTK_PIN_NO(16) | 0)
++#define PINMUX_GPIO16__FUNC_USB_IDDIG (MTK_PIN_NO(16) | 1)
++#define PINMUX_GPIO16__FUNC_DBG_MON_A16 (MTK_PIN_NO(16) | 7)
++
++#define PINMUX_GPIO17__FUNC_GPIO17 (MTK_PIN_NO(17) | 0)
++#define PINMUX_GPIO17__FUNC_USB_DRVVBUS (MTK_PIN_NO(17) | 1)
++#define PINMUX_GPIO17__FUNC_SDA4 (MTK_PIN_NO(17) | 3)
++#define PINMUX_GPIO17__FUNC_DBG_MON_A17 (MTK_PIN_NO(17) | 7)
++
++#define PINMUX_GPIO18__FUNC_GPIO18 (MTK_PIN_NO(18) | 0)
++#define PINMUX_GPIO18__FUNC_USB_OC (MTK_PIN_NO(18) | 1)
++#define PINMUX_GPIO18__FUNC_UCTS1 (MTK_PIN_NO(18) | 2)
++#define PINMUX_GPIO18__FUNC_SCL4 (MTK_PIN_NO(18) | 3)
++#define PINMUX_GPIO18__FUNC_DBG_MON_A18 (MTK_PIN_NO(18) | 7)
++
++#define PINMUX_GPIO19__FUNC_GPIO19 (MTK_PIN_NO(19) | 0)
++#define PINMUX_GPIO19__FUNC_USB_VBUSVALID (MTK_PIN_NO(19) | 1)
++#define PINMUX_GPIO19__FUNC_URTS1 (MTK_PIN_NO(19) | 2)
++#define PINMUX_GPIO19__FUNC_DBG_MON_A19 (MTK_PIN_NO(19) | 7)
++
++#define PINMUX_GPIO20__FUNC_GPIO20 (MTK_PIN_NO(20) | 0)
++#define PINMUX_GPIO20__FUNC_USB_DRVVBUS_1P (MTK_PIN_NO(20) | 1)
++#define PINMUX_GPIO20__FUNC_URXD1 (MTK_PIN_NO(20) | 2)
++#define PINMUX_GPIO20__FUNC_DBG_MON_A20 (MTK_PIN_NO(20) | 7)
++
++#define PINMUX_GPIO21__FUNC_GPIO21 (MTK_PIN_NO(21) | 0)
++#define PINMUX_GPIO21__FUNC_USB_OC_1P (MTK_PIN_NO(21) | 1)
++#define PINMUX_GPIO21__FUNC_UTXD1 (MTK_PIN_NO(21) | 2)
++#define PINMUX_GPIO21__FUNC_DBG_MON_A21 (MTK_PIN_NO(21) | 7)
++
++#define PINMUX_GPIO22__FUNC_GPIO22 (MTK_PIN_NO(22) | 0)
++#define PINMUX_GPIO22__FUNC_MSDC0_DAT7 (MTK_PIN_NO(22) | 1)
++#define PINMUX_GPIO22__FUNC_SNFI_MOSI (MTK_PIN_NO(22) | 2)
++
++#define PINMUX_GPIO23__FUNC_GPIO23 (MTK_PIN_NO(23) | 0)
++#define PINMUX_GPIO23__FUNC_MSDC0_DAT6 (MTK_PIN_NO(23) | 1)
++#define PINMUX_GPIO23__FUNC_SNFI_CLK (MTK_PIN_NO(23) | 2)
++
++#define PINMUX_GPIO24__FUNC_GPIO24 (MTK_PIN_NO(24) | 0)
++#define PINMUX_GPIO24__FUNC_MSDC0_DAT5 (MTK_PIN_NO(24) | 1)
++#define PINMUX_GPIO24__FUNC_SNFI_CS (MTK_PIN_NO(24) | 2)
++
++#define PINMUX_GPIO25__FUNC_GPIO25 (MTK_PIN_NO(25) | 0)
++#define PINMUX_GPIO25__FUNC_MSDC0_DAT4 (MTK_PIN_NO(25) | 1)
++#define PINMUX_GPIO25__FUNC_SNFI_MISO (MTK_PIN_NO(25) | 2)
++
++#define PINMUX_GPIO26__FUNC_GPIO26 (MTK_PIN_NO(26) | 0)
++#define PINMUX_GPIO26__FUNC_MSDC0_DAT3 (MTK_PIN_NO(26) | 1)
++#define PINMUX_GPIO26__FUNC_SNFI_WP (MTK_PIN_NO(26) | 2)
++
++#define PINMUX_GPIO27__FUNC_GPIO27 (MTK_PIN_NO(27) | 0)
++#define PINMUX_GPIO27__FUNC_MSDC0_DAT2 (MTK_PIN_NO(27) | 1)
++#define PINMUX_GPIO27__FUNC_SNFI_HOLD (MTK_PIN_NO(27) | 2)
++
++#define PINMUX_GPIO28__FUNC_GPIO28 (MTK_PIN_NO(28) | 0)
++#define PINMUX_GPIO28__FUNC_MSDC0_DAT1 (MTK_PIN_NO(28) | 1)
++
++#define PINMUX_GPIO29__FUNC_GPIO29 (MTK_PIN_NO(29) | 0)
++#define PINMUX_GPIO29__FUNC_MSDC0_DAT0 (MTK_PIN_NO(29) | 1)
++
++#define PINMUX_GPIO30__FUNC_GPIO30 (MTK_PIN_NO(30) | 0)
++#define PINMUX_GPIO30__FUNC_MSDC0_RSTB (MTK_PIN_NO(30) | 1)
++
++#define PINMUX_GPIO31__FUNC_GPIO31 (MTK_PIN_NO(31) | 0)
++#define PINMUX_GPIO31__FUNC_MSDC0_DS (MTK_PIN_NO(31) | 1)
++
++#define PINMUX_GPIO32__FUNC_GPIO32 (MTK_PIN_NO(32) | 0)
++#define PINMUX_GPIO32__FUNC_MSDC0_CLK (MTK_PIN_NO(32) | 1)
++
++#define PINMUX_GPIO33__FUNC_GPIO33 (MTK_PIN_NO(33) | 0)
++#define PINMUX_GPIO33__FUNC_MSDC0_CMD (MTK_PIN_NO(33) | 1)
++
++#define PINMUX_GPIO34__FUNC_GPIO34 (MTK_PIN_NO(34) | 0)
++#define PINMUX_GPIO34__FUNC_JTDI_SEL1 (MTK_PIN_NO(34) | 1)
++#define PINMUX_GPIO34__FUNC_SPM_JTAG_TDI (MTK_PIN_NO(34) | 4)
++
++#define PINMUX_GPIO35__FUNC_GPIO35 (MTK_PIN_NO(35) | 0)
++#define PINMUX_GPIO35__FUNC_JTCK_SEL1 (MTK_PIN_NO(35) | 1)
++#define PINMUX_GPIO35__FUNC_SPM_JTAG_TCK (MTK_PIN_NO(35) | 4)
++
++#define PINMUX_GPIO36__FUNC_GPIO36 (MTK_PIN_NO(36) | 0)
++#define PINMUX_GPIO36__FUNC_JTMS_SEL1 (MTK_PIN_NO(36) | 1)
++#define PINMUX_GPIO36__FUNC_SPM_JTAG_TMS (MTK_PIN_NO(36) | 4)
++
++#define PINMUX_GPIO37__FUNC_GPIO37 (MTK_PIN_NO(37) | 0)
++#define PINMUX_GPIO37__FUNC_JTDO_SEL1 (MTK_PIN_NO(37) | 1)
++#define PINMUX_GPIO37__FUNC_SPM_JTAG_TDO (MTK_PIN_NO(37) | 4)
++
++#define PINMUX_GPIO38__FUNC_GPIO38 (MTK_PIN_NO(38) | 0)
++#define PINMUX_GPIO38__FUNC_URXD0 (MTK_PIN_NO(38) | 1)
++
++#define PINMUX_GPIO39__FUNC_GPIO39 (MTK_PIN_NO(39) | 0)
++#define PINMUX_GPIO39__FUNC_UTXD0 (MTK_PIN_NO(39) | 1)
++
++#define PINMUX_GPIO40__FUNC_GPIO40 (MTK_PIN_NO(40) | 0)
++#define PINMUX_GPIO40__FUNC_KPCOL1 (MTK_PIN_NO(40) | 1)
++#define PINMUX_GPIO40__FUNC_SPM_JTAG_TRSTN (MTK_PIN_NO(40) | 4)
++#define PINMUX_GPIO40__FUNC_DBG_MON_A22 (MTK_PIN_NO(40) | 7)
++
++#define PINMUX_GPIO41__FUNC_GPIO41 (MTK_PIN_NO(41) | 0)
++#define PINMUX_GPIO41__FUNC_KPCOL0 (MTK_PIN_NO(41) | 1)
++#define PINMUX_GPIO41__FUNC_UDI_TMS (MTK_PIN_NO(41) | 3)
++#define PINMUX_GPIO41__FUNC_ADSP_JTAG0_TMS (MTK_PIN_NO(41) | 4)
++#define PINMUX_GPIO41__FUNC_RV33SYS_JTAG_TMS (MTK_PIN_NO(41) | 5)
++#define PINMUX_GPIO41__FUNC_MCUPM_JTAG_TMS (MTK_PIN_NO(41) | 6)
++
++#define PINMUX_GPIO42__FUNC_GPIO42 (MTK_PIN_NO(42) | 0)
++#define PINMUX_GPIO42__FUNC_KPROW0 (MTK_PIN_NO(42) | 1)
++#define PINMUX_GPIO42__FUNC_KPCOL2 (MTK_PIN_NO(42) | 2)
++#define PINMUX_GPIO42__FUNC_UDI_NTRST (MTK_PIN_NO(42) | 3)
++#define PINMUX_GPIO42__FUNC_ADSP_JTAG0_TRSTN (MTK_PIN_NO(42) | 4)
++#define PINMUX_GPIO42__FUNC_RV33SYS_JTAG_TRSTN (MTK_PIN_NO(42) | 5)
++#define PINMUX_GPIO42__FUNC_MCUPM_JTAG_TRSTN (MTK_PIN_NO(42) | 6)
++
++#define PINMUX_GPIO43__FUNC_GPIO43 (MTK_PIN_NO(43) | 0)
++#define PINMUX_GPIO43__FUNC_KPROW1 (MTK_PIN_NO(43) | 1)
++#define PINMUX_GPIO43__FUNC_KPCOL3 (MTK_PIN_NO(43) | 2)
++#define PINMUX_GPIO43__FUNC_UDI_TDO (MTK_PIN_NO(43) | 3)
++#define PINMUX_GPIO43__FUNC_ADSP_JTAG0_TDO (MTK_PIN_NO(43) | 4)
++#define PINMUX_GPIO43__FUNC_RV33SYS_JTAG_TDO (MTK_PIN_NO(43) | 5)
++#define PINMUX_GPIO43__FUNC_MCUPM_JTAG_TDO (MTK_PIN_NO(43) | 6)
++
++#define PINMUX_GPIO44__FUNC_GPIO44 (MTK_PIN_NO(44) | 0)
++#define PINMUX_GPIO44__FUNC_URXD2 (MTK_PIN_NO(44) | 1)
++#define PINMUX_GPIO44__FUNC_KPROW0 (MTK_PIN_NO(44) | 2)
++#define PINMUX_GPIO44__FUNC_UDI_TDI (MTK_PIN_NO(44) | 3)
++#define PINMUX_GPIO44__FUNC_ADSP_JTAG0_TDI (MTK_PIN_NO(44) | 4)
++#define PINMUX_GPIO44__FUNC_RV33SYS_JTAG_TDI (MTK_PIN_NO(44) | 5)
++#define PINMUX_GPIO44__FUNC_MCUPM_JTAG_TDI (MTK_PIN_NO(44) | 6)
++
++#define PINMUX_GPIO45__FUNC_GPIO45 (MTK_PIN_NO(45) | 0)
++#define PINMUX_GPIO45__FUNC_UTXD2 (MTK_PIN_NO(45) | 1)
++#define PINMUX_GPIO45__FUNC_KPROW1 (MTK_PIN_NO(45) | 2)
++#define PINMUX_GPIO45__FUNC_UDI_TCK (MTK_PIN_NO(45) | 3)
++#define PINMUX_GPIO45__FUNC_ADSP_JTAG0_TCK (MTK_PIN_NO(45) | 4)
++#define PINMUX_GPIO45__FUNC_RV33SYS_JTAG_TCK (MTK_PIN_NO(45) | 5)
++#define PINMUX_GPIO45__FUNC_MCUPM_JTAG_TCK (MTK_PIN_NO(45) | 6)
++
++#define PINMUX_GPIO46__FUNC_GPIO46 (MTK_PIN_NO(46) | 0)
++#define PINMUX_GPIO46__FUNC_PWM_0 (MTK_PIN_NO(46) | 1)
++#define PINMUX_GPIO46__FUNC_SRCLKENA1 (MTK_PIN_NO(46) | 2)
++
++#define PINMUX_GPIO47__FUNC_GPIO47 (MTK_PIN_NO(47) | 0)
++#define PINMUX_GPIO47__FUNC_PWM_1 (MTK_PIN_NO(47) | 1)
++#define PINMUX_GPIO47__FUNC_SRCLKENA1 (MTK_PIN_NO(47) | 2)
++
++#define PINMUX_GPIO48__FUNC_GPIO48 (MTK_PIN_NO(48) | 0)
++#define PINMUX_GPIO48__FUNC_SRCLKENA0 (MTK_PIN_NO(48) | 1)
++
++#define PINMUX_GPIO49__FUNC_GPIO49 (MTK_PIN_NO(49) | 0)
++#define PINMUX_GPIO49__FUNC_SRCLKENA1 (MTK_PIN_NO(49) | 1)
++#define PINMUX_GPIO49__FUNC_DVFSRC_EXT_REQ (MTK_PIN_NO(49) | 2)
++#define PINMUX_GPIO49__FUNC_DBG_MON_A23 (MTK_PIN_NO(49) | 7)
++
++#define PINMUX_GPIO50__FUNC_GPIO50 (MTK_PIN_NO(50) | 0)
++#define PINMUX_GPIO50__FUNC_WATCHDOG (MTK_PIN_NO(50) | 1)
++
++#define PINMUX_GPIO51__FUNC_GPIO51 (MTK_PIN_NO(51) | 0)
++#define PINMUX_GPIO51__FUNC_RTC32K_CK (MTK_PIN_NO(51) | 1)
++
++#define PINMUX_GPIO52__FUNC_GPIO52 (MTK_PIN_NO(52) | 0)
++#define PINMUX_GPIO52__FUNC_SCL0 (MTK_PIN_NO(52) | 1)
++#define PINMUX_GPIO52__FUNC_SCL2 (MTK_PIN_NO(52) | 2)
++#define PINMUX_GPIO52__FUNC_PWM_2 (MTK_PIN_NO(52) | 5)
++
++#define PINMUX_GPIO53__FUNC_GPIO53 (MTK_PIN_NO(53) | 0)
++#define PINMUX_GPIO53__FUNC_SDA0 (MTK_PIN_NO(53) | 1)
++#define PINMUX_GPIO53__FUNC_SDA2 (MTK_PIN_NO(53) | 2)
++#define PINMUX_GPIO53__FUNC_PWM_3 (MTK_PIN_NO(53) | 5)
++
++#define PINMUX_GPIO54__FUNC_GPIO54 (MTK_PIN_NO(54) | 0)
++#define PINMUX_GPIO54__FUNC_SCL1 (MTK_PIN_NO(54) | 1)
++#define PINMUX_GPIO54__FUNC_SCL3 (MTK_PIN_NO(54) | 2)
++#define PINMUX_GPIO54__FUNC_PWM_4 (MTK_PIN_NO(54) | 5)
++
++#define PINMUX_GPIO55__FUNC_GPIO55 (MTK_PIN_NO(55) | 0)
++#define PINMUX_GPIO55__FUNC_SDA1 (MTK_PIN_NO(55) | 1)
++#define PINMUX_GPIO55__FUNC_SDA3 (MTK_PIN_NO(55) | 2)
++#define PINMUX_GPIO55__FUNC_PWM_5 (MTK_PIN_NO(55) | 5)
++
++#define PINMUX_GPIO56__FUNC_GPIO56 (MTK_PIN_NO(56) | 0)
++#define PINMUX_GPIO56__FUNC_DMIC1_CLK (MTK_PIN_NO(56) | 1)
++#define PINMUX_GPIO56__FUNC_TDMIN_BCK (MTK_PIN_NO(56) | 2)
++#define PINMUX_GPIO56__FUNC_I2SO_LRCK (MTK_PIN_NO(56) | 3)
++#define PINMUX_GPIO56__FUNC_I2SIN_WS (MTK_PIN_NO(56) | 4)
++#define PINMUX_GPIO56__FUNC_SPLIN_LRCK (MTK_PIN_NO(56) | 5)
++#define PINMUX_GPIO56__FUNC_DBG_MON_A24 (MTK_PIN_NO(56) | 7)
++
++#define PINMUX_GPIO57__FUNC_GPIO57 (MTK_PIN_NO(57) | 0)
++#define PINMUX_GPIO57__FUNC_DMIC2_CLK (MTK_PIN_NO(57) | 1)
++#define PINMUX_GPIO57__FUNC_TDMIN_LRCK (MTK_PIN_NO(57) | 2)
++#define PINMUX_GPIO57__FUNC_I2SO_BCK (MTK_PIN_NO(57) | 3)
++#define PINMUX_GPIO57__FUNC_I2SIN_BCK (MTK_PIN_NO(57) | 4)
++#define PINMUX_GPIO57__FUNC_SPLIN_BCK (MTK_PIN_NO(57) | 5)
++#define PINMUX_GPIO57__FUNC_DBG_MON_A25 (MTK_PIN_NO(57) | 7)
++
++#define PINMUX_GPIO58__FUNC_GPIO58 (MTK_PIN_NO(58) | 0)
++#define PINMUX_GPIO58__FUNC_DMIC1_DAT (MTK_PIN_NO(58) | 1)
++#define PINMUX_GPIO58__FUNC_TDMIN_MCK (MTK_PIN_NO(58) | 2)
++#define PINMUX_GPIO58__FUNC_I2SO_MCK (MTK_PIN_NO(58) | 3)
++#define PINMUX_GPIO58__FUNC_I2SIN_MCK (MTK_PIN_NO(58) | 4)
++#define PINMUX_GPIO58__FUNC_SPLIN_D3 (MTK_PIN_NO(58) | 5)
++#define PINMUX_GPIO58__FUNC_DBG_MON_A26 (MTK_PIN_NO(58) | 7)
++
++#define PINMUX_GPIO59__FUNC_GPIO59 (MTK_PIN_NO(59) | 0)
++#define PINMUX_GPIO59__FUNC_DMIC1_DAT_R (MTK_PIN_NO(59) | 1)
++#define PINMUX_GPIO59__FUNC_TDMIN_DI (MTK_PIN_NO(59) | 2)
++#define PINMUX_GPIO59__FUNC_I2SO_DAT0 (MTK_PIN_NO(59) | 3)
++#define PINMUX_GPIO59__FUNC_I2SIN_D0 (MTK_PIN_NO(59) | 4)
++#define PINMUX_GPIO59__FUNC_SPLIN_D2 (MTK_PIN_NO(59) | 5)
++#define PINMUX_GPIO59__FUNC_DBG_MON_A27 (MTK_PIN_NO(59) | 7)
++
++#define PINMUX_GPIO60__FUNC_GPIO60 (MTK_PIN_NO(60) | 0)
++#define PINMUX_GPIO60__FUNC_DMIC2_DAT (MTK_PIN_NO(60) | 1)
++#define PINMUX_GPIO60__FUNC_URXD0 (MTK_PIN_NO(60) | 2)
++#define PINMUX_GPIO60__FUNC_I2SO_DAT1 (MTK_PIN_NO(60) | 3)
++#define PINMUX_GPIO60__FUNC_I2SIN_D1 (MTK_PIN_NO(60) | 4)
++#define PINMUX_GPIO60__FUNC_SPLIN_D1 (MTK_PIN_NO(60) | 5)
++#define PINMUX_GPIO60__FUNC_DBG_MON_A28 (MTK_PIN_NO(60) | 7)
++
++#define PINMUX_GPIO61__FUNC_GPIO61 (MTK_PIN_NO(61) | 0)
++#define PINMUX_GPIO61__FUNC_DMIC2_DAT_R (MTK_PIN_NO(61) | 1)
++#define PINMUX_GPIO61__FUNC_UTXD0 (MTK_PIN_NO(61) | 2)
++#define PINMUX_GPIO61__FUNC_I2SO_DAT2 (MTK_PIN_NO(61) | 3)
++#define PINMUX_GPIO61__FUNC_I2SIN_D2 (MTK_PIN_NO(61) | 4)
++#define PINMUX_GPIO61__FUNC_SPLIN_D0 (MTK_PIN_NO(61) | 5)
++#define PINMUX_GPIO61__FUNC_DBG_MON_A29 (MTK_PIN_NO(61) | 7)
++
++#define PINMUX_GPIO62__FUNC_GPIO62 (MTK_PIN_NO(62) | 0)
++#define PINMUX_GPIO62__FUNC_SPIM0_MO (MTK_PIN_NO(62) | 1)
++#define PINMUX_GPIO62__FUNC_UCTS1 (MTK_PIN_NO(62) | 3)
++#define PINMUX_GPIO62__FUNC_URXD2 (MTK_PIN_NO(62) | 4)
++#define PINMUX_GPIO62__FUNC_I2SO_LRCK (MTK_PIN_NO(62) | 5)
++#define PINMUX_GPIO62__FUNC_DBG_MON_A30 (MTK_PIN_NO(62) | 7)
++
++#define PINMUX_GPIO63__FUNC_GPIO63 (MTK_PIN_NO(63) | 0)
++#define PINMUX_GPIO63__FUNC_SPIM0_MI (MTK_PIN_NO(63) | 1)
++#define PINMUX_GPIO63__FUNC_URTS1 (MTK_PIN_NO(63) | 3)
++#define PINMUX_GPIO63__FUNC_UTXD2 (MTK_PIN_NO(63) | 4)
++#define PINMUX_GPIO63__FUNC_I2SO_BCK (MTK_PIN_NO(63) | 5)
++#define PINMUX_GPIO63__FUNC_DBG_MON_A31 (MTK_PIN_NO(63) | 7)
++
++#define PINMUX_GPIO64__FUNC_GPIO64 (MTK_PIN_NO(64) | 0)
++#define PINMUX_GPIO64__FUNC_SPIM0_CSB (MTK_PIN_NO(64) | 1)
++#define PINMUX_GPIO64__FUNC_URXD1 (MTK_PIN_NO(64) | 3)
++#define PINMUX_GPIO64__FUNC_I2SO_MCK (MTK_PIN_NO(64) | 5)
++#define PINMUX_GPIO64__FUNC_DBG_MON_A32 (MTK_PIN_NO(64) | 7)
++
++#define PINMUX_GPIO65__FUNC_GPIO65 (MTK_PIN_NO(65) | 0)
++#define PINMUX_GPIO65__FUNC_SPIM0_CLK (MTK_PIN_NO(65) | 1)
++#define PINMUX_GPIO65__FUNC_UTXD1 (MTK_PIN_NO(65) | 3)
++#define PINMUX_GPIO65__FUNC_IR_IN (MTK_PIN_NO(65) | 4)
++#define PINMUX_GPIO65__FUNC_I2SO_DAT0 (MTK_PIN_NO(65) | 5)
++#define PINMUX_GPIO65__FUNC_DBG_MON_B0 (MTK_PIN_NO(65) | 7)
++
++#define PINMUX_GPIO66__FUNC_GPIO66 (MTK_PIN_NO(66) | 0)
++#define PINMUX_GPIO66__FUNC_SCL2 (MTK_PIN_NO(66) | 1)
++#define PINMUX_GPIO66__FUNC_SCL0 (MTK_PIN_NO(66) | 2)
++#define PINMUX_GPIO66__FUNC_DBG_MON_B1 (MTK_PIN_NO(66) | 7)
++
++#define PINMUX_GPIO67__FUNC_GPIO67 (MTK_PIN_NO(67) | 0)
++#define PINMUX_GPIO67__FUNC_SDA2 (MTK_PIN_NO(67) | 1)
++#define PINMUX_GPIO67__FUNC_SDA0 (MTK_PIN_NO(67) | 2)
++#define PINMUX_GPIO67__FUNC_DBG_MON_B2 (MTK_PIN_NO(67) | 7)
++
++#define PINMUX_GPIO68__FUNC_GPIO68 (MTK_PIN_NO(68) | 0)
++#define PINMUX_GPIO68__FUNC_DBG_MON_B3 (MTK_PIN_NO(68) | 7)
++
++#define PINMUX_GPIO69__FUNC_GPIO69 (MTK_PIN_NO(69) | 0)
++#define PINMUX_GPIO69__FUNC_DBG_MON_B4 (MTK_PIN_NO(69) | 7)
++
++#define PINMUX_GPIO70__FUNC_GPIO70 (MTK_PIN_NO(70) | 0)
++
++#define PINMUX_GPIO71__FUNC_GPIO71 (MTK_PIN_NO(71) | 0)
++
++#define PINMUX_GPIO72__FUNC_GPIO72 (MTK_PIN_NO(72) | 0)
++#define PINMUX_GPIO72__FUNC_TSF_IN (MTK_PIN_NO(72) | 1)
++
++#define PINMUX_GPIO73__FUNC_GPIO73 (MTK_PIN_NO(73) | 0)
++#define PINMUX_GPIO73__FUNC_PCM_TX (MTK_PIN_NO(73) | 1)
++#define PINMUX_GPIO73__FUNC_DBG_MON_B5 (MTK_PIN_NO(73) | 7)
++
++#define PINMUX_GPIO74__FUNC_GPIO74 (MTK_PIN_NO(74) | 0)
++#define PINMUX_GPIO74__FUNC_PCM_RX (MTK_PIN_NO(74) | 1)
++#define PINMUX_GPIO74__FUNC_DBG_MON_B6 (MTK_PIN_NO(74) | 7)
++
++#define PINMUX_GPIO75__FUNC_GPIO75 (MTK_PIN_NO(75) | 0)
++#define PINMUX_GPIO75__FUNC_PCM_WS (MTK_PIN_NO(75) | 1)
++#define PINMUX_GPIO75__FUNC_MBISTWRITEEN_TRIGGER (MTK_PIN_NO(75) | 2)
++#define PINMUX_GPIO75__FUNC_DBG_MON_B7 (MTK_PIN_NO(75) | 7)
++
++#define PINMUX_GPIO76__FUNC_GPIO76 (MTK_PIN_NO(76) | 0)
++#define PINMUX_GPIO76__FUNC_PCM_CLK (MTK_PIN_NO(76) | 1)
++#define PINMUX_GPIO76__FUNC_MBISTREADEN_TRIGGER (MTK_PIN_NO(76) | 2)
++#define PINMUX_GPIO76__FUNC_DBG_MON_B8 (MTK_PIN_NO(76) | 7)
++
++#define PINMUX_GPIO77__FUNC_GPIO77 (MTK_PIN_NO(77) | 0)
++#define PINMUX_GPIO77__FUNC_MSDC1_DAT3 (MTK_PIN_NO(77) | 1)
++#define PINMUX_GPIO77__FUNC_DBG_MON_B9 (MTK_PIN_NO(77) | 7)
++
++#define PINMUX_GPIO78__FUNC_GPIO78 (MTK_PIN_NO(78) | 0)
++#define PINMUX_GPIO78__FUNC_MSDC1_DAT2 (MTK_PIN_NO(78) | 1)
++#define PINMUX_GPIO78__FUNC_DBG_MON_B10 (MTK_PIN_NO(78) | 7)
++
++#define PINMUX_GPIO79__FUNC_GPIO79 (MTK_PIN_NO(79) | 0)
++#define PINMUX_GPIO79__FUNC_MSDC1_DAT1 (MTK_PIN_NO(79) | 1)
++#define PINMUX_GPIO79__FUNC_DBG_MON_B11 (MTK_PIN_NO(79) | 7)
++
++#define PINMUX_GPIO80__FUNC_GPIO80 (MTK_PIN_NO(80) | 0)
++#define PINMUX_GPIO80__FUNC_MSDC1_DAT0 (MTK_PIN_NO(80) | 1)
++#define PINMUX_GPIO80__FUNC_DBG_MON_B12 (MTK_PIN_NO(80) | 7)
++
++#define PINMUX_GPIO81__FUNC_GPIO81 (MTK_PIN_NO(81) | 0)
++#define PINMUX_GPIO81__FUNC_MSDC1_CLK (MTK_PIN_NO(81) | 1)
++#define PINMUX_GPIO81__FUNC_DBG_MON_B13 (MTK_PIN_NO(81) | 7)
++
++#define PINMUX_GPIO82__FUNC_GPIO82 (MTK_PIN_NO(82) | 0)
++#define PINMUX_GPIO82__FUNC_MSDC1_CMD (MTK_PIN_NO(82) | 1)
++#define PINMUX_GPIO82__FUNC_DBG_MON_B14 (MTK_PIN_NO(82) | 7)
++
++#define PINMUX_GPIO83__FUNC_GPIO83 (MTK_PIN_NO(83) | 0)
++#define PINMUX_GPIO83__FUNC_SPDIF_IN0 (MTK_PIN_NO(83) | 1)
++#define PINMUX_GPIO83__FUNC_TDMIN_BCK (MTK_PIN_NO(83) | 2)
++#define PINMUX_GPIO83__FUNC_SPIS0_SI (MTK_PIN_NO(83) | 4)
++#define PINMUX_GPIO83__FUNC_DBG_MON_B15 (MTK_PIN_NO(83) | 7)
++
++#define PINMUX_GPIO84__FUNC_GPIO84 (MTK_PIN_NO(84) | 0)
++#define PINMUX_GPIO84__FUNC_SPDIF_IN1 (MTK_PIN_NO(84) | 1)
++#define PINMUX_GPIO84__FUNC_TDMIN_LRCK (MTK_PIN_NO(84) | 2)
++#define PINMUX_GPIO84__FUNC_SPIS0_SO (MTK_PIN_NO(84) | 4)
++#define PINMUX_GPIO84__FUNC_DBG_MON_B16 (MTK_PIN_NO(84) | 7)
++
++#define PINMUX_GPIO85__FUNC_GPIO85 (MTK_PIN_NO(85) | 0)
++#define PINMUX_GPIO85__FUNC_SPDIF_IN2 (MTK_PIN_NO(85) | 1)
++#define PINMUX_GPIO85__FUNC_TDMIN_MCK (MTK_PIN_NO(85) | 2)
++#define PINMUX_GPIO85__FUNC_SPIS0_CSB (MTK_PIN_NO(85) | 4)
++#define PINMUX_GPIO85__FUNC_DBG_MON_B17 (MTK_PIN_NO(85) | 7)
++
++#define PINMUX_GPIO86__FUNC_GPIO86 (MTK_PIN_NO(86) | 0)
++#define PINMUX_GPIO86__FUNC_TDMIN_DI (MTK_PIN_NO(86) | 2)
++#define PINMUX_GPIO86__FUNC_SPIS0_CLK (MTK_PIN_NO(86) | 4)
++#define PINMUX_GPIO86__FUNC_DBG_MON_B18 (MTK_PIN_NO(86) | 7)
++
++#define PINMUX_GPIO87__FUNC_GPIO87 (MTK_PIN_NO(87) | 0)
++#define PINMUX_GPIO87__FUNC_I2SO_LRCK (MTK_PIN_NO(87) | 1)
++
++#define PINMUX_GPIO88__FUNC_GPIO88 (MTK_PIN_NO(88) | 0)
++#define PINMUX_GPIO88__FUNC_I2SO_BCK (MTK_PIN_NO(88) | 1)
++
++#define PINMUX_GPIO89__FUNC_GPIO89 (MTK_PIN_NO(89) | 0)
++#define PINMUX_GPIO89__FUNC_I2SO_MCK (MTK_PIN_NO(89) | 1)
++
++#define PINMUX_GPIO90__FUNC_GPIO90 (MTK_PIN_NO(90) | 0)
++#define PINMUX_GPIO90__FUNC_I2SO_DAT3 (MTK_PIN_NO(90) | 1)
++#define PINMUX_GPIO90__FUNC_PWM_3 (MTK_PIN_NO(90) | 4)
++
++#define PINMUX_GPIO91__FUNC_GPIO91 (MTK_PIN_NO(91) | 0)
++#define PINMUX_GPIO91__FUNC_I2SO_DAT2 (MTK_PIN_NO(91) | 1)
++#define PINMUX_GPIO91__FUNC_PWM_4 (MTK_PIN_NO(91) | 4)
++
++#define PINMUX_GPIO92__FUNC_GPIO92 (MTK_PIN_NO(92) | 0)
++#define PINMUX_GPIO92__FUNC_I2SO_DAT1 (MTK_PIN_NO(92) | 1)
++#define PINMUX_GPIO92__FUNC_PWM_5 (MTK_PIN_NO(92) | 4)
++
++#define PINMUX_GPIO93__FUNC_GPIO93 (MTK_PIN_NO(93) | 0)
++#define PINMUX_GPIO93__FUNC_I2SO_DAT0 (MTK_PIN_NO(93) | 1)
++#define PINMUX_GPIO93__FUNC_IR_IN (MTK_PIN_NO(93) | 2)
++#define PINMUX_GPIO93__FUNC_DBG_MON_B19 (MTK_PIN_NO(93) | 7)
++
++#define PINMUX_GPIO94__FUNC_GPIO94 (MTK_PIN_NO(94) | 0)
++#define PINMUX_GPIO94__FUNC_SCL3 (MTK_PIN_NO(94) | 1)
++#define PINMUX_GPIO94__FUNC_SCL1 (MTK_PIN_NO(94) | 2)
++
++#define PINMUX_GPIO95__FUNC_GPIO95 (MTK_PIN_NO(95) | 0)
++#define PINMUX_GPIO95__FUNC_SDA3 (MTK_PIN_NO(95) | 1)
++#define PINMUX_GPIO95__FUNC_SDA1 (MTK_PIN_NO(95) | 2)
++
++#define PINMUX_GPIO96__FUNC_GPIO96 (MTK_PIN_NO(96) | 0)
++#define PINMUX_GPIO96__FUNC_URXD2 (MTK_PIN_NO(96) | 1)
++#define PINMUX_GPIO96__FUNC_DBG_MON_B20 (MTK_PIN_NO(96) | 7)
++
++#define PINMUX_GPIO97__FUNC_GPIO97 (MTK_PIN_NO(97) | 0)
++#define PINMUX_GPIO97__FUNC_UTXD2 (MTK_PIN_NO(97) | 1)
++#define PINMUX_GPIO97__FUNC_DBG_MON_B21 (MTK_PIN_NO(97) | 7)
++
++#define PINMUX_GPIO98__FUNC_GPIO98 (MTK_PIN_NO(98) | 0)
++#define PINMUX_GPIO98__FUNC_I2SIN_WS (MTK_PIN_NO(98) | 1)
++#define PINMUX_GPIO98__FUNC_SPLIN_LRCK (MTK_PIN_NO(98) | 2)
++#define PINMUX_GPIO98__FUNC_DMIC3_CLK (MTK_PIN_NO(98) | 3)
++#define PINMUX_GPIO98__FUNC_DBG_MON_B22 (MTK_PIN_NO(98) | 7)
++
++#define PINMUX_GPIO99__FUNC_GPIO99 (MTK_PIN_NO(99) | 0)
++#define PINMUX_GPIO99__FUNC_I2SIN_BCK (MTK_PIN_NO(99) | 1)
++#define PINMUX_GPIO99__FUNC_SPLIN_BCK (MTK_PIN_NO(99) | 2)
++#define PINMUX_GPIO99__FUNC_DMIC3_DAT (MTK_PIN_NO(99) | 3)
++#define PINMUX_GPIO99__FUNC_DBG_MON_B23 (MTK_PIN_NO(99) | 7)
++
++#define PINMUX_GPIO100__FUNC_GPIO100 (MTK_PIN_NO(100) | 0)
++#define PINMUX_GPIO100__FUNC_I2SIN_MCK (MTK_PIN_NO(100) | 1)
++#define PINMUX_GPIO100__FUNC_DMIC3_DAT_R (MTK_PIN_NO(100) | 3)
++#define PINMUX_GPIO100__FUNC_DBG_MON_B24 (MTK_PIN_NO(100) | 7)
++
++#define PINMUX_GPIO101__FUNC_GPIO101 (MTK_PIN_NO(101) | 0)
++#define PINMUX_GPIO101__FUNC_I2SIN_D3 (MTK_PIN_NO(101) | 1)
++#define PINMUX_GPIO101__FUNC_SPLIN_D3 (MTK_PIN_NO(101) | 2)
++#define PINMUX_GPIO101__FUNC_DMIC4_CLK (MTK_PIN_NO(101) | 3)
++#define PINMUX_GPIO101__FUNC_DBG_MON_B25 (MTK_PIN_NO(101) | 7)
++
++#define PINMUX_GPIO102__FUNC_GPIO102 (MTK_PIN_NO(102) | 0)
++#define PINMUX_GPIO102__FUNC_I2SIN_D2 (MTK_PIN_NO(102) | 1)
++#define PINMUX_GPIO102__FUNC_SPLIN_D2 (MTK_PIN_NO(102) | 2)
++#define PINMUX_GPIO102__FUNC_DMIC4_DAT (MTK_PIN_NO(102) | 3)
++#define PINMUX_GPIO102__FUNC_DBG_MON_B26 (MTK_PIN_NO(102) | 7)
++
++#define PINMUX_GPIO103__FUNC_GPIO103 (MTK_PIN_NO(103) | 0)
++#define PINMUX_GPIO103__FUNC_I2SIN_D1 (MTK_PIN_NO(103) | 1)
++#define PINMUX_GPIO103__FUNC_SPLIN_D1 (MTK_PIN_NO(103) | 2)
++#define PINMUX_GPIO103__FUNC_DMIC4_DAT_R (MTK_PIN_NO(103) | 3)
++#define PINMUX_GPIO103__FUNC_DBG_MON_B27 (MTK_PIN_NO(103) | 7)
++
++#define PINMUX_GPIO104__FUNC_GPIO104 (MTK_PIN_NO(104) | 0)
++#define PINMUX_GPIO104__FUNC_I2SIN_D0 (MTK_PIN_NO(104) | 1)
++#define PINMUX_GPIO104__FUNC_SPLIN_D0 (MTK_PIN_NO(104) | 2)
++#define PINMUX_GPIO104__FUNC_KPCOL0 (MTK_PIN_NO(104) | 3)
++#define PINMUX_GPIO104__FUNC_DBG_MON_B28 (MTK_PIN_NO(104) | 7)
++
++#define PINMUX_GPIO105__FUNC_GPIO105 (MTK_PIN_NO(105) | 0)
++#define PINMUX_GPIO105__FUNC_PWM_3 (MTK_PIN_NO(105) | 2)
++#define PINMUX_GPIO105__FUNC_KPCOL1 (MTK_PIN_NO(105) | 3)
++#define PINMUX_GPIO105__FUNC_CLKM3 (MTK_PIN_NO(105) | 4)
++#define PINMUX_GPIO105__FUNC_AUXIF_ST0 (MTK_PIN_NO(105) | 5)
++#define PINMUX_GPIO105__FUNC_DBG_MON_B29 (MTK_PIN_NO(105) | 7)
++
++#define PINMUX_GPIO106__FUNC_GPIO106 (MTK_PIN_NO(106) | 0)
++#define PINMUX_GPIO106__FUNC_PWM_4 (MTK_PIN_NO(106) | 2)
++#define PINMUX_GPIO106__FUNC_KPCOL2 (MTK_PIN_NO(106) | 3)
++#define PINMUX_GPIO106__FUNC_CLKM2 (MTK_PIN_NO(106) | 4)
++#define PINMUX_GPIO106__FUNC_AUXIF_CLK0 (MTK_PIN_NO(106) | 5)
++#define PINMUX_GPIO106__FUNC_DBG_MON_B30 (MTK_PIN_NO(106) | 7)
++
++#define PINMUX_GPIO107__FUNC_GPIO107 (MTK_PIN_NO(107) | 0)
++#define PINMUX_GPIO107__FUNC_PGD_FLAG (MTK_PIN_NO(107) | 1)
++#define PINMUX_GPIO107__FUNC_PWM_5 (MTK_PIN_NO(107) | 2)
++#define PINMUX_GPIO107__FUNC_KPCOL3 (MTK_PIN_NO(107) | 3)
++#define PINMUX_GPIO107__FUNC_CLKM1 (MTK_PIN_NO(107) | 4)
++#define PINMUX_GPIO107__FUNC_DBG_MON_B31 (MTK_PIN_NO(107) | 7)
++
++#define PINMUX_GPIO108__FUNC_GPIO108 (MTK_PIN_NO(108) | 0)
++#define PINMUX_GPIO108__FUNC_GDU_FLAG (MTK_PIN_NO(108) | 1)
++#define PINMUX_GPIO108__FUNC_PWM_6 (MTK_PIN_NO(108) | 2)
++#define PINMUX_GPIO108__FUNC_CLKM0 (MTK_PIN_NO(108) | 4)
++#define PINMUX_GPIO108__FUNC_DBG_MON_B32 (MTK_PIN_NO(108) | 7)
++
++#endif /* __MT8519_PINFUNC_H */
+diff --git a/include/dt-bindings/soc/mediatek,boot-mode.h b/include/dt-bindings/soc/mediatek,boot-mode.h
+new file mode 100644
+index 000000000..f7d51072a
+--- /dev/null
++++ b/include/dt-bindings/soc/mediatek,boot-mode.h
+@@ -0,0 +1,17 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (c) 2019 MediaTek Inc.
++ */
++#ifndef __MEDIATEK_BOOT_MODE_H
++#define __MEDIATEK_BOOT_MODE_H
++
++#define BOOT_CHARGER	1
++#define BOOT_RECOVERY	2
++#define BOOT_BOOTLOADER	3
++#define BOOT_DM_VERITY	4
++#define BOOT_KPOC	5
++#define BOOT_DDR_RSVD	6
++#define BOOT_META	7
++#define BOOT_RPMBPK	8
++
++#endif
