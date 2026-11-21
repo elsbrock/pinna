@@ -111,9 +111,8 @@ repository under Apache-2.0; the model itself carries no licence of its own.
 
 The device needs Amazon's Wi-Fi and Bluetooth firmware and the bitstream for
 its microphone FPGA. They aren't part of the repository. `just kernel` and
-`just image` run `just firmware`, which downloads them from
-`https://static.iodev.org/pinna/firmware/` into `blobs/firmware/` and checks
-their sha256. Pinna doesn't modify them, and its license doesn't cover them.
+`just image` run `just firmware`, which downloads them into `blobs/firmware/`
+and checks their sha256. Pinna doesn't modify them, and its license doesn't cover them.
 
 ## Build the images
 
