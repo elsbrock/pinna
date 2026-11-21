@@ -2,7 +2,8 @@
 
 Status: proposed (2026-11-16), accepted and built (2026-11-18), released in v0.3.0. Amends
 ADR 0005, ADR 0007, ADR 0013, ADR 0020 and ADR 0022; builds on ADR 0008, ADR 0011, ADR 0018 and
-ADR 0021.
+ADR 0021. Amended 2026-11-21: an MCP server's tool list may be larger, a server that lists more than 32
+tools starts with them off, and tool lists refresh in the background.
 
 ## Context
 
@@ -144,8 +145,9 @@ ADR 0021.
   - it runs the tool calls, sends the results back and asks again: at most 5 rounds, at most 8 calls a
     round, 10 s per tool. The last round still offers the tools, but forbids calling them, so the model
     answers in words;
-  - it offers at most 64 tools: the device's first, then the owner's MCP servers' (at most 32 each).
-    A tool's output is cut at 8 KiB;
+  - it offers at most 64 tools: the device's first, then the owner's MCP servers' in the order they
+    were added. Tools past 64 are left out with a log line, and the dashboard warns while more than 64
+    are on. A tool's output is cut at 8 KiB;
   - a tool that fails goes back to the model as an error result.
 - **The prompt is the owner's.**
   - The dashboard edits it in full, at most 4,000 characters. It starts as pinnad's voice rules: the
@@ -223,7 +225,8 @@ ADR 0021.
   - `install_update` is the brain's only, not `/mcp`'s, and its switch starts off; every other tool's
     starts on. A model can call a tool nobody asked for, on a misheard request or on text a tool
     returned, and this one ends in a restart. An agent acts on its own and reads text from anywhere,
-    where the dashboard's Install needs a person. An owner who wants it turns it on.
+    where the dashboard's Install needs a person. An owner who wants it turns it on. (An MCP server's
+    tools start as its section below says.)
 - **Local time comes from the time zone setting** (ADR 0007), for the time tool and the brain. Unset is
   UTC. The place search returns the place's time zone, and the dashboard offers it when the device's
   differs.
@@ -249,9 +252,18 @@ ADR 0021.
   - They have no authentication yet: a server that takes a token in its address works; one that needs a
     header token or OAuth can't be added until a later ADR adds them.
   - A server's tools are named `<server>_<tool>`, with the server's hyphens as underscores; a name
-    that doesn't fit providers' 64-byte `[A-Za-z0-9_-]` rule is left out. Its tool list is cached for 5 minutes, a failure for
-    30 s. A server that doesn't list within 2 s is left out of that request.
+    that doesn't fit providers' 64-byte `[A-Za-z0-9_-]` rule is left out.
+  - Its tool list is read up to 1 MiB and 128 tools, and cached for 5 minutes, a failure for 30 s. An
+    expired list is asked for again in the background, within 10 s, while requests use the copy they
+    have, so a request doesn't wait for a list. A request that has none waits at most 2 s for it and
+    goes without the server otherwise. ha-mcp, a Home Assistant MCP server, lists 77 tools in
+    297 KB (version 9.2.0, measured 2026-11-21); the first limits, 256 KiB and 32 tools, left it out.
   - Saving a server asks it for its tools at once, and the dashboard shows how it answered.
+  - A server that lists more than 32 tools when it is added, or when its address changes, gets a
+    stored switch for each of them, off. The owner turns on the few the brain needs; ha-mcp's first 32
+    are administration tools. The switches are stored rather than worked out from the count, so a
+    list that grows or shrinks later turns nothing on or off by itself. A tool a server adds later
+    starts on, as on any server. The dashboard turns a server's tools all on or all off at once.
   - At most 8 servers.
 - **pinnad detects the end of speech** with the energy VAD that the wake word detector already runs, on
   the frames after the AGC (ADR 0004).
