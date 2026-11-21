@@ -1,6 +1,6 @@
 // The public channel and release file routes (ADR 0022).
 import withdrawn from "../withdrawn.json" with { type: "json" };
-import { download, GitHubError, releases, type Deps, type Env, type Release } from './github.ts';
+import { download, GitHubError, releases, type Asset, type Deps, type Env, type Release } from './github.ts';
 import { compare, parse } from './semver.ts';
 export { resetCache } from './github.ts';
 
@@ -30,9 +30,21 @@ function contentType(name: string) {
   return 'application/octet-stream';
 }
 
+// A second download fills the cache. Teeing the client's stream instead would
+// hold whatever the slower reader hasn't read yet in the Worker's 128 MB.
+async function store(env: Env, deps: Deps, asset: Asset, key: Request, headers: Headers) {
+  const stored = new Headers(headers);
+  const upstream = await download(env, deps, asset);
+  stored.set('Cache-Control', 'public, max-age=31536000');
+  stored.set('Content-Length', upstream.headers.get('Content-Length') ?? String(asset.size));
+  await deps.cache!.put(key, new Response(upstream.body, { headers: stored }));
+}
+
 // Workers' fetch must be called as a plain function: detached as `deps.fetch`
 // it throws "Illegal invocation". Node's doesn't, so the tests can't show it.
-export async function handle(request: Request, env: Env, deps: Deps = { fetch: (input, init) => fetch(input, init), now: Date.now, withdrawn }) {
+const live: Deps = { fetch: (input, init) => fetch(input, init), now: Date.now, withdrawn };
+
+export async function handle(request: Request, env: Env, deps: Deps = live) {
   const { method } = request;
   const text = (status: number, message: string, headers = {}) => new Response(method === 'HEAD' ? null : message, {
     status, headers: { ...cors, 'Content-Type': plain, ...headers },
@@ -65,16 +77,28 @@ export async function handle(request: Request, env: Env, deps: Deps = { fetch: (
     if (!release) return text(404, `There is no release ${tag}.`);
     const asset = release.assets.find(a => a.name === name);
     if (!asset) return text(404, `${tag} has no file ${name}.`);
-    const upstream = method === 'HEAD' ? null : await download(env, deps, asset);
     const headers = new Headers({ ...cors, 'Content-Type': contentType(name),
-      'Cache-Control': 'public, max-age=3600', 'Content-Length': upstream?.headers.get('Content-Length') ?? String(asset.size),
+      'Cache-Control': 'public, max-age=3600', 'Content-Length': String(asset.size),
     });
     if (name.endsWith('.img')) headers.set('Content-Disposition', `attachment; filename="${name}"`);
-    return new Response(upstream?.body ?? null, { headers });
+    if (method === 'HEAD') return new Response(null, { headers });
+    // Cloudflare's cache doesn't see what a Worker returns, so the Worker keeps
+    // files in the data centre's cache itself, after the checks above. The key
+    // holds GitHub's asset id, which changes when a file is uploaded again.
+    const key = new Request(`${origin}/v1/assets/${asset.id}`);
+    const cached = await deps.cache?.match(key);
+    const source = cached ?? await download(env, deps, asset);
+    if (!cached && deps.cache && deps.waitUntil) deps.waitUntil(store(env, deps, asset, key, headers));
+    headers.set('Content-Length', source.headers.get('Content-Length') ?? String(asset.size));
+    return new Response(source.body, { headers });
   } catch (error) {
     if (error instanceof GitHubError) return text(502, error.message);
     throw error;
   }
 }
 
-export default { fetch(request: Request, env: Env) { return handle(request, env); } };
+export default {
+  fetch(request: Request, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }) {
+    return handle(request, env, { ...live, cache: caches.default, waitUntil: p => ctx.waitUntil(p) });
+  },
+};

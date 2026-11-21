@@ -1,6 +1,9 @@
 // GitHub release metadata and streamed downloads for the release service (ADR 0022).
 export type Env = { GITHUB_REPO: string; GITHUB_API?: string; GITHUB_TOKEN?: string };
-export type Deps = { fetch: typeof fetch; now: () => number; withdrawn: string[] };
+export type Deps = {
+  fetch: typeof fetch; now: () => number; withdrawn: string[];
+  cache?: Pick<Cache, 'match' | 'put'>; waitUntil?: (promise: Promise<unknown>) => void;
+};
 export type Asset = { id: number; name: string; size: number };
 export type Release = { tag_name: string; draft: boolean; prerelease: boolean; assets: Asset[] };
 

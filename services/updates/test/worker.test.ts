@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import fixture from './fixtures/releases.json' with { type: 'json' };
 import { handle, resetCache } from '../src/index.ts';
+import type { Deps } from '../src/github.ts';
 
 beforeEach(resetCache);
 
@@ -16,6 +17,7 @@ function service(token?: string) {
   const calls: Request[] = [];
   const state = {
     time: 0, list: structuredClone(fixture), withdrawn: [] as string[],
+    cache: undefined as Deps['cache'], pending: [] as Promise<unknown>[],
     listResponse: (): Response => Response.json(state.list),
     assetResponse: (): Response => Response.redirect(storage),
     storageResponse: (): Response => new Response('file', { headers: { 'Content-Length': '4' } }),
@@ -31,7 +33,7 @@ function service(token?: string) {
   };
   async function request(path: string, method = 'GET', headers = {}) {
     const response = await handle(new Request(origin + path, { method, headers }), env,
-      { fetch: mock, now: () => state.time, withdrawn: state.withdrawn });
+      { fetch: mock, now: () => state.time, withdrawn: state.withdrawn, cache: state.cache, waitUntil: p => state.pending.push(p) });
     assert.equal(response.headers.get('Access-Control-Allow-Origin'), '*');
     return response;
   }
@@ -110,6 +112,47 @@ test('a direct API response streams before the download finishes', async () => {
   await writer.close();
   assert.equal(await body, 'manifest');
   assert.equal(calls.length, 2);
+});
+
+test('a download fills the cache in the background; later ones come from it', async () => {
+  const { request, calls, state } = service();
+  const stored = new Map<string, { body: string; headers: Headers }>();
+  state.cache = {
+    async match(key) { const s = stored.get(new Request(key).url); return s && new Response(s.body, { headers: s.headers }); },
+    async put(key, r) { stored.set(new Request(key).url, { body: await r.text(), headers: r.headers }); },
+  };
+  const name = 'pinna-boot.img';
+  const asset = state.list.find(r => r.tag_name === 'v0.1.1')!.assets.find(a => a.name === name)!;
+  const fetched = () => calls.filter(c => c.url === storage).length;
+
+  assert.equal(await (await request(files + name)).text(), 'file');
+  await Promise.all(state.pending);
+  assert.equal(fetched(), 2);
+  const entry = stored.get(`${origin}/v1/assets/${asset.id}`)!;
+  assert.equal(entry.headers.get('Cache-Control'), 'public, max-age=31536000');
+  assert.equal(entry.headers.get('Content-Length'), '4');
+
+  const hit = await request(files + name);
+  assert.equal(await hit.text(), 'file');
+  assert.equal(hit.headers.get('Cache-Control'), 'public, max-age=3600');
+  assert.equal(hit.headers.get('Content-Length'), '4');
+  assert.equal(hit.headers.get('Content-Disposition'), `attachment; filename="${name}"`);
+  assert.equal(fetched(), 2);
+  assert.equal((await request(files + name, 'HEAD')).body, null);
+  assert.equal(fetched(), 2);
+
+  // A withdrawn release stays unavailable although its files are cached.
+  state.withdrawn.push('v0.1.1');
+  await error(await request(files + name), 404, 'There is no release v0.1.1.');
+  state.withdrawn.length = 0;
+
+  // A file uploaded again under the same tag has a new asset id.
+  asset.id += 1000;
+  state.time = 300_000;
+  assert.equal(await (await request(files + name)).text(), 'file');
+  await Promise.all(state.pending);
+  assert.equal(fetched(), 4);
+  assert.ok(stored.has(`${origin}/v1/assets/${asset.id}`));
 });
 
 test('HEAD uses asset metadata without fetching any bytes', async () => {

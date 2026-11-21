@@ -2,7 +2,8 @@
 
 `GET /v1/channels/stable` redirects to the newest full release's manifest.
 `GET /v1/channels/beta` redirects to the newest manifest, including prereleases.
-`GET /v1/releases/<tag>/<file>` streams a file from that GitHub release.
+`GET /v1/releases/<tag>/<file>` streams a file from that GitHub release, or
+from the Cloudflare data centre's cache once a download has filled it.
 Both routes support `HEAD`. Only published releases with a manifest and its
 signature are available. See [ADR 0022](../../docs/adr/0022-update-channels.md).
 
