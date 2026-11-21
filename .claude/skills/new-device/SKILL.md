@@ -41,23 +41,22 @@ Echo (2nd gen) took.
 
 ## 2. Teach the code the model
 
-Each of these knows the model by name. Go through all of them:
+The Rust code learns a model from one description (ADR 0032). The rest of
+the repository still names models in its own files. Go through all of them:
 
 | Where | What |
 | --- | --- |
-| `crates/pinna-hal/src/ident.rs` | `device_type_id` → model id in `board_model_in()`, with a test |
+| `crates/pinna-board/src/lib.rs` | A `Model` variant with its id and names, and its `Board`: the idme `device_type_id`, the fastboot product, the ring, the keys, the microphone switch, the sound card, the speaker tuning and the microphones. Read the key codes from the device's input events; don't assume them. Measure loudness against the firmware the device ran before you pick the tuning. The tests say what else must change |
+| `crates/pinna-audio/src/beamformer.rs`, `dsp.rs` | Their tests fail when a board's microphones or capture format differ from the ones the front end is built for. Make the code take the board's facts then |
 | `proto/pinna/v1/device.proto` | Document the model id, then regenerate `dashboard/src/gen/` |
-| `crates/pinnad/src/identity.rs` | `model_name()` (what Home Assistant shows), `default_friendly_name()`, `speaker_flat()`, with tests |
-| `crates/pinnad/src/main.rs`, `crates/pinna-audio/src/mixer.rs` | Speaker profile and gain. Measure loudness against the firmware the device ran before you pick values |
-| `crates/pinna-audio/src/beamformer.rs` | Microphone positions, if the array differs |
-| `crates/pinna-hal/src/buttons.rs` | Key codes, read from the device's input events, not assumed |
 | `mkosi/mkosi.extra/usr/libexec/pinna/usb-gadget` | The USB product string |
 | `scripts/flash-gen2.sh` | Accept the fastboot product in every subcommand |
 | `design/devices/<model>.ts`, `design/devices/index.ts` | A drawing of the device for the dashboard and website |
 | `kernel/patches/` | The vendor Wi-Fi driver takes Amazon's Echo settings only for the project name "radar" (patch 0028). Check that a new board takes the same branches |
 
-An unknown idme id reports an empty model, and a board without the record
-reports as the Echo Dot. Keep it that way, so existing devices never change.
+An unknown idme id gives no board (`pinna_board::detect`), and an MT8163
+without the record is the Echo Dot. Keep it that way, so existing devices
+never change.
 
 ## 3. Bring it up
 

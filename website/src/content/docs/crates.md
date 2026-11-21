@@ -38,7 +38,8 @@ This page helps you find your way around the
 | `pinna-wakeword` | Wake word detection for `.onnx` and `.tflite` models (the openWakeWord words and compatible classifiers), run on the `tract` inference library |
 | `pinna-audio` | Microphone capture and speaker playback, through ALSA or PipeWire, with mixing, ducking and audio decoding, and timed sources that play each sample at the time a server's clock sets (ADR 0027) |
 | `pinna-ladspa` | The microphone beamformer, as a LADSPA plugin for PipeWire |
-| `pinna-hal` | Access to the LED ring, the buttons, the microphone privacy switch and the device identity, with mock versions for tests |
+| `pinna-board` | What each Echo model is: its id and names, how Pinna tells the models apart, and where its ring, buttons, microphone switch and sound card are (ADR 0032). The updater and `pinna-image` use it too |
+| `pinna-hal` | Access to the LED ring, the buttons, the microphone privacy switch and the device identity of the board `pinna-board` describes, with mock versions for tests |
 | `pinna-api` | The control API service, generated from `proto/` |
 | `pinnactl` | The command-line client for the control API, the update installer, and the update check that `pinnad` runs (`pinnactl update --check`) |
 | `pinna-bootctl` | The fastboot request and the A/B slot state in the `misc` partition, and the boot stages on the ring that `pinna-init` and `pinna-bootstages` share |
