@@ -4,6 +4,7 @@ import { test } from "node:test";
 import type { Assistant, BrainOverride, Preset, ProviderConnection, SlotChoice } from "../gen/pinna/v1/assistant_pb.ts";
 import type { AssistantStatus } from "../gen/pinna/v1/device_pb.ts";
 import {
+  brainToolsOn,
   addressKind,
   brainLabel,
   brainPreset,
@@ -19,6 +20,7 @@ import {
   mcpName,
   mcpStatus,
   mcpAddress,
+  mcpToolOn,
   MODE,
   presetName,
   PROMPT_MAX,
@@ -302,12 +304,35 @@ test("an MCP server's name is made a name the brain can use", () => {
 });
 
 test("an MCP server says how it answered", () => {
-  assert.deepEqual(mcpStatus({ enabled: true, tools: 12, problem: "" }), { text: "12 tools", failed: false });
-  assert.deepEqual(mcpStatus({ enabled: true, tools: 1, problem: "" }), { text: "1 tool", failed: false });
-  assert.deepEqual(mcpStatus({ enabled: true, tools: 0, problem: "The MCP server is unreachable." }), {
+  const listed = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `home_t${i}` }));
+  const server = (tools: number, problem = "", enabled = true) => ({ enabled, tools, problem, listed: listed(tools) });
+  assert.deepEqual(mcpStatus(server(12), {}), { text: "12 of 12 tools on", failed: false });
+  assert.deepEqual(mcpStatus(server(12), { home_t0: false, home_t1: true }), {
+    text: "11 of 12 tools on",
+    failed: false,
+  });
+  assert.deepEqual(mcpStatus(server(1), {}), { text: "1 of 1 tool on", failed: false });
+  assert.deepEqual(mcpStatus(server(0, "The MCP server is unreachable."), {}), {
     text: "The MCP server is unreachable.",
     failed: true,
   });
-  assert.deepEqual(mcpStatus({ enabled: true, tools: 0, problem: "" }), { text: "Not asked yet", failed: false });
-  assert.deepEqual(mcpStatus({ enabled: false, tools: 3, problem: "" }), { text: "Off", failed: false });
+  assert.deepEqual(mcpStatus(server(0), {}), { text: "Not asked yet", failed: false });
+  assert.deepEqual(mcpStatus(server(3, "", false), {}), { text: "Off", failed: false });
+});
+
+test("the brain's tools are Pinna's it takes and the on servers' that are on", () => {
+  const deviceTools = [
+    { name: "set_timer", offByDefault: false, brain: true },
+    { name: "install_update", offByDefault: true, brain: true },
+    { name: "only_for_clients", offByDefault: false, brain: false },
+  ];
+  const mcpServers = [
+    { enabled: true, listed: [{ name: "home_a" }, { name: "home_b" }] },
+    { enabled: false, listed: [{ name: "mail_a" }] },
+  ];
+  assert.equal(brainToolsOn({ deviceTools, tools: {}, mcpServers }), 3);
+  assert.equal(brainToolsOn({ deviceTools, tools: { home_b: false, install_update: true }, mcpServers }), 3);
+  assert.equal(brainToolsOn({ deviceTools, tools: { mail_a: true }, mcpServers }), 3);
+  assert.equal(mcpToolOn({}, "home_a"), true);
+  assert.equal(mcpToolOn({ home_a: false }, "home_a"), false);
 });

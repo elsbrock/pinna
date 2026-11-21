@@ -141,12 +141,49 @@ export function mcpName(typed: string): string {
     .replace(/-+$/, "");
 }
 
-/** How an MCP server answered when last asked for its tools. */
-export function mcpStatus(s: { enabled: boolean; tools: number; problem: string }): { text: string; failed: boolean } {
+/**
+ * Whether an owner's MCP tool is on: its switch, else on. A server that
+ * listed more than 32 tools when it was added got a switch, off, for each
+ * (ADR 0017), so this needs no count.
+ */
+export function mcpToolOn(tools: Record<string, boolean>, name: string): boolean {
+  return tools[name] ?? true;
+}
+
+/** How an MCP server answered when last asked for its tools, and how many are on. */
+export function mcpStatus(
+  s: { enabled: boolean; tools: number; problem: string; listed: { name: string }[] },
+  switches: Record<string, boolean>,
+): { text: string; failed: boolean } {
   if (!s.enabled) return { text: "Off", failed: false };
   if (s.problem) return { text: s.problem, failed: true };
-  if (s.tools) return { text: `${s.tools} ${s.tools === 1 ? "tool" : "tools"}`, failed: false };
+  if (s.tools) {
+    const on = s.listed.filter((t) => mcpToolOn(switches, t.name)).length;
+    return { text: `${on} of ${s.tools} ${s.tools === 1 ? "tool" : "tools"} on`, failed: false };
+  }
   return { text: "Not asked yet", failed: false };
+}
+
+/** The most tools the brain takes in one request (ADR 0017). */
+export const BRAIN_TOOLS = 64;
+
+/**
+ * How many tools the brain is offered with the switches as they are:
+ * Pinna's own that it takes, then those of the MCP servers that are on. The
+ * tools for a satellite group count outside one too, so it can say two
+ * more than the brain gets.
+ */
+export function brainToolsOn(view: {
+  deviceTools: Pick<DeviceTool, "name" | "offByDefault" | "brain">[];
+  tools: Record<string, boolean>;
+  mcpServers: { enabled: boolean; listed: { name: string }[] }[];
+}): number {
+  const own = view.deviceTools.filter((t) => t.brain && toolOn(view.tools, t)).length;
+  const servers = view.mcpServers
+    .filter((s) => s.enabled)
+    .flatMap((s) => s.listed)
+    .filter((t) => mcpToolOn(view.tools, t.name)).length;
+  return own + servers;
 }
 
 /** A server as the page shows it: its host and port, never a path or query. */

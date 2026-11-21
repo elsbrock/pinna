@@ -4,8 +4,20 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
+  import type { McpServer } from "../../gen/pinna/v1/assistant_pb.ts";
   import { assistant } from "../../lib/assistant.svelte.ts";
-  import { delegation, isStandalone, mcpAddress, mcpStatus, toolLabel, toolOn, toolReach } from "../../lib/assistant.ts";
+  import {
+    BRAIN_TOOLS,
+    brainToolsOn,
+    delegation,
+    isStandalone,
+    mcpAddress,
+    mcpStatus,
+    mcpToolOn,
+    toolLabel,
+    toolOn,
+    toolReach,
+  } from "../../lib/assistant.ts";
   import Confirm from "../../lib/Confirm.svelte";
   import { copyText } from "../../lib/copy.ts";
   import { device } from "../../lib/device.svelte.ts";
@@ -25,11 +37,18 @@
   onMount(() => void assistant.load());
   $effect(() => network.watch());
 
-  // An owner's MCP tool without a switch is on; Pinna's own, see toolOn.
-  const isOn = (name: string) => view?.tools[name] ?? true;
+  // An owner's MCP tool, see mcpToolOn; Pinna's own, see toolOn.
+  const isOn = (name: string) => mcpToolOn(view?.tools ?? {}, name);
   function setTool(name: string, on: boolean) {
     return assistant.update({ tools: { on: { ...view?.tools, [name]: on } } }, on ? "Tool on" : "Tool off");
   }
+  /** Every tool `srv` listed on, or off, in one change. */
+  function setAll(srv: McpServer, on: boolean) {
+    const next = { ...view?.tools };
+    for (const t of srv.listed) next[t.name] = on;
+    return assistant.update({ tools: { on: next } }, `${srv.name}'s tools ${on ? "on" : "off"}`);
+  }
+  const brainTools = $derived(view ? brainToolsOn(view) : 0);
 
   // The stations are saved as a whole list.
   let stationName = $state("");
@@ -111,6 +130,14 @@
         </span>
       </div>
     {:else}
+      {#if brainTools > BRAIN_TOOLS}
+        <div class="pn-row">
+          <span class="pn-row-hint is-caution" role="status">
+            {brainTools} tools are on, Pinna's and your servers'. The brain takes {BRAIN_TOOLS}: Pinna's first, then the
+            servers in this order, so the last {brainTools - BRAIN_TOOLS} are left out. Switch some off.
+          </span>
+        </div>
+      {/if}
       {#each view.mcpServers as srv (srv.id)}
         {#if editing === srv.id}
           <McpServerForm server={srv} onclose={() => (editing = null)} />
@@ -119,7 +146,8 @@
             <div class="pn-row-text">
               <label id="mcp-{srv.id}-label" class="pn-row-label server-name" for="mcp-{srv.id}">{srv.name}</label>
               <span id="mcp-{srv.id}-hint" class="pn-row-hint"
-                >On {srv.host} · <span class={mcpStatus(srv).failed ? "problem" : undefined}>{mcpStatus(srv).text}</span
+                >On {srv.host} · <span class={mcpStatus(srv, view.tools).failed ? "problem" : undefined}
+                  >{mcpStatus(srv, view.tools).text}</span
                 ></span
               >
             </div>
@@ -149,6 +177,7 @@
           </div>
           {#if srv.enabled && srv.listed.length}
             {@const open = shownTools.has(srv.id)}
+            {@const on = srv.listed.filter((t) => isOn(t.name)).length}
             <button
               class="pn-row is-nested"
               type="button"
@@ -159,14 +188,27 @@
               <span class="pn-row-text">
                 <span class="pn-row-label">Its tools</span>
                 <span class="pn-row-hint">
-                  {srv.listed.filter((t) => isOn(t.name)).length} of {srv.listed.length} on. Turn off the ones the brain
-                  shouldn't call.
+                  {on ? "Turn off the ones the brain shouldn't call." : "Turn on the ones the brain may call."}
                 </span>
               </span>
               <Icon name={open ? "chevron-down" : "chevron-right"} class="pn-icon pn-row-chev" />
             </button>
             {#if open}
               <div id="mcp-{srv.id}-tools" class="pn-row-children">
+                <div class="pn-row is-actions">
+                  <button
+                    class="pn-btn pn-btn-sm"
+                    type="button"
+                    disabled={!live || assistant.busy || on === srv.listed.length}
+                    onclick={() => void setAll(srv, true)}>All on</button
+                  >
+                  <button
+                    class="pn-btn pn-btn-sm"
+                    type="button"
+                    disabled={!live || assistant.busy || on === 0}
+                    onclick={() => void setAll(srv, false)}>All off</button
+                  >
+                </div>
                 {#each srv.listed as t (t.name)}
                   <SwitchRow
                     id="tool-{t.name}"
