@@ -7,7 +7,6 @@
   import External from "./lib/External.svelte";
   import Icon from "./lib/Icon.svelte";
   import Logo from "./lib/Logo.svelte";
-  import Ring from "./lib/Ring.svelte";
   import Satellites from "./lib/Satellites.svelte";
   import { SECTIONS, pageOf, router, subpagesOf } from "./lib/router.svelte.ts";
   import Toasts from "./lib/Toasts.svelte";
@@ -110,7 +109,6 @@
   <header class="appbar">
     <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
     {#if s}
-      <Ring effect={ring} frame={device.ring} size={32} label="Ring: {ring.replace('-', ' ')}" />
       <button
         bind:this={barButton}
         class="appbar-name"
