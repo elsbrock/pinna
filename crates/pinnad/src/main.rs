@@ -304,6 +304,9 @@ async fn capture_loop(
         _ => (None, None),
     };
     let mut wake_source = mic::WakeSource::new(wake_stream.is_some());
+    // The main stream's noise floor, for the end-of-speech seed while the
+    // detector hears its own stream (WakeSource::noise_seed).
+    let mut main_vad = wake_stream.is_some().then(pinna_vad::Vad::new);
     let mut router = MicRouter::default();
     // Peak detector score of the current utterance, for near-miss logging.
     let mut peak = 0.0f32;
@@ -392,6 +395,12 @@ async fn capture_loop(
             // Always feed the detector so it keeps its audio context (it needs
             // ~2 s of history); only act on detections while wake is enabled.
             if let Some(d) = detector.as_mut() {
+                if let Some(v) = main_vad.as_mut() {
+                    // In the detector's VAD frames of 10 ms.
+                    for half in frame.chunks(frame.len() / 2) {
+                        v.process(half);
+                    }
+                }
                 for (pre_gain, frame) in heard {
                     let threshold = d.threshold();
                     let mut new_peak = None;
@@ -407,9 +416,13 @@ async fn capture_loop(
                             }
                         })
                     });
+                    let seed = wake_source.noise_seed(
+                        main_vad.as_ref().and_then(pinna_vad::Vad::noise_energy),
+                        d.noise_energy(),
+                    );
                     shared
                         .noise_energy
-                        .store(d.noise_energy().unwrap_or(0), Ordering::Relaxed);
+                        .store(seed.unwrap_or(0), Ordering::Relaxed);
                     if let Some(k) = new_peak.and_then(|i| d.keyword(i)) {
                         peak_word = k.name().to_owned();
                     }

@@ -222,6 +222,14 @@ impl WakeSource {
         self.using_stream
     }
 
+    /// The noise floor that seeds the end-of-speech detection. That runs on the
+    /// main stream, so while the detector hears its own stream the floor comes
+    /// from a VAD on the main stream (`main`), not the detector's (`detector`):
+    /// during playback the wake stream keeps echo the main one suppresses.
+    pub fn noise_seed(&self, main: Option<u64>, detector: Option<u64>) -> Option<u64> {
+        if self.using_stream { main } else { detector }
+    }
+
     /// Called once per main-stream frame with the wake stream's frames that
     /// arrived since the previous call. Returns the frames for the detector,
     /// and `Some(using its own stream)` when that changed.
@@ -268,6 +276,17 @@ mod tests {
         assert_eq!(src.pick(ms(1060), vec![], 9), (vec![9], Some(false)));
         assert_eq!(src.pick(ms(1080), vec![], 9), (vec![9], None));
         assert_eq!(src.pick(ms(1100), vec![4], 9), (vec![4], Some(true)));
+    }
+
+    #[test]
+    fn the_end_of_speech_seed_follows_the_stream_it_runs_on() {
+        let t0 = std::time::Instant::now();
+        let mut src = WakeSource::new(true);
+        // The detector hears the main stream: its own floor.
+        assert_eq!(src.noise_seed(Some(1), Some(2)), Some(2));
+        // The detector hears the wake stream: the main stream's floor.
+        src.pick(t0, vec![1], 0);
+        assert_eq!(src.noise_seed(Some(1), Some(2)), Some(1));
     }
 
     #[test]
