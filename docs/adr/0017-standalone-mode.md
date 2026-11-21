@@ -260,10 +260,13 @@ tools starts with them off, and tool lists refresh in the background.
     297 KB (version 9.2.0, measured 2026-11-21); the first limits, 256 KiB and 32 tools, left it out.
   - Saving a server asks it for its tools at once, and the dashboard shows how it answered.
   - A server that lists more than 32 tools when it is added, or when its address changes, gets a
-    stored switch for each of them, off. The owner turns on the few the brain needs; ha-mcp's first 32
-    are administration tools. The switches are stored rather than worked out from the count, so a
-    list that grows or shrinks later turns nothing on or off by itself. A tool a server adds later
-    starts on, as on any server. The dashboard turns a server's tools all on or all off at once.
+    stored switch, off, for each of them that has none; the owner's earlier choices stay. The owner
+    turns on the few the brain needs; ha-mcp's first 32 are administration tools. The switches are
+    stored rather than worked out from the count, so a list that grows or shrinks later turns nothing
+    on or off by itself. A tool a server adds later starts on, as on any server, and so do the tools
+    of a server that doesn't answer when it is saved. A rename carries a server's switches over to its
+    tools' new names, and deleting a server deletes them. The dashboard turns a server's tools all on
+    or all off at once.
   - At most 8 servers.
 - **pinnad detects the end of speech** with the energy VAD that the wake word detector already runs, on
   the frames after the AGC (ADR 0004).
