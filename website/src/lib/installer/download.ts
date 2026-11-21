@@ -105,10 +105,10 @@ async function image(f: typeof fetch, base: string, a: Artifact, what: string, p
 }
 
 /**
- * The newest release on `channel`, checked: the manifest's signature with
- * `key`, then each image against the manifest.
+ * The manifest of the newest release on `channel`, its signature checked
+ * with `key`, and the URL its files are relative to. Fetches no image.
  */
-export async function fetchRelease(channel: Channel, key: Uint8Array, opts: Options = {}): Promise<Release & { summary: string }> {
+export async function fetchManifest(channel: Channel, key: Uint8Array, opts: Options = {}): Promise<{ manifest: Manifest; url: string }> {
   const f = opts.fetch ?? fetch;
   const service = opts.service ?? SERVICE;
   opts.progress?.("Looking for the newest release");
@@ -133,7 +133,17 @@ export async function fetchRelease(channel: Channel, key: Uint8Array, opts: Opti
   if (channel === "stable" && m.channel !== "stable") {
     throw new DownloadError(`The release service offered the beta ${m.version} on stable.`);
   }
-  const boot = await image(f, manifestUrl, m.boot, "boot image", opts.progress);
-  const root = await image(f, manifestUrl, m.root, "root image", opts.progress);
+  return { manifest: m, url: manifestUrl };
+}
+
+/**
+ * The newest release on `channel`, checked: the manifest's signature with
+ * `key`, then each image against the manifest.
+ */
+export async function fetchRelease(channel: Channel, key: Uint8Array, opts: Options = {}): Promise<Release & { summary: string }> {
+  const f = opts.fetch ?? fetch;
+  const { manifest: m, url } = await fetchManifest(channel, key, opts);
+  const boot = await image(f, url, m.boot!, "boot image", opts.progress);
+  const root = await image(f, url, m.root, "root image", opts.progress);
   return { version: m.version, summary: m.summary ?? "", boot, root };
 }

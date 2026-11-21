@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DownloadError, fetchRelease, parseKey, verifySignature } from "./download.ts";
+import { DownloadError, fetchManifest, fetchRelease, parseKey, verifySignature } from "./download.ts";
 import { sha256 } from "./release.ts";
 
 const SERVICE = "https://updates.test";
@@ -70,6 +70,18 @@ test("a release comes with a valid signature and checked images", async () => {
     `${BASE}/pinna-0.4.0.root.img`,
   ]);
   assert.ok(steps.includes("Checking root image"));
+});
+
+test("the newest version comes from the signed manifest, without an image", async () => {
+  const s = await service();
+  const { manifest, url } = await fetchManifest("stable", s.key, { fetch: s.fetch, service: SERVICE });
+  assert.equal(manifest.version, "0.4.0");
+  assert.equal(url, `${BASE}/manifest.json`);
+  assert.deepEqual(s.asked, [`${SERVICE}/v1/channels/stable`, `${BASE}/manifest.json.sig`]);
+
+  const other = await keys();
+  const t = await service({ sign: other.sign });
+  await assert.rejects(fetchManifest("stable", t.key, { fetch: t.fetch, service: SERVICE }), /doesn't match Pinna's release key/);
 });
 
 test("a signature from another key, or none, stops before any image", async () => {

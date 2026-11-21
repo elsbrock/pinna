@@ -2,7 +2,7 @@
 import { assess, formatReport, identify, maskSerial, MODELS, PARTITIONS, type Assessment, type Bootloader, type DeviceReport, type ModelId } from "./device.ts";
 import { Fastboot, FastbootError } from "./fastboot.ts";
 import { install, InstallError, plan, type Progress } from "./install.ts";
-import { DownloadError, fetchRelease, parseKey, type Channel } from "./download.ts";
+import { DownloadError, fetchManifest, fetchRelease, parseKey, type Channel } from "./download.ts";
 import { matchRelease, type Release } from "./release.ts";
 
 /** keys/release.pub, put in at build time (astro.config.mjs). */
@@ -277,11 +277,14 @@ export function startInstallPage(): void {
       clearOutcome();
       device = null;
       status.textContent = "";
-    } else if (name === "channel" && downloaded) {
-      // The release downloaded is from the other channel.
-      release = null;
-      downloaded = false;
-      $("install-download-status").replaceChildren();
+    } else if (name === "channel") {
+      showLatest();
+      if (downloaded) {
+        // The release downloaded is from the other channel.
+        release = null;
+        downloaded = false;
+        $("install-download-status").replaceChildren();
+      }
     }
     sync();
   });
@@ -289,11 +292,29 @@ export function startInstallPage(): void {
   // Back/forward restores the radios without a change event.
   window.addEventListener("pageshow", sync);
 
+  const chosenChannel = () => (form.querySelector<HTMLInputElement>('input[name="channel"]:checked')?.value ?? "stable") as Channel;
+
+  // The button names the newest release on the chosen channel: the signed
+  // manifest only, no image. Without an answer it stays "Download", and a
+  // click explains why.
+  const label = $("install-download-label");
+  let latestAsked = 0;
+  const showLatest = async () => {
+    const asked = ++latestAsked;
+    label.textContent = "Download";
+    try {
+      const { manifest } = await fetchManifest(chosenChannel(), parseKey(__PINNA_RELEASE_KEY__));
+      if (asked === latestAsked) label.textContent = `Download Pinna ${manifest.version}`;
+    } catch {
+      // Download reports it.
+    }
+  };
+
   // The release service (ADR 0022): signature and files checked here.
   download.addEventListener("click", async () => {
     if (busy) return;
     const list = $("install-download-status");
-    const channel = (form.querySelector<HTMLInputElement>('input[name="channel"]:checked')?.value ?? "stable") as Channel;
+    const channel = chosenChannel();
     release = null;
     $("install-files-status").replaceChildren();
     busy = true;
@@ -475,4 +496,5 @@ export function startInstallPage(): void {
   });
 
   sync();
+  showLatest();
 }
