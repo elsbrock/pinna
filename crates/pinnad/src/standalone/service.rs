@@ -54,8 +54,9 @@ const MODEL_MAX: usize = 200;
 const KEY_MAX: usize = 1024;
 /// The acknowledgment phrase is at most this many characters.
 const ACK_MAX: usize = 100;
-/// At most this many per-tool switches.
-const MAX_SWITCHES: usize = 128;
+/// At most this many per-tool switches: room for Pinna's tools and 128 for
+/// each of the 8 MCP servers, which may all be stored (ADR 0017).
+const MAX_SWITCHES: usize = 1100;
 /// A station name is at most this many characters.
 const STATION_NAME_MAX: usize = 60;
 /// The Advanced first-text limit, in seconds.
@@ -882,9 +883,13 @@ impl Service {
                 server.host = d.secrets.mcp_host(&id).unwrap_or_default();
                 new_address = Some(id.clone());
             }
-            server.name = name;
+            let old = std::mem::replace(&mut server.name, name);
             server.enabled = e.enabled;
             server.revision += 1;
+            let new = server.name.clone();
+            if old != new {
+                rename_switches(&mut d.config, &old, &new);
+            }
             Ok(())
         })
         .await?;
@@ -948,6 +953,12 @@ impl Service {
             };
             if server.revision != revision {
                 return Err(Refusal::Conflict(MCP_CHANGED.into()));
+            }
+            // Its switches go too: a server added again later starts as a new one.
+            let name = server.name.clone();
+            let gone: Vec<String> = server_switches(&d.config, &name).cloned().collect();
+            for switch in gone {
+                d.config.tools.remove(&switch);
             }
             d.config.mcp_servers.retain(|server| server.id != id);
             d.secrets.clear_mcp(id);
@@ -1550,6 +1561,36 @@ fn ack_value(ack: Ack) -> Result<Ack, Refusal> {
         enabled: ack.enabled,
         phrase: phrase.to_owned(),
     })
+}
+
+/// The switches of `server`'s tools: the names in its namespace, but not
+/// one of Pinna's own and not in a longer namespace of another server's
+/// (`home_2_x` is `home-2`'s, not `home`'s).
+fn server_switches<'a>(
+    config: &'a AssistConfig,
+    server: &'a str,
+) -> impl Iterator<Item = &'a String> {
+    config.tools.keys().filter(move |name| {
+        pinna_mcp::in_namespace(server, name)
+            && crate::tools::device_tool_name(name).is_none()
+            && !config.mcp_servers.iter().any(|other| {
+                other.name.len() > server.len() && pinna_mcp::in_namespace(&other.name, name)
+            })
+    })
+}
+
+/// Carry the switches of a server renamed from `old` to `new` over to its
+/// tools' new names, so the owner's choices stay.
+fn rename_switches(config: &mut AssistConfig, old: &str, new: &str) {
+    let moved: Vec<(String, bool)> = server_switches(config, old)
+        .map(|name| (name.clone(), config.tools[name]))
+        .collect();
+    for (name, on) in moved {
+        config.tools.remove(&name);
+        if let Some(renamed) = pinna_mcp::namespaced(new, &name[old.len() + 1..]) {
+            config.tools.insert(renamed, on);
+        }
+    }
 }
 
 fn switches_value(tools: BTreeMap<String, bool>) -> Result<BTreeMap<String, bool>, Refusal> {
@@ -3081,6 +3122,80 @@ mod tests {
         assert_eq!(
             view.tools.values().filter(|on| !**on).count(),
             MANY_TOOLS + 1
+        );
+
+        // A rename carries them over to the tools' new names.
+        let server = view.mcp_servers[0].clone();
+        let view = f
+            .service
+            .set_mcp_server(change_mcp(&server, "lots", None, false))
+            .await
+            .unwrap();
+        assert_eq!(view.tools.len(), MANY_TOOLS + 1);
+        assert!(
+            view.tools
+                .iter()
+                .all(|(name, on)| name.starts_with("lots_tool_") && !on)
+        );
+
+        // Deleting the server deletes them, so adding it again starts afresh.
+        let server = view.mcp_servers[0].clone();
+        let view = f
+            .service
+            .delete_mcp_server(&server.id, server.revision)
+            .await
+            .unwrap();
+        assert!(view.tools.is_empty());
+    }
+
+    #[test]
+    fn a_servers_switches_are_its_own_namespace_only() {
+        let server = |id: &str, name: &str| McpServer {
+            id: id.into(),
+            name: name.into(),
+            host: String::new(),
+            enabled: true,
+            revision: 1,
+        };
+        let mut config = AssistConfig {
+            mcp_servers: vec![
+                server("mcp-1", "home"),
+                server("mcp-2", "home-2"),
+                server("mcp-3", "set"),
+            ],
+            ..AssistConfig::default()
+        };
+        for name in [
+            "home_light",
+            "home_2_light",
+            "set_timer",
+            "set_alarm",
+            "weather",
+        ] {
+            config.tools.insert(name.into(), false);
+        }
+
+        let names = |server| {
+            server_switches(&config, server)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names("home"), ["home_light"]);
+        assert_eq!(names("home-2"), ["home_2_light"]);
+        // set_timer is Pinna's own.
+        assert_eq!(names("set"), ["set_alarm"]);
+
+        config.mcp_servers[0].name = "house".into();
+        rename_switches(&mut config, "home", "house");
+        assert_eq!(
+            config.tools.keys().collect::<Vec<_>>(),
+            [
+                "home_2_light",
+                "house_light",
+                "set_alarm",
+                "set_timer",
+                "weather"
+            ]
         );
     }
 
