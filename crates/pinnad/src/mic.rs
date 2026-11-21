@@ -194,9 +194,88 @@ impl MicRouter {
     }
 }
 
+/// How long the wake word's own stream may deliver nothing before the
+/// detector listens to the main stream instead.
+pub const WAKE_STREAM_SILENT: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Which audio the wake word detector takes (ADR 0033): the wake word's own
+/// stream while it delivers, the main stream otherwise. Without its own stream
+/// (other backends, or a graph without `dot_wake`) that is the main stream,
+/// as before.
+pub struct WakeSource {
+    has_stream: bool,
+    last_frame: Option<std::time::Instant>,
+    using_stream: bool,
+}
+
+impl WakeSource {
+    pub fn new(has_stream: bool) -> Self {
+        WakeSource {
+            has_stream,
+            last_frame: None,
+            using_stream: false,
+        }
+    }
+
+    /// Whether the detector is listening to the wake word's own stream.
+    pub fn using_stream(&self) -> bool {
+        self.using_stream
+    }
+
+    /// Called once per main-stream frame with the wake stream's frames that
+    /// arrived since the previous call. Returns the frames for the detector,
+    /// and `Some(using its own stream)` when that changed.
+    pub fn pick<T>(
+        &mut self,
+        now: std::time::Instant,
+        own: Vec<T>,
+        main: T,
+    ) -> (Vec<T>, Option<bool>) {
+        if !own.is_empty() {
+            self.last_frame = Some(now);
+        }
+        let live = self.has_stream
+            && self
+                .last_frame
+                .is_some_and(|t| now.duration_since(t) < WAKE_STREAM_SILENT);
+        let changed = (live != self.using_stream).then_some(live);
+        self.using_stream = live;
+        if live {
+            (own, changed)
+        } else {
+            (vec![main], changed)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_detector_takes_the_wake_stream_while_it_delivers() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let mut src = WakeSource::new(true);
+        // Before the wake stream's first frame: the main stream.
+        assert_eq!(src.pick(ms(0), vec![], 0), (vec![0], None));
+        // Its frames arrive, sometimes two at once, sometimes none.
+        assert_eq!(src.pick(ms(20), vec![1], 0), (vec![1], Some(true)));
+        assert_eq!(src.pick(ms(40), vec![], 0), (vec![], None));
+        assert_eq!(src.pick(ms(60), vec![2, 3], 0), (vec![2, 3], None));
+        // Silent for a second: back to the main stream, and back again.
+        assert_eq!(src.pick(ms(1059), vec![], 9), (vec![], None));
+        assert_eq!(src.pick(ms(1060), vec![], 9), (vec![9], Some(false)));
+        assert_eq!(src.pick(ms(1080), vec![], 9), (vec![9], None));
+        assert_eq!(src.pick(ms(1100), vec![4], 9), (vec![4], Some(true)));
+    }
+
+    #[test]
+    fn without_a_wake_stream_the_detector_takes_the_main_stream() {
+        let t = std::time::Instant::now();
+        let mut src = WakeSource::new(false);
+        assert_eq!(src.pick(t, vec![1, 2], 0), (vec![0], None));
+    }
 
     fn frame(value: u8) -> Bytes {
         Bytes::from(vec![value])

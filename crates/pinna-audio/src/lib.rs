@@ -84,6 +84,11 @@ impl Backend {
         matches!(self, Backend::EchoDotPipeWire).then_some("dot_mic_aec")
     }
 
+    /// PipeWire node of the wake word's own stream (ADR 0033), if any.
+    pub fn pw_wake_target(&self) -> Option<&'static str> {
+        matches!(self, Backend::EchoDotPipeWire).then_some("dot_wake")
+    }
+
     /// Default PipeWire playback node for this backend (the plain `PipeWire` backend
     /// uses the default sink).
     pub fn pw_playback_target(&self) -> Option<&'static str> {

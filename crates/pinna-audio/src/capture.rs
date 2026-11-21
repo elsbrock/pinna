@@ -27,6 +27,9 @@ pub struct CaptureConfig {
     /// Echo Dot analogue mic PGA volume (clamped to 80).
     pub micpga: u32,
     pub mixer: MixerRunner,
+    /// Apply (and check) the Echo Dot's microphone mixer settings. A second
+    /// stream from the same microphones leaves them to the first.
+    pub apply_mixer: bool,
     pub arecord_bin: String,
     /// ALSA capture device on the Echo Dot.
     pub alsa_device: String,
@@ -48,6 +51,7 @@ impl CaptureConfig {
             front_end: FrontEndConfig::default(),
             micpga: MICPGA_DEFAULT,
             mixer: MixerRunner::default(),
+            apply_mixer: true,
             arecord_bin: "arecord".into(),
             alsa_device: "hw:0,24".into(),
             pw_record_bin: "pw-record".into(),
@@ -86,6 +90,11 @@ impl CaptureStream {
     /// Next 20 ms frame; `None` once capture has ended (stopped or WAV done).
     pub async fn recv(&mut self) -> Option<Frame> {
         self.frames.recv().await
+    }
+
+    /// The next frame if one is waiting.
+    pub fn try_recv(&mut self) -> Option<Frame> {
+        self.frames.try_recv().ok()
     }
 
     /// Status updates, including subprocess death and restarts.
@@ -299,7 +308,8 @@ async fn run_process(
     restart: &Notify,
     stop: &mut watch::Receiver<bool>,
 ) -> RunEnd {
-    if cfg.backend.echo_dot_mixer()
+    if cfg.apply_mixer
+        && cfg.backend.echo_dot_mixer()
         && let Err(e) = cfg.mixer.apply(&mixer::capture_setup(cfg.micpga)).await
     {
         return RunEnd::Died(format!("mixer setup: {e}"), false);
@@ -349,7 +359,7 @@ async fn run_process(
         if !running {
             running = true;
             let _ = status.send(CaptureStatus::Running);
-            if cfg.backend.echo_dot_mixer() {
+            if cfg.apply_mixer && cfg.backend.echo_dot_mixer() {
                 // Once PipeWire has opened the microphones, check that every
                 // setting held (see MixerRunner::check).
                 let (runner, setup) = (cfg.mixer.clone(), mixer::capture_setup(cfg.micpga));
