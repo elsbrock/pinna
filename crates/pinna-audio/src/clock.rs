@@ -1,10 +1,11 @@
-//! Hardware clock tracking for the Echo Dot's two audio clock domains.
+//! Hardware clock tracking for the Echo Dot's speaker.
 //!
-//! The speaker (AFE, nominally 48 kHz) and the microphones (SPI/FPGA, nominally
-//! 16 kHz) run from different clocks, neither of which is the CPU's. pinnad paces
-//! the speaker by the CPU clock and feeds the echo canceller a reference that
-//! PipeWire consumes at the microphone clock, so both rates are measured from
-//! the PCMs' hardware pointers (`/proc/asound/.../status`) and corrected for.
+//! The speaker (AFE, nominally 48 kHz) runs from its own clock, not the CPU's.
+//! pinnad paces the speaker by the CPU clock, so the speaker's rate is measured
+//! from the PCM's hardware pointer (`/proc/asound/.../status`) and corrected
+//! for. The microphones (SPI/FPGA) have a clock of their own too, but nothing
+//! needs it fitted: the echo canceller's reference comes in their frames
+//! (ADR 0004).
 //!
 //! The speaker's pointer and its timestamp also say *when* a frame sounds,
 //! not only how fast: [`PointerAnchor`] corrects the offset of the speaker

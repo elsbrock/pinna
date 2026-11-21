@@ -58,8 +58,8 @@ pub enum Backend {
     /// Echo Dot with the device's PipeWire microphone graph: the front end
     /// (beamformer) and echo cancellation run in PipeWire, so capture reads one
     /// processed mono stream (`dot_mic_aec`). The speaker is still driven through
-    /// ALSA at 48 kHz (with the amp and mixer sequences here); a 16 kHz copy of
-    /// everything played goes to the echo-cancel reference sink (`dot_ref`).
+    /// ALSA at 48 kHz (with the amp and mixer sequences here); the echo canceller
+    /// takes what it plays from the microphones' loopback lanes (ADR 0004).
     EchoDotPipeWire,
     /// PipeWire tools (`pw-record` / `pw-play`) for laptops and VMs.
     PipeWire,
@@ -93,10 +93,5 @@ impl Backend {
     /// uses the default sink).
     pub fn pw_playback_target(&self) -> Option<&'static str> {
         None
-    }
-
-    /// PipeWire node that receives the echo-cancellation reference, if any.
-    pub fn pw_reference_target(&self) -> Option<&'static str> {
-        matches!(self, Backend::EchoDotPipeWire).then_some("dot_ref")
     }
 }

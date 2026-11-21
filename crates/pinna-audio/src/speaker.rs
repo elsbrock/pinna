@@ -374,7 +374,7 @@ impl Speaker {
         let voice_epoch = Arc::new(AtomicU64::new(0));
         let actor = Actor {
             feeder: Feeder::new(cfg.duck_db),
-            // Only the Echo Dot's own sound card has the two clocks to track.
+            // Only the Echo Dot's own sound card has a speaker clock to track.
             clocks: cfg.backend.echo_dot_mixer().then(Clocks::new),
             cfg,
             rx,
@@ -757,8 +757,6 @@ struct Session {
     frames_written: u64,
     /// Echo Dot speaker chain (the device's own speaker only).
     chain: Option<crate::chain::SpeakerChain>,
-    /// Echo-cancellation reference into PipeWire (EchoDotPipeWire).
-    reference: Option<crate::refsink::RefTap>,
     /// Corrects `anchor_t` from the playback PCM's hardware pointer (the
     /// Echo backends, ADR 0027 §10).
     pointer: Option<PointerAnchor>,
@@ -879,9 +877,6 @@ impl Session {
             }
             None => bytes,
         };
-        if let Some(r) = &mut self.reference {
-            r.push(bytes);
-        }
         if let Sink::Process { stdin, .. } = &mut self.sink {
             stdin.write_all(bytes).await?;
         }
@@ -967,14 +962,14 @@ async fn log_player(stderr: ChildStderr) {
     }
 }
 
-/// The speaker's and the microphones' hardware clocks (Echo Dot), measured.
+/// The speaker's hardware clock (Echo Dot), measured. The microphones' clock
+/// needs no fitting: the echo canceller's reference comes in their own frames
+/// (ADR 0004).
 struct Clocks {
     spk: crate::clock::PcmClock,
-    mic: crate::clock::PcmClock,
     last: Instant,
     /// Deviation from nominal, e.g. 3.2e-4 = +320 ppm (kept across sessions).
     d_spk: f64,
-    d_mic: f64,
     logged: Instant,
     /// The speaker's latest status, with `CLOCK_MONOTONIC` and the
     /// [`Instant`] read together after it, and the frames in the player's
@@ -986,10 +981,8 @@ impl Clocks {
     fn new() -> Self {
         Self {
             spk: crate::clock::PcmClock::new("/proc/asound/card0/pcm23p/sub0/status", 48_000.0),
-            mic: crate::clock::PcmClock::new("/proc/asound/card0/pcm24c/sub0/status", 16_000.0),
             last: Instant::now(),
             d_spk: 0.0,
-            d_mic: 0.0,
             logged: Instant::now(),
             spk_status: None,
         }
@@ -1000,8 +993,8 @@ impl Clocks {
         self.spk.path().with_file_name("sw_params")
     }
 
-    /// Sample both clocks (every 200 ms) and update the estimates. `player`
-    /// is the pipe into the speaker's player.
+    /// Sample the clock (every 200 ms) and update the estimate. `player` is
+    /// the pipe into the speaker's player.
     fn tick(&mut self, now: Instant, player: Option<RawFd>) -> bool {
         if now.saturating_duration_since(self.last) < Duration::from_millis(200) {
             return false;
@@ -1014,30 +1007,15 @@ impl Clocks {
         let after = player.and_then(pipe_unread_frames);
         let unread = before.filter(|&b| after == Some(b));
         self.spk_status = status.map(|text| (text, monotonic_now(), Instant::now(), unread));
-        self.mic.sample(now);
-        let mut changed = false;
-        if let Some(d) = self.spk.deviation() {
-            self.d_spk = d;
-            changed = true;
-        }
-        if let Some(d) = self.mic.deviation() {
-            self.d_mic = d;
-            changed = true;
-        }
-        if changed && now.saturating_duration_since(self.logged) > Duration::from_secs(60) {
+        let Some(d) = self.spk.deviation() else {
+            return false;
+        };
+        self.d_spk = d;
+        if now.saturating_duration_since(self.logged) > Duration::from_secs(60) {
             self.logged = now;
-            tracing::info!(
-                "audio clocks: speaker {:+.0} ppm, microphones {:+.0} ppm",
-                self.d_spk * 1e6,
-                self.d_mic * 1e6
-            );
+            tracing::info!("speaker clock: {:+.0} ppm", self.d_spk * 1e6);
         }
-        changed
-    }
-
-    /// Reference decimation step: speaker-clock input per microphone-clock output.
-    fn ref_step(&self) -> f64 {
-        3.0 * (1.0 + self.d_spk) / (1.0 + self.d_mic)
+        true
     }
 }
 
@@ -1263,9 +1241,6 @@ impl Actor {
                 && let Some(s) = self.session.as_mut()
             {
                 s.set_rate(f64::from(OUT_RATE) * (1.0 + c.d_spk));
-                if let Some(r) = s.reference.as_mut() {
-                    r.set_step(c.ref_step());
-                }
             }
             if let Some(c) = self.clocks.as_mut()
                 && let Some((status, mono, at, unread)) = c.spk_status.take()
@@ -1391,16 +1366,8 @@ impl Actor {
                 }
             }
         };
-        let mut reference = self.cfg.backend.pw_reference_target().and_then(|t| {
-            crate::refsink::RefTap::spawn(&self.cfg.pw_play_bin, t)
-                .map_err(|e| tracing::warn!("echo reference to {t}: {e}"))
-                .ok()
-        });
         if let Some(c) = self.clocks.as_mut() {
             c.spk.reset();
-            if let Some(r) = reference.as_mut() {
-                r.set_step(c.ref_step());
-            }
         }
         let rate = f64::from(OUT_RATE) * (1.0 + self.clocks.as_ref().map_or(0.0, |c| c.d_spk));
         let mut session = Session {
@@ -1410,7 +1377,6 @@ impl Actor {
             rate,
             frames_written: 0,
             chain: echo.then(crate::chain::SpeakerChain::new),
-            reference,
             // The PCM just opened: its pointer counts this session's frames.
             pointer: self
                 .clocks
@@ -1486,10 +1452,10 @@ mod tests {
     use super::*;
     use futures_util::{StreamExt, stream};
 
-    /// The Echo output plays 48 kHz S16_LE stereo, and its clocks read the
-    /// MT8163 PCMs' status files (`pcm23p`, `pcm24c`), whatever device
-    /// pinnad passes. A board with other PCMs (ADR 0032) fails here until
-    /// those follow the board.
+    /// The Echo output plays 48 kHz S16_LE stereo, and its clock reads the
+    /// MT8163 playback PCM's status file (`pcm23p`), whatever device pinnad
+    /// passes. A board with other PCMs (ADR 0032) fails here until those
+    /// follow the board.
     #[test]
     fn every_board_has_the_pcms_the_echo_output_is_built_for() {
         let cfg = SpeakerConfig::new(Backend::EchoDot);
@@ -1499,7 +1465,6 @@ mod tests {
             assert_eq!(play.device, cfg.alsa_device, "{m:?}");
             assert_eq!((play.rate, play.channels), (48_000, 2), "{m:?}");
             assert_eq!(play.format, pinna_board::SampleFormat::S16Le, "{m:?}");
-            assert_eq!(audio.capture.device, "hw:0,24", "{m:?}");
         }
         assert_eq!(
             cfg.pcm_status.as_deref(),
@@ -1975,7 +1940,6 @@ mod tests {
             rate: 48_000.0,
             frames_written: written,
             chain: None,
-            reference: None,
             pointer: Some(PointerAnchor::new(48_000.0)),
             heard_delay: Duration::ZERO,
         }
@@ -2296,6 +2260,40 @@ mod tests {
         );
         want.extend(["name=MFP Gpio Mute On", "name=Ext_Speaker_Amp_Switch Off"].map(String::from));
         assert_eq!(lines, want);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The echo canceller reads what the speaker plays from the microphones'
+    /// loopback lanes (ADR 0004): the Echo Dot's speaker starts no reference
+    /// player of its own.
+    #[tokio::test]
+    async fn the_echo_dot_speaker_sends_no_echo_reference() {
+        let (dir, mut cfg) = fake_echodot("noref", "RUNNING");
+        let started = dir.join("pw-play-args");
+        let pw_play = dir.join("pw-play");
+        std::fs::write(
+            &pw_play,
+            format!(
+                "#!/bin/sh\necho \"$@\" >> {}\ncat > /dev/null\n",
+                started.display()
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&pw_play, std::fs::Permissions::from_mode(0o755)).unwrap();
+        cfg.backend = Backend::EchoDotPipeWire;
+        cfg.pw_play_bin = pw_play.to_string_lossy().into();
+        let sp = Speaker::new(cfg);
+        sp.play_pcm(crate::tone::beep(440.0, 200, 0.5))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !started.exists(),
+            "pw-play started: {}",
+            std::fs::read_to_string(&started).unwrap_or_default()
+        );
+        drop(sp);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
