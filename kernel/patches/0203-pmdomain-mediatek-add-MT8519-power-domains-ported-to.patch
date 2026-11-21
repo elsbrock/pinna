@@ -1,0 +1,305 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 16:16:55 +0100
+Subject: [PATCH] pmdomain: mediatek: add MT8519 power domains, ported to 6.12
+
+The MT8519's SCPSYS power domains (ADR 0034), from MediaTek's
+mt8519-pm-domains.h in Amazon's 5.4 release, wired into 6.12's shared
+mtk-pm-domains.c with an mt8519-power-controller of_match entry. The data
+needs three changes for 6.12's scpsys_domain_data: drop sram_ctl_offs (6.12
+derives the SRAM control offset from ctl_offs), spell the bus-protection
+component INFRA not INFRA_TYPE, and move the MT8519 TOP_AXI_PROT_EN register
+defines into the shared include/linux/soc/mediatek/infracfg.h beside the
+other SoCs'.
+
+Builds only when a board selects the power controller; off in every current
+variant.
+---
+ drivers/pmdomain/mediatek/mt8519-pm-domains.h | 186 ++++++++++++++++++
+ drivers/pmdomain/mediatek/mtk-pm-domains.c    |   5 +
+ include/dt-bindings/power/mt8519-power.h      |  18 ++
+ include/linux/soc/mediatek/infracfg.h         |  32 +++
+ 4 files changed, 241 insertions(+)
+ create mode 100644 drivers/pmdomain/mediatek/mt8519-pm-domains.h
+ create mode 100644 include/dt-bindings/power/mt8519-power.h
+
+diff --git a/drivers/pmdomain/mediatek/mt8519-pm-domains.h b/drivers/pmdomain/mediatek/mt8519-pm-domains.h
+new file mode 100644
+index 000000000..b70a9749c
+--- /dev/null
++++ b/drivers/pmdomain/mediatek/mt8519-pm-domains.h
+@@ -0,0 +1,186 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (c) 2021 MediaTek Inc.
++ * Author: wentao.he <wentao.he@mediatek.com>
++ */
++
++#ifndef __SOC_MEDIATEK_MT8519_PM_DOMAINS_H
++#define __SOC_MEDIATEK_MT8519_PM_DOMAINS_H
++
++#include "mtk-pm-domains.h"
++#include <dt-bindings/power/mt8519-power.h>
++
++/*
++ * MT8519 power domain support
++ */
++
++static const struct scpsys_domain_data scpsys_domain_data_mt8519[] = {
++	[MT8519_POWER_DOMAIN_AUDIO] = {
++		.sta_mask = BIT(2),
++		.ctl_offs = 0xE24,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.sram_pdn_bits = GENMASK(11, 8),
++		.sram_pdn_ack_bits = GENMASK(15, 12),
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_AUDIO_STEP1,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_AUDIO_STEP2,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++		},
++		.caps = MTK_SCPD_ACTIVE_WAKEUP,
++	},
++	[MT8519_POWER_DOMAIN_AUDSRC] = {
++		.sta_mask = BIT(15),
++		.ctl_offs = 0xE20,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_AUDSRC_STEP1,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_AUDSRC_STEP2,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++		},
++	},
++	[MT8519_POWER_DOMAIN_ADSP_TOP] = {
++		.sta_mask = BIT(16),
++		.ctl_offs = 0xE28,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_ADSP_TOP_STEP1,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_ADSP_TOP_STEP2,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++		},
++		.caps = MTK_SCPD_ACTIVE_WAKEUP,
++	},
++	[MT8519_POWER_DOMAIN_ADSP_INFRA] = {
++		.sta_mask = BIT(17),
++		.ctl_offs = 0xE2C,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.sram_pdn_bits = BIT(16),
++		.sram_pdn_ack_bits = BIT(24),
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_ADSP_INFRA_STEP1,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_ADSP_INFRA_STEP2,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++		},
++	},
++	[MT8519_POWER_DOMAIN_ADSP_AO] = {
++		.sta_mask = BIT(18),
++		.ctl_offs = 0xE30,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_ADSP_AO_STEP1,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_ADSP_AO_STEP2,
++				MT8519_TOP_AXI_PROT_EN_SET,
++				MT8519_TOP_AXI_PROT_EN_CLR,
++				MT8519_TOP_AXI_PROT_EN_STA),
++		},
++	},
++	[MT8519_POWER_DOMAIN_IP0] = {
++		.sta_mask = BIT(9),
++		.ctl_offs = 0xE34,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_1_IP0_STEP1,
++				MT8519_TOP_AXI_PROT_EN_1_SET,
++				MT8519_TOP_AXI_PROT_EN_1_CLR,
++				MT8519_TOP_AXI_PROT_EN_1_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_1_IP0_STEP2,
++				MT8519_TOP_AXI_PROT_EN_1_SET,
++				MT8519_TOP_AXI_PROT_EN_1_CLR,
++				MT8519_TOP_AXI_PROT_EN_1_STA),
++		},
++	},
++	[MT8519_POWER_DOMAIN_IP1] = {
++		.sta_mask = BIT(10),
++		.ctl_offs = 0xE38,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_1_IP1_STEP1,
++				MT8519_TOP_AXI_PROT_EN_1_SET,
++				MT8519_TOP_AXI_PROT_EN_1_CLR,
++				MT8519_TOP_AXI_PROT_EN_1_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_1_IP1_STEP2,
++				MT8519_TOP_AXI_PROT_EN_1_SET,
++				MT8519_TOP_AXI_PROT_EN_1_CLR,
++				MT8519_TOP_AXI_PROT_EN_1_STA),
++		},
++	},
++	[MT8519_POWER_DOMAIN_SSUSBX] = {
++		.sta_mask = BIT(11),
++		.ctl_offs = 0xE3C,
++		.pwr_sta_offs = 0xEEC,
++		.pwr_sta2nd_offs = 0xEF0,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_2_SSUSBX_STEP1,
++				MT8519_TOP_AXI_PROT_EN_2_SET,
++				MT8519_TOP_AXI_PROT_EN_2_CLR,
++				MT8519_TOP_AXI_PROT_EN_2_STA),
++			BUS_PROT_WR(INFRA,
++				MT8519_TOP_AXI_PROT_EN_2_SSUSBX_STEP2,
++				MT8519_TOP_AXI_PROT_EN_2_SET,
++				MT8519_TOP_AXI_PROT_EN_2_CLR,
++				MT8519_TOP_AXI_PROT_EN_2_STA),
++		},
++		.caps = MTK_SCPD_ACTIVE_WAKEUP,
++	},
++};
++
++static const struct scpsys_soc_data mt8519_scpsys_data = {
++	.domains_data = scpsys_domain_data_mt8519,
++	.num_domains = ARRAY_SIZE(scpsys_domain_data_mt8519),
++};
++
++#endif /* __SOC_MEDIATEK_MT8519_PM_DOMAINS_H */
++
++
+diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.c b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+index 88406e9ac..ce3d672ef 100644
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.c
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+@@ -25,6 +25,7 @@
+ #include "mt8192-pm-domains.h"
+ #include "mt8195-pm-domains.h"
+ #include "mt8365-pm-domains.h"
++#include "mt8519-pm-domains.h"
+ 
+ #define MTK_POLL_DELAY_US		10
+ #define MTK_POLL_TIMEOUT		USEC_PER_SEC
+@@ -654,6 +655,10 @@ static const struct of_device_id scpsys_of_match[] = {
+ 		.compatible = "mediatek,mt8365-power-controller",
+ 		.data = &mt8365_scpsys_data,
+ 	},
++	{
++		.compatible = "mediatek,mt8519-power-controller",
++		.data = &mt8519_scpsys_data,
++	},
+ 	{ }
+ };
+ 
+diff --git a/include/dt-bindings/power/mt8519-power.h b/include/dt-bindings/power/mt8519-power.h
+new file mode 100644
+index 000000000..a5b2a13db
+--- /dev/null
++++ b/include/dt-bindings/power/mt8519-power.h
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
++/*
++ * Copyright (C) 2021 MediaTek Inc.
++ */
++
++#ifndef _DT_BINDINGS_POWER_MT8519_POWER_H
++#define _DT_BINDINGS_POWER_MT8519_POWER_H
++
++#define MT8519_POWER_DOMAIN_AUDIO			0
++#define MT8519_POWER_DOMAIN_AUDSRC			1
++#define MT8519_POWER_DOMAIN_ADSP_TOP		2
++#define MT8519_POWER_DOMAIN_ADSP_INFRA		3
++#define MT8519_POWER_DOMAIN_ADSP_AO			4
++#define MT8519_POWER_DOMAIN_IP0				5
++#define MT8519_POWER_DOMAIN_IP1				6
++#define MT8519_POWER_DOMAIN_SSUSBX			7
++
++#endif /* _DT_BINDINGS_POWER_MT8519_POWER_H */
+diff --git a/include/linux/soc/mediatek/infracfg.h b/include/linux/soc/mediatek/infracfg.h
+index 6c6cccc84..341c54ee1 100644
+--- a/include/linux/soc/mediatek/infracfg.h
++++ b/include/linux/soc/mediatek/infracfg.h
+@@ -449,4 +449,36 @@ int mtk_infracfg_set_bus_protection(struct regmap *infracfg, u32 mask,
+ 		bool reg_update);
+ int mtk_infracfg_clear_bus_protection(struct regmap *infracfg, u32 mask,
+ 		bool reg_update);
++
++#define MT8519_TOP_AXI_PROT_EN_SET				(0x2A0)
++#define MT8519_TOP_AXI_PROT_EN_CLR				(0x2A4)
++#define MT8519_TOP_AXI_PROT_EN_STA				(0x228)
++#define MT8519_TOP_AXI_PROT_EN_1_SET			(0x2A8)
++#define MT8519_TOP_AXI_PROT_EN_1_CLR			(0x2AC)
++#define MT8519_TOP_AXI_PROT_EN_1_STA			(0x258)
++#define MT8519_TOP_AXI_PROT_EN_2_SET			(0x42C)
++#define MT8519_TOP_AXI_PROT_EN_2_CLR			(0x430)
++#define MT8519_TOP_AXI_PROT_EN_2_STA			(0x428)
++#define MT8519_TOP_AXI_PROT_EN_AUDIO_STEP1			(BIT(18))
++#define MT8519_TOP_AXI_PROT_EN_AUDIO_STEP2			(BIT(24))
++#define MT8519_TOP_AXI_PROT_EN_AUDSRC_STEP1			(BIT(19))
++#define MT8519_TOP_AXI_PROT_EN_AUDSRC_STEP2			(BIT(28))
++#define MT8519_TOP_AXI_PROT_EN_ADSP_TOP_STEP1		(GENMASK(15, 14))
++#define MT8519_TOP_AXI_PROT_EN_ADSP_TOP_STEP2		(GENMASK(26, 25))
++#define MT8519_TOP_AXI_PROT_EN_ADSP_INFRA_STEP1		(GENMASK(21, 20) | GENMASK(30, 24))
++#define MT8519_TOP_AXI_PROT_EN_ADSP_INFRA_STEP2		(GENMASK(19, 14) | GENMASK(23, 22))
++#define MT8519_TOP_AXI_PROT_EN_ADSP_AO_STEP1		(GENMASK(30, 28))
++#define MT8519_TOP_AXI_PROT_EN_ADSP_AO_STEP2		(BIT(27))
++#define MT8519_TOP_AXI_PROT_EN_1_IP0_STEP1			(BIT(18))
++#define MT8519_TOP_AXI_PROT_EN_1_IP0_STEP2			(BIT(19) | BIT(21))
++#define MT8519_TOP_AXI_PROT_EN_1_IP1_STEP1			(BIT(24))
++#define MT8519_TOP_AXI_PROT_EN_1_IP1_STEP2			(BIT(20) | BIT(22) | BIT(23))
++#define MT8519_TOP_AXI_PROT_EN_2_SSUSBX_STEP1		(BIT(15))
++#define MT8519_TOP_AXI_PROT_EN_2_SSUSBX_STEP2		(BIT(12) | BIT(13))
++#define MT8519_TOP_AXI_PROT_EN_1_MCUPM_STEP1		(BIT(29))
++#define MT8519_TOP_AXI_PROT_EN_1_MCUPM_STEP2		(BIT(28))
++#define MT8519_TOP_AXI_PROT_EN_2_MCUPM_STEP3		(BIT(0))
++#define MT8519_TOP_AXI_PROT_EN_2_RV33_STEP1			(BIT(10))
++#define MT8519_TOP_AXI_PROT_EN_2_RV33_STEP2			(BIT(2) | BIT(7))
++
+ #endif /* __SOC_MEDIATEK_INFRACFG_H */
