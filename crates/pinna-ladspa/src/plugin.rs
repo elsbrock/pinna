@@ -29,9 +29,9 @@ const PORT_CALIBRATE: usize = PORT_BEAMS + 1;
 const PORT_COUNT: usize = PORT_CALIBRATE + 1;
 const PORT_OUT: usize = LOGICAL_CHANNELS;
 
-const AUDIO_IN: c_int = PORT_INPUT | PORT_AUDIO;
-const CONTROL_IN: c_int = PORT_INPUT | PORT_CONTROL;
-const BOUNDED: c_int = HINT_BOUNDED_BELOW | HINT_BOUNDED_ABOVE;
+pub(crate) const AUDIO_IN: c_int = PORT_INPUT | PORT_AUDIO;
+pub(crate) const CONTROL_IN: c_int = PORT_INPUT | PORT_CONTROL;
+pub(crate) const BOUNDED: c_int = HINT_BOUNDED_BELOW | HINT_BOUNDED_ABOVE;
 
 // LADSPA default hints cannot express every default exactly (only
 // min/low/middle/high/max/0/1/100/440), so Gain dB and Mic mask carry the
@@ -51,7 +51,7 @@ static PORT_DESCRIPTORS: [c_int; PORT_COUNT] = [
     CONTROL_IN,
 ];
 
-struct SyncPtrs<T>(T);
+pub(crate) struct SyncPtrs<T>(pub(crate) T);
 // SAFETY: the wrapped data is immutable static C strings / constants.
 unsafe impl<T> Sync for SyncPtrs<T> {}
 
@@ -70,7 +70,11 @@ static PORT_NAMES: SyncPtrs<[*const c_char; PORT_COUNT]> = SyncPtrs([
     c"Calibrate".as_ptr(),
 ]);
 
-const fn hint(hint_descriptor: c_int, lower_bound: f32, upper_bound: f32) -> PortRangeHint {
+pub(crate) const fn hint(
+    hint_descriptor: c_int,
+    lower_bound: f32,
+    upper_bound: f32,
+) -> PortRangeHint {
     PortRangeHint {
         hint_descriptor,
         lower_bound,
@@ -123,13 +127,13 @@ static DESCRIPTOR: SyncPtrs<Descriptor> = SyncPtrs(Descriptor {
     cleanup: Some(cleanup),
 });
 
-/// Standard LADSPA entry point; returns a pointer to a static descriptor.
+/// Standard LADSPA entry point: index 0 is `pinna_beam`, 1 `pinna_wake`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ladspa_descriptor(index: c_ulong) -> *const Descriptor {
-    if index == 0 {
-        &DESCRIPTOR.0
-    } else {
-        ptr::null()
+    match index {
+        0 => &DESCRIPTOR.0,
+        1 => &crate::wake::DESCRIPTOR.0,
+        _ => ptr::null(),
     }
 }
 
@@ -146,7 +150,7 @@ struct Plugin {
 }
 
 /// `100 * 10^(db / 20)`, rounded and clamped to the integer gain stage's range.
-fn gain_hundredths(db: f32) -> u32 {
+pub(crate) fn gain_hundredths(db: f32) -> u32 {
     let g = 100.0 * 10f32.powf(db / 20.0);
     if g.is_nan() {
         return DIGITAL_GAIN_UNITY;
@@ -155,12 +159,12 @@ fn gain_hundredths(db: f32) -> u32 {
 }
 
 /// Float control to integer, clamped to `lo..=hi`; NaN gives `lo`.
-fn control_int(v: f32, lo: usize, hi: usize) -> usize {
+pub(crate) fn control_int(v: f32, lo: usize, hi: usize) -> usize {
     (v.round() as usize).clamp(lo, hi)
 }
 
 /// Round and saturate a float sample in [-1, 1] to the i16 scale.
-fn to_i16(x: f32) -> i16 {
+pub(crate) fn to_i16(x: f32) -> i16 {
     saturate_s16((x * 32768.0).round() as i64)
 }
 

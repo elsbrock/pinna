@@ -12,7 +12,7 @@ use std::os::raw::c_ulong;
 fn descriptor() -> &'static Descriptor {
     let d = ladspa_descriptor(0);
     assert!(!d.is_null());
-    assert!(ladspa_descriptor(1).is_null());
+    assert!(ladspa_descriptor(2).is_null());
     unsafe { &*d }
 }
 
