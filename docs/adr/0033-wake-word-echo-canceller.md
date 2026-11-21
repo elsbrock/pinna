@@ -41,27 +41,34 @@ What the recordings show:
 - **Holding the beam during playback changes little.** A separate study on
   2026-11-21 found the cancelled echo within about 2 dB of a free-running beam.
 
-A prototype was run offline on the same recordings: a linear echo canceller
-with no suppressor, on the mean of lanes 0, 3 and 4, with lane 7 as the
-reference. On the beam's four microphones (lanes 0, 1, 3 and 4) it detected
-the same at 50 and 60, and 3 of 5 at 70 (4 of 5 with the playback rule). It is a partitioned-block frequency-domain NLMS filter with 2048
-taps, and it runs two filters so that double talk can't make it diverge.
+A linear echo canceller with no suppressor was then run offline on the same
+recordings, with lane 7 as the reference: a partitioned-block frequency-domain
+NLMS filter with 2048 taps, running two filters so that double talk can't make
+it diverge. First as a prototype on the mean of lanes 0, 3 and 4, then on the
+beam's four microphones (lanes 0, 1, 3 and 4), and finally as built
+(`pinna_audio::echocancel`, starting cold) on those four:
 
-| Volume | Nothing playing | 50 | 60 | 70 |
+| Detected | Nothing playing | 50 | 60 | 70 |
 |---|---|---|---|---|
-| Detected | 3 of 5 | 3 of 5 | 3 of 5 | 4 of 5 |
+| Prototype, lanes 0, 3, 4 | 3 of 5 | 3 of 5 | 3 of 5 | 4 of 5 |
+| Prototype, lanes 0, 1, 3, 4 | | 3 of 5 | 3 of 5 | 3 of 5 |
+| As built, lanes 0, 1, 3, 4 | | 5 of 5 | 2 of 5 | 4 of 5 |
 
 With the detector's playback rule (`Detector::set_playback`, one supporting
-score instead of two), 70 detects 5 of 5. On the spoken reply alone, at volumes
-50 to 80, it removed 14–20 dB of echo, leaving −54 to −66 dBFS. Nothing
-scored above 0.011, so there were no false detections. TECHO5's notes on the
-same hardware came to the same conclusion: its NLMS canceller suited the wake
-word better than WebRTC, whose suppressor removed the talker with the echo.
+score instead of two), the prototype on lanes 0, 3 and 4 detects 5 of 5 at 70,
+and on lanes 0, 1, 3 and 4 4 of 5. On the spoken reply alone, at volumes 50 to
+80, it removed 14–20 dB of echo, leaving −54 to −66 dBFS. Nothing scored above
+0.011, so there were no false detections. TECHO5's notes on the same hardware
+came to the same conclusion: its NLMS canceller suited the wake word better
+than WebRTC, whose suppressor removed the talker with the echo.
 
 ## Decision
 
-On the Echo Dot (2nd gen), the wake word detector gets its own microphone
-stream with its own echo canceller. Home Assistant keeps the WebRTC output.
+On the MT8163 models, the wake word detector gets its own microphone stream
+with its own echo canceller. Home Assistant keeps the WebRTC output. The Echo
+Dot (2nd gen) and the Echo (2nd gen) share one graph (ADR 0004), so both get
+it. Only the Dot is measured: the Echo (2nd gen) delivers the same nine lanes,
+but its loopback lane and echo path have not been checked with playback.
 
 - **A new LADSPA plugin, `pinna_wake`**, in `pinna-ladspa` beside
   `pinna_beam`. Its inputs are microphone lanes 0–6 and loopback lane 7, and it
@@ -81,9 +88,17 @@ stream with its own echo canceller. Home Assistant keeps the WebRTC output.
   `dot_wake`, with an automatic gain of its own. Home Assistant, the standalone
   route and the pre-roll keep `dot_mic_aec`. Once the wake word interrupts a
   reply the satellite stops playing, so WebRTC's suppressor no longer has
-  anything to suppress while the request is heard.
+  anything to suppress while the request is heard. The end of speech on
+  `dot_mic_aec` keeps its noise seed from `dot_mic_aec`, from a VAD that
+  follows it, because `dot_wake` keeps echo during playback.
+- **The fallback** is `dot_mic_aec`, as before: the detector hears it while
+  `dot_wake` delivers nothing for 1 s, if `dot_wake` fails to start, or when a
+  developer points pinnad's capture elsewhere (`capture_target`). pinnad logs
+  when it switches. The filter-chain is marked `nofail`, so a missing plugin
+  leaves the rest of the graph running.
 - **Unchanged:** `module-echo-cancel`, pinnad's reference to `dot_ref`, the
-  beam and the volume. Other models keep a single stream.
+  beam and the volume. The other backends (the virtual Echo Dot, a PC) keep a
+  single stream.
 
 Rejected:
 
@@ -115,7 +130,8 @@ Rejected:
 - Tests:
   - unit tests of the canceller: it converges on a known echo path, and it
     doesn't diverge under double talk;
-  - a check in `just test-device` that `dot_wake` removes playback echo;
+  - a check in `just test-device` that `dot_wake` is at least 10 dB under the
+    beamformer while music plays (written, not run on a device yet);
   - after the build, the same five-cue takes on the Dot at volumes 50, 60, 70
     and 80, to confirm the offline numbers.
 - ADR 0004 and the website's audio pages describe the second stream once it is
