@@ -53,9 +53,16 @@ pub const MICPGA_MAX: u32 = 80;
 
 const ADC_BANKS: [&str; 4] = ["A", "B", "C", "D"];
 
-/// micd.c `configure_capture_path`, in order. `micpga` is clamped to
-/// [`MICPGA_MAX`]. The PGA volume writes come last (the C code falls back to
-/// [`MICPGA_DEFAULT`] if one is refused; see [`micpga_fallback`]).
+/// micd.c `configure_capture_path`, in order, except the DIF1 input gain.
+/// `micpga` is clamped to [`MICPGA_MAX`]. The PGA volume writes come last (the
+/// C code falls back to [`MICPGA_DEFAULT`] if one is refused; see
+/// [`micpga_fallback`]).
+///
+/// "DIF1 Input Gain" is the low bit of the ADC3101's two-bit routing field for
+/// that input: 0 routes it at 0 dB, 1 at -6 dB. micd.c writes 1; TECHO5
+/// (`echod/internal/hardware/mic/gain.go`) writes 0. Measured on an Echo Dot
+/// (2nd gen), 2026-11-21: writing 0 raised every microphone lane by
+/// 5.5-6.2 dB.
 pub fn capture_setup(micpga: u32) -> Vec<MixerCmd> {
     let mut v = vec![
         MixerCmd::new("Mic PGA Switch", &["1", "1"]),
@@ -75,11 +82,11 @@ pub fn capture_setup(micpga: u32) -> Vec<MixerCmd> {
     for bank in ADC_BANKS {
         v.push(MixerCmd::new(
             &format!("ADC_{bank} DIF1_L Input Gain"),
-            &["1"],
+            &["0"],
         ));
         v.push(MixerCmd::new(
             &format!("ADC_{bank} DIF1_R Input Gain"),
-            &["1"],
+            &["0"],
         ));
     }
     v.push(MixerCmd::new("SpiTimeStamps", &["0"]));
@@ -246,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn capture_sequence_matches_micd_c() {
+    fn capture_sequence_routes_dif1_at_0_db() {
         let got = flat(&capture_setup(40));
         let want = [
             "Mic PGA Switch=1 1",
@@ -260,14 +267,14 @@ mod tests {
             "ADC_C Right Ip Select ADC_C DIF1_R switch=1",
             "ADC_D Left Ip Select ADC_D DIF1_L switch=1",
             "ADC_D Right Ip Select ADC_D DIF1_R switch=1",
-            "ADC_A DIF1_L Input Gain=1",
-            "ADC_A DIF1_R Input Gain=1",
-            "ADC_B DIF1_L Input Gain=1",
-            "ADC_B DIF1_R Input Gain=1",
-            "ADC_C DIF1_L Input Gain=1",
-            "ADC_C DIF1_R Input Gain=1",
-            "ADC_D DIF1_L Input Gain=1",
-            "ADC_D DIF1_R Input Gain=1",
+            "ADC_A DIF1_L Input Gain=0",
+            "ADC_A DIF1_R Input Gain=0",
+            "ADC_B DIF1_L Input Gain=0",
+            "ADC_B DIF1_R Input Gain=0",
+            "ADC_C DIF1_L Input Gain=0",
+            "ADC_C DIF1_R Input Gain=0",
+            "ADC_D DIF1_L Input Gain=0",
+            "ADC_D DIF1_R Input Gain=0",
             "SpiTimeStamps=0",
             "ADC_A MICPGA Volume Ctrl=40 40",
             "ADC_B MICPGA Volume Ctrl=40 40",
