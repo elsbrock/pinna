@@ -16,6 +16,10 @@ use tokio::sync::{Notify, mpsc, watch};
 
 pub type Frame = [i16; FRAME_SAMPLES];
 
+/// How long after the first captured audio the microphone settings are read
+/// back: PipeWire has configured the converters by then.
+const MIXER_CHECK_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Clone, Debug)]
 pub struct CaptureConfig {
     pub backend: Backend,
@@ -345,6 +349,15 @@ async fn run_process(
         if !running {
             running = true;
             let _ = status.send(CaptureStatus::Running);
+            if cfg.backend.echo_dot_mixer() {
+                // Once PipeWire has opened the microphones, check that every
+                // setting held (see MixerRunner::check).
+                let (runner, setup) = (cfg.mixer.clone(), mixer::capture_setup(cfg.micpga));
+                tokio::spawn(async move {
+                    tokio::time::sleep(MIXER_CHECK_AFTER).await;
+                    runner.check(&setup).await;
+                });
+            }
         }
         carry.extend_from_slice(&buf[..n]);
         samples.clear();

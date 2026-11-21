@@ -100,6 +100,34 @@ pub fn capture_setup(micpga: u32) -> Vec<MixerCmd> {
     v
 }
 
+/// The values in `amixer cget` output (`  : values=on,off`), with `on`/`off`
+/// as `1`/`0`, the way they are written.
+fn parse_values(out: &str) -> Option<Vec<String>> {
+    let line = out
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix(": values="))?;
+    Some(
+        line.split(',')
+            .map(|v| match v.trim() {
+                "on" => "1".to_owned(),
+                "off" => "0".to_owned(),
+                v => v.to_owned(),
+            })
+            .collect(),
+    )
+}
+
+/// Whether a control read as `got` holds what `want` wrote. amixer sets
+/// every channel from a single value, so the last wanted value covers the rest.
+fn holds(want: &[String], got: &[String]) -> bool {
+    !want.is_empty()
+        && !got.is_empty()
+        && got
+            .iter()
+            .enumerate()
+            .all(|(i, g)| *g == want[i.min(want.len() - 1)])
+}
+
 /// The default-level replacement for a refused PGA write.
 pub fn micpga_fallback(cmd: &MixerCmd) -> Option<MixerCmd> {
     if !cmd.control.ends_with("MICPGA Volume Ctrl") {
@@ -211,6 +239,60 @@ impl MixerRunner {
             .status()
             .await;
         matches!(status, Ok(s) if s.success())
+    }
+
+    /// A control's current values, `on`/`off` read as `1`/`0`; `None` if
+    /// amixer can't read it.
+    async fn read(&self, control: &str) -> Option<Vec<String>> {
+        let out = Command::new(&self.bin)
+            .args([
+                "-c".into(),
+                self.card.to_string(),
+                "cget".into(),
+                format!("name={control}"),
+            ])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .await
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        parse_values(&String::from_utf8_lossy(&out.stdout))
+    }
+
+    /// Read back every command's control and set again the ones that don't
+    /// hold the value written. Returns the controls set again.
+    ///
+    /// The microphone setup needs it: after a boot, the Echo Dot (2nd gen) and
+    /// the Echo (2nd gen) both came up with "ADC_A Right Ip Select ADC_A
+    /// DIF1_R switch" off although pinnad had written it on, so lane 1 heard
+    /// nothing (2026-11-21). Writing it again while capturing brought the lane
+    /// back. What switches it off is not known yet.
+    pub async fn check(&self, cmds: &[MixerCmd]) -> Vec<String> {
+        let mut fixed = Vec::new();
+        for cmd in cmds {
+            let Some(got) = self.read(&cmd.control).await else {
+                continue;
+            };
+            if holds(&cmd.values, &got)
+                || micpga_fallback(cmd).is_some_and(|fb| holds(&fb.values, &got))
+            {
+                continue;
+            }
+            tracing::warn!(
+                control = %cmd.control,
+                got = %got.join(","),
+                want = %cmd.values.join(","),
+                "mixer control lost its setting; setting it again"
+            );
+            if !self.run_one(cmd).await {
+                tracing::error!(control = %cmd.control, "mixer control failed");
+            }
+            fixed.push(cmd.control.clone());
+        }
+        fixed
     }
 
     /// Apply every command in order. All are attempted; a failed non-optional
@@ -356,5 +438,79 @@ mod tests {
             ["MFP Gpio Mute=On", "Ext_Speaker_Amp_Switch=Off"]
         );
         assert_eq!(AMP_SETTLE.as_millis(), 30);
+    }
+
+    #[test]
+    fn cget_output_reads_as_written_values() {
+        // amixer 1.2 on an Echo (2nd gen), 2026-11-21.
+        let out = "numid=60,iface=MIXER,name='ADC_A Right Ip Select ADC_A DIF1_R switch'\n  \
+                   ; type=BOOLEAN,access=rw------,values=1\n  : values=off\n";
+        assert_eq!(parse_values(out), Some(vec!["0".to_owned()]));
+        let out =
+            "  ; type=INTEGER,access=rw---R--,values=2,min=0,max=80,step=0\n  : values=40,40\n";
+        assert_eq!(parse_values(out), Some(vec!["40".into(), "40".into()]));
+        assert_eq!(parse_values("nothing here"), None);
+    }
+
+    #[test]
+    fn a_single_value_holds_for_every_channel() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(holds(&v(&["1"]), &v(&["1", "1"])));
+        assert!(holds(&v(&["40", "40"]), &v(&["40", "40"])));
+        assert!(!holds(&v(&["1"]), &v(&["1", "0"])));
+        assert!(!holds(&v(&["1"]), &v(&[])));
+    }
+
+    #[tokio::test]
+    async fn a_control_that_lost_its_setting_is_set_again() {
+        use std::os::unix::fs::PermissionsExt;
+        // A stand-in amixer keeping each control's values in a file.
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        std::fs::create_dir(&state).unwrap();
+        let bin = dir.path().join("amixer");
+        std::fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nop=; name=; val=\n\
+                 while [ $# -gt 0 ]; do case \"$1\" in\n\
+                 -c) shift;; -q) ;; cset|cget) op=$1;; name=*) name=${{1#name=}};; *) val=$1;;\n\
+                 esac; shift; done\n\
+                 f='{}'/$(printf %s \"$name\" | tr ' /' '__')\n\
+                 if [ \"$op\" = cset ]; then printf %s \"$val\" > \"$f\"; echo \"$name\" >> '{}'/../written;\n\
+                 else [ -f \"$f\" ] || exit 1; echo \"  : values=$(cat \"$f\")\"; fi\n",
+                state.display(),
+                state.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runner = MixerRunner {
+            bin: bin.to_str().unwrap().into(),
+            card: 0,
+        };
+        let setup = capture_setup(MICPGA_DEFAULT);
+        // Another test's fork may still hold the new script open for a moment.
+        for attempt in 0.. {
+            match runner.apply(&setup).await {
+                Ok(()) => break,
+                Err(_) if attempt < 20 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        // After boot, lane 1's input reads off although it was written on.
+        let lost = "ADC_A Right Ip Select ADC_A DIF1_R switch";
+        std::fs::write(state.join(lost.replace(' ', "_")), "off").unwrap();
+        std::fs::remove_file(dir.path().join("written")).unwrap();
+
+        assert_eq!(runner.check(&setup).await, vec![lost.to_owned()]);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("written")).unwrap(),
+            format!("{lost}\n"),
+            "only the lost control is written again"
+        );
+        assert!(runner.check(&setup).await.is_empty());
     }
 }
