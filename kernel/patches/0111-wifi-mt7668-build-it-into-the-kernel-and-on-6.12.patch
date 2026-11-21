@@ -1,0 +1,546 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 11:12:03 +0100
+Subject: [PATCH 111/111] wifi: mt7668: build it into the kernel, and on 6.12
+
+The MT8516 Echos' Wi-Fi (ADR 0031), in Pinna's monolithic kernel:
+
+- Kconfig MT7668_WLAN under the MediaTek wireless vendors. Built in, the
+  driver takes its CFG_BUILT_IN_DRIVER path, which uses cfg80211's
+  is_world_regdom() instead of a second definition of it.
+- lidar-mainline ported the driver to 7.3. It keeps the 7.3 signatures;
+  gl_cfg80211_compat.{c,h} give older kernels thin wrappers, chosen by
+  LINUX_VERSION_CODE where the API changed:
+  - 7.3: the core assigns the cookie of remain_on_channel and mgmt_tx;
+    before, the driver returns one (a nonzero counter);
+  - 7.1: the key and station ops, cfg80211_new_sta() and
+    cfg80211_del_sta() take the wireless_dev; before, the net_device;
+  - 6.17: set_wiphy_params, set_tx_power and get_tx_power take
+    radio_idx (-1, all radios);
+  - 6.16: timer_container_of() was from_timer();
+  - 6.14: get_tx_power takes link_id.
+
+Builds for arm64 with gcc 15; not yet run on an MT7668. The driver
+requests its firmware when the SDIO function probes, which for a
+built-in driver is before the root is mounted.
+---
+ drivers/net/wireless/mediatek/Kconfig         |   1 +
+ drivers/net/wireless/mediatek/Makefile        |   1 +
+ drivers/net/wireless/mediatek/mt7668/Kconfig  |  12 ++
+ drivers/net/wireless/mediatek/mt7668/Makefile |   8 +-
+ .../mt7668/os/linux/gl_cfg80211_compat.c      | 184 ++++++++++++++++++
+ .../mediatek/mt7668/os/linux/gl_init.c        |  18 +-
+ .../mediatek/mt7668/os/linux/gl_p2p.c         |  22 +--
+ .../mediatek/mt7668/os/linux/gl_p2p_kal.c     |   4 +-
+ .../os/linux/include/gl_cfg80211_compat.h     | 116 +++++++++++
+ .../mediatek/mt7668/os/linux/include/gl_os.h  |   1 +
+ 10 files changed, 344 insertions(+), 23 deletions(-)
+ create mode 100644 drivers/net/wireless/mediatek/mt7668/Kconfig
+ create mode 100644 drivers/net/wireless/mediatek/mt7668/os/linux/gl_cfg80211_compat.c
+ create mode 100644 drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_cfg80211_compat.h
+
+diff --git a/drivers/net/wireless/mediatek/Kconfig b/drivers/net/wireless/mediatek/Kconfig
+index bd4db1282..2c0fbd901 100644
+--- a/drivers/net/wireless/mediatek/Kconfig
++++ b/drivers/net/wireless/mediatek/Kconfig
+@@ -13,4 +13,5 @@ config WLAN_VENDOR_MEDIATEK
+ if WLAN_VENDOR_MEDIATEK
+ source "drivers/net/wireless/mediatek/mt7601u/Kconfig"
+ source "drivers/net/wireless/mediatek/mt76/Kconfig"
++source "drivers/net/wireless/mediatek/mt7668/Kconfig"
+ endif # WLAN_VENDOR_MEDIATEK
+diff --git a/drivers/net/wireless/mediatek/Makefile b/drivers/net/wireless/mediatek/Makefile
+index 806172659..18d1e250a 100644
+--- a/drivers/net/wireless/mediatek/Makefile
++++ b/drivers/net/wireless/mediatek/Makefile
+@@ -1,3 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ obj-$(CONFIG_MT7601U)	+= mt7601u/
+ obj-$(CONFIG_MT76_CORE)	+= mt76/
++obj-$(CONFIG_MT7668_WLAN)	+= mt7668/
+diff --git a/drivers/net/wireless/mediatek/mt7668/Kconfig b/drivers/net/wireless/mediatek/mt7668/Kconfig
+new file mode 100644
+index 000000000..098b61e28
+--- /dev/null
++++ b/drivers/net/wireless/mediatek/mt7668/Kconfig
+@@ -0,0 +1,12 @@
++# SPDX-License-Identifier: GPL-2.0
++config MT7668_WLAN
++	tristate "MediaTek MT7668 SDIO Wi-Fi (MediaTek's gen4 driver)"
++	depends on CFG80211 && MMC
++	help
++	  MediaTek's own driver for the Wi-Fi function (037a:7608) of the
++	  MT7668 SDIO combo chip, as Amazon ships it on the MT8516 Echos and
++	  lidar-mainline ported it to mainline. Bluetooth on the same chip
++	  is btmtksdio.
++
++	  Its firmware (WIFI_RAM_CODE_MT7668.bin, WIFI_RAM_CODE2_SDIO_MT7668.bin
++	  and the ROM patch) is loaded when the SDIO function is bound.
+diff --git a/drivers/net/wireless/mediatek/mt7668/Makefile b/drivers/net/wireless/mediatek/mt7668/Makefile
+index 58face394..b44ab1eb0 100644
+--- a/drivers/net/wireless/mediatek/mt7668/Makefile
++++ b/drivers/net/wireless/mediatek/mt7668/Makefile
+@@ -193,7 +193,12 @@ endif
+ 
+ # ASSERT() is compiled out
+ ccflags-y += -DBUILD_QA_DBG=0
++# Built into the kernel, it uses cfg80211's is_world_regdom() instead of its own.
++ifeq ($(CONFIG_MT7668_WLAN),y)
++ccflags-y += -DCFG_BUILT_IN_DRIVER=1
++else
+ ccflags-y += -DCFG_BUILT_IN_DRIVER=0
++endif
+ ccflags-y += -D_HIF_SDIO=1
+ 
+ #load TxPwrLimit.dat or not
+@@ -384,7 +389,7 @@ ifneq ($(PLATFORM_FLAGS), )
+     ccflags-y += $(PLATFORM_FLAGS)
+ endif
+ 
+-obj-m += $(MODULE_NAME).o
++obj-$(CONFIG_MT7668_WLAN) += $(MODULE_NAME).o
+ 
+ ifneq ($(CFG_CHIP_RESET_SUPPORT),)
+ ccflags-y += -DCFG_CHIP_RESET_SUPPORT=$(CFG_CHIP_RESET_SUPPORT)
+@@ -428,6 +433,7 @@ NIC_OBJS := $(NIC_DIR)nic.o \
+ 			$(NIC_DIR)nic_umac.o
+ 
+ OS_OBJS :=	$(OS_DIR)gl_init.o \
++			$(OS_DIR)gl_cfg80211_compat.o \
+ 			$(OS_DIR)gl_kal.o  \
+ 			$(OS_DIR)gl_bow.o \
+ 			$(OS_DIR)gl_wext.o \
+diff --git a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_cfg80211_compat.c b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_cfg80211_compat.c
+new file mode 100644
+index 000000000..5a097c583
+--- /dev/null
++++ b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_cfg80211_compat.c
+@@ -0,0 +1,184 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * cfg80211 ops for kernels older than the one this driver was ported to;
++ * see gl_cfg80211_compat.h. Each wrapper adapts the arguments and calls the
++ * driver's own function.
++ */
++
++#include "gl_os.h"
++#include "debug.h"
++#include "wlan_lib.h"
++#include "gl_wext.h"
++#include "gl_cfg80211.h"
++#include "gl_p2p_ioctl.h"
++#include "precomp.h"
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
++int mtk_cfg80211_add_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++			      u8 key_index, bool pairwise, const u8 *mac_addr,
++			      struct key_params *params)
++{
++	return mtk_cfg80211_add_key(wiphy, ndev->ieee80211_ptr, link_id, key_index,
++				    pairwise, mac_addr, params);
++}
++
++int mtk_cfg80211_get_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++			      u8 key_index, bool pairwise, const u8 *mac_addr, void *cookie,
++			      void (*callback)(void *cookie, struct key_params *))
++{
++	return mtk_cfg80211_get_key(wiphy, ndev->ieee80211_ptr, link_id, key_index,
++				    pairwise, mac_addr, cookie, callback);
++}
++
++int mtk_cfg80211_del_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++			      u8 key_index, bool pairwise, const u8 *mac_addr)
++{
++	return mtk_cfg80211_del_key(wiphy, ndev->ieee80211_ptr, link_id, key_index,
++				    pairwise, mac_addr);
++}
++
++int mtk_cfg80211_get_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				  const u8 *mac, struct station_info *sinfo)
++{
++	return mtk_cfg80211_get_station(wiphy, ndev->ieee80211_ptr, mac, sinfo);
++}
++
++#if CFG_SUPPORT_TDLS
++int mtk_cfg80211_change_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				     const u8 *mac, struct station_parameters *params)
++{
++	return mtk_cfg80211_change_station(wiphy, ndev->ieee80211_ptr, mac, params);
++}
++
++int mtk_cfg80211_add_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				  const u8 *mac, struct station_parameters *params)
++{
++	return mtk_cfg80211_add_station(wiphy, ndev->ieee80211_ptr, mac, params);
++}
++
++int mtk_cfg80211_del_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				  struct station_del_parameters *params)
++{
++	return mtk_cfg80211_del_station(wiphy, ndev->ieee80211_ptr, params);
++}
++#endif
++
++int mtk_p2p_cfg80211_add_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++				  u8 key_index, bool pairwise, const u8 *mac_addr,
++				  struct key_params *params)
++{
++	return mtk_p2p_cfg80211_add_key(wiphy, ndev->ieee80211_ptr, link_id, key_index,
++					pairwise, mac_addr, params);
++}
++
++int mtk_p2p_cfg80211_get_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++				  u8 key_index, bool pairwise, const u8 *mac_addr, void *cookie,
++				  void (*callback)(void *cookie, struct key_params *))
++{
++	return mtk_p2p_cfg80211_get_key(wiphy, ndev->ieee80211_ptr, link_id, key_index,
++					pairwise, mac_addr, cookie, callback);
++}
++
++int mtk_p2p_cfg80211_del_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++				  u8 key_index, bool pairwise, const u8 *mac_addr)
++{
++	return mtk_p2p_cfg80211_del_key(wiphy, ndev->ieee80211_ptr, link_id, key_index,
++					pairwise, mac_addr);
++}
++
++int mtk_p2p_cfg80211_set_mgmt_key_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				       int link_id, u8 key_index)
++{
++	return mtk_p2p_cfg80211_set_mgmt_key(wiphy, ndev->ieee80211_ptr, link_id, key_index);
++}
++
++int mtk_p2p_cfg80211_get_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				      const u8 *mac, struct station_info *sinfo)
++{
++	return mtk_p2p_cfg80211_get_station(wiphy, ndev->ieee80211_ptr, mac, sinfo);
++}
++
++int mtk_p2p_cfg80211_del_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				      struct station_del_parameters *params)
++{
++	return mtk_p2p_cfg80211_del_station(wiphy, ndev->ieee80211_ptr, params);
++}
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 3, 0)
++/*
++ * Before 7.3 the driver chooses the cookie of a remain-on-channel request
++ * or a management frame and returns it. Any nonzero value unique among the
++ * pending ones will do; the driver reports it back unchanged.
++ */
++static u64 mtk_cfg80211_next_cookie(void)
++{
++	static atomic64_t last = ATOMIC64_INIT(0);
++	u64 cookie;
++
++	do {
++		cookie = atomic64_inc_return(&last);
++	} while (!cookie);
++
++	return cookie;
++}
++
++int mtk_cfg80211_remain_on_channel_cookie_out(struct wiphy *wiphy, struct wireless_dev *wdev,
++					      struct ieee80211_channel *chan,
++					      unsigned int duration, u64 *cookie)
++{
++	*cookie = mtk_cfg80211_next_cookie();
++	return mtk_cfg80211_remain_on_channel(wiphy, wdev, chan, duration, *cookie, NULL);
++}
++
++int mtk_cfg80211_mgmt_tx_cookie_out(struct wiphy *wiphy, struct wireless_dev *wdev,
++				    struct cfg80211_mgmt_tx_params *params, u64 *cookie)
++{
++	*cookie = mtk_cfg80211_next_cookie();
++	return mtk_cfg80211_mgmt_tx(wiphy, wdev, params, *cookie);
++}
++
++int mtk_p2p_cfg80211_remain_on_channel_cookie_out(struct wiphy *wiphy,
++						  struct wireless_dev *wdev,
++						  struct ieee80211_channel *chan,
++						  unsigned int duration, u64 *cookie)
++{
++	*cookie = mtk_cfg80211_next_cookie();
++	return mtk_p2p_cfg80211_remain_on_channel(wiphy, wdev, chan, duration, *cookie, NULL);
++}
++
++int mtk_p2p_cfg80211_mgmt_tx_cookie_out(struct wiphy *wiphy, struct wireless_dev *wdev,
++					struct cfg80211_mgmt_tx_params *params, u64 *cookie)
++{
++	*cookie = mtk_cfg80211_next_cookie();
++	return mtk_p2p_cfg80211_mgmt_tx(wiphy, wdev, params, *cookie);
++}
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 17, 0)
++/* Before 6.17 a wiphy has one radio: the driver's radio_idx -1 means all. */
++int mtk_p2p_cfg80211_set_wiphy_params_no_radio(struct wiphy *wiphy, u32 changed)
++{
++	return mtk_p2p_cfg80211_set_wiphy_params(wiphy, -1, changed);
++}
++
++int mtk_p2p_cfg80211_set_txpower_no_radio(struct wiphy *wiphy, struct wireless_dev *wdev,
++					  enum nl80211_tx_power_setting type, int mbm)
++{
++	return mtk_p2p_cfg80211_set_txpower(wiphy, wdev, -1, type, mbm);
++}
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
++int mtk_p2p_cfg80211_get_txpower_no_radio(struct wiphy *wiphy, struct wireless_dev *wdev,
++					  int *dbm)
++{
++	return mtk_p2p_cfg80211_get_txpower(wiphy, wdev, -1, 0, dbm);
++}
++#else
++int mtk_p2p_cfg80211_get_txpower_no_radio(struct wiphy *wiphy, struct wireless_dev *wdev,
++					  unsigned int link_id, int *dbm)
++{
++	return mtk_p2p_cfg80211_get_txpower(wiphy, wdev, -1, link_id, dbm);
++}
++#endif
++#endif
+diff --git a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c
+index 7c2dfddad..ea25099ba 100644
+--- a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c
++++ b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_init.c
+@@ -362,15 +362,15 @@ const UINT_32 mtk_cipher_suites[5] = {
+ 
+ static struct cfg80211_ops mtk_wlan_ops = {
+ 	.change_virtual_intf = mtk_cfg80211_change_iface,
+-	.add_key = mtk_cfg80211_add_key,
+-	.get_key = mtk_cfg80211_get_key,
+-	.del_key = mtk_cfg80211_del_key,
++	.add_key = MTK_OP_WDEV(mtk_cfg80211_add_key),
++	.get_key = MTK_OP_WDEV(mtk_cfg80211_get_key),
++	.del_key = MTK_OP_WDEV(mtk_cfg80211_del_key),
+ 	.set_default_key = mtk_cfg80211_set_default_key,
+-	.get_station = mtk_cfg80211_get_station,
++	.get_station = MTK_OP_WDEV(mtk_cfg80211_get_station),
+ #if CFG_SUPPORT_TDLS
+-	.change_station = mtk_cfg80211_change_station,
+-	.add_station = mtk_cfg80211_add_station,
+-	.del_station = mtk_cfg80211_del_station,
++	.change_station = MTK_OP_WDEV(mtk_cfg80211_change_station),
++	.add_station = MTK_OP_WDEV(mtk_cfg80211_add_station),
++	.del_station = MTK_OP_WDEV(mtk_cfg80211_del_station),
+ #endif
+ 	.scan = mtk_cfg80211_scan,
+ 	.connect = mtk_cfg80211_connect,
+@@ -396,9 +396,9 @@ static struct cfg80211_ops mtk_wlan_ops = {
+ 	.assoc = mtk_cfg80211_assoc,
+ 
+ 	/* Action Frame TX/RX */
+-	.remain_on_channel = mtk_cfg80211_remain_on_channel,
++	.remain_on_channel = MTK_OP_COOKIE(mtk_cfg80211_remain_on_channel),
+ 	.cancel_remain_on_channel = mtk_cfg80211_cancel_remain_on_channel,
+-	.mgmt_tx = mtk_cfg80211_mgmt_tx,
++	.mgmt_tx = MTK_OP_COOKIE(mtk_cfg80211_mgmt_tx),
+ 	/* .mgmt_tx_cancel_wait        = mtk_cfg80211_mgmt_tx_cancel_wait, */
+ 	.update_mgmt_frame_registrations = mtk_cfg80211_update_mgmt_frame_registrations,
+ 
+diff --git a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p.c b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p.c
+index ae498fe18..7dd42baa6 100644
+--- a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p.c
++++ b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p.c
+@@ -140,9 +140,9 @@ static struct cfg80211_ops mtk_p2p_ops = {
+ 	.del_virtual_intf = mtk_p2p_cfg80211_del_iface,
+ 	.change_bss = mtk_p2p_cfg80211_change_bss,
+ 	.scan = mtk_p2p_cfg80211_scan,
+-	.remain_on_channel = mtk_p2p_cfg80211_remain_on_channel,
++	.remain_on_channel = MTK_OP_COOKIE(mtk_p2p_cfg80211_remain_on_channel),
+ 	.cancel_remain_on_channel = mtk_p2p_cfg80211_cancel_remain_on_channel,
+-	.mgmt_tx = mtk_p2p_cfg80211_mgmt_tx,
++	.mgmt_tx = MTK_OP_COOKIE(mtk_p2p_cfg80211_mgmt_tx),
+ 	.mgmt_tx_cancel_wait = mtk_p2p_cfg80211_mgmt_tx_cancel_wait,
+ 	.connect = mtk_p2p_cfg80211_connect,
+ 	.disconnect = mtk_p2p_cfg80211_disconnect,
+@@ -151,20 +151,20 @@ static struct cfg80211_ops mtk_p2p_ops = {
+ 	.start_ap = mtk_p2p_cfg80211_start_ap,
+ 	.change_beacon = mtk_p2p_cfg80211_change_beacon,
+ 	.stop_ap = mtk_p2p_cfg80211_stop_ap,
+-	.set_wiphy_params = mtk_p2p_cfg80211_set_wiphy_params,
+-	.del_station = mtk_p2p_cfg80211_del_station,
++	.set_wiphy_params = MTK_OP_RADIO(mtk_p2p_cfg80211_set_wiphy_params),
++	.del_station = MTK_OP_WDEV(mtk_p2p_cfg80211_del_station),
+ 	.set_bitrate_mask = mtk_p2p_cfg80211_set_bitrate_mask,
+ 	.update_mgmt_frame_registrations = mtk_p2p_cfg80211_update_mgmt_frame_registrations,
+-	.get_station = mtk_p2p_cfg80211_get_station,
+-	.add_key = mtk_p2p_cfg80211_add_key,
+-	.get_key = mtk_p2p_cfg80211_get_key,
+-	.del_key = mtk_p2p_cfg80211_del_key,
++	.get_station = MTK_OP_WDEV(mtk_p2p_cfg80211_get_station),
++	.add_key = MTK_OP_WDEV(mtk_p2p_cfg80211_add_key),
++	.get_key = MTK_OP_WDEV(mtk_p2p_cfg80211_get_key),
++	.del_key = MTK_OP_WDEV(mtk_p2p_cfg80211_del_key),
+ 	.set_default_key = mtk_p2p_cfg80211_set_default_key,
+-	.set_default_mgmt_key = mtk_p2p_cfg80211_set_mgmt_key,
++	.set_default_mgmt_key = MTK_OP_WDEV(mtk_p2p_cfg80211_set_mgmt_key),
+ 	.join_ibss = mtk_p2p_cfg80211_join_ibss,
+ 	.leave_ibss = mtk_p2p_cfg80211_leave_ibss,
+-	.set_tx_power = mtk_p2p_cfg80211_set_txpower,
+-	.get_tx_power = mtk_p2p_cfg80211_get_txpower,
++	.set_tx_power = MTK_OP_RADIO(mtk_p2p_cfg80211_set_txpower),
++	.get_tx_power = MTK_OP_RADIO(mtk_p2p_cfg80211_get_txpower),
+ 	.set_power_mgmt = mtk_p2p_cfg80211_set_power_mgmt,
+ #if (CFG_SUPPORT_DFS_MASTER == 1)
+ 	.start_radar_detection = mtk_p2p_cfg80211_start_radar_detection,
+diff --git a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p_kal.c b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p_kal.c
+index 04bf7e7f9..bf722ab79 100644
+--- a/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p_kal.c
++++ b/drivers/net/wireless/mediatek/mt7668/os/linux/gl_p2p_kal.c
+@@ -1304,7 +1304,7 @@ kalP2PGOStationUpdate(IN P_GLUE_INFO_T prGlueInfo,
+ 			rStationInfo.assoc_req_ies = prCliStaRec->pucAssocReqIe;
+ 			rStationInfo.assoc_req_ies_len = prCliStaRec->u2AssocReqIeLen;
+ 
+-			cfg80211_new_sta(prP2pGlueInfo->aprRoleHandler->ieee80211_ptr,
++			cfg80211_new_sta(MTK_CFG80211_STA_DEV(prP2pGlueInfo->aprRoleHandler),
+ 					 prCliStaRec->aucMacAddr, &rStationInfo, GFP_KERNEL);
+ 		} else {
+ 			++prP2pGlueInfo->i4Generation;
+@@ -1315,7 +1315,7 @@ kalP2PGOStationUpdate(IN P_GLUE_INFO_T prGlueInfo,
+ 				(prGlueInfo->prAdapter->rP2PNetRegState ==
+ 					ENUM_NET_REG_STATE_REGISTERED) &&
+ 				((prGlueInfo->ulFlag & GLUE_FLAG_HALT) == 0)) {
+-				cfg80211_del_sta(prP2pGlueInfo->aprRoleHandler->ieee80211_ptr,
++				cfg80211_del_sta(MTK_CFG80211_STA_DEV(prP2pGlueInfo->aprRoleHandler),
+ 					prCliStaRec->aucMacAddr, GFP_KERNEL);
+ 			}
+ 		}
+diff --git a/drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_cfg80211_compat.h b/drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_cfg80211_compat.h
+new file mode 100644
+index 000000000..f3dd8337f
+--- /dev/null
++++ b/drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_cfg80211_compat.h
+@@ -0,0 +1,116 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * The kernel APIs this driver was ported to (Linux 7.3, lidar-mainline), and
++ * the older kernels it also builds on (Pinna's 6.12, ADR 0031). The driver
++ * keeps the 7.3 signatures. On an older kernel the cfg80211 ops tables name
++ * the wrappers in gl_cfg80211_compat.c instead, which adapt the arguments:
++ *
++ *   7.3   the core assigns the cookie of remain_on_channel and mgmt_tx and
++ *         passes it in (914781c72813); before, the driver returns one.
++ *   7.1   the key and station ops, and cfg80211_new_sta()/cfg80211_del_sta(),
++ *         take the wireless_dev; before, the net_device.
++ *   6.17  set_wiphy_params, set_tx_power and get_tx_power take radio_idx.
++ *   6.16  from_timer() became timer_container_of().
++ *   6.14  get_tx_power takes link_id.
++ */
++
++#ifndef _GL_CFG80211_COMPAT_H
++#define _GL_CFG80211_COMPAT_H
++
++#include <linux/version.h>
++#include <linux/timer.h>
++#include <net/cfg80211.h>
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
++#define timer_container_of(var, callback_timer, timer_fieldname) \
++	from_timer(var, callback_timer, timer_fieldname)
++#endif
++
++/* What cfg80211_new_sta() and cfg80211_del_sta() take, from a net_device. */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
++#define MTK_CFG80211_STA_DEV(ndev)	(ndev)
++#else
++#define MTK_CFG80211_STA_DEV(ndev)	((ndev)->ieee80211_ptr)
++#endif
++
++/* The op for this kernel: the driver's function, or its wrapper. */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
++#define MTK_OP_WDEV(fn)		fn##_ndev
++#else
++#define MTK_OP_WDEV(fn)		fn
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 3, 0)
++#define MTK_OP_COOKIE(fn)	fn##_cookie_out
++#else
++#define MTK_OP_COOKIE(fn)	fn
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 17, 0)
++#define MTK_OP_RADIO(fn)	fn##_no_radio
++#else
++#define MTK_OP_RADIO(fn)	fn
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
++int mtk_cfg80211_add_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++			      u8 key_index, bool pairwise, const u8 *mac_addr,
++			      struct key_params *params);
++int mtk_cfg80211_get_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++			      u8 key_index, bool pairwise, const u8 *mac_addr, void *cookie,
++			      void (*callback)(void *cookie, struct key_params *));
++int mtk_cfg80211_del_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++			      u8 key_index, bool pairwise, const u8 *mac_addr);
++int mtk_cfg80211_get_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				  const u8 *mac, struct station_info *sinfo);
++int mtk_cfg80211_change_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				     const u8 *mac, struct station_parameters *params);
++int mtk_cfg80211_add_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				  const u8 *mac, struct station_parameters *params);
++int mtk_cfg80211_del_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				  struct station_del_parameters *params);
++
++int mtk_p2p_cfg80211_add_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++				  u8 key_index, bool pairwise, const u8 *mac_addr,
++				  struct key_params *params);
++int mtk_p2p_cfg80211_get_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++				  u8 key_index, bool pairwise, const u8 *mac_addr, void *cookie,
++				  void (*callback)(void *cookie, struct key_params *));
++int mtk_p2p_cfg80211_del_key_ndev(struct wiphy *wiphy, struct net_device *ndev, int link_id,
++				  u8 key_index, bool pairwise, const u8 *mac_addr);
++int mtk_p2p_cfg80211_set_mgmt_key_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				       int link_id, u8 key_index);
++int mtk_p2p_cfg80211_get_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				      const u8 *mac, struct station_info *sinfo);
++int mtk_p2p_cfg80211_del_station_ndev(struct wiphy *wiphy, struct net_device *ndev,
++				      struct station_del_parameters *params);
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 3, 0)
++int mtk_cfg80211_remain_on_channel_cookie_out(struct wiphy *wiphy, struct wireless_dev *wdev,
++					      struct ieee80211_channel *chan,
++					      unsigned int duration, u64 *cookie);
++int mtk_cfg80211_mgmt_tx_cookie_out(struct wiphy *wiphy, struct wireless_dev *wdev,
++				    struct cfg80211_mgmt_tx_params *params, u64 *cookie);
++int mtk_p2p_cfg80211_remain_on_channel_cookie_out(struct wiphy *wiphy,
++						  struct wireless_dev *wdev,
++						  struct ieee80211_channel *chan,
++						  unsigned int duration, u64 *cookie);
++int mtk_p2p_cfg80211_mgmt_tx_cookie_out(struct wiphy *wiphy, struct wireless_dev *wdev,
++					struct cfg80211_mgmt_tx_params *params, u64 *cookie);
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 17, 0)
++int mtk_p2p_cfg80211_set_wiphy_params_no_radio(struct wiphy *wiphy, u32 changed);
++int mtk_p2p_cfg80211_set_txpower_no_radio(struct wiphy *wiphy, struct wireless_dev *wdev,
++					  enum nl80211_tx_power_setting type, int mbm);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
++int mtk_p2p_cfg80211_get_txpower_no_radio(struct wiphy *wiphy, struct wireless_dev *wdev,
++					  int *dbm);
++#else
++int mtk_p2p_cfg80211_get_txpower_no_radio(struct wiphy *wiphy, struct wireless_dev *wdev,
++					  unsigned int link_id, int *dbm);
++#endif
++#endif
++
++#endif /* _GL_CFG80211_COMPAT_H */
+diff --git a/drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_os.h b/drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_os.h
+index 4422ec97e..a92fee4bb 100644
+--- a/drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_os.h
++++ b/drivers/net/wireless/mediatek/mt7668/os/linux/include/gl_os.h
+@@ -187,6 +187,7 @@
+ #if CFG_ENABLE_WIFI_DIRECT_CFG_80211
+ #include <linux/wireless.h>
+ #include <net/cfg80211.h>
++#include "gl_cfg80211_compat.h"
+ #endif
+ 
+ #include <linux/module.h>
+-- 
+2.54.0
+
