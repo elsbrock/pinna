@@ -208,12 +208,22 @@ ADC input to the external codecs (`mt8516-afe-pcm.c:350-351`).
 | Board device tree, audio include, 5 bindings | ~750 lines, new | New files |
 
 The Wi-Fi port is the same kind of work as Pinna's MT8163 CONSYS driver
-(214k lines of vendor code, patches 0018 to 0031), and it needs Amazon's
-firmware from each unit (`WIFI_RAM_CODE_MT7668.bin` and friends), plus
-`mt7668pr2h.bin` from linux-firmware for Bluetooth. TECHO5 copies the
-firmware from each unit and never publishes it
-(`tools/linux/rootfs-donut/etc/techo5/boot.sh:146-189`); ADR 0001's rule for
-Amazon's files applies.
+(214k lines of vendor code, patches 0018 to 0031). It needs Amazon's
+firmware, plus `mt7668pr2h.bin` from linux-firmware (redistributable) for
+Bluetooth and as the Wi-Fi driver's ROM patch. TECHO5 copies Amazon's files
+from each unit (`tools/linux/rootfs-donut/etc/techo5/boot.sh:146-189`).
+They are also in Amazon's own update for the Echo Dot (3rd gen): Fire OS
+6574.1 for `donut_puffin`, on Amazon's update server
+(`update-kindle-donut_puffin-NS65741_user_8138_0013222529668.bin`, sha256
+`ac22b78c…a0245`, the file echo-dot-assist pins), in `/vendor/firmware` of
+its system image: `WIFI_RAM_CODE_MT7668.bin`,
+`WIFI_RAM_CODE2_SDIO_MT7668.bin`, `TxPwrLimit_MT76x8.dat`, `wifi.cfg`,
+`EEPROM_MT7668.bin` and `mt7668_patch_e2_hdr.bin`. The system image is the
+same on every unit, so the files are too. As ADR 0001 decides for the
+MT8163's, they are fetched from `https://static.iodev.org/pinna/firmware/donut/`
+and not committed. Amazon's ROM patch is a different build from
+linux-firmware's, and lidar-mainline found it crashes the Bluetooth firmware
+under `btmtksdio`; it is kept for reference only.
 
 ### What each board needs beyond that
 
@@ -331,7 +341,8 @@ Amazon's releases for them don't describe the hardware.
   port is written the same way. The Wi-Fi driver is the exception, as
   CONSYS is on the MT8163.
 - **Stay open:** Amazon's Wi-Fi firmware and speaker tuning are not
-  committed or published (ADR 0001).
+  committed. The firmware is fetched from `static.iodev.org`, as the
+  MT8163's is (ADR 0001).
 - **Make development pleasant:** one root image and one toolchain for every
   satellite. The virtual Echo Dot and its tests keep covering the userland
   all boards share.
