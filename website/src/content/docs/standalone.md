@@ -241,16 +241,37 @@ Select **Assistant**, then **Tools**.
 - **Radio stations**: add a station with its name and stream address. Then ask
   for it by name, such as "play Radio Eins". The brain can also search the
   radio directory for stations.
-- **Your MCP servers**: add an MCP server on your network with a name and its
-  address. The brain then calls its tools next to Pinna's. Saving a server asks
-  it for its tools, and the list shows how many of them are on, or why it can't
-  be reached. **Its tools** under a server lists them, each with a switch, and
-  **All on** and **All off** for all of them at once: turn off the ones the
-  brain shouldn't call. A server that lists more than 32 tools, such as a Home
-  Assistant MCP server, is added with all of them off: turn on the few the
-  brain needs. The brain takes at most 64 tools in a request, Pinna's first,
-  and the page warns while more are on. A server that needs a sign-in or a
-  token in a header can't be added yet.
+- **Your MCP servers**: tools from MCP servers on your network, next to
+  Pinna's. See [Add an MCP server](#add-an-mcp-server).
+
+### Add an MCP server
+
+The brain can call the tools of MCP servers on your network. The satellite
+connects to them over MCP's Streamable HTTP.
+
+1. Under **Your MCP servers**, select **Add…**.
+2. Enter a **Name**, such as `home`, and the server's whole **Address**, such
+   as `http://192.168.1.20:8080/mcp`. A token that is part of the address
+   works. A server that needs a sign-in or a token in a header, such as Home
+   Assistant's own MCP Server integration, can't be added yet.
+3. Select **Add**. The satellite asks the server for its tools, and the row
+   shows how many of them are on, such as `0 of 77 tools on`, or why the
+   server can't be reached.
+4. Select **Its tools** under the server. Each tool has a switch and the
+   server's description of it. **All on** and **All off** switch them all.
+
+A server that lists more than 32 tools when you add it, such as ha-mcp, starts
+with all of them off. Most of ha-mcp's tools manage Home Assistant itself, such
+as removing automations, so turn on only the few a voice request needs, such as
+its search, state and service tools. If the server doesn't answer when you add
+it, or lists new tools later, those tools start on.
+
+The brain takes at most 64 tools in a request: Pinna's tools that are on
+first, then each server's in the order the page lists them. Tools past 64 are
+left out of every request, so a server below a big one can lose all of its
+tools. While more than 64 are on, the page says how many are left out, and
+**System › Logs** names the first one. Switch off tools, or a whole server with
+the switch on its row.
 
 ## Use timers
 
