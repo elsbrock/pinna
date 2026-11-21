@@ -259,14 +259,21 @@ async def main() -> None:
             f"after echo cancellation {music_aec:.1f} dB ({music_beam - music_aec:.1f} dB removed)")
         if music_beam - quiet < MIN_MUSIC_OVER_QUIET_DB:
             fail("the music does not reach the beamformer (speaker or microphones not working)")
-        if music_beam - music_aec < MIN_REDUCTION_DB:
-            fail(f"echo cancellation removed less than {MIN_REDUCTION_DB:.0f} dB")
         say(f"wake word stream: music {music_wake:.1f} dB ({music_beam - music_wake:.1f} dB under the beamformer)")
+        # Report every verdict before failing: they test different streams.
+        problems = []
+        if music_beam - music_aec < MIN_REDUCTION_DB:
+            problems.append(f"echo cancellation removed less than {MIN_REDUCTION_DB:.0f} dB")
         if music_beam - music_wake < MIN_WAKE_REDUCTION_DB:
-            fail(f"the wake word stream is less than {MIN_WAKE_REDUCTION_DB:.0f} dB under the beamformer")
+            problems.append(
+                f"the wake word stream is less than {MIN_WAKE_REDUCTION_DB:.0f} dB under the beamformer"
+            )
         if woke.is_set():
-            fail("the device woke on its own voice (echo cancellation not effective)")
-        say("no wake word on the device's own voice")
+            problems.append("the device woke on its own voice (echo cancellation not effective)")
+        else:
+            say("no wake word on the device's own voice")
+        if problems:
+            fail("; ".join(problems))
     finally:
         client.button_command(cancel)
         await asyncio.sleep(0.5)
