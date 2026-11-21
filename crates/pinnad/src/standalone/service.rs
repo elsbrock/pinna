@@ -68,6 +68,9 @@ const NO_SUCH_PLACE: &str = "No place by that name was found. Try the nearest to
 const MCP_CHANGED: &str = "This MCP server was changed meanwhile. Reload and try again.";
 const MCP_REMOVED: &str = "This MCP server was removed meanwhile. Reload and try again.";
 const MCP_URL: &str = "Enter the MCP server's whole address, starting with http:// or https://.";
+/// A server that lists more tools than this when it is saved starts with them
+/// off (ADR 0017). ha-mcp lists 77, most of them for administration.
+const MANY_TOOLS: usize = 32;
 
 /// Where the service keeps its files: beside `settings.toml`.
 #[derive(Clone, Debug)]
@@ -820,6 +823,8 @@ impl Service {
     pub async fn set_mcp_server(&self, e: McpEdit) -> Result<AssistantView, Refusal> {
         let name = assist::mcp_name(&e.name).map_err(Refusal::Invalid)?;
         let url = e.url.as_ref().map(mcp_url).transpose()?;
+        // The server added, or whose address changed.
+        let mut new_address = None;
         self.commit(|d| {
             let taken =
                 |server: &McpServer| server.name == name && Some(&server.id) != e.id.as_ref();
@@ -836,6 +841,7 @@ impl Service {
                 }
                 let url = url.ok_or_else(|| Refusal::Invalid(MCP_URL.into()))?;
                 let id = next_mcp_id(&d.config);
+                new_address = Some(id.clone());
                 // A stale entry written by another image must not linger.
                 d.secrets.clear_mcp(&id);
                 d.secrets.set_mcp(&id, url);
@@ -874,6 +880,7 @@ impl Service {
             if let Some(url) = url {
                 d.secrets.set_mcp(&id, url);
                 server.host = d.secrets.mcp_host(&id).unwrap_or_default();
+                new_address = Some(id.clone());
             }
             server.name = name;
             server.enabled = e.enabled;
@@ -882,7 +889,44 @@ impl Service {
         })
         .await?;
         self.list_mcp_tools().await;
+        if let Some(id) = new_address {
+            self.switch_off_many_tools(&id).await;
+        }
         Ok(self.view())
+    }
+
+    /// A server that lists more than `MANY_TOOLS` when it is added, or when
+    /// its address changes, gets a stored switch, off, for each of its tools
+    /// that has none (ADR 0017): the owner turns on the few the brain needs.
+    /// Stored rather than worked out from the count, so a list that grows or
+    /// shrinks later turns nothing on or off by itself.
+    async fn switch_off_many_tools(&self, id: &str) {
+        let listed = self
+            .committed
+            .state
+            .lock()
+            .unwrap()
+            .mcp
+            .iter()
+            .find(|server| server.id() == id)
+            .and_then(|server| server.tools.last_listing());
+        let Some(Ok(specs)) = listed else {
+            return;
+        };
+        if specs.len() <= MANY_TOOLS {
+            return;
+        }
+        let stored = self
+            .commit(|d| {
+                for spec in &specs {
+                    d.config.tools.entry(spec.name.clone()).or_insert(false);
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(e) = stored {
+            tracing::warn!("the tools of a new MCP server stay on: {e}");
+        }
     }
 
     /// Ask every enabled server for its tools again, so the view says which
@@ -2970,6 +3014,98 @@ mod tests {
             .await
             .unwrap();
         assert!(!Arc::ptr_eq(&before, &f.live().mcp[0]));
+    }
+
+    /// An MCP server that answers one listing with `tools` tools.
+    async fn mcp_listing(tools: usize) -> FakeServer {
+        let server = FakeServer::start().await;
+        let json = |body: serde_json::Value| {
+            FakeResponse::new(StatusCode::OK, body.to_string())
+                .header("content-type", "application/json")
+        };
+        server.script(
+            Method::POST,
+            "/mcp",
+            json(serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "fake", "version": "1"},
+            }})),
+        );
+        server.script_status(Method::POST, "/mcp", StatusCode::ACCEPTED);
+        let listed: Vec<_> = (0..tools)
+            .map(|n| serde_json::json!({"name": format!("tool_{n}"), "inputSchema": {"type": "object"}}))
+            .collect();
+        server.script(
+            Method::POST,
+            "/mcp",
+            json(serde_json::json!({"jsonrpc": "2.0", "id": 2, "result": {"tools": listed}})),
+        );
+        server
+    }
+
+    #[tokio::test]
+    async fn a_server_with_many_tools_is_added_with_them_off_and_stays_so() {
+        let f = Fixture::new(Mode::Standalone);
+        let many = mcp_listing(MANY_TOOLS + 1).await;
+
+        let view = f
+            .service
+            .set_mcp_server(add_mcp("many", Some(&many.url("/mcp"))))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            view.mcp_servers[0]
+                .listing
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .len(),
+            MANY_TOOLS + 1
+        );
+        assert_eq!(view.tools.len(), MANY_TOOLS + 1);
+        assert!(
+            view.tools
+                .iter()
+                .all(|(name, on)| name.starts_with("many_tool_") && !on)
+        );
+        // Stored, so an edit that doesn't change the address keeps them.
+        let server = view.mcp_servers[0].clone();
+        let view = f
+            .service
+            .set_mcp_server(change_mcp(&server, "many", None, false))
+            .await
+            .unwrap();
+        assert_eq!(
+            view.tools.values().filter(|on| !**on).count(),
+            MANY_TOOLS + 1
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_with_few_tools_is_added_with_them_on() {
+        let f = Fixture::new(Mode::Standalone);
+        let few = mcp_listing(MANY_TOOLS).await;
+
+        let view = f
+            .service
+            .set_mcp_server(add_mcp("few", Some(&few.url("/mcp"))))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            view.mcp_servers[0]
+                .listing
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .len(),
+            MANY_TOOLS
+        );
+        assert!(view.tools.is_empty());
     }
 
     #[tokio::test]
