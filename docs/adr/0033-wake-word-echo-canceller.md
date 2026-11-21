@@ -31,15 +31,18 @@ What the recordings show:
   `dot_mics` carry what the speaker plays, in the same stream as the
   microphones: −33 dBFS at volume 70, 3 ms ahead of its echo. Nothing uses them
   today.
-- **Microphone lane 1 is dead on this unit.** With a talker it reads −91 dBFS
-  against −69 on the other six, but it picks up the speaker as loudly as they
-  do. It is one of the beam's four microphones.
+- **Microphone lane 1 was off after boot**, on this Dot and on an Echo (2nd
+  gen). One ADC input switch didn't hold the value pinnad wrote, so the lane
+  heard nothing. Writing it again brought the lane back on both; pinnad now
+  checks its microphone settings once capture runs (commit e6c9fda). The
+  takes at 50, 60 and 70 below were recorded with lane 1 working.
 - **Holding the beam during playback changes little.** A separate study on
   2026-11-21 found the cancelled echo within about 2 dB of a free-running beam.
 
 A prototype was run offline on the same recordings: a linear echo canceller
 with no suppressor, on the mean of lanes 0, 3 and 4, with lane 7 as the
-reference. It is a partitioned-block frequency-domain NLMS filter with 2048
+reference. On the beam's four microphones (lanes 0, 1, 3 and 4) it detected
+the same at 50 and 60, and 3 of 5 at 70 (4 of 5 with the playback rule). It is a partitioned-block frequency-domain NLMS filter with 2048
 taps, and it runs two filters so that double talk can't make it diverge.
 
 | Volume | Nothing playing | 50 | 60 | 70 |
@@ -68,9 +71,8 @@ stream with its own echo canceller. Home Assistant keeps the WebRTC output.
     takes the first one's coefficients only when they cancel more;
   - no suppressor and no noise suppression;
   - then the beam's 80 Hz high-pass and +12.04 dB.
-- **The mask** is the beam's four microphones, minus any lane that is dead: one
-  whose level stays 15 dB or more below the median of the other lanes. The
-  plugin publishes which lanes it left out, as it publishes the beam today.
+- **The mask** is the beam's four microphones (lanes 0, 1, 3 and 4), set in the
+  graph like the beam's.
 - **The graph** gets a second filter-chain, `dot_wake`, a mono Audio/Source.
   Like `dot_beam`, it captures `dot_mics` passively, lanes 0–7.
 - **pinnad**, on the EchoDotPipeWire backend, feeds the wake word detector from
@@ -94,7 +96,7 @@ Rejected:
 - **Holding the beam.** About 2 dB.
 - **The canceller on `dot_beam`.** In the prototype at volume 60 it detected 1
   of 5 there, against 3 of 5 on the microphone mean. The beam switches during
-  playback, and on this unit it includes the dead lane.
+  playback, and each switch changes the echo path the filter has learned.
 - **The canceller in pinnad, with pinnad's reference.** pinnad receives no
   raw microphones, and its reference would have to be timed against them. In
   the plugin, the loopback lane comes in the same frame as the microphones.
@@ -109,8 +111,8 @@ Rejected:
   detector's VAD and threshold handle it: no false detections in the
   measurements above.
 - Tests:
-  - unit tests of the canceller: it converges on a known echo path, it doesn't
-    diverge under double talk, and it leaves out a dead lane;
+  - unit tests of the canceller: it converges on a known echo path, and it
+    doesn't diverge under double talk;
   - a check in `just test-device` that `dot_wake` removes playback echo;
   - after the build, the same five-cue takes on the Dot at volumes 50, 60, 70
     and 80, to confirm the offline numbers.
