@@ -3,7 +3,9 @@
 # firmware or owner-local (never committed) into build/rootfs-extra, which
 # mkosi copies on top of the Debian root.
 #
-#   blobs/firmware/          MT8163 Wi-Fi/BT firmware (Amazon's, fetched by `just firmware`)
+#   blobs/firmware/          MT8163 Wi-Fi/BT firmware (Amazon's, fetched by `just firmware`),
+#                            the Echo Dot (3rd gen)'s MT7668 Wi-Fi firmware in donut/ and
+#                            linux-firmware's MT7668 ROM patch in mediatek/
 #   blobs/models/            openWakeWord models (CC BY-NC-SA, fetched by `just models`)
 #   build/wmt/               static WMT helpers (`just wmt`)
 #   target/<arm>/release/    pinnad, pinnactl, pinna-bootctl (`just rust-arm`)
@@ -57,6 +59,24 @@ if [ "$device" = yes ]; then
   install -d "$out/usr/lib/firmware"
   install -m0644 "$fw"/WIFI_RAM_CODE_8163 "$fw"/ROMv2_lm_patch_1_*_hdr.bin \
     "$fw"/WMT_SOC.cfg "$out/usr/lib/firmware/"
+  # The MT8516 Echos' MT7668 (ADR 0031) shares the root. Its Wi-Fi driver
+  # asks for these by their bare names, none of which the MT8163's CONSYS
+  # driver reads. Amazon's wifi.cfg goes in as wifi_mt7668.cfg (kernel patch
+  # 0112): the CONSYS driver reads /etc/firmware/wifi.cfg, and /etc/firmware
+  # is this directory.
+  # Bluetooth (btmtksdio) loads linux-firmware's ROM patch as
+  # mediatek/mt7668pr2h.bin and the Wi-Fi driver as mt7668_patch_e2_hdr.bin:
+  # both functions must load the same patch, and Amazon's crashes btmtksdio.
+  for f in donut/WIFI_RAM_CODE_MT7668.bin donut/WIFI_RAM_CODE2_SDIO_MT7668.bin \
+           donut/TxPwrLimit_MT76x8.dat donut/wifi.cfg donut/EEPROM_MT7668.bin \
+           mediatek/mt7668pr2h.bin; do
+    [ -f "$fw/$f" ] || { echo "assemble: $fw/$f is missing (just firmware)" >&2; exit 1; }
+  done
+  install -m0644 "$fw"/donut/WIFI_RAM_CODE_MT7668.bin "$fw"/donut/WIFI_RAM_CODE2_SDIO_MT7668.bin \
+    "$fw"/donut/TxPwrLimit_MT76x8.dat "$fw"/donut/EEPROM_MT7668.bin "$out/usr/lib/firmware/"
+  install -m0644 "$fw"/donut/wifi.cfg "$out/usr/lib/firmware/wifi_mt7668.cfg"
+  install -Dm0644 "$fw"/mediatek/mt7668pr2h.bin "$out/usr/lib/firmware/mediatek/mt7668pr2h.bin"
+  ln -s mediatek/mt7668pr2h.bin "$out/usr/lib/firmware/mt7668_patch_e2_hdr.bin"
 fi
 
 # WMT helpers (device only)

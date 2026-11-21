@@ -22,6 +22,10 @@
 #     there for reference only and not fetched: under that name the driver
 #     would load it, and the MT8516 Echos use linux-firmware's
 #     mediatek/mt7668pr2h.bin instead.
+#   mediatek/mt7668pr2h.bin: the MT7668's ROM patch from linux-firmware
+#     (redistributable, LICENCE.mediatek), fetched from kernel.org at a release
+#     tag into blobs/firmware/mediatek/. Bluetooth (btmtksdio) loads it under
+#     this name, the Wi-Fi driver as mt7668_patch_e2_hdr.bin.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,8 +33,9 @@ dest="${1:-$root/blobs/firmware}"
 base=https://static.iodev.org/pinna/firmware
 biscuit=biscuit/fireos-6.5.7.5-8344
 donut=donut/fireos-6574.1-8138
+linux_firmware=https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain
 
-# <path under $base> <directory under $dest> <sha256>
+# <path under $base, or a URL> <directory under $dest> <sha256>
 files=(
   "$biscuit/WIFI_RAM_CODE_8163 . 9669cc9b03cfdc5e8fd4fd6e14c4c4050e8c196738ca4707eea12f14a6a8e64c"
   "$biscuit/ROMv2_lm_patch_1_0_hdr.bin . 6642cfd4fd67accf27b0f9615e4cd0941417ddbc3b5bef1004fe1eb59235146f"
@@ -42,12 +47,16 @@ files=(
   "$donut/TxPwrLimit_MT76x8.dat donut fe9a33d42f702356ff9b458c4f9ad9d96be8a63869bacd9c59fd00176dcbe229"
   "$donut/wifi.cfg donut 1a97dfd343fc7b7635cab4b45bd638003320c371d9331d18a4d1d3e13d55a5b0"
   "$donut/EEPROM_MT7668.bin donut 836cf1851067d00f96fc5dbe79bbfb979b86aa1b985dc770a83b4ab6e570835a"
+  "$linux_firmware/mediatek/mt7668pr2h.bin?h=20261019 mediatek 465ed634c61b46b34bb21240736f33d3d347fefec7cbfbd1cb6e63334aec4cc9"
 )
 
 command -v curl >/dev/null || { echo "curl not found" >&2; exit 1; }
 for entry in "${files[@]}"; do
   read -r path dir sha <<<"$entry"
+  url="$base/$path"
+  [[ $path == https://* ]] && url="$path"
   name="${path##*/}"
+  name="${name%%\?*}"
   file="$dest/$dir/$name"
   shown="${file#"$dest"/}"
   shown="${shown#./}"
@@ -57,7 +66,7 @@ for entry in "${files[@]}"; do
   fi
   echo "fetching $shown"
   mkdir -p "$(dirname "$file")"
-  curl -fsSL --retry 3 -o "$file.part" "$base/$path"
+  curl -fsSL --retry 3 -o "$file.part" "$url"
   got="$(sha256sum "$file.part" | cut -d' ' -f1)"
   if [[ $got != "$sha" ]]; then
     rm -f "$file.part"
