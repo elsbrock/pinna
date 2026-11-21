@@ -379,9 +379,12 @@
   @apply border-line border px-3 py-2 align-top;
 }
 
+/* Code in a cell wraps like text, so a long message doesn't widen its column
+   past the page. Between words only: breaking anywhere would let the table
+   squeeze the column to a few letters on a phone. */
 .docs-content td code,
 .docs-content th code {
-  white-space: nowrap;
+  overflow-wrap: break-word;
 }
 
 /* Blockquotes read as an info notice: a tint, no edge stripe. */
