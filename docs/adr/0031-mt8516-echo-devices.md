@@ -1,10 +1,13 @@
 # ADR 0031: The MT8516 Echos: a 64-bit kernel under the same root
 
-Status: proposed (2026-11-21). Amends ADR 0001 (one architecture, armhf)
-and ADR 0006 (one board family in the kernel). Nothing is built and nothing
-ran on an MT8516 device; the evidence below comes from TECHO5, lidar-mainline,
-Amazon's kernel sources and the Linux tree. The board layer this port needs
-is ADR 0032.
+Status: proposed (2026-11-21), accepted (2026-11-21). Built in part
+(2026-11-21): the MT8516 kernel with the Echo Dot (3rd gen) board and
+MT7668 Wi-Fi, LK's 64-bit boot image layout, and a check under QEMU that
+the armhf root runs on an arm64 kernel. Nothing has run on an MT8516
+device. Amends ADR 0001 (one architecture, armhf) and ADR 0006 (one board
+family in the kernel). The evidence below comes from TECHO5,
+lidar-mainline, Amazon's kernel sources and the Linux tree. The board
+layer this port needs is ADR 0032.
 
 ## Context
 
@@ -160,9 +163,7 @@ Verified in the v6.12.117 tree:
     the table), so none needs it;
   - SoC thermal for MT8516;
   - MT7668 Wi-Fi. mt76's SDIO driver matches only the MT7663S
-    (`037a:7603`); the MT7668's Wi-Fi function is `037a:7608`;
-  - the IS31FL3208, which Amazon's `donut.dtsi` lists at `0x6F` beside the
-    IS31FL3236 at `0x3F`. `is31fl32xx` doesn't match it.
+    (`037a:7603`); the MT7668's Wi-Fi function is `037a:7608`.
 
 ### What Amazon's 4.4 tree has for the gaps
 
@@ -176,7 +177,6 @@ has. Using one on 6.12 is a port, not a copy.
 | MT8167 internal codec | `sound/soc/codecs/mt8167-codec.c`, `mt8167-codec-utils.c` | 3,868 |
 | Machine drivers | `sound/soc/mediatek/mt8167/donut.c`, `cupcake.c`, `lidar.c` | 578, 529, 770 |
 | SoC thermal | `drivers/misc/mediatek/thermal/mt8167/` | 7,005 |
-| IS31FL3208 | `drivers/leds/leds-is31fl3208.c` | 484 |
 | MT7668 Wi-Fi | `vendor/amazon/wlan/mediatek/driver/mt76x8/` | 93 C files; 230,161 with headers |
 
 The machine drivers record each board's audio wiring:
@@ -224,9 +224,10 @@ Amazon's files applies.
   - Its own device tree, from Amazon's `donut.dtsi` and `donut-pvt.dts`.
     LK picks it by the first compatible string, which is in the stock boot
     image's device trees.
-  - The ring: TECHO5 drives an IS31FL3236. Amazon's `donut.dtsi` also has an
-    IS31FL3208 at `0x6F`. Whether the owner's unit has one isn't known;
-    if it does, it needs a driver.
+  - The ring: an IS31FL3236 at `0x3F` with channel offset 3, as on the
+    Echo Dot (2nd gen), so Pinna's ring patch (0011) serves it. Amazon's
+    `donut.dtsi` also lists an IS31FL3208 at `0x6F`, but `donut-pvt.dts`,
+    the retail board, deletes it.
   - The speaker: TECHO5 plays at 96 kHz S16_LE, because the TAS2770
     produced static at 48 kHz on the stock kernel (`paths_donut.go:247-287`,
     techo5-dot#20). Whether that holds on 6.12 with the mainline TAS2770
@@ -285,10 +286,16 @@ Amazon's releases for them don't describe the hardware.
 3. **Debian's 6.12, as ADR 0006 decides.** lidar-mainline's MT8516 work is
    backported to 6.12 as a series of its own, credited to it, with Pinna's
    fixes after it, as was done with LibreEcho's MT8163 work.
-   - `kernel/build.sh` gains an arm64 variant.
-   - `device.config` splits into a part for each SoC.
-   - The MT7668 Wi-Fi driver is built in, like CONSYS, with version guards
-     for 6.12.
+   - `kernel/build.sh` gains two arm64 variants: `mt8516` for the Echos,
+     and `qemu-arm64`, which `just vm-test-arm64` boots with the armhf
+     image under QEMU's Cortex-A53.
+   - `device.config` stays the MT8163's; `mt8516.config` is the MT8516's.
+     The MT8516 patches are numbered from 0101. Every variant applies
+     every patch.
+   - The MT7668 Wi-Fi driver is built in, like CONSYS. It keeps
+     lidar-mainline's 7.3 signatures; version guards adapt them to 6.12.
+     Built in, it probes before the root that holds its firmware is
+     mounted, so it is bound again once the root is up.
    - Moving the MT8516 to a newer kernel than the MT8163 is the fallback if
      the backport costs more than it saves; that would need its own ADR.
 4. **Which device first: the Echo Dot (3rd gen) D9N29T, when one is at
@@ -353,4 +360,5 @@ Amazon's releases for them don't describe the hardware.
   test, and no CI runs device tests (AGENTS.md).
 - Until a D9N29T or an Echo Plus (2nd gen) is at hand, the work that can
   proceed is the board layer (ADR 0032), the boot image layout and the
-  arm64 kernel build.
+  arm64 kernel build. The last two are built; binding the Wi-Fi after the
+  root, and the image's MT8516 parts, are not.
