@@ -5,8 +5,10 @@
 //! band, so every chunk that goes to the speaker is also sent, as 16 kHz mono,
 //! to the echo-cancel sink (`dot_ref`). A slow or missing PipeWire must never
 //! stall the speaker: chunks go through a bounded queue and are dropped when it
-//! is full.
+//! is full. A reference that arrives after its echo cancels nothing, so a chunk
+//! is also dropped when pw-play hasn't yet read the ones before it (ADR 0004).
 
+use std::os::fd::{AsRawFd, RawFd};
 use std::process::Stdio;
 
 use tokio::io::AsyncWriteExt;
@@ -218,6 +220,25 @@ pub struct RefTap {
 /// Queue depth in 20 ms chunks (~0.5 s).
 const QUEUE: usize = 25;
 
+/// The most reference audio that may wait in pw-play's input pipe: 40 ms of
+/// 16 kHz mono s16. The speaker hands each chunk to its player 100 ms before
+/// it sounds (`SpeakerConfig::lead`), so the reference reaches the echo
+/// canceller ahead of its echo. Without a bound, the pipe (64 KiB, 2 s) filled
+/// while pw-play started and never drained, because the speaker writes exactly
+/// as fast as PipeWire reads. Measured on an Echo Dot (2nd gen), 2026-11-21:
+/// the reference came 2.05–2.16 s after its echo, and the canceller removed
+/// nothing at any volume.
+const MAX_WAITING: usize = 1_280;
+
+/// Bytes written into the pipe `fd` and not yet read, by `FIONREAD`.
+fn unread_bytes(fd: RawFd) -> Option<usize> {
+    let mut bytes: libc::c_int = 0;
+    // SAFETY: FIONREAD writes one c_int through the pointer, which is valid
+    // for the call; a bad fd only makes the call fail.
+    let r = unsafe { libc::ioctl(fd, libc::FIONREAD, &mut bytes) };
+    (r == 0).then_some(bytes as usize)
+}
+
 impl RefTap {
     pub fn spawn(pw_play: &str, target: &str) -> std::io::Result<Self> {
         let mut child = Command::new(pw_play)
@@ -243,7 +264,11 @@ impl RefTap {
         let mut stdin = child.stdin.take().expect("piped");
         let (tx, mut rx) = mpsc::channel::<Vec<u8>>(QUEUE);
         let task = tokio::spawn(async move {
+            let fd = stdin.as_raw_fd();
             while let Some(chunk) = rx.recv().await {
+                if unread_bytes(fd).is_some_and(|n| n + chunk.len() > MAX_WAITING) {
+                    continue;
+                }
                 if stdin.write_all(&chunk).await.is_err() {
                     break;
                 }
@@ -324,6 +349,41 @@ mod tests {
         // 480000 input frames / 3.000945 = 159949.6 output samples.
         let got = out.len() / 2;
         assert!((159_948..=159_951).contains(&got), "{got}");
+    }
+
+    #[tokio::test]
+    async fn the_reference_never_waits_seconds_behind_the_speaker() {
+        use std::os::unix::fs::PermissionsExt;
+        // A pw-play that reads nothing for half a second, as while it connects.
+        let dir = tempfile::tempdir().unwrap();
+        let got = dir.path().join("got.raw");
+        let bin = dir.path().join("pw-play");
+        std::fs::write(
+            &bin,
+            format!("#!/bin/sh\nsleep 0.5\nexec cat > '{}'\n", got.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut tap = loop {
+            match RefTap::spawn(bin.to_str().unwrap(), "dot_ref") {
+                // Another test's fork may still hold the new script open.
+                Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                r => break r.unwrap(),
+            }
+        };
+        // Meanwhile the speaker plays 2 s, 20 ms at a time.
+        let chunk = stereo_tone(1_000.0, 960, 10_000.0);
+        for _ in 0..100 {
+            tap.push(&chunk);
+            tokio::task::yield_now().await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+        // What pw-play found waiting once it read: at most 40 ms, not 2 s.
+        let waited = std::fs::metadata(&got).unwrap().len();
+        assert!(waited > 0, "no reference at all");
+        assert!(waited <= MAX_WAITING as u64, "{waited} bytes waited");
     }
 
     #[test]
