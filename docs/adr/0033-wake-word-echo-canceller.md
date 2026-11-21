@@ -1,8 +1,9 @@
 # ADR 0033: The wake word gets its own echo canceller
 
-Status: proposed (2026-11-21), accepted (2026-11-21). Amends ADR 0004 (the
-Echo Dot's microphone graph). Not built. The measurements below come from one
-talker at one spot.
+Status: proposed (2026-11-21), accepted (2026-11-21), built (2026-11-21), with
+the tests that run without hardware; not run on a device yet. Amends ADR 0004
+(the Echo Dot's microphone graph). The measurements below come from one talker
+at one spot.
 
 ## Context
 

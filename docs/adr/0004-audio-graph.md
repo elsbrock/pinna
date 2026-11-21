@@ -2,7 +2,8 @@
 
 Status: accepted (2026-11-15). Supersedes the "audio goes straight to ALSA" part
 of ADR 0002. Amended 2026-11-17: pinnad sets the microphone gain itself (AGC),
-after echo cancellation; until then the gain was fixed.
+after echo cancellation; until then the gain was fixed. Amended 2026-11-21 by
+ADR 0033: the wake word detector hears its own stream, `dot_wake`.
 
 ## Context
 
@@ -38,7 +39,9 @@ device monitors) at the microphone's native 16 kHz:
 ```
 dot_mics (hw:0,24, graph clock, IRQ mode)
   -> filter-chain: LADSPA pinna_beam (calibration, gain, beamformer) -> dot_beam (mono)
-  -> module-echo-cancel (WebRTC, mono) -> dot_mic_aec -> pinnad (AGC, wake word, Home Assistant)
+  -> module-echo-cancel (WebRTC, mono) -> dot_mic_aec -> pinnad (AGC, Home Assistant)
+dot_mics -> filter-chain: LADSPA pinna_wake (beam mics averaged, linear echo
+  cancellation from loopback lane 7, ADR 0033) -> dot_wake -> pinnad (AGC, wake word)
 pinnad -> dot_ref (16 kHz mono copy of everything it plays) = echo reference
 ```
 
