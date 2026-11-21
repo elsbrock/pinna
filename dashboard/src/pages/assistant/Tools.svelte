@@ -9,6 +9,7 @@
   import {
     BRAIN_TOOLS,
     brainToolsOn,
+    MANY_TOOLS,
     delegation,
     isStandalone,
     mcpAddress,
@@ -49,6 +50,19 @@
     return assistant.update({ tools: { on: next } }, `${srv.name}'s tools ${on ? "on" : "off"}`);
   }
   const brainTools = $derived(view ? brainToolsOn(view) : 0);
+  // All on asks first for a server that started with its tools off.
+  let allOn = $state<McpServer | null>(null);
+  let allOnOpen = $state(false);
+  function askAllOn(srv: McpServer) {
+    if (srv.listed.length <= MANY_TOOLS) return setAll(srv, true);
+    allOn = srv;
+    allOnOpen = true;
+  }
+  /** A tool's own name: the server's row above it already names the server. */
+  function ownName(srv: McpServer, name: string) {
+    const prefix = `${srv.name.replaceAll("-", "_")}_`;
+    return name.startsWith(prefix) ? name.slice(prefix.length) : name;
+  }
 
   // The stations are saved as a whole list.
   let stationName = $state("");
@@ -119,8 +133,21 @@
 
   {#snippet serversFoot()}
     The brain can call the tools of MCP servers on your network next to Pinna's. Saving one asks it for its tools; a server
-    that doesn't answer is left out of a request. At most 8.
+    that doesn't answer is left out of a request. A server that lists more than {MANY_TOOLS} tools is added with them off. The
+    brain takes at most {BRAIN_TOOLS} tools in a request, Pinna's first. At most 8 servers.
   {/snippet}
+  {#if !agentBrain && brainTools > BRAIN_TOOLS}
+    <div class="pn-notice" data-tone="caution">
+      <Icon name="alert" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">{brainTools} tools are on</p>
+        <p>
+          The brain takes {BRAIN_TOOLS}: Pinna's first, then your servers' in the order below, so the last {brainTools -
+            BRAIN_TOOLS} are left out. Switch some off.
+        </p>
+      </div>
+    </div>
+  {/if}
   <Group title="Your MCP servers" foot={agentBrain ? undefined : serversFoot}>
     {#if agentBrain}
       <div class="pn-row">
@@ -130,14 +157,6 @@
         </span>
       </div>
     {:else}
-      {#if brainTools > BRAIN_TOOLS}
-        <div class="pn-row">
-          <span class="pn-row-hint is-caution" role="status">
-            {brainTools} tools are on, Pinna's and your servers'. The brain takes {BRAIN_TOOLS}: Pinna's first, then the
-            servers in this order, so the last {brainTools - BRAIN_TOOLS} are left out. Switch some off.
-          </span>
-        </div>
-      {/if}
       {#each view.mcpServers as srv (srv.id)}
         {#if editing === srv.id}
           <McpServerForm server={srv} onclose={() => (editing = null)} />
@@ -146,7 +165,7 @@
             <div class="pn-row-text">
               <label id="mcp-{srv.id}-label" class="pn-row-label server-name" for="mcp-{srv.id}">{srv.name}</label>
               <span id="mcp-{srv.id}-hint" class="pn-row-hint"
-                >On {srv.host} · <span class={mcpStatus(srv, view.tools).failed ? "problem" : undefined}
+                >On {srv.host} · <span class={mcpStatus(srv, view.tools).failed ? "problem" : "count"}
                   >{mcpStatus(srv, view.tools).text}</span
                 ></span
               >
@@ -183,36 +202,53 @@
               type="button"
               aria-expanded={open}
               aria-controls="mcp-{srv.id}-tools"
+              aria-label="{srv.name}'s tools"
+              aria-describedby="mcp-{srv.id}-tools-hint"
               onclick={() => toggleTools(srv.id)}
             >
               <span class="pn-row-text">
                 <span class="pn-row-label">Its tools</span>
-                <span class="pn-row-hint">
-                  {on ? "Turn off the ones the brain shouldn't call." : "Turn on the ones the brain may call."}
+                <span id="mcp-{srv.id}-tools-hint" class="pn-row-hint">
+                  {#if !on && srv.listed.length > MANY_TOOLS}
+                    It lists {srv.listed.length} tools, so they start off. Turn on the few the brain needs.
+                  {:else if on}
+                    Turn off the ones the brain shouldn't call.
+                  {:else}
+                    Turn on the ones the brain may call.
+                  {/if}
                 </span>
               </span>
               <Icon name={open ? "chevron-down" : "chevron-right"} class="pn-icon pn-row-chev" />
             </button>
             {#if open}
-              <div id="mcp-{srv.id}-tools" class="pn-row-children">
+              <div id="mcp-{srv.id}-tools" class="pn-row-children tool-list" role="group" aria-label="{srv.name}'s tools">
                 <div class="pn-row is-actions">
+                  <!-- aria-disabled, not disabled, so a press keeps the focus. -->
                   <button
                     class="pn-btn pn-btn-sm"
                     type="button"
-                    disabled={!live || assistant.busy || on === srv.listed.length}
-                    onclick={() => void setAll(srv, true)}>All on</button
+                    disabled={!live}
+                    aria-disabled={assistant.busy || on === srv.listed.length || undefined}
+                    aria-label="Turn on all of {srv.name}'s tools"
+                    onclick={() => {
+                      if (!assistant.busy && on < srv.listed.length) void askAllOn(srv);
+                    }}>All on</button
                   >
                   <button
                     class="pn-btn pn-btn-sm"
                     type="button"
-                    disabled={!live || assistant.busy || on === 0}
-                    onclick={() => void setAll(srv, false)}>All off</button
+                    disabled={!live}
+                    aria-disabled={assistant.busy || on === 0 || undefined}
+                    aria-label="Turn off all of {srv.name}'s tools"
+                    onclick={() => {
+                      if (!assistant.busy && on > 0) void setAll(srv, false);
+                    }}>All off</button
                   >
                 </div>
                 {#each srv.listed as t (t.name)}
                   <SwitchRow
                     id="tool-{t.name}"
-                    label={t.name}
+                    label={ownName(srv, t.name)}
                     checked={isOn(t.name)}
                     disabled={!live}
                     busy={assistant.busy}
@@ -337,6 +373,17 @@
   >
     <p>The brain can no longer play it by name. To get it back, add it again with its address.</p>
   </Confirm>
+  <Confirm
+    bind:open={allOnOpen}
+    title="Turn on all {allOn?.listed.length} of {allOn?.name}'s tools?"
+    action="Turn all on"
+    confirm={() => allOn && setAll(allOn, true)}
+  >
+    <p>
+      It lists more than {MANY_TOOLS} tools, so they started off. The brain can then call each of them, including any that
+      change or remove things on the server. It takes at most {BRAIN_TOOLS} tools in a request, Pinna's first.
+    </p>
+  </Confirm>
 
   <Group title="Pinna as an MCP server">
     {#snippet foot()}
@@ -414,6 +461,17 @@
   }
   .server-name {
     font-family: var(--font-mono);
+  }
+  .count {
+    white-space: nowrap;
+  }
+  /* A server's own descriptions run long; three lines tell the tools apart. */
+  .tool-list :global(.pn-row-hint) {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
   }
   .address {
     display: flex;

@@ -166,6 +166,8 @@ export function mcpStatus(
 
 /** The most tools the brain takes in one request (ADR 0017). */
 export const BRAIN_TOOLS = 64;
+/** A server that lists more tools than this is added with them off (ADR 0017). */
+export const MANY_TOOLS = 32;
 
 /**
  * How many tools the brain is offered with the switches as they are:
