@@ -1,0 +1,2663 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 21 Nov 2026 18:09:19 +0100
+Subject: [PATCH] ASoC: mediatek: the Echo Dot (5th gen) sound card, ported to
+ 6.12 (compile-only)
+
+mendocino is Amazon's machine driver: the sound card that wires the MT8519
+front end to the amp (MAX98396 or TAS2764) and the microphone ADC (ADC5140).
+Ported from the 5.4 release to 6.12's ASoC, direct PCM (no DSP).
+
+6.12 migration: rtd->codec_dai -> snd_soc_rtd_to_codec; for_each_rtd_codec_dai
+-> _dais; snd_soc_get_pcm_runtime() takes a dai_link, so a by-name lookup over
+for_each_card_rtds replaces the old string form; the RMS thermal zone moves to
+thermal_zone_device_ops + devm_thermal_of_zone_register; .remove returns void;
+a monotonic ktime timestamp. The front-end accessor g_priv/mt8519_afe_pcm_get_info
+is made unconditional (it was behind the DSP symbol), so the amp power event can
+reach the front end without the DSP.
+
+Stubbed, non-essential on cannoli and dependent on Amazon codec extensions not
+in mainline: the amp fault-IRQ reporting (tas2764/max98396/tas5805m
+get_irq_state) and the amp reset (max98396_reset_platform) return no-ops, and
+the DAC fault bits are local defines. TAS5805M is not on cannoli. NOT RUN ON
+HARDWARE: the codec wiring, routes and clocks are exact programming that only a
+unit validates.
+---
+ sound/soc/mediatek/mt8519/Kconfig             |    8 +
+ sound/soc/mediatek/mt8519/Makefile            |    1 +
+ sound/soc/mediatek/mt8519/mendocino.c         | 2544 +++++++++++++++++
+ sound/soc/mediatek/mt8519/mt8519-afe-common.h |    2 -
+ sound/soc/mediatek/mt8519/mt8519-afe-pcm.c    |    9 +-
+ 5 files changed, 2557 insertions(+), 7 deletions(-)
+ create mode 100644 sound/soc/mediatek/mt8519/mendocino.c
+
+diff --git a/sound/soc/mediatek/mt8519/Kconfig b/sound/soc/mediatek/mt8519/Kconfig
+index cbe817042..9f899be7d 100644
+--- a/sound/soc/mediatek/mt8519/Kconfig
++++ b/sound/soc/mediatek/mt8519/Kconfig
+@@ -3,3 +3,11 @@ config SND_SOC_MT8519
+ 	depends on ARCH_MEDIATEK || COMPILE_TEST
+ 	help
+ 	  MediaTek MT8519 audio front end (Echo Dot 5th gen), direct PCM paths.
++
++config SND_SOC_MT8519_MENDOCINO
++	tristate "ASoC support for the Echo Dot (5th gen) sound card (cannoli)"
++	depends on SND_SOC_MT8519
++	help
++	  The cannoli machine driver: the sound card that wires the MT8519 front
++	  end to the amp (MAX98396/TAS2764) and the microphone ADC (ADC5140).
++	  Compile-only, not validated on hardware (ADR 0034).
+diff --git a/sound/soc/mediatek/mt8519/Makefile b/sound/soc/mediatek/mt8519/Makefile
+index da6a57a74..c20ee5f08 100644
+--- a/sound/soc/mediatek/mt8519/Makefile
++++ b/sound/soc/mediatek/mt8519/Makefile
+@@ -7,3 +7,4 @@ snd-soc-mt8519-afe-objs := \
+ 	vendor-mtk-afe-platform-driver.o vendor-mtk-afe-fe-dai.o \
+ 	mt8519-afe-pcm.o mt8519-afe-controls.o mt8519-afe-utils.o mt8519-afe-debug.o
+ obj-$(CONFIG_SND_SOC_MT8519) += snd-soc-mt8519-afe.o
++obj-$(CONFIG_SND_SOC_MT8519_MENDOCINO) += mendocino.o
+diff --git a/sound/soc/mediatek/mt8519/mendocino.c b/sound/soc/mediatek/mt8519/mendocino.c
+new file mode 100644
+index 000000000..fdfbeb1bc
+--- /dev/null
++++ b/sound/soc/mediatek/mt8519/mendocino.c
+@@ -0,0 +1,2544 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * mendocino machine driver
++ *
++ * Copyright (c) 2021 MediaTek Inc.
++ * Author: Jia Zeng <jia.zeng@mediatek.com>
++ */
++
++#include <linux/module.h>
++#include <linux/regulator/consumer.h>
++#include <linux/pinctrl/consumer.h>
++#include <linux/thermal.h>
++#include <linux/of_gpio.h>
++#include <linux/thermal.h>
++#include <sound/soc.h>
++#include <sound/pcm_params.h>
++#include "mt8519-afe-common.h"
++#include "mt8519-afe-utils.h"
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++#include "mt8519-adsp-utils.h"
++#endif
++//#include "../../codecs/tlv320wn.h"
++#include "../../codecs/max98396.h"
++#include "../../codecs/tas2764.h"
++
++/* 6.12 compile-only port (ADR 0034): the amp fault-IRQ and RMS-thermal
++ * features depend on Amazon codec extensions not in mainline; they are stubbed
++ * (non-essential diagnostics). The sound card itself must be validated on a
++ * unit. */
++#ifndef TAS2764_OTW_BIT
++#define TAS2764_OTW_BIT		BIT(0)
++#define TAS2764_OTE_BIT		BIT(1)
++#define TAS2764_OC_BIT		BIT(2)
++#endif
++#ifndef MAX98396_GENERIC_FAULT_BITS
++#define MAX98396_GENERIC_FAULT_BITS	BIT(3)
++#define MAX98396_OTW_BITS		BIT(0)
++#define MAX98396_OVC			BIT(2)
++#endif
++static inline u64 tas2764_get_irq_state(struct snd_soc_component *c) { return 0; }
++static inline u64 max98396_get_irq_state(struct snd_soc_component *c) { return 0; }
++static inline int max98396_reset_platform(struct snd_soc_component *c, int x) { return 0; }
++static inline u64 tas5805m_get_irq_state(struct snd_soc_component *c) { return 0; }
++
++static struct snd_soc_pcm_runtime *mendocino_get_rtd(struct snd_soc_card *card,
++						     const char *name)
++{
++	struct snd_soc_pcm_runtime *rtd;
++
++	for_each_card_rtds(card, rtd)
++		if (rtd->dai_link && rtd->dai_link->name &&
++		    !strcmp(rtd->dai_link->name, name))
++			return rtd;
++	return NULL;
++}
++
++#define TEST_BACKEND_WITH_ENDPOINT
++
++#define PREFIX	"mediatek,"
++#define ENUM_TO_STR(enum) #enum
++
++#define SND_SOC_DAIFMT_INV_RESET	0xf0ff
++
++enum PINCTRL_PIN_STATE {
++	PIN_STATE_DEFAULT = 0,
++	PIN_STATE_EXT_SPK_AMP_ON,
++	PIN_STATE_EXT_SPK_AMP_OFF,
++	PIN_STATE_EXT_LO_AMP_ON,
++	PIN_STATE_EXT_LO_AMP_OFF,
++	PIN_STATE_MAX
++};
++
++static const char * const mt8519_mendocino_pin_str[PIN_STATE_MAX] = {
++	"default",
++	"ext_spk_amp_on",
++	"ext_spk_amp_off",
++	"ext_lineout_amp_on",
++	"ext_lineout_amp_off",
++};
++
++struct mt8519_mendocino_etdm_ctrl_data {
++	unsigned int mck_multp_in;
++	unsigned int mck_multp_out;
++	unsigned int lrck_width_in;
++	unsigned int lrck_width_out;
++	unsigned int fix_rate_in;
++	unsigned int fix_rate_out;
++	unsigned int fix_bit_width_in;
++	unsigned int fix_bit_width_out;
++	unsigned int fix_channels_in;
++	unsigned int fix_channels_out;
++	unsigned int tlv320_clock_mux;
++};
++
++struct mt8519_mendocino_dmic_ctrl_data {
++	unsigned int fix_rate;
++	unsigned int fix_channels;
++	unsigned int fix_bit_width;
++};
++
++struct mt8519_mendocino_multi_in_ctrl_data {
++	unsigned int fix_bit_width;
++};
++
++struct mt8519_mendocino_int_adda_ctrl_data {
++	unsigned int fix_rate;
++};
++
++#ifdef CONFIG_SND_SOC_GAPP_AUDIO_CONTROL
++enum mtkfile_pcm_state {
++	MTKFILE_PCM_STATE_UNKNOWN = 0,
++	MTKFILE_PCM_STATE_OPEN,
++	MTKFILE_PCM_STATE_HW_PARAMS,
++	MTKFILE_PCM_STATE_PREPARE,
++	MTKFILE_PCM_STATE_START,
++	MTKFILE_PCM_STATE_PAUSE,
++	MTKFILE_PCM_STATE_RESUME,
++	MTKFILE_PCM_STATE_DRAIN,
++	MTKFILE_PCM_STATE_STOP,
++	MTKFILE_PCM_STATE_HW_FREE,
++	MTKFILE_PCM_STATE_CLOSE,
++	MTKFILE_PCM_STATE_NUM,
++};
++
++static const char *const pcm_state_func[] = {
++	ENUM_TO_STR(MTKFILE_PCM_STATE_UNKNOWN),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_OPEN),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_HW_PARAMS),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_PREPARE),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_START),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_PAUSE),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_RESUME),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_DRAIN),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_STOP),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_HW_FREE),
++	ENUM_TO_STR(MTKFILE_PCM_STATE_CLOSE),
++};
++
++static SOC_ENUM_SINGLE_EXT_DECL(pcm_state_enums, pcm_state_func);
++
++enum {
++	MASTER_VOLUME_ID = 0,
++	MASTER_VOLUMEX_ID,
++	MASTER_SWITCH_ID,
++	MASTER_SWITCHX_ID,
++	PCM_STATE_ID,
++	PCM_STATEX_ID,
++	CTRL_NOTIFY_NUM,
++	CTRL_NOTIFY_INVAL = 0xFFFF,
++};
++
++static const char *nfy_ctl_names[CTRL_NOTIFY_NUM] = {
++	"Master Volume 1",
++	"Master Volume X",
++	"Master Switch",
++	"Master Switch X",
++	"PCM State",
++	"PCM State X",
++};
++
++struct soc_ctlx_res {
++	int master_volume;
++	int master_switch;
++	int pcm_state;
++	struct snd_ctl_elem_id nfy_ids[CTRL_NOTIFY_NUM];
++	struct mutex res_mutex;
++	spinlock_t res_lock;
++};
++#endif
++
++struct mt8519_mendocino_priv {
++	struct pinctrl *pinctrl;
++	struct pinctrl_state *pin_states[PIN_STATE_MAX];
++	struct mt8519_mendocino_etdm_ctrl_data etdm_data[MT8519_ETDM_SETS];
++	struct mt8519_mendocino_dmic_ctrl_data dmic_data;
++	struct mt8519_mendocino_multi_in_ctrl_data multi_in_data;
++	struct mt8519_mendocino_int_adda_ctrl_data int_adda_data;
++	struct device_node *mendocino_platform_node;
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	struct device_node *mendocino_adsp_platform_node;
++#endif
++	struct snd_soc_card *card;
++	struct workqueue_struct *woofer_wq;	/* Woofer Fault work queue */
++	struct work_struct woofer_work;		/* Woofer Fault handler */
++	struct gpio_desc *woofer_irq_gpiopin;	/* GPIO pin connected to Woofer Amp */
++	int woofer_irq;				/* IRQ value for gpio pin*/
++	int woofer_irq_enabled;			/* Woofer Fault enabled */
++	struct mutex amp_lock;
++	bool amp_playing;
++	int force_i2s_enable;
++	struct mutex rms_lock;
++	int rms;
++};
++
++struct mt8519_dai_link_prop {
++	char *name;
++	unsigned int link_id;
++};
++
++struct mt8519_hostless_data {
++	struct afe_hostless_pcm_config config;
++	struct snd_pcm_substream *substream;
++	unsigned int enable;
++	int stream_dir;
++	const char *dai_link;
++	const char *ctl_name;
++};
++
++enum {
++#if IS_ENABLED(CONFIG_MTK_HIFIXDSP_SUPPORT)
++	MT8519_XA_PLAYBACK = 0,
++	MT8519_XA_CAPTURE,
++#else
++	MT8519_XA_UNUSED = 0,
++#endif
++};
++
++#define ADSP_HOSTLESS_PLAYBACK "ADSP_Hostless_PLAYBACK"
++#define ADSP_VA_FE "ADSP VA_FE"
++#define ENUM_TO_STR(enum) #enum
++#define ENUM_TO_CTL_NAME(name) ENUM_TO_STR(name) "_Enable"
++
++static int mendocino_rms_read_thermal_zone(struct thermal_zone_device *tz, int *rms)
++{
++	struct mt8519_mendocino_priv *priv = thermal_zone_device_priv(tz);
++	struct snd_soc_card *card = priv->card;
++
++	mutex_lock(&priv->rms_lock);
++	dev_dbg(card->dev, "%s rms %d",__func__, priv->rms);
++	*rms = priv->rms;
++	mutex_unlock(&priv->rms_lock);
++
++	return 0;
++}
++
++static const struct thermal_zone_device_ops mendocino_rms_tz_ops = {
++	.get_temp = mendocino_rms_read_thermal_zone,
++};
++
++static int mt8519_mendocino_ext_spk_amp_wevent(struct snd_soc_dapm_widget *w,
++	struct snd_kcontrol *kcontrol, int event)
++{
++	struct snd_soc_dapm_context *dapm = w->dapm;
++	struct snd_soc_card *card = dapm->card;
++	struct mt8519_mendocino_priv *card_data = snd_soc_card_get_drvdata(card);
++	int ret = 0;
++
++	dev_dbg(card->dev, "%s event %d\n", __func__, event);
++
++	switch (event) {
++	case SND_SOC_DAPM_POST_PMU:
++		if (!IS_ERR(card_data->pin_states[PIN_STATE_EXT_SPK_AMP_ON])) {
++			ret = pinctrl_select_state(card_data->pinctrl,
++			      card_data->pin_states[PIN_STATE_EXT_SPK_AMP_ON]);
++			if (ret)
++				dev_info(card->dev,
++					"%s failed to select state %d\n",
++					__func__, ret);
++		} else {
++			dev_info(card->dev,
++				 "%s invalid pin state %s\n",
++				 __func__,
++				 mt8519_mendocino_pin_str[PIN_STATE_EXT_SPK_AMP_ON]);
++		}
++		break;
++	case SND_SOC_DAPM_PRE_PMD:
++		if (!IS_ERR(card_data->pin_states[PIN_STATE_EXT_SPK_AMP_OFF])) {
++			ret = pinctrl_select_state(card_data->pinctrl,
++			      card_data->pin_states[PIN_STATE_EXT_SPK_AMP_OFF]);
++			if (ret)
++				dev_info(card->dev,
++					"%s failed to select state %d\n",
++					__func__, ret);
++		} else {
++			dev_info(card->dev,
++				 "%s invalid pin state %s\n",
++				 __func__,
++				 mt8519_mendocino_pin_str[PIN_STATE_EXT_SPK_AMP_OFF]);
++		}
++		break;
++	default:
++		break;
++	}
++
++	return 0;
++}
++
++static int mt8519_mendocino_ext_lineout_amp_wevent(struct snd_soc_dapm_widget *w,
++	struct snd_kcontrol *kcontrol, int event)
++{
++	struct snd_soc_dapm_context *dapm = w->dapm;
++	struct snd_soc_card *card = dapm->card;
++	struct mt8519_mendocino_priv *card_data = snd_soc_card_get_drvdata(card);
++	int ret = 0;
++
++	dev_dbg(card->dev, "%s event %d\n", __func__, event);
++
++	switch (event) {
++	case SND_SOC_DAPM_POST_PMU:
++		if (!IS_ERR(card_data->pin_states[PIN_STATE_EXT_LO_AMP_ON])) {
++			ret = pinctrl_select_state(card_data->pinctrl,
++			      card_data->pin_states[PIN_STATE_EXT_LO_AMP_ON]);
++			if (ret)
++				dev_info(card->dev,
++					"%s failed to select state %d\n",
++					__func__, ret);
++		} else {
++			dev_info(card->dev,
++				 "%s invalid pin state %s\n",
++				 __func__,
++				 mt8519_mendocino_pin_str[PIN_STATE_EXT_LO_AMP_ON]);
++		}
++		break;
++	case SND_SOC_DAPM_PRE_PMD:
++		if (!IS_ERR(card_data->pin_states[PIN_STATE_EXT_LO_AMP_OFF])) {
++			ret = pinctrl_select_state(card_data->pinctrl,
++			      card_data->pin_states[PIN_STATE_EXT_LO_AMP_OFF]);
++			if (ret)
++				dev_info(card->dev,
++					"%s failed to select state %d\n",
++					__func__, ret);
++		} else {
++			dev_info(card->dev,
++				 "%s invalid pin state %s\n",
++				 __func__,
++				 mt8519_mendocino_pin_str[PIN_STATE_EXT_LO_AMP_OFF]);
++		}
++		break;
++	default:
++		break;
++	}
++
++	return 0;
++}
++
++static struct mt8519_hostless_data hostless_datas[] = {
++#if IS_ENABLED(CONFIG_MTK_HIFIXDSP_SUPPORT)
++	[MT8519_XA_PLAYBACK] = {
++		.config = {
++			.channels = 2,
++			.rate = 96000,
++			.format = 32,
++			.period_size = 768,
++			.period_count = 4,
++		},
++		.dai_link = ADSP_HOSTLESS_PLAYBACK,
++		.stream_dir = SNDRV_PCM_STREAM_PLAYBACK,
++		.ctl_name = ENUM_TO_CTL_NAME(MT8519_XA_PLAYBACK),
++	},
++	[MT8519_XA_CAPTURE] = {
++		.config = {
++			.channels = DSP_CAPTURE_CHANNEL,
++			.rate = DSP_CAPTURE_SAMPLE_RATE,
++			.format = DSP_CAPTURE_BIT_WIDTH,
++			.period_size = (DSP_CAPTURE_SAMPLE_RATE / 1000) * 8,
++			.period_count = 4,
++		},
++		.dai_link = ADSP_VA_FE,
++		.stream_dir = SNDRV_PCM_STREAM_CAPTURE,
++		.ctl_name = ENUM_TO_CTL_NAME(MT8519_XA_CAPTURE),
++	},
++#endif
++};
++
++static int mt8519_hostless_enable(struct snd_soc_card *card,
++				  struct mt8519_hostless_data *hostless_data,
++				  int enable)
++{
++	int ret = 0;
++	struct snd_pcm *pcm;
++	struct snd_soc_pcm_runtime *rtd;
++
++	rtd = mendocino_get_rtd(card, hostless_data->dai_link);
++	if (rtd == NULL) {
++		dev_info(card->dev, "%s() dai_link=%s  ctrl_name=%s runtime is NULL\n",
++				__func__, hostless_data->dai_link, hostless_data->ctl_name);
++		return -ENODEV;
++	}
++	pcm = rtd->pcm;
++	if (hostless_data->enable == enable) {
++		dev_info(card->dev, "already set %s enable:%d\n",
++			 hostless_data->dai_link, hostless_data->enable);
++//		ret = -EBUSY;
++		goto err;
++	}
++
++	if (enable) {
++		dev_info(card->dev, "dai_link:%s, dir:%d, channel:%d, rate:%d\n",
++			 hostless_data->dai_link, hostless_data->stream_dir,
++			 hostless_data->config.channels, hostless_data->config.rate);
++		ret = afe_hostless_enable(pcm,
++				&hostless_data->substream,
++				&hostless_data->config,
++				hostless_data->stream_dir);
++		if (ret)
++			goto err;
++	} else {
++		afe_hostless_disable(&hostless_data->substream);
++	}
++
++	hostless_data->enable = enable;
++	dev_info(card->dev, "%s enable:%d\n", hostless_data->dai_link, hostless_data->enable);
++err:
++	return ret;
++}
++
++static int mt8519_hostless_get(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *ucontrol)
++{
++	int i = 0;
++	int ret = -EINVAL;
++	struct mt8519_hostless_data *hostless_data = NULL;
++
++	for (i = 0; i < ARRAY_SIZE(hostless_datas); i++) {
++		hostless_data = &hostless_datas[i];
++		if (!strcmp(ucontrol->id.name, hostless_data->ctl_name)) {
++			ucontrol->value.integer.value[0] = hostless_data->enable;
++			ret = 0;
++			break;
++		}
++	}
++
++	return ret;
++}
++
++static int mt8519_hostless_put(struct snd_kcontrol *kcontrol,
++			       struct snd_ctl_elem_value *ucontrol)
++{
++	int enable;
++	int i = 0;
++	int ret = -EINVAL;
++	struct mt8519_hostless_data *hostless_data = NULL;
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++
++	enable = ucontrol->value.integer.value[0];
++	for (i = 0; i < ARRAY_SIZE(hostless_datas); i++) {
++		hostless_data = &hostless_datas[i];
++		if (!strcmp(ucontrol->id.name, hostless_data->ctl_name)) {
++			ret = mt8519_hostless_enable(card, hostless_data, enable);
++			break;
++		}
++	}
++
++	return ret;
++}
++
++static int max98396_reset(struct snd_soc_card *card)
++{
++	struct mtk_base_afe *afe;
++	struct snd_soc_pcm_runtime *rtd;
++	int error = 0;
++
++	dev_info(card->dev, "%s+\n", __func__);
++
++	/* Turn Off I2S */
++	/* Can continue with error */
++	afe = mt8519_afe_pcm_get_info();
++	error = mt8519_afe_force_etdm2_out_enable(afe, 0);
++	if (error)
++		dev_err(card->dev, "%s I2S disable error %d\n",
++			__func__, error);
++
++	/* Turn off AMP */
++	rtd = mendocino_get_rtd(card, "ETDM2_OUT BE");
++	if (rtd == NULL) {
++		dev_info(card->dev, "%s() runtime is NULL\n", __func__);
++		return -ENODEV;
++	}
++
++	error = max98396_reset_platform(snd_soc_rtd_to_codec(rtd, 0)->component, 0);
++	if (error)
++		dev_err(card->dev, "%s Amp reset error %d\n", __func__, error);
++
++	/* Turn On AMP */
++	error = max98396_reset_platform(snd_soc_rtd_to_codec(rtd, 0)->component, 1);
++	if (error)
++		dev_err(card->dev, "%s Amp reset error %d\n", __func__, error);
++
++	/* Turn On I2S */
++	error = mt8519_afe_force_etdm2_out_enable(afe, 1);
++	if (error)
++		dev_err(card->dev, "%s I2S enable error %d\n",
++			__func__, error);
++
++	dev_info(card->dev, "%s-\n", __func__);
++
++	return 0;
++}
++
++static int max98396_reset_get(struct snd_kcontrol *kcontrol,
++			      struct snd_ctl_elem_value *ucontrol)
++{
++	pr_debug("%s\n", __func__);
++
++	/* Always set 0, otherwise userspace won't apply kcontrol */
++	ucontrol->value.integer.value[0] = 0;
++
++	return 0;
++}
++
++static int max98396_reset_put(struct snd_kcontrol *kcontrol,
++			      struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	int error = 0;
++
++	pr_debug("%s enable %ld\n", __func__,
++		 ucontrol->value.integer.value[0]);
++
++	error = max98396_reset(card);
++
++	return 0;
++}
++
++static int mendocino_woofer_irq_enable_get(struct snd_kcontrol *kcontrol,
++					   struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++
++	pr_info("%s: woofer_irq_enabled = %d\n", __func__, priv->woofer_irq_enabled);
++
++	ucontrol->value.integer.value[0] = priv->woofer_irq_enabled;
++
++	return 0;
++}
++
++static int mendocino_woofer_irq_enable_put(struct snd_kcontrol *kcontrol,
++					   struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++
++	priv->woofer_irq_enabled = ucontrol->value.integer.value[0];
++
++	pr_info("%s: woofer_irq_enabled = %d\n", __func__,
++		priv->woofer_irq_enabled);
++
++	return 0;
++}
++
++static int mendocino_get_rms(struct snd_kcontrol *kcontrol,
++	struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++
++	mutex_lock(&priv->rms_lock);
++	pr_info("%s: rms = %d\n", __func__, priv->rms);
++	ucontrol->value.integer.value[0] = priv->rms;
++	mutex_unlock(&priv->rms_lock);
++
++	return 0;
++}
++
++static int mendocino_set_rms(struct snd_kcontrol *kcontrol,
++	struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++
++	mutex_lock(&priv->rms_lock);
++	priv->rms = ucontrol->value.integer.value[0];
++	pr_info("%s: rms = %d\n", __func__, priv->rms);
++	mutex_unlock(&priv->rms_lock);
++
++	return 0;
++}
++
++static int mendocino_i2s_enable_get(struct snd_kcontrol *kcontrol,
++	struct snd_ctl_elem_value *ucontrol);
++
++static int mendocino_i2s_enable_set(struct snd_kcontrol *kcontrol,
++	struct snd_ctl_elem_value *ucontrol);
++
++/***********************************************************************
++ * woofer_get_irq_state
++ * Reading irq state from DAC
++ * *********************************************************************/
++static u64 woofer_get_irq_state(struct snd_soc_card *card)
++{
++	struct snd_soc_pcm_runtime *rtd = mendocino_get_rtd(card, "ETDM2_OUT BE");
++
++	dev_info(card->dev, "%s() codec: %s\n", __func__, snd_soc_rtd_to_codec(rtd, 0)->name);
++	if (!strncmp(snd_soc_rtd_to_codec(rtd, 0)->name, "tas2764", 7))
++		return tas2764_get_irq_state(snd_soc_rtd_to_codec(rtd, 0)->component);
++	else if (!strncmp(snd_soc_rtd_to_codec(rtd, 0)->name, "max98396", 8))
++		return max98396_get_irq_state(snd_soc_rtd_to_codec(rtd, 0)->component);
++	else if (!strncmp(snd_soc_rtd_to_codec(rtd, 0)->name, "tas5805", 7))
++		return tas5805m_get_irq_state(snd_soc_rtd_to_codec(rtd, 0)->component);
++
++	dev_err(card->dev, "codec is not supported\n");
++	return 0;
++}
++
++enum fault_status_bit_info {
++	FAULT_STATUS_OTW_BIT = 0,	// Over Temperature Warning
++	FAULT_STATUS_OTE_BIT = 1,	// Over Temperature Error
++	FAULT_STATUS_OC_BIT = 2,	// Over Current
++	FAULT_STATUS_GENERIC_BIT = 3,	// Generic Fault
++};
++
++static int dac_fault_info_get(struct snd_kcontrol *kcontrol,
++			      struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	struct snd_soc_pcm_runtime *rtd = mendocino_get_rtd(card, "ETDM2_OUT BE");
++	u64 irq_raw_status;
++	u32 fault_status;
++	bool generic_fault_status = false, otw_status = false, ote_status = false,
++	     oc_status = false;
++
++	if (!rtd) {
++		dev_err(card->dev, "%s() runtime is NULL\n", __func__);
++		return -EINVAL;
++	}
++
++	irq_raw_status = woofer_get_irq_state(card);
++	dev_info(card->dev, "%s: woofer irq state = 0x%08llx\n", __func__, irq_raw_status);
++	if (!irq_raw_status) {
++		ucontrol->value.integer.value[0] = 0;
++		return 0;
++	}
++
++	if (!strncmp(snd_soc_rtd_to_codec(rtd, 0)->name, "tas2764", 7)) {
++		otw_status = !!(irq_raw_status & TAS2764_OTW_BIT);
++		ote_status = !!(irq_raw_status & TAS2764_OTE_BIT);
++		oc_status = !!(irq_raw_status & TAS2764_OC_BIT);
++	} else if (!strncmp(snd_soc_rtd_to_codec(rtd, 0)->name, "max98396", 8)) {
++		generic_fault_status = !!(irq_raw_status & MAX98396_GENERIC_FAULT_BITS);
++		otw_status = !!(irq_raw_status & MAX98396_OTW_BITS);
++		ote_status = generic_fault_status && otw_status;
++		oc_status = !!(irq_raw_status & MAX98396_OVC);
++	} else if (!strncmp(snd_soc_rtd_to_codec(rtd, 0)->name, "tas5805", 7)) {
++		otw_status = !!(irq_raw_status & (1 << FAULT_STATUS_OTW_BIT));
++		ote_status = !!(irq_raw_status & (1 << FAULT_STATUS_OTE_BIT));
++		oc_status = !!(irq_raw_status & (1 << FAULT_STATUS_OC_BIT));
++		generic_fault_status = !!(irq_raw_status & (1 << FAULT_STATUS_GENERIC_BIT));
++	} else {
++		dev_err(card->dev, "codec is not supported\n");
++		return -EINVAL;
++	}
++
++	fault_status = (otw_status << FAULT_STATUS_OTW_BIT) |
++		       (ote_status << FAULT_STATUS_OTE_BIT) |
++		       (oc_status << FAULT_STATUS_OC_BIT) |
++		       (generic_fault_status << FAULT_STATUS_GENERIC_BIT);
++	dev_info(card->dev,
++		 "%s: otw_status=%d, ote_status=%d, oc_status=%d, generic_fault_status=%d\n",
++		 __func__, otw_status, ote_status, oc_status, generic_fault_status);
++	ucontrol->value.integer.value[0] = fault_status;
++
++	return 0;
++}
++
++static const struct snd_kcontrol_new mt8519_mendocino_controls[] = {
++	/* Reset max98396 with i2s clk disabled */
++	SOC_SINGLE_BOOL_EXT("Reset MAX98396", 0,
++			    max98396_reset_get,
++			    max98396_reset_put),
++#if IS_ENABLED(CONFIG_MTK_HIFIXDSP_SUPPORT)
++	SOC_SINGLE_BOOL_EXT(ENUM_TO_CTL_NAME(MT8519_XA_PLAYBACK),
++			    0,
++			    mt8519_hostless_get,
++			    mt8519_hostless_put),
++	SOC_SINGLE_BOOL_EXT(ENUM_TO_CTL_NAME(MT8519_XA_CAPTURE),
++			    0,
++			    mt8519_hostless_get,
++			    mt8519_hostless_put),
++#endif
++	SOC_SINGLE_BOOL_EXT("Woofer Irq Handler",
++			    0,
++			    mendocino_woofer_irq_enable_get,
++			    mendocino_woofer_irq_enable_put),
++	/* Force Disable/Enable I2S */
++	SOC_SINGLE_BOOL_EXT("Force I2S Enable",
++			    0,
++			    mendocino_i2s_enable_get,
++			    mendocino_i2s_enable_set),
++	SOC_SINGLE_EXT("DAC Fault",
++		       0, 0, 0xff, 0,
++		       dac_fault_info_get,
++		       NULL),
++	SOC_SINGLE_EXT("RMS Speaker",
++		       0, 0, S32_MAX, 0,
++		       mendocino_get_rms,
++		       mendocino_set_rms)
++};
++
++/* Ext SPK Amp Switch */
++static const struct snd_kcontrol_new mt8519_codec_ext_spk_amp_switch_ctrl =
++	SOC_DAPM_SINGLE_VIRT("Switch", 1);
++
++/* Ext Lineout Amp Switch */
++static const struct snd_kcontrol_new mt8519_codec_ext_lineout_amp_switch_ctrl =
++	SOC_DAPM_SINGLE_VIRT("Switch", 1);
++
++static const struct snd_soc_dapm_widget mt8519_mendocino_widgets[] = {
++	SND_SOC_DAPM_OUTPUT("HFP Out"),
++	SND_SOC_DAPM_INPUT("HFP In"),
++	SND_SOC_DAPM_INPUT("DMIC In"),
++	SND_SOC_DAPM_SWITCH("Ext Spk Amp", SND_SOC_NOPM, 0, 0,
++		&mt8519_codec_ext_spk_amp_switch_ctrl),
++	SND_SOC_DAPM_SWITCH("Ext Lineout Amp", SND_SOC_NOPM, 0, 0,
++		&mt8519_codec_ext_lineout_amp_switch_ctrl),
++	SND_SOC_DAPM_SPK("Spk Amp", mt8519_mendocino_ext_spk_amp_wevent),
++	SND_SOC_DAPM_SPK("Lineout Amp", mt8519_mendocino_ext_lineout_amp_wevent),
++};
++
++static const struct snd_soc_dapm_route mt8519_mendocino_routes[] = {
++	{"HFP Out", NULL, "PCM1 Playback"},
++	{"PCM1 Capture", NULL, "HFP In"},
++
++#ifdef CONFIG_SND_SOC_MT8519_CODEC
++	{"DIG_DAC_CLK", NULL, "AFE_DAC_CLK"},
++	{"DIG_ADC_CLK", NULL, "AFE_ADC_CLK"},
++
++	{"Ext Spk Amp", "Switch", "AU_VOL"},
++	{"Ext Spk Amp", "Switch", "AU_VOR"},
++	{"Spk Amp", NULL, "Ext Spk Amp"},
++
++	{"Ext Lineout Amp", "Switch", "AU_VOL"},
++	{"Ext Lineout Amp", "Switch", "AU_VOR"},
++	{"Lineout Amp", NULL, "Ext Lineout Amp"},
++#endif
++};
++
++enum {
++	/* FE */
++	DAI_LINK_AFE_FE_BASE = 0,
++	DAI_LINK_DLM_PLAYBACK = DAI_LINK_AFE_FE_BASE,
++	DAI_LINK_DL2_PLAYBACK,
++	DAI_LINK_DL3_PLAYBACK,
++	DAI_LINK_DL6_PLAYBACK,
++	DAI_LINK_UL2_CAPTURE,
++	DAI_LINK_UL3_CAPTURE,
++	DAI_LINK_UL4_CAPTURE,
++	DAI_LINK_UL5_CAPTURE,
++	DAI_LINK_UL8_CAPTURE,
++	DAI_LINK_UL9_CAPTURE,
++	DAI_LINK_UL10_CAPTURE,
++	DAI_LINK_UL1_CAPTURE,
++	DAI_LINK_AFE_FE_END = DAI_LINK_UL1_CAPTURE,
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	DAI_LINK_FE_HOSTLESS_VA,
++	DAI_LINK_FE_VA,
++	DAI_LINK_FE_PCM_PLAYBACK,
++	DAI_LINK_FE_HOSTLESS_PLAYBACK,
++#endif
++	/* BE */
++	DAI_LINK_AFE_BE_BASE,
++	DAI_LINK_ETDM1_IN = DAI_LINK_AFE_BE_BASE,
++	DAI_LINK_ETDM2_OUT,
++	DAI_LINK_ETDM2_IN,
++	DAI_LINK_PCM_INTF,
++	DAI_LINK_VIRTUAL_DL_SOURCE,
++	DAI_LINK_DMIC,
++	DAI_LINK_INT_ADDA,
++	DAI_LINK_GASRC0,
++	DAI_LINK_GASRC1,
++	DAI_LINK_GASRC2,
++	DAI_LINK_VIRTUAL_GASRC2,
++	DAI_LINK_GASRC3,
++	DAI_LINK_SPDIF_IN,
++	DAI_LINK_MULTI_IN,
++	DAI_LINK_AFE_BE_END = DAI_LINK_MULTI_IN,
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	DAI_LINK_BE_TDM_IN,
++	DAI_LINK_BE_UL9,
++	DAI_LINK_BE_UL2,
++	DAI_LINK_BE_DL2,
++#endif
++	DAI_LINK_NUM
++};
++
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++static const unsigned int adsp_dai_links[] = {
++	DAI_LINK_FE_HOSTLESS_VA,
++	DAI_LINK_FE_VA,
++	DAI_LINK_FE_PCM_PLAYBACK,
++	DAI_LINK_FE_HOSTLESS_PLAYBACK,
++	DAI_LINK_BE_TDM_IN,
++	DAI_LINK_BE_UL9,
++	DAI_LINK_BE_UL2,
++	DAI_LINK_BE_DL2,
++};
++#endif
++
++static int mendocino_i2s_enable_get(struct snd_kcontrol *kcontrol,
++	struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++
++	mutex_lock(&priv->amp_lock);
++	ucontrol->value.integer.value[0] = priv->force_i2s_enable;
++	mutex_unlock(&priv->amp_lock);
++
++	return 0;
++}
++
++static int mendocino_i2s_enable_set(struct snd_kcontrol *kcontrol,
++	struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++	int error = 0;
++	struct mtk_base_afe *afe;
++
++	afe = mt8519_afe_pcm_get_info();
++
++	dev_info(card->dev, "%s+ enable %ld\n", __func__,
++		ucontrol->value.integer.value[0]);
++
++	mutex_lock(&priv->amp_lock);
++	if (!priv->amp_playing)
++		error = mt8519_afe_force_etdm2_out_enable(afe,
++				ucontrol->value.integer.value[0]);
++	if (!error)
++		priv->force_i2s_enable = ucontrol->value.integer.value[0];
++	mutex_unlock(&priv->amp_lock);
++
++	if (error)
++		dev_warn(card->dev, "%s I2S disable error %d\n",
++			__func__, error);
++
++	return error;
++}
++
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++static bool is_adsp_dai_link(unsigned int dai)
++{
++	size_t i;
++
++	for (i = 0; i < ARRAY_SIZE(adsp_dai_links); i++)
++		if (dai == adsp_dai_links[i])
++			return true;
++
++	return false;
++}
++#endif
++
++static int link_to_dai(int link_id)
++{
++	switch (link_id) {
++	case DAI_LINK_ETDM1_IN:
++		return MT8519_AFE_IO_ETDM1_IN;
++	case DAI_LINK_ETDM2_OUT:
++		return MT8519_AFE_IO_ETDM2_OUT;
++	case DAI_LINK_ETDM2_IN:
++		return MT8519_AFE_IO_ETDM2_IN;
++	case DAI_LINK_PCM_INTF:
++		return MT8519_AFE_IO_PCM1;
++	case DAI_LINK_DMIC:
++		return MT8519_AFE_IO_DMIC;
++	case DAI_LINK_INT_ADDA:
++		return MT8519_AFE_IO_INT_ADDA;
++	default:
++		break;
++	}
++	return -1;
++}
++/* tlv320_clock_source:*/
++/*    TLV320_PLL_ADC_FS_CLKIN_MCLK = 0 */
++/*    TLV320_PLL_ADC_FS_CLKIN_BCLK = 1 */
++/*   TLV320_PLL_ADC_FS_CLKIN_PLL_MCLK = 2 */
++/*   TLV320_PLL_ADC_FS_CLKIN_PLL_BCLK = 3 */
++/*    TLV320_ADC_FS_CLKIN_BCLK = 4 */
++
++static int mt8519_mendocino_hw_params(struct snd_pcm_substream *substream,
++				struct snd_pcm_hw_params *params)
++{
++	struct snd_soc_pcm_runtime *rtd = substream->private_data;
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
++	int id = rtd->dai_link->id;
++	struct mt8519_mendocino_etdm_ctrl_data *etdm;
++	struct snd_soc_dai *codec_dai;
++	struct mtk_base_afe *afe;
++
++	unsigned int mclk_multiplier = 0;
++	unsigned int fmt = 0;
++	unsigned int mclk = 0;
++	unsigned int lrck_width = 0;
++	int slot = 0;
++	int slot_width = 0;
++	unsigned int slot_bitmask = 0;
++	unsigned int tlv320_clock_source = 0;
++	unsigned int idx;
++	int ret, i;
++	int error;
++
++	afe = mt8519_afe_pcm_get_info();
++	if (id == DAI_LINK_ETDM1_IN) {
++		idx = MT8519_ETDM1;
++		etdm = &priv->etdm_data[idx];
++		mclk_multiplier = etdm->mck_multp_in;
++		lrck_width = etdm->lrck_width_in;
++		tlv320_clock_source = etdm->tlv320_clock_mux;
++	} else if (id == DAI_LINK_ETDM2_OUT) {
++		idx = MT8519_ETDM2;
++		etdm = &priv->etdm_data[idx];
++		mclk_multiplier = etdm->mck_multp_out;
++		lrck_width = etdm->lrck_width_out;
++	} else if (id == DAI_LINK_ETDM2_IN) {
++		idx = MT8519_ETDM2;
++		etdm = &priv->etdm_data[idx];
++		mclk_multiplier = etdm->mck_multp_in;
++		lrck_width = etdm->lrck_width_in;
++	}
++
++	if (mclk_multiplier > 0) {
++		mclk = mclk_multiplier * params_rate(params);
++
++		/* MCLK needs to be minimum 12.228MHz for ADC5140 */
++		if (mclk < 12288000  && id == DAI_LINK_ETDM1_IN)
++			mclk = 12288000;
++
++		ret = snd_soc_dai_set_sysclk(cpu_dai, 0, mclk,
++					     SND_SOC_CLOCK_OUT);
++		if (ret)
++			return ret;
++		if (id == DAI_LINK_ETDM1_IN) {
++			/* Set MCLK rate in codec */
++			ret = snd_soc_dai_set_sysclk(snd_soc_rtd_to_codec(rtd, 0), 0,
++				mclk, SND_SOC_CLOCK_OUT);
++
++			if (ret)
++				return ret;
++		}
++	}
++
++	slot_width = lrck_width;
++	if (slot_width > 0) {
++		slot = params_channels(params);
++		slot_bitmask = GENMASK(slot - 1, 0);
++
++		ret = snd_soc_dai_set_tdm_slot(cpu_dai,
++					       slot_bitmask,
++					       slot_bitmask,
++					       slot,
++					       slot_width);
++		if (ret)
++			return ret;
++	}
++
++	for_each_rtd_codec_dais(rtd, i, codec_dai)
++	{
++		if (codec_dai == NULL) {
++			pr_err("%s invalid dai parameter\n", __func__);
++			return -EINVAL;
++		}
++
++		snd_soc_dai_set_pll(codec_dai, 0, tlv320_clock_source,
++			snd_pcm_format_width(params_format(params))
++			* params_channels(params) * params_rate(params)
++			, params_rate(params));
++
++		/* Inverse the BCLK bit for TI ADC5140 to match MTK and AKM. */
++		if (strstr(snd_soc_rtd_to_codec(rtd, 0)->name, "tlv320adc5140") ||
++			strstr(snd_soc_rtd_to_codec(rtd, 0)->name, "tlv320adc5120")) {
++			switch (rtd->dai_link->dai_fmt & SND_SOC_DAIFMT_INV_MASK) {
++			case SND_SOC_DAIFMT_NB_NF:
++				fmt = rtd->dai_link->dai_fmt | SND_SOC_DAIFMT_IB_NF;
++				break;
++			case SND_SOC_DAIFMT_IB_NF:
++				fmt = rtd->dai_link->dai_fmt & SND_SOC_DAIFMT_INV_RESET;
++				break;
++			default:
++				pr_err("%s invalid dai fmt\n", __func__);
++				return -EINVAL;
++			}
++		} else {
++			fmt = rtd->dai_link->dai_fmt;
++		}
++
++		snd_soc_dai_set_fmt(codec_dai, fmt);
++
++	}
++
++	if (id == DAI_LINK_ETDM2_OUT) {
++	/* turn on bclk before putting AMP in play state */
++		if (strstr(snd_soc_rtd_to_codec(rtd, 0)->name, "tas5805m")) {
++			mutex_lock(&priv->amp_lock);
++			if (!priv->force_i2s_enable) {
++				error = mt8519_afe_force_etdm2_out_enable(afe, 1);
++				if (error) {
++					dev_warn(rtd->card->dev, "%s I2S enable error %d\n",
++						__func__, error);
++				}
++			}
++			priv->amp_playing = true;
++			mutex_unlock(&priv->amp_lock);
++		}
++	}
++
++	return 0;
++}
++
++static int mt8519_mendocino_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
++	struct snd_pcm_hw_params *params)
++{
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(rtd->card);
++	int id = rtd->dai_link->id;
++	struct mt8519_mendocino_etdm_ctrl_data *etdm;
++	struct mt8519_mendocino_dmic_ctrl_data *dmic;
++	struct mt8519_mendocino_multi_in_ctrl_data *multi_in;
++	struct mt8519_mendocino_int_adda_ctrl_data *int_adda;
++
++	unsigned int fix_rate = 0;
++	unsigned int fix_bit_width = 0;
++	unsigned int fix_channels = 0;
++	unsigned int idx;
++
++	if (id == DAI_LINK_ETDM1_IN) {
++		idx = MT8519_ETDM1;
++		etdm = &priv->etdm_data[idx];
++		fix_rate = etdm->fix_rate_in;
++		fix_bit_width = etdm->fix_bit_width_in;
++		fix_channels = etdm->fix_channels_in;
++	} else if (id == DAI_LINK_ETDM2_OUT) {
++		idx = MT8519_ETDM2;
++		etdm = &priv->etdm_data[idx];
++		fix_rate = etdm->fix_rate_out;
++		fix_bit_width = etdm->fix_bit_width_out;
++		fix_channels = etdm->fix_channels_out;
++	} else if (id == DAI_LINK_ETDM2_IN) {
++		idx = MT8519_ETDM2;
++		etdm = &priv->etdm_data[idx];
++		fix_rate = etdm->fix_rate_in;
++		fix_bit_width = etdm->fix_bit_width_in;
++		fix_channels = etdm->fix_channels_in;
++	} else if (id == DAI_LINK_DMIC) {
++		dmic = &priv->dmic_data;
++		fix_rate = dmic->fix_rate;
++		fix_bit_width = dmic->fix_bit_width;
++		fix_channels = dmic->fix_channels;
++	} else if (id == DAI_LINK_MULTI_IN) {
++		multi_in = &priv->multi_in_data;
++		fix_bit_width = multi_in->fix_bit_width;
++	} else if (id == DAI_LINK_INT_ADDA) {
++		int_adda = &priv->int_adda_data;
++		fix_rate = int_adda->fix_rate;
++	}
++
++	if (fix_rate > 0) {
++		struct snd_interval *rate =
++			hw_param_interval(params, SNDRV_PCM_HW_PARAM_RATE);
++
++		rate->max = rate->min = fix_rate;
++	}
++
++	if (fix_bit_width > 0) {
++		struct snd_mask *mask =
++			hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT);
++
++		if (fix_bit_width == 32) {
++			snd_mask_none(mask);
++			snd_mask_set(mask, SNDRV_PCM_FORMAT_S32_LE);
++		} else if (fix_bit_width == 16) {
++			snd_mask_none(mask);
++			snd_mask_set(mask, SNDRV_PCM_FORMAT_S16_LE);
++		}
++	}
++
++	if (fix_channels > 0) {
++		struct snd_interval *channels = hw_param_interval(params,
++			SNDRV_PCM_HW_PARAM_CHANNELS);
++
++		channels->min = channels->max = fix_channels;
++	}
++
++	return 0;
++}
++
++static int mt8519_mendocino_hw_free(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_pcm_runtime *rtd;
++	struct mt8519_mendocino_priv *priv;
++	struct mtk_base_afe *afe;
++	int error = 0;
++
++	afe = mt8519_afe_pcm_get_info();
++
++	if (!substream || !substream->private_data)
++		return 0;
++	rtd = substream->private_data;
++	priv = snd_soc_card_get_drvdata(rtd->card);
++	/* turn off bclk before putting AMP in sleep state */
++	if (strstr(snd_soc_rtd_to_codec(rtd, 0)->name, "tas5805m")) {
++		mutex_lock(&priv->amp_lock);
++		if (!priv->force_i2s_enable)
++			error = mt8519_afe_force_etdm2_out_enable(afe, 0);
++		if (error) {
++			dev_warn(rtd->card->dev, "%s I2S disable error %d\n",
++				__func__, error);
++		}
++		priv->amp_playing = false;
++		mutex_unlock(&priv->amp_lock);
++		dev_info(rtd->card->dev, "%s\n", __func__);
++	}
++
++	return 0;
++}
++
++static struct snd_soc_ops mt8519_mendocino_etdm_ops = {
++	.hw_params = mt8519_mendocino_hw_params,
++	.hw_free = mt8519_mendocino_hw_free,
++};
++
++
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++static int mt8519_adsp_hostless_va_init(struct snd_soc_pcm_runtime *rtd)
++{
++	struct snd_soc_dapm_context *dapm;
++	struct snd_soc_card *card;
++	struct snd_soc_pcm_runtime *afe_rtd;
++
++	/* set ignore suspend for hostless path */
++	dapm = snd_soc_component_get_dapm(snd_soc_rtd_to_cpu(rtd, 0)->component);
++	snd_soc_dapm_ignore_suspend(dapm, "FE_HOSTLESS_VA");
++	snd_soc_dapm_ignore_suspend(dapm, "FE_VA");
++	snd_soc_dapm_ignore_suspend(dapm, "FE_PCM_PLAYBACK");
++	snd_soc_dapm_ignore_suspend(dapm, "FE_HOSTLESS_PLAYBACK");
++	snd_soc_dapm_ignore_suspend(dapm, "VA UL2 In");
++	snd_soc_dapm_ignore_suspend(dapm, "VA TDMIN In");
++	snd_soc_dapm_ignore_suspend(dapm, "VA UL9 In");
++	snd_soc_dapm_ignore_suspend(dapm, "PCM DL2 OUT");
++
++	card = rtd->card;
++
++	list_for_each_entry(afe_rtd, &card->rtd_list, list) {
++		if (!strcmp(snd_soc_rtd_to_cpu(afe_rtd, 0)->name, "DMIC"))
++			break;
++	}
++	if (afe_rtd != NULL) {
++		dapm = snd_soc_component_get_dapm(snd_soc_rtd_to_cpu(afe_rtd, 0)->component);
++		snd_soc_dapm_ignore_suspend(dapm, "DMIC In");
++		snd_soc_dapm_ignore_suspend(dapm, "ETDM1 In");
++		snd_soc_dapm_ignore_suspend(dapm, "ETDM2 In");
++		snd_soc_dapm_ignore_suspend(dapm, "ETDM2 Out");
++	}
++
++#ifdef CONFIG_SND_SOC_MT8519_CODEC
++	list_for_each_entry(afe_rtd, &card->rtd_list, list) {
++		if (!strcmp(snd_soc_rtd_to_cpu(afe_rtd, 0)->name, "INT ADDA"))
++			break;
++	}
++	if (afe_rtd != NULL) {
++		dapm =
++		snd_soc_component_get_dapm(snd_soc_rtd_to_codec(afe_rtd, 0)->component);
++		snd_soc_dapm_ignore_suspend(dapm, "AU_VIN0");
++		snd_soc_dapm_ignore_suspend(dapm, "AU_VIN1");
++	}
++#endif
++
++	return 0;
++}
++
++static int mt8519_adsp_hostless_va_startup(struct snd_pcm_substream *substream)
++{
++	struct snd_soc_dpcm *dpcm;
++	struct snd_soc_pcm_runtime *fe = substream->private_data;
++	struct snd_soc_pcm_runtime *be;
++	int stream = substream->stream;
++
++	/* should set all the connected be to ignore suspend */
++	/* all there will be a substream->ops action in suspend_all */
++	for_each_dpcm_be(fe, stream, dpcm) {
++		be = dpcm->be;
++		be->dai_link->ignore_suspend = 1;
++	}
++
++	return 0;
++}
++
++static void mt8519_adsp_hostless_va_shutdown(
++	struct snd_pcm_substream *substream)
++{
++	struct snd_soc_dpcm *dpcm;
++	struct snd_soc_pcm_runtime *fe = substream->private_data;
++	struct snd_soc_pcm_runtime *be;
++	int stream = substream->stream;
++
++	/* should resume all the connected be */
++	for_each_dpcm_be(fe, stream, dpcm) {
++		be = dpcm->be;
++		be->dai_link->ignore_suspend = 0;
++	}
++}
++
++static struct snd_soc_ops adsp_hostless_va_ops = {
++	.startup = mt8519_adsp_hostless_va_startup,
++	.shutdown = mt8519_adsp_hostless_va_shutdown,
++};
++#endif
++/* FE */
++SND_SOC_DAILINK_DEFS(dlm_playback,
++		     DAILINK_COMP_ARRAY(COMP_CPU("DLM")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(dl2_playback,
++		     DAILINK_COMP_ARRAY(COMP_CPU("DL2")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(dl3_playback,
++		     DAILINK_COMP_ARRAY(COMP_CPU("DL3")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(dl6_playback,
++		     DAILINK_COMP_ARRAY(COMP_CPU("DL6")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul2_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL2")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul3_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL3")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul4_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL4")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul5_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL5")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul8_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL8")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul9_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL9")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul10_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL10")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(ul1_capture,
++		     DAILINK_COMP_ARRAY(COMP_CPU("UL1")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++#if IS_ENABLED(CONFIG_SND_SOC_MTK_BTCVSD)
++SND_SOC_DAILINK_DEFS(btcvsd,
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_PLATFORM("18050000.mtk-btcvsd-snd")));
++#endif
++
++/* BE */
++SND_SOC_DAILINK_DEFS(etdm1_in,
++	DAILINK_COMP_ARRAY(COMP_CPU("ETDM1_IN")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(etdm2_out,
++	DAILINK_COMP_ARRAY(COMP_CPU("ETDM2_OUT")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(etdm2_in,
++	DAILINK_COMP_ARRAY(COMP_CPU("ETDM2_IN")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(pcm1,
++	DAILINK_COMP_ARRAY(COMP_CPU("PCM1")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(virtual_dl_src,
++	DAILINK_COMP_ARRAY(COMP_CPU("VIRTUAL_DL_SRC")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(dmic,
++	DAILINK_COMP_ARRAY(COMP_CPU("DMIC")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adda,
++	DAILINK_COMP_ARRAY(COMP_CPU("INT ADDA")),
++#if IS_ENABLED(CONFIG_SND_SOC_MT8519_CODEC)
++	DAILINK_COMP_ARRAY(COMP_EMPTY()),
++#else
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++#endif
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(gasrc0,
++	DAILINK_COMP_ARRAY(COMP_CPU("GASRC0")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(gasrc1,
++	DAILINK_COMP_ARRAY(COMP_CPU("GASRC1")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(gasrc2,
++	DAILINK_COMP_ARRAY(COMP_CPU("GASRC2")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(gasrc2_virtual,
++	DAILINK_COMP_ARRAY(COMP_CPU("GASRC2_VIRTUAL")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(gasrc3,
++	DAILINK_COMP_ARRAY(COMP_CPU("GASRC3")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(spdif_in,
++	DAILINK_COMP_ARRAY(COMP_CPU("SPDIF_IN")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(multi_in,
++	DAILINK_COMP_ARRAY(COMP_CPU("MULTI_IN")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++
++#if IS_ENABLED(CONFIG_MTK_HIFIXDSP_SUPPORT)
++SND_SOC_DAILINK_DEFS(adsp_hostles_va,
++	DAILINK_COMP_ARRAY(COMP_CPU("FE_HOSTLESS_VA")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adsp_va_capture,
++	DAILINK_COMP_ARRAY(COMP_CPU("FE_VA")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adsp_va_playback,
++	DAILINK_COMP_ARRAY(COMP_CPU("FE_PCM_PLAYBACK")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adsp_tdm_in,
++	DAILINK_COMP_ARRAY(COMP_CPU("BE_TDM_IN")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adsp_ul9_in,
++	DAILINK_COMP_ARRAY(COMP_CPU("BE_UL9_IN")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adsp_ul2_in,
++	DAILINK_COMP_ARRAY(COMP_CPU("BE_UL2_IN")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adsp_dl2_out,
++	DAILINK_COMP_ARRAY(COMP_CPU("BE_DL2_OUT")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++SND_SOC_DAILINK_DEFS(adsp_hostless_playback,
++	DAILINK_COMP_ARRAY(COMP_CPU("FE_HOSTLESS_PLAYBACK")),
++	DAILINK_COMP_ARRAY(COMP_DUMMY()),
++	DAILINK_COMP_ARRAY(COMP_EMPTY()));
++#endif
++
++/* Digital audio interface glue - connects codec <---> CPU */
++static struct snd_soc_dai_link mt8519_mendocino_dais[] = {
++	/* Front End DAI links */
++	[DAI_LINK_DLM_PLAYBACK] = {
++		.name = "DLM_FE",
++		.stream_name = "DLM Playback",
++		.id = DAI_LINK_DLM_PLAYBACK,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_playback = 1,
++		SND_SOC_DAILINK_REG(dlm_playback),
++	},
++	[DAI_LINK_DL2_PLAYBACK] = {
++		.name = "DL2_FE",
++		.stream_name = "DL2 Playback",
++		.id = DAI_LINK_DL2_PLAYBACK,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_playback = 1,
++		SND_SOC_DAILINK_REG(dl2_playback),
++	},
++	[DAI_LINK_DL3_PLAYBACK] = {
++		.name = "DL3_FE",
++		.stream_name = "DL3 Playback",
++		.id = DAI_LINK_DL3_PLAYBACK,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_playback = 1,
++		SND_SOC_DAILINK_REG(dl3_playback),
++	},
++	[DAI_LINK_DL6_PLAYBACK] = {
++		.name = "DL6_FE",
++		.stream_name = "DL6 Playback",
++		.id = DAI_LINK_DL6_PLAYBACK,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_playback = 1,
++		SND_SOC_DAILINK_REG(dl6_playback),
++	},
++	[DAI_LINK_UL2_CAPTURE] = {
++		.name = "UL2_FE",
++		.stream_name = "UL2 Capture",
++		.id = DAI_LINK_UL2_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul2_capture),
++	},
++	[DAI_LINK_UL3_CAPTURE] = {
++		.name = "UL3_FE",
++		.stream_name = "UL3 Capture",
++		.id = DAI_LINK_UL3_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul3_capture),
++	},
++	[DAI_LINK_UL4_CAPTURE] = {
++		.name = "UL4_FE",
++		.stream_name = "UL4 Capture",
++		.id = DAI_LINK_UL4_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul4_capture),
++	},
++	[DAI_LINK_UL5_CAPTURE] = {
++		.name = "UL5_FE",
++		.stream_name = "UL5 Capture",
++		.id = DAI_LINK_UL5_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul5_capture),
++	},
++	[DAI_LINK_UL8_CAPTURE] = {
++		.name = "UL8_FE",
++		.stream_name = "UL8 Capture",
++		.id = DAI_LINK_UL8_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul8_capture),
++	},
++	[DAI_LINK_UL9_CAPTURE] = {
++		.name = "UL9_FE",
++		.stream_name = "UL9 Capture",
++		.id = DAI_LINK_UL9_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul9_capture),
++	},
++	[DAI_LINK_UL10_CAPTURE] = {
++		.name = "UL10_FE",
++		.stream_name = "UL10 Capture",
++		.id = DAI_LINK_UL10_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul10_capture),
++	},
++	[DAI_LINK_UL1_CAPTURE] = {
++		.name = "UL1_FE",
++		.stream_name = "UL1 Capture",
++		.id = DAI_LINK_UL1_CAPTURE,
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_PRE,
++			SND_SOC_DPCM_TRIGGER_PRE
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(ul1_capture),
++	},
++#if IS_ENABLED(CONFIG_SND_SOC_MTK_BTCVSD)
++	{
++		.name = "BTCVSD",
++		.stream_name = "BTCVSD",
++		SND_SOC_DAILINK_REG(btcvsd),
++	},
++#endif
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	[DAI_LINK_FE_HOSTLESS_VA] = {
++		.name = "ADSP HOSTLESS_VA",
++		.stream_name = "HOSTLESS_VA",
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		.ignore_suspend = 1,
++		.init = mt8519_adsp_hostless_va_init,
++		.ops = &adsp_hostless_va_ops,
++		SND_SOC_DAILINK_REG(adsp_hostles_va),
++	},
++	[DAI_LINK_FE_VA] = {
++		.name = ADSP_VA_FE,
++		.stream_name = "VA_Capture",
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_capture = 1,
++		.ignore_suspend = 1,
++		.init = mt8519_adsp_hostless_va_init,
++		.ops = &adsp_hostless_va_ops,
++		SND_SOC_DAILINK_REG(adsp_va_capture),
++	},
++	[DAI_LINK_FE_PCM_PLAYBACK] = {
++		.name = "ADSP PCM_PLAYBACK",
++		.stream_name = "ADSP_PCM_PLAYBACK",
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.dynamic = 1,
++		.dpcm_playback = 1,
++		.ignore_suspend = 1,
++		.init = mt8519_adsp_hostless_va_init,
++		.ops = &adsp_hostless_va_ops,
++		SND_SOC_DAILINK_REG(adsp_va_playback),
++	},
++	[DAI_LINK_FE_HOSTLESS_PLAYBACK] = {
++		.name = ADSP_HOSTLESS_PLAYBACK,
++		.stream_name = "ADSP_Hostless_Playback",
++		.trigger = {
++			SND_SOC_DPCM_TRIGGER_POST,
++			SND_SOC_DPCM_TRIGGER_POST
++		},
++		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
++		.dynamic = 1,
++		.dpcm_playback = 1,
++		.ignore_suspend = 1,
++		.init = mt8519_adsp_hostless_va_init,
++		.ops = &adsp_hostless_va_ops,
++		SND_SOC_DAILINK_REG(adsp_hostless_playback),
++	},
++#endif
++	/* Back End DAI links */
++	[DAI_LINK_ETDM1_IN] = {
++		.name = "ETDM1_IN BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_ETDM1_IN,
++		.dai_fmt = SND_SOC_DAIFMT_I2S |
++			   SND_SOC_DAIFMT_NB_NF |
++			   SND_SOC_DAIFMT_CBS_CFS,
++		.ops = &mt8519_mendocino_etdm_ops,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(etdm1_in),
++	},
++	[DAI_LINK_ETDM2_OUT] = {
++		.name = "ETDM2_OUT BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_ETDM2_OUT,
++		.dai_fmt = SND_SOC_DAIFMT_I2S |
++			   SND_SOC_DAIFMT_NB_NF |
++			   SND_SOC_DAIFMT_CBS_CFS,
++		.ops = &mt8519_mendocino_etdm_ops,
++		.dpcm_playback = 1,
++		SND_SOC_DAILINK_REG(etdm2_out),
++	},
++	[DAI_LINK_ETDM2_IN] = {
++		.name = "ETDM2_IN BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_ETDM2_IN,
++		.dai_fmt = SND_SOC_DAIFMT_I2S |
++			   SND_SOC_DAIFMT_NB_NF |
++			   SND_SOC_DAIFMT_CBS_CFS,
++		.ops = &mt8519_mendocino_etdm_ops,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(etdm2_in),
++	},
++	[DAI_LINK_PCM_INTF] = {
++		.name = "PCM1 BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_PCM_INTF,
++		.dai_fmt = SND_SOC_DAIFMT_I2S |
++			   SND_SOC_DAIFMT_NB_NF |
++			   SND_SOC_DAIFMT_CBS_CFS,
++		.dpcm_playback = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(pcm1),
++	},
++	[DAI_LINK_VIRTUAL_DL_SOURCE] = {
++		.name = "VIRTUAL_DL_SRC BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_VIRTUAL_DL_SOURCE,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(virtual_dl_src),
++	},
++	[DAI_LINK_DMIC] = {
++		.name = "DMIC BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_DMIC,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(dmic),
++	},
++	[DAI_LINK_INT_ADDA] = {
++		.name = "MTK Codec",
++		.no_pcm = 1,
++		.id = DAI_LINK_INT_ADDA,
++		.dpcm_playback = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(adda),
++	},
++	[DAI_LINK_GASRC0] = {
++		.name = "GASRC0 BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_GASRC0,
++		.dpcm_playback = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(gasrc0),
++	},
++	[DAI_LINK_GASRC1] = {
++		.name = "GASRC1 BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_GASRC1,
++		.dpcm_playback = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(gasrc1),
++	},
++	[DAI_LINK_GASRC2] = {
++		.name = "GASRC2 BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_GASRC2,
++		.dpcm_playback = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(gasrc2),
++	},
++	[DAI_LINK_VIRTUAL_GASRC2] = {
++		.name = "GASRC2_VIRTUAL BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_VIRTUAL_GASRC2,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(gasrc2_virtual),
++	},
++	[DAI_LINK_GASRC3] = {
++		.name = "GASRC3 BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_GASRC3,
++		.dpcm_playback = 1,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(gasrc3),
++	},
++	[DAI_LINK_SPDIF_IN] = {
++		.name = "SPDIF_IN BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_SPDIF_IN,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(spdif_in),
++	},
++	[DAI_LINK_MULTI_IN] = {
++		.name = "MULTI_IN BE",
++		.no_pcm = 1,
++		.id = DAI_LINK_MULTI_IN,
++		.dai_fmt = SND_SOC_DAIFMT_I2S |
++			   SND_SOC_DAIFMT_NB_NF |
++			   SND_SOC_DAIFMT_CBM_CFM,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(multi_in),
++	},
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	[DAI_LINK_BE_TDM_IN] = {
++		.name = "ADSP_TDM_IN BE",
++		.no_pcm = 1,
++		.dpcm_playback = 0,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(adsp_tdm_in),
++	},
++	[DAI_LINK_BE_UL9] = {
++		.name = "ADSP_UL9_IN BE",
++		.no_pcm = 1,
++		.dpcm_playback = 0,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(adsp_ul9_in),
++	},
++	[DAI_LINK_BE_UL2] = {
++		.name = "ADSP_UL2_IN BE",
++		.no_pcm = 1,
++		.dpcm_playback = 0,
++		.dpcm_capture = 1,
++		SND_SOC_DAILINK_REG(adsp_ul2_in),
++	},
++	[DAI_LINK_BE_DL2] = {
++		.name = "ADSP_DL2_OUT BE",
++		.no_pcm = 1,
++		.dpcm_playback = 1,
++		.dpcm_capture = 0,
++		SND_SOC_DAILINK_REG(adsp_dl2_out),
++	},
++
++#endif
++};
++
++static int mt8519_mendocino_gpio_probe(struct snd_soc_card *card)
++{
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++	int ret = 0;
++	int i;
++
++	priv->pinctrl = devm_pinctrl_get(card->dev);
++	if (IS_ERR(priv->pinctrl)) {
++		ret = PTR_ERR(priv->pinctrl);
++		dev_info(card->dev, "%s devm_pinctrl_get failed %d\n",
++			__func__, ret);
++		return ret;
++	}
++
++	for (i = 0 ; i < PIN_STATE_MAX ; i++) {
++		priv->pin_states[i] = pinctrl_lookup_state(priv->pinctrl,
++			mt8519_mendocino_pin_str[i]);
++		if (IS_ERR(priv->pin_states[i])) {
++			ret = PTR_ERR(priv->pin_states[i]);
++			dev_dbg(card->dev, "%s Can't find pin state %s %d\n",
++				 __func__, mt8519_mendocino_pin_str[i], ret);
++		}
++	}
++
++	if (IS_ERR(priv->pin_states[PIN_STATE_DEFAULT])) {
++		dev_info(card->dev, "%s can't find default pin state\n",
++			__func__);
++		return 0;
++	}
++
++	/* default state */
++	ret = pinctrl_select_state(priv->pinctrl,
++				   priv->pin_states[PIN_STATE_DEFAULT]);
++	if (ret)
++		dev_info(card->dev, "%s failed to select default state %d\n",
++			__func__, ret);
++
++	/* turn off ext spk amp if exist */
++	if (!IS_ERR(priv->pin_states[PIN_STATE_EXT_SPK_AMP_OFF])) {
++		ret = pinctrl_select_state(priv->pinctrl,
++			priv->pin_states[PIN_STATE_EXT_SPK_AMP_OFF]);
++		if (ret)
++			dev_info(card->dev,
++				"%s failed to select ext_spk_amp off: %d\n",
++				__func__, ret);
++		else
++			dev_info(card->dev,
++				"%s select ext_spk_amp off OK\n",
++				__func__);
++	}
++
++	/* turn off ext spk amp if exist */
++	if (!IS_ERR(priv->pin_states[PIN_STATE_EXT_LO_AMP_OFF])) {
++		ret = pinctrl_select_state(priv->pinctrl,
++			priv->pin_states[PIN_STATE_EXT_LO_AMP_OFF]);
++		if (ret)
++			dev_info(card->dev,
++				"%s failed to select lineout amp off: %d\n",
++				__func__, ret);
++		else
++			dev_info(card->dev,
++				"%s select lineout amp off OK\n",
++				__func__);
++	}
++
++	return ret;
++}
++
++static void mt8519_mendocino_parse_of_codec(struct device *dev,
++	struct device_node *np,
++	struct snd_soc_dai_link *dai_link,
++	char *name)
++{
++	char prop[128];
++	int ret;
++	unsigned int i, num_codecs;
++	struct device_node *codec_node;
++
++	snprintf(prop, sizeof(prop), PREFIX"%s-audio-codec-num", name);
++	ret = of_property_read_u32(np, prop, &num_codecs);
++	if (ret)
++		goto single_codec;
++
++	if (num_codecs == 0)
++		return;
++
++	dai_link->codecs = devm_kzalloc(dev,
++		num_codecs * sizeof(struct snd_soc_dai_link_component),
++		GFP_KERNEL);
++
++	dai_link->num_codecs = num_codecs;
++	dai_link->codecs->name = NULL;
++	dai_link->codecs->of_node = NULL;
++	dai_link->codecs->dai_name = NULL;
++
++	for (i = 0; i < num_codecs; i++) {
++		codec_node = NULL;
++
++		// parse codec_of_node
++		snprintf(prop, sizeof(prop),
++			 PREFIX"%s-audio-codec%u",
++			 name, i);
++		codec_node = of_parse_phandle(np, prop, 0);
++		if (codec_node)
++			dai_link->codecs[i].of_node = codec_node;
++		else {
++			// parse codec name
++			snprintf(prop, sizeof(prop),
++				 PREFIX"%s-codec-name%u",
++				 name, i);
++			of_property_read_string(np, prop,
++				&dai_link->codecs[i].name);
++		}
++
++		// parse codec dai name
++		snprintf(prop, sizeof(prop),
++			 PREFIX"%s-codec-dai-name%u",
++			 name, i);
++		of_property_read_string(np, prop,
++			&dai_link->codecs[i].dai_name);
++	}
++
++	return;
++
++single_codec:
++	// parse codec_of_node
++	snprintf(prop, sizeof(prop), PREFIX"%s-audio-codec", name);
++	codec_node = of_parse_phandle(np, prop, 0);
++	if (codec_node) {
++		dai_link->codecs->of_node = codec_node;
++		dai_link->codecs->name = NULL;
++	}
++
++	// parse codec dai name
++	snprintf(prop, sizeof(prop), PREFIX"%s-codec-dai-name", name);
++	of_property_read_string(np, prop, &dai_link->codecs->dai_name);
++}
++
++static void mt8519_mendocino_parse_of(struct snd_soc_card *card,
++				struct device_node *np)
++{
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++	size_t i, j;
++	int ret;
++	char prop[128];
++	const char *str;
++	unsigned int val;
++
++	static const struct mt8519_dai_link_prop of_dai_links_daifmt[] = {
++		{ "dlm",	DAI_LINK_DLM_PLAYBACK },
++		{ "dl2",	DAI_LINK_DL2_PLAYBACK },
++		{ "dl3",	DAI_LINK_DL3_PLAYBACK },
++		{ "dl6",	DAI_LINK_DL6_PLAYBACK },
++		{ "ul2",	DAI_LINK_UL2_CAPTURE },
++		{ "ul3",	DAI_LINK_UL3_CAPTURE },
++		{ "ul4",	DAI_LINK_UL4_CAPTURE },
++		{ "ul5",	DAI_LINK_UL5_CAPTURE },
++		{ "ul8",	DAI_LINK_UL8_CAPTURE },
++		{ "ul9",	DAI_LINK_UL9_CAPTURE },
++		{ "ul10",	DAI_LINK_UL10_CAPTURE },
++		{ "ul1",	DAI_LINK_UL1_CAPTURE },
++		{ "etdm1-in",	DAI_LINK_ETDM1_IN },
++		{ "etdm2-out",	DAI_LINK_ETDM2_OUT },
++		{ "etdm2-in",	DAI_LINK_ETDM2_IN },
++		{ "pcm-intf",	DAI_LINK_PCM_INTF },
++		{ "multi-in",	DAI_LINK_MULTI_IN },
++	};
++
++	static const struct mt8519_dai_link_prop of_dai_links_etdm[] = {
++		{ "etdm1-in",	DAI_LINK_ETDM1_IN },
++		{ "etdm2-out",	DAI_LINK_ETDM2_OUT },
++		{ "etdm2-in",	DAI_LINK_ETDM2_IN },
++	};
++
++	static const struct mt8519_dai_link_prop of_dai_links_dmic[] = {
++		{ "dmic",	DAI_LINK_DMIC },
++	};
++
++#ifdef CONFIG_SND_SOC_MT8519_CODEC
++	static const struct mt8519_dai_link_prop
++		of_dai_links_int_adda[] = {
++		{ "int-adda",	DAI_LINK_INT_ADDA },
++	};
++#endif
++
++	struct {
++		char *name;
++		unsigned int val;
++	} of_fmt_table[] = {
++		{ "i2s",	SND_SOC_DAIFMT_I2S },
++		{ "right_j",	SND_SOC_DAIFMT_RIGHT_J },
++		{ "left_j",	SND_SOC_DAIFMT_LEFT_J },
++		{ "dsp_a",	SND_SOC_DAIFMT_DSP_A },
++		{ "dsp_b",	SND_SOC_DAIFMT_DSP_B },
++		{ "ac97",	SND_SOC_DAIFMT_AC97 },
++		{ "pdm",	SND_SOC_DAIFMT_PDM },
++		{ "msb",	SND_SOC_DAIFMT_MSB },
++		{ "lsb",	SND_SOC_DAIFMT_LSB },
++	};
++
++	snd_soc_of_parse_card_name(card, PREFIX"card-name");
++
++	for (i = 0; i < ARRAY_SIZE(of_dai_links_daifmt); i++) {
++		struct snd_soc_dai_link *dai_link =
++			&mt8519_mendocino_dais[of_dai_links_daifmt[i].link_id];
++		bool lrck_inverse = false;
++		unsigned int bck_inverse = 0;
++
++		/* parse format */
++		snprintf(prop, sizeof(prop), PREFIX"%s-format",
++			 of_dai_links_daifmt[i].name);
++		ret = of_property_read_string(np, prop, &str);
++		if (ret == 0) {
++			unsigned int format = 0;
++
++			for (j = 0; j < ARRAY_SIZE(of_fmt_table); j++) {
++				if (strcmp(str, of_fmt_table[j].name) == 0) {
++					format |= of_fmt_table[j].val;
++					break;
++				}
++			}
++
++			dai_link->dai_fmt &= ~SND_SOC_DAIFMT_FORMAT_MASK;
++			dai_link->dai_fmt |= format;
++		}
++
++		/* parse clock mode */
++		snprintf(prop, sizeof(prop), PREFIX"%s-master-clock",
++			 of_dai_links_daifmt[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0) {
++			dai_link->dai_fmt &= ~SND_SOC_DAIFMT_MASTER_MASK;
++			if (val)
++				dai_link->dai_fmt |= SND_SOC_DAIFMT_CBS_CFS;
++			else
++				dai_link->dai_fmt |= SND_SOC_DAIFMT_CBM_CFM;
++		}
++
++		/* parse lrck inverse */
++		snprintf(prop, sizeof(prop), PREFIX"%s-lrck-inverse",
++			 of_dai_links_daifmt[i].name);
++		lrck_inverse = of_property_read_bool(np, prop);
++
++		/* parse bck inverse */
++		snprintf(prop, sizeof(prop), PREFIX"%s-bck-inverse",
++			 of_dai_links_daifmt[i].name);
++		of_property_read_u32(np, prop, &bck_inverse);
++
++		dai_link->dai_fmt &= ~SND_SOC_DAIFMT_INV_MASK;
++
++		if (lrck_inverse && bck_inverse)
++			dai_link->dai_fmt |= SND_SOC_DAIFMT_IB_IF;
++		else if (lrck_inverse && !bck_inverse)
++			dai_link->dai_fmt |= SND_SOC_DAIFMT_NB_IF;
++		else if (!lrck_inverse && bck_inverse)
++			dai_link->dai_fmt |= SND_SOC_DAIFMT_IB_NF;
++		else
++			dai_link->dai_fmt |= SND_SOC_DAIFMT_NB_NF;
++	}
++
++	for (i = 0; i < ARRAY_SIZE(of_dai_links_etdm); i++) {
++		unsigned int link_id = of_dai_links_etdm[i].link_id;
++		struct snd_soc_dai_link *dai_link = &mt8519_mendocino_dais[link_id];
++		struct mt8519_mendocino_etdm_ctrl_data *etdm;
++
++		/* parse mclk multiplier */
++		snprintf(prop, sizeof(prop), PREFIX"%s-mclk-multiplier",
++			 of_dai_links_etdm[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0) {
++			switch (link_id) {
++			case DAI_LINK_ETDM1_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM1];
++				etdm->mck_multp_in = val;
++				break;
++			case DAI_LINK_ETDM2_OUT:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->mck_multp_out = val;
++				break;
++			case DAI_LINK_ETDM2_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->mck_multp_in = val;
++				break;
++			default:
++				break;
++			}
++		}
++
++		/* parse tlv320 clocksource */
++		snprintf(prop, sizeof(prop), PREFIX"%s-tlv320-clkmux",
++			 of_dai_links_etdm[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0) {
++			switch (link_id) {
++			case DAI_LINK_ETDM1_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM1];
++				etdm->tlv320_clock_mux = val;
++				break;
++			default:
++				break;
++			}
++		}
++
++		/* parse lrck width */
++		snprintf(prop, sizeof(prop), PREFIX"%s-lrck-width",
++			 of_dai_links_etdm[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0) {
++			switch (link_id) {
++			case DAI_LINK_ETDM1_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM1];
++				etdm->lrck_width_in = val;
++				break;
++			case DAI_LINK_ETDM2_OUT:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->lrck_width_out = val;
++				break;
++			case DAI_LINK_ETDM2_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->lrck_width_in = val;
++				break;
++			default:
++				break;
++			}
++		}
++
++		/* parse fix rate */
++		snprintf(prop, sizeof(prop), PREFIX"%s-fix-rate",
++			 of_dai_links_etdm[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0 && mt8519_afe_rate_supported(val,
++		    link_to_dai(link_id))) {
++			switch (link_id) {
++			case DAI_LINK_ETDM1_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM1];
++				etdm->fix_rate_in = val;
++				break;
++			case DAI_LINK_ETDM2_OUT:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->fix_rate_out = val;
++				break;
++			case DAI_LINK_ETDM2_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->fix_rate_in = val;
++				break;
++			default:
++				break;
++			}
++
++			dai_link->be_hw_params_fixup =
++				mt8519_mendocino_be_hw_params_fixup;
++		}
++
++		/* parse fix bit width */
++		snprintf(prop, sizeof(prop), PREFIX"%s-fix-bit-width",
++			 of_dai_links_etdm[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0 && (val == 32 || val == 16)) {
++			switch (link_id) {
++			case DAI_LINK_ETDM1_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM1];
++				etdm->fix_bit_width_in = val;
++				break;
++			case DAI_LINK_ETDM2_OUT:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->fix_bit_width_out = val;
++				break;
++			case DAI_LINK_ETDM2_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->fix_bit_width_in = val;
++				break;
++			default:
++				break;
++			}
++
++			dai_link->be_hw_params_fixup =
++				mt8519_mendocino_be_hw_params_fixup;
++		}
++
++		/* parse fix channels */
++		snprintf(prop, sizeof(prop), PREFIX"%s-fix-channels",
++			 of_dai_links_etdm[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0 && mt8519_afe_channel_supported(val,
++		    link_to_dai(link_id))) {
++			switch (link_id) {
++			case DAI_LINK_ETDM1_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM1];
++				etdm->fix_channels_in = val;
++				break;
++			case DAI_LINK_ETDM2_OUT:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->fix_channels_out = val;
++				break;
++			case DAI_LINK_ETDM2_IN:
++				etdm = &priv->etdm_data[MT8519_ETDM2];
++				etdm->fix_channels_in = val;
++				break;
++			default:
++				break;
++			}
++
++			dai_link->be_hw_params_fixup =
++				mt8519_mendocino_be_hw_params_fixup;
++		}
++
++		mt8519_mendocino_parse_of_codec(card->dev, np, dai_link,
++			of_dai_links_etdm[i].name);
++
++		/* parse ignore pmdown time */
++		snprintf(prop, sizeof(prop), PREFIX"%s-ignore-pmdown-time",
++			 of_dai_links_etdm[i].name);
++		if (of_property_read_bool(np, prop))
++			dai_link->ignore_pmdown_time = 1;
++
++		/* parse ignore suspend */
++		snprintf(prop, sizeof(prop), PREFIX"%s-ignore-suspend",
++			 of_dai_links_etdm[i].name);
++		if (of_property_read_bool(np, prop))
++			dai_link->ignore_suspend = 1;
++	}
++
++	for (i = 0; i < ARRAY_SIZE(of_dai_links_dmic); i++) {
++		unsigned int link_id = of_dai_links_dmic[i].link_id;
++		struct snd_soc_dai_link *dai_link = &mt8519_mendocino_dais[link_id];
++		struct mt8519_mendocino_dmic_ctrl_data *dmic;
++
++		/* parse fix rate */
++		snprintf(prop, sizeof(prop), PREFIX"%s-fix-rate",
++			 of_dai_links_dmic[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0 && mt8519_afe_rate_supported(val,
++		    link_to_dai(link_id))) {
++			switch (link_id) {
++			case DAI_LINK_DMIC:
++				dmic = &priv->dmic_data;
++				dmic->fix_rate = val;
++				break;
++			default:
++				break;
++			}
++
++			dai_link->be_hw_params_fixup =
++				mt8519_mendocino_be_hw_params_fixup;
++		}
++
++		/* parse fix bit width */
++		snprintf(prop, sizeof(prop), PREFIX"%s-fix-bit-width",
++			 of_dai_links_dmic[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0 && (val == 32 || val == 16)) {
++			switch (link_id) {
++			case DAI_LINK_DMIC:
++				dmic = &priv->dmic_data;
++				dmic->fix_bit_width = val;
++				break;
++			default:
++				break;
++			}
++
++			dai_link->be_hw_params_fixup =
++				mt8519_mendocino_be_hw_params_fixup;
++		}
++
++		/* parse fix channels */
++		snprintf(prop, sizeof(prop), PREFIX"%s-fix-channels",
++			 of_dai_links_dmic[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0 && mt8519_afe_channel_supported(val,
++		    link_to_dai(link_id))) {
++			switch (link_id) {
++			case DAI_LINK_DMIC:
++				dmic = &priv->dmic_data;
++				dmic->fix_channels = val;
++				break;
++			default:
++				break;
++			}
++
++			dai_link->be_hw_params_fixup =
++				mt8519_mendocino_be_hw_params_fixup;
++		}
++	}
++
++	/* parse fix bit width */
++	snprintf(prop, sizeof(prop), PREFIX"%s-fix-bit-width", "multi-in");
++	ret = of_property_read_u32(np, prop, &val);
++	if (ret == 0 && (val == 32 || val == 16)) {
++		priv->multi_in_data.fix_bit_width = val;
++		mt8519_mendocino_dais[DAI_LINK_MULTI_IN].be_hw_params_fixup =
++			mt8519_mendocino_be_hw_params_fixup;
++	}
++
++#ifdef CONFIG_SND_SOC_MT8519_CODEC
++	for (i = 0; i < ARRAY_SIZE(of_dai_links_int_adda); i++) {
++		unsigned int link_id = of_dai_links_int_adda[i].link_id;
++		struct snd_soc_dai_link *dai_link = &mt8519_mendocino_dais[link_id];
++		struct mt8519_mendocino_int_adda_ctrl_data *int_adda;
++
++		/* parse fix rate */
++		snprintf(prop, sizeof(prop), PREFIX"%s-fix-rate",
++			 of_dai_links_int_adda[i].name);
++		ret = of_property_read_u32(np, prop, &val);
++		if (ret == 0 && mt8519_afe_rate_supported(val,
++		    link_to_dai(link_id))) {
++			switch (link_id) {
++			case DAI_LINK_INT_ADDA:
++				int_adda = &priv->int_adda_data;
++				int_adda->fix_rate = val;
++				break;
++			default:
++				break;
++			}
++
++			dai_link->be_hw_params_fixup =
++				mt8519_mendocino_be_hw_params_fixup;
++		}
++
++		mt8519_mendocino_parse_of_codec(card->dev, np, dai_link,
++			of_dai_links_int_adda[i].name);
++	}
++#endif
++
++}
++
++static struct snd_soc_card mt8519_mendocino_card = {
++	.name = "mt-snd-card",
++	.owner = THIS_MODULE,
++	.dai_link = mt8519_mendocino_dais,
++	.num_links = ARRAY_SIZE(mt8519_mendocino_dais),
++	.controls = mt8519_mendocino_controls,
++	.num_controls = ARRAY_SIZE(mt8519_mendocino_controls),
++	.dapm_widgets = mt8519_mendocino_widgets,
++	.num_dapm_widgets = ARRAY_SIZE(mt8519_mendocino_widgets),
++	.dapm_routes = mt8519_mendocino_routes,
++	.num_dapm_routes = ARRAY_SIZE(mt8519_mendocino_routes),
++};
++
++static void mt8519_mendocino_cleanup_of_resource(struct snd_soc_card *card)
++{
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++	struct snd_soc_dai_link *dai_link;
++	int i, j;
++
++	of_node_put(priv->mendocino_platform_node);
++	priv->mendocino_platform_node = NULL;
++
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	of_node_put(priv->mendocino_adsp_platform_node);
++	priv->mendocino_adsp_platform_node = NULL;
++#endif
++
++	for (i = 0, dai_link = card->dai_link; i < card->num_links; i++, dai_link++) {
++		if (dai_link->num_codecs > 1) {
++			struct snd_soc_dai_link_component *codec;
++
++			for (j = 0, codec = dai_link->codecs;
++				j < dai_link->num_codecs; j++, codec++) {
++				if (codec) {
++					of_node_put(codec->of_node);
++					codec->of_node = NULL;
++				}
++			}
++		} else if (dai_link->num_codecs == 1) {
++			of_node_put(dai_link->codecs->of_node);
++			dai_link->codecs->of_node = NULL;
++		}
++	}
++}
++
++/***********************************************************************
++ * mendocino_woofer_irq_work
++ * Send uevent when interrupt for fault is received
++ * *********************************************************************/
++static void mendocino_woofer_irq_work(struct work_struct *work)
++{
++	struct snd_soc_card *card = &mt8519_mendocino_card;
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++	char *envp[] = { "EVENT=DAC_FAULT_IRQ", NULL };
++
++	if (!priv->woofer_irq_enabled) {
++		dev_err(card->dev, "%s: woofer_irq not enabled!\n", __func__);
++		return;
++	}
++
++	dev_info(card->dev, "%s: sending uevent\n", __func__);
++	kobject_uevent_env(&priv->card->dev->kobj, KOBJ_CHANGE, envp);
++
++	enable_irq(priv->woofer_irq);
++}
++
++/***********************************************************************
++ * mendocino_woofer_irq_callback
++ * Interrupt callback for Woofer Amplifier FAULT and OTW
++ * *********************************************************************/
++static irqreturn_t mendocino_woofer_irq_callback(int irq, void *dev)
++{
++	struct snd_soc_card *card = &mt8519_mendocino_card;
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++
++	dev_info(dev, "%s: irq: %d\n", __func__, irq);
++
++	if (!priv->woofer_irq_enabled || IS_ERR(priv->woofer_irq_gpiopin)) {
++		pr_err("%s: enabled=%d. woofer_irq_gpio=%d  Cannot proceed!\n",
++		       __func__, priv->woofer_irq_enabled,
++			desc_to_gpio(priv->woofer_irq_gpiopin));
++		return IRQ_HANDLED;
++	}
++
++	disable_irq_nosync(priv->woofer_irq);
++
++	queue_work(priv->woofer_wq, &priv->woofer_work);
++
++	return IRQ_HANDLED;
++}
++
++static int mendocino_irq_probe(struct snd_soc_card *card)
++{
++	struct mt8519_mendocino_priv *priv = snd_soc_card_get_drvdata(card);
++	struct gpio_desc *woofer_irq_gpiopin;
++	int woofer_irq_debounce;
++	int ret = 0;
++
++	dev_info(card->dev, "%s\n", __func__);
++
++	/* Setup Woofer irq if gpio is provided */
++	woofer_irq_gpiopin = devm_gpiod_get(card->dev, "woofer_irq", GPIOD_IN);
++	priv->woofer_irq_gpiopin = woofer_irq_gpiopin;
++	if (IS_ERR(woofer_irq_gpiopin)) {
++		ret = PTR_ERR(woofer_irq_gpiopin);
++		dev_err(card->dev, "%s: gpio_request failed. Error=%d\n",
++			__func__, ret);
++		return ret;
++	}
++
++	ret = device_property_read_u32(card->dev, "woofer-irq-debounce",
++				       &woofer_irq_debounce);
++	if (ret) {
++		dev_err(card->dev, "%s: debounce DT property missing\n", __func__);
++		woofer_irq_debounce = 512000;
++	}
++
++	gpiod_direction_input(woofer_irq_gpiopin);
++	gpiod_set_debounce(woofer_irq_gpiopin, woofer_irq_debounce);
++
++	priv->woofer_irq = gpiod_to_irq(woofer_irq_gpiopin);
++
++	ret = request_irq(priv->woofer_irq, mendocino_woofer_irq_callback,
++			  IRQF_TRIGGER_FALLING, "wooferirq-eint", card);
++	if (ret) {
++		dev_err(card->dev, "%s: woofer_irq request_irq failed. Error=%d\n",
++			__func__, ret);
++		return ret;
++	}
++
++	priv->woofer_wq = alloc_workqueue("mendocino_woofer_irq_wq",
++					       WQ_MEM_RECLAIM, 0);
++	if (!priv->woofer_wq) {
++		dev_err(card->dev, "%s:Couldn't allocate Woofer WQ\n", __func__);
++		return -ENOMEM;
++	}
++
++	INIT_WORK(&priv->woofer_work, mendocino_woofer_irq_work);
++
++	dev_info(card->dev, "%s: woofer_irq gpio=%d irq=%d, deb=%d\n",
++		 __func__, desc_to_gpio(woofer_irq_gpiopin), priv->woofer_irq,
++		 woofer_irq_debounce);
++
++	return ret;
++}
++
++static int mt8519_mendocino_dev_probe(struct platform_device *pdev)
++{
++	struct snd_soc_card *card = &mt8519_mendocino_card;
++	struct device *dev = &pdev->dev;
++	struct device_node *np = dev->of_node;
++	struct device_node *platform_node;
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	struct device_node *adsp_platform_node;
++#endif
++	struct mt8519_mendocino_priv *priv;
++	struct thermal_zone_device *tzd;
++	int ret, id;
++	size_t i;
++	size_t dais_num = ARRAY_SIZE(mt8519_mendocino_dais);
++
++	platform_node = of_parse_phandle(dev->of_node, "mediatek,platform", 0);
++	if (!platform_node) {
++		dev_info(dev, "Property 'platform' missing or invalid\n");
++		return -EINVAL;
++	}
++
++	for (i = 0; i < dais_num; i++) {
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++		if (is_adsp_dai_link(i))
++			continue;
++#endif
++		if (mt8519_mendocino_dais[i].platforms->name)
++			continue;
++
++		id = mt8519_mendocino_dais[i].id;
++
++		if ((id >= DAI_LINK_AFE_FE_BASE &&
++		     id <= DAI_LINK_AFE_FE_END) ||
++		    (id >= DAI_LINK_AFE_BE_BASE &&
++		     id <= DAI_LINK_AFE_BE_END)) {
++			mt8519_mendocino_dais[i].platforms->of_node = platform_node;
++		}
++	}
++
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	adsp_platform_node = of_parse_phandle(dev->of_node,
++					 "mediatek,adsp-platform", 0);
++	if (!adsp_platform_node) {
++		dev_info(dev, "Property 'adsp-platform' missing or invalid\n");
++		ret = -EINVAL;
++		goto err_adsp_platform_node;
++	}
++
++	for (i = 0; i < ARRAY_SIZE(adsp_dai_links); i++) {
++		unsigned int dai = adsp_dai_links[i];
++
++		if (mt8519_mendocino_dais[dai].platforms->name)
++			continue;
++		mt8519_mendocino_dais[dai].platforms->of_node = adsp_platform_node;
++	}
++#endif
++
++	card->dev = dev;
++
++	priv = devm_kzalloc(dev, sizeof(struct mt8519_mendocino_priv),
++			    GFP_KERNEL);
++	if (!priv) {
++		ret = -ENOMEM;
++		dev_info(dev, "%s allocate card private data fail %d\n",
++			__func__, ret);
++		goto err_priv;
++	}
++
++	priv->mendocino_platform_node = platform_node;
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	priv->mendocino_adsp_platform_node = adsp_platform_node;
++#endif
++
++	snd_soc_card_set_drvdata(card, priv);
++	priv->card = card;
++
++	mt8519_mendocino_gpio_probe(card);
++
++	mt8519_mendocino_parse_of(card, np);
++
++	ret = devm_snd_soc_register_card(dev, card);
++	if (ret) {
++		dev_info(dev, "%s snd_soc_register_card fail %d\n",
++			__func__, ret);
++		goto err_priv;
++	} else {
++		mutex_init(&priv->amp_lock);
++		priv->amp_playing = false;
++		priv->force_i2s_enable = 0;
++	}
++
++	/* init amp irq, and continue if error */
++	if (mendocino_irq_probe(card))
++		dev_info(&pdev->dev, "init amp irq error\n");
++
++	priv->rms = 0;
++	mutex_init(&priv->rms_lock);
++	if (of_find_property(np, "#thermal-sensor-cells", NULL)) {
++		tzd = devm_thermal_of_zone_register(dev, 0, priv, &mendocino_rms_tz_ops);
++		if (IS_ERR(tzd))
++		{
++			ret = PTR_ERR(tzd);
++			dev_err(dev,
++				"%s: Failed to register the thermal sensor %d \n", __func__, ret);
++		}
++	}
++
++	/* probe ok, of_node_put in .remove func */
++	return ret;
++
++err_priv:
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++	of_node_put(priv->mendocino_adsp_platform_node);
++	priv->mendocino_adsp_platform_node = NULL;
++err_adsp_platform_node:
++#endif
++	of_node_put(priv->mendocino_platform_node);
++	priv->mendocino_platform_node = NULL;
++
++	return ret;
++}
++
++static void mt8519_mendocino_dev_remove(struct platform_device *pdev)
++{
++	struct snd_soc_card *card = platform_get_drvdata(pdev);
++
++	mt8519_mendocino_cleanup_of_resource(card);
++}
++
++static const struct of_device_id mt8519_mendocino_dt_match[] = {
++	{ .compatible = "mediatek,mt8519-mendocino", },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, mt8519_mendocino_dt_match);
++
++static struct platform_driver mt8519_mendocino_driver = {
++	.driver = {
++		   .name = "mt8519-mendocino",
++		   .of_match_table = mt8519_mendocino_dt_match,
++#ifdef CONFIG_PM
++		   .pm = &snd_soc_pm_ops,
++#endif
++	},
++	.probe = mt8519_mendocino_dev_probe,
++	.remove = mt8519_mendocino_dev_remove,
++};
++
++module_platform_driver(mt8519_mendocino_driver);
++
++/* Module information */
++MODULE_DESCRIPTION("MT8519 mendocino machine driver");
++MODULE_AUTHOR("Jia Zeng <jia.zeng@mediatek.com>");
++MODULE_LICENSE("GPL v2");
++MODULE_ALIAS("platform:mt8519-mendocino");
++
+diff --git a/sound/soc/mediatek/mt8519/mt8519-afe-common.h b/sound/soc/mediatek/mt8519/mt8519-afe-common.h
+index dfd73a8c3..a5ac43625 100755
+--- a/sound/soc/mediatek/mt8519/mt8519-afe-common.h
++++ b/sound/soc/mediatek/mt8519/mt8519-afe-common.h
+@@ -479,8 +479,6 @@ struct mt8519_afe_private {
+ bool mt8519_afe_rate_supported(unsigned int rate, unsigned int id);
+ bool mt8519_afe_channel_supported(unsigned int channel, unsigned int id);
+ 
+-#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
+ struct mtk_base_afe *mt8519_afe_pcm_get_info(void);
+-#endif
+ 
+ #endif
+diff --git a/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c b/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
+index cf186f3a5..6feb9e993 100755
+--- a/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
++++ b/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
+@@ -202,9 +202,9 @@ static const struct snd_pcm_hardware mt8519_afe_hardware = {
+ 	.fifo_size = 0,
+ };
+ 
+-#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++/* The single AFE instance, for the machine driver's amp power event
++ * (mt8519_afe_pcm_get_info); set at probe. */
+ struct mtk_base_afe *g_priv;
+-#endif
+ 
+ struct mt8519_afe_rate {
+ 	unsigned int rate;
+@@ -6682,13 +6682,14 @@ static int mt8519_afe_gasrc_sink_mux_put(struct snd_kcontrol *kcontrol,
+ 	return 0;
+ }
+ 
+-#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
+ struct mtk_base_afe *mt8519_afe_pcm_get_info(void)
+ {
+ 	return g_priv;
+ }
+ EXPORT_SYMBOL_GPL(mt8519_afe_pcm_get_info);
+ 
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++
+ static int mt8519_adsp_afe_memif_set(struct mtk_base_afe *afe,
+ 				       int memif_id,
+ 				       unsigned int rate,
+@@ -9666,9 +9667,7 @@ static int mt8519_afe_pcm_dev_probe(struct platform_device *pdev)
+ 	afe->copy = mt8519_afe_pcm_copy;
+ 
+ 	platform_set_drvdata(pdev, afe);
+-#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
+ 	g_priv = afe;
+-#endif
+ 	pm_runtime_enable(&pdev->dev);
+ 	if (!pm_runtime_enabled(&pdev->dev)) {
+ 		dev_info(afe->dev, "%s pm_runtime not enabled\n", __func__);
