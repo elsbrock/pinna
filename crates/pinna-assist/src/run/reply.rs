@@ -128,13 +128,17 @@ pub(crate) async fn reply(
     let limits = &request.behaviour.limits;
     let tool_loop = request.behaviour.delegation == Delegation::ToolLoop;
     let specs = if tool_loop {
-        request
-            .tools
-            .specs()
-            .await
-            .into_iter()
-            .take(MAX_TOOLS)
-            .collect::<Vec<_>>()
+        let mut specs = request.tools.specs().await;
+        if let Some(first) = specs.get(MAX_TOOLS) {
+            tracing::warn!(
+                "{} tools are on, more than the {MAX_TOOLS} the brain takes: {} and the {} after it are left out. Switch some off under Assistant, Tools.",
+                specs.len(),
+                first.name,
+                specs.len() - MAX_TOOLS - 1
+            );
+            specs.truncate(MAX_TOOLS);
+        }
+        specs
     } else {
         Vec::new()
     };
