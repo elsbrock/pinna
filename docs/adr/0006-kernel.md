@@ -34,19 +34,22 @@ Status: accepted (2026-11-15). Supersedes the kernel part of ADR 0001.
   tree as the DTB in LibreEcho's known-good `boot_a`.
 - **The microphone FPGA bitstream is built in** (31 KB) with
   `CONFIG_EXTRA_FIRMWARE`: the SPI microphone driver loads it at probe, before
-  the root is mounted, so the device kernel cannot be built without it, and
-  LibreEcho's repositories are its only public source. Like the Wi-Fi/BT
+  the root is mounted, so the device kernel cannot be built without it. It
+  is built into the stock kernel of Amazon's Fire OS updates for the Echo
+  Dot (2nd gen) (ADR 0001). Like the Wi-Fi/BT
   firmware, it isn't committed: `just firmware` fetches it into
   `blobs/firmware/` (ADR 0001, amended 2026-11-20).
 - **Config from allnoconfig + fragments.** `common.config` holds what every
   variant needs: the systemd requirements (README, v257), erofs/ext4/overlay,
   dm-verity, networking. `device.config`, `qemu.config` and `x86.config` add
-  the hardware; `debug.config` (`DEBUG=1`, `just kernel-debug`) adds ftrace,
+  the hardware, and since ADR 0031 `mt8516.config` and `qemu-arm64.config`
+  the arm64 variants; `debug.config` (`DEBUG=1`, `just kernel-debug`) adds ftrace,
   debugfs, perf, sysrq and core dumps for dev images. Nothing else is enabled,
   and `kernel/build.sh` fails if a listed symbol does not land. The QEMU
   variants share the base, so the VM boot gates check that systemd comes up
   untainted on exactly this set.
-- **Size:** no modules, XZ, `-Os`, `EXPERT` trimming, no tracing or debugfs in
+- **Size:** no modules, XZ (the arm and x86 fragments set it; arm64 has no
+  self-decompressing kernel, and LK takes the MT8516's as `Image.gz`), `-Os`, `EXPERT` trimming, no tracing or debugfs in
   release kernels, only the drivers the Dot uses (Bluetooth keeps RFCOMM, not
   BNEP/HIDP; no USB host class drivers, ALSA sequencer or USB audio). Kept for
   robustness: `KALLSYMS` (readable oopses), pstore/ramoops (console and oops

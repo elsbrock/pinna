@@ -100,8 +100,9 @@ and put the RT5738 at `0x57`.
     finds `misc`, `system_a` and `system_b`, the updater writes `boot_a`
     and `boot_b`, and `/var` is `userdata`.
   - The boot image is Android v0 (`tools/linux/mkimage.py:107-113`). The
-    stock ramdisk address leaves too little room below pstore at
-    `0x44400000`; TECHO5 moves it to `0x43478000`
+    stock ramdisk address leaves too little room below the crash log
+    areas from `0x44400000` (`ram_console`, then pstore at `0x44410000`);
+    TECHO5 moves it to `0x43478000`
     (`tools/dotimage.py:82-84`), the address Pinna's boot image already uses.
   - What Kaeru's fastboot allows on this model isn't recorded. Failed
     unlocks report "the command you input is restricted on locked hw", and
@@ -130,9 +131,15 @@ and put the RT5738 at `0x57`.
   - Entry at `0x40080000`; the image and its BSS end below BL31 at
     `0x43000000`.
   - A ramdisk is required.
-  - Pinna's `pinna-bootimg` writes `bootopt=64S3,32N2,32N2` and a zImage
-    with one device tree (`crates/pinna-bootimg/src/lib.rs:17-30`), so it
-    needs a second layout.
+  - Pinna's `pinna-bootimg` wrote only `bootopt=64S3,32N2,32N2` and a
+    zImage with one device tree, so it needed a second layout (now
+    `pinna_bootimg::arm64`).
+  - Amazon's own boot image for the Echo Dot (3rd gen), in its Fire OS
+    6574.1 update, has this layout: kernel at `0x40080000`, tags at
+    `0x4E000000`, `bootopt=64S3,32N2,64N2`, and five appended device trees,
+    `amzn,donut-proto`, `-evt`, `-dvt`, `-hvt` and `-pvt`, so LK picks
+    the tree by board revision. A 4 KiB verified-boot signature follows
+    the image.
 
 ### The userland can stay 32-bit
 
@@ -204,7 +211,7 @@ ADC input to the external codecs (`mt8516-afe-pcm.c:350-351`).
 | `tlv320adc3xxx`: TDM slots, BCLK, shared reset | +193 −37 | Easy |
 | `tlv320aic32x4`: biquads, mono mix | +220 −74 | Rework: built on the v7.3 refactor; Pinna's patch 0014 changes the same file |
 | `btmtksdio`: MT7668 LE command bits | +32 | Applies |
-| MT7668 Wi-Fi (`lidar-wifi/`), from Amazon's `mt76x8` driver, GPL-2.0 OR BSD-3-Clause | 175 files, 216,319 lines | Hard: uses v6.16 and v6.17 APIs without version guards |
+| MT7668 Wi-Fi (`lidar-wifi/`), from Amazon's `mt76x8` driver, GPL-2.0 OR BSD-3-Clause | 175 files, 216,319 lines | Hard: written for 7.3 without version guards; it uses cfg80211 and timer APIs that changed in 6.14, 6.16, 6.17, 7.1 and 7.3 |
 | Board device tree, audio include, 5 bindings | ~750 lines, new | New files |
 
 The Wi-Fi port is the same kind of work as Pinna's MT8163 CONSYS driver
@@ -220,10 +227,11 @@ its system image: `WIFI_RAM_CODE_MT7668.bin`,
 `WIFI_RAM_CODE2_SDIO_MT7668.bin`, `TxPwrLimit_MT76x8.dat`, `wifi.cfg`,
 `EEPROM_MT7668.bin` and `mt7668_patch_e2_hdr.bin`. The system image is the
 same on every unit, so the files are too. As ADR 0001 decides for the
-MT8163's, they are fetched from `https://static.iodev.org/pinna/firmware/donut/`
+MT8163's, they are fetched from `https://static.iodev.org/pinna/firmware/donut/fireos-6574.1-8138/`
 and not committed. Amazon's ROM patch is a different build from
 linux-firmware's, and lidar-mainline found it crashes the Bluetooth firmware
-under `btmtksdio`; it is kept for reference only.
+under `btmtksdio`. It stays on `static.iodev.org` for reference but isn't
+fetched, because the Wi-Fi driver would load it under its name.
 
 ### What each board needs beyond that
 
@@ -305,14 +313,17 @@ Amazon's releases for them don't describe the hardware.
    - The MT7668 Wi-Fi driver is built in, like CONSYS. It keeps
      lidar-mainline's 7.3 signatures; version guards adapt them to 6.12.
      Built in, it probes before the root that holds its firmware is
-     mounted, so it is bound again once the root is up.
+     mounted, so it is to be bound again once the root is up; that isn't
+     built yet.
    - Moving the MT8516 to a newer kernel than the MT8163 is the fallback if
      the backport costs more than it saves; that would need its own ADR.
 4. **Which device first: the Echo Dot (3rd gen) D9N29T, when one is at
    hand.** It is the common one, it has a speaker, and every part it needs is
-   in 6.12 or in lidar-mainline except its machine driver, its device tree
-   and the Wi-Fi backport. Amazon's `donut.c` and `donut.dtsi` show the
-   first two. The Echo Plus (2nd gen) is the reference: if one is at hand
+   in 6.12 or in lidar-mainline except its machine driver, its device
+   tree, the Wi-Fi backport and the microphone switch driver
+   (lidar-mainline reads its latch through `gpio-keys`). Amazon's `donut.c`
+   and `donut.dtsi` show the first two, and its `gpio_privacy.c` is the
+   switch driver's source. The Echo Plus (2nd gen) is the reference: if one is at hand
    first, it goes first, because lidar-mainline already runs on it.
 5. **The Echo Input comes after the Dot (3rd gen).** It needs one more
    driver: the MT8167 internal codec, ported from Amazon's tree. The same
@@ -343,8 +354,8 @@ Amazon's releases for them don't describe the hardware.
 - **Stay open:** Amazon's Wi-Fi firmware and speaker tuning are not
   committed. The firmware is fetched from `static.iodev.org`, as the
   MT8163's is (ADR 0001).
-- **Make development pleasant:** one root image and one toolchain for every
-  satellite. The virtual Echo Dot and its tests keep covering the userland
+- **Make development pleasant:** one root image and one Rust toolchain for
+  every satellite; the kernel build adds an aarch64 cross compiler. The virtual Echo Dot and its tests keep covering the userland
   all boards share.
 
 ## Consequences
@@ -358,9 +369,12 @@ Amazon's releases for them don't describe the hardware.
   write it.
 - `pinna-hal` and `pinna-audio` take each board's facts from its
   description (ADR 0032):
-  - LED drivers for the IS31FL3236 on another bus address and for the
-    LP5562;
-  - the `gpio-privacy` switch;
+  - an LED driver for the Echo Input's LP5562. The Dot's IS31FL3236 has
+    the address, channel offset and frame interface of the Echo Dot (2nd
+    gen)'s (patch 0011), so the existing driver serves it;
+  - the `gpio-privacy` switch, whose files are named `state` and `enable`
+    where `amz_privacy` has `privacy_state`, `privacy_trigger` and
+    `mute_lamp`;
   - a capture with four S32 lanes and the reference on a second PCM;
   - a beamformer for four microphones whose layout is to be measured;
   - the TAS2770 mixer sequences.

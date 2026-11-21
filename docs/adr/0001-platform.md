@@ -60,10 +60,14 @@ Device facts that constrain the design:
 - Wi-Fi/BT firmware and the microphone FPGA bitstream (ADR 0006) are
   fetched, not committed: `just firmware` downloads them from
   `https://static.iodev.org/pinna/firmware/` into `blobs/firmware/` and checks
-  their sha256, and the kernel and image builds take them from there. Their
-  only public sources are the device's stock firmware and LibreEcho's
-  repositories, so an owner without them would have no Wi-Fi or no
-  microphones. They are Amazon's files and carry no license, so they stay out
+  their sha256, and the kernel and image builds take them from there. Each
+  board's files sit in a folder named for the Fire OS release they were
+  checked against: the MT8163's are byte-identical to `/vendor/firmware`
+  and the stock kernel of Fire OS 6.5.7.5 (NS6575/8344), which Amazon
+  publishes as an update for the Echo Dot (2nd gen) (`scripts/fetch-firmware.sh`
+  names the file). An owner without them would have no Wi-Fi or no
+  microphones.
+  Amended 2026-11-21: the release folders, and where the files come from. They are Amazon's files and carry no license, so they stay out
   of the repository: a claim against them concerns one download, not the
   source tree.
   Amended 2026-11-20; from 2026-11-15 they were committed (`firmware/`,
