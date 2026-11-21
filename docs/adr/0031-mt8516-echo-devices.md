@@ -2,7 +2,8 @@
 
 Status: proposed (2026-11-21), accepted (2026-11-21). Built in part
 (2026-11-21): the MT8516 kernel with the Echo Dot (3rd gen) board and
-MT7668 Wi-Fi, LK's 64-bit boot image layout, and a check under QEMU that
+MT7668 Wi-Fi, LK's 64-bit boot image layout, the Wi-Fi firmware in the
+root image, and a check under QEMU that
 the armhf root runs on an arm64 kernel. Nothing has run on an MT8516
 device. Amends ADR 0001 (one architecture, armhf) and ADR 0006 (one board
 family in the kernel). The evidence below comes from TECHO5,
@@ -228,7 +229,12 @@ its system image: `WIFI_RAM_CODE_MT7668.bin`,
 `EEPROM_MT7668.bin` and `mt7668_patch_e2_hdr.bin`. The system image is the
 same on every unit, so the files are too. As ADR 0001 decides for the
 MT8163's, they are fetched from `https://static.iodev.org/pinna/firmware/donut/fireos-6574.1-8138/`
-and not committed. Amazon's ROM patch is a different build from
+and not committed. The root image installs them, Amazon's `wifi.cfg` as
+`wifi_mt7668.cfg`: the MT8163's CONSYS driver reads `/etc/firmware/wifi.cfg`,
+and `/etc/firmware` is `/usr/lib/firmware`, so patch 0112 renames the
+MT7668's. linux-firmware's `mt7668pr2h.bin`, fetched from kernel.org at a
+release tag, goes in as `mediatek/mt7668pr2h.bin` for Bluetooth and as
+`mt7668_patch_e2_hdr.bin` for Wi-Fi. Amazon's ROM patch is a different build from
 linux-firmware's, and lidar-mainline found it crashes the Bluetooth firmware
 under `btmtksdio`. It stays on `static.iodev.org` for reference but isn't
 fetched, because the Wi-Fi driver would load it under its name.
@@ -385,5 +391,6 @@ Amazon's releases for them don't describe the hardware.
   test, and no CI runs device tests (AGENTS.md).
 - Until a D9N29T or an Echo Plus (2nd gen) is at hand, the work that can
   proceed is the board layer (ADR 0032), the boot image layout and the
-  arm64 kernel build. The last two are built; binding the Wi-Fi after the
-  root, and the image's MT8516 parts, are not.
+  arm64 kernel build. The last two are built, and the root image carries
+  the Wi-Fi firmware. Binding the Wi-Fi after the root, a boot image in
+  releases and the board's description are not.
