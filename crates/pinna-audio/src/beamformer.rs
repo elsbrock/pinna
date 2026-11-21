@@ -606,6 +606,25 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
+    /// The beams are designed for one array. A board with another one
+    /// (ADR 0032) fails here until the beamformer takes its geometry.
+    #[test]
+    fn every_board_has_the_array_the_beams_are_designed_for() {
+        for m in pinna_board::Model::ALL {
+            let mics = m.board().mics;
+            assert_eq!(mics.count, LOGICAL_CHANNELS, "{m:?}");
+            assert_eq!(mics.speech_mask, MIC_MASK_BEAM, "{m:?}");
+            for lane in 0..LOGICAL_CHANNELS {
+                let (x, y) = mic_position(lane);
+                let (bx, by) = mics.geometry.position(lane);
+                assert!(
+                    (x - bx).abs() < 1e-12 && (y - by).abs() < 1e-12,
+                    "{m:?} lane {lane}"
+                );
+            }
+        }
+    }
+
     const RATE: f64 = SAMPLE_RATE as f64;
 
     struct Rng(u64);

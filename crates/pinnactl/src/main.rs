@@ -85,13 +85,13 @@ struct UpdateArgs {
 
 /// Blocking (no tokio): the download uses pinna-http's blocking client.
 fn update(args: UpdateArgs) -> Result<()> {
-    let model = pinna_hal::ident::board_model();
+    let model = pinna_hal::board::detect().map(|b| b.model.id());
     let opts = pinna_update::Options {
         attempts: args.attempts,
         misc: args.misc,
         partdir: args.partdir,
         run_dir: args.run_dir,
-        model: (!model.is_empty()).then(|| model.to_owned()),
+        model: model.map(str::to_owned),
         ..Default::default()
     };
     if args.check {

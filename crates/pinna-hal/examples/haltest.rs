@@ -5,8 +5,9 @@
 use pinna_hal::anim::{Effect, render};
 use pinna_hal::buttons::{self, ButtonEvent, MockButtons};
 use pinna_hal::ident;
-use pinna_hal::led::{Is31Sysfs, LedHandle, LedRing, MockLeds};
+use pinna_hal::led::{LedHandle, LedRing, MockLeds};
 use pinna_hal::privacy::{self, MockPrivacy};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 const EFFECTS: [(&str, Effect); 11] = [
@@ -27,6 +28,9 @@ const EFFECT_TIME: Duration = Duration::from_secs(3);
 #[tokio::main]
 async fn main() {
     let force_mock = std::env::args().any(|a| a == "--mock");
+    // Hardware Pinna doesn't know gets the Echo Dot (2nd gen)'s paths.
+    let board = pinna_hal::board::detect().unwrap_or(&pinna_hal::board::ECHO_DOT_2);
+    println!("board: {:?}", board.model);
 
     println!("wlan0 mac: {:?}", ident::wlan0_mac());
     println!("miccal: {:?}", ident::read_miccal());
@@ -34,23 +38,17 @@ async fn main() {
     let real = if force_mock {
         None
     } else {
-        Is31Sysfs::discover().ok()
+        pinna_hal::led::open(board, 100).ok()
     };
     let mock = real.is_none();
     let ring: Box<dyn LedRing> = match real {
-        Some(r) => Box::new(r),
+        Some(r) => r,
         None => {
             println!("no IS31FL3236 found; using mock LEDs/buttons");
             Box::new(MockLeds::new())
         }
     };
-    struct Boxed(Box<dyn LedRing>);
-    impl LedRing for Boxed {
-        fn set(&mut self, f: &pinna_hal::led::Frame) -> pinna_hal::Result<()> {
-            self.0.set(f)
-        }
-    }
-    let leds = LedHandle::spawn(Boxed(ring));
+    let leds = LedHandle::spawn(ring);
 
     let mock_privacy = MockPrivacy::new();
     let mut mute_rx;
@@ -69,8 +67,8 @@ async fn main() {
         });
         mute_rx = rx;
     } else {
-        btn_rx = buttons::button_stream();
-        mute_rx = privacy::privacy_stream();
+        btn_rx = buttons::button_stream(board.keys);
+        mute_rx = privacy::privacy_stream_from(privacy::state_paths(&board.privacy));
     }
 
     let start = Instant::now();
@@ -96,7 +94,7 @@ async fn main() {
             }
             Some(m) = mute_rx.recv() => {
                 eprintln!("\nmic privacy: {}", if m { "MUTED" } else { "live" });
-                let _ = pinna_hal::led::set_mute_lamp(m);
+                let _ = pinna_hal::led::set_mute_lamp_at(Path::new(board.privacy.mute_lamp), m);
             }
             _ = tokio::signal::ctrl_c() => break,
         }

@@ -106,7 +106,7 @@ impl From<ButtonName> for Button {
 impl VirtualDevice {
     /// The latch (open) and the buttons. Refused on real hardware.
     pub fn start() -> Result<Arc<Self>> {
-        if !pinna_hal::ident::board_model().is_empty() {
+        if pinna_hal::board::detect().is_some() {
             bail!("this is real hardware, not the development VM");
         }
         let latch = PrivacyLatch::create(LATCH_PATH).context("microphone switch")?;

@@ -1,0 +1,12 @@
+[package]
+name = "pinna-board"
+description = "What the hardware is: the Echo models Pinna runs on and the facts the drivers need"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+tempfile = "3"

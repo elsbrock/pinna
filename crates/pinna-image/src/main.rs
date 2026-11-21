@@ -207,9 +207,9 @@ fn main() -> Result<()> {
             manifest::check_summary(&summary)?;
             for m in &models {
                 ensure!(
-                    manifest::MODELS.contains(&m.as_str()),
+                    pinna_board::Model::from_id(m).is_some(),
                     "unknown model {m:?}; the models are {}",
-                    manifest::MODELS.join(", ")
+                    manifest::models().join(", ")
                 );
             }
             let url = match url {

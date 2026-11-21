@@ -2179,6 +2179,7 @@ dependencies = [
  "hound",
  "libc",
  "memmap2",
+ "pinna-board",
  "pinna-http",
  "symphonia",
  "tempfile",
@@ -2186,6 +2187,13 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "pinna-board"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]
@@ -2270,6 +2278,7 @@ name = "pinna-hal"
 version = "0.1.0"
 dependencies = [
  "evdev",
+ "pinna-board",
  "thiserror",
  "tokio",
  "tracing",
@@ -2295,6 +2304,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ed25519-dalek",
+ "pinna-board",
  "pinna-bootimg",
  "serde_json",
  "sha2",
@@ -2358,6 +2368,7 @@ dependencies = [
  "anyhow",
  "ed25519-dalek",
  "libc",
+ "pinna-board",
  "pinna-bootctl",
  "pinna-bootimg",
  "pinna-http",

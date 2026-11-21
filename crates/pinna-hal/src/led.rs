@@ -11,8 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+/// Logical pixels Pinna draws. A board's ring driver maps them onto its
+/// LEDs ([`crate::board::Ring`]).
 pub const RING_PIXELS: usize = 12;
-/// The two pixels at the front centre of the ring.
+/// The two pixels at the front centre of the ring. Every board Pinna runs on
+/// has its front centre here (a test checks the boards).
 pub const FRONT_CENTRE: [usize; 2] = [10, 11];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -43,6 +46,26 @@ pub trait LedRing: Send {
     fn set(&mut self, frame: &Frame) -> Result<()>;
     fn clear(&mut self) -> Result<()> {
         self.set(&[Rgb::OFF; RING_PIXELS])
+    }
+}
+
+impl<T: LedRing + ?Sized> LedRing for Box<T> {
+    fn set(&mut self, frame: &Frame) -> Result<()> {
+        (**self).set(frame)
+    }
+}
+
+/// Open the ring of `board` with its driver, at `brightness` (0..=100).
+pub fn open(board: &crate::board::Board, brightness: u8) -> Result<Box<dyn LedRing>> {
+    match board.ring.driver {
+        crate::board::RingDriver::Is31fl3236Frame => {
+            let mut ring = Is31Sysfs::discover_in(
+                Path::new(SYSFS_I2C_DIR),
+                Path::new(board.privacy.mute_lamp),
+            )?;
+            ring.set_brightness(brightness);
+            Ok(Box::new(ring))
+        }
     }
 }
 
@@ -195,7 +218,6 @@ impl OutputShaper {
 // Real hardware
 
 const SYSFS_I2C_DIR: &str = "/sys/bus/i2c/devices";
-pub const MUTE_LAMP_PATH: &str = "/sys/devices/platform/amz_privacy/mute_lamp";
 
 /// IS31FL3236 ring via the kernel driver's `frame` attribute.
 pub struct Is31Sysfs {
@@ -207,13 +229,10 @@ pub struct Is31Sysfs {
 }
 
 impl Is31Sysfs {
-    /// Scan `/sys/bus/i2c/devices/*` for a directory with `frame` and
+    /// Scan `dir` (`/sys/bus/i2c/devices`) for a directory with `frame` and
     /// `boot_animation`, then take over from the kernel boot animation.
-    pub fn discover() -> Result<Self> {
-        Self::discover_in(Path::new(SYSFS_I2C_DIR))
-    }
-
-    pub fn discover_in(dir: &Path) -> Result<Self> {
+    /// `mute_lamp` is the board's ([`crate::board::Privacy`]).
+    pub fn discover_in(dir: &Path, mute_lamp: &Path) -> Result<Self> {
         let mut entries: Vec<_> = fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
         entries.sort_by_key(|e| e.file_name());
         for e in entries {
@@ -229,7 +248,7 @@ impl Is31Sysfs {
                 scaled_frame_path: scaled.is_file().then_some(scaled),
                 shaper: OutputShaper::default(),
                 brightness: 100,
-                mute_lamp: PathBuf::from(MUTE_LAMP_PATH),
+                mute_lamp: mute_lamp.to_path_buf(),
             };
             // The kernel driver owns the boot chase until this write.
             fs::write(&boot, "0\n")?;
@@ -261,11 +280,6 @@ pub fn set_mute_lamp_at(path: &Path, on: bool) -> Result<bool> {
     }
     fs::write(path, if on { "1" } else { "0" })?;
     Ok(true)
-}
-
-/// Set the mute lamp at its standard location, if present.
-pub fn set_mute_lamp(on: bool) -> Result<bool> {
-    set_mute_lamp_at(Path::new(MUTE_LAMP_PATH), on)
 }
 
 impl LedRing for Is31Sysfs {
@@ -542,7 +556,7 @@ mod tests {
         fs::create_dir_all(dir.join("i2c-1")).unwrap();
         fs::write(dev.join("frame"), "").unwrap();
         fs::write(dev.join("boot_animation"), "1\n").unwrap();
-        let mut ring = Is31Sysfs::discover_in(&dir).unwrap();
+        let mut ring = Is31Sysfs::discover_in(&dir, &dir.join("mute_lamp")).unwrap();
         assert_eq!(
             fs::read_to_string(dev.join("boot_animation")).unwrap(),
             "0\n"
@@ -560,10 +574,33 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pinna-led-none-{}", std::process::id()));
         fs::create_dir_all(dir.join("i2c-1")).unwrap();
         assert!(matches!(
-            Is31Sysfs::discover_in(&dir),
+            Is31Sysfs::discover_in(&dir, &dir.join("mute_lamp")),
             Err(Error::NotFound(_))
         ));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The IS31FL3236 driver writes all 12 logical pixels. A board with
+    /// another number of LEDs needs a driver that maps them (ADR 0032).
+    #[test]
+    fn every_board_has_as_many_leds_as_its_driver_writes() {
+        for m in crate::board::Model::ALL {
+            let ring = m.board().ring;
+            match ring.driver {
+                crate::board::RingDriver::Is31fl3236Frame => {
+                    assert_eq!(ring.leds, RING_PIXELS, "{m:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_board_has_its_front_centre_where_the_animations_draw_it() {
+        for m in crate::board::Model::ALL {
+            let ring = m.board().ring;
+            assert_eq!(ring.front_centre, FRONT_CENTRE, "{m:?}");
+            assert!(ring.front_centre.iter().all(|&p| p < RING_PIXELS));
+        }
     }
 
     #[test]

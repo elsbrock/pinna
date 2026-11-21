@@ -256,9 +256,10 @@ impl fmt::Display for Blocked {
                     .map(|m| model_name(m))
                     .collect::<Vec<_>>()
                     .join(" and "),
-                model
-                    .as_deref()
-                    .map_or("this satellite's model, which is unknown", model_name)
+                model.as_deref().map_or_else(
+                    || "this satellite's model, which is unknown".to_owned(),
+                    model_name
+                )
             ),
             Blocked::Overlay(p) => write!(
                 f,
@@ -271,11 +272,10 @@ impl fmt::Display for Blocked {
 }
 
 /// A model id as owners know the device.
-fn model_name(id: &str) -> &str {
-    match id {
-        "echo-dot-2" => "the Echo Dot (2nd gen)",
-        "echo-2" => "the Echo (2nd gen)",
-        other => other,
+fn model_name(id: &str) -> String {
+    match pinna_board::Model::from_id(id) {
+        Some(m) => format!("the {}", m.name()),
+        None => id.to_owned(),
     }
 }
 

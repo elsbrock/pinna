@@ -199,6 +199,21 @@ impl FrontEnd for SimpleFrontEnd {
 mod tests {
     use super::*;
 
+    /// The front end decodes one capture format. A board whose capture PCM
+    /// differs (ADR 0032) fails here until the front end takes it from the
+    /// board.
+    #[test]
+    fn every_board_captures_what_the_front_end_decodes() {
+        for m in pinna_board::Model::ALL {
+            let b = m.board();
+            assert_eq!(b.audio.capture.rate, SAMPLE_RATE, "{m:?}");
+            assert_eq!(b.audio.capture.channels, RAW_CHANNELS, "{m:?}");
+            assert_eq!(b.audio.capture.format, pinna_board::SampleFormat::S24_3Le);
+            assert_eq!(BYTES_PER_SAMPLE, 3);
+            assert_eq!(b.mics.count, LOGICAL_CHANNELS, "{m:?}");
+        }
+    }
+
     #[test]
     fn s24_takes_top_16_bits() {
         assert_eq!(unpack_s24_3le([0x00, 0x34, 0x12]), 0x1234);

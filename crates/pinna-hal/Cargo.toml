@@ -1,12 +1,13 @@
 [package]
 name = "pinna-hal"
-description = "Hardware access (LED ring, buttons, mic privacy, identity) with real and mock backends"
+description = "Hardware access (LED ring, buttons, mic privacy, identity) for the boards pinna-board describes, with real and mock backends"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+pinna-board = { path = "../pinna-board" }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "io-std", "io-util", "fs"] }
 tracing.workspace = true

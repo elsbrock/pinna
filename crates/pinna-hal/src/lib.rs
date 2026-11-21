@@ -1,7 +1,10 @@
-//! Hardware access for Pinna (Echo Dot 2nd gen "biscuit" and Echo 2nd gen
-//! "radar"): LED ring, buttons, mic privacy switch and identity data. Real
-//! implementations talk to sysfs and evdev only; mocks allow development on a
-//! laptop.
+//! Hardware access for Pinna: the LED ring, buttons, microphone switch and
+//! identity data of the boards `pinna-board` describes (ADR 0032), re-exported
+//! here as [`board`]. A driver takes its paths and key codes from the
+//! [`board::Board`] it runs on. Real implementations talk to sysfs and evdev
+//! only; mocks allow development on a laptop.
+
+pub use pinna_board as board;
 
 pub mod anim;
 pub mod buttons;

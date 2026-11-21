@@ -518,6 +518,7 @@ mod brain_tests {
                 encrypted: false,
                 has_hw_privacy: false,
                 privacy_trigger: Vec::new(),
+                mute_lamp: None,
                 airplay: false,
                 bluetooth: false,
                 sendspin: None,

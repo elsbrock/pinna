@@ -391,7 +391,7 @@ impl Default for WifiPaths {
             client_dir: "/run/pinna/wpa".into(),
             sysfs: "/sys/class/net/wlan0".into(),
             trial_mark: "/run/pinna/wifi-trial".into(),
-            has_radio: !pinna_hal::ident::board_model().is_empty(),
+            has_radio: pinna_hal::board::detect().is_some(),
         }
     }
 }

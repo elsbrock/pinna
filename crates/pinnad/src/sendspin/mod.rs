@@ -253,12 +253,11 @@ fn every_address(port: u16) -> Vec<SocketAddr> {
 
 /// What `client/hello` says about the device: the model as Pinna names it (the host's name on
 /// other hardware), Pinna, pinnad's version, and the Wi-Fi interface's MAC when it is known.
-/// `model` is the dashboard's id (`pinna_hal::ident::board_model`).
-pub fn device_info(model: &str, mac: Option<[u8; 6]>) -> DeviceInfo {
+/// `model` is the board's (`pinna_hal::board::detect`).
+pub fn device_info(model: Option<pinna_hal::board::Model>, mac: Option<[u8; 6]>) -> DeviceInfo {
     let product = match model {
-        "echo-dot-2" => "Echo Dot (2nd gen)".to_owned(),
-        "echo-2" => "Echo (2nd gen)".to_owned(),
-        _ => crate::network::hostname(),
+        Some(m) => m.name().to_owned(),
+        None => crate::network::hostname(),
     };
     let field = |text: &str| {
         let text = record::cut(text, 64);

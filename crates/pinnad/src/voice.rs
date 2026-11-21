@@ -555,6 +555,8 @@ pub struct Options {
     /// Where a voice mute closes the hardware latch: the driver's
     /// `privacy_trigger`, or the virtual Dot's latch file.
     pub privacy_trigger: Vec<std::path::PathBuf>,
+    /// The board's mute lamp, lit while muted; `None` without one.
+    pub mute_lamp: Option<std::path::PathBuf>,
     /// Where runtime settings are persisted.
     pub settings_file: std::path::PathBuf,
     /// AirPlay can run: there is a speaker and a stream socket.
@@ -3431,7 +3433,9 @@ impl Brain {
         if m && self.phase != Phase::Idle {
             self.abort_run(true).await;
         }
-        if let Err(e) = pinna_hal::led::set_mute_lamp(m) {
+        if let Some(lamp) = &self.opts.mute_lamp
+            && let Err(e) = pinna_hal::led::set_mute_lamp_at(lamp, m)
+        {
             tracing::debug!("mute lamp: {e}");
         }
         self.send(DeviceEvent::MuteState(m)).await;
@@ -3971,6 +3975,7 @@ mod checked_media_tests {
                 encrypted: false,
                 has_hw_privacy: false,
                 privacy_trigger: Vec::new(),
+                mute_lamp: None,
                 airplay: false,
                 bluetooth: false,
                 sendspin: None,

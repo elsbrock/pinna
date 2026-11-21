@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use pinna_esphome::{DeviceConfig, mdns_txt, parse_encryption_key};
+use pinna_hal::board::Model;
 
 use crate::config;
 
@@ -75,7 +76,7 @@ pub fn device_mac() -> [u8; 6] {
     if let Some(mac) = pinna_hal::ident::idme_mac().and_then(|s| parse_mac(&s)) {
         return mac;
     }
-    if !pinna_hal::ident::board_model().is_empty() {
+    if pinna_hal::board::detect().is_some() {
         tracing::warn!("no idme mac_addr in the device tree; the device MAC comes from wlan0");
     }
     if let Some(mac) = pinna_hal::ident::wlan0_mac().and_then(|s| parse_mac(&s)) {
@@ -178,22 +179,17 @@ pub fn set_hostname_live(name: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// The model Home Assistant shows, from `board_model()`'s id. Unknown
-/// hardware (a VM, a PC) reports as the Echo Dot, like `board_model()`.
-pub fn model_name(model: &str) -> &'static str {
-    match model {
-        "echo-2" => "Echo (2nd Gen)",
-        _ => "Echo Dot (2nd Gen)",
-    }
+/// The model Home Assistant shows. Unknown hardware (a VM, a PC) reports
+/// as the Echo Dot.
+pub fn model_name(model: Option<Model>) -> &'static str {
+    model.unwrap_or(Model::EchoDot2).home_assistant_name()
 }
 
 /// The name until one is chosen (ADR 0007): the model and the last three MAC
-/// bytes, the way Home Assistant Voice PE names itself.
-pub fn default_friendly_name(model: &str, mac: &[u8; 6]) -> String {
-    let short = match model {
-        "echo-2" => "Echo",
-        _ => "Echo Dot",
-    };
+/// bytes, the way Home Assistant Voice PE names itself. Unknown hardware is
+/// named as the Echo Dot.
+pub fn default_friendly_name(model: Option<Model>, mac: &[u8; 6]) -> String {
+    let short = model.unwrap_or(Model::EchoDot2).short_name();
     format!("{short} {:02x}{:02x}{:02x}", mac[3], mac[4], mac[5])
 }
 
@@ -208,19 +204,11 @@ pub(crate) fn looks_default(friendly: &str, mac: &str) -> bool {
         _ => return false,
     };
     let [_, _, mac @ ..] = n.to_be_bytes();
-    ["echo-dot-2", "echo-2"].iter().any(|model| {
+    Model::ALL.into_iter().any(|model| {
         friendly
             .trim()
-            .eq_ignore_ascii_case(&default_friendly_name(model, &mac))
+            .eq_ignore_ascii_case(&default_friendly_name(Some(model), &mac))
     })
-}
-
-/// The speaker profile follows the hardware unless a developer set one.
-pub fn speaker_flat(profile: Option<&str>, model: &str) -> bool {
-    match profile {
-        Some(p) => p.eq_ignore_ascii_case("flat"),
-        None => model != "echo-2",
-    }
 }
 
 pub(crate) fn quote_txt(k: &str, v: &str) -> String {
@@ -567,18 +555,20 @@ mod tests {
     }
 
     #[test]
-    fn names_and_profile_follow_the_hardware() {
+    fn names_follow_the_hardware() {
         let mac = [0xf0, 0x27, 0x2d, 0x2a, 0x91, 0x4e];
-        assert_eq!(default_friendly_name("echo-dot-2", &mac), "Echo Dot 2a914e");
-        assert_eq!(default_friendly_name("echo-2", &mac), "Echo 2a914e");
-        assert_eq!(default_friendly_name("", &mac), "Echo Dot 2a914e");
-        assert_eq!(model_name("echo-2"), "Echo (2nd Gen)");
-        assert_eq!(model_name("echo-dot-2"), "Echo Dot (2nd Gen)");
-        assert!(!speaker_flat(None, "echo-2"));
-        assert!(speaker_flat(None, "echo-dot-2"));
-        assert!(speaker_flat(None, ""));
-        assert!(speaker_flat(Some("Flat"), "echo-2"));
-        assert!(!speaker_flat(Some("Radar"), "echo-dot-2"));
+        assert_eq!(
+            default_friendly_name(Some(Model::EchoDot2), &mac),
+            "Echo Dot 2a914e"
+        );
+        assert_eq!(
+            default_friendly_name(Some(Model::Echo2), &mac),
+            "Echo 2a914e"
+        );
+        assert_eq!(default_friendly_name(None, &mac), "Echo Dot 2a914e");
+        assert_eq!(model_name(Some(Model::Echo2)), "Echo (2nd Gen)");
+        assert_eq!(model_name(Some(Model::EchoDot2)), "Echo Dot (2nd Gen)");
+        assert_eq!(model_name(None), "Echo Dot (2nd Gen)");
     }
 
     #[test]

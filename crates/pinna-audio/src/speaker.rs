@@ -1486,6 +1486,27 @@ mod tests {
     use super::*;
     use futures_util::{StreamExt, stream};
 
+    /// The Echo output plays 48 kHz S16_LE stereo, and its clocks read the
+    /// MT8163 PCMs' status files (`pcm23p`, `pcm24c`), whatever device
+    /// pinnad passes. A board with other PCMs (ADR 0032) fails here until
+    /// those follow the board.
+    #[test]
+    fn every_board_has_the_pcms_the_echo_output_is_built_for() {
+        let cfg = SpeakerConfig::new(Backend::EchoDot);
+        for m in pinna_board::Model::ALL {
+            let audio = m.board().audio;
+            let play = audio.playback;
+            assert_eq!(play.device, cfg.alsa_device, "{m:?}");
+            assert_eq!((play.rate, play.channels), (48_000, 2), "{m:?}");
+            assert_eq!(play.format, pinna_board::SampleFormat::S16Le, "{m:?}");
+            assert_eq!(audio.capture.device, "hw:0,24", "{m:?}");
+        }
+        assert_eq!(
+            cfg.pcm_status.as_deref(),
+            Some(Path::new("/proc/asound/card0/pcm23p/sub0/status"))
+        );
+    }
+
     fn clip(samples: Vec<i16>) -> (VoiceItem, oneshot::Receiver<Result<()>>) {
         let (done, rx) = oneshot::channel();
         (

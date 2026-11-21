@@ -1,12 +1,12 @@
-//! Device identity: Wi-Fi MAC and per-microphone calibration factors.
+//! Device identity: Wi-Fi MAC and per-microphone calibration factors. Which
+//! board this is: [`crate::board::detect`].
 
 use std::path::Path;
 
+use crate::board::{DT_IDME_DIR, IDME_DIR};
+
 pub const MICCAL_UNITY: i32 = 16384;
 pub const MIC_CHANNELS: usize = 7;
-const IDME_DIR: &str = "/proc/idme";
-const DT_IDME_DIR: &str = "/sys/firmware/devicetree/base/idme";
-const DT_COMPATIBLE: &str = "/sys/firmware/devicetree/base/compatible";
 const WLAN0_ADDRESS: &str = "/sys/class/net/wlan0/address";
 const DT_IDME_MAC: &str = "/sys/firmware/devicetree/base/idme/mac_addr/value";
 
@@ -48,64 +48,6 @@ pub fn mac_from(path: &Path) -> Option<String> {
         && s.split(':')
             .all(|o| o.len() == 2 && o.bytes().all(|b| b.is_ascii_hexdigit()));
     ok.then_some(s)
-}
-
-/// The board ids in the bootloader's idme `device_type_id` record: what LK's
-/// fastboot reports as `BISCUIT` and `RADAR`.
-const BOARD_ID_BISCUIT: &str = "A3S5BH2HU6VAYF";
-const BOARD_ID_RADAR: &str = "A7WXQPH584YP";
-
-/// The bootloader's idme `device_type_id`: `/proc/idme/device_type_id` on a
-/// kernel with Amazon's idme driver, LK's `idme/device_type_id` node in the
-/// device tree on 6.12. None when the bootloader keeps no record (a VM).
-pub fn device_type_id() -> Option<String> {
-    device_type_id_in(Path::new(IDME_DIR), Path::new(DT_IDME_DIR))
-}
-
-pub fn device_type_id_in(idme: &Path, dt_idme: &Path) -> Option<String> {
-    let read = |path: std::path::PathBuf| -> Option<String> {
-        let raw = std::fs::read(path).ok()?;
-        let s = String::from_utf8(raw).ok()?;
-        let s = s.trim_end_matches('\0').trim();
-        (!s.is_empty()).then(|| s.to_string())
-    };
-    read(idme.join("device_type_id")).or_else(|| read(dt_idme.join("device_type_id").join("value")))
-}
-
-/// Which hardware this is, as the id the dashboard draws it by; empty when
-/// unknown.
-///
-/// Both MT8163 models — the Echo Dot (2nd gen, "biscuit") and the Echo
-/// (2nd gen, "radar") — boot the shared `mt8163-radar-puffin.dtb` (see
-/// `kernel/build.sh`), so the device tree only names the chip; the
-/// bootloader's idme record tells them apart. A board without one (a VM, an
-/// unknown boot chain) reports as the Echo Dot, Pinna's first device.
-pub fn board_model() -> &'static str {
-    board_model_in(
-        Path::new(IDME_DIR),
-        Path::new(DT_IDME_DIR),
-        Path::new(DT_COMPATIBLE),
-    )
-}
-
-pub fn board_model_in(idme: &Path, dt_idme: &Path, compatible: &Path) -> &'static str {
-    match device_type_id_in(idme, dt_idme) {
-        Some(id) if id.eq_ignore_ascii_case(BOARD_ID_BISCUIT) => "echo-dot-2",
-        Some(id) if id.eq_ignore_ascii_case(BOARD_ID_RADAR) => "echo-2",
-        Some(_) => "",
-        None => board_model_from(compatible),
-    }
-}
-
-pub fn board_model_from(path: &Path) -> &'static str {
-    let Ok(bytes) = std::fs::read(path) else {
-        return "";
-    };
-    if bytes.split(|&b| b == 0).any(|s| s == b"mediatek,mt8163") {
-        "echo-dot-2"
-    } else {
-        ""
-    }
 }
 
 /// Q14 calibration factors for the 7 logical mic channels (16384 = unity).
@@ -173,6 +115,14 @@ mod tests {
         d
     }
 
+    /// The calibration is read for 7 microphones (LibreEcho's micd.c).
+    #[test]
+    fn every_board_has_the_microphones_the_calibration_is_read_for() {
+        for m in crate::board::Model::ALL {
+            assert_eq!(m.board().mics.count, MIC_CHANNELS, "{m:?}");
+        }
+    }
+
     #[test]
     fn default_is_unity() {
         let d = tmp("none");
@@ -208,54 +158,6 @@ mod tests {
         let c = read_miccal_in(&d.join("idme"), &dt);
         assert_eq!(c[2], 15000);
         assert_eq!(c[0], 16384);
-        fs::remove_dir_all(&d).unwrap();
-    }
-
-    #[test]
-    fn board_model_from_compatible() {
-        let d = tmp("model");
-        let f = d.join("compatible");
-        fs::write(&f, "amazon,whatever\0mediatek,mt8163\0").unwrap();
-        assert_eq!(board_model_from(&f), "echo-dot-2");
-        fs::write(&f, "acme,board\0").unwrap();
-        assert_eq!(board_model_from(&f), "");
-        assert_eq!(board_model_from(&d.join("missing")), "");
-        fs::remove_dir_all(&d).unwrap();
-    }
-
-    #[test]
-    fn board_model_reads_the_idme_device_type() {
-        let d = tmp("board");
-        let idme = d.join("idme");
-        let dt = d.join("dt");
-        let compatible = d.join("compatible");
-        fs::create_dir_all(dt.join("device_type_id")).unwrap();
-        let dt_value = dt.join("device_type_id").join("value");
-
-        // LK's record in the device tree (6.12), NUL-padded.
-        fs::write(&dt_value, "A3S5BH2HU6VAYF\0").unwrap();
-        assert_eq!(board_model_in(&idme, &dt, &compatible), "echo-dot-2");
-        fs::write(&dt_value, "A7WXQPH584YP\0").unwrap();
-        assert_eq!(board_model_in(&idme, &dt, &compatible), "echo-2");
-
-        // /proc/idme (Amazon's idme driver) wins; an unknown id stays unknown.
-        fs::create_dir_all(&idme).unwrap();
-        fs::write(idme.join("device_type_id"), "A7WXQPH584YP\n").unwrap();
-        assert_eq!(board_model_in(&idme, &dt, &compatible), "echo-2");
-        fs::write(idme.join("device_type_id"), "SOMEBODYELSE\n").unwrap();
-        assert_eq!(board_model_in(&idme, &dt, &compatible), "");
-
-        // No idme record at all: the compatible string decides.
-        fs::write(&compatible, "amazon,radar-puffin\0mediatek,mt8163\0").unwrap();
-        assert_eq!(
-            board_model_in(&d.join("none"), &dt.join("none"), &compatible),
-            "echo-dot-2"
-        );
-        fs::write(&compatible, "acme,board\0").unwrap();
-        assert_eq!(
-            board_model_in(&d.join("none"), &dt.join("none"), &compatible),
-            ""
-        );
         fs::remove_dir_all(&d).unwrap();
     }
 

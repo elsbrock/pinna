@@ -1,5 +1,6 @@
-//! Hardware mic privacy switch. The PMIC mute key cuts the mics in hardware;
-//! the kernel reports the latch in `privacy_state` ("0" or "1").
+//! Hardware mic privacy switch. The mute key cuts the mics in hardware; the
+//! kernel reports the latch in a file holding `0` or `1`, which the board
+//! names ([`crate::board::Privacy`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -7,10 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 
-pub const PRIVACY_STATE_PATH: &str = "/sys/devices/platform/amz_privacy/privacy_state";
-pub const PRIVACY_STATE_FALLBACK_PATH: &str = "/sys/devices/platform/amz-privacy/privacy_state";
-pub const PRIVACY_TRIGGER_PATH: &str = "/sys/devices/platform/amz_privacy/privacy_trigger";
-pub const PRIVACY_TRIGGER_FALLBACK_PATH: &str = "/sys/devices/platform/amz-privacy/privacy_trigger";
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// First `0`/`1` character of the file, as LibreEcho parses it.
@@ -22,14 +19,17 @@ pub fn parse_state(text: &str) -> Option<bool> {
     }
 }
 
-/// Read the latch: `Some(true)` = mics muted. `None` if no path is readable.
-pub fn read_privacy_state() -> Option<bool> {
-    read_privacy_state_from(&[
-        PRIVACY_STATE_PATH.as_ref(),
-        PRIVACY_STATE_FALLBACK_PATH.as_ref(),
-    ])
+/// The files the board reports its latch in, first readable wins.
+pub fn state_paths(privacy: &crate::board::Privacy) -> Vec<PathBuf> {
+    privacy.state.iter().map(PathBuf::from).collect()
 }
 
+/// The files that close the board's latch from software.
+pub fn trigger_paths(privacy: &crate::board::Privacy) -> Vec<PathBuf> {
+    privacy.trigger.iter().map(PathBuf::from).collect()
+}
+
+/// Read the latch: `Some(true)` = mics muted. `None` if no path is readable.
 pub fn read_privacy_state_from(paths: &[&Path]) -> Option<bool> {
     paths.iter().find_map(|p| {
         std::fs::read_to_string(p)
@@ -71,15 +71,8 @@ pub fn enter_privacy_to(paths: &[&Path]) -> Result<(), PrivacyError> {
     Err(last)
 }
 
-/// Emits the current state once the hardware is readable, then every change
-/// (`true` = muted). Polls every 100 ms.
-pub fn privacy_stream() -> mpsc::Receiver<bool> {
-    privacy_stream_from(vec![
-        PRIVACY_STATE_PATH.into(),
-        PRIVACY_STATE_FALLBACK_PATH.into(),
-    ])
-}
-
+/// Emits the current state once one of `paths` is readable, then every
+/// change (`true` = muted). Polls every 100 ms.
 pub fn privacy_stream_from(paths: Vec<PathBuf>) -> mpsc::Receiver<bool> {
     let (tx, rx) = mpsc::channel(8);
     tokio::spawn(async move {

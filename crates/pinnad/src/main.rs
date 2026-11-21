@@ -50,7 +50,8 @@ use clap::Parser;
 use pinna_audio::{Agc, Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle};
 use pinna_hal::anim::Effect;
-use pinna_hal::led::{Is31Sysfs, LedHandle, MockLeds, RING_PIXELS, Rgb};
+use pinna_hal::board::{Board, Model, SpeakerTuning};
+use pinna_hal::led::{LedHandle, MockLeds, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, watch};
 
 use crate::config::Config;
@@ -165,7 +166,8 @@ fn check_wake_word(cfg: &Config, file: &Path, threshold: f32) -> i32 {
     }
 }
 
-fn audio_backend(spec: &str) -> Option<Backend> {
+/// `card` is the board's sound card id ([`pinna_hal::board::Audio`]).
+fn audio_backend(spec: &str, card: &str) -> Option<Backend> {
     match spec {
         "none" => None,
         "echodot" => Some(Backend::EchoDot),
@@ -174,7 +176,7 @@ fn audio_backend(spec: &str) -> Option<Backend> {
         s if s.starts_with("wav:") => Some(Backend::WavFile(PathBuf::from(&s[4..]))),
         _ => {
             let cards = std::fs::read_to_string("/proc/asound/cards").unwrap_or_default();
-            if cards.contains("mt-snd-card") {
+            if cards.contains(card) {
                 // The device's PipeWire graph (system service) when it runs,
                 // otherwise the sound card directly.
                 let socket = std::env::var_os("PIPEWIRE_RUNTIME_DIR")
@@ -197,14 +199,13 @@ fn audio_backend(spec: &str) -> Option<Backend> {
     }
 }
 
-fn led_ring(cfg: &config::Leds) -> Result<Option<LedHandle>> {
+fn led_ring(cfg: &config::Leds, board: &Board) -> Result<Option<LedHandle>> {
     match cfg.backend.as_str() {
         "none" => Ok(None),
         "mock" => Ok(Some(LedHandle::spawn(MockLeds::new()))),
-        backend => match Is31Sysfs::discover() {
-            Ok(mut ring) => {
-                ring.set_brightness(cfg.brightness);
-                tracing::info!("LED ring: IS31FL3236 via sysfs");
+        backend => match pinna_hal::led::open(board, cfg.brightness) {
+            Ok(ring) => {
+                tracing::info!("LED ring: {}", board.ring.driver.name());
                 Ok(Some(LedHandle::spawn(ring)))
             }
             Err(e) if backend == "is31" => Err(e).context("LED ring"),
@@ -509,12 +510,18 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Which hardware this is; the virtual Dot stands in for the Echo Dot.
+    // Which hardware this is (ADR 0032). Hardware Pinna doesn't know (a
+    // computer, the VM) has no board; its drivers look where the Echo Dot
+    // (2nd gen)'s are and find nothing there. The virtual Dot stands in for
+    // the Echo Dot's model.
+    let board = pinna_hal::board::detect();
+    let hw = board.unwrap_or(&pinna_hal::board::ECHO_DOT_2);
     let model = if virt.is_some() {
-        "echo-dot-2"
+        Some(Model::EchoDot2)
     } else {
-        pinna_hal::ident::board_model()
+        board.map(|b| b.model)
     };
+    tracing::info!("board: {}", board.map_or("none", |b| b.model.name()));
 
     // Identity + ESPHome API.
     let mac = identity::device_mac();
@@ -598,7 +605,7 @@ async fn main() -> Result<()> {
     // so that a word that fails isn't offered. A custom word that crashes
     // pinnad here is failed at the next start (the loading mark), never
     // again: there is no crash loop.
-    let backend = audio_backend(&cfg.audio.backend);
+    let backend = audio_backend(&cfg.audio.backend, hw.audio.card);
     let mut keywords = Vec::new();
     if backend.is_some() && cfg.wake.enabled {
         let loaded = catalogue.load(&active_wake);
@@ -688,7 +695,7 @@ async fn main() -> Result<()> {
     // The virtual Echo Dot's ring is the dashboard's drawing of WatchRing.
     let ring = match &virt {
         Some(_) => None,
-        None => led_ring(&cfg.leds)?,
+        None => led_ring(&cfg.leds, hw)?,
     };
     let led_backend = match (&ring, cfg.leds.backend.as_str()) {
         (None, _) if virt.is_some() => "virtual",
@@ -715,14 +722,17 @@ async fn main() -> Result<()> {
         let echo_dot = b.echo_dot_mixer();
         let mut sc = SpeakerConfig::new(b);
         sc.initial_volume = initial.volume;
-        sc.profile.codec_flat = identity::speaker_flat(cfg.audio.speaker_profile.as_deref(), model);
-        if echo_dot && sc.profile.codec_flat {
-            // The Echo Dot (biscuit) speaker: +6 dB on top of the volume
-            // curve (which tops out at -12 dB), plus the stock firmware's
-            // extra gain above 70 %, which the speaker chain's limiter
-            // keeps under full scale.
-            sc.pre_gain_db = 6.0;
-            sc.volume_boost = true;
+        sc.alsa_device = hw.audio.playback.device.into();
+        // The board's tuning, unless a developer named another.
+        let tuning = cfg
+            .audio
+            .speaker_profile
+            .as_deref()
+            .map_or(hw.audio.speaker, SpeakerTuning::named);
+        sc.profile.codec_flat = tuning.codec_profile == pinna_hal::board::CodecProfile::Flat;
+        if echo_dot {
+            sc.pre_gain_db = tuning.pre_gain_db;
+            sc.volume_boost = tuning.volume_boost;
         }
         Arc::new(Speaker::new(sc))
     });
@@ -771,6 +781,7 @@ async fn main() -> Result<()> {
             }
         };
         let mut capture = CaptureConfig::new(b);
+        capture.alsa_device = hw.audio.capture.device.into();
         capture.pw_target = cfg.audio.capture_target.clone();
         let (tx, rx) = mpsc::unbounded_channel();
         if detector.is_some() {
@@ -793,7 +804,7 @@ async fn main() -> Result<()> {
     let mut buttons = if cli.stdin_buttons {
         pinna_hal::buttons::MockButtons::from_stdin()
     } else {
-        pinna_hal::buttons::button_stream()
+        pinna_hal::buttons::button_stream(hw.keys)
     };
     let tx = in_tx.clone();
     tokio::spawn(async move {
@@ -807,17 +818,11 @@ async fn main() -> Result<()> {
     // Hardware mic privacy latch (the virtual Dot's is a file).
     let privacy_paths: Vec<PathBuf> = match &virt {
         Some(v) => vec![v.latch_path().into()],
-        None => vec![
-            pinna_hal::privacy::PRIVACY_STATE_PATH.into(),
-            pinna_hal::privacy::PRIVACY_STATE_FALLBACK_PATH.into(),
-        ],
+        None => pinna_hal::privacy::state_paths(&hw.privacy),
     };
     let privacy_trigger: Vec<PathBuf> = match &virt {
         Some(v) => vec![v.latch_path().into()],
-        None => vec![
-            pinna_hal::privacy::PRIVACY_TRIGGER_PATH.into(),
-            pinna_hal::privacy::PRIVACY_TRIGGER_FALLBACK_PATH.into(),
-        ],
+        None => pinna_hal::privacy::trigger_paths(&hw.privacy),
     };
     let has_hw_privacy = pinna_hal::privacy::read_privacy_state_from(
         &privacy_paths
@@ -913,7 +918,7 @@ async fn main() -> Result<()> {
             time_zones: Arc::new(timezone::zones(Path::new(timezone::ZONEINFO))),
             audio_backend: audio_backend.into(),
             led_backend: led_backend.into(),
-            model: model.into(),
+            model: model.map_or("", Model::id).into(),
             virtual_device: virt.is_some(),
             last_boot,
             // tmpfiles seeds the key file from the image again after a reset.
@@ -1045,7 +1050,7 @@ async fn main() -> Result<()> {
         speaker.as_deref().cloned(),
         exact_backend,
         cli.settings.with_file_name("sendspin.toml"),
-        sendspin::device_info(pinna_hal::ident::board_model(), Some(mac)),
+        sendspin::device_info(board.map(|b| b.model), Some(mac)),
     )
     .at(cfg.sendspin.port, cfg.sendspin.record.clone());
     let spawner = ProdSpawner::new(
@@ -1071,6 +1076,7 @@ async fn main() -> Result<()> {
             encrypted,
             has_hw_privacy,
             privacy_trigger,
+            mute_lamp: Some(hw.privacy.mute_lamp.into()),
             settings_file: cli.settings.clone(),
             airplay,
             bluetooth,

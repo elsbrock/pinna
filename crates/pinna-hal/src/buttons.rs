@@ -13,50 +13,13 @@ pub const REPEAT_INTERVAL: Duration = Duration::from_millis(150);
 pub const LONG_PRESS: Duration = Duration::from_secs(2);
 pub const RESCAN_INTERVAL: Duration = Duration::from_secs(5);
 
-// Linux input event codes (linux/input-event-codes.h).
-pub const KEY_MUTE: u16 = 113;
-pub const KEY_VOLUMEDOWN: u16 = 114;
-pub const KEY_VOLUMEUP: u16 = 115;
-pub const KEY_POWER: u16 = 116;
-pub const KEY_HELP: u16 = 138;
-pub const KEY_MICMUTE: u16 = 248;
+pub use crate::board::{
+    Button, KEY_HELP, KEY_MICMUTE, KEY_MUTE, KEY_POWER, KEY_VOLUMEDOWN, KEY_VOLUMEUP,
+};
 
-const WATCHED_KEYS: [u16; 6] = [
-    KEY_VOLUMEUP,
-    KEY_VOLUMEDOWN,
-    KEY_MUTE,
-    KEY_MICMUTE,
-    KEY_POWER,
-    KEY_HELP,
-];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Button {
-    VolumeUp,
-    VolumeDown,
-    Action,
-    Mute,
-}
-
-impl Button {
-    /// Map a key code. On radar_puffin/biscuit KEY_POWER is the microphone
-    /// mute button (measured on LibreEcho's 6.1 kernel, whose device tree Pinna's is
-    /// ported from: ten mute presses gave ten
-    /// KEY_POWER events; there is no separate power button), so it maps to
-    /// `Mute`, not `Action`.
-    pub fn from_code(code: u16) -> Option<Button> {
-        match code {
-            KEY_VOLUMEUP => Some(Button::VolumeUp),
-            KEY_VOLUMEDOWN => Some(Button::VolumeDown),
-            KEY_HELP => Some(Button::Action),
-            KEY_MUTE | KEY_MICMUTE | KEY_POWER => Some(Button::Mute),
-            _ => None,
-        }
-    }
-
-    fn repeats(self) -> bool {
-        matches!(self, Button::VolumeUp | Button::VolumeDown)
-    }
+/// Volume keys repeat while held; the others don't.
+fn repeats(button: Button) -> bool {
+    matches!(button, Button::VolumeUp | Button::VolumeDown)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +65,7 @@ impl KeyTracker {
             (_, None) => {
                 self.held.push(Held {
                     button,
-                    next_repeat: button.repeats().then(|| now + REPEAT_DELAY),
+                    next_repeat: repeats(button).then(|| now + REPEAT_DELAY),
                     long_at: (button == Button::Action).then(|| now + LONG_PRESS),
                 });
                 Some(ButtonEvent::Press(button))
@@ -139,20 +102,24 @@ impl KeyTracker {
     }
 }
 
-/// Does a device with these supported key codes look like a button device?
-pub fn is_button_device(has_key: impl Fn(u16) -> bool) -> bool {
-    WATCHED_KEYS.iter().any(|&k| has_key(k))
+/// Does a device with these supported key codes send any of the board's
+/// keys?
+pub fn is_button_device(keys: &[(u16, Button)], has_key: impl Fn(u16) -> bool) -> bool {
+    keys.iter().any(|&(k, _)| has_key(k))
 }
 
-/// Start watching `/dev/input/event*` (rescanned every 5 s for hot-plug).
-/// Must be called inside a tokio runtime.
-pub fn button_stream() -> mpsc::Receiver<ButtonEvent> {
-    button_stream_in(PathBuf::from(INPUT_DIR))
+/// Start watching `/dev/input/event*` for the board's `keys` (rescanned
+/// every 5 s for hot-plug). Must be called inside a tokio runtime.
+pub fn button_stream(keys: &'static [(u16, Button)]) -> mpsc::Receiver<ButtonEvent> {
+    button_stream_in(PathBuf::from(INPUT_DIR), keys)
 }
 
-pub fn button_stream_in(dir: PathBuf) -> mpsc::Receiver<ButtonEvent> {
+pub fn button_stream_in(
+    dir: PathBuf,
+    keys: &'static [(u16, Button)],
+) -> mpsc::Receiver<ButtonEvent> {
     let (tx, rx) = mpsc::channel(64);
-    tokio::spawn(run_buttons(dir, tx));
+    tokio::spawn(run_buttons(dir, keys, tx));
     rx
 }
 
@@ -161,7 +128,7 @@ struct RawKey {
     value: i32,
 }
 
-async fn run_buttons(dir: PathBuf, tx: mpsc::Sender<ButtonEvent>) {
+async fn run_buttons(dir: PathBuf, keys: &'static [(u16, Button)], tx: mpsc::Sender<ButtonEvent>) {
     let (raw_tx, mut raw_rx) = mpsc::channel::<RawKey>(64);
     let watched: Arc<Mutex<HashSet<PathBuf>>> = Arc::default();
     let mut tracker = KeyTracker::new();
@@ -176,7 +143,7 @@ async fn run_buttons(dir: PathBuf, tx: mpsc::Sender<ButtonEvent>) {
         };
         let mut events = Vec::new();
         tokio::select! {
-            _ = rescan.tick() => scan_devices(&dir, &watched, &raw_tx),
+            _ = rescan.tick() => scan_devices(&dir, keys, &watched, &raw_tx),
             Some(k) = raw_rx.recv() => {
                 events.extend(tracker.key(k.button, k.value, Instant::now()));
             }
@@ -190,7 +157,12 @@ async fn run_buttons(dir: PathBuf, tx: mpsc::Sender<ButtonEvent>) {
     }
 }
 
-fn scan_devices(dir: &Path, watched: &Arc<Mutex<HashSet<PathBuf>>>, raw_tx: &mpsc::Sender<RawKey>) {
+fn scan_devices(
+    dir: &Path,
+    keys: &'static [(u16, Button)],
+    watched: &Arc<Mutex<HashSet<PathBuf>>>,
+    raw_tx: &mpsc::Sender<RawKey>,
+) {
     let Ok(rd) = std::fs::read_dir(dir) else {
         tracing::debug!("cannot read {}", dir.display());
         return;
@@ -207,9 +179,9 @@ fn scan_devices(dir: &Path, watched: &Arc<Mutex<HashSet<PathBuf>>>, raw_tx: &mps
         let Ok(dev) = evdev::Device::open(&path) else {
             continue;
         };
-        let interesting = dev
-            .supported_keys()
-            .is_some_and(|keys| is_button_device(|c| keys.contains(evdev::KeyCode::new(c))));
+        let interesting = dev.supported_keys().is_some_and(|supported| {
+            is_button_device(keys, |c| supported.contains(evdev::KeyCode::new(c)))
+        });
         if !interesting {
             continue;
         }
@@ -227,7 +199,7 @@ fn scan_devices(dir: &Path, watched: &Arc<Mutex<HashSet<PathBuf>>>, raw_tx: &mps
                         if ev.event_type() != evdev::EventType::KEY {
                             continue;
                         }
-                        if let Some(button) = Button::from_code(ev.code()) {
+                        if let Some(button) = crate::board::button_in(keys, ev.code()) {
                             let key = RawKey {
                                 button,
                                 value: ev.value(),
@@ -308,9 +280,10 @@ mod tests {
 
     #[test]
     fn device_filter() {
-        assert!(is_button_device(|c| c == KEY_HELP));
-        assert!(is_button_device(|c| c == KEY_POWER));
-        assert!(!is_button_device(|c| c == 30));
+        let keys = crate::board::MT8163_KEYS;
+        assert!(is_button_device(keys, |c| c == KEY_HELP));
+        assert!(is_button_device(keys, |c| c == KEY_POWER));
+        assert!(!is_button_device(keys, |c| c == 30));
     }
 
     #[test]

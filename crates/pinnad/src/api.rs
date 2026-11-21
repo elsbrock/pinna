@@ -1899,6 +1899,7 @@ mod tests {
                 encrypted: false,
                 has_hw_privacy: false,
                 privacy_trigger: Vec::new(),
+                mute_lamp: None,
                 // One file per device: tests run in parallel, and a failed
                 // save is an error.
                 settings_file: std::env::temp_dir().join(format!(
@@ -3232,7 +3233,7 @@ mod tests {
             Some(speaker),
             false,
             dir.path().join("sendspin.toml"),
-            crate::sendspin::device_info("echo-dot-2", None),
+            crate::sendspin::device_info(Some(pinna_hal::board::Model::EchoDot2), None),
         );
         setup.listen = vec![SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 0))];
         setup.mdns = crate::sendspin::Mdns {

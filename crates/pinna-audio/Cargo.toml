@@ -19,6 +19,7 @@ tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "process
 tracing.workspace = true
 
 [dev-dependencies]
+pinna-board = { path = "../pinna-board" }
 tempfile = "3"
 tokio = { workspace = true }
 tracing-subscriber.workspace = true

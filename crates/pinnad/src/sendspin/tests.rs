@@ -116,7 +116,10 @@ fn setup(dir: &Path, rec: Option<Arc<Recorder>>) -> Setup {
         output: rec.map(|r| r as Arc<dyn Output>),
         exact_backend: false,
         state_file: dir.join("sendspin.toml"),
-        device_info: device_info("echo-dot-2", Some([2, 0, 0, 0xa, 0xb, 0xc])),
+        device_info: device_info(
+            Some(pinna_hal::board::Model::EchoDot2),
+            Some([2, 0, 0, 0xa, 0xb, 0xc]),
+        ),
         listen: vec![SocketAddr::from((Ipv4Addr::LOCALHOST, 0))],
         mdns: Mdns {
             file: dir.join("dnssd/pinna-sendspin.dnssd"),

@@ -19,9 +19,11 @@ pub const SUMMARY_MAX: usize = 255;
 /// A manifest is small; anything bigger is refused before it is read.
 pub const MANIFEST_MAX: u64 = 1 << 20;
 
-/// The models a release can name in `requires.models`, as
-/// `pinna_hal::ident::board_model()` names them.
-pub const MODELS: [&str; 2] = ["echo-dot-2", "echo-2"];
+/// The models a release can name in `requires.models`: every model's id
+/// ([`pinna_board::Model::id`]).
+pub fn models() -> Vec<&'static str> {
+    pinna_board::Model::ALL.map(pinna_board::Model::id).to_vec()
+}
 
 pub const SIGNATURE_LEN: usize = 64;
 
