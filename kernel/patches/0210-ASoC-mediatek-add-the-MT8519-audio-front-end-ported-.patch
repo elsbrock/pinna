@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Simon Elsbrock <simon@iodev.org>
-Date: Sat, 21 Nov 2026 17:50:48 +0100
-Subject: [PATCH] ASoC: mediatek: add the MT8519 audio front end, ported to
- 6.12 (compile-only)
+Date: Sat, 21 Nov 2026 18:40:45 +0100
+Subject: [PATCH 210/211] ASoC: mediatek: add the MT8519 audio front end,
+ ported to 6.12 (compile-only)
 
 The MT8519 audio front end -- the ADR's named hard risk -- from Amazon's 5.4
 release, forward-ported to 6.12's ASoC. The DSP path is left out (Pinna does
@@ -12,29 +12,29 @@ on their vendor common-AFE layer (which has memif fields upstream lacks), so
 that layer is carried locally as vendor-* to avoid colliding with 6.12's
 upstream sound/soc/mediatek/common/.
 
-The 6.12 ASoC migration: rtd->cpu_dai -> snd_soc_rtd_to_cpu; the snd_soc_dai
+The 6.12 ASoC migration: rtd->cpu_dai -> snd_soc_rtd_to_cpu; the dai
 rate/channels/sample_bits reads come from the substream runtime; the component
-PCM ops move from .ops/.pcm_new/.pcm_free to .pointer/.ack/.pcm_construct/
-.pcm_destruct; dai_driver suspend/resume and the symmetric_* renames; the PM
-QoS cpu-latency API; and a monotonic timestamp (ktime) for the latency control.
+PCM ops move to .pointer/.ack/.pcm_construct/.pcm_destruct and 6.12's component
+.copy; dai_driver suspend/resume and the symmetric_* renames; the PM QoS
+cpu-latency API; a monotonic ktime timestamp for the latency control. The
+.copy keeps Amazon's clock boost -- it raises the audio bus clock to UNIVPLL_D6
+for the span of the copy so the CPU keeps up under load, then restores 26 MHz.
 
-Known approximations, all to be validated and finished on a unit: the custom
-deinterleaving copy_user is dropped (standard DMA), and the private
-snd_pcm_update_hw_ptr() call in one latency control is skipped. NOT RUN ON
-HARDWARE -- audio is exact register/clock/codec programming that only a device
-validates. The cannoli machine driver (mendocino) that wires the codecs is a
-follow-on. Off in every current variant.
+One latency control dropped a call to the private snd_pcm_update_hw_ptr()
+(not exported to modules); it reads the core's maintained hw_ptr instead. NOT
+RUN ON HARDWARE -- audio is exact register/clock/codec programming that only a
+device validates. The cannoli machine driver (mendocino) is a follow-on.
 ---
  sound/soc/mediatek/Kconfig                    |    1 +
  sound/soc/mediatek/Makefile                   |    1 +
  sound/soc/mediatek/mt8519/Kconfig             |    5 +
  sound/soc/mediatek/mt8519/Makefile            |    9 +
- sound/soc/mediatek/mt8519/mt8519-afe-common.h |  486 +
+ sound/soc/mediatek/mt8519/mt8519-afe-common.h |  484 +
  .../soc/mediatek/mt8519/mt8519-afe-controls.c | 1560 +++
  .../soc/mediatek/mt8519/mt8519-afe-controls.h |   20 +
  sound/soc/mediatek/mt8519/mt8519-afe-debug.c  |  739 ++
  sound/soc/mediatek/mt8519/mt8519-afe-debug.h  |   18 +
- sound/soc/mediatek/mt8519/mt8519-afe-pcm.c    | 9777 +++++++++++++++++
+ sound/soc/mediatek/mt8519/mt8519-afe-pcm.c    | 9789 +++++++++++++++++
  sound/soc/mediatek/mt8519/mt8519-afe-utils.c  | 1137 ++
  sound/soc/mediatek/mt8519/mt8519-afe-utils.h  |  100 +
  sound/soc/mediatek/mt8519/mt8519-reg.h        | 1226 +++
@@ -43,7 +43,7 @@ follow-on. Off in every current variant.
  .../mt8519/vendor-mtk-afe-platform-driver.c   |  221 +
  .../mt8519/vendor-mtk-afe-platform-driver.h   |   31 +
  .../soc/mediatek/mt8519/vendor-mtk-base-afe.h |  182 +
- 18 files changed, 16455 insertions(+)
+ 18 files changed, 16465 insertions(+)
  create mode 100644 sound/soc/mediatek/mt8519/Kconfig
  create mode 100644 sound/soc/mediatek/mt8519/Makefile
  create mode 100755 sound/soc/mediatek/mt8519/mt8519-afe-common.h
@@ -107,10 +107,10 @@ index 000000000..da6a57a74
 +obj-$(CONFIG_SND_SOC_MT8519) += snd-soc-mt8519-afe.o
 diff --git a/sound/soc/mediatek/mt8519/mt8519-afe-common.h b/sound/soc/mediatek/mt8519/mt8519-afe-common.h
 new file mode 100755
-index 000000000..dfd73a8c3
+index 000000000..a5ac43625
 --- /dev/null
 +++ b/sound/soc/mediatek/mt8519/mt8519-afe-common.h
-@@ -0,0 +1,486 @@
+@@ -0,0 +1,484 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Mediatek 8519 audio driver common definitions
@@ -592,9 +592,7 @@ index 000000000..dfd73a8c3
 +bool mt8519_afe_rate_supported(unsigned int rate, unsigned int id);
 +bool mt8519_afe_channel_supported(unsigned int channel, unsigned int id);
 +
-+#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
 +struct mtk_base_afe *mt8519_afe_pcm_get_info(void);
-+#endif
 +
 +#endif
 diff --git a/sound/soc/mediatek/mt8519/mt8519-afe-controls.c b/sound/soc/mediatek/mt8519/mt8519-afe-controls.c
@@ -2960,10 +2958,10 @@ index 000000000..bf7b35c98
 +#endif
 diff --git a/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c b/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
 new file mode 100755
-index 000000000..cf186f3a5
+index 000000000..09bbf24a2
 --- /dev/null
 +++ b/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
-@@ -0,0 +1,9777 @@
+@@ -0,0 +1,9789 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Mediatek 8519 ALSA SoC AFE platform driver
@@ -2974,6 +2972,7 @@ index 000000000..cf186f3a5
 +
 +#include <linux/delay.h>
 +#include <linux/module.h>
++#include <linux/uio.h>
 +#include <linux/of.h>
 +#include <linux/of_address.h>
 +#include <linux/dma-mapping.h>
@@ -3168,9 +3167,9 @@ index 000000000..cf186f3a5
 +	.fifo_size = 0,
 +};
 +
-+#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
++/* The single AFE instance, for the machine driver's amp power event
++ * (mt8519_afe_pcm_get_info); set at probe. */
 +struct mtk_base_afe *g_priv;
-+#endif
 +
 +struct mt8519_afe_rate {
 +	unsigned int rate;
@@ -9648,12 +9647,13 @@ index 000000000..cf186f3a5
 +	return 0;
 +}
 +
-+#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
 +struct mtk_base_afe *mt8519_afe_pcm_get_info(void)
 +{
 +	return g_priv;
 +}
 +EXPORT_SYMBOL_GPL(mt8519_afe_pcm_get_info);
++
++#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
 +
 +static int mt8519_adsp_afe_memif_set(struct mtk_base_afe *afe,
 +				       int memif_id,
@@ -12095,23 +12095,35 @@ index 000000000..cf186f3a5
 +	return 0;
 +}
 +
-+static int mt8519_afe_pcm_copy(struct snd_pcm_substream *substream,
-+			       int channel, unsigned long hwoff,
-+			       void *buf, unsigned long bytes,
-+			       mtk_sp_copy_f sp_copy)
++static int mt8519_afe_pcm_copy(struct snd_soc_component *component,
++			       struct snd_pcm_substream *substream,
++			       int channel, unsigned long pos,
++			       struct iov_iter *iter, unsigned long bytes)
 +{
-+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-+	struct snd_soc_component *component =
-+		snd_soc_rtdcom_lookup(rtd, AFE_PCM_NAME);
++	struct snd_pcm_runtime *runtime = substream->runtime;
 +	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
 +	struct mt8519_afe_private *afe_priv = afe->platform_priv;
++	void *dma = runtime->dma_area + pos;
 +	int ret = 0;
 +
++	/*
++	 * Amazon's 5.4 driver raised the audio bus clock to UNIVPLL_D6 for the
++	 * span of the copy and dropped it back to 26 MHz after, so the CPU keeps
++	 * up with the stream under load. The copy itself is the ordinary
++	 * interleaved transfer; 6.12 passes pos and bytes as byte offsets
++	 * (sound/core/pcm_lib.c converts from frames). ADR 0034.
++	 */
 +	mt8519_afe_set_clk_parent(afe,
 +		afe_priv->clocks[MT8519_CLK_TOP_AUD_BUS],
 +		afe_priv->clocks[MT8519_CLK_AUD_UNIVPLL_D6]);
 +
-+	ret = sp_copy(substream, channel, hwoff, buf, bytes);
++	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
++		if (copy_from_iter(dma, bytes, iter) != bytes)
++			ret = -EFAULT;
++	} else {
++		if (copy_to_iter(dma, bytes, iter) != bytes)
++			ret = -EFAULT;
++	}
 +
 +	mt8519_afe_set_clk_parent(afe,
 +		afe_priv->clocks[MT8519_CLK_TOP_AUD_BUS],
@@ -12506,6 +12518,7 @@ index 000000000..cf186f3a5
 +	.probe = mt8519_afe_component_probe,
 +	.pointer = mt8519_afe_pcm_pointer,
 +	.ack = mtk_afe_pcm_ack,
++	.copy = mt8519_afe_pcm_copy,
 +	.pcm_construct = mtk_afe_pcm_new,
 +	.pcm_destruct = mtk_afe_pcm_free,
 +	.dapm_widgets = mt8519_afe_pcm_widgets,
@@ -12629,12 +12642,9 @@ index 000000000..cf186f3a5
 +	afe->memif_fs = mt8519_memif_fs;
 +	afe->irq_fs = mt8519_irq_fs;
 +
-+	afe->copy = mt8519_afe_pcm_copy;
 +
 +	platform_set_drvdata(pdev, afe);
-+#ifdef CONFIG_MTK_HIFIXDSP_SUPPORT
 +	g_priv = afe;
-+#endif
 +	pm_runtime_enable(&pdev->dev);
 +	if (!pm_runtime_enabled(&pdev->dev)) {
 +		dev_info(afe->dev, "%s pm_runtime not enabled\n", __func__);
