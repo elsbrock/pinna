@@ -243,9 +243,13 @@ Select **Assistant**, then **Tools**.
   radio directory for stations.
 - **Your MCP servers**: add an MCP server on your network with a name and its
   address. The brain then calls its tools next to Pinna's. Saving a server asks
-  it for its tools, and the list shows how many it has, or why it can't be
-  reached. **Its tools** under a server lists them, each with a switch: turn
-  off the ones the brain shouldn't call. A server that needs a sign-in or a
+  it for its tools, and the list shows how many of them are on, or why it can't
+  be reached. **Its tools** under a server lists them, each with a switch, and
+  **All on** and **All off** for all of them at once: turn off the ones the
+  brain shouldn't call. A server that lists more than 32 tools, such as a Home
+  Assistant MCP server, is added with all of them off: turn on the few the
+  brain needs. The brain takes at most 64 tools in a request, Pinna's first,
+  and the page warns while more are on. A server that needs a sign-in or a
   token in a header can't be added yet.
 
 ## Use timers
