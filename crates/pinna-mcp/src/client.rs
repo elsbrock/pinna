@@ -3,7 +3,7 @@
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -17,7 +17,7 @@ use reqwest::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use thiserror::Error;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, watch};
 
 use crate::{
     ToolOutput, ToolSet, ToolSpec,
@@ -25,8 +25,12 @@ use crate::{
     namespaced,
 };
 
-const MAX_BODY: usize = 256 * 1024;
-const MAX_TOOLS: usize = 32;
+/// The largest reply read. ha-mcp's tool list is 297 KB (version 9.2.0,
+/// measured 2026-11-21).
+const MAX_BODY: usize = 1024 * 1024;
+/// A server's tools kept, in its order: OpenAI's limit for a request.
+const MAX_TOOLS: usize = 128;
+/// How long a request waits for a list it doesn't have.
 const LIST_TIMEOUT: Duration = Duration::from_secs(2);
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
@@ -48,7 +52,7 @@ pub enum McpError {
     Remote(i32),
     #[error("The MCP server returned an invalid response.")]
     Protocol,
-    #[error("The MCP server response is too large.")]
+    #[error("The MCP server's reply is larger than 1 MiB, the most Pinna reads.")]
     TooLarge,
 }
 
@@ -95,15 +99,13 @@ impl McpClient {
     }
 
     async fn list_inner(&self) -> Result<Vec<ToolSpec>, McpError> {
-        let result = self.rpc("tools/list", json!({})).await?;
-        let tools = result
-            .get("tools")
-            .and_then(Value::as_array)
-            .ok_or(McpError::Protocol)?;
+        let mut result = self.rpc("tools/list", json!({})).await?;
+        let Some(Value::Array(tools)) = result.get_mut("tools").map(Value::take) else {
+            return Err(McpError::Protocol);
+        };
         tools
-            .iter()
+            .into_iter()
             .take(MAX_TOOLS)
-            .cloned()
             .map(|value| {
                 serde_json::from_value::<ListedTool>(value)
                     .map(|tool| ToolSpec {
@@ -366,14 +368,28 @@ async fn read_sse(mut response: reqwest::Response, id: u64) -> Result<Response, 
     Err(McpError::Protocol)
 }
 
-/// How long a failed listing is remembered: a server that is down costs one
-/// listing timeout per this, not one per request.
+/// How long a failed listing is remembered: a server that is down is asked
+/// again after this, not on every request.
 const FAILED_TTL: Duration = Duration::from_secs(30);
+/// How long a listing may take. No request waits for all of it, so a large
+/// list over a slow link still arrives, for the next request.
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The last listing, with the server's tool names as the model sees them.
 struct CachedTools {
     fetched: Instant,
     outcome: Result<Arc<[RemoteTool]>, McpError>,
+}
+
+impl CachedTools {
+    fn fresh(&self) -> bool {
+        let ttl = if self.outcome.is_ok() {
+            CACHE_TTL
+        } else {
+            FAILED_TTL
+        };
+        self.fetched.elapsed() < ttl
+    }
 }
 
 /// One remote tool: its spec under the namespaced name, and the name the
@@ -383,69 +399,103 @@ struct RemoteTool {
     remote: String,
 }
 
-pub struct McpToolSet {
+/// What a tool set shares with its listing, which runs on its own task.
+struct Shared {
     server: String,
     client: Arc<McpClient>,
     cache: Mutex<Option<CachedTools>>,
-    refresh: AsyncMutex<()>,
+    /// A listing runs, so another isn't started.
+    listing: AtomicBool,
+    /// Counts the listings that ended, for whoever waits on one.
+    listed: watch::Sender<u64>,
+}
+
+/// Ends a listing however its task ends, so a failed one can't stop every
+/// later listing.
+struct Listing(Arc<Shared>);
+
+impl Drop for Listing {
+    fn drop(&mut self) {
+        self.0.listing.store(false, Ordering::Release);
+        self.0.listed.send_modify(|n| *n = n.wrapping_add(1));
+    }
+}
+
+pub struct McpToolSet {
+    shared: Arc<Shared>,
 }
 
 impl McpToolSet {
     pub fn new(server: impl Into<String>, client: Arc<McpClient>) -> Self {
         Self {
-            server: server.into(),
-            client,
-            cache: Mutex::new(None),
-            refresh: AsyncMutex::new(()),
+            shared: Arc::new(Shared {
+                server: server.into(),
+                client,
+                cache: Mutex::new(None),
+                listing: AtomicBool::new(false),
+                listed: watch::Sender::new(0),
+            }),
         }
     }
 
-    fn cached(&self) -> Option<Result<Arc<[RemoteTool]>, McpError>> {
-        self.cache
+    /// Ask the server for its tools on a task of its own, unless that runs.
+    fn start_listing(&self) {
+        if self.shared.listing.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let listing = Listing(self.shared.clone());
+        tokio::spawn(async move {
+            let shared = &listing.0;
+            let outcome = shared.client.list(REFRESH_TIMEOUT).await.map(|tools| {
+                tools
+                    .into_iter()
+                    .filter_map(|mut spec| {
+                        let remote = spec.name;
+                        spec.name = namespaced(&shared.server, &remote)?;
+                        Some(RemoteTool { spec, remote })
+                    })
+                    .collect::<Arc<[RemoteTool]>>()
+            });
+            shared.cache.lock().unwrap().replace(CachedTools {
+                fetched: Instant::now(),
+                outcome,
+            });
+        });
+    }
+
+    /// The server's tools. A fresh list is used as it is. An expired one is
+    /// used while the server is asked again in the background, so a request
+    /// doesn't wait for a list it has. Without one, a request waits for the
+    /// server at most `LIST_TIMEOUT`.
+    async fn remote_tools(&self) -> Result<Arc<[RemoteTool]>, McpError> {
+        // Before the cache is read, so a listing that ends in between wakes it.
+        let mut listed = self.shared.listed.subscribe();
+        let expired = match self.shared.cache.lock().unwrap().as_ref() {
+            Some(cached) if cached.fresh() => return cached.outcome.clone(),
+            Some(CachedTools {
+                outcome: Ok(tools), ..
+            }) => Some(tools.clone()),
+            _ => None,
+        };
+        self.start_listing();
+        if let Some(tools) = expired {
+            return Ok(tools);
+        }
+        // A listing that takes longer goes on, for the next request.
+        let _ = tokio::time::timeout(LIST_TIMEOUT, listed.changed()).await;
+        self.shared
+            .cache
             .lock()
             .unwrap()
             .as_ref()
-            .filter(|cached| {
-                let ttl = if cached.outcome.is_ok() {
-                    CACHE_TTL
-                } else {
-                    FAILED_TTL
-                };
-                cached.fetched.elapsed() < ttl
-            })
-            .map(|cached| cached.outcome.clone())
-    }
-
-    async fn remote_tools(&self) -> Result<Arc<[RemoteTool]>, McpError> {
-        if let Some(outcome) = self.cached() {
-            return outcome;
-        }
-        let _refresh = self.refresh.lock().await;
-        if let Some(outcome) = self.cached() {
-            return outcome;
-        }
-        let outcome = self.client.list(LIST_TIMEOUT).await.map(|tools| {
-            tools
-                .into_iter()
-                .filter_map(|mut spec| {
-                    let remote = spec.name;
-                    spec.name = namespaced(&self.server, &remote)?;
-                    Some(RemoteTool { spec, remote })
-                })
-                .collect::<Arc<[RemoteTool]>>()
-        });
-        self.cache.lock().unwrap().replace(CachedTools {
-            fetched: Instant::now(),
-            outcome: outcome.clone(),
-        });
-        outcome
+            .map_or(Err(McpError::Timeout), |cached| cached.outcome.clone())
     }
 
     /// How the last listing went: the tools as the model sees them, or why
     /// it failed. `None` before the first. It stays after the cache expires:
     /// it is what the server last said.
     pub fn last_listing(&self) -> Option<Result<Vec<ToolSpec>, McpError>> {
-        self.cache.lock().unwrap().as_ref().map(|cached| {
+        self.shared.cache.lock().unwrap().as_ref().map(|cached| {
             cached
                 .outcome
                 .clone()
@@ -453,12 +503,16 @@ impl McpToolSet {
         })
     }
 
-    /// Ask the server again now, whatever the cache holds.
+    /// Ask the server again now, whatever the cache holds, and wait for its
+    /// answer, at most `REFRESH_TIMEOUT`. A listing that already runs
+    /// answers instead.
     pub async fn refresh(&self) -> Result<Vec<ToolSpec>, McpError> {
-        if let Some(cached) = self.cache.lock().unwrap().as_mut() {
-            cached.fetched = Instant::now() - CACHE_TTL.max(FAILED_TTL);
-        }
-        self.list().await
+        let mut listed = self.shared.listed.subscribe();
+        self.start_listing();
+        // The sender lives in `shared`, which this holds: it ends only with
+        // a listing.
+        let _ = listed.changed().await;
+        self.last_listing().unwrap_or(Err(McpError::Timeout))
     }
 
     /// The server's tools as the model sees them, or why it can't be listed.
@@ -485,7 +539,12 @@ impl ToolSet for McpToolSet {
                 Err(error) => return ToolOutput::error(error.to_string()),
             };
             match tools.iter().find(|tool| tool.spec.name == name) {
-                Some(tool) => self.client.call(&tool.remote, args, CALL_TIMEOUT).await,
+                Some(tool) => {
+                    self.shared
+                        .client
+                        .call(&tool.remote, args, CALL_TIMEOUT)
+                        .await
+                }
                 None => ToolOutput::error(format!("Unknown MCP tool {name}.")),
             }
         })
@@ -533,7 +592,10 @@ mod tests {
         initialize_count: AtomicUsize,
         list_count: AtomicUsize,
         missing_session_once: AtomicBool,
-        slow_list: AtomicBool,
+        /// How long `tools/list` takes, in milliseconds.
+        list_delay: AtomicU64,
+        /// The size of each tool's description, when not zero.
+        description_len: AtomicUsize,
         oversized_list: AtomicBool,
         long_output: AtomicBool,
         tool_count: AtomicUsize,
@@ -549,7 +611,8 @@ mod tests {
                 initialize_count: AtomicUsize::new(0),
                 list_count: AtomicUsize::new(0),
                 missing_session_once: AtomicBool::new(false),
-                slow_list: AtomicBool::new(false),
+                list_delay: AtomicU64::new(0),
+                description_len: AtomicUsize::new(0),
                 oversized_list: AtomicBool::new(false),
                 long_output: AtomicBool::new(false),
                 tool_count: AtomicUsize::new(1),
@@ -619,8 +682,9 @@ mod tests {
         if method == "tools/list" && state.missing_session_once.swap(false, Ordering::Relaxed) {
             return StatusCode::NOT_FOUND.into_response();
         }
-        if method == "tools/list" && state.slow_list.load(Ordering::Relaxed) {
-            tokio::time::sleep(Duration::from_secs(10)).await;
+        let delay = state.list_delay.load(Ordering::Relaxed);
+        if method == "tools/list" && delay > 0 {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
         }
         let id = body["id"].clone();
         let result = match method.as_str() {
@@ -634,8 +698,11 @@ mod tests {
             }
             "tools/list" => {
                 state.list_count.fetch_add(1, Ordering::Relaxed);
+                let len = state.description_len.load(Ordering::Relaxed);
                 let description = if state.oversized_list.load(Ordering::Relaxed) {
                     "x".repeat(MAX_BODY + 1)
+                } else if len > 0 {
+                    "x".repeat(len)
                 } else {
                     "Local time".into()
                 };
@@ -806,7 +873,7 @@ mod tests {
     #[tokio::test]
     async fn a_slow_list_is_empty_within_two_seconds() {
         let server = FakeServer::start(Wire::Json).await;
-        server.state.slow_list.store(true, Ordering::Relaxed);
+        server.state.list_delay.store(10_000, Ordering::Relaxed);
         let tools = McpToolSet::new("home", Arc::new(server.client()));
         let started = Instant::now();
         assert!(
@@ -862,10 +929,13 @@ mod tests {
         assert!(tools.specs().await.len() == MAX_TOOLS);
         assert_eq!(server.state.list_count.load(Ordering::Relaxed), 1);
 
-        tools.cache.lock().unwrap().as_mut().unwrap().fetched = Instant::now() - CACHE_TTL;
+        expire(&tools);
         // What the server last said stays while the cache has expired.
         assert_eq!(tools.last_listing().unwrap().unwrap().len(), MAX_TOOLS);
+        let mut listed = tools.shared.listed.subscribe();
         assert_eq!(tools.specs().await.len(), MAX_TOOLS);
+        // The expired list answered; the server is asked again behind it.
+        listed.changed().await.unwrap();
         assert_eq!(server.state.list_count.load(Ordering::Relaxed), 2);
         // A refresh asks again even while the cache is fresh.
         tools.refresh().await.unwrap();
@@ -874,5 +944,62 @@ mod tests {
             tools.call("home_2_unknown", json!({})).await,
             ToolOutput::error("Unknown MCP tool home_2_unknown.")
         );
+    }
+
+    fn expire(tools: &McpToolSet) {
+        tools.shared.cache.lock().unwrap().as_mut().unwrap().fetched = Instant::now() - CACHE_TTL;
+    }
+
+    #[tokio::test]
+    async fn a_list_larger_than_the_first_limits_is_read_whole() {
+        // ha-mcp's shape: 77 tools in about 300 KB, as an event stream.
+        let server = FakeServer::start(Wire::Sse).await;
+        server.state.tool_count.store(77, Ordering::Relaxed);
+        server.state.description_len.store(3_900, Ordering::Relaxed);
+        let tools = McpToolSet::new("home", Arc::new(server.client()));
+
+        let specs = tools.refresh().await.unwrap();
+
+        assert_eq!(specs.len(), 77);
+        assert_eq!(specs[76].name, "home_tool_76");
+    }
+
+    #[tokio::test]
+    async fn an_expired_list_answers_at_once_while_a_slow_server_is_asked_again() {
+        let server = FakeServer::start(Wire::Json).await;
+        let tools = McpToolSet::new("home", Arc::new(server.client()));
+        assert_eq!(tools.specs().await.len(), 1);
+        server.state.tool_count.store(2, Ordering::Relaxed);
+        server.state.list_delay.store(1_000, Ordering::Relaxed);
+        expire(&tools);
+
+        let started = Instant::now();
+        assert_eq!(tools.specs().await.len(), 1);
+        assert!(started.elapsed() < Duration::from_millis(500));
+        // One listing at a time: a second request doesn't start another.
+        assert_eq!(tools.specs().await.len(), 1);
+
+        let mut listed = tools.shared.listed.subscribe();
+        listed.changed().await.unwrap();
+        assert_eq!(tools.specs().await.len(), 2);
+        assert_eq!(server.state.list_count.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn a_first_list_slower_than_a_request_waits_arrives_for_the_next() {
+        let server = FakeServer::start(Wire::Json).await;
+        server
+            .state
+            .list_delay
+            .store(LIST_TIMEOUT.as_millis() as u64 + 500, Ordering::Relaxed);
+        let tools = McpToolSet::new("home", Arc::new(server.client()));
+        let mut listed = tools.shared.listed.subscribe();
+
+        // The request goes without the server, but the listing goes on.
+        assert!(tools.specs().await.is_empty());
+        listed.changed().await.unwrap();
+
+        assert_eq!(tools.specs().await.len(), 1);
+        assert_eq!(server.state.list_count.load(Ordering::Relaxed), 1);
     }
 }
