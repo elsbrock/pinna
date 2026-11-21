@@ -415,20 +415,21 @@ pub mod arm64 {
 /// ```
 ///
 /// The load and entry addresses and the configuration names are read from the
-/// stock boot FIT on a unit before the first image is written; the defaults
-/// here are provisional. Integrity is a `crc32` hash per image; signing
-/// follows the installed bootloader's trust model, also read on a unit.
+/// stock boot FIT on a unit before the first image is written; the kernel
+/// load/entry here (`0x40008000`) are the stock Cannoli values. Integrity is a
+/// `crc32` hash per image; signing follows the installed bootloader's trust
+/// model, also read on a unit.
 pub mod fit {
     use super::ZIMAGE_MAGIC;
     use anyhow::{Result, bail, ensure};
     use std::collections::HashMap;
 
-    /// Where U-Boot's `bootm` places the kernel. Provisional: SDRAM base
-    /// (`0x40000000`) plus 64 MiB, clear of the kernel's own load window.
-    /// Confirm against the stock FIT on a unit (ADR 0034).
-    pub const LOAD_ADDR: u32 = 0x4400_0000;
+    /// Where U-Boot's `bootm` places the kernel: SDRAM base + 32 KiB, the
+    /// conventional 32-bit ARM zImage load. Read from the stock Cannoli boot
+    /// FIT — kernel-1 `load`/`entry` are both `0x40008000` (ADR 0034).
+    pub const LOAD_ADDR: u32 = 0x4000_8000;
     /// The zImage entry; a self-relocating zImage takes the load address.
-    pub const ENTRY_ADDR: u32 = 0x4400_0000;
+    pub const ENTRY_ADDR: u32 = 0x4000_8000;
 
     const FDT_MAGIC: u32 = 0xD00D_FEED;
     const FDT_BEGIN_NODE: u32 = 1;
