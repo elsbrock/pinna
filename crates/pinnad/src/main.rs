@@ -63,6 +63,16 @@ use crate::voice::{Brain, Input, LocalOptions, Options, Shared, Snapshot};
 use crate::wake_level::WakeLevel;
 use crate::wakewords::{Catalogue, KeywordSet};
 
+/// musl's own malloc held on to the memory pinnad freed, so pinnad grew
+/// without bound while the microphones were on. Measured on
+/// the Echo (2nd gen) running 0.6.0-beta.2: with musl's malloc, RSS rose
+/// 1.7 MB a minute while the live heap stayed at 6.7 MB, until the satellite
+/// ran out of its 485 MB and hung. With mimalloc, RSS stayed between 46 and
+/// 58 MB for an hour.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {

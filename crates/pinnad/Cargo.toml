@@ -50,6 +50,11 @@ simple-dns = "0.13"
 # already in the build under rustls, which doesn't expose them.
 ring = "0.17"
 
+# musl's malloc grows pinnad until the satellite runs out of memory; see the
+# global allocator in main.rs.
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { version = "0.1", default-features = false }
+
 [dev-dependencies]
 pinna-assist = { path = "../pinna-assist", features = ["testing"] }
 pinna-esphome = { path = "../pinna-esphome", features = ["test-util"] }
