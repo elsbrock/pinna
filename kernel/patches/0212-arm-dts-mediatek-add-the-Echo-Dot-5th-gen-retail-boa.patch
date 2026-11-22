@@ -1,0 +1,203 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sun, 22 Nov 2026 15:18:29 +0100
+Subject: [PATCH] arm: dts: mediatek: add the Echo Dot (5th gen) retail board
+ (cannoli-dvt-plastic)
+
+The retail Echo Dot (5th gen) in the plastic shell boots the stock FIT
+configuration cannoli-pvt-plastic, which uses the dvt-plastic device
+tree (read from a retail unit's stock boot_a). This is Amazon's
+cannoli-dvt-plastic.dts from the same 5.4 release, unchanged: the HVT
+board plus what the retail board differs in.
+
+The difference that matters first is USB. The HVT tree runs the port as
+dual-role (otg) and lets an ID-pin detector (extcon_iddig, GPIO 16)
+choose host or device. The retail tree disables that detector and fixes
+the port to peripheral. With the HVT tree on a retail unit, the port can
+come up as a host, and Pinna's rescue shell (USB ACM and NCM) never
+reaches the computer. 6.12's mtu3 skips the extcon lookup in peripheral
+mode, so the extcon property the board dtsi still sets is ignored, as in
+Amazon's build.
+
+The rest are Amazon's retail values: the CPLD is the SLG4BZ45575
+(amzn,cpld45575, which the CPLD driver already matches), the Action
+button is SoC GPIO 41, the INA231 shunt is 30 mOhm, and the TMP108
+sensors the retail board doesn't fit are disabled.
+
+Built: mediatek/cannoli-dvt-plastic.dtb (ARCH=arm).
+---
+ arch/arm/boot/dts/mediatek/Makefile           |   3 +-
+ .../boot/dts/mediatek/cannoli-dvt-plastic.dts | 153 ++++++++++++++++++
+ 2 files changed, 155 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dts
+
+diff --git a/arch/arm/boot/dts/mediatek/Makefile b/arch/arm/boot/dts/mediatek/Makefile
+index ac2d473..ac2e402 100644
+--- a/arch/arm/boot/dts/mediatek/Makefile
++++ b/arch/arm/boot/dts/mediatek/Makefile
+@@ -14,4 +14,5 @@ dtb-$(CONFIG_ARCH_MEDIATEK) += \
+ 	mt8127-moose.dtb \
+ 	mt8135-evbp1.dtb \
+ 	mt8163-radar-puffin.dtb \
+-	cannoli-hvt.dtb
++	cannoli-hvt.dtb \
++	cannoli-dvt-plastic.dtb
+diff --git a/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dts b/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dts
+new file mode 100644
+index 0000000..45acb01
+--- /dev/null
++++ b/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dts
+@@ -0,0 +1,153 @@
++// SPDX-License-Identifier: (GPL-2.0 OR MIT)
++
++/dts-v1/;
++#include "cannoli-cheesecake.dtsi"
++
++/ {
++	model = "Cannoli DVT MT8519";
++	compatible = "amzn,cannoli-dvt", "mediatek,mt8519";
++
++	chosen {
++		bootargs = "";
++	};
++
++	/* bottom */
++	case_virtual_sensor: case-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 28800 17 346 (-40000) 125000>;
++			ap_ntc1 = <1 64200 4 29 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 79400 372 (-35) (-40000) 125000>;
++			ap_ntc4 = <1 (-35900) 629 463 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	/* top */
++	skin_virtual_sensor: skin-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 25900 189 853 (-40000) 125000>;
++			ap_ntc1 = <1 114000 59 (-342) (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 39600 53 276 (-40000) 125000>;
++			ap_ntc4 = <1 71300 720 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	back_virtual_sensor: back-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <1 36800 298 135 (-40000) 125000>;
++			ap_ntc1 = <1 48600 6 52 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <1 72300 417 (-6) (-40000) 125000>;
++			ap_ntc4 = <1 (-63500) 719 366 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	display_virtual_sensor: display-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 0 0 0 0>;
++		};
++	};
++
++	cpu_virtual_sensor: cpu-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 1000 1000 0 0>;
++		};
++	};
++
++	cpufilter_virtual_sensor: cpufilter-virtual-sensor {
++		compatible = "amazon,virtual_sensor";
++		#thermal-sensor-cells = <0>;
++		moving-average-prop = <1000 5 100 0>;
++
++		zone-list {
++			zone-names = "ap_ntc0", "ap_ntc1", "ap_ntc2", "ap_ntc3", "ap_ntc4", "wifi_temp", "soc_max";
++			ap_ntc0 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc1 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc2 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc3 = <0 0 0 0 (-40000) 125000>;
++			ap_ntc4 = <0 0 0 0 (-40000) 125000>;
++			wifi_temp = <0 0 0 0 0 0>;
++			soc_max = <0 0 1000 1000 0 0>;
++		};
++	};
++};
++
++&cpld {
++	compatible = "amzn,cpld45575"; /* SLG4BZ45575 */
++};
++
++&action_button {
++	gpios = <&pio 41 GPIO_ACTIVE_LOW>;
++};
++
++&current_sense_i2c3_40 {
++	shunt-resistor = <30000>;
++};
++
++&tmp_sensor_i2c0_4b {
++	status = "disabled";
++};
++
++&tmp_sensor_i2c3_48 {
++	status = "disabled";
++};
++
++&tmp_sensor_i2c3_49 {
++	status = "disabled";
++};
++
++&tmp_sensor_i2c3_4a {
++	status = "disabled";
++};
++
++&tmp_sensor_i2c4_48 {
++	status = "disabled";
++};
++
++&extcon_usb {
++	status = "disabled";
++};
++
++&ssusb {
++	dr_mode = "peripheral"; /* 1: host, 2: device, 3 dual-mode */
++	/*extcon = <&extcon_usb>;*/
++};

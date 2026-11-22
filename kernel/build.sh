@@ -8,8 +8,8 @@
 #                                 armhf image as 32-bit EL0, ADR 0031; no package)
 #   kernel/build.sh mt8516     -> build/kernel-mt8516/{Image.gz,dtbs} (the MT8516 Echos, ADR 0031;
 #                                 no package yet)
-#   kernel/build.sh mt8519     -> build/kernel-mt8519/{zImage,cannoli-hvt.dtb} (the Echo Dot
-#                                 (5th gen), 32-bit ARM, ADR 0034; no package yet)
+#   kernel/build.sh mt8519     -> build/kernel-mt8519/{zImage,cannoli-hvt.dtb,cannoli-dvt-plastic.dtb}
+#                                 (the Echo Dot (5th gen), 32-bit ARM, ADR 0034; no package yet)
 #   kernel/build.sh x86        -> build/kernel-x86/ (x86_64 QEMU/KVM variant for smoke tests, no package)
 #
 #   DEBUG=1       also merge kernel/debug.config (ftrace, debugfs, sysrq, …)
@@ -45,7 +45,7 @@ case "$variant" in
           targets=(Image.gz mediatek/mt8516-amazon-donut.dtb)
           arch=arm64; cross=aarch64-unknown-linux-gnu-; compat=armv7l-unknown-linux-gnueabihf- ;;
   mt8519) out=$root/build/kernel-mt8519; fragments+=("$here/mt8519.config")
-          targets=(zImage mediatek/cannoli-hvt.dtb) ;;
+          targets=(zImage mediatek/cannoli-hvt.dtb mediatek/cannoli-dvt-plastic.dtb) ;;
   x86)    out=$root/build/kernel-x86; fragments+=("$here/x86.config"); targets=(bzImage)
           arch=x86_64; cross= ;;
   *) echo "unknown variant: $variant" >&2; exit 2 ;;
