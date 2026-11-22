@@ -7,6 +7,12 @@ Wants=pinna-wireplumber.service
 ExecStart=/usr/bin/pinnad --config /etc/pinna/pinnad.toml
 Restart=always
 RestartSec=2
+# A pinnad that keeps growing is killed and restarted here, instead of taking
+# the whole satellite down: without a limit it filled the Echo (2nd gen)'s
+# 485 MB and the satellite stopped answering for hours, with no OOM kill. The
+# unit, with pinnactl during an update and pw-record, normally stays under
+# 50 MB.
+MemoryMax=200M
 Environment=RUST_LOG=info
 # The device's PipeWire graph (pinna-pipewire.service) runs system-wide.
 Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
