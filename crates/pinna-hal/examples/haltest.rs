@@ -94,7 +94,9 @@ async fn main() {
             }
             Some(m) = mute_rx.recv() => {
                 eprintln!("\nmic privacy: {}", if m { "MUTED" } else { "live" });
-                let _ = pinna_hal::led::set_mute_lamp_at(Path::new(board.privacy.mute_lamp), m);
+                if let Some(lamp) = board.privacy.mute_lamp {
+                    let _ = pinna_hal::led::set_mute_lamp_at(Path::new(lamp), m);
+                }
             }
             _ = tokio::signal::ctrl_c() => break,
         }

@@ -141,7 +141,7 @@ impl Lanes {
         let (reference, reference_count) = match board.speaker_lane() {
             Some(lane) => ([lane, lane], 1),
             None => (
-                [mics.count, mics.lanes() - 1],
+                [mics.loopback_at, mics.lanes() - 1],
                 mics.loopback.len().clamp(1, 2),
             ),
         };
@@ -318,7 +318,7 @@ mod tests {
                 lanes
                     .reference
                     .iter()
-                    .all(|&l| l >= b.mics.count && l < INPUTS)
+                    .all(|&l| l >= b.mics.loopback_at && l < INPUTS)
             );
             assert!(
                 Beamformer::new(lanes.speech, DEFAULT_BEAMS).is_ok(),

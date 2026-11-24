@@ -163,6 +163,25 @@ mod tests {
     }
 
     #[test]
+    fn the_echo_dot_5_by_its_record_and_an_mt8519_without_one_is_no_board() {
+        let d = tempfile::tempdir().unwrap();
+        let none = d.path().join("none");
+        let dt = d.path().join("dt");
+        let compatible = d.path().join("compatible");
+        fs::write(&compatible, "amzn,cannoli-dvt\0mediatek,mt8519\0").unwrap();
+        // Without the record an MT8519 is no board: only the MT8163 falls
+        // back to a model.
+        assert_eq!(model(detect_in(&none, &dt, &compatible)), None);
+        fs::create_dir_all(dt.join("device_type_id")).unwrap();
+        // As the owner's C2N6L4 carries it in the device tree.
+        fs::write(dt.join("device_type_id").join("value"), "A4ZXE0RM7LQ7A\0").unwrap();
+        let b = detect_in(&none, &dt, &compatible).unwrap();
+        assert_eq!(b.model, Model::EchoDot5);
+        assert!(b.soc_in(&compatible));
+        assert_eq!(storage_in(Some(b), &compatible), StorageKind::Ubi);
+    }
+
+    #[test]
     fn an_empty_record_counts_as_none() {
         let d = tempfile::tempdir().unwrap();
         let idme = d.path().join("idme");

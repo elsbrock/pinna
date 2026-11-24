@@ -61,10 +61,13 @@ pub fn open(board: &crate::board::Board, brightness: u8) -> Result<Box<dyn LedRi
         crate::board::RingDriver::Is31fl3236Frame => {
             let mut ring = Is31Sysfs::discover_in(
                 Path::new(SYSFS_I2C_DIR),
-                Path::new(board.privacy.mute_lamp),
+                Path::new(board.privacy.mute_lamp.unwrap_or_default()),
             )?;
             ring.set_brightness(brightness);
             Ok(Box::new(ring))
+        }
+        crate::board::RingDriver::Is31fl3246Class => {
+            Err(Error::NotFound("IS31FL3246 LED class devices"))
         }
     }
 }
@@ -587,7 +590,8 @@ mod tests {
         for m in crate::board::Model::ALL {
             let ring = m.board().ring;
             match ring.driver {
-                crate::board::RingDriver::Is31fl3236Frame => {
+                crate::board::RingDriver::Is31fl3236Frame
+                | crate::board::RingDriver::Is31fl3246Class => {
                     assert_eq!(ring.leds, RING_PIXELS, "{m:?}");
                 }
             }

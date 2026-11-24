@@ -23,10 +23,12 @@ pub enum Model {
     EchoDot2,
     /// Echo (2nd gen), `radar`.
     Echo2,
+    /// Echo Dot (5th gen), model C2N6L4, `cannoli` (ADR 0035).
+    EchoDot5,
 }
 
 impl Model {
-    pub const ALL: [Model; 2] = [Model::EchoDot2, Model::Echo2];
+    pub const ALL: [Model; 3] = [Model::EchoDot2, Model::Echo2, Model::EchoDot5];
 
     /// The stable id: the dashboard draws the device by it, a release
     /// manifest names the models it is for by it, and the control API and
@@ -35,6 +37,7 @@ impl Model {
         match self {
             Model::EchoDot2 => "echo-dot-2",
             Model::Echo2 => "echo-2",
+            Model::EchoDot5 => "echo-dot-5",
         }
     }
 
@@ -47,6 +50,7 @@ impl Model {
         match self {
             Model::EchoDot2 => "Echo Dot (2nd gen)",
             Model::Echo2 => "Echo (2nd gen)",
+            Model::EchoDot5 => "Echo Dot (5th gen)",
         }
     }
 
@@ -56,6 +60,7 @@ impl Model {
         match self {
             Model::EchoDot2 => "Echo Dot (2nd Gen)",
             Model::Echo2 => "Echo (2nd Gen)",
+            Model::EchoDot5 => "Echo Dot (5th Gen)",
         }
     }
 
@@ -63,7 +68,7 @@ impl Model {
     /// before the owner chooses one.
     pub const fn short_name(self) -> &'static str {
         match self {
-            Model::EchoDot2 => "Echo Dot",
+            Model::EchoDot2 | Model::EchoDot5 => "Echo Dot",
             Model::Echo2 => "Echo",
         }
     }
@@ -72,6 +77,7 @@ impl Model {
         match self {
             Model::EchoDot2 => &ECHO_DOT_2,
             Model::Echo2 => &ECHO_2,
+            Model::EchoDot5 => &ECHO_DOT_5,
         }
     }
 }
@@ -101,6 +107,8 @@ pub struct Board {
 pub enum Soc {
     /// MediaTek MT8163, 4x Cortex-A53 run in AArch32.
     Mt8163,
+    /// MediaTek MT8519, 4x Cortex-A55 run in AArch32 (ADR 0035).
+    Mt8519,
 }
 
 impl Soc {
@@ -108,6 +116,7 @@ impl Soc {
     pub const fn compatible(self) -> &'static str {
         match self {
             Soc::Mt8163 => "mediatek,mt8163",
+            Soc::Mt8519 => detect::MT8519_COMPATIBLE,
         }
     }
 }
@@ -133,7 +142,8 @@ pub struct Ring {
     /// LEDs on the ring. Pinna draws 12 logical pixels; a driver for a
     /// board with fewer LEDs folds them.
     pub leds: usize,
-    /// The two pixels at the front centre of the ring.
+    /// The two LEDs, in the board's own numbering, that the logical
+    /// front-centre pixels land on.
     pub front_centre: [usize; 2],
 }
 
@@ -143,6 +153,10 @@ pub enum RingDriver {
     /// `boot_animation` attributes (kernel patch 0011), found under
     /// `/sys/bus/i2c/devices`.
     Is31fl3236Frame,
+    /// ISSI IS31FL3246 behind Amazon's RGB LED class (kernel patch 0208):
+    /// one class device per LED, `/sys/class/leds/is31fl3246:ledmod_<n>`,
+    /// whose `color` takes `R G B`.
+    Is31fl3246Class,
 }
 
 impl RingDriver {
@@ -150,6 +164,7 @@ impl RingDriver {
     pub const fn name(self) -> &'static str {
         match self {
             RingDriver::Is31fl3236Frame => "IS31FL3236 via sysfs",
+            RingDriver::Is31fl3246Class => "IS31FL3246 via the LED class",
         }
     }
 }
@@ -185,6 +200,20 @@ pub const MT8163_KEYS: &[(u16, Button)] = &[
     (KEY_HELP, Button::Action),
 ];
 
+/// The Echo Dot (5th gen)'s keys: `gpio-keys` on Amazon's CPLD for the
+/// volume keys and the action button (the device tree's `linux,code`, kernel
+/// patch 0204), and `gpio-privacy`'s button event for the microphone button.
+/// TECHO5 read the same four codes from the input devices of a C2N6L4 on
+/// Amazon's kernel, with the same device tree (TECHO5 discussion #610,
+/// 2026-11-21): 114, 115 and 138 from `gpio-keys`, 113 from the privacy
+/// button.
+pub const ECHO_DOT_5_KEYS: &[(u16, Button)] = &[
+    (KEY_VOLUMEUP, Button::VolumeUp),
+    (KEY_VOLUMEDOWN, Button::VolumeDown),
+    (KEY_MUTE, Button::Mute),
+    (KEY_HELP, Button::Action),
+];
+
 impl Button {
     /// The button a key code is on the MT8163 Echos, and on the virtual
     /// Echo Dot, which sends the same codes.
@@ -207,8 +236,8 @@ pub struct Privacy {
     /// Where writing `1` closes the latch from software. Only the button
     /// opens it again.
     pub trigger: &'static [&'static str],
-    /// The red lamp the latch lights, when the kernel exposes it.
-    pub mute_lamp: &'static str,
+    /// The red lamp the latch lights, on a board that has one.
+    pub mute_lamp: Option<&'static str>,
 }
 
 /// Kernel patch 0012 (`amz_privacy`); older kernels name the device
@@ -222,7 +251,17 @@ pub const AMZ_PRIVACY: Privacy = Privacy {
         "/sys/devices/platform/amz_privacy/privacy_trigger",
         "/sys/devices/platform/amz-privacy/privacy_trigger",
     ],
-    mute_lamp: "/sys/devices/platform/amz_privacy/mute_lamp",
+    mute_lamp: Some("/sys/devices/platform/amz_privacy/mute_lamp"),
+};
+
+/// Amazon's `gpio-privacy` (kernel patches 0107 and 0218), the device tree
+/// node `gpio-privacy`: `state` reads the latch and writing `1` to `enable`
+/// pulses the line that closes it. The Echo Dot (5th gen) has no lamp of its
+/// own; the ring shows the latch.
+pub const GPIO_PRIVACY: Privacy = Privacy {
+    state: &["/sys/devices/platform/gpio-privacy/state"],
+    trigger: &["/sys/devices/platform/gpio-privacy/enable"],
+    mute_lamp: None,
 };
 
 /// The sound card.
@@ -272,6 +311,9 @@ pub enum SampleFormat {
     S16Le,
     /// 24 bits in 3 bytes, little endian.
     S24_3Le,
+    /// 32 bits, little endian. The MT8519's capture carries the converter's
+    /// samples left-aligned in them.
+    S32Le,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -281,13 +323,19 @@ pub enum Codec {
     /// `Ext_Speaker_Amp_Switch` (kernel patches 0014 to 0016). The sequences
     /// are LibreEcho's (micd.c, audio_engine.c).
     Mt8163Aic,
+    /// The MT8519 Echos: Amazon's AFE routes DL2 to eTDM2 and a MAX98396
+    /// amplifier, and eTDM1 from a TLV320ADC5140 to UL9, with the speaker's
+    /// signal looped back onto UL9 for the echo canceller (kernel patches
+    /// 0210 and 0211, mainline codec drivers).
+    Mt8519Max98396,
 }
 
 /// How the speaker is tuned: the codec's profile (a mixer control, kernel
 /// patch 0014) and the gain Pinna adds in software.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpeakerTuning {
-    pub codec_profile: CodecProfile,
+    /// `None` on a codec without the profile control.
+    pub codec_profile: Option<CodecProfile>,
     /// Gain before the volume curve, which tops out at -12 dB.
     pub pre_gain_db: f32,
     /// The stock firmware's extra gain above 70 % volume; the speaker
@@ -316,13 +364,20 @@ impl CodecProfile {
 impl SpeakerTuning {
     /// The Echo Dot (2nd gen): +6 dB, and the boost above 70 %.
     pub const FLAT: SpeakerTuning = SpeakerTuning {
-        codec_profile: CodecProfile::Flat,
+        codec_profile: Some(CodecProfile::Flat),
         pre_gain_db: 6.0,
         volume_boost: true,
     };
     /// The Echo (2nd gen): the codec's own profile, no extra gain.
     pub const RADAR: SpeakerTuning = SpeakerTuning {
-        codec_profile: CodecProfile::Radar,
+        codec_profile: Some(CodecProfile::Radar),
+        pre_gain_db: 0.0,
+        volume_boost: false,
+    };
+    /// The Echo Dot (5th gen): no profile control and no extra gain. Its
+    /// loudness against Fire OS is not measured yet.
+    pub const ECHO_DOT_5: SpeakerTuning = SpeakerTuning {
+        codec_profile: None,
         pre_gain_db: 0.0,
         volume_boost: false,
     };
@@ -341,9 +396,15 @@ impl SpeakerTuning {
 /// The microphone array, as the capture PCM delivers it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mics {
-    /// Microphones, on the capture PCM's first lanes.
+    /// Microphones, on the capture PCM's first lanes: microphone `i` is lane
+    /// `i`, and the geometry places it.
     pub count: usize,
-    /// The loopback lanes after the microphones: the playback channel each
+    /// The capture lane of the first loopback lane: `count` where the
+    /// loopback lanes follow the microphones, further where lanes between
+    /// them carry nothing (the Echo Dot (5th gen)'s converter's unwired
+    /// fourth input).
+    pub loopback_at: usize,
+    /// The loopback lanes from `loopback_at`: the playback channel each
     /// carries, in order. They come in the microphones' frames, so the echo
     /// canceller's reference needs no timing of its own.
     pub loopback: &'static [Channel],
@@ -359,9 +420,10 @@ impl Mics {
         ((1u16 << self.count) - 1) as u8
     }
 
-    /// Lanes on the capture PCM: the microphones, then the loopback lanes.
+    /// Lanes on the capture PCM: the microphones, any unused lanes, then the
+    /// loopback lanes.
     pub const fn lanes(&self) -> usize {
-        self.count + self.loopback.len()
+        self.loopback_at + self.loopback.len()
     }
 }
 
@@ -375,11 +437,14 @@ pub enum MicGeometry {
         step_deg: f64,
         centre: usize,
     },
+    /// Each microphone's place in millimetres, in the same frame: x toward
+    /// the front, y 90 degrees clockwise from it, seen from above.
+    Points(&'static [(f64, f64)]),
 }
 
 impl MicGeometry {
-    /// Where lane `lane`'s microphone sits, in metres from the centre.
-    pub fn position(&self, lane: usize) -> (f64, f64) {
+    /// Where microphone `mic` sits, in metres from the centre.
+    pub fn position(&self, mic: usize) -> (f64, f64) {
         match *self {
             MicGeometry::RingAndCentre {
                 radius_mm,
@@ -387,12 +452,16 @@ impl MicGeometry {
                 step_deg,
                 centre,
             } => {
-                if lane == centre {
+                if mic == centre {
                     return (0.0, 0.0);
                 }
-                let angle = (first_deg + lane as f64 * step_deg).to_radians();
+                let angle = (first_deg + mic as f64 * step_deg).to_radians();
                 let r = radius_mm * 1e-3;
                 (r * angle.cos(), r * angle.sin())
+            }
+            MicGeometry::Points(points) => {
+                let (x, y) = points[mic];
+                (x * 1e-3, y * 1e-3)
             }
         }
     }
@@ -404,6 +473,9 @@ pub enum Wifi {
     /// The MT8163's CONSYS, through the vendor driver (kernel patches 0018
     /// to 0031), started by `pinna-wifi.service`.
     Mt8163Consys,
+    /// MediaTek MT7663 on SDIO, through mainline `mt76` (`mt7663s`) and
+    /// `btmtksdio`, with linux-firmware's files.
+    Mt7663Sdio,
 }
 
 const MT8163_AUDIO: Audio = Audio {
@@ -435,6 +507,7 @@ const MT8163_AUDIO: Audio = Audio {
 /// the two loopback lanes.
 const MT8163_MICS: Mics = Mics {
     count: 7,
+    loopback_at: 7,
     // The playback's left and right channel after pinnad's volume, every third
     // 48 kHz sample, bit-exact zero in silence (both models, 2026-11-21). TECHO5
     // and EchoMuse map lanes 7 and 8 the same way.
@@ -488,6 +561,82 @@ pub static ECHO_2: Board = Board {
     wifi: Wifi::Mt8163Consys,
 };
 
+/// The Echo Dot (5th gen), C2N6L4 (`cannoli`): an MT8519 with SPI-NAND
+/// (ADR 0035). Its audio runs without Amazon's DSP, as TECHO5 found it on a
+/// C2N6L4 under Amazon's kernel, whose AFE driver Pinna ports (TECHO5
+/// discussion #610, 2026-11-21 to 2026-11-23):
+///
+/// - The speaker plays DL2, the card's playback device 1, routed to eTDM2
+///   and the MAX98396 at a fixed 96 kHz. DL2 takes 16-bit samples and eTDM2
+///   widens them to its 32-bit slots.
+/// - The microphones are UL9, capture device 9, at 96 kHz: the
+///   TLV320ADC5140's four slots on lanes 0 to 3, then DL2 looped back on
+///   lanes 4 and 5. Lanes 0 to 2 are the three microphones; lane 3, the
+///   converter's unwired fourth input, stays digitally silent. The loopback
+///   leads the microphones by 0.5 ms with the same polarity.
+pub static ECHO_DOT_5: Board = Board {
+    model: Model::EchoDot5,
+    // Read from the owner's C2N6L4 (LK's idme record in the device tree,
+    // Pinna 6.12 RAM boot, 2026-11-24).
+    device_type_id: "A4ZXE0RM7LQ7A",
+    // The product Fire OS reports on the same unit (`getprop`, 2026-11-22).
+    // Stock U-Boot's fastboot product was not read: Pinna doesn't flash this
+    // model through fastboot.
+    fastboot_product: "cannoli",
+    soc: Soc::Mt8519,
+    storage: StorageKind::Ubi,
+    ring: Ring {
+        driver: RingDriver::Is31fl3246Class,
+        leds: 12,
+        // `ledmod_0` is at the back, over the power socket, and the numbers
+        // run clockwise seen from above (TECHO5, one C2N6L4, 2026-11-21), so
+        // LED 6 sits at the front. No gap falls at the front centre as on
+        // the MT8163 ring: the pair is LED 6 and its clockwise neighbour.
+        front_centre: [6, 7],
+    },
+    keys: ECHO_DOT_5_KEYS,
+    privacy: GPIO_PRIVACY,
+    audio: Audio {
+        card: "mt-snd-card",
+        playback: Pcm {
+            device: "hw:0,1",
+            rate: 96_000,
+            channels: 2,
+            format: SampleFormat::S16Le,
+        },
+        capture: Pcm {
+            device: "hw:0,9",
+            rate: 96_000,
+            channels: 6,
+            format: SampleFormat::S32Le,
+        },
+        codec: Codec::Mt8519Max98396,
+        speaker: SpeakerTuning::ECHO_DOT_5,
+        // One amplifier on eTDM2. Which of DL2's two slots it plays is not
+        // measured; pinnad plays a mono mix, so both loopback lanes carry
+        // what it plays.
+        speaker_channels: SpeakerChannels::Only(Channel::Left),
+    },
+    mics: ECHO_DOT_5_MICS,
+    wifi: Wifi::Mt7663Sdio,
+};
+
+/// The Echo Dot (5th gen)'s three microphones: an L with 22.5 mm legs and
+/// microphone 1 in the corner. The shape is Amazon's
+/// (`codebook_Cancheese.txt`); where it lies was measured by TECHO5 on one
+/// C2N6L4 (2026-11-23, white noise from each of the twelve LEDs at 1 m,
+/// fitted to 0.7 mm rms), in a frame with x toward LED 0 at the back. Here
+/// the same points are turned to Pinna's frame, x toward the front.
+const ECHO_DOT_5_MICS: Mics = Mics {
+    count: 3,
+    // Lane 3 is the converter's unwired fourth input; DL2's left and right
+    // channel come back on lanes 4 and 5 (TECHO5, Amazon's 5.4 kernel).
+    loopback_at: 4,
+    loopback: &[Channel::Left, Channel::Right],
+    geometry: MicGeometry::Points(&[(-1.72, -16.68), (10.35, 2.30), (-8.63, 14.38)]),
+    speech_mask: 0b111,
+};
+
 impl Board {
     /// Whether `path`'s device tree `compatible` list names this board's SoC.
     pub fn soc_in(&self, compatible: &Path) -> bool {
@@ -506,7 +655,7 @@ impl Board {
             .loopback
             .iter()
             .position(|&c| c == channel)
-            .map(|i| self.mics.count + i)
+            .map(|i| self.mics.loopback_at + i)
     }
 }
 
@@ -522,6 +671,7 @@ mod tests {
         }
         assert_eq!(Model::EchoDot2.id(), "echo-dot-2");
         assert_eq!(Model::Echo2.id(), "echo-2");
+        assert_eq!(Model::EchoDot5.id(), "echo-dot-5");
         assert_eq!(Model::from_id(""), None);
         assert_eq!(Model::from_id("echo-dot-3"), None);
     }
@@ -534,14 +684,33 @@ mod tests {
         assert_eq!(Model::Echo2.home_assistant_name(), "Echo (2nd Gen)");
         assert_eq!(Model::EchoDot2.short_name(), "Echo Dot");
         assert_eq!(Model::Echo2.short_name(), "Echo");
+        assert_eq!(Model::EchoDot5.name(), "Echo Dot (5th gen)");
+        assert_eq!(Model::EchoDot5.home_assistant_name(), "Echo Dot (5th Gen)");
+        assert_eq!(Model::EchoDot5.short_name(), "Echo Dot");
     }
 
     #[test]
-    fn the_mt8163_echos_boot_from_gpt() {
+    fn the_mt8163_echos_boot_from_gpt_and_the_mt8519_from_ubi() {
         for m in Model::ALL {
-            assert_eq!(m.board().storage, StorageKind::Gpt);
+            let b = m.board();
+            let want = match b.soc {
+                Soc::Mt8163 => StorageKind::Gpt,
+                Soc::Mt8519 => StorageKind::Ubi,
+            };
+            assert_eq!(b.storage, want, "{m:?}");
         }
-        assert_ne!(StorageKind::Gpt, StorageKind::Ubi);
+        assert_eq!(Soc::Mt8519.compatible(), "mediatek,mt8519");
+    }
+
+    #[test]
+    fn echo_dot_5_keys() {
+        let k = ECHO_DOT_5.keys;
+        assert_eq!(button_in(k, KEY_VOLUMEUP), Some(Button::VolumeUp));
+        assert_eq!(button_in(k, KEY_VOLUMEDOWN), Some(Button::VolumeDown));
+        assert_eq!(button_in(k, KEY_HELP), Some(Button::Action));
+        assert_eq!(button_in(k, KEY_MUTE), Some(Button::Mute));
+        // No power key: mtk-kpd declares none on this board.
+        assert_eq!(button_in(k, KEY_POWER), None);
     }
 
     #[test]
@@ -587,9 +756,11 @@ mod tests {
     fn mic_lanes_fit_the_capture_pcm() {
         for m in Model::ALL {
             let b = m.board();
-            assert_eq!(b.mics.lanes(), b.audio.capture.channels);
-            assert_eq!(u32::from(b.mics.speech_mask) >> b.mics.count, 0);
-            assert_eq!(b.mics.speech_mask & !b.mics.all(), 0);
+            assert_eq!(b.mics.lanes(), b.audio.capture.channels, "{m:?}");
+            assert!(b.mics.loopback_at >= b.mics.count, "{m:?}");
+            assert!(!b.mics.loopback.is_empty(), "{m:?}");
+            assert_eq!(u32::from(b.mics.speech_mask) >> b.mics.count, 0, "{m:?}");
+            assert_eq!(b.mics.speech_mask & !b.mics.all(), 0, "{m:?}");
         }
     }
 
@@ -614,6 +785,22 @@ mod tests {
             ..ECHO_DOT_2
         };
         assert_eq!(left.speaker_lane(), Some(7));
+    }
+
+    #[test]
+    fn echo_dot_5_mics_are_an_l_with_22_5_mm_legs_and_mic_1_in_the_corner() {
+        let g = ECHO_DOT_5.mics.geometry;
+        let d = |a: usize, b: usize| {
+            let ((ax, ay), (bx, by)) = (g.position(a), g.position(b));
+            (ax - bx).hypot(ay - by)
+        };
+        assert!((d(0, 1) - 0.0225).abs() < 0.0001);
+        assert!((d(1, 2) - 0.0225).abs() < 0.0001);
+        assert!((d(0, 2) - 0.0225 * 2f64.sqrt()).abs() < 0.0002);
+        // TECHO5's mic 0 at (1.72, 16.68) mm with x toward the back is here
+        // turned half a circle.
+        let (x, y) = g.position(0);
+        assert!((x + 0.00172).abs() < 1e-9 && (y + 0.01668).abs() < 1e-9);
     }
 
     #[test]

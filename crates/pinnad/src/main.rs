@@ -739,7 +739,7 @@ async fn main() -> Result<()> {
             .speaker_profile
             .as_deref()
             .map_or(hw.audio.speaker, SpeakerTuning::named);
-        sc.profile.codec_flat = tuning.codec_profile == pinna_hal::board::CodecProfile::Flat;
+        sc.profile.codec_flat = tuning.codec_profile == Some(pinna_hal::board::CodecProfile::Flat);
         if echo_dot {
             sc.pre_gain_db = tuning.pre_gain_db;
             sc.volume_boost = tuning.volume_boost;
@@ -970,7 +970,7 @@ async fn main() -> Result<()> {
                 bin: "pw-record".into(),
                 reference_lane: hw
                     .speaker_lane()
-                    .unwrap_or(hw.mics.count + hw.mics.loopback.len() - 1),
+                    .unwrap_or(hw.mics.lanes() - 1),
             }) as Arc<dyn recording::DebugCapture>
         }),
     );
@@ -1107,7 +1107,7 @@ async fn main() -> Result<()> {
             encrypted,
             has_hw_privacy,
             privacy_trigger,
-            mute_lamp: Some(hw.privacy.mute_lamp.into()),
+            mute_lamp: hw.privacy.mute_lamp.map(Into::into),
             settings_file: cli.settings.clone(),
             airplay,
             bluetooth,
