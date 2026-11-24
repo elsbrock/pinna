@@ -16,8 +16,9 @@
 //! `--pad N` starts N samples of silence earlier to try another phase.
 //!
 //! `wake` writes what the wake word's stream carries (ADR 0033): the mean of
-//! the calibrated beam microphones minus the linear echo canceller's estimate
-//! from loopback lane 7, then the high-pass and +12.04 dB.
+//! all calibrated microphones minus the linear echo canceller's estimate from
+//! the loopback lane the speaker plays (lane 8, from the Echo Dot (2nd gen)'s
+//! board), then the high-pass and +12.04 dB, as `pinna_wake` computes them.
 //!
 //! `detect` reads dot_mic_aec (float WAV), converts it to 16-bit as pinnad's
 //! pw-record does, and runs pinnad's capture loop on it: 20 ms frames, the
@@ -126,11 +127,15 @@ fn read_miccal(miccal: &str) -> Result<Calibration> {
 }
 
 fn wake(mics: &str, miccal: &str, out: &str) -> Result<()> {
+    let board = &pinna_board::ECHO_DOT_2;
+    let reference = board
+        .speaker_lane()
+        .context("the board names no speaker lane")?;
     let (channels, s) = read_f32(mics)?;
     ensure!(channels == 9, "{mics}: need the 9 lanes of dot_mics");
     let cal = read_miccal(miccal)?;
     let lanes: Vec<usize> = (0..LOGICAL_CHANNELS)
-        .filter(|c| MIC_MASK_BEAM & (1 << c) != 0)
+        .filter(|c| board.mics.all() & (1 << c) != 0)
         .collect();
     let mut aec = LinearEchoCanceller::new();
     let mut hp = HighPass::new();
@@ -141,7 +146,7 @@ fn wake(mics: &str, miccal: &str, out: &str) -> Result<()> {
             .map(|&c| f32::from(cal.apply(c, to_i16(f[c]))))
             .sum::<f32>()
             / lanes.len() as f32;
-        let e = aec.process(mean, f32::from(to_i16(f[7])));
+        let e = aec.process(mean, f32::from(to_i16(f[reference])));
         let mut v = [hp.sample(saturate_s16(e.round() as i64))];
         apply_digital_gain(&mut v, DIGITAL_GAIN_DEFAULT);
         y.push(f32::from(v[0]) / 32768.0);

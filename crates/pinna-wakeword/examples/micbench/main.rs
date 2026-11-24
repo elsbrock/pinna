@@ -24,7 +24,9 @@
 //! was said. The loopback lanes come in the microphones' frames, so the
 //! reference needs no alignment.
 //!
-//! `run` defaults to the models in `blobs/models/openwakeword-0.5.1` and to
+//! `run` takes the reference from the loopback lane the Echo Dot (2nd gen)'s
+//! speaker plays, as `pinna_wake` does (lane 8), and defaults to the models in
+//! `blobs/models/openwakeword-0.5.1` and to
 //! `build/aec-replay/aec_replay`, built as `tools/aec-replay/aec_replay.cc`
 //! says; without it the WebRTC rows are left out.
 
@@ -68,6 +70,7 @@ struct Options {
     word: String,
     never: Vec<String>,
     /// The loopback lanes the reference takes: "7", "8" or "78" (their mean).
+    /// The default is the one the board's speaker plays.
     reference: String,
     warm: bool,
     jobs: usize,
@@ -134,7 +137,10 @@ fn parse_run(args: &[String]) -> Result<Options> {
             "hey_jarvis".into(),
             "hey_rhasspy".into(),
         ],
-        reference: "78".into(),
+        // The lane the board's speaker plays, as pinna_wake takes it.
+        reference: pinna_board::ECHO_DOT_2
+            .speaker_lane()
+            .map_or("78".into(), |l| l.to_string()),
         warm: true,
         jobs: std::thread::available_parallelism().map_or(4, |n| n.get()),
         wake: true,
@@ -481,7 +487,7 @@ fn bench(o: &Options, mut take: Take, csv: &mut String) -> Result<String> {
         for cancel in [
             Cancel::None,
             Cancel::Pinna(STEP_SIZE),
-            Cancel::Pinna(0.1),
+            Cancel::Pinna(0.5),
             Cancel::WebrtcLinear,
             Cancel::Webrtc,
         ] {
