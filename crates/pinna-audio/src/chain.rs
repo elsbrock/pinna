@@ -1,6 +1,7 @@
-//! The Echo Dot's speaker chain, the last stage before the codec: the speaker
-//! EQ, extra gain at the top of the volume range, and a look-ahead peak
-//! limiter that keeps the result under full scale.
+//! The Echo Dot's speaker chain, the last stage before the codec: a mono mix
+//! where the speaker plays one channel, the speaker EQ, extra gain at the top
+//! of the volume range, and a look-ahead peak limiter that keeps the result
+//! under full scale.
 
 use crate::refsink::SpeakerEq;
 
@@ -78,6 +79,7 @@ impl Limiter {
 
 /// The Echo Dot speaker chain, in place on s16le stereo chunks.
 pub struct SpeakerChain {
+    mono: bool,
     eq: SpeakerEq,
     boost: f32,
     limiter: Limiter,
@@ -87,22 +89,32 @@ impl SpeakerChain {
     pub const CEILING_DBFS: f32 = -0.1;
     pub const RELEASE_MS: f32 = 200.0;
 
-    pub fn new() -> Self {
+    /// `mono` mixes both channels into each, for a speaker that plays only
+    /// one of them (`pinna_board::SpeakerChannels::Only`): the other channel
+    /// would never sound, and the loopback lanes then match (ADR 0004).
+    pub fn new(mono: bool) -> Self {
         SpeakerChain {
+            mono,
             eq: SpeakerEq::new(),
             boost: 1.0,
             limiter: Limiter::new(Self::CEILING_DBFS, Self::RELEASE_MS, 48_000.0),
         }
     }
 
-    /// EQ, then the linear gain `boost` (ramped across the chunk from the
-    /// previous chunk's), then the limiter.
+    /// The mono mix if set, the EQ, then the linear gain `boost` (ramped
+    /// across the chunk from the previous chunk's), then the limiter.
     pub fn process(&mut self, bytes: &mut [u8], boost: f32) {
         let frames = (bytes.len() / 4).max(1) as f32;
         let start = self.boost;
         for (n, f) in bytes.chunks_exact_mut(4).enumerate() {
             let l = f32::from(i16::from_le_bytes([f[0], f[1]]));
             let r = f32::from(i16::from_le_bytes([f[2], f[3]]));
+            let (l, r) = if self.mono {
+                let m = 0.5 * (l + r);
+                (m, m)
+            } else {
+                (l, r)
+            };
             let (l, r) = self.eq.process_frame(l, r);
             let g = start + (boost - start) * (n as f32 / frames);
             let (l, r) = self.limiter.process(l * g, r * g);
@@ -112,12 +124,6 @@ impl SpeakerChain {
             f[2..].copy_from_slice(&r.to_le_bytes());
         }
         self.boost = boost;
-    }
-}
-
-impl Default for SpeakerChain {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -196,7 +202,7 @@ mod tests {
     fn chain_boosts_and_never_clips() {
         // A 1 kHz tone at -6 dBFS boosted by +14.5 dB, in 20 ms chunks.
         let x = sine(1_000.0, 16_384.0, 48_000);
-        let mut chain = SpeakerChain::new();
+        let mut chain = SpeakerChain::new(false);
         let boost = 10f32.powf(14.54 / 20.0);
         let mut out = Vec::new();
         for c in x.chunks(960) {
@@ -212,7 +218,7 @@ mod tests {
     #[test]
     fn chain_at_unity_is_the_eq() {
         let x = sine(1_000.0, 8_000.0, 9_600);
-        let mut chain = SpeakerChain::new();
+        let mut chain = SpeakerChain::new(false);
         let mut eq = SpeakerEq::new();
         let mut a = stereo(&x);
         let mut b = stereo(&x);
@@ -222,5 +228,32 @@ mod tests {
         for (p, q) in a[LOOKAHEAD..].iter().zip(&b) {
             assert!((p - q).abs() <= 1.0, "{p} vs {q}");
         }
+    }
+
+    /// A tone only on the left channel reaches both, at half its amplitude,
+    /// and a right-only tone too: the speaker plays one channel, and nothing
+    /// panned to the other is lost.
+    #[test]
+    fn mono_puts_both_channels_on_each() {
+        let x = sine(1_000.0, 8_000.0, 9_600);
+        let left_only: Vec<u8> = x
+            .iter()
+            .flat_map(|&s| [(s.round() as i16).to_le_bytes(), [0, 0]].concat())
+            .collect();
+        let mut chain = SpeakerChain::new(true);
+        let mut b = left_only.clone();
+        chain.process(&mut b, 1.0);
+        let right: Vec<f32> = b
+            .chunks_exact(4)
+            .map(|f| f32::from(i16::from_le_bytes([f[2], f[3]])))
+            .collect();
+        assert_eq!(left(&b), right);
+        let p = peak(&right[4_800..]);
+        assert!((p - 4_000.0).abs() < 200.0, "peak {p}");
+        // Without the mix, the right channel stays silent.
+        let mut chain = SpeakerChain::new(false);
+        let mut b = left_only;
+        chain.process(&mut b, 1.0);
+        assert!(b.chunks_exact(4).all(|f| f[2] == 0 && f[3] == 0));
     }
 }

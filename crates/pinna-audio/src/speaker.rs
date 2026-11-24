@@ -74,6 +74,9 @@ pub struct SpeakerConfig {
     /// The playback PCM's `/proc/asound` status file (Echo Dot). The amp is
     /// powered only once it reads `RUNNING`.
     pub pcm_status: Option<PathBuf>,
+    /// Play a mono mix: the board's speaker plays one channel only. Applied in
+    /// the Echo Dot speaker chain.
+    pub mono: bool,
 }
 
 impl SpeakerConfig {
@@ -94,6 +97,7 @@ impl SpeakerConfig {
             pre_gain_db: 0.0,
             volume_boost: false,
             pcm_status: Some("/proc/asound/card0/pcm23p/sub0/status".into()),
+            mono: false,
         }
     }
 }
@@ -1376,7 +1380,7 @@ impl Actor {
             anchor_frame: 0,
             rate,
             frames_written: 0,
-            chain: echo.then(crate::chain::SpeakerChain::new),
+            chain: echo.then(|| crate::chain::SpeakerChain::new(self.cfg.mono)),
             // The PCM just opened: its pointer counts this session's frames.
             pointer: self
                 .clocks

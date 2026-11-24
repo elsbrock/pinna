@@ -795,6 +795,11 @@ async fn main() -> Result<()> {
         if echo_dot {
             sc.pre_gain_db = tuning.pre_gain_db;
             sc.volume_boost = tuning.volume_boost;
+            // A speaker that plays one channel gets a mono mix (ADR 0004).
+            sc.mono = matches!(
+                hw.audio.speaker_channels,
+                pinna_hal::board::SpeakerChannels::Only(_)
+            );
         }
         Arc::new(Speaker::new(sc))
     });
