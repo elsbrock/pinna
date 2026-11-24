@@ -491,7 +491,8 @@ export type Status = Message<"pinna.v1.Status"> & {
   /**
    * Which hardware this is, as a stable id for the dashboard's drawing:
    * "echo-dot-2" for the Echo Dot (2nd gen), "echo-2" for the Echo
-   * (2nd gen); empty when unknown (QEMU, a PC).
+   * (2nd gen), "echo-dot-5" for the Echo Dot (5th gen); empty when unknown
+   * (QEMU, a PC).
    *
    * @generated from field: string model = 18;
    */

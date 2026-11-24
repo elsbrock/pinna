@@ -5,7 +5,7 @@
 // leave out the serial number, MAC and IP addresses and Wi-Fi names, and the
 // log loses them too. Built from GetStatus, GetUpdates and the log lines
 // alone. No Svelte and no runtime imports, so `node --test` runs it.
-import { drawingFor } from "../../../design/devices/index.ts";
+import { modelName } from "../../../design/devices/index.ts";
 import { MODE } from "./assistant.ts";
 import { channelName, lastStart } from "./view.ts";
 
@@ -71,7 +71,7 @@ export function scrub(text: string, { wifi = [], ownMac = "" }: { wifi?: readonl
 function deviceName(s: StatusLike): string {
   // The development VM (ADR 0014) passes for an Echo Dot (2nd gen) to draw it.
   if (s.virtualDevice) return "Virtual Echo Dot";
-  const known = drawingFor(s.model)?.name;
+  const known = modelName(s.model);
   if (known) return known;
   return s.model ? `Unknown (${s.model})` : "Unknown";
 }

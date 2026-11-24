@@ -55,6 +55,7 @@ test("the details say what they don't know", () => {
   assert.match(md, /^- Copied: 2026-11-20 15:14, UTC-05:30, the zone of the log's times$/m);
   assert.match(details({ ...dot, virtualDevice: true }, updates), /^- Device: Virtual Echo Dot$/m);
   assert.match(details({ ...dot, model: "echo-2" }, updates), /^- Device: Echo \(2nd gen\)$/m);
+  assert.match(details({ ...dot, model: "echo-dot-5" }, updates), /^- Device: Echo Dot \(5th gen\)$/m);
   assert.match(details({ ...dot, model: "kindle" }, { slots: [] }), /^- Device: Unknown \(kindle\)$\n- Running slot: none$/m);
 });
 

@@ -879,7 +879,9 @@ export function satelliteMark(sat: Pick<Satellite, "groupMember">): string {
 
 /** The drawing's model id for a satellite's `board` (see `identity::model_name`). */
 export function satelliteModel(board: string): string {
-  return board === "Echo (2nd Gen)" ? "echo-2" : "echo-dot-2";
+  if (board === "Echo (2nd Gen)") return "echo-2";
+  if (board === "Echo Dot (5th Gen)") return "echo-dot-5";
+  return "echo-dot-2";
 }
 
 // A stream's source as its header names it (ADR 0011), or `sendspin`, which

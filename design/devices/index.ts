@@ -30,3 +30,15 @@ export const BOX_ASPECT = echoDot2.ASPECT;
 export function drawingFor(model: string): Drawing | undefined {
   return DRAWINGS[model];
 }
+
+/** Every model Pinna runs on, drawn or not, by `Status.model` (pinna-board's `Model::name`). */
+const NAMES: Record<string, string> = {
+  "echo-dot-2": "Echo Dot (2nd gen)",
+  "echo-2": "Echo (2nd gen)",
+  "echo-dot-5": "Echo Dot (5th gen)",
+};
+
+/** The name owners know a model by, or `undefined` for an id Pinna doesn't know. */
+export function modelName(model: string): string | undefined {
+  return Object.hasOwn(NAMES, model) ? NAMES[model] : undefined;
+}

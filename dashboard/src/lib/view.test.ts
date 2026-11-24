@@ -761,6 +761,7 @@ test("fallbacks: the .local name and the first IPv4 address", () => {
 test("the drawing follows the board", () => {
   assert.equal(satelliteModel("Echo (2nd Gen)"), "echo-2");
   assert.equal(satelliteModel("Echo Dot (2nd Gen)"), "echo-dot-2");
+  assert.equal(satelliteModel("Echo Dot (5th Gen)"), "echo-dot-5");
   assert.equal(satelliteModel(""), "echo-dot-2");
 });
 
