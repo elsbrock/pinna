@@ -15,8 +15,9 @@ device_serial() {
 }
 
 # The device's model, from the same idme record pinna-hal::ident reads:
-# `device_type_id` is A3S5BH2HU6VAYF on the Echo Dot (2nd gen) and
-# A7WXQPH584YP on the Echo (2nd gen). Like ident.rs, a board without the
+# `device_type_id` is A3S5BH2HU6VAYF on the Echo Dot (2nd gen),
+# A7WXQPH584YP on the Echo (2nd gen) and A4ZXE0RM7LQ7A on the Echo Dot
+# (5th gen) (pinna-board's descriptions). Like ident.rs, a board without the
 # record (an older boot chain, a VM) falls back to the chip: an MT8163 board
 # is the Echo Dot, Pinna's first device; a VM gets no model name.
 device_model() {
@@ -25,6 +26,7 @@ device_model() {
     case "$type_id" in
       A3S5BH2HU6VAYF) echo "Echo Dot 2nd gen" ;;
       A7WXQPH584YP) echo "Echo 2nd gen" ;;
+      A4ZXE0RM7LQ7A) echo "Echo Dot 5th gen" ;;
       "")
         if tr '\0' '\n' 2>/dev/null < /sys/firmware/devicetree/base/compatible |
            grep -qx "mediatek,mt8163"; then
