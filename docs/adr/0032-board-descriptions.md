@@ -4,7 +4,15 @@ Status: proposed (2026-11-21), accepted (2026-11-21), built (2026-11-21),
 with the tests that run without hardware and the virtual Echo Dot. Not run
 on an Echo. Prepares the port in ADR 0031. Amended 2026-11-24 (ADR 0004): the
 board says which playback channels its speaker reproduces and what each
-loopback lane carries, and the microphone plugin reads the board itself.
+loopback lane carries, and the microphone plugin reads the board itself. The
+Echo Dot (5th gen) (ADR 0035,
+2026-11-24) is the first board that differs: the ring's LED order, the
+capture format, the playback rate, the microphone geometry and the PCMs'
+status files became data, as below. The 7-microphone calibration stays
+the MT8163's, since no other board has that record. The image files listed
+under "Not in this step" gained the MT8519's values in place (the USB
+gadget's idme ids, the PipeWire units' conditions and a graph chosen by the
+SoC); moving them to the description is still to do.
 
 ## Context
 

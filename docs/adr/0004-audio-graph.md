@@ -10,6 +10,9 @@ plays. WebRTC's echo canceller and pinnad's reference copy leave the graph,
 the beamformer stays only to point the ring at the talker, and pinnad plays a
 mono mix. Measured offline only; not run on
 a device yet.
+2026-11-24 by ADR 0035 (Decision 8): the Echo Dot (5th gen) runs a graph of
+its own with the same node names, chosen at run time, and its speaker plays
+at its PCM's 96 kHz. Everything below describes the MT8163 graph.
 
 ## Context
 
