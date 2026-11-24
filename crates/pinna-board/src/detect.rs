@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use crate::{Board, ECHO_DOT_2, Model};
+use crate::{Board, ECHO_DOT_2, Model, StorageKind};
 
 /// Amazon's idme driver, on Amazon's kernels.
 pub const IDME_DIR: &str = "/proc/idme";
@@ -42,6 +42,26 @@ pub fn detect_in(idme: &Path, dt_idme: &Path, compatible: &Path) -> Option<&'sta
         None => ECHO_DOT_2.soc_in(compatible).then_some(&ECHO_DOT_2),
     }
 }
+
+/// Where this machine keeps its partitions: the board's storage, else the
+/// SoC's. The MT8519 keeps everything in UBI volumes (ADR 0034) on every
+/// board, so an MT8519 without a board description still boots its root;
+/// anything else Pinna doesn't know (the VMs) is GPT, as before.
+pub fn storage() -> StorageKind {
+    static STORAGE: OnceLock<StorageKind> = OnceLock::new();
+    *STORAGE.get_or_init(|| storage_in(detect(), Path::new(DT_COMPATIBLE)))
+}
+
+pub fn storage_in(board: Option<&Board>, compatible: &Path) -> StorageKind {
+    match board {
+        Some(b) => b.storage,
+        None if compatible_has(compatible, MT8519_COMPATIBLE) => StorageKind::Ubi,
+        None => StorageKind::Gpt,
+    }
+}
+
+/// The MT8519's entry in the device tree's root `compatible` list.
+pub const MT8519_COMPATIBLE: &str = "mediatek,mt8519";
 
 /// The bootloader's idme `device_type_id`: `/proc/idme/device_type_id` on a
 /// kernel with Amazon's idme driver, LK's `idme/device_type_id` node in the
@@ -128,6 +148,18 @@ mod tests {
         fs::write(&compatible, "acme,board\0").unwrap();
         assert_eq!(model(detect_in(&none, &none, &compatible)), None);
         assert_eq!(model(detect_in(&none, &none, &none)), None);
+    }
+
+    #[test]
+    fn storage_is_the_boards_else_ubi_on_an_mt8519() {
+        let d = tempfile::tempdir().unwrap();
+        let compatible = d.path().join("compatible");
+        fs::write(&compatible, "amzn,cannoli-dvt\0mediatek,mt8519\0").unwrap();
+        assert_eq!(storage_in(None, &compatible), StorageKind::Ubi);
+        assert_eq!(storage_in(Some(&ECHO_DOT_2), &compatible), StorageKind::Gpt);
+        fs::write(&compatible, "amazon,radar-puffin\0mediatek,mt8163\0").unwrap();
+        assert_eq!(storage_in(None, &compatible), StorageKind::Gpt);
+        assert_eq!(storage_in(None, &d.path().join("none")), StorageKind::Gpt);
     }
 
     #[test]

@@ -218,14 +218,9 @@ fn uevent(path: &Path) -> HashMap<String, String> {
 /// The board is read once; hardware Pinna doesn't know, and the VMs, have no
 /// board and fall back to GPT, so existing devices are unchanged.
 fn scan_parts() -> HashMap<String, Part> {
-    static STORAGE: Mutex<Option<StorageKind>> = Mutex::new(None);
-    let kind = *STORAGE
-        .lock()
-        .unwrap()
-        .get_or_insert_with(|| pinna_board::detect().map_or(StorageKind::Gpt, |b| b.storage));
-    match kind {
+    match pinna_board::storage() {
         StorageKind::Gpt => scan_gpt(Path::new("/sys/class/block")),
-        StorageKind::Ubi => scan_ubi(Path::new("/sys/class/ubi")),
+        StorageKind::Ubi => scan_ubi(Path::new("/sys/class/ubi"), Path::new("/sys/class/block")),
     }
 }
 
@@ -257,10 +252,13 @@ fn scan_gpt(sys_block: &Path) -> HashMap<String, Part> {
     parts
 }
 
-/// Character devices by UBI volume name. Each `ubiN_M` under `sys_ubi` has a
-/// `name` (the volume name Pinna looks up) and a `dev` (`major:minor`); the
-/// node is the volume's character device `/dev/ubiN_M`.
-fn scan_ubi(sys_ubi: &Path) -> HashMap<String, Part> {
+/// UBI volumes by name. Each `ubiN_M` under `sys_ubi` has a `name` (the
+/// volume name Pinna looks up) and a `dev` (`major:minor`); the node is the
+/// volume's character device `/dev/ubiN_M`. When the kernel made a block
+/// device for the volume (`ubi.block=` on the command line), `ubiblockN_M`
+/// under `sys_block`, that is the node instead: dm-verity needs a block
+/// device under the root, as the stock system mounts its root.
+fn scan_ubi(sys_ubi: &Path, sys_block: &Path) -> HashMap<String, Part> {
     let mut parts = HashMap::new();
     let Ok(dir) = fs::read_dir(sys_ubi) else {
         return parts;
@@ -285,11 +283,25 @@ fn scan_ubi(sys_ubi: &Path) -> HashMap<String, Part> {
         if name.is_empty() {
             continue;
         }
-        parts.entry(name).or_insert(Part {
-            devname,
-            dev: (maj, min),
-            node: NodeKind::Char,
-        });
+        let block = format!("ubiblock{}", devname.trim_start_matches("ubi"));
+        let part = match fs::read_to_string(sys_block.join(&block).join("dev"))
+            .ok()
+            .and_then(|d| {
+                let (maj, min) = d.trim().split_once(':')?;
+                Some((maj.parse().ok()?, min.parse().ok()?))
+            }) {
+            Some(dev) => Part {
+                devname: block,
+                dev,
+                node: NodeKind::Block,
+            },
+            None => Part {
+                devname,
+                dev: (maj, min),
+                node: NodeKind::Char,
+            },
+        };
+        parts.entry(name).or_insert(part);
     }
     parts
 }
@@ -699,12 +711,42 @@ mod tests {
         vol("ubi0", "", "246:0"); // the ubi device itself, not a volume
         vol("ubi0_9", "", "247:9"); // a volume with no name file: skipped
 
-        let parts = scan_ubi(d.path());
+        let parts = scan_ubi(d.path(), &d.path().join("block"));
         let a = parts.get("system_a").expect("system_a");
         assert_eq!(a.devname, "ubi0_2");
         assert_eq!(a.dev, (247, 2));
         assert_eq!(a.node, NodeKind::Char);
         assert_eq!(parts.get("system_b").unwrap().dev, (247, 3));
         assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn ubi_prefers_the_volumes_block_device() {
+        let d = tempfile::tempdir().unwrap();
+        let ubi = d.path().join("ubi");
+        let block = d.path().join("block");
+        for (dir, name, dev) in [
+            ("ubi0_6", "misc", "247:7"),
+            ("ubi0_9", "system_a", "247:10"),
+        ] {
+            fs::create_dir_all(ubi.join(dir)).unwrap();
+            fs::write(ubi.join(dir).join("name"), format!("{name}\n")).unwrap();
+            fs::write(ubi.join(dir).join("dev"), format!("{dev}\n")).unwrap();
+        }
+        // ubi.block=0,system_a: the kernel's ubiblock0_9 (stock Fire OS: 254:0).
+        fs::create_dir_all(block.join("ubiblock0_9")).unwrap();
+        fs::write(block.join("ubiblock0_9").join("dev"), "254:0\n").unwrap();
+
+        let parts = scan_ubi(&ubi, &block);
+        let a = parts.get("system_a").unwrap();
+        assert_eq!(
+            (a.devname.as_str(), a.dev, a.node),
+            ("ubiblock0_9", (254, 0), NodeKind::Block)
+        );
+        let misc = parts.get("misc").unwrap();
+        assert_eq!(
+            (misc.devname.as_str(), misc.node),
+            ("ubi0_6", NodeKind::Char)
+        );
     }
 }

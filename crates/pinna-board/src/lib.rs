@@ -12,7 +12,9 @@ use std::path::Path;
 
 pub mod detect;
 
-pub use detect::{DT_COMPATIBLE, DT_IDME_DIR, IDME_DIR, detect, detect_in, device_type_id};
+pub use detect::{
+    DT_COMPATIBLE, DT_IDME_DIR, IDME_DIR, detect, detect_in, device_type_id, storage,
+};
 
 /// An Echo model Pinna runs on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
