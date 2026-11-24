@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Tue, 24 Nov 2026 19:30:00 +0100
+Subject: [PATCH] ASoC: mediatek: match Cannoli codec DAI names
+
+Use the DAI names registered by the mainline MAX98396 and ADCX140 drivers.
+The ADCX140 component name is generic, so identify the fitted TI ADC from
+its device-tree compatible when applying the board's BCLK inversion. Keep
+the existing DAI-name checks for older registrations.
+
+Amazon's U-Boot writes the 5.4 names (max98396-aif1-a,
+tlv320adc5140-codec-a) back into /sound on every boot, so the machine
+driver also maps those names to the 6.12 ones. Seen on the UART of a
+C2N6L4 on 2026-11-24: the card deferred on max98396-aif1-a.
+---
+
+diff --git a/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi b/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
+--- a/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
++++ b/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
+@@ -68,7 +68,7 @@
+ 		/* Spkr Out - over etdm2 */
+ 		mediatek,etdm2-out-audio-codec = <&max98396_1_dac>;
+ 		mediatek,etdm2-out-audio-codec-name = "max98396_1-dac";
+-		mediatek,etdm2-out-codec-dai-name = "max98396-aif1-a";
++		mediatek,etdm2-out-codec-dai-name = "max98396-aif1";
+ 
+ 		/* etdmout2 fix format */
+ 		mediatek,etdm2-out-fix-rate = <96000>;
+@@ -78,7 +78,7 @@
+ 		/* Mic In - ADC5140 */
+ 		mediatek,etdm1-in-audio-codec = <&tlv320adc5140_1>;
+ 		mediatek,etdm1-in-audio-codec-name = "tlv320adc5140_1";
+-		mediatek,etdm1-in-codec-dai-name = "tlv320adc5140-codec-a";
++		mediatek,etdm1-in-codec-dai-name = "tlv320adcx140-codec";
+ 		mediatek,etdm1-in-format = "dsp_b";
+ 		mediatek,etdm1-in-bck-inverse=<1>;
+ 		mediatek,etdm1-in-mclk-multiplier=<256>;
+diff --git a/sound/soc/mediatek/mt8519/mendocino.c b/sound/soc/mediatek/mt8519/mendocino.c
+--- a/sound/soc/mediatek/mt8519/mendocino.c
++++ b/sound/soc/mediatek/mt8519/mendocino.c
+@@ -9,6 +9,7 @@
+ #include <linux/module.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/pinctrl/consumer.h>
++#include <linux/of.h>
+ #include <linux/thermal.h>
+ #include <linux/of_gpio.h>
+ #include <linux/thermal.h>
+@@ -864,6 +865,23 @@
+ /*   TLV320_PLL_ADC_FS_CLKIN_PLL_BCLK = 3 */
+ /*    TLV320_ADC_FS_CLKIN_BCLK = 4 */
+ 
++static bool mt8519_mendocino_is_ti_adc(struct snd_soc_dai *codec_dai)
++{
++	if (!codec_dai)
++		return false;
++
++	if (codec_dai->name && (strstr(codec_dai->name, "tlv320adc5140") ||
++				strstr(codec_dai->name, "tlv320adc5120")))
++		return true;
++
++	return codec_dai->component && codec_dai->component->dev &&
++		codec_dai->component->dev->of_node &&
++		(of_device_is_compatible(codec_dai->component->dev->of_node,
++					 "ti,tlv320adc5140") ||
++		 of_device_is_compatible(codec_dai->component->dev->of_node,
++					 "ti,tlv320adc5120"));
++}
++
+ static int mt8519_mendocino_hw_params(struct snd_pcm_substream *substream,
+ 				struct snd_pcm_hw_params *params)
+ {
+@@ -954,8 +972,7 @@
+ 			, params_rate(params));
+ 
+ 		/* Inverse the BCLK bit for TI ADC5140 to match MTK and AKM. */
+-		if (strstr(snd_soc_rtd_to_codec(rtd, 0)->name, "tlv320adc5140") ||
+-			strstr(snd_soc_rtd_to_codec(rtd, 0)->name, "tlv320adc5120")) {
++		if (mt8519_mendocino_is_ti_adc(snd_soc_rtd_to_codec(rtd, 0))) {
+ 			switch (rtd->dai_link->dai_fmt & SND_SOC_DAIFMT_INV_MASK) {
+ 			case SND_SOC_DAIFMT_NB_NF:
+ 				fmt = rtd->dai_link->dai_fmt | SND_SOC_DAIFMT_IB_NF;
+@@ -1781,6 +1798,25 @@
+ 	return ret;
+ }
+ 
++/*
++ * Amazon's U-Boot writes the 5.4 codec DAI names into /sound on every boot
++ * (enable_correct_hardware_config_in_dt, seen on the UART of a C2N6L4 on
++ * 2026-11-24), so the device tree alone cannot carry the 6.12 names.
++ */
++static const char *mt8519_mendocino_codec_dai_name(const char *name)
++{
++	static const char * const renamed[][2] = {
++		{ "max98396-aif1-a", "max98396-aif1" },
++		{ "tlv320adc5140-codec-a", "tlv320adcx140-codec" },
++	};
++	size_t i;
++
++	for (i = 0; name && i < ARRAY_SIZE(renamed); i++)
++		if (!strcmp(name, renamed[i][0]))
++			return renamed[i][1];
++	return name;
++}
++
+ static void mt8519_mendocino_parse_of_codec(struct device *dev,
+ 	struct device_node *np,
+ 	struct snd_soc_dai_link *dai_link,
+@@ -1833,6 +1869,8 @@
+ 			 name, i);
+ 		of_property_read_string(np, prop,
+ 			&dai_link->codecs[i].dai_name);
++		dai_link->codecs[i].dai_name =
++			mt8519_mendocino_codec_dai_name(dai_link->codecs[i].dai_name);
+ 	}
+ 
+ 	return;
+@@ -1849,6 +1887,8 @@
+ 	// parse codec dai name
+ 	snprintf(prop, sizeof(prop), PREFIX"%s-codec-dai-name", name);
+ 	of_property_read_string(np, prop, &dai_link->codecs->dai_name);
++	dai_link->codecs->dai_name =
++		mt8519_mendocino_codec_dai_name(dai_link->codecs->dai_name);
+ }
+ 
+ static void mt8519_mendocino_parse_of(struct snd_soc_card *card,
+-- 
+2.43.0
