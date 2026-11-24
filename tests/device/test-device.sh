@@ -41,11 +41,11 @@ check "clock synchronized" 'for i in $(seq 1 30); do timedatectl show -p NTPSync
 check "mDNS record published" 'grep -q "^Type=_esphomelib._tcp" /run/systemd/dnssd/*.dnssd'
 check "fastboot guard cleared, Kaeru present" 'pinna-bootctl status | grep -qx "command: Empty" && pinna-bootctl status | grep -qx "kaeru: true"'
 check "pinnad healthy (control API)" 'pinnactl status >/dev/null'
-check "microphone capture running" '{ pgrep -x arecord || pgrep -f "pw-record .*dot_mic_aec"; } >/dev/null && journalctl -u pinnad -b -o cat | grep -q "microphone running"'
+check "microphone capture running" '{ pgrep -x arecord || pgrep -f "pw-record .*dot_wake"; } >/dev/null && journalctl -u pinnad -b -o cat | grep -q "microphone running"'
 backend=$(remote "pinnactl status | awk '/^audio:/{print \$2}'")
 info "audio backend: ${backend:-unknown}"
 if [ "$backend" = echodot-pipewire ]; then
-  check "PipeWire microphone graph running" 'systemctl is-active -q pinna-pipewire pinna-wireplumber && PIPEWIRE_RUNTIME_DIR=/run/pipewire pw-cli ls Node | grep -q "node.name = \"dot_mic_aec\""'
+  check "PipeWire microphone graph running" 'systemctl is-active -q pinna-pipewire pinna-wireplumber && PIPEWIRE_RUNTIME_DIR=/run/pipewire pw-cli ls Node | grep -q "node.name = \"dot_wake\""'
 fi
 check "LED ring driver present" 'ls /sys/bus/i2c/devices/*/frame >/dev/null'
 check "LED test animation accepted" 'pinnactl led-test >/dev/null'

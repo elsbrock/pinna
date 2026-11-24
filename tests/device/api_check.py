@@ -6,13 +6,11 @@ word on its own microphone.
 
 aec (the device's PipeWire microphone graph with echo cancellation; run it in
 a quiet room — sound the device did not play cannot be cancelled): the device
-plays ~12 s of music followed by the same clip, while the beamformer output
-(dot_beam), the echo-cancelled stream (dot_mic_aec) and the wake word's stream
-(dot_wake, ADR 0033) are recorded on the device. The music must reach the
-beamformer (speaker -> microphones -> beamformer), the echo canceller must
-remove at least MIN_REDUCTION_DB of it in the speech band, dot_wake must be at
-least MIN_WAKE_REDUCTION_DB below the beamformer, and the device must NOT wake
-on its own voice.
+plays ~12 s of music followed by the same clip, while the raw microphone lanes
+(dot_mics) and the echo-cancelled stream (dot_wake, ADR 0004) are recorded on
+the device. The music must reach the microphones, dot_wake must be at least
+MIN_REDUCTION_DB below the microphones' mean (with the stream's +12 dB) in the
+speech band, and the device must NOT wake on its own voice.
 
 Any Assist run that starts is cancelled right away.
 """
@@ -44,11 +42,14 @@ FIXTURES = ROOT / "crates/pinna-wakeword/tests/fixtures"
 CLIP = FIXTURES / "alexa-what-time.wav"
 MUSIC = [FIXTURES / "music-clean.wav", FIXTURES / "music-bedonly.wav"]
 REMOTE_DIR = "/var/lib/pinna/test"
-MIN_REDUCTION_DB = 20.0
-# dot_wake has no suppressor, only a linear canceller (ADR 0033): offline it
-# removed 14-20 dB of a reply on an Echo Dot (2nd gen); without it, none.
-MIN_WAKE_REDUCTION_DB = 10.0
+# dot_wake has no suppressor, only a linear canceller (ADR 0004, ADR 0033):
+# offline it removed 25.8 dB of music and speech on an Echo Dot (2nd gen) at
+# volume 55, and 12.7 dB on an Echo (2nd gen) at volume 75.
+MIN_REDUCTION_DB = 10.0
 MIN_MUSIC_OVER_QUIET_DB = 15.0
+# The microphones the stream averages, and its gain (pinna_wake).
+MICS = 7
+STREAM_GAIN_DB = 20 * math.log10(4)
 
 EXPECTED = {
     LightInfo: {"LED ring"},
@@ -92,6 +93,23 @@ def read_wav(data: bytes) -> tuple[list[int], int]:
     n = len(raw) // 2
     samples = list(memoryview(raw).cast("h"))[:n]
     return samples, w.getframerate()
+
+
+def read_mics_mean(data: bytes) -> tuple[list[int], int]:
+    """The mean of the microphone lanes of a 24-bit dot_mics WAV, on the 16-bit
+    scale, as pinna_wake averages them."""
+    w = wave.open(io.BytesIO(data))
+    ch, width = w.getnchannels(), w.getsampwidth()
+    raw = w.readframes(w.getnframes())
+    frame = ch * width
+    out = []
+    for i in range(0, len(raw) - frame + 1, frame):
+        total = 0
+        for c in range(MICS):
+            b = raw[i + c * width : i + (c + 1) * width]
+            total += int.from_bytes(b, "little", signed=True) >> (8 * (width - 2))
+        out.append(total // MICS)
+    return out, w.getframerate()
 
 
 def aec_test_wav() -> bytes:
@@ -228,9 +246,8 @@ async def main() -> None:
         path = f"{REMOTE_DIR}/aec-test.wav"
         remote(f"mkdir -p {REMOTE_DIR} && cat > {path}", aec_test_wav())
         rec = (
-            f"cd {REMOTE_DIR} && rm -f beam.wav aec.wav wake.wav && export PIPEWIRE_RUNTIME_DIR=/run/pipewire && "
-            "{ timeout 22 pw-record --target dot_beam --rate 16000 --channels 1 --format s16 beam.wav & "
-            "timeout 22 pw-record --target dot_mic_aec --rate 16000 --channels 1 --format s16 aec.wav & "
+            f"cd {REMOTE_DIR} && rm -f mics.wav wake.wav && export PIPEWIRE_RUNTIME_DIR=/run/pipewire && "
+            "{ timeout 22 pw-record --target dot_mics --rate 16000 --channels 9 --format s24 mics.wav & "
             "timeout 22 pw-record --target dot_wake --rate 16000 --channels 1 --format s16 wake.wav & wait; }"
         )
         recorder = subprocess.Popen(ssh + [rec], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -238,7 +255,7 @@ async def main() -> None:
         started = 0.0
         for _ in range(50):
             await asyncio.sleep(0.2)
-            size = remote(f"stat -c %s {REMOTE_DIR}/beam.wav 2>/dev/null || echo 0", check=False)
+            size = remote(f"stat -c %s {REMOTE_DIR}/wake.wav 2>/dev/null || echo 0", check=False)
             started = max(0, int(size.strip() or 0) - 44) / (16000 * 2)
             if started >= 1.0:
                 break
@@ -247,27 +264,21 @@ async def main() -> None:
         client.media_player_command(player, media_url=f"file://{path}")
         await asyncio.get_running_loop().run_in_executor(None, recorder.wait)
         client.media_player_command(player, command=MediaPlayerCommand.STOP)
-        beam, rate = read_wav(remote(f"cat {REMOTE_DIR}/beam.wav"))
-        aec, _ = read_wav(remote(f"cat {REMOTE_DIR}/aec.wav"))
+        mics, rate = read_mics_mean(remote(f"cat {REMOTE_DIR}/mics.wav"))
         wake, _ = read_wav(remote(f"cat {REMOTE_DIR}/wake.wav"))
-        # Quiet: before playback. Music: 8-13 s into it (the canceller has converged).
-        quiet = band_db(beam, rate, 0.1, max(0.5, started - 0.1))
-        music_beam = band_db(beam, rate, started + 8.0, started + 13.0)
-        music_aec = band_db(aec, rate, started + 8.0, started + 13.0)
+        # Quiet: before playback. Music: 8-13 s into it (the canceller has
+        # converged). The two recordings start within a few tens of ms.
+        quiet = band_db(mics, rate, 0.1, max(0.5, started - 0.1)) + STREAM_GAIN_DB
+        music_mics = band_db(mics, rate, started + 8.0, started + 13.0) + STREAM_GAIN_DB
         music_wake = band_db(wake, rate, started + 8.0, started + 13.0)
-        say(f"beamformer: quiet {quiet:.1f} dB, music {music_beam:.1f} dB; "
-            f"after echo cancellation {music_aec:.1f} dB ({music_beam - music_aec:.1f} dB removed)")
-        if music_beam - quiet < MIN_MUSIC_OVER_QUIET_DB:
-            fail("the music does not reach the beamformer (speaker or microphones not working)")
-        say(f"wake word stream: music {music_wake:.1f} dB ({music_beam - music_wake:.1f} dB under the beamformer)")
-        # Report every verdict before failing: they test different streams.
+        say(f"microphones' mean (+12 dB): quiet {quiet:.1f} dB, music {music_mics:.1f} dB; "
+            f"after echo cancellation {music_wake:.1f} dB ({music_mics - music_wake:.1f} dB removed)")
+        if music_mics - quiet < MIN_MUSIC_OVER_QUIET_DB:
+            fail("the music does not reach the microphones (speaker or microphones not working)")
+        # Report every verdict before failing.
         problems = []
-        if music_beam - music_aec < MIN_REDUCTION_DB:
+        if music_mics - music_wake < MIN_REDUCTION_DB:
             problems.append(f"echo cancellation removed less than {MIN_REDUCTION_DB:.0f} dB")
-        if music_beam - music_wake < MIN_WAKE_REDUCTION_DB:
-            problems.append(
-                f"the wake word stream is less than {MIN_WAKE_REDUCTION_DB:.0f} dB under the beamformer"
-            )
         if woke.is_set():
             problems.append("the device woke on its own voice (echo cancellation not effective)")
         else:
