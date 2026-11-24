@@ -220,6 +220,24 @@ pub struct Audio {
     pub codec: Codec,
     /// The speaker's tuning, unless a developer picks another.
     pub speaker: SpeakerTuning,
+    /// The playback channels the speaker reproduces.
+    pub speaker_channels: SpeakerChannels,
+}
+
+/// A channel of the stereo playback PCM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Channel {
+    Left,
+    Right,
+}
+
+/// Which playback channels reach the speaker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpeakerChannels {
+    Both,
+    /// One channel only; the other never sounds. pinnad plays a mono mix, so
+    /// nothing is lost and both channels carry what the speaker plays.
+    Only(Channel),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -307,12 +325,26 @@ impl SpeakerTuning {
 pub struct Mics {
     /// Microphones, on the capture PCM's first lanes.
     pub count: usize,
-    /// Lanes after the microphones that carry the speaker's signal, for the
-    /// echo canceller.
-    pub reference_lanes: usize,
+    /// The loopback lanes after the microphones: the playback channel each
+    /// carries, in order. They come in the microphones' frames, so the echo
+    /// canceller's reference needs no timing of its own.
+    pub loopback: &'static [Channel],
     pub geometry: MicGeometry,
-    /// The lanes the stock firmware uses for speech, as a bit mask.
+    /// The lanes the stock firmware uses for speech, as a bit mask. The
+    /// beamformer that points the ring at the talker listens to these.
     pub speech_mask: u8,
+}
+
+impl Mics {
+    /// Every microphone, as a lane mask.
+    pub const fn all(&self) -> u8 {
+        ((1u16 << self.count) - 1) as u8
+    }
+
+    /// Lanes on the capture PCM: the microphones, then the loopback lanes.
+    pub const fn lanes(&self) -> usize {
+        self.count + self.loopback.len()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -372,14 +404,23 @@ const MT8163_AUDIO: Audio = Audio {
     },
     codec: Codec::Mt8163Aic,
     speaker: SpeakerTuning::FLAT,
+    // The codec's right headphone driver (HPR, from R_DAC) drives the speaker
+    // amplifier. On stereo music the speaker's echo follows loopback lane 8:
+    // the best linear filter from lane 8 removes 12.5 dB (Echo Dot (2nd gen),
+    // volume 55) and 13.3 dB (Echo (2nd gen), volume 75), from lane 7 0.8
+    // and 0.9 dB. Recordings of 2026-11-21, measured with micbench (ADR 0004).
+    speaker_channels: SpeakerChannels::Only(Channel::Right),
 };
 
 /// The seven-microphone array of both MT8163 Echos (LibreEcho's
 /// mic_array_geometry.h): six on a 36 mm circle, one in the centre, then
-/// the two reference lanes.
+/// the two loopback lanes.
 const MT8163_MICS: Mics = Mics {
     count: 7,
-    reference_lanes: 2,
+    // The playback's left and right channel after pinnad's volume, every third
+    // 48 kHz sample, bit-exact zero in silence (both models, 2026-11-21). TECHO5
+    // and EchoMuse map lanes 7 and 8 the same way.
+    loopback: &[Channel::Left, Channel::Right],
     geometry: MicGeometry::RingAndCentre {
         radius_mm: 36.0,
         first_deg: 150.0,
@@ -431,6 +472,21 @@ impl Board {
     /// Whether `path`'s device tree `compatible` list names this board's SoC.
     pub fn soc_in(&self, compatible: &Path) -> bool {
         detect::compatible_has(compatible, self.soc.compatible())
+    }
+
+    /// The capture lane that carries what the speaker plays, for the echo
+    /// canceller's reference (ADR 0004): the loopback lane of the channel the
+    /// speaker reproduces. `None` when it plays both channels, or when no
+    /// loopback lane carries the one it plays.
+    pub fn speaker_lane(&self) -> Option<usize> {
+        let SpeakerChannels::Only(channel) = self.audio.speaker_channels else {
+            return None;
+        };
+        self.mics
+            .loopback
+            .iter()
+            .position(|&c| c == channel)
+            .map(|i| self.mics.count + i)
     }
 }
 
@@ -503,12 +559,33 @@ mod tests {
     fn mic_lanes_fit_the_capture_pcm() {
         for m in Model::ALL {
             let b = m.board();
-            assert_eq!(
-                b.mics.count + b.mics.reference_lanes,
-                b.audio.capture.channels
-            );
+            assert_eq!(b.mics.lanes(), b.audio.capture.channels);
             assert_eq!(u32::from(b.mics.speech_mask) >> b.mics.count, 0);
+            assert_eq!(b.mics.speech_mask & !b.mics.all(), 0);
         }
+    }
+
+    #[test]
+    fn the_echo_reference_is_the_lane_the_speaker_plays() {
+        assert_eq!(ECHO_DOT_2.speaker_lane(), Some(8));
+        assert_eq!(ECHO_2.speaker_lane(), Some(8));
+        assert_eq!(MT8163_MICS.all(), 0x7f);
+        let stereo = Board {
+            audio: Audio {
+                speaker_channels: SpeakerChannels::Both,
+                ..MT8163_AUDIO
+            },
+            ..ECHO_DOT_2
+        };
+        assert_eq!(stereo.speaker_lane(), None);
+        let left = Board {
+            audio: Audio {
+                speaker_channels: SpeakerChannels::Only(Channel::Left),
+                ..MT8163_AUDIO
+            },
+            ..ECHO_DOT_2
+        };
+        assert_eq!(left.speaker_lane(), Some(7));
     }
 
     #[test]
