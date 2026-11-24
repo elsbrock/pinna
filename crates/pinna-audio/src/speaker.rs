@@ -26,6 +26,7 @@ use crate::mixer::{self, AMP_SETTLE, MixerRunner, SpeakerProfile};
 use crate::spectrum::{Analyzer, Spectrum};
 use crate::timed::Timing;
 use crate::track::Track;
+use crate::upsample::{GROUP_DELAY, Upsampler2x};
 use crate::volume::{stream_gain, top_boost_db, volume_gain};
 use crate::{Backend, Error, Result, decode};
 use bytes::Bytes;
@@ -77,6 +78,29 @@ pub struct SpeakerConfig {
     /// Play a mono mix: the board's speaker plays one channel only. Applied in
     /// the Echo Dot speaker chain.
     pub mono: bool,
+    /// The playback PCM's frame rate: [`OUT_RATE`], or twice it, which is
+    /// upsampled to at the end of the chain (the Echo Dot (5th gen)'s PCM is
+    /// fixed at 96 kHz). The player's `-r`; the PipeWire player stays at
+    /// [`OUT_RATE`].
+    pub device_rate: u32,
+}
+
+/// `/proc/asound/cardC/pcmD{p|c}/sub0/status` of the ALSA device `hw:C,D`.
+pub fn pcm_status_path(device: &str, capture: bool) -> Option<PathBuf> {
+    let (card, dev) = device.strip_prefix("hw:")?.split_once(',')?;
+    let (card, dev) = (card.parse::<u32>().ok()?, dev.parse::<u32>().ok()?);
+    let dir = if capture { 'c' } else { 'p' };
+    Some(format!("/proc/asound/card{card}/pcm{dev}{dir}/sub0/status").into())
+}
+
+/// Frames the player's PCM takes for each frame of the session, if the rate
+/// is one the speaker chain can reach.
+fn rate_factor(device_rate: u32) -> Option<u64> {
+    match device_rate {
+        r if r == OUT_RATE => Some(1),
+        r if r == 2 * OUT_RATE => Some(2),
+        _ => None,
+    }
 }
 
 impl SpeakerConfig {
@@ -98,6 +122,7 @@ impl SpeakerConfig {
             volume_boost: false,
             pcm_status: Some("/proc/asound/card0/pcm23p/sub0/status".into()),
             mono: false,
+            device_rate: OUT_RATE,
         }
     }
 }
@@ -379,7 +404,7 @@ impl Speaker {
         let actor = Actor {
             feeder: Feeder::new(cfg.duck_db),
             // Only the Echo Dot's own sound card has a speaker clock to track.
-            clocks: cfg.backend.echo_dot_mixer().then(Clocks::new),
+            clocks: cfg.backend.echo_dot_mixer().then(|| Clocks::new(&cfg)),
             cfg,
             rx,
             state: state_tx,
@@ -761,6 +786,9 @@ struct Session {
     frames_written: u64,
     /// Echo Dot speaker chain (the device's own speaker only).
     chain: Option<crate::chain::SpeakerChain>,
+    /// Doubles the rate at the very end, for a PCM at twice [`OUT_RATE`].
+    /// Everything else here counts session frames, at [`OUT_RATE`].
+    upsampler: Option<Upsampler2x>,
     /// Corrects `anchor_t` from the playback PCM's hardware pointer (the
     /// Echo backends, ADR 0027 §10).
     pointer: Option<PointerAnchor>,
@@ -788,6 +816,11 @@ impl Session {
     /// Whether [`heard_at`](Self::heard_at) follows the hardware pointer.
     fn exact(&self) -> bool {
         self.pointer.as_ref().is_some_and(PointerAnchor::exact)
+    }
+
+    /// Frames the PCM counts for each session frame.
+    fn factor(&self) -> u64 {
+        if self.upsampler.is_some() { 2 } else { 1 }
     }
 
     /// The pipe into the player.
@@ -820,9 +853,13 @@ impl Session {
         now: Instant,
         unread: Option<u64>,
     ) {
-        let Some(sample) = parse_pointer(status) else {
+        let Some(mut sample) = parse_pointer(status) else {
             return;
         };
+        // The PCM counts its own frames; the anchor counts the session's.
+        let factor = self.factor();
+        sample.hw_ptr /= factor;
+        sample.appl_ptr = sample.appl_ptr.map(|a| a / factor);
         let written = self.frames_written;
         let Some(p) = self.pointer.as_mut() else {
             return;
@@ -831,8 +868,12 @@ impl Session {
             // Read once: without it, a wrap counts as a restart, and a
             // restart is never identified exactly.
             let text = std::fs::read_to_string(sw_params).ok();
-            p.set_boundary(text.as_deref().and_then(parse_boundary));
-            p.set_player_chunk(text.as_deref().and_then(parse_avail_min));
+            p.set_boundary(text.as_deref().and_then(parse_boundary).map(|b| b / factor));
+            p.set_player_chunk(
+                text.as_deref()
+                    .and_then(parse_avail_min)
+                    .map(|c| c / factor),
+            );
         }
         // `time_of`, in monotonic seconds.
         let anchor = mono_now + signed_secs(self.anchor_t, now);
@@ -881,17 +922,30 @@ impl Session {
             }
             None => bytes,
         };
+        let frames = (bytes.len() / 4) as u64;
         if let Sink::Process { stdin, .. } = &mut self.sink {
-            stdin.write_all(bytes).await?;
+            match &mut self.upsampler {
+                Some(up) => {
+                    let mut doubled = Vec::new();
+                    up.process(bytes, &mut doubled);
+                    stdin.write_all(&doubled).await?;
+                }
+                None => stdin.write_all(bytes).await?,
+            }
+        } else if let Some(up) = &mut self.upsampler {
+            // Keep the filter's state moving as it would with a player.
+            up.process(bytes, &mut Vec::new());
         }
-        self.frames_written += (bytes.len() / 4) as u64;
+        self.frames_written += frames;
         Ok(())
     }
 }
 
-/// Frames (of the session's 16-bit stereo) written into the pipe `fd` and
-/// not yet read from it, by `FIONREAD`; `None` if it can't be asked.
-fn pipe_unread_frames(fd: RawFd) -> Option<u64> {
+/// Session frames written into the pipe `fd` and not yet read from it, by
+/// `FIONREAD`; `None` if it can't be asked. The pipe holds the player's
+/// 16-bit stereo frames, `factor` of them for each session frame (the
+/// upsampler's).
+fn pipe_unread_frames(fd: RawFd, factor: u64) -> Option<u64> {
     let mut bytes: libc::c_int = 0;
     // SAFETY: FIONREAD writes one c_int through the pointer, which is valid
     // and writable for the duration of the call.
@@ -899,7 +953,7 @@ fn pipe_unread_frames(fd: RawFd) -> Option<u64> {
     (r == 0)
         .then(|| u64::try_from(bytes).ok())
         .flatten()
-        .map(|b| b / 4)
+        .map(|b| b / 4 / factor)
 }
 
 /// Sleep until `t`, or forever without one.
@@ -970,6 +1024,8 @@ async fn log_player(stderr: ChildStderr) {
 /// needs no fitting: the echo canceller's reference comes in their own frames
 /// (ADR 0004).
 struct Clocks {
+    /// Frames the speaker PCM counts for each session frame.
+    factor: u64,
     spk: crate::clock::PcmClock,
     last: Instant,
     /// Deviation from nominal, e.g. 3.2e-4 = +320 ppm (kept across sessions).
@@ -982,9 +1038,14 @@ struct Clocks {
 }
 
 impl Clocks {
-    fn new() -> Self {
+    fn new(cfg: &SpeakerConfig) -> Self {
+        let spk_status = cfg
+            .pcm_status
+            .clone()
+            .unwrap_or_else(|| "/proc/asound/card0/pcm23p/sub0/status".into());
         Self {
-            spk: crate::clock::PcmClock::new("/proc/asound/card0/pcm23p/sub0/status", 48_000.0),
+            factor: rate_factor(cfg.device_rate).unwrap_or(1),
+            spk: crate::clock::PcmClock::new(spk_status, f64::from(cfg.device_rate)),
             last: Instant::now(),
             d_spk: 0.0,
             logged: Instant::now(),
@@ -1006,9 +1067,10 @@ impl Clocks {
         self.last = now;
         // The pipe is read on both sides of the status: if the player took
         // from it in between, the two can't be matched.
-        let before = player.and_then(pipe_unread_frames);
+        let factor = self.factor;
+        let before = player.and_then(|fd| pipe_unread_frames(fd, factor));
         let status = self.spk.sample_text(now);
-        let after = player.and_then(pipe_unread_frames);
+        let after = player.and_then(|fd| pipe_unread_frames(fd, factor));
         let unread = before.filter(|&b| after == Some(b));
         self.spk_status = status.map(|text| (text, monotonic_now(), Instant::now(), unread));
         let Some(d) = self.spk.deviation() else {
@@ -1052,6 +1114,7 @@ struct Actor {
 
 /// Player command line.
 pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
+    let rate = cfg.device_rate.to_string();
     match cfg.backend {
         Backend::EchoDot | Backend::EchoDotPipeWire => Some((
             cfg.aplay_bin.clone(),
@@ -1063,7 +1126,7 @@ pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
                 "-c",
                 "2",
                 "-r",
-                "48000",
+                &rate,
                 "-t",
                 "raw",
                 "-q",
@@ -1341,6 +1404,18 @@ impl Actor {
     /// -> unmute.
     async fn open_session(&mut self) -> Result<Session> {
         let echo = self.cfg.backend.echo_dot_mixer();
+        // Only the ALSA player runs at the device's rate.
+        let factor = if echo {
+            rate_factor(self.cfg.device_rate).ok_or_else(|| {
+                Error::Other(format!(
+                    "the speaker's rate {} Hz must be {OUT_RATE} Hz or {} Hz",
+                    self.cfg.device_rate,
+                    2 * OUT_RATE
+                ))
+            })?
+        } else {
+            1
+        };
         if echo
             && let Err(e) = self
                 .cfg
@@ -1385,6 +1460,7 @@ impl Actor {
             rate,
             frames_written: 0,
             chain: echo.then(|| crate::chain::SpeakerChain::new(self.cfg.mono)),
+            upsampler: (factor == 2).then(Upsampler2x::new),
             // The PCM just opened: its pointer counts this session's frames.
             pointer: self
                 .clocks
@@ -1393,6 +1469,13 @@ impl Actor {
             heard_delay: self.cfg.profile.output_delay
                 + if echo {
                     Duration::from_secs_f64(LOOKAHEAD as f64 / f64::from(OUT_RATE))
+                } else {
+                    Duration::ZERO
+                }
+                // The upsampler's filter delays the signal after the
+                // pointer's frame counting.
+                + if factor == 2 {
+                    Duration::from_secs_f64(GROUP_DELAY as f64 / f64::from(self.cfg.device_rate))
                 } else {
                     Duration::ZERO
                 },
@@ -1470,24 +1553,53 @@ mod tests {
     use super::*;
     use futures_util::{StreamExt, stream};
 
-    /// The Echo output plays 48 kHz S16_LE stereo, and its clock reads the
-    /// MT8163 playback PCM's status file (`pcm23p`), whatever device pinnad
-    /// passes. A board with other PCMs (ADR 0032) fails here until those
-    /// follow the board.
+    /// The Echo output plays S16_LE stereo at [`OUT_RATE`] or twice it (the
+    /// upsampler's), and its clock reads the board's playback PCM's status
+    /// file. A board with another playback PCM (ADR 0032) fails here until
+    /// the speaker chain reaches its rate.
     #[test]
-    fn every_board_has_the_pcms_the_echo_output_is_built_for() {
-        let cfg = SpeakerConfig::new(Backend::EchoDot);
+    fn every_boards_playback_pcm_is_one_the_speaker_can_play() {
         for m in pinna_board::Model::ALL {
-            let audio = m.board().audio;
-            let play = audio.playback;
-            assert_eq!(play.device, cfg.alsa_device, "{m:?}");
-            assert_eq!((play.rate, play.channels), (48_000, 2), "{m:?}");
+            let play = m.board().audio.playback;
             assert_eq!(play.format, pinna_board::SampleFormat::S16Le, "{m:?}");
+            assert_eq!(play.channels, 2, "{m:?}");
+            assert!(
+                play.rate == OUT_RATE || play.rate == 2 * OUT_RATE,
+                "{m:?}: {} Hz",
+                play.rate
+            );
+            assert!(rate_factor(play.rate).is_some(), "{m:?}");
+            assert!(pcm_status_path(play.device, false).is_some(), "{m:?}");
         }
+    }
+
+    #[test]
+    fn a_pcm_device_names_its_status_file() {
+        let path = |d, c| pcm_status_path(d, c).unwrap();
         assert_eq!(
-            cfg.pcm_status.as_deref(),
-            Some(Path::new("/proc/asound/card0/pcm23p/sub0/status"))
+            path("hw:0,23", false),
+            Path::new("/proc/asound/card0/pcm23p/sub0/status")
         );
+        assert_eq!(
+            path("hw:0,1", false),
+            Path::new("/proc/asound/card0/pcm1p/sub0/status")
+        );
+        assert_eq!(
+            path("hw:0,9", true),
+            Path::new("/proc/asound/card0/pcm9c/sub0/status")
+        );
+        assert_eq!(pcm_status_path("default", false), None);
+        assert_eq!(pcm_status_path("hw:0", false), None);
+        let cfg = SpeakerConfig::new(Backend::EchoDot);
+        assert_eq!(cfg.pcm_status, Some(path("hw:0,23", false)));
+    }
+
+    #[test]
+    fn only_the_session_rate_and_twice_it_are_reachable() {
+        assert_eq!(rate_factor(48_000), Some(1));
+        assert_eq!(rate_factor(96_000), Some(2));
+        assert_eq!(rate_factor(44_100), None);
+        assert_eq!(rate_factor(192_000), None);
     }
 
     fn clip(samples: Vec<i16>) -> (VoiceItem, oneshot::Receiver<Result<()>>) {
@@ -1950,7 +2062,7 @@ mod tests {
     }
 
     /// A session without a player, whose frame 0 is mapped to `anchor`.
-    fn null_session(anchor: Instant, written: u64) -> Session {
+    fn null_session(anchor: Instant, written: u64, factor: u64) -> Session {
         Session {
             sink: Sink::Null,
             anchor_t: anchor,
@@ -1958,6 +2070,7 @@ mod tests {
             rate: 48_000.0,
             frames_written: written,
             chain: None,
+            upsampler: (factor == 2).then(Upsampler2x::new),
             pointer: Some(PointerAnchor::new(48_000.0)),
             heard_delay: Duration::ZERO,
         }
@@ -1965,48 +2078,91 @@ mod tests {
 
     #[test]
     fn the_session_follows_the_hardware_pointer() {
+        // At the session's rate, and at twice it: the PCM counts device
+        // frames, the session its own.
+        for factor in [1u64, 2] {
+            let now = Instant::now();
+            let mono = 1000.0;
+            let mut s = null_session(now - Duration::from_millis(300), 20_000, factor);
+            // The pointer says session frame 14400 played 8 ms ago, on the
+            // monotonic clock; the mapping put it at now.
+            let status = |hw: u64, tstamp: f64| {
+                format!(
+                    "state: RUNNING\ntstamp      : {tstamp:.9}\nhw_ptr      : {}\nappl_ptr    : {}\n",
+                    hw * factor,
+                    (hw + 4800) * factor
+                )
+            };
+            let none = Path::new("/nonexistent/sw_params");
+            s.follow_pointer(&status(14_400, mono - 0.008), none, mono, now, Some(0));
+            let err = signed_secs(s.time_of(14_400), now) + 0.008;
+            assert!(err.abs() < 1e-6, "{factor}: {err}");
+            // A stopped PCM or a closed one changes nothing.
+            let before = s.anchor_t;
+            s.follow_pointer(
+                &status(14_400, mono).replace("RUNNING", "XRUN"),
+                none,
+                mono,
+                now,
+                Some(0),
+            );
+            s.follow_pointer("closed\n", none, mono, now, Some(0));
+            assert_eq!(s.anchor_t, before);
+            // Without a pointer (PipeWire), nothing either.
+            s.pointer = None;
+            s.follow_pointer(&status(14_400, mono - 0.5), none, mono, now, Some(0));
+            assert_eq!(s.anchor_t, before);
+        }
+    }
+
+    /// The boundary and the player's chunk are read from the PCM's own
+    /// `sw_params`, in its frames, and the pointer wraps at the boundary.
+    #[test]
+    fn the_pointer_boundary_and_chunk_are_counted_in_session_frames() {
+        let dir = std::env::temp_dir().join(format!("pinna-swparams-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sw = dir.join("sw_params");
+        // 2^20 device frames: 2^19 session frames at twice the rate.
+        std::fs::write(&sw, "avail_min: 1920\nboundary: 1048576\n").unwrap();
         let now = Instant::now();
         let mono = 1000.0;
-        let mut s = null_session(now - Duration::from_millis(300), 20_000);
-        // The pointer says frame 14400 played 8 ms ago, on the monotonic
-        // clock; the mapping put it at now.
+        let mut s = null_session(now, 100_000, 2);
         let status = |hw: u64, tstamp: f64| {
             format!(
-                "state: RUNNING\ntstamp      : {tstamp:.9}\nhw_ptr      : {hw}\nappl_ptr    : {}\n",
-                hw + 4800
+                "state: RUNNING\ntstamp      : {tstamp:.9}\nhw_ptr      : {hw}\nappl_ptr    : {hw}\n"
             )
         };
-        let none = Path::new("/nonexistent/sw_params");
-        s.follow_pointer(&status(14_400, mono - 0.008), none, mono, now, Some(0));
-        let err = signed_secs(s.time_of(14_400), now) + 0.008;
-        assert!(err.abs() < 1e-6, "{err}");
-        // A stopped PCM or a closed one changes nothing.
-        let before = s.anchor_t;
+        s.follow_pointer(&status(2 * 50_000, mono), &sw, mono, now, Some(0));
+        assert!(!s.pointer.as_ref().unwrap().needs_boundary());
+        // Just short of the wrap, then past it: still one running count.
         s.follow_pointer(
-            &status(14_400, mono).replace("RUNNING", "XRUN"),
-            none,
-            mono,
+            &status(1_048_000, mono + 0.1),
+            &sw,
+            mono + 0.1,
             now,
             Some(0),
         );
-        s.follow_pointer("closed\n", none, mono, now, Some(0));
-        assert_eq!(s.anchor_t, before);
-        // Without a pointer (PipeWire), nothing either.
-        s.pointer = None;
-        s.follow_pointer(&status(14_400, mono - 0.5), none, mono, now, Some(0));
-        assert_eq!(s.anchor_t, before);
+        s.follow_pointer(&status(2_000, mono + 0.2), &sw, mono + 0.2, now, Some(0));
+        assert!(s.pointer.as_ref().unwrap().exact());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn the_frames_waiting_in_the_players_pipe_are_counted() {
         use std::io::{Read, Write};
-        let (mut rx, mut tx) = std::io::pipe().unwrap();
-        assert_eq!(pipe_unread_frames(tx.as_raw_fd()), Some(0));
-        tx.write_all(&[0; 4 * 960]).unwrap();
-        assert_eq!(pipe_unread_frames(tx.as_raw_fd()), Some(960));
-        rx.read_exact(&mut [0; 4 * 100]).unwrap();
-        assert_eq!(pipe_unread_frames(tx.as_raw_fd()), Some(860));
-        assert_eq!(pipe_unread_frames(-1), None);
+        for factor in [1u64, 2] {
+            let (mut rx, mut tx) = std::io::pipe().unwrap();
+            let fd = tx.as_raw_fd();
+            assert_eq!(pipe_unread_frames(fd, factor), Some(0));
+            // The pipe holds the player's frames: `factor` for each of the
+            // session's 960.
+            tx.write_all(&vec![0; 4 * 960 * factor as usize]).unwrap();
+            assert_eq!(pipe_unread_frames(fd, factor), Some(960));
+            rx.read_exact(&mut vec![0; 4 * 100 * factor as usize])
+                .unwrap();
+            assert_eq!(pipe_unread_frames(fd, factor), Some(860));
+            assert_eq!(pipe_unread_frames(-1, factor), None);
+        }
     }
 
     #[test]
@@ -2024,6 +2180,21 @@ mod tests {
             "--raw --rate 48000 --channels 2 --format s16 -"
         );
         assert!(playback_command(&SpeakerConfig::new(Backend::WavFile("x".into()))).is_none());
+        // The player runs at the device's rate; the PipeWire player doesn't.
+        let mut cfg = SpeakerConfig::new(Backend::EchoDot);
+        cfg.device_rate = 96_000;
+        cfg.alsa_device = "hw:0,1".into();
+        let (_, args) = playback_command(&cfg).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "-D hw:0,1 -f S16_LE -c 2 -r 96000 -t raw -q"
+        );
+        cfg.backend = Backend::PipeWire;
+        let (_, args) = playback_command(&cfg).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "--raw --rate 48000 --channels 2 --format s16 -"
+        );
     }
 
     fn null_speaker(idle: Duration) -> Speaker {
@@ -2342,6 +2513,20 @@ mod tests {
         let after = std::fs::read_to_string(&log).unwrap();
         assert!(after.contains("name=Ext_Speaker_Amp_Switch On"), "{after}");
         assert!(after.contains("name=MFP Gpio Mute Off"), "{after}");
+        drop(sp);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_rate_the_speaker_cannot_reach_fails_the_open() {
+        let (dir, mut cfg) = fake_echodot("rate", "RUNNING");
+        cfg.device_rate = 44_100;
+        let sp = Speaker::new(cfg);
+        let err = sp
+            .play_pcm(crate::tone::beep(440.0, 60, 0.5))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("44100"), "{err}");
         drop(sp);
         std::fs::remove_dir_all(dir).unwrap();
     }

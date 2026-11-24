@@ -23,6 +23,7 @@ pub mod spectrum;
 pub mod timed;
 pub mod tone;
 pub mod track;
+pub mod upsample;
 pub mod volume;
 
 use std::io;
