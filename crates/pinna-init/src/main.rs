@@ -213,7 +213,7 @@ fn uevent(path: &Path) -> HashMap<String, String> {
         .collect()
 }
 
-/// The partitions, found the way this board keeps them (ADR 0034): GPT
+/// The partitions, found the way this board keeps them (ADR 0035): GPT
 /// partitions on the MT8163/MT8516 Echos, UBI volumes on the MT8519 ones.
 /// The board is read once; hardware Pinna doesn't know, and the VMs, have no
 /// board and fall back to GPT, so existing devices are unchanged.

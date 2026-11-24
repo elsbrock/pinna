@@ -44,7 +44,7 @@ pub fn detect_in(idme: &Path, dt_idme: &Path, compatible: &Path) -> Option<&'sta
 }
 
 /// Where this machine keeps its partitions: the board's storage, else the
-/// SoC's. The MT8519 keeps everything in UBI volumes (ADR 0034) on every
+/// SoC's. The MT8519 keeps everything in UBI volumes (ADR 0035) on every
 /// board, so an MT8519 without a board description still boots its root;
 /// anything else Pinna doesn't know (the VMs) is GPT, as before.
 pub fn storage() -> StorageKind {

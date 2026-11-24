@@ -98,7 +98,7 @@ index 000000000..da6a57a74
 @@ -0,0 +1,9 @@
 +# SPDX-License-Identifier: GPL-2.0
 +# The MT8519 audio front end (direct PCM paths), ported from Amazon's 5.4
-+# release onto 6.12 ASoC (ADR 0034). Amazon's vendor common-AFE layer is
++# release onto 6.12 ASoC (ADR 0035). Amazon's vendor common-AFE layer is
 +# carried locally (vendor-*) so it does not collide with 6.12's upstream
 +# sound/soc/mediatek/common/. Compile-only: not validated on hardware.
 +snd-soc-mt8519-afe-objs := \
@@ -12111,7 +12111,7 @@ index 000000000..09bbf24a2
 +	 * span of the copy and dropped it back to 26 MHz after, so the CPU keeps
 +	 * up with the stream under load. The copy itself is the ordinary
 +	 * interleaved transfer; 6.12 passes pos and bytes as byte offsets
-+	 * (sound/core/pcm_lib.c converts from frames). ADR 0034.
++	 * (sound/core/pcm_lib.c converts from frames). ADR 0035.
 +	 */
 +	mt8519_afe_set_clk_parent(afe,
 +		afe_priv->clocks[MT8519_CLK_TOP_AUD_BUS],

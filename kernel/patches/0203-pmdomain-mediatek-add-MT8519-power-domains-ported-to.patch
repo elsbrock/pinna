@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sat, 21 Nov 2026 16:16:55 +0100
 Subject: [PATCH] pmdomain: mediatek: add MT8519 power domains, ported to 6.12
 
-The MT8519's SCPSYS power domains (ADR 0034), from MediaTek's
+The MT8519's SCPSYS power domains (ADR 0035), from MediaTek's
 mt8519-pm-domains.h in Amazon's 5.4 release, wired into 6.12's shared
 mtk-pm-domains.c with an mt8519-power-controller of_match entry. The data
 needs three changes for 6.12's scpsys_domain_data: drop sram_ctl_offs (6.12

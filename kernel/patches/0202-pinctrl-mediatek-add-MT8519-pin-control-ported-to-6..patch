@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sat, 21 Nov 2026 16:14:13 +0100
 Subject: [PATCH] pinctrl: mediatek: add MT8519 pin control, ported to 6.12
 
-The MT8519's pin controller (ADR 0034), from MediaTek's pinctrl-mt8519.c in
+The MT8519's pin controller (ADR 0035), from MediaTek's pinctrl-mt8519.c in
 Amazon's 5.4 release. It already uses the paris framework
 (mtk_paris_pinctrl_probe, struct mtk_pin_soc), so the only change for 6.12 is
 the probe signature: mtk_paris_pinctrl_probe now takes the platform device

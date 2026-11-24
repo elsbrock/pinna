@@ -392,7 +392,7 @@ pub mod arm64 {
     }
 }
 
-/// The boot image for the Echo Dot (5th gen) (`cannoli`, MT8519, ADR 0034):
+/// The boot image for the Echo Dot (5th gen) (`cannoli`, MT8519, ADR 0035):
 /// a U-Boot FIT (`.itb`), not the Android boot image the MT8163 and MT8516
 /// use. U-Boot reads it from `boot_a`/`boot_b` with `ubi read`, then
 /// `bootm <addr>#conf-1`. A FIT is a flattened device tree holding the
@@ -426,7 +426,7 @@ pub mod fit {
 
     /// Where U-Boot's `bootm` places the kernel: SDRAM base + 32 KiB, the
     /// conventional 32-bit ARM zImage load. Read from the stock Cannoli boot
-    /// FIT — kernel-1 `load`/`entry` are both `0x40008000` (ADR 0034).
+    /// FIT — kernel-1 `load`/`entry` are both `0x40008000` (ADR 0035).
     pub const LOAD_ADDR: u32 = 0x4000_8000;
     /// The zImage entry; a self-relocating zImage takes the load address.
     pub const ENTRY_ADDR: u32 = 0x4000_8000;

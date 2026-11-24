@@ -11,7 +11,7 @@ Restore an optional SRAM offset for SRAM power, acknowledgement and
 isolation operations. A zero offset keeps the existing ctl_offs behavior
 for every other domain and SoC. Only MT8519 ADSP_INFRA overrides it.
 The offsets come from mt8519-pm-domains.h in Amazon's 5.4.86 source
-release for Cannoli (ADR 0034); this is separate from the RAM boot's
+release for Cannoli (ADR 0035); this is separate from the RAM boot's
 timer interrupt routing issue.
 ---
 diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.h b/drivers/pmdomain/mediatek/mtk-pm-domains.h

@@ -4,7 +4,7 @@ Date: Sat, 21 Nov 2026 16:45:01 +0100
 Subject: [PATCH] gpio, regulator: add the Echo Dot (5th gen) CPLD and MT6395
  PMIC, ported to 6.12
 
-Two self-contained Amazon drivers from the 5.4 release (ADR 0034):
+Two self-contained Amazon drivers from the 5.4 release (ADR 0035):
 - gpio-amzncpld, the SLG4BZ45165 CPLD GPIO expander the volume, action and
   mute buttons hang off. The gpiolib irqchip is migrated to 6.12's model: the
   irq is set up through gpio_chip.irq before gpiochip_add_data (selecting

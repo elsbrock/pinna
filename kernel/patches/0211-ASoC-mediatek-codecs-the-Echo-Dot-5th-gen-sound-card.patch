@@ -46,7 +46,7 @@ index d4a739273..a05691dcd 100644
 +/*
 + * max98396_get_irq_state - read and clear the amp's interrupt state.
 + * max98396_reset_platform - power the amp down or bring it back up, used by
-+ * the Echo Dot (5th gen) sound card (ADR 0034).
++ * the Echo Dot (5th gen) sound card (ADR 0035).
 + */
 +unsigned int max98396_get_irq_state(struct snd_soc_component *component)
 +{
@@ -116,7 +116,7 @@ index e8fbe8a39..79a7e04e2 100644
  };
 +/*
 + * tas2764_get_irq_state - read and clear the amp's latched fault flags.
-+ * The Echo Dot (5th gen) sound card reports these to the owner (ADR 0034).
++ * The Echo Dot (5th gen) sound card reports these to the owner (ADR 0035).
 + */
 +u64 tas2764_get_irq_state(struct snd_soc_component *component)
 +{
@@ -169,7 +169,7 @@ index cbe817042..9f899be7d 100644
 +	help
 +	  The cannoli machine driver: the sound card that wires the MT8519 front
 +	  end to the amp (MAX98396/TAS2764) and the microphone ADC (ADC5140).
-+	  Compile-only, not validated on hardware (ADR 0034).
++	  Compile-only, not validated on hardware (ADR 0035).
 diff --git a/sound/soc/mediatek/mt8519/Makefile b/sound/soc/mediatek/mt8519/Makefile
 index da6a57a74..c20ee5f08 100644
 --- a/sound/soc/mediatek/mt8519/Makefile
@@ -210,7 +210,7 @@ index 000000000..4d375bad3
 +#include "../../codecs/max98396.h"
 +#include "../../codecs/tas2764.h"
 +
-+/* 6.12 compile-only port (ADR 0034): the amp fault-IRQ and RMS-thermal
++/* 6.12 compile-only port (ADR 0035): the amp fault-IRQ and RMS-thermal
 + * features depend on Amazon codec extensions not in mainline; they are stubbed
 + * (non-essential diagnostics). The sound card itself must be validated on a
 + * unit. */

@@ -77,7 +77,7 @@ if [ "$device" = yes ]; then
   install -m0644 "$fw"/donut/wifi.cfg "$out/usr/lib/firmware/wifi_mt7668.cfg"
   install -Dm0644 "$fw"/mediatek/mt7668pr2h.bin "$out/usr/lib/firmware/mediatek/mt7668pr2h.bin"
   ln -s mediatek/mt7668pr2h.bin "$out/usr/lib/firmware/mt7668_patch_e2_hdr.bin"
-  # The Echo Dot (5th gen)'s MT7663 (ADR 0034): mt76 loads both from mediatek/.
+  # The Echo Dot (5th gen)'s MT7663 (ADR 0035): mt76 loads both from mediatek/.
   for f in mediatek/mt7663pr2h.bin mediatek/mt7663_n9_v3.bin; do
     [ -f "$fw/$f" ] || { echo "assemble: $fw/$f is missing (just firmware)" >&2; exit 1; }
     install -Dm0644 "$fw/$f" "$out/usr/lib/firmware/$f"

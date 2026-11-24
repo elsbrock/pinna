@@ -27,7 +27,7 @@
 #     tag into blobs/firmware/mediatek/. Bluetooth (btmtksdio) loads it under
 #     this name, the Wi-Fi driver as mt7668_patch_e2_hdr.bin.
 #   mediatek/mt7663pr2h.bin, mediatek/mt7663_n9_v3.bin: the Echo Dot (5th
-#     gen)'s MT7663 (ADR 0034), from linux-firmware at the same tag: the ROM
+#     gen)'s MT7663 (ADR 0035), from linux-firmware at the same tag: the ROM
 #     patch (Wi-Fi and Bluetooth both load it) and the Wi-Fi N9 firmware that
 #     mt7663s asks for.
 set -euo pipefail

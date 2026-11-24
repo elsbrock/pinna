@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sat, 21 Nov 2026 16:29:25 +0100
 Subject: [PATCH] ARM: mediatek: add the MT8519 SoC platform
 
-A MACH_MT8519 Kconfig symbol for the Echo Dot (5th gen)'s SoC (ADR 0034),
+A MACH_MT8519 Kconfig symbol for the Echo Dot (5th gen)'s SoC (ADR 0035),
 beside the other 32-bit MediaTek machines. It selects the ARM architected
 timer and GIC-v3, which the MT8519 has (the Cortex-A55 brings its secondaries
 up through PSCI, so no machine SMP code is needed). This is what lets an

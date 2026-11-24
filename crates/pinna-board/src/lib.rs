@@ -122,7 +122,7 @@ pub enum StorageKind {
     /// and its device node is a block device. The MT8163 and MT8516 Echos.
     Gpt,
     /// UBI volumes on raw NAND: a name is a UBI volume's name, and its device
-    /// node is the volume's character device. The MT8519 Echos (ADR 0034).
+    /// node is the volume's character device. The MT8519 Echos (ADR 0035).
     Ubi,
 }
 

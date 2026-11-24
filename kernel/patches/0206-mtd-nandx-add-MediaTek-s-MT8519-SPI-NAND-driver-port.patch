@@ -4,7 +4,7 @@ Date: Sat, 21 Nov 2026 16:37:56 +0100
 Subject: [PATCH] mtd: nandx: add MediaTek's MT8519 SPI-NAND driver, ported to
  6.12
 
-The Echo Dot (5th gen) boots from SPI-NAND (ADR 0034), and Pinna finds its
+The Echo Dot (5th gen) boots from SPI-NAND (ADR 0035), and Pinna finds its
 root in a UBI volume there. MediaTek's self-contained nandx driver from
 Amazon's 5.4 release (the kernel subset: the core, the SPI-NAND and NFI
 layers, the bad-block table and the platform glue), built with a kbuild

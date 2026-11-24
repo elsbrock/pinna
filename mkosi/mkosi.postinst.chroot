@@ -91,7 +91,7 @@ chmod 755 /usr/libexec/pinna/* /usr/bin/pinna* 2>/dev/null || true
 # udev's vendor-name databases (PCI, USB, IEEE OUI: 9 MB of sources and most
 # of the 13 MB hwdb.bin) name hardware no Echo has, and nothing in Pinna reads
 # them. Drop them and rebuild the index from the rest, so the root fits the
-# Echo Dot (5th gen)'s 125 MiB system volume (ADR 0034).
+# Echo Dot (5th gen)'s 125 MiB system volume (ADR 0035).
 rm -f /usr/lib/udev/hwdb.d/20-pci-vendor-model.hwdb \
     /usr/lib/udev/hwdb.d/20-usb-vendor-model.hwdb \
     /usr/lib/udev/hwdb.d/20-OUI.hwdb

@@ -3,7 +3,7 @@ From: Simon Elsbrock <simon@iodev.org>
 Date: Sat, 21 Nov 2026 16:08:18 +0100
 Subject: [PATCH] clk: mediatek: add the MT8519 clocks, ported to 6.12
 
-The Echo Dot (5th gen) (cannoli) runs a MediaTek MT8519 (ADR 0034). Its
+The Echo Dot (5th gen) (cannoli) runs a MediaTek MT8519 (ADR 0035). Its
 clock drivers come from Amazon's GPL kernel release
 (Echo_Dot_5th_Gen_src-6.5.7.1, kernel/mediatek/5.4, MediaTek's
 clk-mt8519*.c), forward-ported from that 5.4 vendor tree to 6.12's upstream

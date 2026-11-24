@@ -6,7 +6,7 @@ Subject: [PATCH] thermal: mediatek: resolve MT8519 interrupts through the platfo
 The 6.12 OF platform allocator populates memory resources, while
 platform_get_irq() resolves device-tree interrupts on demand. The ported
 5.4 thermal probe still searches the resource table directly, so it finds
-no interrupt and returns -EINVAL on Cannoli (diag26, ADR 0034).
+no interrupt and returns -EINVAL on Cannoli (diag26, ADR 0035).
 
 Use platform_get_irq(), preserve its error including probe deferral,
 and release the enabled clocks on IRQ lookup or registration failure.

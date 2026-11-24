@@ -4,7 +4,7 @@ Date: Sat, 21 Nov 2026 16:32:07 +0100
 Subject: [PATCH] arm: dts: mediatek: add the Echo Dot (5th gen) (cannoli)
  device tree
 
-The MT8519 SoC and the cannoli board device tree (ADR 0034), from Amazon's
+The MT8519 SoC and the cannoli board device tree (ADR 0035), from Amazon's
 5.4 release: mt8519.dtsi and mt8519-amzn.dtsi for the SoC, mt6395.dtsi for
 the PMIC, cannoli-cheesecake.dtsi and cannoli-hvt.dts for the board, with the
 MT8519 pinfunc, memory-port, EMI and the Amazon CPLD GPIO binding headers.

@@ -9,7 +9,7 @@
 #   kernel/build.sh mt8516     -> build/kernel-mt8516/{Image.gz,dtbs} (the MT8516 Echos, ADR 0031;
 #                                 no package yet)
 #   kernel/build.sh mt8519     -> build/kernel-mt8519/{zImage,cannoli-hvt.dtb,cannoli-dvt-plastic.dtb}
-#                                 (the Echo Dot (5th gen), 32-bit ARM, ADR 0034; no package yet)
+#                                 (the Echo Dot (5th gen), 32-bit ARM, ADR 0035; no package yet)
 #   kernel/build.sh x86        -> build/kernel-x86/ (x86_64 QEMU/KVM variant for smoke tests, no package)
 #
 #   DEBUG=1       also merge kernel/debug.config (ftrace, debugfs, sysrq, …)
