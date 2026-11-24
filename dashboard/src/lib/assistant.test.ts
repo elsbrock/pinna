@@ -18,6 +18,9 @@ import {
   keyFields,
   keyShown,
   mcpName,
+  signIn,
+  signInShown,
+  typedCredential,
   mcpStatus,
   mcpAddress,
   mcpToolOn,
@@ -335,4 +338,30 @@ test("the brain's tools are Pinna's it takes and the on servers' that are on", (
   assert.equal(brainToolsOn({ deviceTools, tools: { mail_a: true }, mcpServers }), 3);
   assert.equal(mcpToolOn({}, "home_a"), true);
   assert.equal(mcpToolOn({ home_a: false }, "home_a"), false);
+});
+
+test("a stored MCP credential shows what tells it apart, never its secret", () => {
+  assert.equal(signIn(undefined), "none");
+  assert.equal(signIn({ kind: 1 } as never), "bearer");
+  assert.equal(signInShown({ kind: 1, label: "", last4: "1234" } as never), "set ••••1234");
+  assert.equal(signInShown({ kind: 1, label: "", last4: "" } as never), "set");
+  assert.equal(signInShown({ kind: 2, label: "simon", last4: "" } as never), "set, as simon");
+  assert.equal(signInShown({ kind: 3, label: "X-API-Key", last4: "5678" } as never), "X-API-Key, set ••••5678");
+});
+
+test("a typed MCP credential needs every field its kind has", () => {
+  const empty = { token: "", user: "", password: "", name: "", value: "" };
+  assert.equal(typedCredential("none", { ...empty, token: "t" }), undefined);
+  assert.equal(typedCredential("bearer", { ...empty, token: "  " }), undefined);
+  assert.deepEqual(typedCredential("bearer", { ...empty, token: " tok " }), {
+    kind: { case: "bearer", value: { token: "tok" } },
+  });
+  assert.equal(typedCredential("basic", { ...empty, user: "me" }), undefined);
+  assert.deepEqual(typedCredential("basic", { ...empty, user: " me ", password: " pw " }), {
+    kind: { case: "basic", value: { user: "me", password: " pw " } },
+  });
+  assert.equal(typedCredential("header", { ...empty, name: "X-API-Key" }), undefined);
+  assert.deepEqual(typedCredential("header", { ...empty, name: " X-API-Key ", value: " k " }), {
+    kind: { case: "header", value: { name: "X-API-Key", value: "k" } },
+  });
 });

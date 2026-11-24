@@ -1,7 +1,13 @@
 // Standalone mode in words (ADR 0017): the mode, the three slots and what
 // stops standalone from running. From Status and AssistantService's view; no
 // Svelte and no runtime imports, so `node --test` runs it.
-import type { Assistant, DeviceTool, Preset, ProviderConnection } from "../gen/pinna/v1/assistant_pb.ts";
+import type {
+  Assistant,
+  DeviceTool,
+  McpServerCredential,
+  Preset,
+  ProviderConnection,
+} from "../gen/pinna/v1/assistant_pb.ts";
 import type { AssistantStatus, Status } from "../gen/pinna/v1/device_pb.ts";
 import type { Tone } from "./view.ts";
 
@@ -274,6 +280,68 @@ export function delegation(view: Assistant): "tool-loop" | "hand-off" | null {
   if (set === DELEGATION.toolLoop) return "tool-loop";
   if (set === DELEGATION.handOff) return "hand-off";
   return preset.handOff ? "hand-off" : "tool-loop";
+}
+
+// pinna.v1.McpCredentialKind values.
+const CREDENTIAL_KIND = { bearer: 1, basic: 2, header: 3 } as const;
+
+/** How an MCP server signs in (ADR 0017): its credential's kind, or none. */
+export type SignIn = "none" | "bearer" | "basic" | "header";
+
+export const SIGN_INS: { id: SignIn; label: string }[] = [
+  { id: "none", label: "None" },
+  { id: "bearer", label: "Token" },
+  { id: "basic", label: "User name and password" },
+  { id: "header", label: "Header" },
+];
+
+/** The sign-in a stored credential is. */
+export function signIn(c: Pick<McpServerCredential, "kind"> | undefined): SignIn {
+  switch (c?.kind) {
+    case CREDENTIAL_KIND.bearer:
+      return "bearer";
+    case CREDENTIAL_KIND.basic:
+      return "basic";
+    case CREDENTIAL_KIND.header:
+      return "header";
+    default:
+      return "none";
+  }
+}
+
+/** How a stored credential shows: what tells it apart, never its secret. */
+export function signInShown(c: Pick<McpServerCredential, "kind" | "label" | "last4">): string {
+  const end = c.last4 ? ` ••••${c.last4}` : "";
+  switch (signIn(c)) {
+    case "basic":
+      return `set, as ${c.label}`;
+    case "header":
+      return `${c.label}, set${end}`;
+    default:
+      return `set${end}`;
+  }
+}
+
+/** What the form's sign-in fields hold. */
+export type SignInTyped = { token: string; user: string; password: string; name: string; value: string };
+
+/** The typed credential, as SetMcpServerRequest.credential takes it;
+ *  undefined while a field it needs is empty. A password is sent as typed. */
+export function typedCredential(kind: SignIn, t: SignInTyped) {
+  const token = t.token.trim();
+  const user = t.user.trim();
+  const name = t.name.trim();
+  const value = t.value.trim();
+  switch (kind) {
+    case "bearer":
+      return token ? { kind: { case: "bearer" as const, value: { token } } } : undefined;
+    case "basic":
+      return user && t.password ? { kind: { case: "basic" as const, value: { user, password: t.password } } } : undefined;
+    case "header":
+      return name && value ? { kind: { case: "header" as const, value: { name, value } } } : undefined;
+    default:
+      return undefined;
+  }
 }
 
 /** A key typed, a key to remove, or the stored one kept. */
