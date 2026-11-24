@@ -2,7 +2,8 @@
 //! (`arecord` on the Echo Dot, `pw-record` elsewhere) or a WAV file.
 
 use crate::dsp::{
-    FRAME_SAMPLES, FrontEnd, FrontEndConfig, RAW_FRAME_BYTES, SAMPLE_RATE, SimpleFrontEnd,
+    FRAME_SAMPLES, FrontEnd, FrontEndConfig, RAW_CHANNELS, RAW_FRAME_BYTES, SAMPLE_RATE,
+    SimpleFrontEnd,
 };
 use crate::mixer::{self, MICPGA_DEFAULT, MixerRunner};
 use crate::{Backend, Error, Result};
@@ -19,6 +20,9 @@ pub type Frame = [i16; FRAME_SAMPLES];
 /// How long after the first captured audio the microphone settings are read
 /// back: PipeWire has configured the converters by then.
 const MIXER_CHECK_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+/// Before its first audio the processed stream gets this long, however short
+/// the fallback's time: PipeWire may still be linking it at boot.
+const FIRST_AUDIO_WITHIN: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug)]
 pub struct CaptureConfig {
@@ -36,6 +40,8 @@ pub struct CaptureConfig {
     pub pw_record_bin: String,
     /// `pw-record --target` (node name or serial); default routing if `None`.
     pub pw_target: Option<String>,
+    /// Where to turn when the PipeWire stream delivers nothing (ADR 0004).
+    pub raw_fallback: Option<RawFallback>,
     /// WAV backend: pace frames at real time (otherwise as fast as possible).
     pub wav_realtime: bool,
     pub backoff_min: Duration,
@@ -56,12 +62,27 @@ impl CaptureConfig {
             alsa_device: "hw:0,24".into(),
             pw_record_bin: "pw-record".into(),
             pw_target: None,
+            raw_fallback: None,
             wav_realtime: true,
             backoff_min: Duration::from_millis(250),
             backoff_max: Duration::from_secs(5),
             queue_frames: 100,
         }
     }
+}
+
+/// When the processed PipeWire stream ends without audio, or delivers nothing
+/// for `after`, record the raw lanes of `target` instead and mix them with the
+/// capture's front end (its microphone mask, calibration, high-pass and gain),
+/// without echo cancellation. After `retry_after` on the raw lanes, or when
+/// they end, the capture tries the processed stream again.
+#[derive(Clone, Debug)]
+pub struct RawFallback {
+    /// The raw lanes' node, `dot_mics`, delivering [`crate::dsp::RAW_CHANNELS`]
+    /// lanes of 24-bit samples.
+    pub target: String,
+    pub after: Duration,
+    pub retry_after: Duration,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,6 +180,10 @@ enum RunEnd {
     Stopped,
     ConsumerGone,
     WavDone,
+    /// The processed stream delivered nothing for the fallback's time.
+    Silent,
+    /// The raw lanes ran for the fallback's `retry_after`.
+    Retry,
 }
 
 type FrontEndFactory = Box<dyn Fn() -> Box<dyn FrontEnd> + Send + Sync>;
@@ -173,13 +198,50 @@ async fn supervise(
 ) {
     let mut attempt = 0u32;
     let mut backoff = cfg.backoff_min;
+    // On the raw lanes since the processed stream delivered nothing.
+    let mut raw = false;
+    // Said so in the log, until the processed stream delivers again.
+    let mut warned = false;
     loop {
         let _ = status.send(CaptureStatus::Starting);
         let started = Instant::now();
         let end = match &cfg.backend {
             Backend::WavFile(path) => run_wav(&cfg, path, &tx, &status, &mut stop).await,
-            _ => run_process(&cfg, &make_fe, &tx, &status, &restart, &mut stop).await,
+            _ => {
+                run_process(
+                    &cfg,
+                    raw,
+                    &mut warned,
+                    &make_fe,
+                    &tx,
+                    &status,
+                    &restart,
+                    &mut stop,
+                )
+                .await
+            }
         };
+        // The processed stream ended or stalled without audio: pw-record
+        // exits at once when its node is missing (node.dont-fallback).
+        let no_audio = matches!(end, RunEnd::Silent | RunEnd::Died(_, false));
+        if !raw && cfg.raw_fallback.is_some() && no_audio {
+            raw = true;
+            if !warned {
+                warned = true;
+                tracing::warn!(
+                    "microphone: the processed stream delivers nothing; recording the raw lanes, without echo cancellation"
+                );
+            }
+            continue;
+        }
+        if raw {
+            // Try the processed stream again; if the raw lanes failed, after
+            // the usual backoff.
+            raw = false;
+            if let RunEnd::Retry = end {
+                continue;
+            }
+        }
         match end {
             RunEnd::Stopped | RunEnd::ConsumerGone => {
                 let _ = status.send(CaptureStatus::Stopped);
@@ -189,7 +251,7 @@ async fn supervise(
                 let _ = status.send(CaptureStatus::Finished);
                 return;
             }
-            RunEnd::RestartRequested => {
+            RunEnd::RestartRequested | RunEnd::Silent | RunEnd::Retry => {
                 attempt = 0;
                 backoff = cfg.backoff_min;
             }
@@ -249,8 +311,28 @@ impl Framer {
     }
 }
 
-/// Command line for the capture subprocess.
-pub fn capture_command(cfg: &CaptureConfig) -> Option<(String, Vec<String>)> {
+/// Command line for the capture subprocess; `raw` records the fallback's raw
+/// lanes instead of the processed stream.
+pub fn capture_command(cfg: &CaptureConfig, raw: bool) -> Option<(String, Vec<String>)> {
+    if let (true, Some(f)) = (raw, &cfg.raw_fallback) {
+        return Some((
+            cfg.pw_record_bin.clone(),
+            [
+                "--raw",
+                "--rate",
+                "16000",
+                "--channels",
+                &RAW_CHANNELS.to_string(),
+                "--format",
+                "s24",
+                "--target",
+                &f.target,
+                "-",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ));
+    }
     match cfg.backend {
         Backend::EchoDot => Some((
             cfg.arecord_bin.clone(),
@@ -293,6 +375,12 @@ pub fn capture_command(cfg: &CaptureConfig) -> Option<(String, Vec<String>)> {
                 a.push("--target".into());
                 a.push(t);
             }
+            if cfg.raw_fallback.is_some() {
+                // A missing node must stay silent, not be swapped for the
+                // default source: the raw lanes are the fallback.
+                a.push("-P".into());
+                a.push("{ node.dont-fallback = true }".into());
+            }
             a.push("-".into());
             Some((cfg.pw_record_bin.clone(), a))
         }
@@ -300,8 +388,11 @@ pub fn capture_command(cfg: &CaptureConfig) -> Option<(String, Vec<String>)> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_process(
     cfg: &CaptureConfig,
+    raw: bool,
+    warned: &mut bool,
     make_fe: &FrontEndFactory,
     tx: &mpsc::Sender<Frame>,
     status: &watch::Sender<CaptureStatus>,
@@ -314,7 +405,15 @@ async fn run_process(
     {
         return RunEnd::Died(format!("mixer setup: {e}"), false);
     }
-    let (bin, args) = capture_command(cfg).expect("process backend");
+    let (bin, args) = capture_command(cfg, raw).expect("process backend");
+    // How long the processed stream may stay silent before the raw lanes, and
+    // how long the raw lanes run before the processed stream is tried again.
+    let silent_after = cfg.raw_fallback.as_ref().filter(|_| !raw).map(|f| f.after);
+    let retry_at = cfg
+        .raw_fallback
+        .as_ref()
+        .filter(|_| raw)
+        .map(|f| tokio::time::Instant::now() + f.retry_after);
     let mut child: Child = match Command::new(&bin)
         .args(&args)
         .stdin(Stdio::null())
@@ -328,7 +427,8 @@ async fn run_process(
     };
     let mut stdout = child.stdout.take().expect("piped");
     let mut fe = make_fe();
-    let echo = cfg.backend == Backend::EchoDot;
+    // Raw lanes of 24-bit samples, mixed by the front end.
+    let echo = cfg.backend == Backend::EchoDot || raw;
     let mut framer = Framer {
         pending: Vec::new(),
         dropped: 0,
@@ -338,7 +438,28 @@ async fn run_process(
     let mut samples: Vec<i16> = Vec::new();
     let mut running = false;
     loop {
+        let silence = async {
+            match silent_after {
+                Some(d) if running => tokio::time::sleep(d).await,
+                Some(d) => tokio::time::sleep(d.max(FIRST_AUDIO_WITHIN)).await,
+                None => std::future::pending().await,
+            }
+        };
+        let retry = async {
+            match retry_at {
+                Some(at) => tokio::time::sleep_until(at).await,
+                None => std::future::pending().await,
+            }
+        };
         let n = tokio::select! {
+            _ = silence => {
+                let _ = child.kill().await;
+                return RunEnd::Silent;
+            }
+            _ = retry => {
+                let _ = child.kill().await;
+                return RunEnd::Retry;
+            }
             r = stdout.read(&mut buf) => match r {
                 Ok(0) => {
                     let st = child.wait().await.map(|s| s.to_string()).unwrap_or_default();
@@ -359,6 +480,10 @@ async fn run_process(
         if !running {
             running = true;
             let _ = status.send(CaptureStatus::Running);
+            if !raw && *warned {
+                *warned = false;
+                tracing::info!("microphone: the processed stream delivers again");
+            }
             if cfg.apply_mixer && cfg.backend.echo_dot_mixer() {
                 // Once PipeWire has opened the microphones, check that every
                 // setting held (see MixerRunner::check).
@@ -493,7 +618,7 @@ mod tests {
 
     #[test]
     fn echodot_command_matches_spec() {
-        let (bin, args) = capture_command(&CaptureConfig::new(Backend::EchoDot)).unwrap();
+        let (bin, args) = capture_command(&CaptureConfig::new(Backend::EchoDot), false).unwrap();
         assert_eq!(bin, "arecord");
         assert_eq!(
             args.join(" "),
@@ -504,13 +629,13 @@ mod tests {
     #[test]
     fn pipewire_command_and_target() {
         let mut cfg = CaptureConfig::new(Backend::PipeWire);
-        let (_, args) = capture_command(&cfg).unwrap();
+        let (_, args) = capture_command(&cfg, false).unwrap();
         assert_eq!(
             args.join(" "),
             "--raw --rate 16000 --channels 1 --format s16 -"
         );
         cfg.pw_target = Some("alsa_input.x".into());
-        let (_, args) = capture_command(&cfg).unwrap();
+        let (_, args) = capture_command(&cfg, false).unwrap();
         assert_eq!(
             args.join(" "),
             "--raw --rate 16000 --channels 1 --format s16 --target alsa_input.x -"
@@ -607,6 +732,117 @@ mod tests {
             }
         }
         assert!(max_attempt >= 3, "attempts {max_attempt}");
+    }
+
+    #[test]
+    fn echo_pipewire_records_dot_wake_and_falls_back_to_the_raw_lanes() {
+        let mut cfg = CaptureConfig::new(Backend::EchoDotPipeWire);
+        cfg.raw_fallback = Some(RawFallback {
+            target: "dot_mics".into(),
+            after: Duration::from_secs(1),
+            retry_after: Duration::from_secs(60),
+        });
+        let (_, args) = capture_command(&cfg, false).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "--raw --rate 16000 --channels 1 --format s16 --target dot_wake -P { node.dont-fallback = true } -"
+        );
+        let (_, args) = capture_command(&cfg, true).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "--raw --rate 16000 --channels 9 --format s24 --target dot_mics -"
+        );
+    }
+
+    /// The processed stream delivers one frame and then nothing: the capture
+    /// turns to the raw lanes and mixes them.
+    #[tokio::test]
+    async fn a_silent_processed_stream_gives_way_to_the_raw_lanes() {
+        let dir = std::env::temp_dir().join(format!("pinna-fakepwrecord-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("pw-record");
+        // dot_mics: 640 frames of 9 x S24_3LE, every byte 0x10 (octal 020).
+        std::fs::write(
+            &script,
+            "#!/bin/sh\ncase \"$*\" in\n*dot_mics*) head -c 17280 /dev/zero | tr '\\000' '\\020'; sleep 1 ;;\n*) head -c 640 /dev/zero; sleep 10 ;;\nesac\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut cfg = CaptureConfig::new(Backend::EchoDotPipeWire);
+        cfg.pw_record_bin = script.to_string_lossy().into();
+        cfg.apply_mixer = false;
+        cfg.raw_fallback = Some(RawFallback {
+            target: "dot_mics".into(),
+            after: Duration::from_millis(200),
+            retry_after: Duration::from_secs(60),
+        });
+        cfg.front_end.highpass = false;
+        cfg.front_end.digital_gain = 100;
+        let mut s = start_capture(cfg).await.unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(3), s.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            first.iter().all(|&x| x == 0),
+            "the processed stream's frame"
+        );
+        let next = tokio::time::timeout(Duration::from_secs(3), s.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        // The mean of lanes whose samples are all 0x101010 >> 8 = 0x1010.
+        assert!(next.iter().all(|&x| x == 0x1010), "{:?}", &next[..4]);
+        drop(s);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// dot_wake is missing at first, so pw-record exits at once (as with
+    /// node.dont-fallback): the raw lanes stand in, and once the processed
+    /// stream is there again, the capture returns to it.
+    #[tokio::test]
+    async fn a_missing_processed_stream_gives_way_to_the_raw_lanes_and_comes_back() {
+        let dir = std::env::temp_dir().join(format!("pinna-fakepwmissing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("pw-record");
+        let marker = dir.join("dot_wake-tried");
+        // dot_wake: missing the first time, then frames of 0x0202; dot_mics:
+        // lanes whose bytes are all 0x10 (octal 020).
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n*dot_mics*) while :; do head -c 17280 /dev/zero | tr '\\000' '\\020'; sleep 0.05; done ;;\n*) if [ -e {m} ]; then head -c 64000 /dev/zero | tr '\\000' '\\002'; sleep 10; else touch {m}; echo 'target not found' >&2; exit 1; fi ;;\nesac\n",
+                m = marker.display()
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut cfg = CaptureConfig::new(Backend::EchoDotPipeWire);
+        cfg.pw_record_bin = script.to_string_lossy().into();
+        cfg.apply_mixer = false;
+        cfg.raw_fallback = Some(RawFallback {
+            target: "dot_mics".into(),
+            after: Duration::from_secs(1),
+            retry_after: Duration::from_millis(300),
+        });
+        cfg.front_end.highpass = false;
+        cfg.front_end.digital_gain = 100;
+        let mut s = start_capture(cfg).await.unwrap();
+        let (mut raw, mut back) = (false, false);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !back && Instant::now() < deadline {
+            let Ok(Some(f)) = tokio::time::timeout(Duration::from_secs(2), s.recv()).await else {
+                break;
+            };
+            raw |= f.iter().all(|&x| x == 0x1010);
+            back |= raw && f.iter().all(|&x| x == 0x0202);
+        }
+        assert!(raw, "the raw lanes never stood in");
+        assert!(back, "the processed stream never came back");
+        drop(s);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

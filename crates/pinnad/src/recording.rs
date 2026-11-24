@@ -3,8 +3,9 @@
 //! `RecordAudio` streams what the satellite hears for up to 30 seconds:
 //! the frames that the wake word and the request get, tapped in `capture_loop`
 //! before and after pinnad's gain, and on the Echo's PipeWire graph the
-//! microphone lanes and the echo reference too, from a second `pw-record` that
-//! lives only for the recording. Nothing is stored: the chunks go through one
+//! microphone lanes too, from a second `pw-record` that lives only for the
+//! recording, and the echo reference cut from them: the loopback lane the
+//! speaker plays (ADR 0004). Nothing is stored: the chunks go through one
 //! bounded queue of about 2 seconds, and a caller that falls behind ends the
 //! recording. The Brain is told while one runs, so the ring shows Listening
 //! and an update's restart waits; the phase doesn't change.
@@ -32,8 +33,8 @@ const CHUNK_FRAMES: usize = 5;
 /// The lanes of `dot_mics`, S24LE: 100 ms is 43200 bytes.
 const LANES: u32 = 9;
 const LANES_CHUNK: usize = SAMPLE_RATE as usize * LANES as usize * 3 / 10;
-/// The echo reference, s16 mono: 100 ms.
-const REFERENCE_CHUNK: usize = SAMPLE_RATE as usize * 2 / 10;
+/// Bytes of one sample frame of the lanes.
+const LANE_FRAME: usize = LANES as usize * 3;
 /// What the queue holds, over all sources together.
 const QUEUE_SECONDS: usize = 2;
 /// The Brain forgets a recording this long after it should have ended, if
@@ -181,13 +182,17 @@ fn offer(tx: &mpsc::Sender<Item>, run: &Run, source: AudioSource, data: Vec<u8>)
 /// The debug captures of the Echo's PipeWire graph. A seam: tests can't run
 /// PipeWire.
 pub trait DebugCapture: Send + Sync {
-    /// Raw bytes of `source` (LANES or REFERENCE) until dropped.
+    /// Raw bytes of `source` (LANES) until dropped.
     fn open(&self, source: AudioSource) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>>;
+    /// The lane that carries what the speaker plays, the echo canceller's
+    /// reference (`pinna_board::Board::speaker_lane`).
+    fn reference_lane(&self) -> usize;
 }
 
 /// `pw-record`, which lives as long as the reader.
 pub struct PwRecord {
     pub bin: String,
+    pub reference_lane: usize,
 }
 
 struct PwStream {
@@ -206,9 +211,12 @@ impl AsyncRead for PwStream {
 }
 
 impl DebugCapture for PwRecord {
+    fn reference_lane(&self) -> usize {
+        self.reference_lane
+    }
+
     fn open(&self, source: AudioSource) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>> {
-        // The node names are in 10-echo-dot.conf. The reference is the monitor
-        // of the sink that the echo canceller's playback stream feeds.
+        // The node name is in 10-echo-dot.conf.
         let args: &[&str] = match source {
             AudioSource::AUDIO_SOURCE_LANES => &[
                 "--raw",
@@ -222,20 +230,12 @@ impl DebugCapture for PwRecord {
                 "dot_mics",
                 "-",
             ],
-            _ => &[
-                "--raw",
-                "--rate",
-                "16000",
-                "--channels",
-                "1",
-                "--format",
-                "s16",
-                "--target",
-                "dot_ref_sink",
-                "-P",
-                "{ stream.capture.sink = true }",
-                "-",
-            ],
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "only the lanes are recorded",
+                ));
+            }
         };
         let mut child = Command::new(&self.bin)
             .args(args)
@@ -249,18 +249,25 @@ impl DebugCapture for PwRecord {
     }
 }
 
-/// Read `source` in chunks of `size`, until the recording ends or the read
-/// fails.
-async fn read_debug(
+/// The 16-bit samples of `lane` in a chunk of lanes (S24LE, the top 16 bits).
+fn lane_s16(lanes: &[u8], lane: usize) -> Vec<u8> {
+    lanes
+        .chunks_exact(LANE_FRAME)
+        .flat_map(|f| [f[lane * 3 + 1], f[lane * 3 + 2]])
+        .collect()
+}
+
+/// Read the lanes in chunks of 100 ms, and offer each with the reference cut
+/// from it, until the recording ends or the read fails.
+async fn read_lanes(
     mut reader: Box<dyn AsyncRead + Send + Unpin>,
-    source: AudioSource,
-    size: usize,
-    what: &'static str,
+    reference_lane: usize,
     tx: mpsc::Sender<Item>,
     run: Arc<Run>,
 ) {
+    let what = "the microphone lanes";
     loop {
-        let mut buf = vec![0u8; size];
+        let mut buf = vec![0u8; LANES_CHUNK];
         if let Err(e) = reader.read_exact(&mut buf).await {
             let why = if e.kind() == std::io::ErrorKind::UnexpectedEof {
                 "pw-record ended".to_owned()
@@ -276,7 +283,9 @@ async fn read_debug(
         if run.finished() {
             return;
         }
-        offer(&tx, &run, source, buf);
+        let reference = lane_s16(&buf, reference_lane);
+        offer(&tx, &run, AudioSource::AUDIO_SOURCE_LANES, buf);
+        offer(&tx, &run, AudioSource::AUDIO_SOURCE_REFERENCE, reference);
     }
 }
 
@@ -375,33 +384,18 @@ impl Recorder {
         let sources = if self.debug.is_some() { 4 } else { 1 };
         let (tx, rx) = mpsc::channel(QUEUE_SECONDS * 10 * sources);
         if let Some(debug) = &self.debug {
-            for (source, size, what) in [
-                (
-                    AudioSource::AUDIO_SOURCE_LANES,
-                    LANES_CHUNK,
-                    "the microphone lanes",
-                ),
-                (
-                    AudioSource::AUDIO_SOURCE_REFERENCE,
-                    REFERENCE_CHUNK,
-                    "the echo reference",
-                ),
-            ] {
-                let reader = debug.open(source).map_err(|e| {
-                    ConnectError::unavailable(format!(
-                        "Recording {what} didn't start: {e}. Try again."
-                    ))
-                })?;
-                let task = tokio::spawn(read_debug(
-                    reader,
-                    source,
-                    size,
-                    what,
-                    tx.clone(),
-                    run.clone(),
-                ));
-                guard.tasks.push(task.abort_handle());
-            }
+            let reader = debug.open(AudioSource::AUDIO_SOURCE_LANES).map_err(|e| {
+                ConnectError::unavailable(format!(
+                    "Recording the microphone lanes didn't start: {e}. Try again."
+                ))
+            })?;
+            let task = tokio::spawn(read_lanes(
+                reader,
+                debug.reference_lane(),
+                tx.clone(),
+                run.clone(),
+            ));
+            guard.tasks.push(task.abort_handle());
         }
         self.shared
             .recording

@@ -55,9 +55,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Backend {
     /// Echo Dot: alsa-utils against the MT8163 sound card.
     EchoDot,
-    /// Echo Dot with the device's PipeWire microphone graph: the front end
-    /// (beamformer) and echo cancellation run in PipeWire, so capture reads one
-    /// processed mono stream (`dot_mic_aec`). The speaker is still driven through
+    /// Echo Dot with the device's PipeWire microphone graph: the microphones'
+    /// mean and echo cancellation run in PipeWire, so capture reads one
+    /// processed mono stream (`dot_wake`). The speaker is still driven through
     /// ALSA at 48 kHz (with the amp and mixer sequences here); the echo canceller
     /// takes what it plays from the microphones' loopback lanes (ADR 0004).
     EchoDotPipeWire,
@@ -81,12 +81,13 @@ impl Backend {
 
     /// Default PipeWire capture node for this backend.
     pub fn pw_capture_target(&self) -> Option<&'static str> {
-        matches!(self, Backend::EchoDotPipeWire).then_some("dot_mic_aec")
+        matches!(self, Backend::EchoDotPipeWire).then_some("dot_wake")
     }
 
-    /// PipeWire node of the wake word's own stream (ADR 0033), if any.
-    pub fn pw_wake_target(&self) -> Option<&'static str> {
-        matches!(self, Backend::EchoDotPipeWire).then_some("dot_wake")
+    /// The PipeWire node of the raw microphone lanes, which the capture falls
+    /// back to when the processed stream delivers nothing (ADR 0004).
+    pub fn pw_raw_target(&self) -> Option<&'static str> {
+        matches!(self, Backend::EchoDotPipeWire).then_some("dot_mics")
     }
 
     /// Default PipeWire playback node for this backend (the plain `PipeWire` backend

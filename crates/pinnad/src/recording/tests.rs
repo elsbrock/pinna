@@ -74,6 +74,10 @@ struct Fake {
 }
 
 impl DebugCapture for Fake {
+    fn reference_lane(&self) -> usize {
+        8
+    }
+
     fn open(&self, source: AudioSource) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>> {
         let (writer, reader) = tokio::io::duplex(1 << 20);
         self.writers.lock().unwrap().push((source, writer));
@@ -317,14 +321,14 @@ async fn the_echo_dot_adds_the_lanes_the_reference_and_the_description() {
     let mut writers = std::mem::take(&mut *fake.writers.lock().unwrap());
     assert_eq!(
         writers.iter().map(|w| w.0).collect::<Vec<_>>(),
-        [
-            AudioSource::AUDIO_SOURCE_LANES,
-            AudioSource::AUDIO_SOURCE_REFERENCE
-        ]
+        [AudioSource::AUDIO_SOURCE_LANES]
     );
-    // Whole sample frames of 100 ms: 9 lanes of 3 bytes, and 2 bytes.
-    writers[0].1.write_all(&vec![7u8; 43200]).await.unwrap();
-    writers[1].1.write_all(&vec![8u8; 3200]).await.unwrap();
+    // Whole sample frames of 100 ms, 9 lanes of 3 bytes; lane 8, the
+    // reference, reads 0x0807xx.
+    let frame: Vec<u8> = (0..9u8)
+        .flat_map(|lane| if lane == 8 { [0x55, 7, 8] } else { [lane; 3] })
+        .collect();
+    writers[0].1.write_all(&frame.repeat(1600)).await.unwrap();
     let mut got = [
         chunk(next(&mut recording).await),
         chunk(next(&mut recording).await),
@@ -333,7 +337,7 @@ async fn the_echo_dot_adds_the_lanes_the_reference_and_the_description() {
     assert_eq!(got[0].0, AudioSource::AUDIO_SOURCE_LANES);
     assert_eq!(got[0].1.len(), 43200);
     assert_eq!(got[1].0, AudioSource::AUDIO_SOURCE_REFERENCE);
-    assert_eq!(got[1].1.len(), 3200);
+    assert_eq!(got[1].1, [7u8, 8].repeat(1600));
 }
 
 #[tokio::test]

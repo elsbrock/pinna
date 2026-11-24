@@ -292,7 +292,6 @@ async fn capture_loop(
     shared: Arc<Shared>,
     esp: EsphomeHandle,
     inputs: mpsc::Sender<Input>,
-    wake: Option<(CaptureConfig, CaptureGain)>,
 ) {
     let mut stream = match start_capture(capture).await {
         Ok(s) => s,
@@ -302,21 +301,6 @@ async fn capture_loop(
         }
     };
     tracing::info!("microphone running");
-    // The wake word's own stream (ADR 0033), with its own gain.
-    let (mut wake_stream, mut wake_gain) = match wake {
-        Some((cfg, g)) if detector.is_some() => match start_capture(cfg).await {
-            Ok(s) => (Some(s), Some(g)),
-            Err(e) => {
-                tracing::warn!("wake word stream unavailable: {e}");
-                (None, None)
-            }
-        },
-        _ => (None, None),
-    };
-    let mut wake_source = mic::WakeSource::new(wake_stream.is_some());
-    // The main stream's noise floor, for the end-of-speech seed while the
-    // detector hears its own stream (WakeSource::noise_seed).
-    let mut main_vad = wake_stream.is_some().then(pinna_vad::Vad::new);
     let mut router = MicRouter::default();
     // Peak detector score of the current utterance, for near-miss logging.
     let mut peak = 0.0f32;
@@ -346,15 +330,6 @@ async fn capture_loop(
                 d.set_threshold(t);
             }
         }
-        // What the wake word's stream delivered since the last frame.
-        let mut own = Vec::new();
-        if let (Some(s), Some(g)) = (wake_stream.as_mut(), wake_gain.as_mut()) {
-            while let Some(mut f) = s.try_recv() {
-                let pre = pinna_audio::agc::mean_square(&f);
-                g.apply(&mut f);
-                own.push((pre, f));
-            }
-        }
         if shared.muted.load(Ordering::Relaxed) {
             router.clear_preroll();
             if let Some(d) = detector.as_mut() {
@@ -369,16 +344,6 @@ async fn capture_loop(
         gain.apply(&mut frame);
         if let Some(before) = &before_gain {
             shared.recording.frame(before, &frame);
-        }
-        let (heard, changed) = wake_source.pick(std::time::Instant::now(), own, (pre_gain, frame));
-        match changed {
-            Some(true) => tracing::info!("wake word: listening on its own stream"),
-            Some(false) => {
-                tracing::warn!(
-                    "wake word: its own stream delivers nothing; listening on the main one"
-                )
-            }
-            None => {}
         }
         let streaming = shared.streaming.load(Ordering::SeqCst);
         // The wake detector's latest noise floor seeds the shadow endpointer.
@@ -405,92 +370,75 @@ async fn capture_loop(
             // Always feed the detector so it keeps its audio context (it needs
             // ~2 s of history); only act on detections while wake is enabled.
             if let Some(d) = detector.as_mut() {
-                if let Some(v) = main_vad.as_mut() {
-                    // In the detector's VAD frames of 10 ms.
-                    for half in frame.chunks(frame.len() / 2) {
-                        v.process(half);
-                    }
-                }
-                for (pre_gain, frame) in heard {
-                    let threshold = d.threshold();
-                    let mut new_peak = None;
-                    levels.frame(pre_gain);
-                    let detections = tokio::task::block_in_place(|| {
-                        d.push_with(&frame, |b| {
-                            levels.block(b);
-                            if b.score > peak {
-                                peak = b.score;
-                                peak_reached = b.score >= threshold;
-                                peak_at = std::time::Instant::now();
-                                new_peak = b.keyword;
-                            }
-                        })
-                    });
-                    let seed = wake_source.noise_seed(
-                        main_vad.as_ref().and_then(pinna_vad::Vad::noise_energy),
-                        d.noise_energy(),
-                    );
-                    shared
-                        .noise_energy
-                        .store(seed.unwrap_or(0), Ordering::Relaxed);
-                    if let Some(k) = new_peak.and_then(|i| d.keyword(i)) {
-                        peak_word = k.name().to_owned();
-                    }
-                    // A near miss (scored, but not detected) once the utterance is over:
-                    // the score only, never audio.
-                    if !detections.is_empty() {
-                        detected_at = Some(std::time::Instant::now());
-                        peak = 0.0;
-                    } else if peak_at.elapsed() > std::time::Duration::from_secs(2) {
-                        // The rest of a detected utterance is not a near miss.
-                        let after_detection = detected_at
-                            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
-                        if peak >= 0.2 && !after_detection {
-                            tracing::info!(
-                                "wake word near miss ({peak_word}): peak score {peak:.2}"
-                            );
-                            if shared.wake_enabled.load(Ordering::Relaxed) {
-                                let _ = inputs
-                                    .send(Input::NearMiss {
-                                        score: peak,
-                                        reached_threshold: peak_reached,
-                                    })
-                                    .await;
-                            }
+                let threshold = d.threshold();
+                let mut new_peak = None;
+                levels.frame(pre_gain);
+                let detections = tokio::task::block_in_place(|| {
+                    d.push_with(&frame, |b| {
+                        levels.block(b);
+                        if b.score > peak {
+                            peak = b.score;
+                            peak_reached = b.score >= threshold;
+                            peak_at = std::time::Instant::now();
+                            new_peak = b.keyword;
                         }
-                        peak = 0.0;
-                    }
-                    if shared.wake_enabled.load(Ordering::Relaxed) && !detections.is_empty() {
-                        // The time the detector decided, taken here because
-                        // journald stamps a line only when it arrives.
-                        let at = jiff::Timestamp::now();
-                        for det in detections {
-                            let id = d
-                                .keyword(det.keyword)
-                                .map(|k| k.name().to_owned())
-                                .unwrap_or_default();
-                            // ADR 0026 measures from these lines whether the
-                            // level or the score picks the nearer satellite, before
-                            // the group's wake word arbitration is built.
-                            let level = levels.word(det.sample_index).map_or_else(
-                                || "level before the gain unknown".to_owned(),
-                                |l| l.to_string(),
-                            );
-                            let gain = match (wake_source.using_stream(), wake_gain.as_ref()) {
-                                (true, Some(g)) => g.to_string(),
-                                _ => gain.to_string(),
-                            };
-                            tracing::info!(
-                                "wake word {id:?}: {level}, {gain}, score {:.2}, at {at:.3}",
-                                det.score
-                            );
+                    })
+                });
+                shared
+                    .noise_energy
+                    .store(d.noise_energy().unwrap_or(0), Ordering::Relaxed);
+                if let Some(k) = new_peak.and_then(|i| d.keyword(i)) {
+                    peak_word = k.name().to_owned();
+                }
+                // A near miss (scored, but not detected) once the utterance is over:
+                // the score only, never audio.
+                if !detections.is_empty() {
+                    detected_at = Some(std::time::Instant::now());
+                    peak = 0.0;
+                } else if peak_at.elapsed() > std::time::Duration::from_secs(2) {
+                    // The rest of a detected utterance is not a near miss.
+                    let after_detection = detected_at
+                        .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
+                    if peak >= 0.2 && !after_detection {
+                        tracing::info!("wake word near miss ({peak_word}): peak score {peak:.2}");
+                        if shared.wake_enabled.load(Ordering::Relaxed) {
                             let _ = inputs
-                                .send(Input::Wake {
-                                    id,
-                                    score: det.score,
+                                .send(Input::NearMiss {
+                                    score: peak,
+                                    reached_threshold: peak_reached,
                                 })
                                 .await;
                         }
+                    }
+                    peak = 0.0;
+                }
+                if shared.wake_enabled.load(Ordering::Relaxed) && !detections.is_empty() {
+                    // The time the detector decided, taken here because
+                    // journald stamps a line only when it arrives.
+                    let at = jiff::Timestamp::now();
+                    for det in detections {
+                        let id = d
+                            .keyword(det.keyword)
+                            .map(|k| k.name().to_owned())
+                            .unwrap_or_default();
+                        // ADR 0026 measures from these lines whether the
+                        // level or the score picks the nearer satellite, before
+                        // the group's wake word arbitration is built.
+                        let level = levels.word(det.sample_index).map_or_else(
+                            || "level before the gain unknown".to_owned(),
+                            |l| l.to_string(),
+                        );
+                        let gain = gain.to_string();
+                        tracing::info!(
+                            "wake word {id:?}: {level}, {gain}, score {:.2}, at {at:.3}",
+                            det.score
+                        );
+                        let _ = inputs
+                            .send(Input::Wake {
+                                id,
+                                score: det.score,
+                            })
+                            .await;
                     }
                 }
             }
@@ -846,20 +794,24 @@ async fn main() -> Result<()> {
             Some(db) => tracing::info!("capture gain: fixed, {db:+.1} dB"),
             None => tracing::info!("capture gain: automatic, from {start:+.1} dB"),
         }
-        // The wake word's own stream (ADR 0033), unless a developer pointed
-        // the capture somewhere else.
-        let wake = b
-            .pw_wake_target()
-            .filter(|_| cfg.audio.capture_target.is_none())
-            .map(|target| {
-                let mut c = CaptureConfig::new(b.clone());
-                c.pw_target = Some(target.to_owned());
-                c.apply_mixer = false;
-                (c, make_gain())
-            });
-        let mut capture = CaptureConfig::new(b);
+        let mut capture = CaptureConfig::new(b.clone());
         capture.alsa_device = hw.audio.capture.device.into();
         capture.pw_target = cfg.audio.capture_target.clone();
+        // Where PipeWire's stream is missing, and without PipeWire, pinnad
+        // mixes the board's microphones itself (ADR 0004).
+        capture.front_end.mic_mask = hw.mics.all();
+        capture.front_end.calibration =
+            pinna_audio::dsp::Calibration::new(pinna_hal::ident::read_miccal());
+        // The raw lanes stand in for dot_wake, unless a developer pointed the
+        // capture somewhere else.
+        capture.raw_fallback = b
+            .pw_raw_target()
+            .filter(|_| cfg.audio.capture_target.is_none())
+            .map(|target| pinna_audio::capture::RawFallback {
+                target: target.to_owned(),
+                after: std::time::Duration::from_secs(1),
+                retry_after: std::time::Duration::from_secs(60),
+            });
         let (tx, rx) = mpsc::unbounded_channel();
         if detector.is_some() {
             keyword_tx = Some(tx);
@@ -871,7 +823,6 @@ async fn main() -> Result<()> {
             shared.clone(),
             esp.clone(),
             in_tx.clone(),
-            wake,
         ));
     } else {
         tracing::warn!("no audio backend: wake word and speech disabled");
@@ -1012,11 +963,14 @@ async fn main() -> Result<()> {
         shared.clone(),
         in_tx.clone(),
         status_rx.clone(),
-        // The lanes and the echo reference exist on the Echo's PipeWire graph
-        // only.
+        // The lanes exist on the Echo's PipeWire graph only. The reference is
+        // the one the board names (ADR 0004).
         (audio_backend == "echodot-pipewire").then(|| {
             Arc::new(recording::PwRecord {
                 bin: "pw-record".into(),
+                reference_lane: hw
+                    .speaker_lane()
+                    .unwrap_or(hw.mics.count + hw.mics.loopback.len() - 1),
             }) as Arc<dyn recording::DebugCapture>
         }),
     );
