@@ -259,17 +259,19 @@ server may have a credential that pinnad sends in a header.
       (RFC 9110) of at most 64 characters. pinnad refuses the headers that it sets itself or that
       frame the request: `Host`, `Accept`, `Connection`, `Keep-Alive`, `Upgrade`, `TE`, `Trailer`,
       `Transfer-Encoding`, and any `Content-`, `Mcp-` or `Proxy-` header.
-    - A token has no spaces. A header's value is printable ASCII, as HTTP allows. A user name or a
-      password has no control characters. Each is at most 1024 bytes, as a provider key is.
+    - A token is printable ASCII without spaces. A header's value is printable ASCII, as HTTP
+      allows. A user name or a password has no control characters. Each is at most 1024 bytes, as
+      a provider key is.
   - A server that answers 401 or 403 says why in the dashboard: it needs a sign-in, or it refused the
-    credential. One without a credential whose 401 names its OAuth metadata (`resource_metadata`,
-    RFC 9728) says that it signs in with OAuth, which pinnad doesn't support yet, and that an access
-    token the service hands out can be added as a token.
+    credential. One without a credential whose 401 or 403 names its OAuth metadata
+    (`resource_metadata`, RFC 9728) says that it signs in with OAuth, which pinnad doesn't support
+    yet, and that an access token the service hands out can be added as a token.
   - A tool call that a server refuses that way takes the server's tools out, and the dashboard shows
     why, until a listing works again. A credential revoked after the server was saved doesn't leave the
     brain calling tools that can't work.
   - Over plain http the credential crosses the network unencrypted. The dashboard says so when the
-    address it is entered with starts with `http://`.
+    address it is sent to starts with `http://`: the one typed in the same edit, or else the stored
+    one, which the API reports as `plain_http`.
   - A server's tools are named `<server>_<tool>`, with the server's hyphens as underscores; a name
     that doesn't fit providers' 64-byte `[A-Za-z0-9_-]` rule is left out.
   - Its tool list is read up to 1 MiB and 128 tools, and cached for 5 minutes, a failure for 30 s. An
