@@ -12,7 +12,7 @@ use futures_core::future::BoxFuture;
 use pinna_http::{ClientKind, NetError, Secret, SseDecoder, reqwest};
 use reqwest::{
     StatusCode,
-    header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue},
+    header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue, WWW_AUTHENTICATE},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -20,7 +20,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
 use crate::{
-    ToolOutput, ToolSet, ToolSpec,
+    McpCredential, ToolOutput, ToolSet, ToolSpec,
     jsonrpc::{Id, Payload, Response},
     namespaced,
 };
@@ -48,12 +48,28 @@ pub enum McpError {
     Tls,
     #[error("The MCP server returned HTTP {0}.")]
     Http(u16),
+    #[error("The MCP server needs a sign-in (HTTP {0}): add its token, password or header.")]
+    SignIn(u16),
+    #[error("The MCP server refused the sign-in (HTTP {0}): check the token, password or header.")]
+    Refused(u16),
+    #[error(
+        "The MCP server signs in with OAuth, which Pinna doesn't support yet; if the service gives you an access token, add it as a token."
+    )]
+    OAuth,
     #[error("The MCP server returned JSON-RPC error {0}.")]
     Remote(i32),
     #[error("The MCP server returned an invalid response.")]
     Protocol,
     #[error("The MCP server's reply is larger than 1 MiB, the most Pinna reads.")]
     TooLarge,
+}
+
+impl McpError {
+    /// The server refused this client's sign-in, so its tools can't work
+    /// until the owner changes the credential.
+    pub fn is_sign_in(self) -> bool {
+        matches!(self, Self::SignIn(_) | Self::Refused(_) | Self::OAuth)
+    }
 }
 
 fn network(error: reqwest::Error) -> McpError {
@@ -78,15 +94,18 @@ struct Session {
 pub struct McpClient {
     http: reqwest::Client,
     url: Secret,
+    /// The owner's credential for this server, sent with every request.
+    credential: Option<(HeaderName, HeaderValue)>,
     session: AsyncMutex<Session>,
     next_id: AtomicU64,
 }
 
 impl McpClient {
-    pub fn new(url: Secret) -> Self {
+    pub fn new(url: Secret, credential: Option<&McpCredential>) -> Self {
         Self {
             http: pinna_http::client(ClientKind::Mcp),
             url,
+            credential: credential.and_then(McpCredential::to_header),
             session: AsyncMutex::new(Session::default()),
             next_id: AtomicU64::new(1),
         }
@@ -119,11 +138,20 @@ impl McpClient {
     }
 
     pub async fn call(&self, tool: &str, args: Value, within: Duration) -> ToolOutput {
-        match tokio::time::timeout(within, self.call_inner(tool, args)).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(error)) => ToolOutput::error(error.to_string()),
-            Err(_) => ToolOutput::error(McpError::Timeout.to_string()),
-        }
+        self.try_call(tool, args, within)
+            .await
+            .unwrap_or_else(|error| ToolOutput::error(error.to_string()))
+    }
+
+    async fn try_call(
+        &self,
+        tool: &str,
+        args: Value,
+        within: Duration,
+    ) -> Result<ToolOutput, McpError> {
+        tokio::time::timeout(within, self.call_inner(tool, args))
+            .await
+            .map_err(|_| McpError::Timeout)?
     }
 
     async fn call_inner(&self, tool: &str, args: Value) -> Result<ToolOutput, McpError> {
@@ -236,7 +264,32 @@ impl McpClient {
         if response.status().is_success() {
             Ok(())
         } else {
-            Err(McpError::Http(response.status().as_u16()))
+            Err(self.status_error(&response))
+        }
+    }
+
+    /// A refused sign-in says what to do about it; any other status is
+    /// reported as it is.
+    fn status_error(&self, response: &reqwest::Response) -> McpError {
+        let status = response.status();
+        if status != StatusCode::UNAUTHORIZED && status != StatusCode::FORBIDDEN {
+            return McpError::Http(status.as_u16());
+        }
+        // RFC 9728 §5.1: an OAuth server names its metadata in the challenge.
+        let oauth = response
+            .headers()
+            .get_all(WWW_AUTHENTICATE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .any(|value| value.to_ascii_lowercase().contains("resource_metadata"));
+        // A refused credential is reported as refused, even by an OAuth
+        // server: some also take a token the service hands out.
+        if self.credential.is_some() {
+            McpError::Refused(status.as_u16())
+        } else if oauth {
+            McpError::OAuth
+        } else {
+            McpError::SignIn(status.as_u16())
         }
     }
 
@@ -256,7 +309,7 @@ impl McpClient {
             )
             .await?;
         if !response.status().is_success() {
-            return Err(McpError::Http(response.status().as_u16()));
+            return Err(self.status_error(&response));
         }
         let new_session = response
             .headers()
@@ -308,6 +361,9 @@ impl McpClient {
         }
         if let Some(protocol) = protocol {
             request = request.header(PROTOCOL_HEADER, protocol);
+        }
+        if let Some((name, value)) = &self.credential {
+            request = request.header(name.clone(), value.clone());
         }
         request.send().await.map_err(network)
     }
@@ -540,10 +596,23 @@ impl ToolSet for McpToolSet {
             };
             match tools.iter().find(|tool| tool.spec.name == name) {
                 Some(tool) => {
-                    self.shared
+                    let result = self
+                        .shared
                         .client
-                        .call(&tool.remote, args, CALL_TIMEOUT)
-                        .await
+                        .try_call(&tool.remote, args, CALL_TIMEOUT)
+                        .await;
+                    // A credential revoked after the server was saved: the
+                    // dashboard shows why, and the brain stops offering its
+                    // tools until a listing works again.
+                    if let Err(error) = result
+                        && error.is_sign_in()
+                    {
+                        self.shared.cache.lock().unwrap().replace(CachedTools {
+                            fetched: Instant::now(),
+                            outcome: Err(error),
+                        });
+                    }
+                    result.unwrap_or_else(|error| ToolOutput::error(error.to_string()))
                 }
                 None => ToolOutput::error(format!("Unknown MCP tool {name}.")),
             }
@@ -583,6 +652,7 @@ mod tests {
         session: Option<String>,
         protocol: Option<String>,
         accept: Option<String>,
+        headers: HeaderMap,
         body: Value,
     }
 
@@ -601,6 +671,10 @@ mod tests {
         tool_count: AtomicUsize,
         /// The protocol version `initialize` answers with.
         version: Mutex<&'static str>,
+        /// A header and value every request must carry, or get a 401.
+        sign_in: Mutex<Option<(&'static str, String)>>,
+        /// The 401's `WWW-Authenticate`.
+        challenge: Mutex<&'static str>,
     }
 
     impl FakeState {
@@ -617,6 +691,8 @@ mod tests {
                 long_output: AtomicBool::new(false),
                 tool_count: AtomicUsize::new(1),
                 version: Mutex::new(crate::PROTOCOL_VERSIONS[0]),
+                sign_in: Mutex::new(None),
+                challenge: Mutex::new("Bearer"),
             }
         }
 
@@ -646,7 +722,11 @@ mod tests {
         }
 
         fn client(&self) -> McpClient {
-            McpClient::new(Secret::new(self.url.clone()))
+            McpClient::new(Secret::new(self.url.clone()), None)
+        }
+
+        fn client_with(&self, credential: &McpCredential) -> McpClient {
+            McpClient::new(Secret::new(self.url.clone()), Some(credential))
         }
     }
 
@@ -674,8 +754,16 @@ mod tests {
             accept: headers
                 .get(ACCEPT)
                 .map(|value| value.to_str().unwrap().to_owned()),
+            headers: headers.clone(),
             body: body.clone(),
         });
+        let sign_in = state.sign_in.lock().unwrap().clone();
+        if let Some((name, value)) = sign_in
+            && headers.get(name).and_then(|v| v.to_str().ok()) != Some(value.as_str())
+        {
+            let challenge = *state.challenge.lock().unwrap();
+            return (StatusCode::UNAUTHORIZED, [(WWW_AUTHENTICATE, challenge)]).into_response();
+        }
         if method == "notifications/initialized" {
             return StatusCode::ACCEPTED.into_response();
         }
@@ -837,6 +925,87 @@ mod tests {
                 .await
                 .unwrap_err(),
             McpError::Protocol
+        );
+    }
+
+    #[tokio::test]
+    async fn the_credential_goes_with_every_request() {
+        for (credential, name, value) in [
+            (
+                McpCredential::bearer("tok-1234").unwrap(),
+                "authorization",
+                "Bearer tok-1234",
+            ),
+            (
+                McpCredential::basic("me", "pw").unwrap(),
+                "authorization",
+                "Basic bWU6cHc=",
+            ),
+            (
+                McpCredential::header("X-API-Key", "k-5678").unwrap(),
+                "x-api-key",
+                "k-5678",
+            ),
+        ] {
+            let server = FakeServer::start(Wire::Json).await;
+            *server.state.sign_in.lock().unwrap() = Some((name, value.to_owned()));
+            let client = server.client_with(&credential);
+            assert_eq!(client.list(Duration::from_secs(1)).await.unwrap().len(), 1);
+            let output = client
+                .call("time", json!({"zone": "UTC"}), Duration::from_secs(1))
+                .await;
+            assert_eq!(output, ToolOutput::ok("noon UTC"));
+            let requests = server.state.requests();
+            // initialize, notifications/initialized, tools/list, tools/call
+            assert_eq!(requests.len(), 4);
+            for request in requests {
+                assert_eq!(request.headers[name], value, "{}", request.method);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_refused_sign_in_says_what_to_do() {
+        let server = FakeServer::start(Wire::Json).await;
+        *server.state.sign_in.lock().unwrap() = Some(("authorization", "Bearer right".into()));
+        let list = |client: McpClient| async move { client.list(Duration::from_secs(1)).await };
+        assert_eq!(
+            list(server.client()).await.unwrap_err(),
+            McpError::SignIn(401)
+        );
+        let wrong = McpCredential::bearer("wrong").unwrap();
+        assert_eq!(
+            list(server.client_with(&wrong)).await.unwrap_err(),
+            McpError::Refused(401)
+        );
+        // RFC 9728 §5.1's challenge: the server signs in with OAuth.
+        *server.state.challenge.lock().unwrap() = r#"Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource""#;
+        assert_eq!(list(server.client()).await.unwrap_err(), McpError::OAuth);
+        // A token the service handed out may be wrong too: say so.
+        assert_eq!(
+            list(server.client_with(&wrong)).await.unwrap_err(),
+            McpError::Refused(401)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_credential_revoked_after_listing_takes_the_servers_tools_out() {
+        let server = FakeServer::start(Wire::Json).await;
+        let credential = McpCredential::bearer("tok-1234").unwrap();
+        *server.state.sign_in.lock().unwrap() = Some(("authorization", "Bearer tok-1234".into()));
+        let tools = McpToolSet::new("home", Arc::new(server.client_with(&credential)));
+        assert_eq!(tools.specs().await.len(), 1);
+
+        *server.state.sign_in.lock().unwrap() = Some(("authorization", "Bearer new".into()));
+        let output = tools.call("home_time", json!({"zone": "UTC"})).await;
+        assert_eq!(
+            output,
+            ToolOutput::error(McpError::Refused(401).to_string())
+        );
+        assert_eq!(tools.last_listing(), Some(Err(McpError::Refused(401))));
+        assert!(
+            tools.specs().await.is_empty(),
+            "the brain stops offering them"
         );
     }
 

@@ -71,6 +71,7 @@ mod tests {
                 "home".to_owned(),
                 McpFile {
                     url: "https://mcp.example:8443/private-token".to_owned(),
+                    credential: None,
                     extra: toml::Table::new(),
                 },
             )]

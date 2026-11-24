@@ -30,6 +30,7 @@ use pinna_assist::presets::{self, ChatOverride, Delegation, HistoryPolicy, Prese
 use pinna_assist::secrets::{DashboardFile, Secrets, SecretsFile};
 use pinna_assist::tts::Tts;
 use pinna_http::{ClientKind, Secret, reqwest};
+use pinna_mcp::{CredentialKind, McpCredential};
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
 use super::ack::{self, AckCache};
@@ -213,8 +214,8 @@ pub struct SlotEdit {
     pub speech_model: String,
 }
 
-/// Add (`id: None`) or change one of the owner's MCP servers. There is no
-/// key: a server that needs one takes it in its address.
+/// Add (`id: None`) or change one of the owner's MCP servers. A server
+/// takes a token in its address, or a credential sent in a header.
 #[derive(Clone, Debug)]
 pub struct McpEdit {
     pub id: Option<String>,
@@ -224,6 +225,17 @@ pub struct McpEdit {
     /// The whole address. `None` keeps the stored one; needed when adding.
     pub url: Option<Secret>,
     pub enabled: bool,
+    pub credential: CredentialEdit,
+}
+
+/// What an edit does to an MCP server's credential (ADR 0017 §"Secrets").
+#[derive(Clone, Debug, Default)]
+pub enum CredentialEdit {
+    /// Keep the stored one, which a new address drops.
+    #[default]
+    Keep,
+    Clear,
+    Set(McpCredential),
 }
 
 /// Settings that need no provider check. `None` leaves a field unchanged.
@@ -305,6 +317,26 @@ pub struct McpServerView {
     /// How the last listing went: its tools, or why it failed. `None` while
     /// it is off or wasn't asked.
     pub listing: Option<Result<Vec<McpToolView>, String>>,
+    pub credential: Option<CredentialShown>,
+}
+
+/// What tells a stored credential apart; never its secret.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CredentialShown {
+    pub kind: CredentialKind,
+    /// The user name, or the header's name.
+    pub label: Option<String>,
+    pub last4: Option<String>,
+}
+
+impl From<&McpCredential> for CredentialShown {
+    fn from(credential: &McpCredential) -> Self {
+        Self {
+            kind: credential.kind(),
+            label: credential.label().map(str::to_owned),
+            last4: credential.last4(),
+        }
+    }
 }
 
 /// One of an MCP server's tools, by the name the brain calls it, which is
@@ -846,6 +878,9 @@ impl Service {
                 // A stale entry written by another image must not linger.
                 d.secrets.clear_mcp(&id);
                 d.secrets.set_mcp(&id, url);
+                if let CredentialEdit::Set(credential) = &e.credential {
+                    d.secrets.set_mcp_credential(&id, Some(credential.clone()));
+                }
                 d.config.mcp_servers.push(McpServer {
                     host: d.secrets.mcp_host(&id).unwrap_or_default(),
                     id,
@@ -875,12 +910,32 @@ impl Service {
                 }
                 (None, _) => None,
             };
-            if server.name == name && server.enabled == e.enabled && url.is_none() {
+            // The credential to store, when it changes. A new address drops
+            // the stored one, so one entered with it is stored again.
+            let stored = d.secrets.mcp_credential(&id);
+            let credential = match &e.credential {
+                CredentialEdit::Keep => None,
+                CredentialEdit::Clear => stored.is_some().then_some(None),
+                CredentialEdit::Set(new) => {
+                    (url.is_some() || stored != Some(new)).then(|| Some(new.clone()))
+                }
+            };
+            if server.name == name
+                && server.enabled == e.enabled
+                && url.is_none()
+                && credential.is_none()
+            {
                 return Ok(());
             }
             if let Some(url) = url {
                 d.secrets.set_mcp(&id, url);
                 server.host = d.secrets.mcp_host(&id).unwrap_or_default();
+                new_address = Some(id.clone());
+            }
+            if let Some(credential) = credential {
+                d.secrets.set_mcp_credential(&id, credential);
+                // A server that refused to list its tools may list them now:
+                // a big one starts with them off, as a new address does.
                 new_address = Some(id.clone());
             }
             let old = std::mem::replace(&mut server.name, name);
@@ -1271,13 +1326,19 @@ impl State {
             .filter(|server| server.enabled)
             .filter_map(|server| {
                 let url = self.secrets.mcp(&server.id)?;
+                let credential = self.secrets.mcp_credential(&server.id);
                 let kept = self
                     .mcp
                     .iter()
-                    .find(|live| live.is(&server.id, &server.name, url))
+                    .find(|live| live.is(&server.id, &server.name, url, credential))
                     .cloned();
                 Some(kept.unwrap_or_else(|| {
-                    Arc::new(OwnerMcp::new(&server.id, &server.name, url.clone()))
+                    Arc::new(OwnerMcp::new(
+                        &server.id,
+                        &server.name,
+                        url.clone(),
+                        credential.cloned(),
+                    ))
                 }))
             })
             .take(MAX_MCP_SERVERS)
@@ -1345,6 +1406,9 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
                 enabled: server.enabled,
                 revision: server.revision,
                 listing: None,
+                credential: secrets
+                    .mcp_credential(&server.id)
+                    .map(CredentialShown::from),
             })
             .collect(),
         agents,
@@ -2821,6 +2885,7 @@ mod tests {
             name: name.into(),
             url: url.map(Secret::new),
             enabled: true,
+            credential: CredentialEdit::Keep,
         }
     }
 
@@ -2831,6 +2896,7 @@ mod tests {
             name: name.into(),
             url: url.map(Secret::new),
             enabled,
+            credential: CredentialEdit::Keep,
         }
     }
 
@@ -2852,6 +2918,7 @@ mod tests {
             revision: 1,
             // Saving asked it for its tools.
             listing: Some(Err("The MCP server is unreachable.".into())),
+            credential: None,
         };
         assert_eq!(view.mcp_servers, std::slice::from_ref(&home));
         for text in [format!("{view:?}"), f.file("standalone.toml")] {
@@ -3060,6 +3127,11 @@ mod tests {
     /// An MCP server that answers one listing with `tools` tools.
     async fn mcp_listing(tools: usize) -> FakeServer {
         let server = FakeServer::start().await;
+        script_listing(&server, tools);
+        server
+    }
+
+    fn script_listing(server: &FakeServer, tools: usize) {
         let json = |body: serde_json::Value| {
             FakeResponse::new(StatusCode::OK, body.to_string())
                 .header("content-type", "application/json")
@@ -3082,7 +3154,159 @@ mod tests {
             "/mcp",
             json(serde_json::json!({"jsonrpc": "2.0", "id": 2, "result": {"tools": listed}})),
         );
-        server
+    }
+
+    fn with_credential(mut edit: McpEdit, credential: &McpCredential) -> McpEdit {
+        edit.credential = CredentialEdit::Set(credential.clone());
+        edit
+    }
+
+    #[tokio::test]
+    async fn an_mcp_credential_shows_without_its_secret_and_goes_with_its_address() {
+        let f = Fixture::new(Mode::Standalone);
+        let token = McpCredential::bearer("tok-secret-00001234").unwrap();
+        let view = f
+            .service
+            .set_mcp_server(with_credential(add_mcp("home", Some(MCP_ADDRESS)), &token))
+            .await
+            .unwrap();
+        let home = view.mcp_servers[0].clone();
+        assert_eq!(
+            home.credential,
+            Some(CredentialShown {
+                kind: CredentialKind::Bearer,
+                label: None,
+                last4: Some("1234".into()),
+            })
+        );
+        for text in [format!("{view:?}"), f.file("standalone.toml")] {
+            assert!(!text.contains("tok-secret"), "{text}");
+        }
+        assert!(f.file("secrets.toml").contains("tok-secret-00001234"));
+        let before = f.live().mcp[0].clone();
+
+        // Entering the same one again changes nothing.
+        let view = f
+            .service
+            .set_mcp_server(with_credential(
+                change_mcp(&home, "home", None, true),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(view.mcp_servers[0].revision, home.revision);
+        assert!(Arc::ptr_eq(&before, &f.live().mcp[0]));
+
+        // Another one is a change, with a client of its own.
+        let basic = McpCredential::basic("me", "hunter2").unwrap();
+        let view = f
+            .service
+            .set_mcp_server(with_credential(
+                change_mcp(&home, "home", None, true),
+                &basic,
+            ))
+            .await
+            .unwrap();
+        let home = view.mcp_servers[0].clone();
+        assert_eq!(home.revision, 2);
+        assert_eq!(
+            home.credential,
+            Some(CredentialShown {
+                kind: CredentialKind::Basic,
+                label: Some("me".into()),
+                last4: None,
+            })
+        );
+        assert!(!Arc::ptr_eq(&before, &f.live().mcp[0]));
+        assert!(!format!("{view:?}").contains("hunter2"));
+        assert_eq!(
+            f.reload().view().mcp_servers[0].credential,
+            home.credential,
+            "it is read back after a restart"
+        );
+
+        // A new address drops it.
+        let view = f
+            .service
+            .set_mcp_server(change_mcp(
+                &home,
+                "home",
+                Some("http://127.0.0.1:2/mcp"),
+                true,
+            ))
+            .await
+            .unwrap();
+        let moved = view.mcp_servers[0].clone();
+        assert_eq!(moved.credential, None);
+        assert!(!f.file("secrets.toml").contains("hunter2"));
+
+        // Unless the same edit enters one again.
+        let view = f
+            .service
+            .set_mcp_server(with_credential(
+                change_mcp(&moved, "home", Some("http://127.0.0.1:3/mcp"), true),
+                &token,
+            ))
+            .await
+            .unwrap();
+        let entered = view.mcp_servers[0].clone();
+        assert_eq!(
+            entered.credential.as_ref().map(|c| c.kind),
+            Some(CredentialKind::Bearer)
+        );
+
+        // Removed, it leaves the file and the client.
+        let mut clear = change_mcp(&entered, "home", None, true);
+        clear.credential = CredentialEdit::Clear;
+        let view = f.service.set_mcp_server(clear).await.unwrap();
+        assert_eq!(view.mcp_servers[0].credential, None);
+        assert_eq!(view.mcp_servers[0].revision, entered.revision + 1);
+        assert!(!f.file("secrets.toml").contains("tok-secret"));
+        // Removing none changes nothing.
+        let none = view.mcp_servers[0].clone();
+        let mut clear = change_mcp(&none, "home", None, true);
+        clear.credential = CredentialEdit::Clear;
+        let view = f.service.set_mcp_server(clear).await.unwrap();
+        assert_eq!(view.mcp_servers[0].revision, none.revision);
+    }
+
+    #[tokio::test]
+    async fn a_big_server_that_lists_once_signed_in_starts_with_its_tools_off() {
+        let f = Fixture::new(Mode::Standalone);
+        let many = FakeServer::start().await;
+        many.script_status(Method::POST, "/mcp", StatusCode::UNAUTHORIZED);
+        script_listing(&many, MANY_TOOLS + 1);
+
+        let view = f
+            .service
+            .set_mcp_server(add_mcp("many", Some(&many.url("/mcp"))))
+            .await
+            .unwrap();
+        let server = view.mcp_servers[0].clone();
+        assert_eq!(
+            server.listing,
+            Some(Err(pinna_mcp::client::McpError::SignIn(401).to_string()))
+        );
+        assert!(view.tools.is_empty());
+
+        let token = McpCredential::header("X-API-Key", "k-1").unwrap();
+        let view = f
+            .service
+            .set_mcp_server(with_credential(
+                change_mcp(&server, "many", None, true),
+                &token,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(view.tools.len(), MANY_TOOLS + 1);
+        assert!(view.tools.values().all(|on| !on));
+        let requests = many.requests();
+        assert_eq!(requests[0].header("x-api-key"), None);
+        assert!(
+            requests[1..]
+                .iter()
+                .all(|r| r.header("x-api-key") == Some("k-1"))
+        );
     }
 
     #[tokio::test]

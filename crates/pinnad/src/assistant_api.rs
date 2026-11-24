@@ -17,12 +17,12 @@ use pinna_api::{
     Assistant, AssistantService, AssistantSlot, BrainOverride, ChoiceKind, DeleteConnectionRequest,
     DeleteConnectionResponse, DeleteMcpServerRequest, DeleteMcpServerResponse, DeviceTool,
     GetAssistantRequest, GetAssistantResponse, GetSatelliteGroupRequest, GetSatelliteGroupResponse,
-    ListChoicesRequest, ListChoicesResponse, McpAgent, PlaySampleRequest, PlaySampleResponse,
-    ProviderConnection, RemoveGroupMemberRequest, RemoveGroupMemberResponse,
-    SatelliteGroupCandidate, SatelliteGroupMember, SatelliteGroupView, SetConnectionRequest,
-    SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse, SetSatelliteGroupRequest,
-    SetSatelliteGroupResponse, SetSlotRequest, SetSlotResponse, SlotChoice, UpdateAssistantRequest,
-    UpdateAssistantResponse,
+    ListChoicesRequest, ListChoicesResponse, McpAgent, McpCredentialView, McpServerCredential,
+    PlaySampleRequest, PlaySampleResponse, ProviderConnection, RemoveGroupMemberRequest,
+    RemoveGroupMemberResponse, SatelliteGroupCandidate, SatelliteGroupMember, SatelliteGroupView,
+    SetConnectionRequest, SetConnectionResponse, SetMcpServerRequest, SetMcpServerResponse,
+    SetSatelliteGroupRequest, SetSatelliteGroupResponse, SetSlotRequest, SetSlotResponse,
+    SlotChoice, UpdateAssistantRequest, UpdateAssistantResponse,
 };
 use pinna_assist::choices::Wanted;
 use pinna_assist::config::{Ack, Station};
@@ -31,14 +31,15 @@ use pinna_assist::presets::{
 };
 use pinna_assist::prompt::VOICE_RULES;
 use pinna_http::Secret;
+use pinna_mcp::{CredentialKind, McpCredential};
 
 use crate::checks;
 use crate::group::Group;
 use crate::group::view::{CandidateState, GroupView};
 use crate::satellites::Seen;
 use crate::standalone::service::{
-    AssistantPatch, AssistantView, ConnectionEdit, KeyEdit, McpEdit, Refusal, Service, SlotEdit,
-    SlotKind, SlotView,
+    AssistantPatch, AssistantView, ConnectionEdit, CredentialEdit, CredentialShown, KeyEdit,
+    McpEdit, Refusal, Service, SlotEdit, SlotKind, SlotView,
 };
 use crate::tools;
 use crate::voice::{ApiCommand, Input};
@@ -118,6 +119,36 @@ impl AssistantApi {
 /// The routes, for the dashboard listener.
 pub fn router(api: Arc<AssistantApi>) -> Router {
     Router::new().add_service(api)
+}
+
+/// A credential as the owner typed it, checked as pinna-mcp checks one.
+fn mcp_credential(typed: &McpCredentialView<'_>) -> Result<McpCredential, ConnectError> {
+    use pinna_api::__buffa::view::oneof::mcp_credential::Kind;
+    match &typed.kind {
+        Some(Kind::Bearer(b)) => McpCredential::bearer(b.token),
+        Some(Kind::Basic(b)) => McpCredential::basic(b.user, b.password),
+        Some(Kind::Header(h)) => McpCredential::header(h.name, h.value),
+        None => {
+            return Err(ConnectError::invalid_argument(
+                "Choose how the MCP server signs in.",
+            ));
+        }
+    }
+    .map_err(|e| ConnectError::invalid_argument(e.to_string()))
+}
+
+fn credential_shown(c: CredentialShown) -> McpServerCredential {
+    use pinna_api::McpCredentialKind as K;
+    McpServerCredential {
+        kind: EnumValue::Known(match c.kind {
+            CredentialKind::Bearer => K::MCP_CREDENTIAL_KIND_BEARER,
+            CredentialKind::Basic => K::MCP_CREDENTIAL_KIND_BASIC,
+            CredentialKind::Header => K::MCP_CREDENTIAL_KIND_HEADER,
+        }),
+        label: c.label.unwrap_or_default(),
+        last4: c.last4.unwrap_or_default(),
+        ..Default::default()
+    }
 }
 
 pub(crate) fn refused(r: Refusal) -> ConnectError {
@@ -206,6 +237,9 @@ fn render(v: AssistantView) -> Assistant {
                     })
                     .unwrap_or_default(),
                 problem: s.listing.and_then(Result::err).unwrap_or_default(),
+                credential: s.credential.map_or_else(MessageField::none, |c| {
+                    MessageField::some(credential_shown(c))
+                }),
                 ..Default::default()
             })
             .collect(),
@@ -549,12 +583,23 @@ impl AssistantService for AssistantApi {
         _ctx: RequestContext,
         request: ServiceRequest<'_, SetMcpServerRequest>,
     ) -> ServiceResult<SetMcpServerResponse> {
+        let credential = match (request.credential.as_option(), request.clear_credential) {
+            (Some(_), true) => {
+                return Err(ConnectError::invalid_argument(
+                    "Enter a sign-in or remove it, not both.",
+                ));
+            }
+            (Some(typed), false) => CredentialEdit::Set(mcp_credential(typed)?),
+            (None, true) => CredentialEdit::Clear,
+            (None, false) => CredentialEdit::Keep,
+        };
         let edit = McpEdit {
             id: existing(request.id),
             revision: request.revision,
             name: request.name.to_owned(),
             url: request.url.map(Secret::new),
             enabled: request.enabled,
+            credential,
         };
         let view = self.service.set_mcp_server(edit).await.map_err(refused)?;
         Response::ok(SetMcpServerResponse {
@@ -1440,6 +1485,62 @@ mod tests {
         }))
         .unwrap();
         assert!(a.mcp_servers.iter().all(|s| s.id != house.id));
+    }
+
+    #[tokio::test]
+    async fn an_mcp_credential_goes_in_and_only_its_kind_and_label_come_out() {
+        let d = Device::start().await;
+        let address = "http://127.0.0.1:1/mcp";
+        let request = |name: &str, credential: &str| {
+            format!(r#"{{"name": "{name}", "url": "{address}", "enabled": true, {credential}}}"#)
+        };
+
+        let (status, added) = d
+            .json(
+                "AssistantService/SetMcpServer",
+                &request(
+                    "home",
+                    r#""credential": {"header": {"name": "X-API-Key", "value": "k-secret-000000005678"}}"#,
+                ),
+            )
+            .await;
+        assert_eq!(status, 200, "{added}");
+        for part in [
+            r#""MCP_CREDENTIAL_KIND_HEADER""#,
+            r#""label":"X-API-Key""#,
+            r#""last4":"5678""#,
+        ] {
+            assert!(added.contains(part), "{added}");
+        }
+        let (_, got) = d.json("AssistantService/GetAssistant", "{}").await;
+        for body in [&added, &got] {
+            assert!(!body.contains("k-secret"), "{body}");
+        }
+
+        for (credential, sentence) in [
+            (
+                r#""credential": {"bearer": {"token": "t"}}, "clearCredential": true"#,
+                "Enter a sign-in or remove it, not both.",
+            ),
+            (r#""credential": {}"#, "Choose how the MCP server signs in."),
+            (
+                r#""credential": {"header": {"name": "Host", "value": "x"}}"#,
+                "Pinna sets that header itself.",
+            ),
+            (
+                r#""credential": {"basic": {"user": "a:b", "password": "pw"}}"#,
+                "A user name can't contain a colon.",
+            ),
+        ] {
+            let (status, refused) = d
+                .json(
+                    "AssistantService/SetMcpServer",
+                    &request("other", credential),
+                )
+                .await;
+            assert_eq!(status, 400, "{refused}");
+            assert!(refused.contains(sentence), "{refused}");
+        }
     }
 
     #[tokio::test]

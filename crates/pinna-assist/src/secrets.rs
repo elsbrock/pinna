@@ -3,8 +3,9 @@
 //!
 //! The file representation contains strings for TOML only. The in-memory
 //! representation wraps keys and MCP URLs in [`Secret`], and its debug output
-//! contains no credential material. MCP servers have no token yet; a `bearer`
-//! from another build stays in `extra`. The satellite group's key (ADR 0026)
+//! contains no credential material. An MCP server's credential (ADR 0017
+//! §"Secrets") is stored with its URL and goes when the URL changes; a
+//! `bearer` from another build stays in `extra` and is never sent. The satellite group's key (ADR 0026)
 //! is bound to the group's id, as a provider key is to its URL. The dashboard
 //! password's hash, session key and token digests (ADR 0029) are one more
 //! table; this crate only carries them, `pinnad` interprets them.
@@ -12,6 +13,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use pinna_http::Secret;
+use pinna_mcp::McpCredential;
 use serde::{Deserialize, Serialize};
 
 /// The plain-string representation written to `secrets.toml`.
@@ -43,8 +45,68 @@ pub struct ConnectionFile {
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct McpFile {
     pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<McpCredentialFile>,
     #[serde(flatten)]
     pub extra: toml::Table,
+}
+
+/// An MCP server's credential as `secrets.toml` holds it. A kind this image
+/// doesn't know, or one it would refuse, is kept as it is and not sent.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct McpCredentialFile {
+    /// `bearer`, `basic` or `header`.
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(flatten)]
+    pub extra: toml::Table,
+}
+
+impl McpCredentialFile {
+    fn credential(&self) -> Option<McpCredential> {
+        let field = |f: &Option<String>| f.as_deref().unwrap_or_default().to_owned();
+        match self.kind.as_str() {
+            "bearer" => McpCredential::bearer(&field(&self.token)).ok(),
+            "basic" => McpCredential::basic(&field(&self.user), &field(&self.password)).ok(),
+            "header" => McpCredential::header(&field(&self.name), &field(&self.value)).ok(),
+            _ => None,
+        }
+    }
+}
+
+impl From<&McpCredential> for McpCredentialFile {
+    fn from(credential: &McpCredential) -> Self {
+        let text = |s: &str| Some(s.to_owned());
+        match credential {
+            McpCredential::Bearer { token } => Self {
+                kind: "bearer".into(),
+                token: text(token.expose()),
+                ..Self::default()
+            },
+            McpCredential::Basic { user, password } => Self {
+                kind: "basic".into(),
+                user: text(user),
+                password: text(password.expose()),
+                ..Self::default()
+            },
+            McpCredential::Header { name, value } => Self {
+                kind: "header".into(),
+                name: text(name),
+                value: text(value.expose()),
+                ..Self::default()
+            },
+        }
+    }
 }
 
 /// The satellite group's key and the id of the group it belongs to.
@@ -130,6 +192,15 @@ impl fmt::Debug for McpFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("McpFile")
             .field("url", &"<redacted>")
+            .field("credential", &self.credential.as_ref().map(|c| &c.kind))
+            .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for McpCredentialFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("McpCredentialFile")
+            .field("kind", &self.kind)
             .finish_non_exhaustive()
     }
 }
@@ -144,6 +215,10 @@ struct Connection {
 #[derive(Clone)]
 struct Mcp {
     url: Secret,
+    /// What `secrets.toml` holds, written back as it is.
+    credential_file: Option<McpCredentialFile>,
+    /// The credential sent, when this image can use the stored one.
+    credential: Option<McpCredential>,
     extra: toml::Table,
 }
 
@@ -151,6 +226,8 @@ impl Default for Mcp {
     fn default() -> Self {
         Self {
             url: Secret::new(""),
+            credential_file: None,
+            credential: None,
             extra: toml::Table::new(),
         }
     }
@@ -199,8 +276,28 @@ impl Secrets {
         Some(self.connections.get(connection)?.key.as_ref()?.last4())
     }
 
+    /// Store an MCP server's address. A different address drops its
+    /// credential, which belongs to the address it was entered for.
     pub fn set_mcp(&mut self, id: impl Into<String>, url: Secret) {
-        self.mcp.entry(id.into()).or_default().url = url;
+        let server = self.mcp.entry(id.into()).or_default();
+        if server.url != url {
+            server.credential_file = None;
+            server.credential = None;
+        }
+        server.url = url;
+    }
+
+    /// Store or remove the credential of a server whose address is stored.
+    pub fn set_mcp_credential(&mut self, id: &str, credential: Option<McpCredential>) {
+        if let Some(server) = self.mcp.get_mut(id) {
+            server.credential_file = credential.as_ref().map(McpCredentialFile::from);
+            server.credential = credential;
+        }
+    }
+
+    /// The credential sent to an MCP server, if it has one this image can use.
+    pub fn mcp_credential(&self, id: &str) -> Option<&McpCredential> {
+        self.mcp.get(id)?.credential.as_ref()
     }
 
     /// An MCP server's address. It remains a secret and is never part of a
@@ -296,6 +393,11 @@ impl From<SecretsFile> for Secrets {
                         id,
                         Mcp {
                             url: Secret::new(server.url),
+                            credential: server
+                                .credential
+                                .as_ref()
+                                .and_then(McpCredentialFile::credential),
+                            credential_file: server.credential,
                             extra: server.extra,
                         },
                     )
@@ -337,6 +439,7 @@ impl From<&Secrets> for SecretsFile {
                         id.clone(),
                         McpFile {
                             url: server.url.expose().to_owned(),
+                            credential: server.credential_file.clone(),
                             extra: server.extra.clone(),
                         },
                     )
@@ -418,6 +521,103 @@ mod tests {
         assert!(!file_debug.contains("group-key-b64"), "{file_debug}");
         // The group's id isn't secret: it tells groups apart.
         assert!(file_debug.contains("00112233445566778899aabbccddeeff"));
+    }
+
+    #[test]
+    fn an_mcp_credential_is_bound_to_the_url_it_was_entered_for() {
+        let mut secrets = Secrets::default();
+        let url = Secret::new("https://mcp.example/mcp");
+        // Nothing to bind to before the address is stored.
+        secrets.set_mcp_credential("home", Some(McpCredential::bearer("tok-1234").unwrap()));
+        assert!(secrets.mcp("home").is_none());
+
+        secrets.set_mcp("home", url.clone());
+        let token = McpCredential::bearer("tok-000000001234").unwrap();
+        secrets.set_mcp_credential("home", Some(token.clone()));
+        secrets.set_mcp("home", url.clone());
+        assert_eq!(
+            secrets.mcp_credential("home"),
+            Some(&token),
+            "the same address keeps it"
+        );
+
+        secrets.set_mcp("home", Secret::new("https://elsewhere.example/mcp"));
+        assert!(secrets.mcp_credential("home").is_none());
+        assert!(secrets.to_file().mcp["home"].credential.is_none());
+
+        secrets.set_mcp_credential("home", Some(McpCredential::basic("me", "pw").unwrap()));
+        secrets.set_mcp_credential("home", None);
+        assert!(secrets.mcp_credential("home").is_none());
+        assert!(secrets.to_file().mcp["home"].credential.is_none());
+    }
+
+    #[test]
+    fn mcp_credentials_round_trip_and_unusable_ones_stay_unsent() {
+        let text = r#"
+[mcp.bearer]
+url = "https://one.example/mcp"
+bearer = "stale-from-another-build"
+[mcp.bearer.credential]
+kind = "bearer"
+token = "tok-1234"
+
+[mcp.basic]
+url = "https://two.example/mcp"
+[mcp.basic.credential]
+kind = "basic"
+user = "me"
+password = " pw "
+
+[mcp.header]
+url = "https://three.example/mcp"
+[mcp.header.credential]
+kind = "header"
+name = "X-API-Key"
+value = "k-5678"
+future_credential_key = 1
+
+[mcp.future]
+url = "https://four.example/mcp"
+[mcp.future.credential]
+kind = "oauth"
+refresh = "r-0000"
+
+[mcp.refused]
+url = "https://five.example/mcp"
+[mcp.refused.credential]
+kind = "header"
+name = "Host"
+value = "evil.example"
+
+[mcp.plain]
+url = "https://six.example/mcp"
+bearer = "stale-from-another-build"
+"#;
+        let file: SecretsFile = toml::from_str(text).unwrap();
+        let secrets = Secrets::from(file.clone());
+        assert_eq!(
+            secrets.mcp_credential("bearer"),
+            Some(&McpCredential::bearer("tok-1234").unwrap())
+        );
+        assert_eq!(
+            secrets.mcp_credential("basic"),
+            Some(&McpCredential::basic("me", " pw ").unwrap())
+        );
+        assert_eq!(
+            secrets.mcp_credential("header"),
+            Some(&McpCredential::header("X-API-Key", "k-5678").unwrap())
+        );
+        for unusable in ["future", "refused", "plain"] {
+            assert!(secrets.mcp_credential(unusable).is_none(), "{unusable}");
+        }
+        let encoded = toml::to_string(&secrets.to_file()).unwrap();
+        let decoded: SecretsFile = toml::from_str(&encoded).unwrap();
+        assert_eq!(decoded, file, "{encoded}");
+
+        let debug = format!("{secrets:?} {:?}", secrets.to_file());
+        for secret in ["tok-1234", " pw ", "k-5678", "r-0000", "evil.example"] {
+            assert!(!debug.contains(secret), "{debug}");
+        }
     }
 
     #[test]

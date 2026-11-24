@@ -1852,7 +1852,12 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(n, &(name, url))| {
-                Arc::new(OwnerMcp::new(&format!("mcp-{n}"), name, Secret::new(url)))
+                Arc::new(OwnerMcp::new(
+                    &format!("mcp-{n}"),
+                    name,
+                    Secret::new(url),
+                    None,
+                ))
             })
             .collect();
         let (inputs, _rx) = mpsc::channel(64);

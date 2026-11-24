@@ -9,6 +9,7 @@ use pinna_assist::config::{Place, Station};
 use pinna_assist::pipeline::{Pipeline, Speech};
 use pinna_assist::presets::{Behaviour, PresetId, Slots, preset};
 use pinna_http::Secret;
+use pinna_mcp::McpCredential;
 use pinna_mcp::client::{McpClient, McpToolSet};
 
 use crate::group::Persisted;
@@ -83,16 +84,21 @@ pub struct OwnerMcp {
     pub tools: McpToolSet,
     id: String,
     url: Secret,
+    credential: Option<McpCredential>,
     left_out: Mutex<Option<Instant>>,
 }
 
 impl OwnerMcp {
-    pub fn new(id: &str, name: &str, url: Secret) -> Self {
+    pub fn new(id: &str, name: &str, url: Secret, credential: Option<McpCredential>) -> Self {
         Self {
             name: name.to_owned(),
-            tools: McpToolSet::new(name, Arc::new(McpClient::new(url.clone()))),
+            tools: McpToolSet::new(
+                name,
+                Arc::new(McpClient::new(url.clone(), credential.as_ref())),
+            ),
             id: id.to_owned(),
             url,
+            credential,
             left_out: Mutex::new(None),
         }
     }
@@ -101,9 +107,18 @@ impl OwnerMcp {
         &self.id
     }
 
-    /// The same server under the same name and address.
-    pub fn is(&self, id: &str, name: &str, url: &Secret) -> bool {
-        self.id == id && self.name == name && self.url == *url
+    /// The same server under the same name, address and credential.
+    pub fn is(
+        &self,
+        id: &str,
+        name: &str,
+        url: &Secret,
+        credential: Option<&McpCredential>,
+    ) -> bool {
+        self.id == id
+            && self.name == name
+            && self.url == *url
+            && self.credential.as_ref() == credential
     }
 
     /// The server listed no tools at `now`, so the brain goes without it.
@@ -124,7 +139,7 @@ mod tests {
 
     #[test]
     fn a_left_out_server_warns_once_every_five_minutes() {
-        let server = OwnerMcp::new("mcp-1", "home", Secret::new("http://127.0.0.1:1/mcp"));
+        let server = OwnerMcp::new("mcp-1", "home", Secret::new("http://127.0.0.1:1/mcp"), None);
         let start = Instant::now();
         assert!(server.left_out(start));
         assert!(!server.left_out(start + Duration::from_secs(60)));
@@ -134,12 +149,17 @@ mod tests {
     }
 
     #[test]
-    fn a_server_is_the_same_only_under_its_name_and_address() {
+    fn a_server_is_the_same_only_under_its_name_address_and_credential() {
         let url = Secret::new("https://mcp.example/token-1");
-        let server = OwnerMcp::new("mcp-1", "home", url.clone());
-        assert!(server.is("mcp-1", "home", &url));
-        assert!(!server.is("mcp-2", "home", &url));
-        assert!(!server.is("mcp-1", "house", &url));
-        assert!(!server.is("mcp-1", "home", &Secret::new("https://mcp.example/token-2")));
+        let token = McpCredential::bearer("tok-1").unwrap();
+        let server = OwnerMcp::new("mcp-1", "home", url.clone(), Some(token.clone()));
+        assert!(server.is("mcp-1", "home", &url, Some(&token)));
+        assert!(!server.is("mcp-2", "home", &url, Some(&token)));
+        assert!(!server.is("mcp-1", "house", &url, Some(&token)));
+        let other = Secret::new("https://mcp.example/token-2");
+        assert!(!server.is("mcp-1", "home", &other, Some(&token)));
+        let new = McpCredential::bearer("tok-2").unwrap();
+        assert!(!server.is("mcp-1", "home", &url, Some(&new)));
+        assert!(!server.is("mcp-1", "home", &url, None));
     }
 }

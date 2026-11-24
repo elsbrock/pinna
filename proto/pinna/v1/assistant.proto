@@ -266,6 +266,54 @@ message McpServer {
   // (`<name>_<tool>`), which is also the name of their switch in
   // Assistant.tools.
   repeated McpServerTool listed = 8;
+  // The credential sent with every request to it, without its secret;
+  // unset without one.
+  McpServerCredential credential = 9;
+}
+
+// What tells a stored credential apart. The token, password or value itself
+// is never returned.
+message McpServerCredential {
+  McpCredentialKind kind = 1;
+  // The user name, or the header's name; empty for a token.
+  string label = 2;
+  // The last four characters of a token or a header's value of 16 or more;
+  // empty for a shorter one, which they would mostly give away, and for a
+  // password.
+  string last4 = 3;
+}
+
+enum McpCredentialKind {
+  MCP_CREDENTIAL_KIND_UNSPECIFIED = 0;
+  // Sent as `Authorization: Bearer <token>`.
+  MCP_CREDENTIAL_KIND_BEARER = 1;
+  // A user name and password, sent as `Authorization: Basic`.
+  MCP_CREDENTIAL_KIND_BASIC = 2;
+  // A header the owner names, such as `X-API-Key`.
+  MCP_CREDENTIAL_KIND_HEADER = 3;
+}
+
+// A credential as the owner types it.
+message McpCredential {
+  oneof kind {
+    McpBearer bearer = 1;
+    McpBasic basic = 2;
+    McpHeader header = 3;
+  }
+}
+
+message McpBearer {
+  string token = 1;
+}
+
+message McpBasic {
+  string user = 1;
+  string password = 2;
+}
+
+message McpHeader {
+  string name = 1;
+  string value = 2;
 }
 
 message McpServerTool {
@@ -420,6 +468,12 @@ message SetMcpServerRequest {
   // one; needed when adding.
   optional string url = 4;
   bool enabled = 5;
+  // A credential typed for this address. Unset keeps the stored one, unless
+  // the address changes: a credential belongs to the address it was typed
+  // for.
+  McpCredential credential = 6;
+  // Remove the credential; refused together with `credential`.
+  bool clear_credential = 7;
 }
 
 message SetMcpServerResponse {
