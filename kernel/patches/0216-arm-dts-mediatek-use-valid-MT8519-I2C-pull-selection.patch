@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Tue, 24 Nov 2026 19:00:00 +0100
+Subject: [PATCH] arm: dts: mediatek: use valid MT8519 I2C pull selection
+
+Use RSEL value 3 for the MT8519's two-bit I2C pin fields. This preserves
+the effective value used by Amazon's controller
+setter while satisfying the 6.12 field-width check.
+
+---
+--- a/arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi
++++ b/arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi
+@@ -148,7 +148,7 @@
+ 		pins_bus {
+ 			pinmux = <PINMUX_GPIO52__FUNC_SCL0>,
+ 				 <PINMUX_GPIO53__FUNC_SDA0>;
+-			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+ 			mediatek,drive-strength-adv = <7>;
+ 		};
+ 	};
+@@ -157,7 +157,7 @@
+ 		pins_bus {
+ 			pinmux = <PINMUX_GPIO54__FUNC_SCL1>,
+ 				 <PINMUX_GPIO55__FUNC_SDA1>;
+-			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+ 			mediatek,drive-strength-adv = <7>;
+ 		};
+ 	};
+@@ -166,7 +166,7 @@
+ 		pins_bus {
+ 			pinmux = <PINMUX_GPIO66__FUNC_SCL2>,
+ 				 <PINMUX_GPIO67__FUNC_SDA2>;
+-			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+ 			mediatek,drive-strength-adv = <7>;
+ 		};
+ 	};
+@@ -175,7 +175,7 @@
+ 		pins_bus {
+ 			pinmux = <PINMUX_GPIO94__FUNC_SCL3>,
+ 				 <PINMUX_GPIO95__FUNC_SDA3>;
+-			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+ 			mediatek,drive-strength-adv = <7>;
+ 		};
+ 	};
+@@ -184,7 +184,7 @@
+ 		pins_bus {
+ 			pinmux = <PINMUX_GPIO4__FUNC_SDA4>,
+ 				 <PINMUX_GPIO5__FUNC_SCL4>;
+-			bias-pull-up = <MTK_PULL_SET_RSEL_111>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+ 			mediatek,drive-strength-adv = <7>;
+ 		};
+ 	};
