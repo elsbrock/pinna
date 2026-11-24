@@ -3,7 +3,13 @@
 Status: accepted (2026-11-15). Supersedes the "audio goes straight to ALSA" part
 of ADR 0002. Amended 2026-11-17: pinnad sets the microphone gain itself (AGC),
 after echo cancellation; until then the gain was fixed. Amended 2026-11-21 by
-ADR 0033: the wake word detector hears its own stream, `dot_wake`.
+ADR 0033: the wake word detector hears its own stream, `dot_wake`. Amended
+2026-11-24: `dot_wake` is the only microphone stream. It averages all the
+board's microphones and cancels the echo from the loopback lane the speaker
+plays. WebRTC's echo canceller and pinnad's reference copy leave the graph,
+the beamformer stays only to point the ring at the talker, and pinnad plays a
+mono mix. Measured offline only; not run on
+a device yet.
 
 ## Context
 
@@ -37,32 +43,29 @@ static microphone graph (`/etc/pipewire/pipewire.conf.d/10-echo-dot.conf`, no
 device monitors) at the microphone's native 16 kHz:
 
 ```
-dot_mics (hw:0,24, graph clock, IRQ mode)
-  -> filter-chain: LADSPA pinna_beam (calibration, gain, beamformer) -> dot_beam (mono)
-  -> module-echo-cancel (WebRTC, mono) -> dot_mic_aec -> pinnad (AGC, Home Assistant)
-dot_mics -> filter-chain: LADSPA pinna_wake (beam mics averaged, linear echo
-  cancellation from loopback lane 7, ADR 0033) -> dot_wake -> pinnad (AGC, wake word)
-pinnad -> dot_ref (16 kHz mono copy of everything it plays) = echo reference
+dot_mics (hw:0,24, graph clock, timer-driven, nine lanes)
+  -> filter-chain: LADSPA pinna_wake (all nine lanes; the board says which are
+     microphones and which loopback lane the speaker plays): the microphones
+     averaged, a linear echo canceller from that loopback lane, the 80 Hz
+     high-pass and +12.04 dB; the beamformer for the ring's direction only
+  -> dot_wake (mono) -> pinnad (AGC, wake word, Home Assistant, standalone)
 ```
 
 The speaker is not in PipeWire. pinnad drives it through ALSA at 48 kHz
 (`EchoDotPipeWire` backend: aplay, its amp/codec sequences when the session
 opens and closes,
-and the speaker chain — a 150 Hz high-pass, the stock firmware's extra gain
+and the speaker chain — a mono mix on boards whose speaker plays one channel,
+a 150 Hz high-pass, the stock firmware's extra gain
 above 70 % volume (up to +14.5 dB at 100 %) and a look-ahead peak limiter at
-−0.1 dBFS), and writes a 16 kHz mono copy of every chunk it plays into
-`dot_ref` through a bounded queue (dropped, never blocking, if PipeWire lags).
-A chunk is also dropped when writing it would leave more than 40 ms of
-reference waiting in `pw-play`'s input pipe: the speaker writes 100 ms ahead, so the reference
-reaches the canceller before its echo. Without that bound the pipe (64 KiB,
-2 s) filled while `pw-play` started and never drained. Measured on an Echo
-Dot (2nd gen), 2026-11-21: the reference came 2.05–2.16 s after its echo, and
-`dot_mic_aec` was as loud as `dot_beam` at every volume.
-The two clocks drift apart (speaker ≈ +320 ppm, microphones ≈ +5 ppm against
-the CPU), so pinnad fits both from the PCMs' hardware pointers
-(`/proc/asound/card0/pcm*/sub0/status`), paces the speaker at its measured rate
-and resamples the reference from the speaker clock to the microphone clock.
-WebRTC's delay estimator only absorbs the fixed offset between the two paths.
+−0.1 dBFS). The echo canceller's reference comes from the microphones' own
+loopback lanes, in their frames and on their clock, so pinnad no longer
+writes a copy of what it plays. Until 2026-11-24 it wrote a 16 kHz copy into
+WebRTC's reference sink, `dot_ref`; that copy came 2.05–2.16 s late through a
+full pipe (Echo Dot (2nd gen), 2026-11-21) and its timing later jumped by 8 ms
+twice within 12 s. The speaker's clock drifts against the CPU's (≈ +320 ppm),
+so pinnad fits it from the PCM's hardware pointer
+(`/proc/asound/card0/pcm*/sub0/status`) and paces the speaker at its measured
+rate.
 The amp cracks every time it powers up: about −34 dBFS at the microphones,
 ~30 dB above a quiet room, whatever the codec, MFP2 and headphone-driver state
 (measured; −20 dBFS if the codec is still off). Switching it off is silent.
@@ -75,11 +78,70 @@ once, at start-up, and replies don't wait for the prepare. A failed open is
 retried every 5 s. An underrun restarts the PCM and so cycles the amp;
 aplay's underrun messages are logged as warnings.
 
-- **Beamform first, then mono echo cancellation**: the usual design for small
-  arrays and far cheaper than per-microphone AEC. The beamformer is LibreEcho's
-  superdirective fixed-beam design, ported to Rust (within 1 LSB of the C on
-  ≥ 99.9 % of samples) and loaded into
-  PipeWire as a LADSPA plugin (`crates/pinna-ladspa`).
+- **One stream: the average of all microphones, then one linear echo
+  canceller** (amended 2026-11-24; until then: "beamform first, then mono echo
+  cancellation", with LibreEcho's superdirective beamformer choosing its beam
+  freely and WebRTC's canceller after it). `pinna_wake` (ADR 0033) makes the
+  stream, and pinnad hears it for the wake word, Home Assistant and the
+  standalone route. The board description (ADR 0032) says which lanes are
+  microphones and which loopback lane carries what the speaker plays; the
+  graph names neither. Measured offline with `micbench`
+  (`crates/pinna-wakeword/examples/micbench`) on the nine-lane recordings of
+  2026-11-21, and on copies with a talker added at known times and levels:
+  - With a real talker in a quiet room (two takes, Echo Dot (2nd gen)), the
+    mean of the live microphones stood 23.7–23.8 dB over the room in
+    300–3400 Hz, the free beam 22.0–22.1 dB, the centre microphone
+    17.2–17.3 dB. In 1.5–4.7 kHz: 19.2–20.6, 17.2–18.0 and 14.3–15.4 dB.
+    TECHO5 found the same on a Dot: the average of seven beat the centre by
+    0.9–2.5 dB, and steering added nothing.
+  - The free beam steers at the loudest sound. With speech from the side as
+    loud as the talker, the talker came out 6.3 dB under it, and 1 of 4 wake
+    words was detected (the averages: 0 dB, 2 of 4).
+  - A canceller after the free beam removes least, because each switch
+    changes the echo path it learned: 6.2 dB of the Dot's music at volume 55,
+    against 24.5 dB on the average.
+- **The canceller's reference is the loopback lane the speaker plays**, which
+  the board names: lane 8 on both MT8163 Echos, whose speaker reproduces the
+  right channel only. On stereo music the best fixed linear filter (fitted
+  offline per frequency over the music, 2048-point frames) removes 12.5 dB
+  (Echo Dot (2nd gen), volume 55) and 13.3 dB (Echo (2nd gen), volume 75)
+  from lane 8's reference, 0.8 and 0.9 dB from lane 7's, and 3.6 and 4.5 dB
+  from their mean. On mono content every reference does as well (14–15 dB).
+  The adaptive canceller follows the path as the music changes and removes
+  more over a whole take (below).
+- **pinnad plays a mono mix on boards whose speaker plays one channel**, so
+  the left channel of stereo music is no longer lost, and both loopback lanes
+  carry what the speaker plays.
+- **No WebRTC canceller, no suppressor.** Its suppressor removes the talker
+  with the echo during double talk (ADR 0033; TECHO5), and its linear filter
+  removed less than Pinna's on the same input (16.6 against 24.5 dB, Dot's
+  music, lane 8). During a request the satellite ducks music by 20 dB and
+  stops its replies, so what the linear canceller leaves is quieter still.
+- **The ring's direction** comes from the same beamformer as before, run
+  inside `pinna_wake` for the direction only: it writes the snapshot, its
+  audio goes nowhere.
+- **If `dot_wake` ends without audio or delivers nothing for 1 s** (5 s
+  before its first audio, while PipeWire links it at boot), pinnad records
+  the raw lanes from `dot_mics` instead, averages the board's microphones
+  itself with their calibration, the same high-pass and gain, and goes on
+  without echo cancellation. After 60 s on the raw lanes, or when they end,
+  it tries `dot_wake` again. Its `pw-record` asks for `node.dont-fallback`, so
+  a missing `dot_wake` makes it exit instead of hearing another source. pinnad
+  logs the switch once, and again when `dot_wake` delivers. A developer's
+  `capture_target` turns the fallback off. Without PipeWire (the `EchoDot`
+  backend), pinnad averages all of the board's microphones the same way
+  (until 2026-11-24 four of them).
+- Rejected:
+  - **Keeping WebRTC for Home Assistant**, fed the average instead of the
+    beam: two cancellers, the suppressor's double-talk loss, and pinnad's
+    reference copy kept alive for it.
+  - **The beam held on the talker for the turn** (TECHO5's design for
+    requests): it gained 14–16 dB against speech from the side, but only on
+    a synthetic talker without room reflections. It waits for counted takes
+    with a real talker, and then belongs in `pinna_wake`.
+  - **Leaving out lanes 3 and 4**, which hear 5–6 dB more of the Dot's speaker
+    than the others: 1–6 dB better over the Dot's music on synthetic talkers,
+    no difference on the Echo (2nd gen), and a quirk of one board.
 - **Automatic gain after echo cancellation, in pinnad** (amended
   2026-11-17): `pinna_audio::agc` sets the gain on pinnad's 20 ms frames
   before the pre-roll, the wake word and the stream to Home Assistant, on
@@ -104,34 +166,44 @@ aplay's underrun messages are logged as warnings.
   Rejected: WebRTC's own AGC in the echo canceller (`webrtc.gain_control`).
   PipeWire 1.4.2 doesn't expose its settings, and on the same device it added
   a constant +7 dB to near speech, far speech and room noise alike, with no
-  change over 115 s. A gain before the echo canceller (in `pinna_beam`) would
-  change the echo path the canceller adapts to.
+  change over 115 s. A gain that moves before the echo canceller would change
+  the echo path the canceller adapts to.
 - **The speaker stays out of PipeWire**: full 48 kHz playback, and only
   pinnad's session starts and stops the PCM (and with it the amp) — no
   PipeWire graph restart can reach the speaker.
 
-Measured on the device (music through pinnad, speech band 300–3400 Hz, room
-noise present): after convergence the echo is 23–31 dB lower after cancellation
-than at the beamformer output (~6 dB before the clock tracking); the reference
-stream needs 100 ms of buffering to ride out feeder jitter; PipeWire ~10% CPU.
-The hardware gate (`just test-device`) requires at least 20 dB.
+Measured on the device before 2026-11-24 (music through pinnad, speech band
+300–3400 Hz, room noise present): after convergence WebRTC's canceller left
+the echo 23–31 dB under the beamformer's output; PipeWire ~10% CPU. On
+2026-11-21 the Echo Dot (2nd gen) measured 3.8 dB with pinnad's reference and
+14.2 dB with the loopback lanes, both under the gate's 20 dB.
+Offline, the one-stream graph (all microphones, lane 8, a step of 0.1) removes
+25.8 dB of the Dot's music and speech at volume 55 and 12.7 dB of the Echo
+(2nd gen)'s at volume 75 (the median second: 21.9 and 20.3 dB). The hardware gate (`just test-device`) requires
+`dot_wake` to stay at least 10 dB under the raw microphones' mean while music
+plays. The canceller costs about 19 % of a core on an Echo Dot (2nd gen)
+(1.5 ms per 8 ms of audio, measured with a test build on 2026-11-21); the
+beamformer about 5 %, estimated from host timings against that.
 
 ## Consequences
 
 - pinnad drives ALSA directly for both directions (`EchoDot` backend) when the
-  PipeWire socket is absent at startup. The choice is made once: a graph that
-  fails later, or runs without `dot_mic_aec`, is not detected.
-- The first seconds of new audio are not fully cancelled while WebRTC adapts.
+  PipeWire socket is absent at startup. The choice is made once. A graph that
+  runs without `dot_wake` is caught by the raw-lane fallback; one that fails
+  altogether is not.
+- The first seconds of new audio are not fully cancelled while the canceller
+  adapts: at its step of 0.1 it gains about 3 dB a second on noise (ADR 0033).
 - Leftover echo during replies and music counts as noise or speech for the
   AGC and lowers the gain; it comes back at 1 dB/s afterwards if it counted
   as speech, 3 dB/s if only as noise. The
-  hardware gate's echo measurement (`dot_beam` against `dot_mic_aec`) is
+  hardware gate's echo measurement (`dot_mics` against `dot_wake`) is
   inside PipeWire and doesn't see the AGC.
 - Laptops keep using the plain `PipeWire` backend. The VM images ran without
   an audio backend at first; since ADR 0014 the virtual Echo Dot uses the
   plain `PipeWire` backend too, set in its `vm.toml`.
-- The beamformer runs in PipeWire's process, so pinnad cannot ask it which
-  beam it follows. After every cycle the plugin writes a seqlock snapshot
+- The beamformer runs in PipeWire's process, inside `pinna_wake`, so pinnad
+  cannot ask it which beam it follows. After every cycle the plugin writes a
+  seqlock snapshot
   (selected beam, per-beam power) to `/run/pipewire/pinna-beam`
   (`pinna_audio::beamview`), and pinnad maps it read-only to point the
   listening ring at the talker. The file only ever grows, so a reader's mapping

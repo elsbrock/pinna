@@ -2,7 +2,9 @@
 
 Status: proposed (2026-11-21), accepted (2026-11-21), built (2026-11-21),
 with the tests that run without hardware and the virtual Echo Dot. Not run
-on an Echo. Prepares the port in ADR 0031.
+on an Echo. Prepares the port in ADR 0031. Amended 2026-11-24 (ADR 0004): the
+board says which playback channels its speaker reproduces and what each
+loopback lane carries, and the microphone plugin reads the board itself.
 
 ## Context
 
@@ -44,10 +46,13 @@ on an Echo. Prepares the port in ADR 0031.
     - the key codes and the button each one is;
     - the microphone switch: the state and trigger files, the mute lamp;
     - the sound card: its id, the playback and capture PCMs with rate,
-      channels and format, which mixer sequences set it up, and the speaker
-      tuning;
-    - the microphones: how many, the reference lanes, the geometry, the
-      lanes used for speech;
+      channels and format, which mixer sequences set it up, the speaker
+      tuning, and which playback channels the speaker reproduces (only the
+      right one on both MT8163 Echos);
+    - the microphones: how many, the playback channel each loopback lane
+      after them carries, the geometry, the lanes used for speech. From these
+      the board names the lane the echo canceller takes as its reference: the
+      loopback lane of the channel the speaker plays;
     - the Wi-Fi chip.
   - `detect()` returns the board from the idme record, else from the device
     tree. An idme id Pinna doesn't know gives no board.
@@ -67,8 +72,13 @@ on an Echo. Prepares the port in ADR 0031.
     (ADR 0031).
 - **`detect()` reads the board once per process, and pinnad wires the
   drivers from it:** the names Home Assistant and Sendspin see, the speaker
-  tuning, the PCM device names, the keys, the microphone switch and the
-  mute lamp. The updater, the release tool and pinnactl take model ids and
+  tuning and whether it plays a mono mix, the PCM device names, the keys, the
+  microphone switch and the mute lamp.
+- **The microphone plugin `pinna_wake` reads the board itself** (amended
+  2026-11-24): it runs in PipeWire's process, which pinnad doesn't
+  configure. The graph hands it all the capture lanes and names neither the
+  microphones nor the reference lane. pinnad's raw-lane fallback takes the
+  same facts from the board. The updater, the release tool and pinnactl take model ids and
   names from `Model`.
 - **Hardware Pinna doesn't know behaves as before.** A computer, the
   virtual Echo Dot and an Echo with an unknown idme id have no board.
@@ -98,7 +108,8 @@ on an Echo. Prepares the port in ADR 0031.
   release manifests, the dashboard's drawings and the metrics.
 - **Not in this step:** the image and boot side still name the MT8163 in
   their own files: the USB gadget's product string, the `ConditionFirmware`
-  of the Wi-Fi and PipeWire units, `wifi-up`, the PipeWire graph,
+  of the Wi-Fi and PipeWire units, `wifi-up`, the PipeWire graph's PCM and
+  lane count,
   pinna-bootctl's boot-stage ring and Wi-Fi check, `pinna-bootimg`,
   `scripts/flash-gen2.sh`, the browser installer and the dashboard's
   drawings. They move to the board description when the MT8516 port needs

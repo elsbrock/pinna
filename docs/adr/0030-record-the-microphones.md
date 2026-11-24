@@ -4,7 +4,9 @@ Status: proposed (2026-11-20), accepted (2026-11-21), built (2026-11-21),
 with the tests that run without hardware; the virtual Echo Dot recorded the
 first file. The debugging file and the ring pattern haven't run on an Echo.
 Follows ADR 0029 (the confirmation at the device), ADR 0004 (the audio graph)
-and ADR 0005 (the dashboard).
+and ADR 0005 (the dashboard). Amended 2026-11-24 (ADR 0004): channel 11 is the
+loopback lane the echo canceller takes as its reference, copied from the
+lanes, because WebRTC's reference sink is gone.
 
 ## Context
 
@@ -68,25 +70,28 @@ and ADR 0005 (the dashboard).
 - **Up to 30 seconds.** The dashboard records for 30 seconds, and **Stop**
   ends it sooner. pinnad refuses more than 30.
 - **What the satellite hears**, on every backend: the frames that the wake
-  word and the request get, after beamforming, echo cancellation and
-  pinnad's gain, tapped in `capture_loop` after the gain. WAV, 16-bit PCM,
+  word and the request get, after the microphones' mean (beamforming until
+  2026-11-24), echo cancellation and pinnad's gain, tapped in `capture_loop`
+  after the gain. WAV, 16-bit PCM,
   mono, 16 kHz; 30 seconds is 0.96 MB. It plays anywhere.
 - **Everything for debugging**, on the Echo's PipeWire graph only: one WAV
   (`WAVE_FORMAT_EXTENSIBLE`), 24-bit PCM, 16 kHz, 11 channels:
   1. to 9. the lanes of `dot_mics` as the codec delivers them, nothing
      mixed, filtered or gained: 7 microphones, then the 2 reference lanes;
   10. the echo canceller's output before pinnad's gain;
-  11. the echo reference as the echo canceller gets it.
+  11. the echo reference as the echo canceller gets it: the loopback lane
+     the board names (lane 8 on the MT8163 Echos), as 16-bit.
 
-  30 seconds is 15.84 MB. The lanes and the reference come from two
-  `pw-record` streams that run only during the recording: one on
-  `dot_mics`, one on the monitor of `dot_ref_sink`, which the echo
-  canceller's playback feeds. Channel 10 comes from pinnad's own stream. The
+  30 seconds is 15.84 MB. The lanes come from a `pw-record` stream on
+  `dot_mics` that runs only during the recording, and channel 11 is copied
+  from them (until 2026-11-24 it was a second stream, on the monitor of
+  WebRTC's reference sink). Channel 10 comes from pinnad's own stream. The
   other backends have nothing this file would add.
-- **The channels are not aligned to the sample.** The streams start within
-  a few tens of milliseconds of each other, and the beamformer and echo
-  cancellation add their own delay. The dashboard says so; a
-  cross-correlation finds the offsets.
+- **Channel 10 is not aligned to the others to the sample.** Channels 1–9
+  and 11 come from one stream (since 2026-11-24); channel 10 comes from
+  pinnad's own, which starts within a few tens of milliseconds of it, and the
+  echo canceller adds one 128-sample block. The dashboard says the channels
+  aren't aligned; a cross-correlation finds the offset.
 - File names: `<satellite name>-heard-<date>-<time>.wav` and
   `<satellite name>-debug-<date>-<time>.wav`.
 
