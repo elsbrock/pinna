@@ -87,3 +87,12 @@ chmod 600 /usr/share/pinna/wifi/*.conf 2>/dev/null || true
 mkdir -p /etc/wpa_supplicant
 ln -sfn /var/lib/pinna/wifi/wpa_supplicant-wlan0.conf /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
 chmod 755 /usr/libexec/pinna/* /usr/bin/pinna* 2>/dev/null || true
+
+# udev's vendor-name databases (PCI, USB, IEEE OUI: 9 MB of sources and most
+# of the 13 MB hwdb.bin) name hardware no Echo has, and nothing in Pinna reads
+# them. Drop them and rebuild the index from the rest, so the root fits the
+# Echo Dot (5th gen)'s 125 MiB system volume (ADR 0034).
+rm -f /usr/lib/udev/hwdb.d/20-pci-vendor-model.hwdb \
+    /usr/lib/udev/hwdb.d/20-usb-vendor-model.hwdb \
+    /usr/lib/udev/hwdb.d/20-OUI.hwdb
+systemd-hwdb update --usr
