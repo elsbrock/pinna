@@ -47,6 +47,20 @@ impl MixerCmd {
     }
 }
 
+/// Which mixer sequences set the card up. It mirrors `pinna_board::Codec`,
+/// which pinnad maps to this: pinna-audio doesn't depend on the board crate
+/// (ADR 0032).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Codec {
+    /// The MT8163 Echos: TLV320AIC32x4 speaker codec, TLV320ADC3101
+    /// microphones, the amplifier behind `Ext_Speaker_Amp_Switch`.
+    #[default]
+    Mt8163Aic,
+    /// The MT8519 Echos: Amazon's AFE routes DL2 to a MAX98396 and a
+    /// TLV320ADC5140 to UL9.
+    Mt8519Max98396,
+}
+
 /// Microphone PGA volume: LibreEcho's default and hard maximum.
 pub const MICPGA_DEFAULT: u32 = 40;
 pub const MICPGA_MAX: u32 = 80;
@@ -63,7 +77,14 @@ const ADC_BANKS: [&str; 4] = ["A", "B", "C", "D"];
 /// (`echod/internal/hardware/mic/gain.go`) writes 0. Measured on an Echo Dot
 /// (2nd gen), 2026-11-21: writing 0 raised every microphone lane by
 /// 5.5-6.2 dB.
-pub fn capture_setup(micpga: u32) -> Vec<MixerCmd> {
+pub fn capture_setup(codec: Codec, micpga: u32) -> Vec<MixerCmd> {
+    match codec {
+        Codec::Mt8163Aic => mt8163_capture_setup(micpga),
+        Codec::Mt8519Max98396 => mt8519_capture_setup(micpga),
+    }
+}
+
+fn mt8163_capture_setup(micpga: u32) -> Vec<MixerCmd> {
     let mut v = vec![
         MixerCmd::new("Mic PGA Switch", &["1", "1"]),
         MixerCmd::new("ADCFGA Left Mute Switch", &["0"]),
@@ -100,6 +121,38 @@ pub fn capture_setup(micpga: u32) -> Vec<MixerCmd> {
     v
 }
 
+/// The AFE's routes into UL9 and the converter's channels on the MT8519.
+/// TECHO5 (MIT) measured them on one C2N6L4 under Amazon's 5.4 kernel,
+/// 2026-11-21 to 2026-11-23 (TECHO5 discussion #610, `paths_cannoli.go` and
+/// `device_cannoli.go` on its `cannoli` branch). Pinna's kernel ports
+/// Amazon's AFE driver (patch 0210), so the AFE names are the same; the
+/// codec names are the mainline drivers' (`tlv320adcx140.c`).
+///
+/// The converter's slots go to UL9's channels 0 to 3 and DL2 to channels 4
+/// and 5 (the echo reference). The converter's controls have not run on
+/// Pinna's kernel on the unit, so they are optional.
+///
+/// `micpga` is in half dB, as on the MT8163; the converter's gain is whole
+/// dB, 0 to 42. 20 dB is TECHO5's default: a quiet room read -57 to -60
+/// dBFS rms and speech -46 to -51.
+fn mt8519_capture_setup(micpga: u32) -> Vec<MixerCmd> {
+    let mut v = Vec::new();
+    for (out, input) in [(26, 42), (27, 43), (28, 44), (29, 45), (30, 40), (31, 41)] {
+        v.push(MixerCmd::new(&format!("O{out} I{input} Switch"), &["1"]));
+    }
+    for ch in 1..=3 {
+        v.push(MixerCmd::new(&format!("CH{ch}_ASI_EN Switch"), &["1"]).optional());
+    }
+    let gain = (micpga / 2).min(MT8519_MIC_GAIN_MAX_DB).to_string();
+    for ch in 1..=3 {
+        v.push(MixerCmd::new(&format!("Analog CH{ch} Mic Gain Volume"), &[&gain]).optional());
+    }
+    v
+}
+
+/// The TLV320ADC5140's analogue gain range, in dB (`tlv320adcx140.c`).
+const MT8519_MIC_GAIN_MAX_DB: u32 = 42;
+
 /// The values in `amixer cget` output (`  : values=on,off`), with `on`/`off`
 /// as `1`/`0`, the way they are written.
 fn parse_values(out: &str) -> Option<Vec<String>> {
@@ -128,7 +181,9 @@ fn holds(want: &[String], got: &[String]) -> bool {
             .all(|(i, g)| *g == want[i.min(want.len() - 1)])
 }
 
-/// The default-level replacement for a refused PGA write.
+/// The default-level replacement for a refused PGA write. Only the
+/// MT8163's PGA has one: the MT8519's gain writes are optional, and their
+/// names never end this way, so one check serves both codecs.
 pub fn micpga_fallback(cmd: &MixerCmd) -> Option<MixerCmd> {
     if !cmd.control.ends_with("MICPGA Volume Ctrl") {
         return None;
@@ -140,6 +195,7 @@ pub fn micpga_fallback(cmd: &MixerCmd) -> Option<MixerCmd> {
 /// Per-target speaker settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpeakerProfile {
+    pub codec: Codec,
     /// Kernel "Speaker Codec Profile": Flat for biscuit (Echo Dot), Radar for
     /// the Echo 2nd gen.
     pub codec_flat: bool,
@@ -156,6 +212,7 @@ pub struct SpeakerProfile {
 impl Default for SpeakerProfile {
     fn default() -> Self {
         SpeakerProfile {
+            codec: Codec::Mt8163Aic,
             codec_flat: true,
             hp_driver_gain: 6,
             output_delay: std::time::Duration::ZERO,
@@ -167,6 +224,32 @@ impl Default for SpeakerProfile {
 /// the codec muted, before a stream exists. `PCM Playback Volume` is pinned at
 /// raw index 127 (0 dB); software owns gain.
 pub fn playback_arm(profile: &SpeakerProfile) -> Vec<MixerCmd> {
+    match profile.codec {
+        Codec::Mt8163Aic => mt8163_playback_arm(profile),
+        Codec::Mt8519Max98396 => mt8519_playback_arm(),
+    }
+}
+
+/// The MT8519's speaker: DL2 into the amplifier's eTDM2 slots, and the
+/// amplifier out of safe mode, at the level Fire OS leaves it. TECHO5
+/// measured these on one C2N6L4 (see [`mt8519_capture_setup`]): the AFE
+/// routes are off from boot, and the amplifier came up in safe mode, about
+/// 30 dB down, under Amazon's driver. Mainline's `Speaker Volume` runs 0 to
+/// 17 for +4 to +21 dB, so 10 is +14 dB, where Fire OS's playback path
+/// leaves it. `Digital Volume` is left alone. DL3 also reaches the same
+/// outputs; keeping it off is optional.
+fn mt8519_playback_arm() -> Vec<MixerCmd> {
+    vec![
+        MixerCmd::new("O04 I40 Switch", &["1"]),
+        MixerCmd::new("O05 I41 Switch", &["1"]),
+        MixerCmd::new("O04 I20 Switch", &["0"]).optional(),
+        MixerCmd::new("O05 I21 Switch", &["0"]).optional(),
+        MixerCmd::new("Safe Mode Switch", &["0"]),
+        MixerCmd::new("Speaker Volume", &["10"]),
+    ]
+}
+
+fn mt8163_playback_arm(profile: &SpeakerProfile) -> Vec<MixerCmd> {
     let gain = profile.hp_driver_gain.to_string();
     vec![
         MixerCmd::new("MFP Gpio Mute", &["On"]),
@@ -190,27 +273,38 @@ pub fn playback_arm(profile: &SpeakerProfile) -> Vec<MixerCmd> {
 }
 
 /// `power_output_controls`: amp on while the codec stays muted. The caller
-/// waits [`AMP_SETTLE`] afterwards.
-pub fn playback_power() -> Vec<MixerCmd> {
-    vec![
-        MixerCmd::new("MFP Gpio Mute", &["On"]),
-        MixerCmd::new("Ext_Speaker_Amp_Switch", &["On"]),
-    ]
+/// waits [`AMP_SETTLE`] afterwards. The MT8519's amplifier powers with the
+/// stream through DAPM, so it has nothing to do here, nor in the unmute and
+/// disable sequences.
+pub fn playback_power(codec: Codec) -> Vec<MixerCmd> {
+    match codec {
+        Codec::Mt8163Aic => vec![
+            MixerCmd::new("MFP Gpio Mute", &["On"]),
+            MixerCmd::new("Ext_Speaker_Amp_Switch", &["On"]),
+        ],
+        Codec::Mt8519Max98396 => Vec::new(),
+    }
 }
 
 pub const AMP_SETTLE: std::time::Duration = std::time::Duration::from_millis(30);
 
 /// `unmute_output_controls`.
-pub fn playback_unmute() -> Vec<MixerCmd> {
-    vec![MixerCmd::new("MFP Gpio Mute", &["Off"])]
+pub fn playback_unmute(codec: Codec) -> Vec<MixerCmd> {
+    match codec {
+        Codec::Mt8163Aic => vec![MixerCmd::new("MFP Gpio Mute", &["Off"])],
+        Codec::Mt8519Max98396 => Vec::new(),
+    }
 }
 
 /// `disable_output_controls`: mute before removing amp power (no pop).
-pub fn playback_disable() -> Vec<MixerCmd> {
-    vec![
-        MixerCmd::new("MFP Gpio Mute", &["On"]),
-        MixerCmd::new("Ext_Speaker_Amp_Switch", &["Off"]),
-    ]
+pub fn playback_disable(codec: Codec) -> Vec<MixerCmd> {
+    match codec {
+        Codec::Mt8163Aic => vec![
+            MixerCmd::new("MFP Gpio Mute", &["On"]),
+            MixerCmd::new("Ext_Speaker_Amp_Switch", &["Off"]),
+        ],
+        Codec::Mt8519Max98396 => Vec::new(),
+    }
 }
 
 /// Runs mixer command lists through `amixer`.
@@ -336,7 +430,7 @@ mod tests {
 
     #[test]
     fn capture_sequence_routes_dif1_at_0_db() {
-        let got = flat(&capture_setup(40));
+        let got = flat(&capture_setup(Codec::Mt8163Aic, 40));
         let want = [
             "Mic PGA Switch=1 1",
             "ADCFGA Left Mute Switch=0",
@@ -368,13 +462,13 @@ mod tests {
 
     #[test]
     fn micpga_never_exceeds_80() {
-        let c = capture_setup(500);
+        let c = capture_setup(Codec::Mt8163Aic, 500);
         assert_eq!(c.last().unwrap().values, vec!["80", "80"]);
     }
 
     #[test]
     fn micpga_fallback_is_default_only_for_pga() {
-        let c = capture_setup(60);
+        let c = capture_setup(Codec::Mt8163Aic, 60);
         let pga = c.last().unwrap();
         assert_eq!(micpga_fallback(pga).unwrap().values, vec!["40", "40"]);
         assert!(micpga_fallback(&c[0]).is_none());
@@ -429,12 +523,15 @@ mod tests {
     #[test]
     fn power_unmute_disable_sequences() {
         assert_eq!(
-            flat(&playback_power()),
+            flat(&playback_power(Codec::Mt8163Aic)),
             ["MFP Gpio Mute=On", "Ext_Speaker_Amp_Switch=On"]
         );
-        assert_eq!(flat(&playback_unmute()), ["MFP Gpio Mute=Off"]);
         assert_eq!(
-            flat(&playback_disable()),
+            flat(&playback_unmute(Codec::Mt8163Aic)),
+            ["MFP Gpio Mute=Off"]
+        );
+        assert_eq!(
+            flat(&playback_disable(Codec::Mt8163Aic)),
             ["MFP Gpio Mute=On", "Ext_Speaker_Amp_Switch=Off"]
         );
         assert_eq!(AMP_SETTLE.as_millis(), 30);
@@ -459,6 +556,104 @@ mod tests {
         assert!(holds(&v(&["40", "40"]), &v(&["40", "40"])));
         assert!(!holds(&v(&["1"]), &v(&["1", "0"])));
         assert!(!holds(&v(&["1"]), &v(&[])));
+    }
+
+    fn mt8519() -> SpeakerProfile {
+        SpeakerProfile {
+            codec: Codec::Mt8519Max98396,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn mt8519_capture_routes_the_afe_and_enables_the_converter() {
+        let cmds = capture_setup(Codec::Mt8519Max98396, MICPGA_DEFAULT);
+        let got: Vec<(String, bool)> = flat(&cmds)
+            .into_iter()
+            .zip(cmds.iter().map(|c| c.optional))
+            .collect();
+        // The AFE writes are required, the converter's optional.
+        let want: Vec<(String, bool)> = [
+            ("O26 I42 Switch=1", false),
+            ("O27 I43 Switch=1", false),
+            ("O28 I44 Switch=1", false),
+            ("O29 I45 Switch=1", false),
+            ("O30 I40 Switch=1", false),
+            ("O31 I41 Switch=1", false),
+            ("CH1_ASI_EN Switch=1", true),
+            ("CH2_ASI_EN Switch=1", true),
+            ("CH3_ASI_EN Switch=1", true),
+            ("Analog CH1 Mic Gain Volume=20", true),
+            ("Analog CH2 Mic Gain Volume=20", true),
+            ("Analog CH3 Mic Gain Volume=20", true),
+        ]
+        .iter()
+        .map(|(c, o)| (c.to_string(), *o))
+        .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn mt8519_mic_gain_is_whole_db_up_to_42() {
+        let gain = |micpga| {
+            capture_setup(Codec::Mt8519Max98396, micpga)
+                .last()
+                .unwrap()
+                .values[0]
+                .clone()
+        };
+        assert_eq!(gain(0), "0");
+        assert_eq!(gain(41), "20");
+        assert_eq!(gain(84), "42");
+        assert_eq!(gain(MICPGA_MAX), "40");
+        assert_eq!(gain(500), "42");
+        // Nothing in it is an MT8163 PGA write.
+        for c in capture_setup(Codec::Mt8519Max98396, MICPGA_DEFAULT) {
+            assert!(micpga_fallback(&c).is_none(), "{}", c.control);
+        }
+    }
+
+    #[test]
+    fn mt8519_speaker_routes_dl2_and_leaves_safe_mode() {
+        let cmds = playback_arm(&mt8519());
+        assert_eq!(
+            flat(&cmds),
+            [
+                "O04 I40 Switch=1",
+                "O05 I41 Switch=1",
+                "O04 I20 Switch=0",
+                "O05 I21 Switch=0",
+                "Safe Mode Switch=0",
+                "Speaker Volume=10",
+            ]
+        );
+        let optional: Vec<bool> = cmds.iter().map(|c| c.optional).collect();
+        assert_eq!(optional, [false, false, true, true, false, false]);
+    }
+
+    #[test]
+    fn mt8519_amplifier_powers_with_the_stream() {
+        let c = Codec::Mt8519Max98396;
+        assert!(playback_power(c).is_empty());
+        assert!(playback_unmute(c).is_empty());
+        assert!(playback_disable(c).is_empty());
+    }
+
+    /// Every codec a board names has sequences here (ADR 0032).
+    #[test]
+    fn every_boards_codec_has_sequences() {
+        for m in pinna_board::Model::ALL {
+            let codec = match m.board().audio.codec {
+                pinna_board::Codec::Mt8163Aic => Codec::Mt8163Aic,
+                pinna_board::Codec::Mt8519Max98396 => Codec::Mt8519Max98396,
+            };
+            let profile = SpeakerProfile {
+                codec,
+                ..Default::default()
+            };
+            assert!(!capture_setup(codec, MICPGA_DEFAULT).is_empty(), "{m:?}");
+            assert!(!playback_arm(&profile).is_empty(), "{m:?}");
+        }
     }
 
     #[tokio::test]
@@ -489,7 +684,7 @@ mod tests {
             bin: bin.to_str().unwrap().into(),
             card: 0,
         };
-        let setup = capture_setup(MICPGA_DEFAULT);
+        let setup = capture_setup(Codec::Mt8163Aic, MICPGA_DEFAULT);
         // Another test's fork may still hold the new script open for a moment.
         for attempt in 0.. {
             match runner.apply(&setup).await {

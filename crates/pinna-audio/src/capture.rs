@@ -28,6 +28,8 @@ const FIRST_AUDIO_WITHIN: Duration = Duration::from_secs(5);
 pub struct CaptureConfig {
     pub backend: Backend,
     pub front_end: FrontEndConfig,
+    /// Which codec's mixer sequences set the microphones up.
+    pub codec: mixer::Codec,
     /// Echo Dot analogue mic PGA volume (clamped to 80).
     pub micpga: u32,
     pub mixer: MixerRunner,
@@ -55,6 +57,7 @@ impl CaptureConfig {
         CaptureConfig {
             backend,
             front_end: FrontEndConfig::default(),
+            codec: mixer::Codec::default(),
             micpga: MICPGA_DEFAULT,
             mixer: MixerRunner::default(),
             apply_mixer: true,
@@ -401,7 +404,10 @@ async fn run_process(
 ) -> RunEnd {
     if cfg.apply_mixer
         && cfg.backend.echo_dot_mixer()
-        && let Err(e) = cfg.mixer.apply(&mixer::capture_setup(cfg.micpga)).await
+        && let Err(e) = cfg
+            .mixer
+            .apply(&mixer::capture_setup(cfg.codec, cfg.micpga))
+            .await
     {
         return RunEnd::Died(format!("mixer setup: {e}"), false);
     }
@@ -487,7 +493,10 @@ async fn run_process(
             if cfg.apply_mixer && cfg.backend.echo_dot_mixer() {
                 // Once PipeWire has opened the microphones, check that every
                 // setting held (see MixerRunner::check).
-                let (runner, setup) = (cfg.mixer.clone(), mixer::capture_setup(cfg.micpga));
+                let (runner, setup) = (
+                    cfg.mixer.clone(),
+                    mixer::capture_setup(cfg.codec, cfg.micpga),
+                );
                 tokio::spawn(async move {
                     tokio::time::sleep(MIXER_CHECK_AFTER).await;
                     runner.check(&setup).await;

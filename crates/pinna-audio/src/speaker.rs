@@ -1348,7 +1348,11 @@ impl Actor {
                 .apply(&mixer::playback_arm(&self.cfg.profile))
                 .await
         {
-            let _ = self.cfg.mixer.apply(&mixer::playback_disable()).await;
+            let _ = self
+                .cfg
+                .mixer
+                .apply(&mixer::playback_disable(self.cfg.profile.codec))
+                .await;
             return Err(e);
         }
         let sink = match playback_command(&self.cfg) {
@@ -1409,15 +1413,25 @@ impl Actor {
                 let started =
                     wait_pcm_running(self.cfg.pcm_status.as_deref(), &mut session).await?;
                 session.start_clock(started);
-                self.cfg.mixer.apply(&mixer::playback_power()).await?;
+                self.cfg
+                    .mixer
+                    .apply(&mixer::playback_power(self.cfg.profile.codec))
+                    .await?;
                 tokio::time::sleep(AMP_SETTLE).await;
-                self.cfg.mixer.apply(&mixer::playback_unmute()).await?;
+                self.cfg
+                    .mixer
+                    .apply(&mixer::playback_unmute(self.cfg.profile.codec))
+                    .await?;
             }
             Ok(())
         }
         .await;
         if let Err(e) = result {
-            Self::close(session, echo.then_some(&self.cfg.mixer)).await;
+            Self::close(
+                session,
+                echo.then_some((&self.cfg.mixer, self.cfg.profile.codec)),
+            )
+            .await;
             return Err(e);
         }
         self.idle_since = Instant::now();
@@ -1427,15 +1441,15 @@ impl Actor {
     async fn close_session(&mut self) {
         if let Some(s) = self.session.take() {
             let echo = self.cfg.backend.echo_dot_mixer();
-            Self::close(s, echo.then_some(&self.cfg.mixer)).await;
+            Self::close(s, echo.then_some((&self.cfg.mixer, self.cfg.profile.codec))).await;
         }
         self.session_open.store(false, Ordering::Relaxed);
     }
 
     /// Mute and cut the amp first (no shutdown pop), then end the player.
-    async fn close(session: Session, mixer: Option<&MixerRunner>) {
-        if let Some(m) = mixer
-            && let Err(e) = m.apply(&mixer::playback_disable()).await
+    async fn close(session: Session, mixer: Option<(&MixerRunner, mixer::Codec)>) {
+        if let Some((m, codec)) = mixer
+            && let Err(e) = m.apply(&mixer::playback_disable(codec)).await
         {
             tracing::warn!("speaker disable controls: {e}");
         }

@@ -15,9 +15,14 @@ fn main() {
         ..Default::default()
     };
     let cmds = match which.as_str() {
-        "capture" => capture_setup(MICPGA_DEFAULT),
-        "playback-on" => [playback_arm(&profile), playback_power(), playback_unmute()].concat(),
-        "playback-off" => playback_disable(),
+        "capture" => capture_setup(profile.codec, MICPGA_DEFAULT),
+        "playback-on" => [
+            playback_arm(&profile),
+            playback_power(profile.codec),
+            playback_unmute(profile.codec),
+        ]
+        .concat(),
+        "playback-off" => playback_disable(profile.codec),
         _ => {
             eprintln!("usage: mixer_script capture|playback-on|playback-off");
             std::process::exit(2);
