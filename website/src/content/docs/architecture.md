@@ -6,6 +6,10 @@ description: How Pinna starts, how its storage is laid out, which services run, 
 This page explains how Pinna is put together, from the bootloader to the
 voice request.
 
+## Overview
+
+![Pinna's architecture: what connects to the satellite, what the satellite connects to, and the layers that run on it.](/diagrams/overview.svg "Each arrow starts at the side that opens the connection. Select pinnad, PipeWire or a layer to read more about it.")
+
 ## Hardware
 
 The Echo (2nd gen) and the Echo Dot (2nd gen) share the MT8163 platform: a
@@ -120,6 +124,21 @@ Pinna's own services:
 | `pinna-boot-ok` | The health check that marks a boot as good |
 | `pinna-airplay` | The AirPlay receiver: runs Debian's `shairport-sync` and passes its audio to `pinnad`. `pinnad` starts and stops it with the **AirPlay** switch. See [Play music with AirPlay](/docs/airplay/) |
 | `pinna-bluetooth.target` | Bluetooth: Debian's `bluetoothd` and BlueALSA, and `pinna-bt`, which passes a phone's audio to `pinnad`. `pinnad` starts and stops them with the **Bluetooth** switch. See [Play music over Bluetooth](/docs/bluetooth/) |
+
+## Inside `pinnad`
+
+`pinnad` runs the voice satellite as one process. One task in it, the state
+machine, decides what the satellite does. Every input waits in one channel
+and is handled in order, so a button press and a command from Home Assistant
+never change the state at the same time. A standalone request runs as a task
+of its own and reports each step to the state machine.
+
+![Inside pinnad: the inputs reach the state machine through one channel, and the state machine drives the outputs.](/diagrams/pinnad.svg "Select the wake word, the speaker, the ring or the standalone request to read more about it.")
+
+Audio doesn't pass through the state machine. The capture loop sends the
+microphone audio straight to Home Assistant or to the standalone request, and
+AirPlay, Bluetooth and Sendspin play straight into the speaker's media lane.
+See [Audio](/docs/audio/).
 
 ## A voice request
 

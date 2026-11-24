@@ -58,6 +58,39 @@ const basePathLinks = {
 };
 
 /**
+ * A diagram is written as an image on a line of its own,
+ * `![What it shows](/diagrams/overview.svg "Caption")`, and drawn inline from
+ * `src/diagrams/`, so that it takes the page's colours in light and dark and
+ * its links work. Site-absolute links in it get the base path, as Markdown
+ * links do.
+ */
+const DIAGRAM = /\/diagrams\/([a-z0-9-]+\.svg)$/;
+const escapeHtml = (s) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const inlineDiagrams = {
+  name: "inline-diagrams",
+  element: {
+    filter: ["p"],
+    visit(node, ctx) {
+      const elements = node.children.filter((c) => c.type === "element");
+      const img = elements[0];
+      const name = img?.tagName === "img" && String(img.properties?.src ?? "").match(DIAGRAM)?.[1];
+      if (!name || elements.length !== 1 || ctx.textContent(node).trim() !== "") return;
+      const svg = readFileSync(new URL(`./src/diagrams/${name}`, import.meta.url), "utf8")
+        .trim()
+        .replace(/href="\/(?!\/)/g, `href="${base}/`)
+        .replace("<svg", `<svg aria-label="${escapeHtml(String(img.properties.alt ?? ""))}"`);
+      const title = img.properties.title;
+      const caption = title ? `<figcaption>${escapeHtml(String(title))}</figcaption>` : "";
+      ctx.replaceNode(node, {
+        type: "raw",
+        value: `<figure class="diagram" data-pagefind-ignore><div class="diagram-scroll">${svg}</div>${caption}</figure>`,
+      });
+    },
+  },
+};
+
+/**
  * Wrap each table in a scroll container so wide tables scroll horizontally
  * on narrow screens instead of squashing their columns.
  */
@@ -96,7 +129,7 @@ export default defineConfig({
   integrations: [sitemap()],
 
   markdown: {
-    processor: satteri({ hastPlugins: [basePathLinks, tableScroll] }),
+    processor: satteri({ hastPlugins: [inlineDiagrams, basePathLinks, tableScroll] }),
     shikiConfig: {
       themes: {
         light: "github-light-default",

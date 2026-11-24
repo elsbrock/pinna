@@ -8,6 +8,8 @@ Pinna removes the device's own sound from the microphone signal before the
 wake word detection hears it. This page explains how the microphones and the
 speaker are connected to make that work.
 
+![The audio path: the microphones through PipeWire into pinnad's capture loop, and pinnad's two lanes through the mixer to the speaker.](/diagrams/audio.svg "The microphones run in PipeWire at 16 kHz, the speaker in pinnad at 48 kHz. Each echo canceller removes the speaker's sound from its own stream.")
+
 ## The hardware
 
 The microphones and the speaker run on two separate clocks:

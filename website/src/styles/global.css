@@ -408,6 +408,109 @@
   scroll-margin-top: 5rem;
 }
 
+/* -------------------------------------------------------------- diagrams -- */
+
+/* Diagrams from src/diagrams/, drawn inline by the Markdown pipeline. They
+   are drawn at the column's width; on a phone they scroll sideways like a
+   wide table, because shrinking them would make the labels unreadable. */
+.docs-content .diagram {
+  @apply my-8;
+}
+
+.docs-content .diagram-scroll {
+  @apply max-w-full overflow-x-auto;
+}
+
+.docs-content .diagram svg {
+  display: block;
+  width: 100%;
+  min-width: 600px;
+  height: auto;
+  font-family: var(--font-text);
+}
+
+.docs-content .diagram figcaption {
+  @apply text-ink-muted text-body mt-3;
+}
+
+.diagram .zone {
+  fill: var(--surface-sunken);
+  stroke: var(--line);
+}
+
+.diagram .box {
+  fill: var(--surface-raised);
+  stroke: var(--line-strong);
+}
+
+.diagram .box.focus {
+  fill: var(--signal-soft);
+  stroke: var(--signal);
+}
+
+.diagram .box.base {
+  fill: var(--surface-sunken);
+}
+
+/* Used only in standalone mode. */
+.diagram .opt {
+  stroke-dasharray: 5 4;
+}
+
+.diagram .wire {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1.5;
+}
+
+.diagram .tip {
+  fill: var(--ink-muted);
+}
+
+.diagram text {
+  fill: var(--ink-muted);
+  font-size: 11.5px;
+}
+
+.diagram .t {
+  fill: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.diagram .c {
+  fill: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.diagram .m {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.diagram .h {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.docs-content .diagram a {
+  text-decoration: none;
+}
+
+.diagram a .t,
+.diagram a .c {
+  fill: var(--link);
+}
+
+.diagram a:hover .t,
+.diagram a:hover .c,
+.diagram a:focus-visible .t,
+.diagram a:focus-visible .c {
+  text-decoration: underline;
+}
+
 /* -------------------------------------------------------------- pagefind -- */
 
 /* The Component UI resets its hosts with `all: initial`; custom properties

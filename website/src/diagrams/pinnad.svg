@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 436">
+  <defs>
+    <marker id="pd-tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="tip" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <text class="h" x="0" y="14">Inputs</text>
+  <text class="h" x="760" y="14" text-anchor="end">Outputs</text>
+
+  <!-- Inputs, all into one channel -->
+  <rect class="box" x="0" y="28" width="184" height="40" rx="8"/>
+  <text class="t" x="12" y="45">Buttons, mic switch</text>
+  <text class="m" x="12" y="60">pinna-hal</text>
+
+  <rect class="box" x="0" y="78" width="184" height="40" rx="8"/>
+  <a href="/docs/audio/">
+    <text class="t" x="12" y="95">Wake word</text>
+  </a>
+  <text class="m" x="12" y="110">mic.rs, pinna-wakeword</text>
+
+  <rect class="box" x="0" y="128" width="184" height="40" rx="8"/>
+  <text class="t" x="12" y="145">Home Assistant</text>
+  <text class="m" x="12" y="160">pinna-esphome</text>
+
+  <rect class="box" x="0" y="178" width="184" height="40" rx="8"/>
+  <text class="t" x="12" y="195">Dashboard, control API</text>
+  <text class="m" x="12" y="210">api.rs, pinna-api</text>
+
+  <rect class="box opt" x="0" y="228" width="184" height="40" rx="8"/>
+  <text class="t" x="12" y="245">MCP clients</text>
+  <text class="m" x="12" y="260">mcp.rs, tools/</text>
+
+  <rect class="box opt" x="0" y="278" width="184" height="40" rx="8"/>
+  <text class="t" x="12" y="295">Satellite group</text>
+  <text class="m" x="12" y="310">group/</text>
+
+  <path class="wire" d="M184,48 H208 M184,98 H208 M184,148 H208 M184,198 H208 M208,48 V298"/>
+  <path class="wire opt" d="M184,248 H208 M184,298 H208"/>
+  <path class="wire" d="M208,173 H279" marker-end="url(#pd-tip)"/>
+  <text x="244" y="166" text-anchor="middle">one channel</text>
+
+  <!-- The state machine -->
+  <rect class="box focus" x="280" y="28" width="200" height="290" rx="10"/>
+  <text class="t" x="296" y="52">State machine</text>
+  <text class="m" x="296" y="69">voice.rs, one task</text>
+  <text x="296" y="96">Its phase:</text>
+  <rect class="box" x="296" y="104" width="80" height="22" rx="11"/>
+  <text class="c" x="336" y="119" text-anchor="middle">Idle</text>
+  <rect class="box" x="384" y="104" width="80" height="22" rx="11"/>
+  <text class="c" x="424" y="119" text-anchor="middle">Listening</text>
+  <rect class="box" x="296" y="132" width="80" height="22" rx="11"/>
+  <text class="c" x="336" y="147" text-anchor="middle">Thinking</text>
+  <rect class="box" x="384" y="132" width="80" height="22" rx="11"/>
+  <text class="c" x="424" y="147" text-anchor="middle">Speaking</text>
+  <rect class="box" x="296" y="160" width="80" height="22" rx="11"/>
+  <text class="c" x="336" y="175" text-anchor="middle">Muted</text>
+  <rect class="box" x="384" y="160" width="80" height="22" rx="11"/>
+  <text class="c" x="424" y="175" text-anchor="middle">Error</text>
+  <text x="296" y="210">It also keeps:</text>
+  <text class="c" x="296" y="230">Timers, announcements</text>
+  <text class="c" x="296" y="249">Mute and volume</text>
+  <text class="c" x="296" y="268">Settings and the mode</text>
+
+  <!-- Outputs -->
+  <path class="wire" d="M480,173 H524 M524,48 V298"/>
+  <path class="wire" d="M524,48 H567" marker-end="url(#pd-tip)"/>
+  <path class="wire" d="M524,98 H567" marker-end="url(#pd-tip)"/>
+  <path class="wire" d="M524,148 H567" marker-end="url(#pd-tip)"/>
+  <path class="wire" d="M524,198 H567" marker-end="url(#pd-tip)"/>
+  <path class="wire" d="M524,248 H567" marker-end="url(#pd-tip)"/>
+  <path class="wire" d="M524,298 H567" marker-end="url(#pd-tip)"/>
+
+  <rect class="box" x="568" y="28" width="192" height="40" rx="8"/>
+  <a href="/docs/ring-and-buttons/">
+    <text class="t" x="580" y="45">Ring</text>
+  </a>
+  <text class="m" x="580" y="60">leds.rs, 30 fps</text>
+
+  <rect class="box" x="568" y="78" width="192" height="40" rx="8"/>
+  <a href="/docs/audio/">
+    <text class="t" x="580" y="95">Speaker</text>
+  </a>
+  <text class="m" x="580" y="110">pinna-audio</text>
+
+  <rect class="box" x="568" y="128" width="192" height="40" rx="8"/>
+  <text class="t" x="580" y="145">Home Assistant</text>
+  <text x="580" y="160">events, entity states</text>
+
+  <rect class="box" x="568" y="178" width="192" height="40" rx="8"/>
+  <text class="t" x="580" y="195">Status</text>
+  <text x="580" y="210">API, dashboard, metrics</text>
+
+  <rect class="box" x="568" y="228" width="192" height="40" rx="8"/>
+  <text class="t" x="580" y="245">Settings files</text>
+  <text class="m" x="580" y="260">/var/lib/pinna</text>
+
+  <rect class="box" x="568" y="278" width="192" height="40" rx="8"/>
+  <text class="t" x="580" y="295">Music receivers</text>
+  <text x="580" y="310">AirPlay, Bluetooth, Sendspin</text>
+
+  <!-- A standalone request, a task of its own -->
+  <path class="wire opt" d="M330,318 V371" marker-end="url(#pd-tip)"/>
+  <text x="322" y="349" text-anchor="end">start, stop</text>
+  <path class="wire opt" d="M430,372 V319" marker-end="url(#pd-tip)"/>
+  <text x="438" y="349">steps, reply</text>
+
+  <rect class="box opt" x="280" y="372" width="200" height="52" rx="8"/>
+  <a href="#a-request-in-standalone-mode">
+    <text class="t" x="296" y="393">Standalone request</text>
+  </a>
+  <text class="m" x="296" y="410">standalone/, pinna-assist</text>
+
+  <path class="wire opt" d="M480,398 H567" marker-end="url(#pd-tip)"/>
+  <text x="524" y="391" text-anchor="middle">HTTPS</text>
+  <rect class="box opt" x="568" y="378" width="192" height="40" rx="8"/>
+  <text class="t" x="580" y="395">Your services</text>
+  <text x="580" y="410">speech, brain, MCP servers</text>
+
+  <path class="wire opt" d="M0,398 H30"/>
+  <text x="38" y="402">standalone mode only</text>
+</svg>
