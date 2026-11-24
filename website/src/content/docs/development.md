@@ -197,8 +197,8 @@ first.
 `just dev-vm` runs the x86_64 image in a virtual machine as a **virtual Echo
 Dot**. Your browser stands in for its hardware: its microphone, its speaker
 and its four buttons. The image, `pinnad`, the wake word and Home Assistant's
-voice pipeline are the same as on a Dot. The beamformer and the Dot's echo
-canceller are not part of it.
+voice pipeline are the same as on a Dot. The Echos' microphone stream, with
+its echo canceller, is not part of it.
 
 You need:
 

@@ -16,7 +16,8 @@ The microphones and the speaker run on two separate clocks:
 
 - **The speaker** is connected to an audio codec that only plays at 48 kHz.
 - **The seven microphones** arrive through a separate interface at 16 kHz,
-  as nine 24-bit channels.
+  as nine 24-bit channels: the seven microphones, then the left and the
+  right channel of what the speaker plays.
 
 Because the two clocks drift apart, Pinna doesn't route both through one
 audio graph. The speaker stays with `pinnad`, and the microphones run in
@@ -24,33 +25,33 @@ PipeWire.
 
 ## Microphones
 
-PipeWire runs on the device as a system service with a fixed graph at the
-microphones' native 16 kHz:
+PipeWire runs on the satellite as a system service with a fixed graph at the
+microphones' native 16 kHz. It turns the microphones into the one stream that
+`pinnad` hears:
 
-1. **Beamformer.** A LADSPA plugin, `pinna_beam`, combines the microphones
-   into one channel with a fixed beamforming design, which reduces room noise.
-   It also applies the microphones' calibration and gain. It shares which
-   direction it is listening in with `pinnad`, which points the light ring at
-   the person speaking.
-2. **Echo cancellation.** PipeWire's WebRTC echo canceller removes the
-   device's own playback from that channel. As a reference, it uses a copy of
-   everything `pinnad` plays.
-3. **The wake word's stream.** A second LADSPA plugin, `pinna_wake`, averages
-   the same microphones and removes the device's own sound with a simpler,
-   linear echo canceller. As a reference, it uses the speaker signal that the
-   microphone interface delivers alongside the microphones. WebRTC's echo
-   canceller also mutes a person who talks while the device plays; this one
-   doesn't, so you can say the wake word to interrupt a reply.
-4. **`pinnad`** reads both in 20 ms frames and sets the gain of each
-   automatically. The wake word detection hears the wake word's stream; the
-   requests it sends, to Home Assistant or to your speech-to-text service,
-   use the echo-cancelled channel. If the wake word's stream delivers nothing
-   for a second, the wake word detection hears the echo-cancelled channel
-   instead.
+1. **The microphones, averaged.** It averages all seven microphones, after
+   applying each microphone's factory calibration.
+2. **Echo cancellation.** It removes the satellite's own sound with a linear
+   echo canceller. As a reference, it uses the speaker's channel that the
+   microphone interface delivers alongside the microphones, so the two can't
+   drift apart. Many echo cancellers also mute the microphones while the
+   satellite plays, which mutes you too. This one doesn't, so you can say the
+   wake word over a reply or music: the reply stops, and music gets 20 dB
+   quieter while you talk.
+3. **`pinnad`** reads the stream in 20 ms frames and sets its gain
+   automatically. The wake word detection, the requests to Home Assistant and
+   the requests to your speech-to-text service all hear it.
 
-On the device, the echo cancellation lowers the device's own music by 23 to
-31 dB in the speech range, after it has adapted to the room. In the first
-seconds of new audio, some echo remains.
+PipeWire also works out which direction the person speaking is in, and shares
+it with `pinnad`, which points the ring at them.
+
+In tests on recordings, played through the same code on a computer, the echo
+cancellation lowered the satellite's own music and speech by about 26 dB in
+the speech range on an Echo Dot (2nd gen) at volume 55, and by about 13 dB on
+an Echo (2nd gen) at volume 75. In a typical second it removed about 22 and
+20 dB. The stream hasn't run on a satellite yet. In the first seconds of new
+audio more echo remains: the canceller takes some seconds to adapt to the
+room.
 
 The automatic gain lifts quiet speech, such as someone talking across the
 room, and lowers the gain for loud speech so that it doesn't clip. It aims for
@@ -60,8 +61,16 @@ wake word detection starts to listen, so it doesn't take the lifted noise for
 speech. In a quiet room the gain can rise further than in a noisy one. After
 loud speech, music or a reply, the gain comes back up by 1 to 3 dB per second.
 
+If the stream delivers nothing for a second, `pinnad` reads the raw
+microphones and averages them itself, without echo cancellation, so the wake
+word is less reliable while the satellite plays audio. **System > Logs** then
+shows `microphone: the processed stream delivers nothing; recording the raw
+lanes, without echo cancellation`. `pinnad` tries the stream again every
+minute, and logs `microphone: the processed stream delivers again` once it
+does.
+
 If PipeWire isn't running, `pinnad` reads the microphones directly and
-averages four of them, without beamforming or echo cancellation. `pinnad`
+averages all seven, without echo cancellation. `pinnad`
 makes this choice once, when it starts. If PipeWire fails later, `pinnad`
 doesn't notice. The wake word is less reliable while the device plays audio.
 
@@ -78,6 +87,10 @@ lanes:
 
 While the voice lane plays, and while the device listens or works on a
 request, the media lane gets 20 dB quieter, and returns afterwards.
+
+The speaker of the Echo (2nd gen) and the Echo Dot (2nd gen) plays one
+channel only, so `pinnad` mixes stereo audio to mono before it plays it.
+Nothing panned to one side goes missing.
 
 Live audio runs on the sender's clock, and the speaker on the device's own.
 `pinnad` converts it to 48 kHz at a rate that follows the sender, so that it

@@ -37,7 +37,7 @@ This page helps you find your way around the
 | `pinna-esphome` | The server side of the ESPHome native API, with or without encryption |
 | `pinna-wakeword` | Wake word detection for `.onnx` and `.tflite` models (the openWakeWord words and compatible classifiers), run on the `tract` inference library |
 | `pinna-audio` | Microphone capture and speaker playback, through ALSA or PipeWire, with mixing, ducking and audio decoding, and timed sources that play each sample at the time a server's clock sets |
-| `pinna-ladspa` | The microphone beamformer and the wake word's echo canceller, as LADSPA plugins for PipeWire |
+| `pinna-ladspa` | The microphone stream (the microphones averaged, the echo canceller, the talker's direction) as a LADSPA plugin for PipeWire, `pinna_wake`, and `pinna_beam`, a beamformer plugin that the Echos' graph no longer loads |
 | `pinna-board` | What each Echo model is: its id and names, how Pinna tells the models apart, and where its ring, buttons, microphone switch and sound card are. The updater and `pinna-image` use it too |
 | `pinna-hal` | Access to the LED ring, the buttons, the microphone privacy switch and the device identity of the board `pinna-board` describes, with mock versions for tests |
 | `pinna-api` | The control API service, generated from `proto/` |
@@ -98,8 +98,8 @@ The `sendspin/` module of `pinnad` runs the [Sendspin player](/docs/sendspin/) o
 | `pinna-image` | Seals and signs root filesystem images, creates signing keys, writes and signs update manifests, verifies images, and compares image versions |
 | `pinna-bootimg` | Builds and inspects Android boot images and the boot level they provide, and builds the initramfs |
 
-`pinnad` runs the voice satellite in one process. The beamformer and the wake
-word's echo canceller run inside PipeWire, and `pinna-init` runs as the first process in the initramfs. The
+`pinnad` runs the voice satellite in one process. The microphone stream and
+its echo canceller run inside PipeWire, and `pinna-init` runs as the first process in the initramfs. The
 crates keep the parts separate, so that they can run as separate processes
 later if needed.
 

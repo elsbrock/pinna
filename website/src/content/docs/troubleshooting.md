@@ -180,7 +180,10 @@ If the hint says `Listening for "Alexa"` and the device still doesn't react:
 - Check the microphones. If **System** shows **Audio backend** `none` under
   **Details**, Pinna found no audio device, and the log has the line
   `no audio backend: wake word and speech disabled`. With another backend, a
-  `microphone unavailable` line means the microphones failed to open.
+  `microphone unavailable` line means the microphones failed to open. A line
+  `microphone: the processed stream delivers nothing` means the echo
+  cancellation stopped and the satellite hears its raw microphones; see
+  [Audio](/docs/audio/#microphones).
 - Test the wake word on the **Wake word sensitivity** page:
 
   1. Open **Voice & sound > Sensitivity** in the
@@ -444,12 +447,17 @@ To record again, wait a minute after the last recording.
 
 The first file, **What the satellite hears**, has one channel. The second,
 **Microphone lanes and echo cancellation**, is made only on the Echo Dot
-(2nd gen) and the Echo (2nd gen). Its first 9 channels are the microphone
-lanes as the codec delivers them: on the Echo Dot (2nd gen), 7 microphones,
-then 2 reference lanes; on the Echo (2nd gen), what each lane holds isn't
-measured yet. Then come the signal before Pinna's gain and the echo
-reference. The channels come from separate streams, so they aren't aligned
-to the sample.
+(2nd gen) and the Echo (2nd gen). It has 11 channels:
+
+| Channels | What they hold |
+| --- | --- |
+| 1–7 | The microphones, as the microphone interface delivers them, before calibration. 7 is the centre one. |
+| 8, 9 | The left and the right channel of what the satellite plays. Both carry the same mono mix; the speaker plays 9. |
+| 10 | The microphone stream before the automatic gain. |
+| 11 | The echo reference, a copy of channel 9. |
+
+Channels 1–9 and 11 come from one stream, channel 10 from another, so 10
+isn't aligned to the others to the sample.
 
 The files are the audio of your room: they can hold what people said. Send
 them privately, and attach them to a reply only when a developer asks. Don't

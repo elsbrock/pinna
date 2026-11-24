@@ -78,9 +78,6 @@ These parts are covered by tests that run without hardware:
 
 On the devices:
 
-- The microphone path with beamforming and echo cancellation runs; on the
-  Echo Dot (2nd gen) it lowers the device's own music by 23 to 31 dB. See
-  [Audio](/docs/audio/).
 - `scripts/backup-gen2.sh` backs up the device, and `scripts/verify-backup.sh`
   checks the backup. See [What you need](/docs/requirements/#backup-of-the-device).
 - A hardware test (`just test-device`) checks the speaker, the microphones,
@@ -92,6 +89,10 @@ On the devices:
 
 ## Known gaps
 
+- **The microphone stream hasn't run on a satellite yet.** It averages the
+  seven microphones and cancels the satellite's own sound. On recordings from
+  an Echo Dot (2nd gen) it removed about 26 dB of the satellite's music and
+  speech. See [Audio](/docs/audio/).
 - **The dashboard's password is optional, and it travels unencrypted.** Until
   you set one, anyone on your network can use the dashboard, including
   restarting and updating the device. The satellite serves plain HTTP, so
