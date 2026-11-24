@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Tue, 24 Nov 2026 22:15:00 +0100
+Subject: [PATCH] watchdog: mtk_wdt: add the MT8519 TOPRGU
+
+The MT8519's device tree names its watchdog "mediatek,mt8519-rgu", which no
+6.12 match takes, so the Echo Dot (5th gen) has no /dev/watchdog: systemd's
+RuntimeWatchdogSec has nothing to feed, and a watchdog the bootloader leaves
+running is fed by no one. Amazon's 5.4 kernel binds the same node with this
+driver (drivers/watchdog/mtk_wdt.c in the Echo Dot 5th gen release), with the
+mt6589 register layout and 18 TOPRGU software resets.
+
+---
+--- a/drivers/watchdog/mtk_wdt.c
++++ b/drivers/watchdog/mtk_wdt.c
+@@ -75,6 +75,8 @@
+ #define DRV_VERSION		"1.0"
+ 
+ #define MT7988_TOPRGU_SW_RST_NUM	24
++/* Amazon's MT8519 release, include/dt-bindings/reset-controller/mt8519-resets.h */
++#define MT8519_TOPRGU_SW_RST_NUM	18
+ 
+ static bool nowayout = WATCHDOG_NOWAYOUT;
+ static unsigned int timeout;
+@@ -182,6 +184,10 @@
+ 	.toprgu_sw_rst_num = MT8195_TOPRGU_SW_RST_NUM,
+ };
+ 
++static const struct mtk_wdt_data mt8519_data = {
++	.toprgu_sw_rst_num = MT8519_TOPRGU_SW_RST_NUM,
++};
++
+ /**
+  * toprgu_reset_sw_en_unlocked() - enable/disable software control for reset bit
+  * @data: Pointer to instance of driver data.
+@@ -560,6 +566,7 @@
+ 	{ .compatible = "mediatek,mt8188-wdt", .data = &mt8188_data },
+ 	{ .compatible = "mediatek,mt8192-wdt", .data = &mt8192_data },
+ 	{ .compatible = "mediatek,mt8195-wdt", .data = &mt8195_data },
++	{ .compatible = "mediatek,mt8519-rgu", .data = &mt8519_data },
+ 	{ /* sentinel */ }
+ };
+ MODULE_DEVICE_TABLE(of, mtk_wdt_dt_ids);
