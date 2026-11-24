@@ -252,13 +252,29 @@ connects to them over MCP's Streamable HTTP.
 1. Under **Your MCP servers**, select **Add…**.
 2. Enter a **Name**, such as `home`, and the server's whole **Address**, such
    as `http://192.168.1.20:8080/mcp`. A token that is part of the address
-   works. A server that needs a sign-in or a token in a header, such as Home
-   Assistant's own MCP Server integration, can't be added yet.
-3. Select **Add**. The satellite asks the server for its tools, and the row
+   works.
+3. If the server needs a sign-in, choose one under **Sign-in** and enter it:
+   - **Token**: an access token or API key, sent as
+     `Authorization: Bearer <token>`.
+   - **User name and password**: sent as HTTP Basic authentication.
+   - **Header**: a header the server names, such as `X-API-Key`, and its
+     value.
+4. Select **Add**. The satellite asks the server for its tools, and the row
    shows how many of them are on, such as `0 of 77 tools on`, or why the
-   server can't be reached.
-4. Select **Its tools** under the server. Each tool has a switch and the
+   server can't be reached or refused the sign-in.
+5. Select **Its tools** under the server. Each tool has a switch and the
    server's description of it. **All on** and **All off** switch them all.
+
+The satellite keeps the sign-in and shows only what tells it apart, such as
+the user name or the last four characters of a long token. Over an `http://`
+address, the sign-in crosses your network unencrypted. To change it, open the
+server and select **Replace**, or choose **None** to remove it. A new address
+removes the stored sign-in, so enter it again with the address.
+
+If the server refuses the sign-in later, the row says so and the brain leaves
+the server's tools out until it accepts it again. Servers that sign in through
+a browser (OAuth) can't be added yet. If such a service also hands out an
+access token, add it as a **Token**.
 
 A server that lists more than 32 tools when you add it, such as ha-mcp, starts
 with all of them off. Most of ha-mcp's tools manage Home Assistant itself, such
