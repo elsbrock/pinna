@@ -22,8 +22,10 @@ pub const BLOCK: usize = FFT / 2;
 const BINS: usize = FFT / 2 + 1;
 /// Partitions of one block each: 2048 taps.
 pub const PARTITIONS: usize = 16;
-/// NLMS step size.
-const MU: f32 = 0.5;
+/// NLMS step size. TECHO5 (`echod/internal/hardware/mic/cancel.go`) caught
+/// more wake words over music with a smaller step on its time-domain NLMS;
+/// [`LinearEchoCanceller::with_step_size`] lets the offline bench try that here.
+pub const STEP_SIZE: f32 = 0.5;
 /// Smoothing of the reference's power per bin, per block.
 const POWER_SMOOTHING: f32 = 0.9;
 /// Keeps the step finite while the reference is silent (the loopback lane is
@@ -78,6 +80,7 @@ pub struct LinearEchoCanceller {
     background_error: f32,
     mic_level: f32,
     better_blocks: u32,
+    mu: f32,
 }
 
 impl Default for LinearEchoCanceller {
@@ -88,6 +91,12 @@ impl Default for LinearEchoCanceller {
 
 impl LinearEchoCanceller {
     pub fn new() -> Self {
+        Self::with_step_size(STEP_SIZE)
+    }
+
+    /// A canceller whose adapting filter takes steps of `mu` (0 < mu <= 1)
+    /// instead of [`STEP_SIZE`].
+    pub fn with_step_size(mu: f32) -> Self {
         let (twiddle_re, twiddle_im) = twiddles();
         LinearEchoCanceller {
             twiddle_re,
@@ -107,6 +116,7 @@ impl LinearEchoCanceller {
             background_error: 1e-12,
             mic_level: 1e-12,
             better_blocks: 0,
+            mu: mu.clamp(f32::MIN_POSITIVE, 1.0),
         }
     }
 
@@ -233,8 +243,8 @@ impl LinearEchoCanceller {
             g[BLOCK..].fill(0.0);
             self.real_spectrum(&g, &mut gr, &mut gi);
             for k in 0..BINS {
-                self.background.re[p][k] += MU * gr[k];
-                self.background.im[p][k] += MU * gi[k];
+                self.background.re[p][k] += self.mu * gr[k];
+                self.background.im[p][k] += self.mu * gi[k];
             }
         }
 
@@ -326,6 +336,26 @@ mod tests {
         // The last second, against the echo it replaced (one block earlier).
         let removed = db(&echo[2 * 16_000 - BLOCK..3 * 16_000 - BLOCK]) - db(&out[2 * 16_000..]);
         assert!(removed > 25.0, "removed {removed:.1} dB");
+    }
+
+    #[test]
+    fn a_smaller_step_converges_more_slowly() {
+        let mut aec = LinearEchoCanceller::with_step_size(0.1);
+        let mut n = Noise(5);
+        let reference: Vec<f32> = (0..8 * 16_000).map(|_| n.next(8000.0)).collect();
+        let echo = convolve(&reference, &echo_path());
+        let out: Vec<f32> = echo
+            .iter()
+            .zip(&reference)
+            .map(|(&m, &x)| aec.process(m, x))
+            .collect();
+        let removed_in = |s: usize| {
+            db(&echo[(s - 1) * 16_000 - BLOCK..s * 16_000 - BLOCK])
+                - db(&out[(s - 1) * 16_000..s * 16_000])
+        };
+        // About 3 dB more each second on white noise, where 0.5 needs under 3 s.
+        assert!(removed_in(3) < 20.0, "second 3: {:.1} dB", removed_in(3));
+        assert!(removed_in(8) > 20.0, "second 8: {:.1} dB", removed_in(8));
     }
 
     #[test]
