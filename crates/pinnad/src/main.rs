@@ -47,6 +47,9 @@ use std::sync::atomic::Ordering;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
+use pinna_audio::dsp::{CaptureFormat, SampleFormat};
+use pinna_audio::mixer::Codec;
+use pinna_audio::speaker::pcm_status_path;
 use pinna_audio::{Agc, Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle};
 use pinna_hal::anim::Effect;
@@ -173,6 +176,31 @@ fn check_wake_word(cfg: &Config, file: &Path, threshold: f32) -> i32 {
             println!("{}", reason.replace('\n', " "));
             2
         }
+    }
+}
+
+/// pinna-audio's mixer sequences for the board's codec (pinna-audio doesn't
+/// depend on the board crate, ADR 0032).
+fn audio_codec(codec: pinna_hal::board::Codec) -> Codec {
+    match codec {
+        pinna_hal::board::Codec::Mt8163Aic => Codec::Mt8163Aic,
+        pinna_hal::board::Codec::Mt8519Max98396 => Codec::Mt8519Max98396,
+    }
+}
+
+/// What the board's capture PCM delivers, for the microphone front end.
+fn capture_format(board: &Board) -> CaptureFormat {
+    let pcm = board.audio.capture;
+    CaptureFormat {
+        rate: pcm.rate,
+        channels: pcm.channels,
+        sample: match pcm.format {
+            pinna_hal::board::SampleFormat::S24_3Le => SampleFormat::S24_3Le,
+            pinna_hal::board::SampleFormat::S32Le => SampleFormat::S32Le,
+            // The front end decodes only what a board's microphones deliver.
+            pinna_hal::board::SampleFormat::S16Le => unreachable!("no board captures S16_LE"),
+        },
+        mic_lanes: (0..board.mics.count).collect(),
     }
 }
 
@@ -733,6 +761,9 @@ async fn main() -> Result<()> {
         let mut sc = SpeakerConfig::new(b);
         sc.initial_volume = initial.volume;
         sc.alsa_device = hw.audio.playback.device.into();
+        sc.device_rate = hw.audio.playback.rate;
+        sc.profile.codec = audio_codec(hw.audio.codec);
+        sc.pcm_status = pcm_status_path(hw.audio.playback.device, false).or(sc.pcm_status.take());
         // The board's tuning, unless a developer named another.
         let tuning = cfg
             .audio
@@ -796,6 +827,9 @@ async fn main() -> Result<()> {
         }
         let mut capture = CaptureConfig::new(b.clone());
         capture.alsa_device = hw.audio.capture.device.into();
+        capture.codec = audio_codec(hw.audio.codec);
+        capture.format = capture_format(hw);
+        capture.front_end.mic_mask = hw.mics.speech_mask;
         capture.pw_target = cfg.audio.capture_target.clone();
         // Where PipeWire's stream is missing, and without PipeWire, pinnad
         // mixes the board's microphones itself (ADR 0004).
@@ -1138,5 +1172,37 @@ mod tests {
         assert_eq!(gid_in(groups, "audio"), Some(29));
         assert_eq!(gid_in(groups, "pinna"), None);
         assert_eq!(gid_in("broken", "broken"), None);
+    }
+
+    /// The MT8163 boards hand pinna-audio what it assumed before the audio
+    /// followed the board.
+    #[test]
+    fn the_mt8163_boards_keep_the_audio_defaults() {
+        let speaker = SpeakerConfig::new(Backend::EchoDot);
+        for model in [Model::EchoDot2, Model::Echo2] {
+            let hw = model.board();
+            assert_eq!(audio_codec(hw.audio.codec), Codec::Mt8163Aic);
+            assert_eq!(capture_format(hw), CaptureFormat::default());
+            assert_eq!(hw.audio.playback.device, speaker.alsa_device);
+            assert_eq!(hw.audio.playback.rate, speaker.device_rate);
+            assert_eq!(
+                pcm_status_path(hw.audio.playback.device, false),
+                speaker.pcm_status
+            );
+            assert_eq!(
+                hw.mics.speech_mask,
+                pinna_audio::dsp::FrontEndConfig::default().mic_mask
+            );
+        }
+    }
+
+    /// Every board's capture format is one the front end decodes.
+    #[test]
+    fn every_boards_capture_format_decodes() {
+        for model in Model::ALL {
+            capture_format(model.board())
+                .check()
+                .unwrap_or_else(|e| panic!("{model:?}: {e}"));
+        }
     }
 }
