@@ -3,7 +3,8 @@
 Status: proposed (2026-11-16), accepted and built (2026-11-18), released in v0.3.0. Amends
 ADR 0005, ADR 0007, ADR 0013, ADR 0020 and ADR 0022; builds on ADR 0008, ADR 0011, ADR 0018 and
 ADR 0021. Amended 2026-11-21: an MCP server's tool list may be larger, a server that lists more than 32
-tools starts with them off, and tool lists refresh in the background.
+tools starts with them off, and tool lists refresh in the background. Amended 2026-11-24: an MCP
+server may have a credential that pinnad sends in a header.
 
 ## Context
 
@@ -249,8 +250,26 @@ tools starts with them off, and tool lists refresh in the background.
     plays without waiting for a service.
 - **The owner's MCP servers are remote only**, for the tool loop. pinnad uses Streamable HTTP (protocol
   2025-06-18, or 2025-03-26 for an older server). stdio servers don't run on the device.
-  - They have no authentication yet: a server that takes a token in its address works; one that needs a
-    header token or OAuth can't be added until a later ADR adds them.
+  - A server that takes a token in its address works as it is. A server may also have one credential,
+    which pinnad sends with every request to it:
+    - a token, as `Authorization: Bearer <token>`;
+    - a user name and password, as `Authorization: Basic` (RFC 7617, in UTF-8). The user name has no
+      colon;
+    - or a header the owner names, with its value, such as `X-API-Key`. The name is an HTTP token
+      (RFC 9110) of at most 64 characters. pinnad refuses the headers that it sets itself or that
+      frame the request: `Host`, `Accept`, `Connection`, `Keep-Alive`, `Upgrade`, `TE`, `Trailer`,
+      `Transfer-Encoding`, and any `Content-`, `Mcp-` or `Proxy-` header.
+    - A token has no spaces. A header's value is printable ASCII, as HTTP allows. A user name or a
+      password has no control characters. Each is at most 1024 bytes, as a provider key is.
+  - A server that answers 401 or 403 says why in the dashboard: it needs a sign-in, or it refused the
+    credential. One without a credential whose 401 names its OAuth metadata (`resource_metadata`,
+    RFC 9728) says that it signs in with OAuth, which pinnad doesn't support yet, and that an access
+    token the service hands out can be added as a token.
+  - A tool call that a server refuses that way takes the server's tools out, and the dashboard shows
+    why, until a listing works again. A credential revoked after the server was saved doesn't leave the
+    brain calling tools that can't work.
+  - Over plain http the credential crosses the network unencrypted. The dashboard says so when the
+    address it is entered with starts with `http://`.
   - A server's tools are named `<server>_<tool>`, with the server's hyphens as underscores; a name
     that doesn't fit providers' 64-byte `[A-Za-z0-9_-]` rule is left out.
   - Its tool list is read up to 1 MiB and 128 tools, and cached for 5 minutes, a failure for 30 s. An
@@ -259,8 +278,8 @@ tools starts with them off, and tool lists refresh in the background.
     goes without the server otherwise. ha-mcp, a Home Assistant MCP server, lists 77 tools in
     297 KB (version 9.2.0, measured 2026-11-21); the first limits, 256 KiB and 32 tools, left it out.
   - Saving a server asks it for its tools at once, and the dashboard shows how it answered.
-  - A server that lists more than 32 tools when it is added, or when its address changes, gets a
-    stored switch, off, for each of them that has none; the owner's earlier choices stay. The owner
+  - A server that lists more than 32 tools when it is added, or when its address or credential
+    changes, gets a stored switch, off, for each of them that has none; the owner's earlier choices stay. The owner
     turns on the few the brain needs; ha-mcp's first 32 are administration tools. The switches are
     stored rather than worked out from the count, so a list that grows or shrinks later turns nothing
     on or off by itself. A tool a server adds later starts on, as on any server, and so do the tools
@@ -341,6 +360,12 @@ tools starts with them off, and tool lists refresh in the background.
     put back, so memory and disk agree.
 - **MCP server URLs count as secrets.** Some services put the token in the path. The dashboard shows a
   server's name and host only. Changing a URL means entering it again in full.
+- **An MCP server's credential belongs to its URL,** as a key does.
+  - A new URL clears it, unless the same edit enters a credential again.
+  - The API reports its kind and no more than this: the header's name, the user name, and the last four
+    characters of a token or a header's value of 16 characters or more. Never a password, and never
+    the end of a shorter value, which it would mostly give away.
+  - The owner can remove it without changing the URL.
 - **Nothing secret is logged at info or above:** no key, no URL with credentials, no response body and no
   transcript. The one exception is what a service said when it answered with an error status: the
   message field of its error body, or a short plain-text body, on one line, at most 200 characters, with
@@ -449,7 +474,7 @@ tools starts with them off, and tool lists refresh in the background.
     without a wake word and hand anyone on the LAN what was said;
   - ChatGPT sign-in, which needs a client ID;
   - speech-to-speech models;
-  - MCP servers that need a header token or OAuth;
+  - MCP servers that sign in with OAuth;
   - several satellites sharing one conversation.
 - Spotify Connect is not planned (2026-11-18). librespot logs in, but Spotify refuses the audio keys
   of accounts created after a cutoff in 2024/2025, in every librespot version (librespot issue #1649,
