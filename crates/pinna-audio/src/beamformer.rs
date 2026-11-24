@@ -239,6 +239,9 @@ pub(crate) fn fft(
 }
 
 pub struct Beamformer {
+    /// Where each lane's microphone sits, in metres; unused lanes stay at the
+    /// origin and no mask selects them.
+    positions: [(f64, f64); LOGICAL_CHANNELS],
     mic_count: usize,
     mics: [u8; LOGICAL_CHANNELS],
     beam_count: usize,
@@ -267,11 +270,38 @@ pub struct Beamformer {
 }
 
 impl Beamformer {
+    /// The seven-microphone ring of the MT8163 Echos.
     pub fn new(mic_mask: u8, beam_count: usize) -> Result<Self, BeamError> {
+        let positions = std::array::from_fn(mic_position);
+        Self::build(positions, MIC_MASK_ALL, mic_mask, beam_count)
+    }
+
+    /// An array of any shape: `positions` are the microphones' places in
+    /// metres, lane by lane, in the beams' frame (x toward the front, y 90
+    /// degrees clockwise from it, seen from above). Lanes beyond
+    /// [`LOGICAL_CHANNELS`] are ignored, and so are mask bits for lanes
+    /// without a position.
+    pub fn with_positions(
+        positions: &[(f64, f64)],
+        mic_mask: u8,
+        beam_count: usize,
+    ) -> Result<Self, BeamError> {
+        let mut at = [(0.0, 0.0); LOGICAL_CHANNELS];
+        let count = positions.len().min(LOGICAL_CHANNELS);
+        at[..count].copy_from_slice(&positions[..count]);
+        Self::build(at, ((1u16 << count) - 1) as u8, mic_mask, beam_count)
+    }
+
+    fn build(
+        positions: [(f64, f64); LOGICAL_CHANNELS],
+        valid_mask: u8,
+        mic_mask: u8,
+        beam_count: usize,
+    ) -> Result<Self, BeamError> {
         if beam_count == 0 || beam_count > MAX_BEAMS {
             return Err(BeamError::BeamCount);
         }
-        let mic_mask = mic_mask & MIC_MASK_ALL;
+        let mic_mask = mic_mask & valid_mask;
         let mut mics = [0u8; LOGICAL_CHANNELS];
         let mut mic_count = 0;
         for i in 0..LOGICAL_CHANNELS {
@@ -295,6 +325,7 @@ impl Beamformer {
         }
         let (twiddle_re, twiddle_im) = twiddles();
         let mut bf = Beamformer {
+            positions,
             mic_count,
             mics,
             beam_count,
@@ -339,7 +370,7 @@ impl Beamformer {
         let wng_min = 10f64.powf(WNG_MIN_DB / 10.0);
         let n = self.mic_count;
         for i in 0..n {
-            (px[i], py[i]) = mic_position(self.mics[i] as usize);
+            (px[i], py[i]) = self.positions[self.mics[i] as usize];
         }
         for k in 0..BINS {
             let frequency = k as f64 * f64::from(SAMPLE_RATE) / FFT as f64;
@@ -614,23 +645,76 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    /// The beams are designed for one array. A board with another one
-    /// (ADR 0032) fails here until the beamformer takes its geometry.
+    /// The board's microphones in metres, lane by lane.
+    fn board_positions(mics: &pinna_board::Mics) -> Vec<(f64, f64)> {
+        (0..mics.count).map(|m| mics.geometry.position(m)).collect()
+    }
+
+    /// Every board's array gets beams from its own geometry (ADR 0032), and
+    /// the MT8163 boards' geometry is the ring the plain constructor uses.
     #[test]
-    fn every_board_has_the_array_the_beams_are_designed_for() {
+    fn every_board_has_beams_designed_for_its_array() {
         for m in pinna_board::Model::ALL {
             let mics = m.board().mics;
-            assert_eq!(mics.count, LOGICAL_CHANNELS, "{m:?}");
-            assert_eq!(mics.speech_mask, MIC_MASK_BEAM, "{m:?}");
-            for lane in 0..LOGICAL_CHANNELS {
-                let (x, y) = mic_position(lane);
-                let (bx, by) = mics.geometry.position(lane);
-                assert!(
-                    (x - bx).abs() < 1e-12 && (y - by).abs() < 1e-12,
-                    "{m:?} lane {lane}"
-                );
+            assert!(mics.count <= LOGICAL_CHANNELS, "{m:?}");
+            let bf = Beamformer::with_positions(
+                &board_positions(&mics),
+                mics.speech_mask,
+                DEFAULT_BEAMS,
+            );
+            assert!(bf.is_ok(), "{m:?}");
+            if m.board().soc == pinna_board::Soc::Mt8163 {
+                assert_eq!(mics.count, LOGICAL_CHANNELS, "{m:?}");
+                assert_eq!(mics.speech_mask, MIC_MASK_BEAM, "{m:?}");
+                for lane in 0..LOGICAL_CHANNELS {
+                    let (x, y) = mic_position(lane);
+                    let (bx, by) = mics.geometry.position(lane);
+                    assert!(
+                        (x - bx).abs() < 1e-12 && (y - by).abs() < 1e-12,
+                        "{m:?} lane {lane}"
+                    );
+                }
             }
         }
+    }
+
+    /// A 1 kHz plane wave from a beam's azimuth reaches the L array's output
+    /// at about the level it has on one microphone.
+    #[test]
+    fn a_plane_wave_from_a_beam_passes_the_l_array_at_unity() {
+        let positions = board_positions(&pinna_board::ECHO_DOT_5.mics);
+        for azimuth in [0, 90, 180, 270] {
+            let mut bf = Beamformer::with_positions(&positions, 0b111, DEFAULT_BEAMS).unwrap();
+            bf.lock(Some(azimuth));
+            let az = f64::from(azimuth).to_radians();
+            let n = 8000;
+            let frames: Frames = (0..n)
+                .map(|i| {
+                    std::array::from_fn(|lane| {
+                        let (x, y) = positions.get(lane).copied().unwrap_or((0.0, 0.0));
+                        let delay = -(x * az.cos() + y * az.sin()) / SPEED_OF_SOUND;
+                        let t = i as f64 / RATE - delay;
+                        to_i16(3000.0 * (2.0 * std::f64::consts::PI * 1000.0 * t).sin())
+                    })
+                })
+                .collect();
+            let out = run(&mut bf, &frames);
+            let tail = &out[n - 2000..];
+            let rms = (tail.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>() / 2000.0).sqrt();
+            let want = 3000.0 / 2f64.sqrt();
+            assert!(
+                (rms / want - 1.0).abs() < 0.1,
+                "azimuth {azimuth}: rms {rms:.0}, want {want:.0}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_positions_ignores_mask_bits_without_a_microphone() {
+        let positions = board_positions(&pinna_board::ECHO_DOT_5.mics);
+        assert!(Beamformer::with_positions(&positions, 0b1111000, 12).is_err());
+        assert!(Beamformer::with_positions(&positions, 0b0000001, 12).is_err());
+        assert!(Beamformer::with_positions(&positions, 0b1111111, 12).is_ok());
     }
 
     const RATE: f64 = SAMPLE_RATE as f64;
