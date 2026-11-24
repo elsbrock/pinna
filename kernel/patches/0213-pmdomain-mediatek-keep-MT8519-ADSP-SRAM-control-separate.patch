@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Mon, 23 Nov 2026 22:00:00 +0100
+Subject: [PATCH] pmdomain: mediatek: keep MT8519 ADSP SRAM control separate
+
+Amazon's MT8519 BSP puts ADSP_INFRA power control at 0xE2C but SRAM
+power-down and acknowledgement at 0xEA4. The initial 6.12 port dropped
+sram_ctl_offs and consequently touched the power register for SRAM.
+
+Restore an optional SRAM offset for SRAM power, acknowledgement and
+isolation operations. A zero offset keeps the existing ctl_offs behavior
+for every other domain and SoC. Only MT8519 ADSP_INFRA overrides it.
+The offsets come from mt8519-pm-domains.h in Amazon's 5.4.86 source
+release for Cannoli (ADR 0034); this is separate from the RAM boot's
+timer interrupt routing issue.
+---
+diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.h b/drivers/pmdomain/mediatek/mtk-pm-domains.h
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.h
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.h
+@@ -93,6 +93,7 @@
+  * @name: The name of the power domain.
+  * @sta_mask: The mask for power on/off status bit.
+  * @ctl_offs: The offset for main power control register.
++ * @sram_ctl_offs: SRAM control offset, or zero to use ctl_offs.
+  * @sram_pdn_bits: The mask for sram power control bits.
+  * @sram_pdn_ack_bits: The mask for sram power control acked bits.
+  * @ext_buck_iso_offs: The offset for external buck isolation
+@@ -104,6 +105,7 @@
+ 	const char *name;
+ 	u32 sta_mask;
+ 	int ctl_offs;
++	int sram_ctl_offs;
+ 	u32 sram_pdn_bits;
+ 	u32 sram_pdn_ack_bits;
+ 	int ext_buck_iso_offs;
+diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.c b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.c
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+@@ -81,21 +81,22 @@
+ {
+ 	u32 pdn_ack = pd->data->sram_pdn_ack_bits;
+ 	struct scpsys *scpsys = pd->scpsys;
++	int sram_ctl = pd->data->sram_ctl_offs ?: pd->data->ctl_offs;
+ 	unsigned int tmp;
+ 	int ret;
+ 
+-	regmap_clear_bits(scpsys->base, pd->data->ctl_offs, pd->data->sram_pdn_bits);
++	regmap_clear_bits(scpsys->base, sram_ctl, pd->data->sram_pdn_bits);
+ 
+ 	/* Either wait until SRAM_PDN_ACK all 1 or 0 */
+-	ret = regmap_read_poll_timeout(scpsys->base, pd->data->ctl_offs, tmp,
++	ret = regmap_read_poll_timeout(scpsys->base, sram_ctl, tmp,
+ 				       (tmp & pdn_ack) == 0, MTK_POLL_DELAY_US, MTK_POLL_TIMEOUT);
+ 	if (ret < 0)
+ 		return ret;
+ 
+ 	if (MTK_SCPD_CAPS(pd, MTK_SCPD_SRAM_ISO)) {
+-		regmap_set_bits(scpsys->base, pd->data->ctl_offs, PWR_SRAM_ISOINT_B_BIT);
++		regmap_set_bits(scpsys->base, sram_ctl, PWR_SRAM_ISOINT_B_BIT);
+ 		udelay(1);
+-		regmap_clear_bits(scpsys->base, pd->data->ctl_offs, PWR_SRAM_CLKISO_BIT);
++		regmap_clear_bits(scpsys->base, sram_ctl, PWR_SRAM_CLKISO_BIT);
+ 	}
+ 
+ 	return 0;
+@@ -105,18 +106,19 @@
+ {
+ 	u32 pdn_ack = pd->data->sram_pdn_ack_bits;
+ 	struct scpsys *scpsys = pd->scpsys;
++	int sram_ctl = pd->data->sram_ctl_offs ?: pd->data->ctl_offs;
+ 	unsigned int tmp;
+ 
+ 	if (MTK_SCPD_CAPS(pd, MTK_SCPD_SRAM_ISO)) {
+-		regmap_set_bits(scpsys->base, pd->data->ctl_offs, PWR_SRAM_CLKISO_BIT);
++		regmap_set_bits(scpsys->base, sram_ctl, PWR_SRAM_CLKISO_BIT);
+ 		udelay(1);
+-		regmap_clear_bits(scpsys->base, pd->data->ctl_offs, PWR_SRAM_ISOINT_B_BIT);
+-	}
+-
+-	regmap_set_bits(scpsys->base, pd->data->ctl_offs, pd->data->sram_pdn_bits);
++		regmap_clear_bits(scpsys->base, sram_ctl, PWR_SRAM_ISOINT_B_BIT);
++	}
++
++	regmap_set_bits(scpsys->base, sram_ctl, pd->data->sram_pdn_bits);
+ 
+ 	/* Either wait until SRAM_PDN_ACK all 1 or 0 */
+-	return regmap_read_poll_timeout(scpsys->base, pd->data->ctl_offs, tmp,
++	return regmap_read_poll_timeout(scpsys->base, sram_ctl, tmp,
+ 					(tmp & pdn_ack) == pdn_ack, MTK_POLL_DELAY_US,
+ 					MTK_POLL_TIMEOUT);
+ }
+diff --git a/drivers/pmdomain/mediatek/mt8519-pm-domains.h b/drivers/pmdomain/mediatek/mt8519-pm-domains.h
+--- a/drivers/pmdomain/mediatek/mt8519-pm-domains.h
++++ b/drivers/pmdomain/mediatek/mt8519-pm-domains.h
+@@ -78,6 +78,7 @@
+ 	[MT8519_POWER_DOMAIN_ADSP_INFRA] = {
+ 		.sta_mask = BIT(17),
+ 		.ctl_offs = 0xE2C,
++		.sram_ctl_offs = 0xEA4,
+ 		.pwr_sta_offs = 0xEEC,
+ 		.pwr_sta2nd_offs = 0xEF0,
+ 		.sram_pdn_bits = BIT(16),
