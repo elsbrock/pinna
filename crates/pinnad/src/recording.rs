@@ -30,11 +30,11 @@ pub const SAMPLE_RATE: u32 = 16_000;
 pub const MAX_SECONDS: u32 = 30;
 /// HEARD and BEFORE_GAIN go out in chunks of 5 frames of 20 ms: 100 ms.
 const CHUNK_FRAMES: usize = 5;
-/// The lanes of `dot_mics`, S24LE: 100 ms is 43200 bytes.
-const LANES: u32 = 9;
-const LANES_CHUNK: usize = SAMPLE_RATE as usize * LANES as usize * 3 / 10;
-/// Bytes of one sample frame of the lanes.
-const LANE_FRAME: usize = LANES as usize * 3;
+/// The lanes of `dot_mics`, recorded as S24LE: 100 ms of `lanes` is this many
+/// bytes (43200 for the MT8163's 9).
+fn lanes_chunk(lanes: u32) -> usize {
+    SAMPLE_RATE as usize * lanes as usize * 3 / 10
+}
 /// What the queue holds, over all sources together.
 const QUEUE_SECONDS: usize = 2;
 /// The Brain forgets a recording this long after it should have ended, if
@@ -182,6 +182,8 @@ fn offer(tx: &mpsc::Sender<Item>, run: &Run, source: AudioSource, data: Vec<u8>)
 /// The debug captures of the Echo's PipeWire graph. A seam: tests can't run
 /// PipeWire.
 pub trait DebugCapture: Send + Sync {
+    /// How many lanes `dot_mics` has: the board's capture channels.
+    fn lanes(&self) -> u32;
     /// Raw bytes of `source` (LANES) until dropped.
     fn open(&self, source: AudioSource) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>>;
     /// The lane that carries what the speaker plays, the echo canceller's
@@ -193,6 +195,7 @@ pub trait DebugCapture: Send + Sync {
 pub struct PwRecord {
     pub bin: String,
     pub reference_lane: usize,
+    pub lanes: u32,
 }
 
 struct PwStream {
@@ -215,15 +218,21 @@ impl DebugCapture for PwRecord {
         self.reference_lane
     }
 
+    fn lanes(&self) -> u32 {
+        self.lanes
+    }
+
     fn open(&self, source: AudioSource) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>> {
-        // The node name is in 10-echo-dot.conf.
+        // The node name is in 10-echo-dot.conf and 10-echo-dot-5.conf;
+        // pw-record converts the rate and format.
+        let lanes = self.lanes.to_string();
         let args: &[&str] = match source {
             AudioSource::AUDIO_SOURCE_LANES => &[
                 "--raw",
                 "--rate",
                 "16000",
                 "--channels",
-                "9",
+                &lanes,
                 "--format",
                 "s24",
                 "--target",
@@ -249,10 +258,11 @@ impl DebugCapture for PwRecord {
     }
 }
 
-/// The 16-bit samples of `lane` in a chunk of lanes (S24LE, the top 16 bits).
-fn lane_s16(lanes: &[u8], lane: usize) -> Vec<u8> {
-    lanes
-        .chunks_exact(LANE_FRAME)
+/// The 16-bit samples of `lane` in a chunk of `lanes` lanes (S24LE, the top
+/// 16 bits).
+fn lane_s16(chunk: &[u8], lanes: u32, lane: usize) -> Vec<u8> {
+    chunk
+        .chunks_exact(lanes as usize * 3)
         .flat_map(|f| [f[lane * 3 + 1], f[lane * 3 + 2]])
         .collect()
 }
@@ -261,13 +271,14 @@ fn lane_s16(lanes: &[u8], lane: usize) -> Vec<u8> {
 /// from it, until the recording ends or the read fails.
 async fn read_lanes(
     mut reader: Box<dyn AsyncRead + Send + Unpin>,
+    lanes: u32,
     reference_lane: usize,
     tx: mpsc::Sender<Item>,
     run: Arc<Run>,
 ) {
     let what = "the microphone lanes";
     loop {
-        let mut buf = vec![0u8; LANES_CHUNK];
+        let mut buf = vec![0u8; lanes_chunk(lanes)];
         if let Err(e) = reader.read_exact(&mut buf).await {
             let why = if e.kind() == std::io::ErrorKind::UnexpectedEof {
                 "pw-record ended".to_owned()
@@ -283,7 +294,7 @@ async fn read_lanes(
         if run.finished() {
             return;
         }
-        let reference = lane_s16(&buf, reference_lane);
+        let reference = lane_s16(&buf, lanes, reference_lane);
         offer(&tx, &run, AudioSource::AUDIO_SOURCE_LANES, buf);
         offer(&tx, &run, AudioSource::AUDIO_SOURCE_REFERENCE, reference);
     }
@@ -391,6 +402,7 @@ impl Recorder {
             })?;
             let task = tokio::spawn(read_lanes(
                 reader,
+                debug.lanes(),
                 debug.reference_lane(),
                 tx.clone(),
                 run.clone(),
@@ -418,6 +430,7 @@ impl Recorder {
             deadline: tokio::time::Instant::now() + Duration::from_secs(seconds.into()),
             seconds,
             debug: self.debug.is_some(),
+            lanes: self.debug.as_ref().map_or(0, |d| d.lanes()),
             heard_bytes: 0,
             started_sent: false,
             done: false,
@@ -487,6 +500,7 @@ pub struct Recording {
     deadline: tokio::time::Instant,
     seconds: u32,
     debug: bool,
+    lanes: u32,
     /// Bytes of HEARD sent so far, for "the files hold n s".
     heard_bytes: u64,
     started_sent: bool,
@@ -515,7 +529,7 @@ impl Recording {
                     sample_rate: SAMPLE_RATE,
                     seconds: self.seconds,
                     debug: self.debug,
-                    lanes: if self.debug { LANES } else { 0 },
+                    lanes: self.lanes,
                     ..Default::default()
                 },
             ))));

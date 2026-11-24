@@ -968,9 +968,8 @@ async fn main() -> Result<()> {
         (audio_backend == "echodot-pipewire").then(|| {
             Arc::new(recording::PwRecord {
                 bin: "pw-record".into(),
-                reference_lane: hw
-                    .speaker_lane()
-                    .unwrap_or(hw.mics.lanes() - 1),
+                reference_lane: hw.speaker_lane().unwrap_or(hw.mics.lanes() - 1),
+                lanes: hw.audio.capture.channels as u32,
             }) as Arc<dyn recording::DebugCapture>
         }),
     );

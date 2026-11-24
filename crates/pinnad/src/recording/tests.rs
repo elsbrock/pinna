@@ -70,12 +70,27 @@ fn ended(event: Event) -> (RecordingEnd, String) {
 /// A pw-record that the test feeds.
 #[derive(Default)]
 struct Fake {
+    lanes: u32,
     writers: Mutex<Vec<(AudioSource, DuplexStream)>>,
 }
 
+impl Fake {
+    fn with_lanes(lanes: u32) -> Self {
+        Fake {
+            lanes,
+            writers: Mutex::default(),
+        }
+    }
+}
+
 impl DebugCapture for Fake {
+    /// The last lane, as on the MT8163 (8 of 9).
     fn reference_lane(&self) -> usize {
-        8
+        self.lanes as usize - 1
+    }
+
+    fn lanes(&self) -> u32 {
+        self.lanes
     }
 
     fn open(&self, source: AudioSource) -> std::io::Result<Box<dyn AsyncRead + Send + Unpin>> {
@@ -141,7 +156,7 @@ async fn it_starts_with_a_description_and_streams_heard_and_before_the_gain_in_1
 
 #[tokio::test]
 async fn on_the_echo_dot_the_signal_before_the_gain_comes_too() {
-    let rig = rig(Some(Arc::new(Fake::default())));
+    let rig = rig(Some(Arc::new(Fake::with_lanes(9))));
     let mut recording = rig.recorder.start(WHO, 5).await.unwrap();
     let Event::Started(_) = next(&mut recording).await else {
         panic!("not started");
@@ -310,7 +325,7 @@ async fn dropping_the_stream_cleans_up() {
 
 #[tokio::test]
 async fn the_echo_dot_adds_the_lanes_the_reference_and_the_description() {
-    let fake = Arc::new(Fake::default());
+    let fake = Arc::new(Fake::with_lanes(9));
     let rig = rig(Some(fake.clone()));
     let mut recording = rig.recorder.start(WHO, 30).await.unwrap();
     let Event::Started(started) = next(&mut recording).await else {
@@ -341,8 +356,25 @@ async fn the_echo_dot_adds_the_lanes_the_reference_and_the_description() {
 }
 
 #[tokio::test]
+async fn the_lanes_follow_the_boards_capture_channels() {
+    let fake = Arc::new(Fake::with_lanes(6));
+    let rig = rig(Some(fake.clone()));
+    let mut recording = rig.recorder.start(WHO, 30).await.unwrap();
+    let Event::Started(started) = next(&mut recording).await else {
+        panic!("not started");
+    };
+    assert_eq!(started.lanes, 6);
+    let mut writers = std::mem::take(&mut *fake.writers.lock().unwrap());
+    // 100 ms of 6 lanes of 3 bytes.
+    writers[0].1.write_all(&vec![7u8; 28800]).await.unwrap();
+    let (source, data) = chunk(next(&mut recording).await);
+    assert_eq!(source, AudioSource::AUDIO_SOURCE_LANES);
+    assert_eq!(data.len(), 28800);
+}
+
+#[tokio::test]
 async fn a_debug_capture_that_fails_ends_it_and_says_which() {
-    let fake = Arc::new(Fake::default());
+    let fake = Arc::new(Fake::with_lanes(9));
     let rig = rig(Some(fake.clone()));
     let mut recording = rig.recorder.start(WHO, 30).await.unwrap();
     let Event::Started(_) = next(&mut recording).await else {
@@ -361,7 +393,7 @@ async fn a_debug_capture_that_fails_ends_it_and_says_which() {
 
 #[tokio::test]
 async fn dropping_the_stream_stops_the_debug_captures() {
-    let fake = Arc::new(Fake::default());
+    let fake = Arc::new(Fake::with_lanes(9));
     let rig = rig(Some(fake.clone()));
     let recording = rig.recorder.start(WHO, 30).await.unwrap();
     drop(recording);
