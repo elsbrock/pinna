@@ -26,6 +26,10 @@
 #     (redistributable, LICENCE.mediatek), fetched from kernel.org at a release
 #     tag into blobs/firmware/mediatek/. Bluetooth (btmtksdio) loads it under
 #     this name, the Wi-Fi driver as mt7668_patch_e2_hdr.bin.
+#   mediatek/mt7663pr2h.bin, mediatek/mt7663_n9_v3.bin: the Echo Dot (5th
+#     gen)'s MT7663 (ADR 0034), from linux-firmware at the same tag: the ROM
+#     patch (Wi-Fi and Bluetooth both load it) and the Wi-Fi N9 firmware that
+#     mt7663s asks for.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,6 +52,8 @@ files=(
   "$donut/wifi.cfg donut 1a97dfd343fc7b7635cab4b45bd638003320c371d9331d18a4d1d3e13d55a5b0"
   "$donut/EEPROM_MT7668.bin donut 836cf1851067d00f96fc5dbe79bbfb979b86aa1b985dc770a83b4ab6e570835a"
   "$linux_firmware/mediatek/mt7668pr2h.bin?h=20261019 mediatek 465ed634c61b46b34bb21240736f33d3d347fefec7cbfbd1cb6e63334aec4cc9"
+  "$linux_firmware/mediatek/mt7663pr2h.bin?h=20261019 mediatek 534f2152f9b0f48dfcec9c1727b0bab9a3727a655d76d5ec818cc39a55602336"
+  "$linux_firmware/mediatek/mt7663_n9_v3.bin?h=20261019 mediatek d8b8488f37f65e41ded9a911950afb000d236b36e5aa94ad9650ad0c3a86fd45"
 )
 
 command -v curl >/dev/null || { echo "curl not found" >&2; exit 1; }
