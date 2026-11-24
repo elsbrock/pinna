@@ -100,10 +100,15 @@ python3 tests/kernel/test-mt8519-sram.py
 python3 tests/kernel/test-mt8519-i2c.py
 python3 tests/kernel/test-mt8519-thermal.py
 python3 tests/kernel/test-mt8519-pinctrl.py
+python3 tests/kernel/test-mt8519-audio.py
+python3 tests/kernel/test-mt8519-privacy.py
+python3 tests/kernel/test-mt8519-light.py
+python3 tests/kernel/test-mt8519-sdio.py
 ```
 
 They need `cc` and the patched source in `build/linux`. They compile the actual
-SRAM, I2C, thermal IRQ and pin field code with recording register and IRQ interfaces. They
+driver helpers with recording register, IRQ, GPIO and input interfaces. They
+also check device-tree references against the drivers that consume them. They
 check the ADSP_INFRA offset and acknowledgement failures, FIFO transfers and DMA
 selection, and device-tree IRQ lookup and errors. They do not access a satellite.
 
