@@ -356,6 +356,9 @@ test("a typed MCP credential needs every field its kind has", () => {
   assert.deepEqual(typedCredential("bearer", { ...empty, token: " tok " }), {
     kind: { case: "bearer", value: { token: "tok" } },
   });
+  assert.deepEqual(typedCredential("bearer", { ...empty, token: "Bearer  tok" }), {
+    kind: { case: "bearer", value: { token: "tok" } },
+  });
   assert.equal(typedCredential("basic", { ...empty, user: "me" }), undefined);
   assert.deepEqual(typedCredential("basic", { ...empty, user: " me ", password: " pw " }), {
     kind: { case: "basic", value: { user: "me", password: " pw " } },

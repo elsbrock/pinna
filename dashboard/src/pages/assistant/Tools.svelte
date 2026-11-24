@@ -272,7 +272,7 @@
         <div class="pn-row">
           <div class="pn-row-text">
             <span class="pn-row-label">{view.mcpServers.length ? "Add another server" : "Add a server"}</span>
-            <span class="pn-row-hint">By its address, which may carry a token</span>
+            <span class="pn-row-hint">By its address, and a sign-in if it needs one</span>
           </div>
           <button
             class="pn-btn pn-btn-sm"

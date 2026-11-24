@@ -326,9 +326,11 @@ export function signInShown(c: Pick<McpServerCredential, "kind" | "label" | "las
 export type SignInTyped = { token: string; user: string; password: string; name: string; value: string };
 
 /** The typed credential, as SetMcpServerRequest.credential takes it;
- *  undefined while a field it needs is empty. A password is sent as typed. */
+ *  undefined while a field it needs is empty. A password is sent as typed;
+ *  a token loses a "Bearer " it was copied with. */
 export function typedCredential(kind: SignIn, t: SignInTyped) {
-  const token = t.token.trim();
+  // A token copied with its scheme, as servers' docs often show it.
+  const token = t.token.trim().replace(/^bearer\s+/i, "");
   const user = t.user.trim();
   const name = t.name.trim();
   const value = t.value.trim();
