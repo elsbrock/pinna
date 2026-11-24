@@ -17,6 +17,10 @@ pub const SAMPLE_RATE: u32 = 16_000;
 /// ladspa.org uses this one, so it is fixed here and never changes.
 pub const UNIQUE_ID: u32 = 0x0050_494E;
 pub const LABEL: &str = "pinna_beam";
+/// The microphone array `Array` selects: the MT8163 Echos' seven-microphone
+/// ring, or the Echo Dot (5th gen)'s three-microphone L.
+pub const ARRAY_RING: usize = 0;
+pub const ARRAY_ECHO_DOT_5: usize = 1;
 /// 20 * log10(4): the x4 (400 hundredths) digital gain pinnad uses.
 pub const DEFAULT_GAIN_DB: f32 = 12.041_2;
 pub const DEFAULT_MIC_MASK: u8 = MIC_MASK_BEAM;
@@ -26,7 +30,8 @@ const PORT_GAIN: usize = LOGICAL_CHANNELS + 1;
 const PORT_MASK: usize = PORT_GAIN + 1;
 const PORT_BEAMS: usize = PORT_MASK + 1;
 const PORT_CALIBRATE: usize = PORT_BEAMS + 1;
-const PORT_COUNT: usize = PORT_CALIBRATE + 1;
+const PORT_ARRAY: usize = PORT_CALIBRATE + 1;
+const PORT_COUNT: usize = PORT_ARRAY + 1;
 const PORT_OUT: usize = LOGICAL_CHANNELS;
 
 pub(crate) const AUDIO_IN: c_int = PORT_INPUT | PORT_AUDIO;
@@ -45,6 +50,7 @@ static PORT_DESCRIPTORS: [c_int; PORT_COUNT] = [
     AUDIO_IN,
     AUDIO_IN,
     PORT_OUTPUT | PORT_AUDIO,
+    CONTROL_IN,
     CONTROL_IN,
     CONTROL_IN,
     CONTROL_IN,
@@ -68,6 +74,7 @@ static PORT_NAMES: SyncPtrs<[*const c_char; PORT_COUNT]> = SyncPtrs([
     c"Mic mask".as_ptr(),
     c"Beams".as_ptr(),
     c"Calibrate".as_ptr(),
+    c"Array".as_ptr(),
 ]);
 
 pub(crate) const fn hint(
@@ -103,6 +110,11 @@ static PORT_HINTS: [PortRangeHint; PORT_COUNT] = [
         MAX_BEAMS as f32,
     ),
     hint(HINT_TOGGLED | HINT_DEFAULT_1, 0.0, 1.0),
+    hint(
+        BOUNDED | HINT_INTEGER | HINT_DEFAULT_0,
+        ARRAY_RING as f32,
+        ARRAY_ECHO_DOT_5 as f32,
+    ),
 ];
 
 static DESCRIPTOR: SyncPtrs<Descriptor> = SyncPtrs(Descriptor {
@@ -141,6 +153,8 @@ struct Plugin {
     ports: [*mut Data; PORT_COUNT],
     calibration: Calibration,
     beamformer: Box<Beamformer>,
+    /// The lanes the beamformer reads; the others may stay unlinked.
+    mask: u8,
     highpass: HighPass,
     gain_db: f32,
     gain_hundredths: u32,
@@ -168,6 +182,23 @@ pub(crate) fn to_i16(x: f32) -> i16 {
     saturate_s16((x * 32768.0).round() as i64)
 }
 
+/// The beamformer for `array`. The ring is the plain constructor's; the L's
+/// positions come from the board description.
+fn design(
+    array: usize,
+    mask: u8,
+    beams: usize,
+) -> Result<Beamformer, pinna_audio::beamformer::BeamError> {
+    if array == ARRAY_ECHO_DOT_5 {
+        let mics = &pinna_board::ECHO_DOT_5.mics;
+        let positions: Vec<(f64, f64)> =
+            (0..mics.count).map(|m| mics.geometry.position(m)).collect();
+        Beamformer::with_positions(&positions, mask, beams)
+    } else {
+        Beamformer::new(mask, beams)
+    }
+}
+
 unsafe extern "C" fn instantiate(_d: *const Descriptor, rate: c_ulong) -> Handle {
     if rate != c_ulong::from(SAMPLE_RATE) {
         return ptr::null_mut();
@@ -177,6 +208,7 @@ unsafe extern "C" fn instantiate(_d: *const Descriptor, rate: c_ulong) -> Handle
             ports: [ptr::null_mut(); PORT_COUNT],
             calibration: Calibration::new(pinna_hal::ident::read_miccal()),
             beamformer: Box::new(Beamformer::default_echo_dot()),
+            mask: DEFAULT_MIC_MASK,
             highpass: HighPass::new(),
             gain_db: DEFAULT_GAIN_DB,
             gain_hundredths: gain_hundredths(DEFAULT_GAIN_DB),
@@ -215,9 +247,12 @@ unsafe extern "C" fn activate(h: Handle) {
             control_int(v, 1, usize::from(MIC_MASK_ALL))
         });
         let beams = read(PORT_BEAMS).map_or(DEFAULT_BEAMS, |v| control_int(v, 1, MAX_BEAMS));
+        let array =
+            read(PORT_ARRAY).map_or(ARRAY_RING, |v| control_int(v, ARRAY_RING, ARRAY_ECHO_DOT_5));
         // An invalid combination (e.g. fewer than two mics) keeps the old design.
-        if let Ok(bf) = Beamformer::new(mask as u8, beams) {
+        if let Ok(bf) = design(array, mask as u8, beams) {
             *p.beamformer = bf;
+            p.mask = mask as u8;
         }
         p.highpass = HighPass::new();
     });
@@ -230,7 +265,11 @@ unsafe extern "C" fn run(h: Handle, n: c_ulong) {
     }
     // SAFETY: `h` came from `instantiate`; the host serialises calls on it.
     let p = unsafe { &mut *p };
-    if p.ports.iter().any(|q| q.is_null()) {
+    // Unlinked inputs of lanes outside the mask may be null, and Array is read
+    // only on activate; nothing reads them in a run.
+    if p.ports.iter().enumerate().any(|(port, q)| {
+        q.is_null() && !(port < LOGICAL_CHANNELS && p.mask & (1 << port) == 0) && port != PORT_ARRAY
+    }) {
         return;
     }
     // SAFETY: all control ports are connected (checked above).
@@ -243,6 +282,9 @@ unsafe extern "C" fn run(h: Handle, n: c_ulong) {
     for i in 0..n as usize {
         let mut logical = [0i16; LOGICAL_CHANNELS];
         for (c, l) in logical.iter_mut().enumerate() {
+            if p.mask & (1 << c) == 0 {
+                continue;
+            }
             // SAFETY: the host guarantees `n` valid samples on connected audio
             // ports; raw reads keep an in-place host (out aliasing an input) sound.
             let s = to_i16(unsafe { *p.ports[c].add(i) });
@@ -273,6 +315,55 @@ unsafe extern "C" fn cleanup(h: Handle) {
 mod tests {
     use super::*;
     use pinna_audio::dsp::DIGITAL_GAIN_DEFAULT;
+
+    /// One beam plugin run over `frames` frames of lanes 0..2 carrying a
+    /// 1 kHz tone; lanes 3..6 are `None` (unlinked) or silent buffers.
+    fn run_beam(array: f32, mask: f32, linked_silence: bool) -> Vec<f32> {
+        const N: usize = 160;
+        let tone: Vec<f32> = (0..N)
+            .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 16000.0).sin())
+            .collect();
+        let mut silence = vec![0f32; N];
+        let mut ins: Vec<Vec<f32>> = (0..3).map(|_| tone.clone()).collect();
+        let mut out = vec![0f32; N];
+        let (mut gain, mut mask, mut beams, mut calibrate, mut array) =
+            (0f32, mask, 12f32, 0f32, array);
+        // SAFETY: the buffers outlive the handle and hold `N` samples each.
+        unsafe {
+            let h = instantiate(&DESCRIPTOR.0, c_ulong::from(SAMPLE_RATE));
+            assert!(!h.is_null());
+            for (c, buf) in ins.iter_mut().enumerate() {
+                connect_port(h, c as c_ulong, buf.as_mut_ptr());
+            }
+            if linked_silence {
+                for c in 3..LOGICAL_CHANNELS {
+                    connect_port(h, c as c_ulong, silence.as_mut_ptr());
+                }
+            }
+            connect_port(h, PORT_OUT as c_ulong, out.as_mut_ptr());
+            connect_port(h, PORT_GAIN as c_ulong, &mut gain);
+            connect_port(h, PORT_MASK as c_ulong, &mut mask);
+            connect_port(h, PORT_BEAMS as c_ulong, &mut beams);
+            connect_port(h, PORT_CALIBRATE as c_ulong, &mut calibrate);
+            connect_port(h, PORT_ARRAY as c_ulong, &mut array);
+            activate(h);
+            for _ in 0..8 {
+                run(h, N as c_ulong);
+            }
+            cleanup(h);
+        }
+        out
+    }
+
+    #[test]
+    fn the_array_control_picks_the_l_and_a_three_microphone_mask_runs_unlinked() {
+        let linked = run_beam(1.0, 7.0, true);
+        let unlinked = run_beam(1.0, 7.0, false);
+        assert_eq!(linked, unlinked);
+        assert!(linked.iter().any(|&v| v != 0.0));
+        // The ring's mask 7 puts lanes 0..2 in its own geometry: a different design.
+        assert_ne!(linked, run_beam(0.0, 7.0, true));
+    }
 
     #[test]
     fn default_gain_is_pinnad_default() {

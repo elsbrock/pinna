@@ -5,6 +5,8 @@
 //! board description (ADR 0032), read when PipeWire loads the plugin, says
 //! which lanes are microphones and which loopback lane carries what the
 //! speaker plays; hardware Pinna doesn't know gets the Echo Dot (2nd gen)'s.
+//! Inputs the board doesn't use may stay unlinked, as on the Echo Dot (5th
+//! gen), whose graph links its six lanes.
 //! The output is the mean of the calibrated microphones in the mask, minus the
 //! linear echo canceller's estimate from that loopback lane
 //! (`pinna_audio::echocancel`), then the 80 Hz high-pass and digital gain.
@@ -166,6 +168,7 @@ struct Wake {
     view: Option<BeamViewWriter>,
     lanes: [usize; LOGICAL_CHANNELS],
     lane_count: usize,
+    mask: u8,
     gain_db: f32,
     gain_hundredths: u32,
 }
@@ -201,6 +204,7 @@ unsafe extern "C" fn instantiate(_d: *const Descriptor, rate: c_ulong) -> Handle
             view: BeamViewWriter::create(Path::new(beamview::PATH)).ok(),
             lanes: [0; LOGICAL_CHANNELS],
             lane_count: 0,
+            mask: 0,
             gain_db: DEFAULT_GAIN_DB,
             gain_hundredths: gain_hundredths(DEFAULT_GAIN_DB),
         });
@@ -249,7 +253,16 @@ unsafe extern "C" fn run(h: Handle, n: c_ulong) {
     }
     // SAFETY: `h` came from `instantiate`; the host serialises calls on it.
     let p = unsafe { &mut *p };
-    if p.ports.iter().any(|q| q.is_null()) || p.lane_count == 0 {
+    let (reference, reference_count) = (p.board.reference, p.board.reference_count);
+    // The microphones in the mask, the reference lanes and the control ports
+    // must be linked. Other inputs may stay unlinked, as on the Echo Dot (5th
+    // gen), whose graph links six lanes; they read as silence.
+    let needed = |port: usize| {
+        port >= INPUTS
+            || (port < LOGICAL_CHANNELS && p.mask & (1 << port) != 0)
+            || reference[..reference_count].contains(&port)
+    };
+    if (0..PORT_COUNT).any(|port| needed(port) && p.ports[port].is_null()) || p.lane_count == 0 {
         return;
     }
     // SAFETY: all control ports are connected (checked above).
@@ -259,13 +272,17 @@ unsafe extern "C" fn run(h: Handle, n: c_ulong) {
         p.gain_hundredths = gain_hundredths(gain_db);
     }
     let out = p.ports[PORT_OUT];
-    let (reference, reference_count) = (p.board.reference, p.board.reference_count);
     for i in 0..n as usize {
         let mut logical = [0i16; LOGICAL_CHANNELS];
         for (lane, l) in logical.iter_mut().enumerate() {
             // SAFETY: the host guarantees `n` valid samples on connected audio
             // ports; raw reads keep an in-place host (out aliasing an input) sound.
-            let s = to_i16(unsafe { *p.ports[lane].add(i) });
+            let port = p.ports[lane];
+            let s = if port.is_null() {
+                0
+            } else {
+                to_i16(unsafe { *port.add(i) })
+            };
             *l = if calibrate {
                 p.calibration.apply(lane, s)
             } else {
@@ -329,10 +346,54 @@ mod tests {
 
     #[test]
     fn the_mt8163_echos_average_all_seven_and_cancel_from_lane_8() {
-        for m in Model::ALL {
+        for m in [Model::EchoDot2, Model::Echo2] {
             let lanes = Lanes::of(m.board());
             assert_eq!(lanes.mics, 0x7f);
             assert_eq!((lanes.reference[0], lanes.reference_count), (8, 1));
         }
+    }
+
+    #[test]
+    fn the_echo_dot_5_averages_three_and_cancels_from_lane_4() {
+        let lanes = Lanes::of(Model::EchoDot5.board());
+        assert_eq!(lanes.mics, 0b111);
+        assert_eq!((lanes.reference[0], lanes.reference_count), (4, 1));
+    }
+
+    /// Lane 2 alone, lanes 0, 1 and 3..6 unlinked, Calibrate off.
+    fn run_mic_two(calibrate: f32) -> Vec<f32> {
+        const N: usize = 160;
+        let mut mic: Vec<f32> = (0..N)
+            .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 16000.0).sin())
+            .collect();
+        let mut reference = vec![0f32; N];
+        let mut out = vec![0f32; N];
+        let (mut gain, mut mask, mut calibrate) = (0f32, 4f32, calibrate);
+        // SAFETY: the buffers outlive the handle and hold `N` samples each.
+        unsafe {
+            let h = instantiate(&DESCRIPTOR.0, c_ulong::from(SAMPLE_RATE));
+            assert!(!h.is_null());
+            connect_port(h, 2, mic.as_mut_ptr());
+            // Away from an Echo the plugin takes the Echo Dot (2nd gen)'s lanes:
+            // the speaker plays lane 8.
+            connect_port(h, 8, reference.as_mut_ptr());
+            connect_port(h, PORT_OUT as c_ulong, out.as_mut_ptr());
+            connect_port(h, PORT_GAIN as c_ulong, &mut gain);
+            connect_port(h, PORT_MASK as c_ulong, &mut mask);
+            connect_port(h, PORT_CALIBRATE as c_ulong, &mut calibrate);
+            activate(h);
+            run(h, N as c_ulong);
+            cleanup(h);
+        }
+        // Gain 0 dB, a silent reference and the 80 Hz high-pass: the tone
+        // passes at about its level, which a null return would not.
+        out
+    }
+
+    #[test]
+    fn a_mask_over_one_lane_runs_with_the_others_unlinked() {
+        let out = run_mic_two(0.0);
+        let peak = out.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!((0.05..0.15).contains(&peak), "peak {peak}");
     }
 }

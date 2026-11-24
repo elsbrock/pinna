@@ -11,4 +11,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pinna-audio = { path = "../pinna-audio" }
+pinna-board = { path = "../pinna-board" }
 pinna-hal = { path = "../pinna-hal" }

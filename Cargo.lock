@@ -2349,6 +2349,7 @@ name = "pinna-ladspa"
 version = "0.1.0"
 dependencies = [
  "pinna-audio",
+ "pinna-board",
  "pinna-hal",
 ]
 

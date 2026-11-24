@@ -21,6 +21,7 @@ struct Controls {
     mask: f32,
     beams: f32,
     calibrate: f32,
+    array: f32,
 }
 
 impl Default for Controls {
@@ -30,6 +31,7 @@ impl Default for Controls {
             mask: 27.0,
             beams: 12.0,
             calibrate: 1.0,
+            array: 0.0,
         }
     }
 }
@@ -69,6 +71,7 @@ impl Host {
             cp(self.h, 9, &mut self.c.mask);
             cp(self.h, 10, &mut self.c.beams);
             cp(self.h, 11, &mut self.c.calibrate);
+            cp(self.h, 12, &mut self.c.array);
         }
     }
 
@@ -139,10 +142,10 @@ fn descriptor_metadata() {
     assert_eq!(s(d.name), "Pinna Echo Dot beamformer");
     assert_eq!(s(d.maker), "Pinna");
     assert_eq!(s(d.copyright), "MIT");
-    assert_eq!(d.port_count, 12);
-    let desc = unsafe { std::slice::from_raw_parts(d.port_descriptors, 12) };
-    let names = unsafe { std::slice::from_raw_parts(d.port_names, 12) };
-    let hints = unsafe { std::slice::from_raw_parts(d.port_range_hints, 12) };
+    assert_eq!(d.port_count, 13);
+    let desc = unsafe { std::slice::from_raw_parts(d.port_descriptors, 13) };
+    let names = unsafe { std::slice::from_raw_parts(d.port_names, 13) };
+    let hints = unsafe { std::slice::from_raw_parts(d.port_range_hints, 13) };
     for i in 0..7 {
         assert_eq!(s(names[i]), format!("In {i}"));
         assert_eq!(desc[i], PORT_INPUT | PORT_AUDIO);
@@ -163,6 +166,10 @@ fn descriptor_metadata() {
     assert_ne!(hints[9].hint_descriptor & HINT_INTEGER, 0);
     assert_eq!((hints[10].lower_bound, hints[10].upper_bound), (1.0, 12.0));
     assert_ne!(hints[10].hint_descriptor & HINT_INTEGER, 0);
+    assert_eq!(s(names[12]), "Array");
+    assert_eq!(desc[12], PORT_INPUT | PORT_CONTROL);
+    assert_eq!((hints[12].lower_bound, hints[12].upper_bound), (0.0, 1.0));
+    assert_ne!(hints[12].hint_descriptor & HINT_DEFAULT_0, 0);
     assert_eq!(
         hints[10].hint_descriptor & HINT_DEFAULT_MASK,
         HINT_DEFAULT_MAXIMUM
