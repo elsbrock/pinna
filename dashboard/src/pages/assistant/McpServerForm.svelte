@@ -23,16 +23,11 @@
   import SecretField from "../../lib/SecretField.svelte";
 
   const KIND_HINTS: Record<SignIn, string> = {
-    none: "",
-    bearer: "Sent as Authorization: Bearer. Most API keys go here.",
-    basic: "Sent as HTTP Basic authentication.",
-    header: "For a server that names its own header, such as X-API-Key.",
-  };
-  const MISSING: Record<SignIn, string> = {
-    none: "",
-    bearer: "Enter the token.",
-    basic: "Enter the user name and password.",
-    header: "Enter the header's name and value.",
+    none: "Servers that sign in through a browser (OAuth) don't work yet; if the service gives you an access token, choose Token.",
+    bearer: "Sent as Authorization: Bearer; most API keys go here. The satellite shows only the end of a long token.",
+    basic: "Sent as HTTP Basic authentication. The satellite shows only the user name.",
+    header:
+      "For a server that names its own header, such as X-API-Key. The satellite shows only the header's name and the end of a long value.",
   };
 
   let { server, onclose }: { server?: McpServer; onclose: () => void } = $props();
@@ -59,6 +54,8 @@
   let replacing = $state(false);
   let typed = $state({ ...EMPTY });
   let first = $state<HTMLInputElement>();
+  // The password or a header's value: what is left to type after Replace.
+  let secret = $state<HTMLInputElement>();
   let replaceButton = $state<HTMLButtonElement>();
   const typedUrl = $derived(url.kind === "set" ? url.value.trim() : "");
   const untouched = $derived(!!stored && kind === storedKind && !replacing);
@@ -69,22 +66,30 @@
   // Where the sign-in goes: the address typed now, or else the stored one.
   const plainHttp = $derived(typedUrl ? typedUrl.toLowerCase().startsWith("http://") : !!start?.plainHttp);
   const sending = $derived(kind !== "none" && !dropped);
-  const missing = $derived(kind !== "none" && !untouched && !credential ? MISSING[kind] : "");
+  // What is left to type, named field by field.
+  const missing = $derived.by(() => {
+    if (kind === "none" || untouched || credential) return "";
+    if (kind === "bearer") return "Enter the token.";
+    const [named, secretTyped, what, other, both] =
+      kind === "basic"
+        ? [typed.user.trim(), typed.password, "user name", "password", "user name and password"]
+        : [typed.name.trim(), typed.value.trim(), "header's name", "header's value", "header's name and value"];
+    if (!named) return `Enter the ${secretTyped ? what : both}.`;
+    return `Enter the ${other}.`;
+  });
   const signInHint = $derived(
-    [
-      dropped ? "A new address removes the stored sign-in: select Replace to enter it again, or choose None." : "",
-      sending && plainHttp
-        ? "Over http, it crosses the network unencrypted: use an https address if the server has one."
-        : "",
-      KIND_HINTS[kind],
-      kind === "none"
-        ? ""
-        : "The satellite keeps it and shows only the user name, the header's name or the end of a long token.",
-      "Servers that sign in through a browser (OAuth) don't work yet; if the service gives you an access token, choose Token.",
-    ]
-      .filter(Boolean)
-      .join(" "),
+    dropped
+      ? "A new address removes the stored sign-in: select Replace to enter it again, choose None, or select Keep the stored one next to the address."
+      : [
+          sending && plainHttp
+            ? "Over http, the sign-in crosses the network unencrypted: use an https address if the server has one."
+            : "",
+          KIND_HINTS[kind],
+        ]
+          .filter(Boolean)
+          .join(" "),
   );
+  const describedBy = $derived(missing ? `${id}-signin-hint ${id}-missing` : `${id}-signin-hint`);
   const ready = $derived(
     !!saved && (!!server || url.kind === "set") && (kind === "none" || keeping || !!credential),
   );
@@ -103,11 +108,12 @@
 
   async function replace() {
     // Names aren't secret and are shown already: only the secret is typed again.
-    if (stored && storedKind === "basic" && !typed.user) typed.user = stored.label;
-    if (stored && storedKind === "header" && !typed.name) typed.name = stored.label;
+    let named = false;
+    if (stored && storedKind === "basic" && !typed.user) [typed.user, named] = [stored.label, true];
+    if (stored && storedKind === "header" && !typed.name) [typed.name, named] = [stored.label, true];
     replacing = true;
     await tick();
-    first?.focus();
+    (named ? secret : first)?.focus();
   }
 
   async function keepStored() {
@@ -204,15 +210,19 @@
       <div class="pn-field">
         <span id="{id}-stored-label" class="pn-field-label">Stored sign-in</span>
         <div class="pn-secret">
-          <output class="pn-secret-shown" class:is-removed={!keeping} aria-labelledby="{id}-stored-label">
-            {#if keeping}
-              {SIGN_INS.find((s) => s.id === storedKind)?.label}: {signInShown(stored)}
-            {:else if dropped}
-              Removed with the old address
+          <output
+            class="pn-secret-shown"
+            class:is-removed={dropped || kind === "none"}
+            aria-labelledby="{id}-stored-label"
+          >
+            {#if dropped}
+              Removed with the old address when you save
             {:else if kind === "none"}
               Removed when you save
             {:else}
-              Replaced when you save
+              {SIGN_INS.find((s) => s.id === storedKind)?.label}: {signInShown(stored)}{keeping
+                ? ""
+                : ". Replaced when you save."}
             {/if}
           </output>
           {#if untouched}
@@ -225,8 +235,12 @@
               onclick={replace}>Replace</button
             >
           {:else}
-            <button class="pn-btn pn-btn-quiet pn-btn-sm" type="button" disabled={!live} onclick={keepStored}
-              >{typedUrl ? "Undo" : "Keep the stored sign-in"}</button
+            <button
+              class="pn-btn pn-btn-quiet pn-btn-sm"
+              type="button"
+              aria-label={typedUrl ? "Undo the sign-in change" : undefined}
+              disabled={!live}
+              onclick={keepStored}>{typedUrl ? "Undo" : "Keep the stored sign-in"}</button
             >
           {/if}
         </div>
@@ -245,7 +259,7 @@
             spellcheck="false"
             bind:value={typed.token}
             disabled={!live}
-            aria-describedby="{id}-signin-hint"
+            aria-describedby={describedBy}
             oninput={() => (error = null)}
           />
         </div>
@@ -261,19 +275,21 @@
             spellcheck="false"
             bind:value={typed.user}
             disabled={!live}
+            aria-describedby={describedBy}
             oninput={() => (error = null)}
           />
         </div>
         <div class="pn-field">
           <label class="pn-field-label" for="{id}-password">Password</label>
           <input
+            bind:this={secret}
             id="{id}-password"
             class="pn-input"
             type="password"
             autocomplete="new-password"
             bind:value={typed.password}
             disabled={!live}
-            aria-describedby="{id}-signin-hint"
+            aria-describedby={describedBy}
             oninput={() => (error = null)}
           />
         </div>
@@ -290,12 +306,14 @@
             placeholder="X-API-Key"
             bind:value={typed.name}
             disabled={!live}
+            aria-describedby={describedBy}
             oninput={() => (error = null)}
           />
         </div>
         <div class="pn-field">
           <label class="pn-field-label" for="{id}-value">Header value</label>
           <input
+            bind:this={secret}
             id="{id}-value"
             class="pn-input is-mono"
             type="password"
@@ -303,12 +321,12 @@
             spellcheck="false"
             bind:value={typed.value}
             disabled={!live}
-            aria-describedby="{id}-signin-hint"
+            aria-describedby={describedBy}
             oninput={() => (error = null)}
           />
         </div>
       {/if}
-      {#if missing}<span class="pn-field-hint">{missing}</span>{/if}
+      {#if missing}<span id="{id}-missing" class="pn-field-hint missing">{missing}</span>{/if}
     {/if}
     {#if server?.problem}
       <span class="pn-field-hint">When last asked: {server.problem}</span>
@@ -342,6 +360,10 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+  }
+  /* Belongs to the fields above it, not to the form's next row. */
+  .missing {
+    margin-top: calc(-1 * var(--space-3));
   }
   .actions {
     display: flex;
