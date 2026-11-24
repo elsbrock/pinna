@@ -92,17 +92,20 @@ before you send a change that affects the image or the device.
 wake word models are missing. Run `just models` before you rely on their
 result.
 
-After building the MT8519 kernel, run its SRAM register regression on your
+After building the MT8519 kernel, run its register and IRQ regressions on your
 computer:
 
 ```sh
 python3 tests/kernel/test-mt8519-sram.py
+python3 tests/kernel/test-mt8519-i2c.py
+python3 tests/kernel/test-mt8519-thermal.py
+python3 tests/kernel/test-mt8519-pinctrl.py
 ```
 
-It needs `cc` and the patched source in `build/linux`. It compiles the actual
-SRAM functions with a recording register map, checking the ADSP_INFRA offset,
-acknowledgement failures and the fallback for other power domains. It does not
-access a satellite.
+They need `cc` and the patched source in `build/linux`. They compile the actual
+SRAM, I2C, thermal IRQ and pin field code with recording register and IRQ interfaces. They
+check the ADSP_INFRA offset and acknowledgement failures, FIFO transfers and DMA
+selection, and device-tree IRQ lookup and errors. They do not access a satellite.
 
 ## Log in to a device
 
