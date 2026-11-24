@@ -251,36 +251,33 @@ connects to them over MCP's Streamable HTTP.
 
 1. Under **Your MCP servers**, select **Add…**.
 2. Enter a **Name**, such as `home`, and the server's whole **Address**, such
-   as `http://192.168.1.20:8080/mcp`. A token that is part of the address
-   works.
-3. If the server needs a sign-in, choose one under **Sign-in** and enter it:
-   - **Token**: an access token or API key, sent as
+   as `http://192.168.1.20:8080/mcp`. If the server takes its key in the
+   address, include it there.
+3. If the server needs a sign-in, choose the kind its documentation names
+   under **Sign-in**. Each server takes one sign-in.
+   - **Token**: enter it in **Token**. The satellite sends it as
      `Authorization: Bearer <token>`.
-   - **User name and password**: sent as HTTP Basic authentication.
-   - **Header**: a header the server names, such as `X-API-Key`, and its
-     value.
+   - **User name and password**: enter the **User name** and **Password**.
+     The satellite sends them as HTTP Basic authentication.
+   - **Header**: for a key in a header of the server's own, enter the
+     **Header name**, such as `X-API-Key`, and the **Header value**.
+
+   Over an `http://` address, the sign-in crosses your network unencrypted.
 4. Select **Add**. The satellite asks the server for its tools, and the row
    shows how many of them are on, such as `0 of 77 tools on`, or why the
    server can't be reached or refused the sign-in.
 5. Select **Its tools** under the server. Each tool has a switch and the
    server's description of it. **All on** and **All off** switch them all.
 
-The satellite keeps the sign-in and shows only what tells it apart, such as
-the user name or the last four characters of a long token. Over an `http://`
-address, the sign-in crosses your network unencrypted. To change it, open the
-server and select **Replace**, or choose **None** to remove it. A new address
-removes the stored sign-in, so enter it again with the address.
+The satellite never shows a stored sign-in again. It shows the user name or
+the header's name, and for a token or header value of 16 characters or more,
+its last four characters, so you can tell which one is stored.
 
-If the server refuses the sign-in later, the row says so and the brain leaves
-the server's tools out until it accepts it again. Servers that sign in through
-a browser (OAuth) can't be added yet. If such a service also hands out an
-access token, add it as a **Token**.
-
-A server that lists more than 32 tools when you add it, such as ha-mcp, starts
-with all of them off. Most of ha-mcp's tools manage Home Assistant itself, such
-as removing automations, so turn on only the few a voice request needs, such as
-its search, state and service tools. If the server doesn't answer when you add
-it, or lists new tools later, those tools start on.
+A server that lists more than 32 tools when you add it or change its sign-in,
+such as ha-mcp, starts with all of them off. Most of ha-mcp's tools manage Home
+Assistant itself, such as removing automations, so turn on only the few a voice
+request needs, such as its search, state and service tools. If the server
+doesn't answer when you add it, or lists new tools later, those tools start on.
 
 The brain takes at most 64 tools in a request: Pinna's tools that are on
 first, then each server's in the order the page lists them. Tools past 64 are
@@ -288,6 +285,25 @@ left out of every request, so a server below a big one can lose all of its
 tools. While more than 64 are on, the page says how many are left out, and
 **System › Logs** names the first one. Switch off tools, or a whole server with
 the switch on its row.
+
+#### Change a sign-in
+
+When the server stops accepting the stored sign-in, such as after you rotate
+its token, the row says that the server refused the sign-in, and the brain gets
+none of its tools until you enter the new one.
+
+1. On the server's row, select **Change**.
+2. Next to **Stored sign-in**, select **Replace** and enter the new one. To
+   remove the sign-in, choose **None** under **Sign-in** instead.
+3. Select **Save**. The satellite asks the server for its tools again.
+
+If you also replace the **Address**, the stored sign-in goes with the old
+address. Select **Replace** next to **Stored sign-in** and enter it again, or
+choose **None**, before you select **Save**.
+
+Pinna can't sign in through a browser (OAuth) yet. A server that needs it is
+added, and its row says so. If the service also hands out an access token, add
+it as a **Token**.
 
 ## Use timers
 

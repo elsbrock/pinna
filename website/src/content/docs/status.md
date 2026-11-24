@@ -123,7 +123,7 @@ On the devices:
 - **Standalone mode is new.** Its tests run against simulated services. It
   has been tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs, not
   yet with each hosted service.
-  - MCP servers that need a sign-in or a token in a header can't be added.
+  - MCP servers that sign in through a browser (OAuth) can't be used.
 - **Sendspin is experimental.** Its specification is still a draft. Music
   Assistant connects without pairing, so anyone on your network can play to
   the satellite. How closely the satellite keeps step with other speakers
@@ -136,8 +136,8 @@ On the devices:
 - **A score for each wake word**: the highest score of the last thing each
   word heard, so that you can tell a word that never wakes from one that
   nearly does.
-- **More for standalone mode**: MCP servers that need a sign-in, and several
-  satellites that share one conversation. In a satellite group,
+- **More for standalone mode**: several satellites that share one
+  conversation. In a satellite group,
   one answer when several hear the wake word.
 - **A setup hotspot password that only the owner can learn**, instead of one
   that every device shares.
