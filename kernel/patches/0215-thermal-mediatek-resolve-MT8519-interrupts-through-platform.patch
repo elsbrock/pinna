@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Tue, 24 Nov 2026 18:00:00 +0100
+Subject: [PATCH] thermal: mediatek: resolve MT8519 interrupts through the platform API
+
+The 6.12 OF platform allocator populates memory resources, while
+platform_get_irq() resolves device-tree interrupts on demand. The ported
+5.4 thermal probe still searches the resource table directly, so it finds
+no interrupt and returns -EINVAL on Cannoli (diag26, ADR 0034).
+
+Use platform_get_irq(), preserve its error including probe deferral,
+and release the enabled clocks on IRQ lookup or registration failure.
+---
+diff --git a/drivers/thermal/mediatek/soc_temp.c b/drivers/thermal/mediatek/soc_temp.c
+--- a/drivers/thermal/mediatek/soc_temp.c
++++ b/drivers/thermal/mediatek/soc_temp.c
+@@ -935,7 +935,7 @@
+ 
+ static int soc_thermal_probe(struct platform_device *pdev)
+ {
+-	int ret, i;
++	int ret, i, irq;
+ 	struct device_node *auxadc, *apmixedsys, *np = pdev->dev.of_node;
+ 	struct soc_thermal *mt;
+ 	struct resource *res;
+@@ -1042,16 +1042,16 @@
+ 
+ 	platform_set_drvdata(pdev, mt);
+ 
+-	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+-	if (!res) {
+-		dev_err(&pdev->dev, "No irq resource, index %d\n", 0);
+-		return -EINVAL;
+-	}
+-	ret = devm_request_irq(&pdev->dev, res->start, irq_handler,
++	irq = platform_get_irq(pdev, 0);
++	if (irq < 0) {
++		ret = irq;
++		goto err_disable_clk_peri_therm;
++	}
++	ret = devm_request_irq(&pdev->dev, irq, irq_handler,
+ 				IRQF_TRIGGER_HIGH, "soc_temp", mt);
+ 	if (ret) {
+ 		dev_err(&pdev->dev, "failed to register irq (%d)\n", ret);
+-		return -EINVAL;
++		goto err_disable_clk_peri_therm;
+ 	}
+ 
+ 	soc_thermal_debugfs(pdev);
