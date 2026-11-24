@@ -4,7 +4,7 @@
 //! The ring driver may probe after pinna-init starts; the thread looks for it
 //! once a second until it appears. Without a ring nothing is drawn.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -110,7 +110,7 @@ impl Ring {
 }
 
 fn draw(shared: &Shared) {
-    let mut ring: Option<PathBuf> = None;
+    let mut ring: Option<ring::Ring> = None;
     let mut looked = None::<Instant>;
     let mut last: Option<Frame> = None;
     while !shared.stop.load(Ordering::SeqCst) {

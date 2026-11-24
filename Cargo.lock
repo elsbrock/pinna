@@ -2221,6 +2221,7 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "pinna-board",
  "pinna-image",
  "tempfile",
 ]
