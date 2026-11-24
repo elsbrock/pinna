@@ -1,8 +1,9 @@
-//! LED ring (IS31FL3236) driven through the kernel driver's sysfs files.
+//! LED ring driven through the kernel driver's sysfs files: the IS31FL3236's
+//! `frame` attribute, or the IS31FL3246's LED class devices.
 //!
-//! Never talk to `/dev/i2c`: the kernel driver owns the chip. Output shaping
-//! (gamma, per-channel weights, frame power budget) is a port of LibreEcho's
-//! `led_output.c`.
+//! Never talk to `/dev/i2c`: the kernel driver owns the chip. The IS31FL3236's
+//! output shaping (gamma, per-channel weights, frame power budget) is a port
+//! of LibreEcho's `led_output.c`.
 
 use crate::{Error, Result};
 use std::fs;
@@ -61,13 +62,15 @@ pub fn open(board: &crate::board::Board, brightness: u8) -> Result<Box<dyn LedRi
         crate::board::RingDriver::Is31fl3236Frame => {
             let mut ring = Is31Sysfs::discover_in(
                 Path::new(SYSFS_I2C_DIR),
-                Path::new(board.privacy.mute_lamp.unwrap_or_default()),
+                board.privacy.mute_lamp.map(Path::new),
             )?;
             ring.set_brightness(brightness);
             Ok(Box::new(ring))
         }
         crate::board::RingDriver::Is31fl3246Class => {
-            Err(Error::NotFound("IS31FL3246 LED class devices"))
+            let mut ring = Is31ClassRing::discover_in(Path::new(SYSFS_LEDS_DIR), &board.ring)?;
+            ring.set_brightness(brightness);
+            Ok(Box::new(ring))
         }
     }
 }
@@ -173,6 +176,15 @@ impl OutputShaper {
         }
     }
 
+    /// Brightness cap and gamma only: no channel gain, weights or power
+    /// budget, for a ring nothing is measured on.
+    pub fn gamma_only() -> Self {
+        OutputShaper::new(OutputCalibration {
+            max_frame_load: 0,
+            ..Default::default()
+        })
+    }
+
     /// Brightness cap, channel gain, gamma, then the whole-frame power budget
     /// and optional slew limit. `brightness` is 0..=100.
     pub fn process(&mut self, logical: &Frame, brightness: u8) -> (Frame, OutputDiag) {
@@ -221,6 +233,7 @@ impl OutputShaper {
 // Real hardware
 
 const SYSFS_I2C_DIR: &str = "/sys/bus/i2c/devices";
+const SYSFS_LEDS_DIR: &str = "/sys/class/leds";
 
 /// IS31FL3236 ring via the kernel driver's `frame` attribute.
 pub struct Is31Sysfs {
@@ -228,14 +241,14 @@ pub struct Is31Sysfs {
     scaled_frame_path: Option<PathBuf>,
     shaper: OutputShaper,
     brightness: u8,
-    mute_lamp: PathBuf,
+    mute_lamp: Option<PathBuf>,
 }
 
 impl Is31Sysfs {
     /// Scan `dir` (`/sys/bus/i2c/devices`) for a directory with `frame` and
     /// `boot_animation`, then take over from the kernel boot animation.
-    /// `mute_lamp` is the board's ([`crate::board::Privacy`]).
-    pub fn discover_in(dir: &Path, mute_lamp: &Path) -> Result<Self> {
+    /// `mute_lamp` is the board's ([`crate::board::Privacy`]), if it has one.
+    pub fn discover_in(dir: &Path, mute_lamp: Option<&Path>) -> Result<Self> {
         let mut entries: Vec<_> = fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
         entries.sort_by_key(|e| e.file_name());
         for e in entries {
@@ -251,7 +264,7 @@ impl Is31Sysfs {
                 scaled_frame_path: scaled.is_file().then_some(scaled),
                 shaper: OutputShaper::default(),
                 brightness: 100,
-                mute_lamp: mute_lamp.to_path_buf(),
+                mute_lamp: mute_lamp.map(Path::to_path_buf),
             };
             // The kernel driver owns the boot chase until this write.
             fs::write(&boot, "0\n")?;
@@ -270,9 +283,13 @@ impl Is31Sysfs {
         self.brightness = brightness.min(100);
     }
 
-    /// Drive the mute lamp if the kernel exposes it. Returns whether it exists.
+    /// Drive the mute lamp if the board has one and the kernel exposes it.
+    /// Returns whether it exists.
     pub fn set_mute_lamp(&self, on: bool) -> Result<bool> {
-        set_mute_lamp_at(&self.mute_lamp, on)
+        match &self.mute_lamp {
+            Some(path) => set_mute_lamp_at(path, on),
+            None => Ok(false),
+        }
     }
 }
 
@@ -290,6 +307,80 @@ impl LedRing for Is31Sysfs {
         let (out, _) = self.shaper.process(frame, self.brightness);
         let mut f = fs::OpenOptions::new().write(true).open(&self.frame_path)?;
         f.write_all(encode_frame(&out).as_bytes())?;
+        Ok(())
+    }
+}
+
+/// IS31FL3246 ring: one LED class device per LED, whose `color` takes
+/// `R G B`.
+pub struct Is31ClassRing {
+    colors: [PathBuf; RING_PIXELS],
+    /// Added to a logical pixel to get its LED: turns Pinna's front centre
+    /// onto the board's.
+    offset: usize,
+    // Gamma and the brightness cap only. The IS31FL3236's channel weights and
+    // power budget are LibreEcho's for the MT8163 ring; nothing is measured
+    // for this one. The chip's PWM is linear (TECHO5, one C2N6L4, 2026-11-21),
+    // which is what the gamma is for.
+    shaper: OutputShaper,
+    brightness: u8,
+    /// The last frame written completely, by LED. Each `color` write is an
+    /// I2C transaction of its own, so only LEDs that changed are written.
+    last: Option<Frame>,
+}
+
+impl Is31ClassRing {
+    /// Find the 12 `is31fl3246:ledmod_<n>` devices in `dir`
+    /// (`/sys/class/leds`) and take the ring over: the chip scales the
+    /// colours by `brightness`, which reads 0 until it is written (TECHO5,
+    /// one C2N6L4, 2026-11-21).
+    pub fn discover_in(dir: &Path, ring: &crate::board::Ring) -> Result<Self> {
+        let device = |n: usize| dir.join(format!("is31fl3246:ledmod_{n}"));
+        let colors: [PathBuf; RING_PIXELS] = std::array::from_fn(|n| device(n).join("color"));
+        if colors.iter().any(|c| !c.is_file()) {
+            return Err(Error::NotFound("IS31FL3246 LED class devices"));
+        }
+        for n in 0..RING_PIXELS {
+            let max = fs::read_to_string(device(n).join("max_brightness"))
+                .ok()
+                .and_then(|s| s.trim().parse::<u32>().ok())
+                .unwrap_or(255);
+            fs::write(device(n).join("brightness"), format!("{max}\n"))?;
+        }
+        tracing::info!(path = %dir.display(), "using IS31FL3246 LED class backend");
+        Ok(Is31ClassRing {
+            colors,
+            offset: (ring.front_centre[0] + RING_PIXELS - FRONT_CENTRE[0]) % RING_PIXELS,
+            shaper: OutputShaper::gamma_only(),
+            brightness: 100,
+            last: None,
+        })
+    }
+
+    /// Logical brightness cap, 0..=100.
+    pub fn set_brightness(&mut self, brightness: u8) {
+        self.brightness = brightness.min(100);
+    }
+}
+
+impl LedRing for Is31ClassRing {
+    fn set(&mut self, frame: &Frame) -> Result<()> {
+        let (out, _) = self.shaper.process(frame, self.brightness);
+        let mut leds = [Rgb::OFF; RING_PIXELS];
+        for (i, p) in out.iter().enumerate() {
+            leds[(i + self.offset) % RING_PIXELS] = *p;
+        }
+        for (n, p) in leds.iter().enumerate() {
+            if self.last.is_some_and(|l| l[n] == *p) {
+                continue;
+            }
+            if let Err(e) = fs::write(&self.colors[n], format!("{} {} {}\n", p.r, p.g, p.b)) {
+                // The next frame writes all 12 again.
+                self.last = None;
+                return Err(e.into());
+            }
+        }
+        self.last = Some(leds);
         Ok(())
     }
 }
@@ -559,7 +650,7 @@ mod tests {
         fs::create_dir_all(dir.join("i2c-1")).unwrap();
         fs::write(dev.join("frame"), "").unwrap();
         fs::write(dev.join("boot_animation"), "1\n").unwrap();
-        let mut ring = Is31Sysfs::discover_in(&dir, &dir.join("mute_lamp")).unwrap();
+        let mut ring = Is31Sysfs::discover_in(&dir, Some(&dir.join("mute_lamp"))).unwrap();
         assert_eq!(
             fs::read_to_string(dev.join("boot_animation")).unwrap(),
             "0\n"
@@ -577,13 +668,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pinna-led-none-{}", std::process::id()));
         fs::create_dir_all(dir.join("i2c-1")).unwrap();
         assert!(matches!(
-            Is31Sysfs::discover_in(&dir, &dir.join("mute_lamp")),
+            Is31Sysfs::discover_in(&dir, Some(&dir.join("mute_lamp"))),
             Err(Error::NotFound(_))
         ));
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// The IS31FL3236 driver writes all 12 logical pixels. A board with
+    /// Both drivers write 12 LEDs, one per logical pixel. A board with
     /// another number of LEDs needs a driver that maps them (ADR 0032).
     #[test]
     fn every_board_has_as_many_leds_as_its_driver_writes() {
@@ -602,9 +693,114 @@ mod tests {
     fn every_board_has_its_front_centre_where_the_animations_draw_it() {
         for m in crate::board::Model::ALL {
             let ring = m.board().ring;
-            assert_eq!(ring.front_centre, FRONT_CENTRE, "{m:?}");
             assert!(ring.front_centre.iter().all(|&p| p < RING_PIXELS));
+            match ring.driver {
+                crate::board::RingDriver::Is31fl3236Frame => {
+                    assert_eq!(ring.front_centre, FRONT_CENTRE, "{m:?}");
+                }
+                // The driver turns the frame onto the board's front centre.
+                crate::board::RingDriver::Is31fl3246Class => {
+                    let offset =
+                        (ring.front_centre[0] + RING_PIXELS - FRONT_CENTRE[0]) % RING_PIXELS;
+                    assert_eq!(
+                        FRONT_CENTRE.map(|p| (p + offset) % RING_PIXELS),
+                        ring.front_centre,
+                        "{m:?}"
+                    );
+                    assert_eq!(
+                        ring.front_centre[1],
+                        (ring.front_centre[0] + 1) % RING_PIXELS
+                    );
+                }
+            }
         }
+    }
+
+    fn class_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("pinna-led-class-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        for n in 0..RING_PIXELS {
+            let dev = dir.join(format!("is31fl3246:ledmod_{n}"));
+            fs::create_dir_all(&dev).unwrap();
+            fs::write(dev.join("color"), "0 0 0\n").unwrap();
+            fs::write(dev.join("brightness"), "0\n").unwrap();
+            fs::write(dev.join("max_brightness"), "200\n").unwrap();
+        }
+        dir
+    }
+
+    fn color(dir: &Path, n: usize) -> String {
+        fs::read_to_string(dir.join(format!("is31fl3246:ledmod_{n}/color"))).unwrap()
+    }
+
+    #[test]
+    fn class_ring_needs_all_twelve_colors() {
+        let dir = class_dir("missing");
+        fs::remove_file(dir.join("is31fl3246:ledmod_11/color")).unwrap();
+        assert!(matches!(
+            Is31ClassRing::discover_in(&dir, &crate::board::ECHO_DOT_5.ring),
+            Err(Error::NotFound(_))
+        ));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn class_ring_takes_over_with_max_brightness() {
+        let dir = class_dir("claim");
+        fs::remove_file(dir.join("is31fl3246:ledmod_3/max_brightness")).unwrap();
+        Is31ClassRing::discover_in(&dir, &crate::board::ECHO_DOT_5.ring).unwrap();
+        for n in 0..RING_PIXELS {
+            let b = fs::read_to_string(dir.join(format!("is31fl3246:ledmod_{n}/brightness")));
+            assert_eq!(b.unwrap(), if n == 3 { "255\n" } else { "200\n" });
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn class_ring_turns_the_frame_and_writes_only_changes() {
+        let dir = class_dir("write");
+        let mut ring = Is31ClassRing::discover_in(&dir, &crate::board::ECHO_DOT_5.ring).unwrap();
+        let mut frame = [Rgb::OFF; RING_PIXELS];
+        frame[10] = Rgb::new(255, 0, 0);
+        ring.set(&frame).unwrap();
+        // Logical 10 is the front centre's first pixel: LED 6.
+        assert_eq!(color(&dir, 6), "255 0 0\n");
+        assert_eq!(color(&dir, 7), "0 0 0\n");
+
+        for n in 0..RING_PIXELS {
+            fs::write(dir.join(format!("is31fl3246:ledmod_{n}/color")), "sentinel").unwrap();
+        }
+        ring.set(&frame).unwrap();
+        for n in 0..RING_PIXELS {
+            assert_eq!(color(&dir, n), "sentinel", "{n}");
+        }
+
+        frame[11] = Rgb::new(0, 0, 255);
+        ring.set(&frame).unwrap();
+        for n in 0..RING_PIXELS {
+            let want = if n == 7 { "0 0 255\n" } else { "sentinel" };
+            assert_eq!(color(&dir, n), want, "{n}");
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn class_ring_writes_everything_again_after_a_failed_write() {
+        let dir = class_dir("retry");
+        let mut ring = Is31ClassRing::discover_in(&dir, &crate::board::ECHO_DOT_5.ring).unwrap();
+        let frame = [Rgb::new(255, 255, 255); RING_PIXELS];
+        let led9 = dir.join("is31fl3246:ledmod_9/color");
+        fs::remove_file(&led9).unwrap();
+        fs::create_dir(&led9).unwrap();
+        assert!(ring.set(&frame).is_err());
+        fs::remove_dir(&led9).unwrap();
+        fs::write(&led9, "").unwrap();
+        ring.set(&frame).unwrap();
+        for n in 0..RING_PIXELS {
+            assert_eq!(color(&dir, n), "255 255 255\n", "{n}");
+        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -115,11 +115,15 @@ mod tests {
         d
     }
 
-    /// The calibration is read for 7 microphones (LibreEcho's micd.c).
+    /// The calibration is read for 7 microphones (LibreEcho's micd.c). It is
+    /// the MT8163's idme record; other boards have no such record.
     #[test]
-    fn every_board_has_the_microphones_the_calibration_is_read_for() {
+    fn every_mt8163_board_has_the_microphones_the_calibration_is_read_for() {
         for m in crate::board::Model::ALL {
-            assert_eq!(m.board().mics.count, MIC_CHANNELS, "{m:?}");
+            let board = m.board();
+            if board.audio.codec == crate::board::Codec::Mt8163Aic {
+                assert_eq!(board.mics.count, MIC_CHANNELS, "{m:?}");
+            }
         }
     }
 
