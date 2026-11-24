@@ -318,6 +318,9 @@ pub struct McpServerView {
     /// it is off or wasn't asked.
     pub listing: Option<Result<Vec<McpToolView>, String>>,
     pub credential: Option<CredentialShown>,
+    /// The address is plain http: a credential crosses the network
+    /// unencrypted.
+    pub plain_http: bool,
 }
 
 /// What tells a stored credential apart; never its secret.
@@ -956,7 +959,7 @@ impl Service {
     }
 
     /// A server that lists more than `MANY_TOOLS` when it is added, or when
-    /// its address changes, gets a stored switch, off, for each of its tools
+    /// its address or credential changes, gets a stored switch, off, for each of its tools
     /// that has none (ADR 0017): the owner turns on the few the brain needs.
     /// Stored rather than worked out from the count, so a list that grows or
     /// shrinks later turns nothing on or off by itself.
@@ -1409,6 +1412,7 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
                 credential: secrets
                     .mcp_credential(&server.id)
                     .map(CredentialShown::from),
+                plain_http: secrets.mcp_plain_http(&server.id),
             })
             .collect(),
         agents,
@@ -2919,6 +2923,7 @@ mod tests {
             // Saving asked it for its tools.
             listing: Some(Err("The MCP server is unreachable.".into())),
             credential: None,
+            plain_http: true,
         };
         assert_eq!(view.mcp_servers, std::slice::from_ref(&home));
         for text in [format!("{view:?}"), f.file("standalone.toml")] {

@@ -269,6 +269,9 @@ message McpServer {
   // The credential sent with every request to it, without its secret;
   // unset without one.
   McpServerCredential credential = 9;
+  // The address is plain http, so a credential crosses the network
+  // unencrypted.
+  bool plain_http = 10;
 }
 
 // What tells a stored credential apart. The token, password or value itself

@@ -240,6 +240,7 @@ fn render(v: AssistantView) -> Assistant {
                 credential: s.credential.map_or_else(MessageField::none, |c| {
                     MessageField::some(credential_shown(c))
                 }),
+                plain_http: s.plain_http,
                 ..Default::default()
             })
             .collect(),

@@ -310,6 +310,14 @@ impl Secrets {
         self.mcp.remove(id);
     }
 
+    /// The address is plain http, so a credential crosses the network
+    /// unencrypted. The dashboard says so; the scheme isn't secret.
+    pub fn mcp_plain_http(&self, id: &str) -> bool {
+        self.mcp.get(id).is_some_and(|server| {
+            url::Url::parse(server.url.expose()).is_ok_and(|url| url.scheme() == "http")
+        })
+    }
+
     /// The only MCP location metadata exposed to the dashboard.
     pub fn mcp_host(&self, id: &str) -> Option<String> {
         let url = url::Url::parse(self.mcp.get(id)?.url.expose()).ok()?;
@@ -533,6 +541,7 @@ mod tests {
 
         secrets.set_mcp("home", url.clone());
         let token = McpCredential::bearer("tok-000000001234").unwrap();
+        assert!(!secrets.mcp_plain_http("home"));
         secrets.set_mcp_credential("home", Some(token.clone()));
         secrets.set_mcp("home", url.clone());
         assert_eq!(
@@ -541,8 +550,10 @@ mod tests {
             "the same address keeps it"
         );
 
-        secrets.set_mcp("home", Secret::new("https://elsewhere.example/mcp"));
+        secrets.set_mcp("home", Secret::new("HTTP://elsewhere.example/mcp"));
         assert!(secrets.mcp_credential("home").is_none());
+        assert!(secrets.mcp_plain_http("home"));
+        assert!(!secrets.mcp_plain_http("missing"));
         assert!(secrets.to_file().mcp["home"].credential.is_none());
 
         secrets.set_mcp_credential("home", Some(McpCredential::basic("me", "pw").unwrap()));
