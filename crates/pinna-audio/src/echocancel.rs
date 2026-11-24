@@ -11,7 +11,8 @@
 //!
 //! The parameters are the offline prototype's that measured, on an Echo Dot
 //! (2nd gen) on 2026-11-21, 14-20 dB less echo at volumes 50 to 80 with the
-//! microphones' loopback lane as the reference.
+//! microphones' loopback lane as the reference, except the step (ADR 0033,
+//! amended 2026-11-24).
 // Index loops over partitions and bins read like the algorithm; keep them.
 #![allow(clippy::needless_range_loop)]
 
@@ -22,10 +23,14 @@ pub const BLOCK: usize = FFT / 2;
 const BINS: usize = FFT / 2 + 1;
 /// Partitions of one block each: 2048 taps.
 pub const PARTITIONS: usize = 16;
-/// NLMS step size. TECHO5 (`echod/internal/hardware/mic/cancel.go`) caught
-/// more wake words over music with a smaller step on its time-domain NLMS;
-/// [`LinearEchoCanceller::with_step_size`] lets the offline bench try that here.
-pub const STEP_SIZE: f32 = 0.5;
+/// NLMS step size. At 0.5 a talker over music derailed the filter: on the
+/// Echo Dot (2nd gen)'s recordings of 2026-11-21, with a talker at -45 dBFS,
+/// the output stayed 7-13 dB louder than the echo for the next 30 s. At 0.1 it
+/// removed 22-24 dB (micbench, ADR 0033). TECHO5's time-domain NLMS caught 72
+/// of 127 wake words over music at 0.1 and 36 at 0.5
+/// (`echod/internal/hardware/mic/cancel.go`). The cost is speed: about 3 dB
+/// more each second on noise, where 0.5 needs under 3 s for 25 dB.
+pub const STEP_SIZE: f32 = 0.1;
 /// Smoothing of the reference's power per bin, per block.
 const POWER_SMOOTHING: f32 = 0.9;
 /// Keeps the step finite while the reference is silent (the loopback lane is
@@ -326,7 +331,7 @@ mod tests {
     fn it_converges_on_an_echo_path() {
         let mut aec = LinearEchoCanceller::new();
         let mut n = Noise(2);
-        let reference: Vec<f32> = (0..3 * 16_000).map(|_| n.next(8000.0)).collect();
+        let reference: Vec<f32> = (0..10 * 16_000).map(|_| n.next(8000.0)).collect();
         let echo = convolve(&reference, &echo_path());
         let out: Vec<f32> = echo
             .iter()
@@ -334,41 +339,100 @@ mod tests {
             .map(|(&m, &x)| aec.process(m, x))
             .collect();
         // The last second, against the echo it replaced (one block earlier).
-        let removed = db(&echo[2 * 16_000 - BLOCK..3 * 16_000 - BLOCK]) - db(&out[2 * 16_000..]);
+        let removed = db(&echo[9 * 16_000 - BLOCK..10 * 16_000 - BLOCK]) - db(&out[9 * 16_000..]);
         assert!(removed > 25.0, "removed {removed:.1} dB");
     }
 
     #[test]
-    fn a_smaller_step_converges_more_slowly() {
-        let mut aec = LinearEchoCanceller::with_step_size(0.1);
+    fn the_step_size_sets_how_fast_it_converges() {
         let mut n = Noise(5);
-        let reference: Vec<f32> = (0..8 * 16_000).map(|_| n.next(8000.0)).collect();
+        let reference: Vec<f32> = (0..3 * 16_000).map(|_| n.next(8000.0)).collect();
         let echo = convolve(&reference, &echo_path());
-        let out: Vec<f32> = echo
-            .iter()
-            .zip(&reference)
-            .map(|(&m, &x)| aec.process(m, x))
-            .collect();
-        let removed_in = |s: usize| {
-            db(&echo[(s - 1) * 16_000 - BLOCK..s * 16_000 - BLOCK])
-                - db(&out[(s - 1) * 16_000..s * 16_000])
+        let third_second = |mut aec: LinearEchoCanceller| {
+            let out: Vec<f32> = echo
+                .iter()
+                .zip(&reference)
+                .map(|(&m, &x)| aec.process(m, x))
+                .collect();
+            db(&echo[2 * 16_000 - BLOCK..3 * 16_000 - BLOCK]) - db(&out[2 * 16_000..])
         };
-        // About 3 dB more each second on white noise, where 0.5 needs under 3 s.
-        assert!(removed_in(3) < 20.0, "second 3: {:.1} dB", removed_in(3));
-        assert!(removed_in(8) > 20.0, "second 8: {:.1} dB", removed_in(8));
+        let fast = third_second(LinearEchoCanceller::with_step_size(0.5));
+        let default = third_second(LinearEchoCanceller::new());
+        assert!(fast > 25.0, "0.5: {fast:.1} dB");
+        assert!(default < 20.0, "{STEP_SIZE}: {default:.1} dB");
+    }
+
+    /// Music-like: four tones, new ones every 250 ms, over faint noise, so
+    /// each frequency bin is loud for a while and then nearly silent.
+    fn chords(len: usize, seed: u64) -> Vec<f32> {
+        let (mut n, mut pick) = (Noise(seed), Noise(seed + 1));
+        let mut freqs = [0f32; 4];
+        let mut phase = [0f32; 4];
+        (0..len)
+            .map(|i| {
+                if i % 4000 == 0 {
+                    for f in &mut freqs {
+                        *f = 150.0 + (pick.next(1.0) + 1.0) * 1500.0;
+                    }
+                }
+                let mut x = n.next(1.0);
+                for k in 0..4 {
+                    phase[k] += 2.0 * std::f32::consts::PI * freqs[k] / 16_000.0;
+                    x += 2500.0 * phase[k].sin();
+                }
+                x
+            })
+            .collect()
+    }
+
+    /// What `mu` removes of the echo in the 2 s after a talker spoke over
+    /// music from 6 s to 7 s, in dB (negative: the output is louder).
+    fn after_double_talk_over_music(mu: f32, seed: u64) -> f32 {
+        let len = 8 * 16_000;
+        let reference = chords(len, seed);
+        let mut h = vec![0f32; 96];
+        (h[40], h[41], h[95]) = (0.5, -0.3, 0.2);
+        let echo = convolve(&reference, &h);
+        let mut t = Noise(23);
+        let mut aec = LinearEchoCanceller::with_step_size(mu);
+        let out: Vec<f32> = (0..len)
+            .map(|i| {
+                let talker = if (4 * 16_000..5 * 16_000).contains(&i) {
+                    t.next(6000.0)
+                } else {
+                    0.0
+                };
+                aec.process(echo[i] + talker, reference[i])
+            })
+            .collect();
+        db(&echo[6 * 16_000 - BLOCK..len - BLOCK]) - db(&out[6 * 16_000..])
+    }
+
+    /// Talking over music must not leave the filter making the echo louder.
+    /// At a step of 0.5 it did, by 7-13 dB on an Echo Dot (2nd gen)'s
+    /// recordings (ADR 0033); on these music-like references 0.5 leaves the
+    /// echo 9.5 dB louder at worst and 4.4 dB louder in the median.
+    #[test]
+    fn talking_over_music_doesnt_derail_it() {
+        let mut after: Vec<f32> = (0..8u64)
+            .map(|k| after_double_talk_over_music(STEP_SIZE, 100 + 7 * k))
+            .collect();
+        after.sort_by(f32::total_cmp);
+        assert!(after[0] > -3.0, "removed after the talker: {after:?}");
+        assert!(after[3] > -1.0, "removed after the talker: {after:?}");
     }
 
     #[test]
     fn double_talk_keeps_the_talker_and_the_learned_echo_path() {
         let mut aec = LinearEchoCanceller::new();
         let (mut n, mut t) = (Noise(3), Noise(4));
-        let len = 5 * 16_000;
+        let len = 12 * 16_000;
         let reference: Vec<f32> = (0..len).map(|_| n.next(8000.0)).collect();
         let echo = convolve(&reference, &echo_path());
-        // A talker as loud as the echo, from 3 s to 4 s.
+        // A talker as loud as the echo, from 9 s to 10 s.
         let talker: Vec<f32> = (0..len)
             .map(|i| {
-                if (48_000..64_000).contains(&i) {
+                if (144_000..160_000).contains(&i) {
                     t.next(4000.0)
                 } else {
                     0.0
@@ -379,14 +443,14 @@ mod tests {
             .map(|i| aec.process(echo[i] + talker[i], reference[i]))
             .collect();
         // While the talker speaks, the output is the talker.
-        let during = db(&out[48_000 + BLOCK + 1600..64_000 + BLOCK]);
-        let talk = db(&talker[48_000 + 1600..64_000]);
+        let during = db(&out[144_000 + BLOCK + 1600..160_000 + BLOCK]);
+        let talk = db(&talker[144_000 + 1600..160_000]);
         assert!(
             (during - talk).abs() < 1.0,
             "talker {talk:.1} dB, output {during:.1} dB"
         );
         // Afterwards the echo is still cancelled.
-        let removed = db(&echo[64_000 + 1600..len - BLOCK]) - db(&out[64_000 + BLOCK + 1600..]);
+        let removed = db(&echo[160_000 + 1600..len - BLOCK]) - db(&out[160_000 + BLOCK + 1600..]);
         assert!(removed > 20.0, "removed {removed:.1} dB after double talk");
     }
 }
