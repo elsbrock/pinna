@@ -17,5 +17,11 @@ tract-tflite = "0.22"
 flatbuffers = "23.1.21"
 hound = "3"
 pinna-audio = { path = "../pinna-audio" }
+pinna-board = { path = "../pinna-board" }
 serde_json = "1"
 prost = "0.11"
+
+# The microphone bench's own tests (synthetic takes) run with `cargo test`.
+[[example]]
+name = "micbench"
+test = true
