@@ -61,6 +61,12 @@ enum Cmd {
         /// configurations.
         #[arg(long)]
         ramdisk: Option<PathBuf>,
+        /// Name the configurations instead: `NAME=N` boots device tree N
+        /// (counting from 1) with the ramdisk, if one is given. U-Boot picks
+        /// a configuration by the board revision's name (stock Fire OS on a
+        /// C2N6L4 boots `cannoli-pvt-plastic`). The first is the default.
+        #[arg(long = "conf", value_name = "NAME=N")]
+        confs: Vec<String>,
         #[arg(long)]
         out: PathBuf,
     },
@@ -219,6 +225,7 @@ fn main() -> Result<()> {
             zimage,
             dtb,
             ramdisk,
+            confs: named,
             out,
         } => {
             let read =
@@ -249,6 +256,20 @@ fn main() -> Result<()> {
             let rec_names: Vec<String> = (1..=dtbs.len())
                 .map(|n| format!("conf-{n}-recovery"))
                 .collect();
+            let named: Vec<(&str, usize)> = named
+                .iter()
+                .map(|c| {
+                    let (name, n) = c
+                        .split_once('=')
+                        .with_context(|| format!("--conf {c}: expected NAME=N"))?;
+                    let n: usize = n
+                        .parse()
+                        .ok()
+                        .filter(|n| (1..=dtbs.len()).contains(n))
+                        .with_context(|| format!("--conf {c}: N must be 1 to {}", dtbs.len()))?;
+                    Ok((name, n - 1))
+                })
+                .collect::<Result<_>>()?;
             let mut confs: Vec<fit::Conf> = (0..dtbs.len())
                 .map(|i| fit::Conf {
                     node: &names[i],
@@ -257,7 +278,17 @@ fn main() -> Result<()> {
                     recovery: false,
                 })
                 .collect();
-            if ramdisk_bytes.is_some() {
+            if !named.is_empty() {
+                confs = named
+                    .iter()
+                    .map(|&(node, fdt)| fit::Conf {
+                        node,
+                        description: &descs[fdt],
+                        fdt,
+                        recovery: ramdisk_bytes.is_some(),
+                    })
+                    .collect();
+            } else if ramdisk_bytes.is_some() {
                 confs.extend((0..dtbs.len()).map(|i| fit::Conf {
                     node: &rec_names[i],
                     description: &descs[i],
