@@ -1,0 +1,483 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Tue, 24 Nov 2026 20:10:00 +0100
+Subject: [PATCH 218/218] Input: preserve the Cannoli privacy switch events
+
+Amazon's MT8519 device tree describes the privacy latch state and mute
+button as separate child events. Consume those child GPIOs, report the
+configured EV_SW state and EV_KEY button independently, and retain the
+parent-level state-gpios path for existing boards. Honor the declared
+50 ms enable pulse while keeping software unable to open the latch.
+
+Register work cancellation after input setup and before IRQs so teardown
+releases IRQs, cancels pending work, then releases input devices.
+
+The Cannoli lines are on the I2C CPLD, whose IRQs are nested threaded,
+so the child events use devm_request_any_context_irq() like Amazon's
+driver. A plain request_irq() failed the probe with -EINVAL on a C2N6L4.
+
+---
+
+diff --git a/drivers/input/misc/gpio-privacy.c b/drivers/input/misc/gpio-privacy.c
+--- a/drivers/input/misc/gpio-privacy.c
++++ b/drivers/input/misc/gpio-privacy.c
+@@ -1,22 +1,11 @@
+ // SPDX-License-Identifier: GPL-2.0
+ /*
+- * The microphone switch of Amazon's MT8516 Echos: a hardware latch that
+- * cuts the microphones. Only its button opens the latch. Software reads it
+- * and can close it, never open it.
++ * Microphone privacy latch support for Echo devices.
+  *
+- * sysfs, on the platform device:
+- *   state   1 while the microphones are cut, else 0
+- *   enable  write 1 to close the latch; anything else is refused
+- *
+- * Each change of the latch is reported as a press and release of the
+- * device tree's linux,code (KEY_MUTE on the Echo Dot (3rd gen)).
+- *
+- * Ported to current kernels from gpio_privacy.c in Amazon's Echo Dot (3rd
+- * gen) source release 6.5.7.1 (drivers/input/keyboard, Linux 4.4, GPL-2.0),
+- * which Fire OS and TECHO5 run on the Dot: the same sysfs files, the same
+- * 100 ms wait for the latch to close, the same event.
+- *
+- * Copyright (C) 2018 Amazon.com, Inc. or its affiliates.
++ * The latch is hardware controlled: the button can close or open it, while
++ * software can only request that it close. Amazon's MT8519 DT describes the
++ * latch state and button as separate child events; older boards use the
++ * parent-level state-gpios interface.
+  */
+ 
+ #include <linux/delay.h>
+@@ -32,25 +21,44 @@
+ #include <linux/workqueue.h>
+ 
+ #define GPIO_PRIVACY_DEBOUNCE_MS	5
+-/* How long the enable line is held while the latch closes. */
+-#define GPIO_PRIVACY_CLOSE_WAIT_MS	100
++#define GPIO_PRIVACY_LEGACY_WAIT_MS	100
++
++struct gpio_privacy;
++
++struct gpio_privacy_event {
++	struct gpio_privacy *privacy;
++	struct gpio_desc *gpio;
++	struct input_dev *input;
++	unsigned int type;
++	unsigned int code;
++	unsigned int debounce_ms;
++	int last_value;
++	struct delayed_work work;
++};
+ 
+ struct gpio_privacy {
+ 	struct device *dev;
+ 	struct gpio_descs *state;
+ 	struct gpio_desc *enable;
+-	struct mutex lock;		/* the enable pulse against state reads */
++	struct mutex lock;
+ 	struct input_dev *input;
+ 	unsigned int code;
+ 	unsigned int debounce_ms;
++	unsigned int enable_pulse_ms;
++	bool child_events;
++	struct gpio_privacy_event state_event;
++	struct gpio_privacy_event button_event;
+ 	struct delayed_work work;
+ };
+ 
+-/* 1 while any state line says the microphones are cut. */
++/* 1 while any configured state line says the microphones are cut. */
+ static int gpio_privacy_read(struct gpio_privacy *p)
+ {
+ 	int i, v;
+ 
++	if (p->child_events)
++		return gpiod_get_value_cansleep(p->state_event.gpio);
++
+ 	for (i = 0; i < p->state->ndescs; i++) {
+ 		v = gpiod_get_value_cansleep(p->state->desc[i]);
+ 		if (v < 0)
+@@ -78,30 +86,57 @@
+ }
+ static DEVICE_ATTR_RO(state);
+ 
+-static ssize_t enable_store(struct device *dev, struct device_attribute *attr,
+-			    const char *buf, size_t count)
++static void gpio_privacy_pulse_enable(struct gpio_privacy *p)
+ {
+-	struct gpio_privacy *p = dev_get_drvdata(dev);
+-	int enable, i, ret = -ETIMEDOUT;
++	gpiod_set_value_cansleep(p->enable, 1);
++	if (p->enable_pulse_ms < 20)
++		usleep_range(p->enable_pulse_ms * 1000,
++			     p->enable_pulse_ms * 1000 + 100);
++	else
++		msleep(p->enable_pulse_ms);
++	gpiod_set_value_cansleep(p->enable, 0);
++}
+ 
+-	if (kstrtoint(buf, 10, &enable))
+-		return -EINVAL;
+-	/* Software never opens the latch: only the button does. */
++static int gpio_privacy_enable(struct gpio_privacy *p, int enable)
++{
++	int i, ret = -ETIMEDOUT;
++
++	/* Only the physical button can open the latch. */
+ 	if (enable != 1)
+ 		return -EINVAL;
+ 
+ 	mutex_lock(&p->lock);
+-	gpiod_set_value_cansleep(p->enable, 1);
+-	for (i = 0; i < GPIO_PRIVACY_CLOSE_WAIT_MS; i++) {
+-		if (gpio_privacy_read(p) == 1) {
+-			ret = 0;
+-			break;
++	if (p->child_events && p->enable_pulse_ms) {
++		gpio_privacy_pulse_enable(p);
++		ret = gpio_privacy_read(p);
++		if (ret >= 0)
++			ret = ret ? 0 : -ETIMEDOUT;
++	} else {
++		gpiod_set_value_cansleep(p->enable, 1);
++		for (i = 0; i < GPIO_PRIVACY_LEGACY_WAIT_MS; i++) {
++			if (gpio_privacy_read(p) == 1) {
++				ret = 0;
++				break;
++			}
++			usleep_range(1000, 1100);
+ 		}
+-		usleep_range(1000, 1100);
++		gpiod_set_value_cansleep(p->enable, 0);
+ 	}
+-	gpiod_set_value_cansleep(p->enable, 0);
+ 	mutex_unlock(&p->lock);
+ 
++	return ret;
++}
++
++static ssize_t enable_store(struct device *dev, struct device_attribute *attr,
++			    const char *buf, size_t count)
++{
++	struct gpio_privacy *p = dev_get_drvdata(dev);
++	int enable, ret;
++
++	if (kstrtoint(buf, 10, &enable))
++		return -EINVAL;
++	ret = gpio_privacy_enable(p, enable);
++
+ 	return ret ? ret : count;
+ }
+ static DEVICE_ATTR_WO(enable);
+@@ -115,17 +150,53 @@
+ 
+ static void gpio_privacy_work(struct work_struct *work)
+ {
+-	struct gpio_privacy *p = container_of(work, struct gpio_privacy,
+-					      work.work);
++	struct gpio_privacy *p = container_of(to_delayed_work(work),
++					      struct gpio_privacy, work);
+ 
+ 	input_report_key(p->input, p->code, 1);
+ 	input_sync(p->input);
+ 	input_report_key(p->input, p->code, 0);
+ 	input_sync(p->input);
+-
+ 	pm_relax(p->dev);
+ }
+ 
++static void gpio_privacy_state_event(struct gpio_privacy_event *event)
++{
++	int value = gpiod_get_value_cansleep(event->gpio);
++
++	if (value < 0)
++		return;
++	input_event(event->input, event->type, event->code, value);
++	input_sync(event->input);
++}
++
++static void gpio_privacy_button_event(struct gpio_privacy_event *event)
++{
++	int value = gpiod_get_value_cansleep(event->gpio);
++
++	if (value < 0)
++		return;
++	if (value == event->last_value) {
++		input_event(event->input, event->type, event->code, !value);
++		input_sync(event->input);
++	}
++	event->last_value = value;
++	input_event(event->input, event->type, event->code, value);
++	input_sync(event->input);
++}
++
++static void gpio_privacy_child_work(struct work_struct *work)
++{
++	struct gpio_privacy_event *event = container_of(to_delayed_work(work),
++							 struct gpio_privacy_event,
++							 work);
++
++	if (event == &event->privacy->state_event)
++		gpio_privacy_state_event(event);
++	else
++		gpio_privacy_button_event(event);
++}
++
+ static irqreturn_t gpio_privacy_irq(int irq, void *data)
+ {
+ 	struct gpio_privacy *p = data;
+@@ -133,22 +204,163 @@
+ 	pm_stay_awake(p->dev);
+ 	mod_delayed_work(system_wq, &p->work,
+ 			 msecs_to_jiffies(p->debounce_ms));
++	return IRQ_HANDLED;
++}
++
++static irqreturn_t gpio_privacy_event_irq(int irq, void *data)
++{
++	struct gpio_privacy_event *event = data;
+ 
++	mod_delayed_work(system_wq, &event->work,
++			 msecs_to_jiffies(event->debounce_ms));
+ 	return IRQ_HANDLED;
+ }
+ 
+-static void gpio_privacy_cancel(void *data)
++static void gpio_privacy_cancel_work(void *data)
+ {
+ 	struct gpio_privacy *p = data;
+ 
+ 	cancel_delayed_work_sync(&p->work);
++	cancel_delayed_work_sync(&p->state_event.work);
++	cancel_delayed_work_sync(&p->button_event.work);
++}
++
++static int gpio_privacy_setup_event(struct gpio_privacy *p,
++				    struct gpio_privacy_event *event,
++				    struct fwnode_handle *node,
++				    const char *input_name,
++				    const char *gpio_label,
++				    bool debounce)
++{
++	struct input_dev *input;
++	int ret;
++
++	event->privacy = p;
++	event->gpio = devm_fwnode_gpiod_get(p->dev, node, NULL, GPIOD_IN,
++					    gpio_label);
++	if (IS_ERR(event->gpio))
++		return dev_err_probe(p->dev, PTR_ERR(event->gpio),
++				     "failed to get %s GPIO\n", gpio_label);
++
++	ret = fwnode_property_read_u32(node, "linux,input-type", &event->type);
++	if (ret)
++		event->type = debounce ? EV_KEY : EV_SW;
++	ret = fwnode_property_read_u32(node, "linux,code", &event->code);
++	if (ret)
++		return dev_err_probe(p->dev, ret, "missing %s input code\n",
++				     input_name);
++	if (debounce && fwnode_property_read_u32(node, "debounce-interval",
++						  &event->debounce_ms))
++		event->debounce_ms = GPIO_PRIVACY_DEBOUNCE_MS;
++
++	input = devm_input_allocate_device(p->dev);
++	if (!input)
++		return -ENOMEM;
++	input->name = input_name;
++	input->phys = debounce ? "gpio-privacy/button" : "gpio-privacy/state";
++	input_set_capability(input, event->type, event->code);
++	event->input = input;
++	ret = input_register_device(input);
++	if (ret)
++		return ret;
++
++	INIT_DELAYED_WORK(&event->work, gpio_privacy_child_work);
++	return 0;
++}
++
++static int gpio_privacy_request_event_irq(struct gpio_privacy *p,
++					   struct gpio_privacy_event *event,
++					   const char *name)
++{
++	int irq = gpiod_to_irq(event->gpio);
++	int ret;
++
++	if (irq < 0)
++		return dev_err_probe(p->dev, irq, "%s GPIO has no IRQ\n", name);
++	/* The Cannoli lines are on the I2C CPLD, whose IRQs are nested
++	 * threaded: a plain request_irq() on them fails with -EINVAL.
++	 */
++	ret = devm_request_any_context_irq(p->dev, irq, gpio_privacy_event_irq,
++					   IRQF_TRIGGER_RISING |
++					   IRQF_TRIGGER_FALLING,
++					   name, event);
++	return ret < 0 ? ret : 0;
++}
++
++static int gpio_privacy_probe_child_events(struct gpio_privacy *p)
++{
++	struct fwnode_handle *state, *button;
++	int ret;
++
++	state = device_get_named_child_node(p->dev, "state_event");
++	button = device_get_named_child_node(p->dev, "button_event");
++	if (!state || !button) {
++		ret = -EINVAL;
++		goto out;
++	}
++	p->child_events = true;
++	ret = gpio_privacy_setup_event(p, &p->state_event, state,
++				       "gpio-privacy-state", "privacy-state", false);
++	if (ret)
++		goto out;
++	ret = gpio_privacy_setup_event(p, &p->button_event, button,
++				       "gpio-privacy-button", "privacy-button", true);
++out:
++	fwnode_handle_put(button);
++	fwnode_handle_put(state);
++	return ret;
++}
++
++static int gpio_privacy_probe_legacy(struct gpio_privacy *p)
++{
++	struct device *dev = p->dev;
++	struct input_dev *input;
++	int ret;
++
++	p->state = devm_gpiod_get_array(dev, "state", GPIOD_IN);
++	if (IS_ERR(p->state))
++		return dev_err_probe(dev, PTR_ERR(p->state), "no state-gpios\n");
++
++	ret = device_property_read_u32(dev, "linux,code", &p->code);
++	if (ret)
++		p->code = KEY_MUTE;
++	ret = device_property_read_u32(dev, "debounce-interval", &p->debounce_ms);
++	if (ret)
++		p->debounce_ms = GPIO_PRIVACY_DEBOUNCE_MS;
++
++	input = devm_input_allocate_device(dev);
++	if (!input)
++		return -ENOMEM;
++	input->name = "gpio-privacy";
++	input->phys = "gpio-privacy/input0";
++	input_set_capability(input, EV_KEY, p->code);
++	p->input = input;
++	return input_register_device(input);
++}
++
++static int gpio_privacy_request_legacy_irqs(struct gpio_privacy *p)
++{
++	int i, irq, ret;
++
++	for (i = 0; i < p->state->ndescs; i++) {
++		irq = gpiod_to_irq(p->state->desc[i]);
++		if (irq < 0)
++			return dev_err_probe(p->dev, irq, "state line %d has no IRQ\n", i);
++		ret = devm_request_irq(p->dev, irq, gpio_privacy_irq,
++				       IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
++				       "gpio-privacy", p);
++		if (ret)
++			return ret;
++	}
++	return 0;
+ }
+ 
+ static int gpio_privacy_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
++	struct fwnode_handle *state;
+ 	struct gpio_privacy *p;
+-	int i, irq, ret;
++	int ret;
+ 
+ 	p = devm_kzalloc(dev, sizeof(*p), GFP_KERNEL);
+ 	if (!p)
+@@ -156,55 +368,54 @@
+ 	p->dev = dev;
+ 	mutex_init(&p->lock);
+ 	INIT_DELAYED_WORK(&p->work, gpio_privacy_work);
++	INIT_DELAYED_WORK(&p->state_event.work, gpio_privacy_child_work);
++	INIT_DELAYED_WORK(&p->button_event.work, gpio_privacy_child_work);
+ 	platform_set_drvdata(pdev, p);
+ 
+-	p->state = devm_gpiod_get_array(dev, "state", GPIOD_IN);
+-	if (IS_ERR(p->state))
+-		return dev_err_probe(dev, PTR_ERR(p->state),
+-				     "no state-gpios\n");
+-
+-	/* Released at probe: the latch is the button's to close or open. */
++	/* Always released at probe; a device-tree duration makes a fixed pulse. */
+ 	p->enable = devm_gpiod_get(dev, "enable", GPIOD_OUT_LOW);
+ 	if (IS_ERR(p->enable))
+-		return dev_err_probe(dev, PTR_ERR(p->enable),
+-				     "no enable-gpios\n");
+-
+-	if (device_property_read_u32(dev, "linux,code", &p->code))
+-		p->code = KEY_MUTE;
+-	if (device_property_read_u32(dev, "debounce-interval", &p->debounce_ms))
+-		p->debounce_ms = GPIO_PRIVACY_DEBOUNCE_MS;
+-
+-	p->input = devm_input_allocate_device(dev);
+-	if (!p->input)
+-		return -ENOMEM;
+-	p->input->name = "gpio-privacy";
+-	p->input->phys = "gpio-privacy/input0";
+-	input_set_capability(p->input, EV_KEY, p->code);
+-	ret = input_register_device(p->input);
++		return dev_err_probe(dev, PTR_ERR(p->enable), "no enable-gpios\n");
++	device_property_read_u32(dev, "enable-gpio-toggle-duration",
++				 &p->enable_pulse_ms);
++
++	state = device_get_named_child_node(dev, "state_event");
++	if (state) {
++		fwnode_handle_put(state);
++		ret = gpio_privacy_probe_child_events(p);
++	} else {
++		ret = gpio_privacy_probe_legacy(p);
++	}
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = devm_add_action_or_reset(dev, gpio_privacy_cancel, p);
++	/* IRQs are acquired after this action, so teardown quiesces IRQs, then
++	 * cancels work, then releases the managed input devices.
++	 */
++	ret = devm_add_action_or_reset(dev, gpio_privacy_cancel_work, p);
+ 	if (ret)
+ 		return ret;
+-
+-	for (i = 0; i < p->state->ndescs; i++) {
+-		irq = gpiod_to_irq(p->state->desc[i]);
+-		if (irq < 0)
+-			return dev_err_probe(dev, irq, "state line %d has no IRQ\n", i);
+-		ret = devm_request_irq(dev, irq, gpio_privacy_irq,
+-				       IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+-				       "gpio-privacy", p);
++	if (p->child_events) {
++		ret = gpio_privacy_request_event_irq(p, &p->state_event,
++						     "gpio-privacy-state");
+ 		if (ret)
+ 			return ret;
++		ret = gpio_privacy_request_event_irq(p, &p->button_event,
++						     "gpio-privacy-button");
++	} else {
++		ret = gpio_privacy_request_legacy_irqs(p);
+ 	}
++	if (ret)
++		return ret;
++	if (p->child_events && gpio_privacy_read(p) == 1)
++		gpio_privacy_state_event(&p->state_event);
+ 
+ 	device_init_wakeup(dev, device_property_read_bool(dev, "wakeup-source"));
+-
+ 	return 0;
+ }
+ 
+ static const struct of_device_id gpio_privacy_of_match[] = {
++	{ .compatible = "gpio-privacy" },
+ 	{ .compatible = "amazon,gpio-privacy" },
+ 	{ }
+ };
+-- 
+2.43.0
