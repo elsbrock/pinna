@@ -20,7 +20,7 @@ const BETA: f64 = 8.0;
 const CHANNELS: usize = 2;
 
 /// Zeroth-order modified Bessel function, by its power series.
-fn bessel_i0(x: f64) -> f64 {
+pub(crate) fn bessel_i0(x: f64) -> f64 {
     let (mut sum, mut term) = (1.0, 1.0);
     for k in 1..60 {
         term *= (x / (2.0 * f64::from(k))).powi(2);

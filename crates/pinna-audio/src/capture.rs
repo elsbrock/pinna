@@ -2,7 +2,7 @@
 //! (`arecord` on the Echo Dot, `pw-record` elsewhere) or a WAV file.
 
 use crate::dsp::{
-    FRAME_SAMPLES, FrontEnd, FrontEndConfig, RAW_CHANNELS, RAW_FRAME_BYTES, SAMPLE_RATE,
+    CaptureFormat, FRAME_SAMPLES, FrontEnd, FrontEndConfig, RAW_CHANNELS, SAMPLE_RATE,
     SimpleFrontEnd,
 };
 use crate::mixer::{self, MICPGA_DEFAULT, MixerRunner};
@@ -39,6 +39,8 @@ pub struct CaptureConfig {
     pub arecord_bin: String,
     /// ALSA capture device on the Echo Dot.
     pub alsa_device: String,
+    /// What that device delivers: rate, lanes and sample format.
+    pub format: CaptureFormat,
     pub pw_record_bin: String,
     /// `pw-record --target` (node name or serial); default routing if `None`.
     pub pw_target: Option<String>,
@@ -63,6 +65,7 @@ impl CaptureConfig {
             apply_mixer: true,
             arecord_bin: "arecord".into(),
             alsa_device: "hw:0,24".into(),
+            format: CaptureFormat::default(),
             pw_record_bin: "pw-record".into(),
             pw_target: None,
             raw_fallback: None,
@@ -145,8 +148,13 @@ impl Drop for CaptureStream {
 
 /// Start capturing with the default [`SimpleFrontEnd`] built from the config.
 pub async fn start_capture(cfg: CaptureConfig) -> Result<CaptureStream> {
-    let fe_cfg = cfg.front_end.clone();
-    start_capture_with(cfg, move || Box::new(SimpleFrontEnd::new(fe_cfg.clone())))
+    let (fe_cfg, format) = (cfg.front_end.clone(), cfg.format.clone());
+    cfg.format.check().map_err(Error::Other)?;
+    start_capture_with(cfg, move || {
+        Box::new(
+            SimpleFrontEnd::with_format(fe_cfg.clone(), format.clone()).expect("format checked"),
+        )
+    })
 }
 
 /// Like [`start_capture`] with a custom multi-channel front end (beamforming,
@@ -155,6 +163,7 @@ pub fn start_capture_with(
     cfg: CaptureConfig,
     front_end: impl Fn() -> Box<dyn FrontEnd> + Send + Sync + 'static,
 ) -> Result<CaptureStream> {
+    cfg.format.check().map_err(Error::Other)?;
     let (tx, rx) = mpsc::channel(cfg.queue_frames.max(1));
     let (status_tx, status_rx) = watch::channel(CaptureStatus::Starting);
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -337,26 +346,31 @@ pub fn capture_command(cfg: &CaptureConfig, raw: bool) -> Option<(String, Vec<St
         ));
     }
     match cfg.backend {
-        Backend::EchoDot => Some((
-            cfg.arecord_bin.clone(),
-            [
-                "-D",
-                &cfg.alsa_device,
-                "-f",
-                "S24_3LE",
-                "-c",
-                "9",
-                "-r",
-                "16000",
-                "--period-size=640",
-                "--buffer-size=2560",
-                "-t",
-                "raw",
-                "-q",
-            ]
-            .map(String::from)
-            .to_vec(),
-        )),
+        Backend::EchoDot => {
+            // 40 ms periods and a 160 ms buffer at any rate (640 and 2560
+            // frames at 16 kHz).
+            let period = u64::from(cfg.format.rate) * 40 / 1000;
+            Some((
+                cfg.arecord_bin.clone(),
+                [
+                    "-D",
+                    &cfg.alsa_device,
+                    "-f",
+                    cfg.format.sample.alsa_name(),
+                    "-c",
+                    &cfg.format.channels.to_string(),
+                    "-r",
+                    &cfg.format.rate.to_string(),
+                    &format!("--period-size={period}"),
+                    &format!("--buffer-size={}", period * 4),
+                    "-t",
+                    "raw",
+                    "-q",
+                ]
+                .map(String::from)
+                .to_vec(),
+            ))
+        }
         Backend::PipeWire | Backend::EchoDotPipeWire => {
             // `--raw`: without it pw-record writes a Sun AU container to stdout.
             let mut a: Vec<String> = [
@@ -506,7 +520,8 @@ async fn run_process(
         carry.extend_from_slice(&buf[..n]);
         samples.clear();
         if echo {
-            let whole = carry.len() / RAW_FRAME_BYTES * RAW_FRAME_BYTES;
+            let frame = cfg.format.frame_bytes();
+            let whole = carry.len() / frame * frame;
             fe.process(&carry[..whole], &mut samples);
             carry.drain(..whole);
         } else {
@@ -633,6 +648,31 @@ mod tests {
             args.join(" "),
             "-D hw:0,24 -f S24_3LE -c 9 -r 16000 --period-size=640 --buffer-size=2560 -t raw -q"
         );
+    }
+
+    #[test]
+    fn the_command_follows_the_capture_format() {
+        let mut cfg = CaptureConfig::new(Backend::EchoDot);
+        cfg.alsa_device = "hw:0,9".into();
+        cfg.format = CaptureFormat {
+            rate: 96_000,
+            channels: 6,
+            sample: crate::dsp::SampleFormat::S32Le,
+            mic_lanes: vec![0, 1, 2],
+        };
+        let (_, args) = capture_command(&cfg, false).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "-D hw:0,9 -f S32_LE -c 6 -r 96000 --period-size=3840 --buffer-size=15360 -t raw -q"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_format_the_front_end_cannot_decode_is_refused() {
+        let mut cfg = CaptureConfig::new(Backend::EchoDot);
+        cfg.format.rate = 44_100;
+        let err = start_capture(cfg).await.err().unwrap();
+        assert!(err.to_string().contains("44100"), "{err}");
     }
 
     #[test]
