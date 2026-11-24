@@ -1,0 +1,14 @@
+#!/bin/sh
+# Starts PipeWire with the microphone graph of the SoC this satellite runs on.
+# One root filesystem serves both SoCs and it is read-only, so the choice is
+# made here at run time from the device tree. The MT8163 keeps the stock
+# invocation, which reads pipewire.conf.d. The MT8519 reads
+# pinna-echo-dot-5.conf.d: PipeWire loads the .conf.d of the config's own name,
+# and /etc/pipewire/pinna-echo-dot-5.conf links to the stock pipewire.conf
+# (mkosi.postinst.chroot).
+set -eu
+
+if tr '\0' '\n' < /sys/firmware/devicetree/base/compatible | grep -qx 'mediatek,mt8519'; then
+    exec /usr/bin/pipewire -c pinna-echo-dot-5.conf
+fi
+exec /usr/bin/pipewire

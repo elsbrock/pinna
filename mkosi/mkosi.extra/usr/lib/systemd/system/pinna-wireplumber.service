@@ -1,6 +1,7 @@
 [Unit]
 Description=WirePlumber session manager for the Echo Dot audio graph
-ConditionFirmware=device-tree-compatible(mediatek,mt8163)
+ConditionFirmware=|device-tree-compatible(mediatek,mt8163)
+ConditionFirmware=|device-tree-compatible(mediatek,mt8519)
 BindsTo=pinna-pipewire.service
 After=pinna-pipewire.service
 

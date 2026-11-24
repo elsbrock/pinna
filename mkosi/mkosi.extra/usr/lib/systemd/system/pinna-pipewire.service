@@ -1,6 +1,7 @@
 [Unit]
 Description=PipeWire audio graph (Echo Dot microphones, echo cancellation)
-ConditionFirmware=device-tree-compatible(mediatek,mt8163)
+ConditionFirmware=|device-tree-compatible(mediatek,mt8163)
+ConditionFirmware=|device-tree-compatible(mediatek,mt8519)
 After=systemd-udevd.service sound.target
 
 [Service]
@@ -8,7 +9,7 @@ Type=simple
 Environment=XDG_RUNTIME_DIR=/run/pipewire PIPEWIRE_RUNTIME_DIR=/run/pipewire
 RuntimeDirectory=pipewire
 RuntimeDirectoryPreserve=yes
-ExecStart=/usr/bin/pipewire
+ExecStart=/usr/libexec/pinna/pipewire
 Restart=on-failure
 RestartSec=2
 

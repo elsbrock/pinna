@@ -49,6 +49,9 @@ ln -sf /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
 
 # PipeWire runs system-wide on the device (pinna-pipewire.service, static Echo
 # Dot nodes in /etc/pipewire/pipewire.conf.d); no per-user instances.
+# The Echo Dot (5th gen)'s graph: PipeWire loads the .conf.d of the config's
+# name (/usr/libexec/pinna/pipewire picks it on the MT8519).
+ln -sfn ../../usr/share/pipewire/pipewire.conf /etc/pipewire/pinna-echo-dot-5.conf
 systemctl --global disable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
 systemctl --global mask pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket wireplumber.service filter-chain.service 2>/dev/null || true
 
