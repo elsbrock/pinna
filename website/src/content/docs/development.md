@@ -92,6 +92,15 @@ before you send a change that affects the image or the device.
 wake word models are missing. Run `just models` before you rely on their
 result.
 
+The experimental Echo Dot (5th gen) port mounts the existing UBIFS
+`userdata` volume as `/var`. To check the mount units generated for MT8519,
+GPT, and virtual machines, run this on your computer with Python 3, systemd,
+and a writable `/sys` mount:
+
+```sh
+python3 tests/vm/test-var-mount.py
+```
+
 After building the MT8519 kernel, run its register and IRQ regressions on your
 computer:
 

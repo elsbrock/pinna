@@ -61,6 +61,9 @@ See `docs/` for the platform design and the first-flash runbook. The website
 lives in `website/` (`npm run dev`); it deploys to GitHub Pages from
 `.github/workflows/deploy-site.yml` — see `website/README.md`.
 
+The experimental Echo Dot (5th gen) port uses the UBIFS `userdata` volume
+for persistent `/var`. See ADR 0035 in `docs/adr/`.
+
 ## License
 
 MIT, see `LICENSE`. Exceptions: `kernel/patches/` and `tools/wmt/` are
