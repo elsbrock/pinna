@@ -18,17 +18,21 @@ generator_dir = subprocess.check_output(
 generator = Path(generator_dir) / generator_name
 
 
-def generate(work: Path, compatible: bytes | None) -> Path:
+def generate(work: Path, storage: str | None) -> Path:
     work.mkdir()
-    device_tree = work / "compatible"
-    if compatible is not None:
-        device_tree.write_bytes(compatible)
+    bootctl = work / "pinna-bootctl"
+    if storage is None:
+        query = "exit 1"
+    else:
+        query = f'[ "$1" = storage-kind ] || exit 1\necho {quote(storage)}'
+    bootctl.write_text(f"#!/bin/sh\n{query}\n")
+    bootctl.chmod(0o755)
 
     # Map the image's absolute paths to the test fixture and the host generator.
     script = wrapper.read_text()
     paths = {
-        "/sys/firmware/devicetree/base/compatible": device_tree,
-        "/etc/fstab.mt8519": image / "etc/fstab.mt8519",
+        "/usr/bin/pinna-bootctl": bootctl,
+        "/etc/fstab.ubi": image / "etc/fstab.ubi",
         f"/usr/lib/systemd/system-generators/{generator_name}": generator,
     }
     for image_path, fixture_path in paths.items():
@@ -48,15 +52,15 @@ def generate(work: Path, compatible: bytes | None) -> Path:
 
 with TemporaryDirectory(prefix="pinna-var-mount-") as temporary:
     work = Path(temporary)
-    ubi = generate(work / "ubi", b"mediatek,cannoli\0mediatek,mt8519\0")
+    ubi = generate(work / "ubi", "ubi")
     mount = (ubi / "var.mount").read_text()
     assert "What=ubi0:userdata\n" in mount, mount
     assert "Type=ubifs\n" in mount, mount
     assert "ReadWriteOnly=yes\n" in mount, mount
     assert not (ubi / "var.mount.requires").exists()
 
-    for name, compatible in (("gpt", b"mediatek,mt8163\0"), ("vm", None)):
-        gpt = generate(work / name, compatible)
+    for name, storage in (("gpt", "gpt"), ("unavailable", None)):
+        gpt = generate(work / name, storage)
         mount = (gpt / "var.mount").read_text()
         assert "What=/dev/disk/by-partlabel/userdata\n" in mount, mount
         assert "Type=ext4\n" in mount, mount

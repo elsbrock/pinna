@@ -1,7 +1,7 @@
 #!/bin/sh
 # The shared image needs a different /var mount when userdata is on UBI.
-compatible=/sys/firmware/devicetree/base/compatible
-if [ -r "$compatible" ] && tr '\0' '\n' < "$compatible" | grep -Fxq 'mediatek,mt8519'; then
-    export SYSTEMD_FSTAB=/etc/fstab.mt8519
+set -eu
+if storage=$(/usr/bin/pinna-bootctl storage-kind) && [ "$storage" = ubi ]; then
+    export SYSTEMD_FSTAB=/etc/fstab.ubi
 fi
 exec /usr/lib/systemd/system-generators/systemd-fstab-generator "$@"

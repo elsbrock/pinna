@@ -3,12 +3,13 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use pinna_board::StorageKind;
 use pinna_bootctl::bcb::{self, Record};
 use pinna_bootctl::slot::{self, Slot};
 use pinna_bootctl::*;
 
 #[derive(Parser)]
-#[command(about = "Bootloader message and A/B slot control for the MT8163 Echo devices")]
+#[command(about = "Board storage, bootloader message and A/B slot control")]
 struct Cli {
     #[arg(long, default_value = "/dev/disk/by-partlabel/misc")]
     misc: PathBuf,
@@ -32,6 +33,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Print the storage backend this board uses.
+    StorageKind,
     /// Show the current bootloader command.
     Status,
     /// Arm a one-shot "enter fastboot on next boot" (dev safety net). Skipped
@@ -86,6 +89,13 @@ fn slot_image(partdir: &Path, s: Slot) -> anyhow::Result<pinna_image::Footer> {
 
 fn run(cli: &Cli) -> anyhow::Result<()> {
     match &cli.cmd {
+        Cmd::StorageKind => println!(
+            "{}",
+            match pinna_board::storage() {
+                StorageKind::Gpt => "gpt",
+                StorageKind::Ubi => "ubi",
+            }
+        ),
         Cmd::Status => {
             let c = read_command(&cli.misc)?;
             println!("command: {c:?}");

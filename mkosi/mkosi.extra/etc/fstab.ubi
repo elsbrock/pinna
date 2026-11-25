@@ -1,0 +1,2 @@
+# UBI-backed satellites use an existing UBIFS filesystem for persistent /var.
+ubi0:userdata  /var  ubifs  noatime,x-systemd.rw-only  0  0
