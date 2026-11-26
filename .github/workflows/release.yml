@@ -171,12 +171,10 @@ jobs:
           key: ${{ steps.kernel.outputs.cache-primary-key }}
 
       # The models the update manifest serves, named here so that adding a
-      # model to the tree doesn't change a release unnoticed. The Echo Dot
-      # (5th gen) isn't among them until updates on it are verified on a
-      # unit; its installer and FIT ship in the release anyway.
+      # model to the tree doesn't change a release unnoticed.
       - name: Build
         env:
-          PINNA_MODELS: echo-dot-2 echo-2
+          PINNA_MODELS: echo-dot-2 echo-2 echo-dot-5
         run: nix develop -c just models release
 
       - name: Check the files
