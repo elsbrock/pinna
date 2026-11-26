@@ -135,29 +135,58 @@ bootimg-mt8516: initramfs
         --out {{build}}/pinna-boot-mt8516.img
     cargo run -q -p pinna-bootimg -- info {{build}}/pinna-boot-mt8516.img
 
+# boot image (a U-Boot FIT) for the Echo Dot (5th gen): the MT8519 kernel, its device tree and the initramfs (ADR 0035)
+# Amazon's U-Boot picks the configuration by the board revision's name; a C2N6L4 asks for cannoli-pvt-plastic
+# and the device tree is the DVT's, which is the one that has booted on a unit.
+# The image's boot level is pinna_bootimg::BOOT_LEVEL, fit-pack's default.
+fit: initramfs
+    cargo run -q -p pinna-bootimg -- fit-pack \
+        --zimage {{build}}/kernel-mt8519/arch/arm/boot/zImage \
+        --dtb {{build}}/kernel-mt8519/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dtb \
+        --ramdisk {{build}}/initramfs.cpio \
+        --conf cannoli-pvt-plastic=1 --conf conf-1=1 \
+        --out {{build}}/pinna-boot-mt8519.itb
+    cargo run -q -p pinna-bootimg -- fit-info {{build}}/pinna-boot-mt8519.itb
+
 # everything needed for a flash: kernel, wake word models, root filesystem, boot image
 all: kernel models image bootimg
     ls -l {{build}}/pinna-boot.img {{build}}/pinna.root.img
 
-# release artifacts: build/release/{pinna-<version>.root.img, pinna-boot.img, manifest.json(.sig)}
-# PINNA_SUMMARY, PINNA_NOTES_URL and PINNA_MODELS (space-separated) go into the signed manifest (ADR 0022)
+# release artifacts: build/release/{pinna-<version>.root.img, pinna-boot.img, pinna-boot-mt8519.itb, manifest.json(.sig)}
+# PINNA_SUMMARY and PINNA_NOTES_URL go into the signed manifest (ADR 0022). PINNA_MODELS (space-separated,
+# default: every model) are the models it is for; each needs a boot image of its board's format (ADR 0035):
+# pinna-boot.img for the Echo Dot (2nd gen) and the Echo (2nd gen), the FIT (just fit, kernel-mt8519) for the
+# Echo Dot (5th gen). PINNA_MODELS="echo-dot-2 echo-2" is a release without the FIT.
 release: image bootimg
     #!/usr/bin/env bash
     set -euo pipefail
+    models=${PINNA_MODELS:-echo-dot-2 echo-2 echo-dot-5}
     v=$(cargo run -q --release -p pinna-image -- info {{build}}/pinna.root.img | sed -n 's/^version: //p')
     rm -rf {{build}}/release
     mkdir -p {{build}}/release
     cp --reflink=auto {{build}}/pinna.root.img {{build}}/release/pinna-$v.root.img
-    cp {{build}}/pinna-boot.img {{build}}/release/pinna-boot.img
     cargo run -q --release -p pinna-image -- verify {{build}}/release/pinna-$v.root.img
-    args=()
+    args=(--models "${models// /,}")
+    files=("pinna-$v.root.img")
+    case " $models " in
+        *" echo-dot-2 "*|*" echo-2 "*)
+            cp {{build}}/pinna-boot.img {{build}}/release/pinna-boot.img
+            args+=(--boot {{build}}/release/pinna-boot.img)
+            files+=(pinna-boot.img) ;;
+    esac
+    case " $models " in
+        *" echo-dot-5 "*)
+            {{just_executable()}} fit
+            cp {{build}}/pinna-boot-mt8519.itb {{build}}/release/pinna-boot-mt8519.itb
+            args+=(--boot-for echo-dot-5={{build}}/release/pinna-boot-mt8519.itb)
+            files+=(pinna-boot-mt8519.itb) ;;
+    esac
     [ -z "${PINNA_SUMMARY:-}" ] || args+=(--summary "$PINNA_SUMMARY")
     [ -z "${PINNA_NOTES_URL:-}" ] || args+=(--notes-url "$PINNA_NOTES_URL")
-    for m in ${PINNA_MODELS:-}; do args+=(--model "$m"); done
-    cargo run -q --release -p pinna-image -- manifest --boot {{build}}/release/pinna-boot.img \
+    cargo run -q --release -p pinna-image -- manifest \
         --out {{build}}/release "${args[@]}" {{build}}/release/pinna-$v.root.img
     install -m0755 scripts/flash-gen2.sh {{build}}/release/flash-gen2.sh
-    (cd {{build}}/release && sha256sum -- pinna-*.root.img pinna-boot.img manifest.json manifest.json.sig flash-gen2.sh > SHA256SUMS)
+    (cd {{build}}/release && sha256sum -- "${files[@]}" manifest.json manifest.json.sig flash-gen2.sh > SHA256SUMS)
     ls -l {{build}}/release
     cat {{build}}/release/manifest.json
 
@@ -209,6 +238,10 @@ kernel-qemu-arm64:
 # the MT8516 Echos' arm64 kernel and the Echo Dot (3rd gen) device tree (ADR 0031)
 kernel-mt8516:
     kernel/build.sh mt8516
+
+# the Echo Dot (5th gen)'s 32-bit kernel and its device trees (ADR 0035)
+kernel-mt8519:
+    kernel/build.sh mt8519
 
 # boot the x86_64 image under KVM and check it (needs: just kernel-x86 image-x86)
 vm-test-x86: initramfs-x86
