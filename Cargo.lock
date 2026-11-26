@@ -2223,6 +2223,7 @@ dependencies = [
  "libc",
  "pinna-board",
  "pinna-image",
+ "sha2",
  "tempfile",
 ]
 

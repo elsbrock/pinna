@@ -44,6 +44,7 @@ use pinna_board::{Board, BootFormat};
 use pinna_bootctl::bcb;
 use pinna_bootctl::slot::{self, KernelSlots, Slot};
 use pinna_bootctl::storage::Parts;
+use pinna_bootctl::ubi::{UbiIoctl, VolumeUpdate};
 use pinna_http::reqwest;
 use pinna_image::keys::{self, VerifyingKey};
 use pinna_image::manifest::{self as signed, MANIFEST_MAX, SIGNATURE_LEN};
@@ -51,7 +52,7 @@ use pinna_image::version::{self, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
-use writer::{SlotWriter, UbiIoctl, VolumeUpdate};
+use writer::SlotWriter;
 
 pub mod writer;
 

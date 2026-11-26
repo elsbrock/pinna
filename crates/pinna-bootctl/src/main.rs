@@ -65,6 +65,19 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
+    /// Replace a UBI volume with the image on stdin, then read it back and
+    /// print its sha256 (the install from TWRP, ADR 0035). Refuses to start
+    /// when the size doesn't fit.
+    WriteVolume {
+        /// The volume's name, e.g. boot_a.
+        name: String,
+        /// The image's exact size in bytes.
+        #[arg(long)]
+        size: u64,
+        /// The sha256 the volume must read back as.
+        #[arg(long)]
+        sha256: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -145,6 +158,17 @@ fn slot_image(parts: &Parts, s: Slot) -> anyhow::Result<pinna_image::Footer> {
 fn kernel_slots(cli: &Cli) -> slot::KernelSlots {
     let format = pinna_board::detect().map_or(BootFormat::Android, |b| b.bootloader.boot_format());
     slot::KernelSlots::for_format(format, &cli.kernel_slots)
+}
+
+/// The most the board's slot takes for the volume `name`; `None` for a
+/// volume that is no slot or a board Pinna doesn't know.
+fn slot_limit(name: &str) -> Option<u64> {
+    let slots = pinna_board::detect()?.slots;
+    match name.split_once('_')?.0 {
+        "boot" => Some(slots.boot),
+        "system" => Some(slots.root),
+        _ => None,
+    }
 }
 
 fn run(cli: &Cli) -> anyhow::Result<()> {
@@ -300,6 +324,22 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     s.other()
                 );
             }
+        }
+        Cmd::WriteVolume { name, size, sha256 } => {
+            let (node, capacity) = ubi::resolve(&parts(cli), name)?;
+            let sha = ubi::write_volume(
+                &node,
+                capacity,
+                slot_limit(name),
+                *size,
+                sha256.as_deref(),
+                &mut std::io::stdin().lock(),
+                &ubi::UbiIoctl,
+            )?;
+            println!(
+                "wrote {name} ({}): {size} bytes, sha256 {sha}",
+                node.display()
+            );
         }
     }
     Ok(())

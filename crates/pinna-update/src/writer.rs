@@ -8,40 +8,15 @@
 //! [`SlotWriter::file`] once [`SlotWriter::finish`] returned.
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileExt, FileTypeExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use pinna_board::StorageKind;
+use pinna_bootctl::ubi::VolumeUpdate;
 use pinna_image::ReadAt;
-
-/// Starts the replacement of a UBI volume. A trait so a test can record the
-/// call: the ioctl needs a real volume.
-pub trait VolumeUpdate: Send + Sync {
-    /// Erase the volume and expect exactly `size` bytes next.
-    fn start(&self, dev: &File, size: u64) -> io::Result<()>;
-}
-
-/// `UBI_IOCVOLUP`, on the kernel's UBI volume character device.
-pub struct UbiIoctl;
-
-/// `_IOW('O', 0, __s64)` from `<mtd/ubi-user.h>`.
-const UBI_IOCVOLUP: u32 = 0x4008_4F00;
-
-impl VolumeUpdate for UbiIoctl {
-    fn start(&self, dev: &File, size: u64) -> io::Result<()> {
-        let bytes = i64::try_from(size).map_err(|_| io::ErrorKind::InvalidInput)?;
-        // SAFETY: the request takes a pointer to an __s64, which `bytes` is.
-        let r = unsafe { libc::ioctl(dev.as_raw_fd(), UBI_IOCVOLUP as _, &bytes) };
-        if r == 0 {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
-    }
-}
 
 pub struct SlotWriter<'a> {
     file: File,
@@ -168,6 +143,7 @@ fn open_target(path: &Path) -> Result<File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::sync::Mutex;
 
     /// Records the size of each update it was asked to start, and where the
@@ -232,11 +208,5 @@ mod tests {
         w.write(b"ab").unwrap();
         assert!(w.write(b"cd").is_err(), "past the announced size");
         assert!(w.finish().is_err(), "short of it");
-    }
-
-    #[test]
-    fn the_request_is_the_kernels() {
-        // _IOW: write (1 << 30), the size of an __s64, type 'O', number 0.
-        assert_eq!(UBI_IOCVOLUP, (1 << 30) | (8 << 16) | (u32::from(b'O') << 8));
     }
 }

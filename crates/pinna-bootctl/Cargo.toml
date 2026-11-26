@@ -12,6 +12,7 @@ pinna-image = { path = "../pinna-image" }
 anyhow.workspace = true
 clap.workspace = true
 libc.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
