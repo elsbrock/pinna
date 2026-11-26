@@ -13,6 +13,7 @@
   import Toasts from "./lib/Toasts.svelte";
   import { wifi } from "./lib/wifi.svelte.ts";
   import WifiTrial from "./lib/WifiTrial.svelte";
+  import { discussionUrl } from "./lib/report.ts";
   import { displayName, DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
   import Assistant from "./pages/assistant/Assistant.svelte";
   import Conversation from "./pages/assistant/Conversation.svelte";
@@ -115,6 +116,7 @@
       <span>Pinna{s ? ` ${s.version}` : ""}</span>
       <External href={DOCS}>Docs</External>
       <External href="https://github.com/elsbrock/pinna">Source</External>
+      <External href={discussionUrl("general", s ?? null)}>Feedback</External>
     </div>
   </aside>
 

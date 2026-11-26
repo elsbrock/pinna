@@ -4,12 +4,13 @@
   import { client, device, errorSentence } from "../lib/device.svelte.ts";
   import Group from "../lib/Group.svelte";
   import Icon from "../lib/Icon.svelte";
+  import { discussionUrl } from "../lib/report.ts";
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
   import { security } from "../lib/security.svelte.ts";
   import { THEME_LABEL, THEMES, theme } from "../lib/theme.svelte.ts";
   import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
-  import { displayName, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
+  import { displayName, DOCS, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -223,6 +224,40 @@
     </a>
   </Group>
 
+  <Group title="Help">
+    <a class="pn-row" href="#/system/logs">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Report a problem</span>
+        <span class="pn-row-hint">On Logs, Open an issue fills in this satellite's details and copies its log.</span>
+      </span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+    <a class="pn-row" href={discussionUrl("q-a", s)} target="_blank" rel="noreferrer">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Ask a question</span>
+        <span class="pn-row-hint">In Discussions on GitHub</span>
+      </span>
+      <Icon name="external" class="pn-icon pn-row-chev" />
+      <span class="sr">(opens in a new tab)</span>
+    </a>
+    <a class="pn-row" href={discussionUrl("general", s)} target="_blank" rel="noreferrer">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Share feedback</span>
+        <span class="pn-row-hint">What works for you, what doesn't, and what you miss</span>
+      </span>
+      <Icon name="external" class="pn-icon pn-row-chev" />
+      <span class="sr">(opens in a new tab)</span>
+    </a>
+    <a class="pn-row" href={DOCS} target="_blank" rel="noreferrer">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Read the docs</span>
+        <span class="pn-row-hint">Setup, settings and troubleshooting on getpinna.dev</span>
+      </span>
+      <Icon name="external" class="pn-icon pn-row-chev" />
+      <span class="sr">(opens in a new tab)</span>
+    </a>
+  </Group>
+
   <Group title="Power">
     <div class="pn-row">
       <div class="pn-row-text">
@@ -327,6 +362,14 @@
   .inline input {
     flex: 1 1 220px;
     width: auto;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   @media (min-width: 760px) {
     .phone-only {
