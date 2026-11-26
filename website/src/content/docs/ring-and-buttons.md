@@ -3,8 +3,11 @@ title: Light ring and buttons
 description: What each colour and animation of the light ring means, and what the four buttons do.
 ---
 
-The device has no screen. The light ring shows what it is doing, and the four
-buttons on top control it. This page describes both.
+The device has no screen. The light ring shows what it is doing, and the
+buttons on top control it: four on the Echo Dot (2nd gen) and the Echo
+(2nd gen), three and a switch on the Echo Dot (5th gen). This page describes
+both. On the Echo Dot (5th gen), the 12 LEDs of the ring are under the edge of
+its sphere and light the surface it stands on; the animations are the same.
 
 ## Light ring
 
@@ -245,12 +248,17 @@ notification on one device clears it on all of them:
 
 ## Buttons
 
-Seen from above, with the front of the device towards you, the buttons are:
+On the Echo Dot (2nd gen) and the Echo (2nd gen), seen from above with the
+front of the device towards you, the buttons are:
 
 - **Action** (a dot), at the back
 - **Volume down** (−), on the right
 - **Microphone off** (a crossed-out microphone), at the front
 - **Volume up** (+), on the left
+
+The Echo Dot (5th gen) has an Action button, a Volume up button and a Volume
+down button, and a microphone switch. Pinna reads them the same way, so the
+table below applies to it.
 
 | Button | Press | Hold |
 | --- | --- | --- |
@@ -292,7 +300,8 @@ audio from the microphones: it doesn't listen for the wake word, and a request
 that is running stops.
 
 The Echo Dot (2nd gen) and the Echo (2nd gen) have a hardware switch behind
-the **Microphone off** button. It turns the microphones off, and Pinna follows
+the **Microphone off** button. The Echo Dot (5th gen) has a microphone switch
+too. It turns the microphones off, and Pinna follows
 it. You can also turn the microphones off with the **Microphones**
 switch on the [dashboard](/docs/dashboard/), under **Voice & sound** or on
 **Overview**, or with the **Microphone mute** switch in Home Assistant. The

@@ -91,7 +91,7 @@ How the device introduces itself to Home Assistant.
 | --- | --- | --- |
 | `name` | `""` | The node name: the device's ID in the ESPHome connection and in mDNS discovery, shown as **Node name** under **System** on the dashboard. Home Assistant shows `friendly_name` instead. It is also the device's hostname, so `name = "kitchen-dot"` makes it `kitchen-dot.local`. The hostname that someone sets on the dashboard's **Network** page wins over it, so `name` is the developer default. Empty means `pinna-` followed by the last six characters of the Wi-Fi MAC address |
 | `friendly_name` | Not set | The name that Home Assistant shows, until someone [names the device on the dashboard](/docs/settings/#name-the-device), which wins. Not set means the model and the last six characters of the MAC address, for example `Echo Dot 2a914e` |
-| `model` | Not set | The model that the device reports. Not set means the hardware's: `Echo Dot (2nd Gen)` or `Echo (2nd Gen)` |
+| `model` | Not set | The model that the device reports. Not set means the hardware's: `Echo Dot (2nd Gen)`, `Echo (2nd Gen)` or `Echo Dot (5th Gen)` |
 | `manufacturer` | `"Pinna"` | The manufacturer that Home Assistant shows |
 | `suggested_area` | Not set | The area that Home Assistant suggests when you add the device |
 
@@ -103,7 +103,7 @@ How the device introduces itself to Home Assistant.
 | `volume` | `50` | The volume on the first boot, from 0 to 100. After that, Pinna keeps the last volume you set |
 | `speaker_profile` | Not set | The speaker tuning of the audio codec, `"Flat"` or `"Radar"`. Not set means the hardware's: `"Radar"` on the Echo (2nd gen), `"Flat"` otherwise |
 | `wake_sound` | `false` | Plays a short sound when the device starts listening, until someone sets **Wake sound** on the dashboard or in Home Assistant, which wins |
-| `capture_gain_db` | Not set | A fixed gain on the microphone audio before wake word detection and before it goes to Home Assistant or to a standalone request, in dB. It turns off the automatic gain. Not set means automatic gain, which starts at +12 dB on the Echo Dot with PipeWire and at 0 dB otherwise. See [Audio](/docs/audio/) |
+| `capture_gain_db` | Not set | A fixed gain on the microphone audio before wake word detection and before it goes to Home Assistant or to a standalone request, in dB. It turns off the automatic gain. Not set means automatic gain, which starts at +12 dB on an Echo with PipeWire and at 0 dB otherwise. See [Audio](/docs/audio/) |
 | `stream_socket` | `""` in the code, `"/run/pinna/stream.sock"` in the image | A Unix socket that takes live PCM audio into the media lane. See [The stream socket](#the-stream-socket). Empty turns it off |
 | `capture_target` | Not set | The PipeWire node to record from, with the `pipewire` backend. Not set means the default source. The virtual Echo Dot's image sets it to `"dev_mic"` |
 
@@ -114,7 +114,7 @@ first that fits; [Audio](/docs/audio/) explains the audio path.
 
 | Backend | Used when |
 | --- | --- |
-| `echodot-pipewire` | On the Echo (2nd gen) and Echo Dot (2nd gen), when PipeWire runs. The normal case |
+| `echodot-pipewire` | On the Echo (2nd gen), the Echo Dot (2nd gen) and the Echo Dot (5th gen), when PipeWire runs. The normal case |
 | `echodot` | The same, without PipeWire. Microphones and speaker through ALSA |
 | `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. The virtual Echo Dot sets it in its own configuration |
 | `wav:<path>` | Reads the microphone signal from a WAV file. The speaker plays to nothing. For tests |

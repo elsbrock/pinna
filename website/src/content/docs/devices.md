@@ -1,15 +1,16 @@
 ---
 title: Echo devices
-description: The Echo smart speakers Pinna runs on, and where every other Echo without a screen stands.
+description: The Echo smart speakers Pinna runs on, what works on each, and where every other Echo without a screen stands.
 ---
 
-Pinna runs on two Echo devices. This page lists every Echo smart speaker
+Pinna runs on three Echo devices. This page lists every Echo smart speaker
 without a screen, so you can check whether yours runs Pinna before you get
 anything else ready.
 
 To find your Echo, look for the model number on the label on its base. The
-codename is the device's internal name. Fastboot reports it in capitals, for
-example `BISCUIT`, which helps when a label is worn off.
+codename is the device's internal name. On the Echo Dot (2nd gen) and the
+Echo (2nd gen), fastboot reports it in capitals, for example `BISCUIT`, which
+helps when a label is worn off.
 
 ## Supported
 
@@ -17,15 +18,58 @@ example `BISCUIT`, which helps when a label is worn off.
 | --- | --- | --- | --- | --- | --- |
 | Echo Dot (2nd gen) | 2016 | RS03QR | `biscuit` | MediaTek MT8163 | amonet, with Kaeru |
 | Echo (2nd gen) | 2017 | XC56PY | `radar` | MediaTek MT8163 | amonet, with Kaeru |
+| Echo Dot (5th gen) | 2022 | C2N6L4 | `cannoli` | MediaTek MT8519 | [firebreak](https://github.com/Gamer92000/firebreak), built with [cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder) |
 
-If yours is one of these, continue with [What you need](/docs/requirements/).
-It lists the unlocked bootloader, the computer and the backup that you need.
-These docs don't cover the unlock itself.
+What each unlock gives Pinna:
+
+- **Echo Dot (2nd gen) and Echo (2nd gen):** amonet unlocks the bootloader and
+  installs Kaeru, an addition that opens fastboot. Pinna then installs over
+  fastboot.
+- **Echo Dot (5th gen):** the community installer [firebreak](https://github.com/Gamer92000/firebreak), built with
+  [cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder), unlocks the bootloader and installs. There is no fastboot afterwards.
+
+If yours is an Echo Dot (2nd gen) or an Echo (2nd gen), continue with
+[What you need](/docs/requirements/). It lists the unlocked bootloader, the
+computer and the backup that you need. These docs don't cover the unlock
+itself. For the Echo Dot (5th gen), read the section below first.
+
+### Echo Dot (5th gen)
+
+The Echo Dot (5th gen) is a different board from the other two: another
+processor, a 32-bit ARM kernel, and its system on NAND flash instead of eMMC.
+It has no fastboot mode and no USB connector, so the install steps, the
+browser installer and the recovery steps in these docs, which use fastboot and
+USB, don't apply to it.
+
+How it is installed: the community installer
+[firebreak](https://github.com/Gamer92000/firebreak), built with
+[cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder),
+unlocks the bootloader and installs. It needs wires soldered to test pads
+inside the base and one particular Fire OS version. Pinna doesn't ship it and
+has no install guide for this device.
+
+What works, on one unit with model number C2N6L4 (2026-11-26):
+
+- Pinna boots from its own system.
+- The ring works, and Home Assistant controls it.
+- The buttons and the microphone switch are wired.
+- The speaker plays cleanly. The volume follows the curve of Fire OS, the
+  firmware the device ran before.
+- The wake word and a voice request through Home Assistant worked.
+
+Known limits:
+
+- Over-the-air updates aren't available on it yet.
+- Two of its three microphones are captured. The third and the
+  echo-cancelling reference aren't, so talking over music is weak.
+- Wi-Fi setup through the setup hotspot is untested on its Wi-Fi chip, the
+  MediaTek MT7663.
 
 ## Other Echo devices
 
 Pinna doesn't run on any device in this table yet, so you don't need to
-unlock one now. A device needs two things first: a public way to unlock it,
+unlock one now. The Echo Dot with clock (5th gen) and the Echo Pop share the
+Echo Dot (5th gen)'s processor, but Pinna doesn't run on them. A device needs two things first: a public way to unlock it,
 and a port of Pinna to its hardware.
 
 The Echo Dot (3rd gen) is sold as two different boards: model D9N29T from
@@ -49,7 +93,6 @@ the model number on the label.
 | Echo (4th gen) | 2020 | L4S3RE | `laser` | MediaTek MT8512 | None public |
 | Echo Dot (4th gen) | 2020 | B7W64E | `brownie` | MediaTek MT8512 | None public |
 | Echo Dot with clock (4th gen) | 2020 | B7W644 | `ganache` | Not known | None public |
-| Echo Dot (5th gen) | 2022 | C2N6L4 | `cannoli` | MediaTek MT8519 | By hand |
 | Echo Dot with clock (5th gen) | 2022 | C4E8S3 | `cheesecake` | Not known | None public |
 | Echo Pop | 2023 | C2H4R9 | `churro` | MediaTek MT8519 | None public |
 | Echo Dot Max | 2025 | MA49CA | `macaroon` | Amazon AZ3 | None public |
@@ -63,8 +106,6 @@ What the bootloader unlock column means:
 - **Debug pads**: the device starts from an SD card wired to test pads on its
   base. This works on the earlier units; Amazon disabled the pads on the 2017
   edition.
-- **By hand**: the unlock works, but there's no tool for it. On the Echo Dot
-  (5th gen) it needs soldered wires and one particular Fire OS version.
 - **None public**: nobody has published a way to unlock it.
 - **Not tried**: the Echo Input Portable has the Echo Input's codename, but
   nobody has reported unlocking one.

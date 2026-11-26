@@ -5,8 +5,10 @@ description: What works in Pinna today, what is known to be missing or rough, an
 
 Pinna is in early development. You can build it, install it on an Echo
 (2nd gen) or an Echo Dot (2nd gen) and use it with Home Assistant, or on its
-own in [standalone mode](/docs/standalone/), and with its own dashboard. Parts
-of it are still being tuned on real hardware.
+own in [standalone mode](/docs/standalone/), and with its own dashboard. It
+also runs on an Echo Dot (5th gen); see
+[Echo devices](/docs/devices/#echo-dot-5th-gen). Parts of it are still being
+tuned on real hardware.
 
 Until Pinna 1.0, how it works and how you set it up can change from one
 release to the next, standalone mode most of all. The release notes say what
@@ -18,8 +20,9 @@ changed. What owners report shapes these changes; see
 These parts are covered by tests that run without hardware:
 
 - The kernel, the signed root filesystem image and the boot image build from
-  the repository. The kernel is Debian's 6.12 with the MT8163 board support
-  ported to it.
+  the repository. The kernel is Debian's 6.12 with the board support of the
+  MT8163 (the Echo (2nd gen) and the Echo Dot (2nd gen)) and of the MT8519 (the
+  Echo Dot (5th gen)) ported to it.
 - The image boots in a virtual machine, in both the ARM and the x86_64
   version, and its services, SSH, the Home Assistant API, the dashboard and
   the [Prometheus metrics](/docs/metrics/) come up.
@@ -89,8 +92,9 @@ On the devices:
 
 ## Known gaps
 
-- **The microphone stream hasn't run on a satellite yet.** It averages the
-  seven microphones and cancels the satellite's own sound. On recordings from
+- **The microphone stream hasn't run on a satellite yet.** On an Echo
+  (2nd gen) or an Echo Dot (2nd gen), it averages the seven microphones and
+  cancels the satellite's own sound. On recordings from
   an Echo Dot (2nd gen) it removed about 26 dB of the satellite's music and
   speech. See [Audio](/docs/audio/).
 - **The dashboard's password is optional, and it travels unencrypted.** Until
@@ -114,6 +118,8 @@ On the devices:
 - **On a Kaeru from before 22 October 2026, updates don't change the kernel.**
   That Kaeru loads `boot_a` for both slots, and updates leave `boot_a`
   alone. Install new kernels from fastboot.
+- **The Echo Dot (5th gen) has been tried on one unit only.** Its known limits
+  are on [Echo devices](/docs/devices/#echo-dot-5th-gen).
 - **The setup hotspot hasn't run on an Echo yet**, and its password,
   `pinnasetup`, is the same on every device. While a device has no saved
   network, anyone in range who knows the password can join its hotspot, use

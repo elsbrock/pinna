@@ -3,6 +3,14 @@ title: Recover a device
 description: Get back into fastboot, recover from a failed update or a device that doesn't start, and restore your backup.
 ---
 
+On the Echo (2nd gen) and the Echo Dot (2nd gen), the bootloader opens
+fastboot when you hold **Volume Down** while you connect the device, whatever
+software is installed. The Echo Dot (5th gen) has no fastboot mode: if it
+doesn't start, it stays in [rescue mode](#rescue-mode), and getting it
+running again needs the same by-hand route as its install, through the pads
+inside its base. Keep the backup you made when you unlocked it. The rest of
+this page is for the other two.
+
 The bootloader opens fastboot when you hold **Volume Down** while you connect
 the device, whatever software is installed. From fastboot, you can install
 Pinna again or restore your backup. This page covers each situation, from the

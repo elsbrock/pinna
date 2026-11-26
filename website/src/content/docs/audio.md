@@ -12,7 +12,8 @@ speaker are connected to make that work.
 
 ## The hardware
 
-The microphones and the speaker run on two separate clocks:
+On the Echo (2nd gen) and the Echo Dot (2nd gen), the microphones and the
+speaker run on two separate clocks:
 
 - **The speaker** is connected to an audio codec that only plays at 48 kHz.
 - **The seven microphones** arrive through a separate interface at 16 kHz,
@@ -22,6 +23,14 @@ The microphones and the speaker run on two separate clocks:
 Because the two clocks drift apart, Pinna doesn't route both through one
 audio graph. The speaker stays with `pinnad`, and the microphones run in
 PipeWire.
+
+The Echo Dot (5th gen) is wired differently. Its speaker plays at 96 kHz:
+Pinna keeps mixing at 48 kHz and doubles the rate just before the speaker.
+Its three microphones arrive at 96 kHz, and PipeWire brings them down to
+16 kHz, with a graph of its own. The wake word hears the three microphones
+averaged. The microphone level, the beam and the echo canceller haven't been
+measured on this device. See [Echo devices](/docs/devices/#echo-dot-5th-gen)
+for what is captured today.
 
 ## Microphones
 
@@ -89,7 +98,8 @@ While the voice lane plays, and while the device listens or works on a
 request, the media lane gets 20 dB quieter, and returns afterwards.
 
 The speaker of the Echo (2nd gen) and the Echo Dot (2nd gen) plays one
-channel only, so `pinnad` mixes stereo audio to mono before it plays it.
+channel only, so `pinnad` mixes stereo audio to mono before it plays it. It
+does the same on the Echo Dot (5th gen).
 Nothing panned to one side goes missing.
 
 Live audio runs on the sender's clock, and the speaker on the device's own.
@@ -118,8 +128,10 @@ more audio before it continues, so a slow reply pauses less often.
 ## Volume
 
 The volume runs from 0 to 100 and is applied digitally. 0 is silent, 1 is about
-−60 dB and 100 is about −12 dB. The Echo Dot's speaker gets 6 dB more, and
-above 70 also the extra gain of its stock firmware, up to +14.5 dB at 100. A
+−60 dB and 100 is about −12 dB. The Echo Dot (2nd gen)'s speaker gets 6 dB
+more, and above 70 also the extra gain of its stock firmware, up to +14.5 dB
+at 100. On the Echo Dot (5th gen), the volume follows the steps of Fire OS's
+curve instead, with no extra gain. A
 limiter holds the peaks just under full scale, so loud replies and music
 don't clip.
 

@@ -4,7 +4,9 @@ description: Build the boot image and the signed root filesystem image that you 
 ---
 
 This page shows how to build the two files you install on an Echo (2nd gen)
-or an Echo Dot (2nd gen): the boot image and the root filesystem image.
+or an Echo Dot (2nd gen): the boot image and the root filesystem image. The
+Echo Dot (5th gen) boots a different boot image, in the FIT format, built
+from the same root filesystem image. How to install it isn't documented yet.
 [Releases](https://github.com/elsbrock/pinna/releases) carry prebuilt ones;
 build your own to develop Pinna or to sign with a key of your own.
 

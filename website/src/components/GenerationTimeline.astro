@@ -4,16 +4,17 @@
 // design/devices/; the others are flat silhouettes with their own details, in
 // the page's greys, so they never look like Amazon's product photos or show a
 // lit ring. The Echo (1st gen) is not planned: its single Cortex-A8 is too
-// slow for Pinna's audio; later generations are wanted: nobody works on them
-// yet, and help is welcome.
+// slow for Pinna's audio; the 3rd and 4th generations are wanted: nobody works
+// on them yet, and help is welcome. The 5th gen Dot is supported.
 import DeviceDrawing from "./DeviceDrawing.astro";
 import { drawingFor } from "../../../design/devices/index.ts";
 
 type Status = "supported" | "working" | "wanted" | "unplanned";
 type Ghost = "echo-1" | "dot-1" | "echo-3" | "dot-3" | "echo-4" | "dot-4";
-type Model = { name: string; drawing?: "echo-2" | "echo-dot-2"; ghost?: Ghost; tag?: string };
+type Drawn = "echo-2" | "echo-dot-2" | "echo-dot-5";
+type Model = { name: string; drawing?: Drawn; ghost?: Ghost; tag?: string };
 
-const generations: { gen: string; year: string; status: Status; models: Model[] }[] = [
+const generations: { gen: string; year: string; status: Status; chip?: string; models: Model[] }[] = [
   { gen: "1st gen", year: "2014", status: "unplanned", models: [{ name: "Echo (1st gen)", ghost: "echo-1" }] },
   {
     gen: "2nd gen",
@@ -43,6 +44,12 @@ const generations: { gen: string; year: string; status: Status; models: Model[] 
       { name: "Echo Dot (4th gen)", ghost: "dot-4" },
     ],
   },
+  {
+    gen: "5th gen",
+    year: "2022",
+    status: "supported",
+    models: [{ name: "Echo Dot (5th gen)", drawing: "echo-dot-5" }],
+  },
 ];
 
 const label: Record<Status, string> = {
@@ -54,7 +61,7 @@ const label: Record<Status, string> = {
 
 // Widths in millimetres of each silhouette's viewBox, for true scale.
 const ghostWidth: Record<Ghost, number> = { "echo-1": 92, "dot-1": 92, "echo-3": 107, "dot-3": 107, "echo-4": 152, "dot-4": 108 };
-const drawingWidth = (m: "echo-2" | "echo-dot-2") => {
+const drawingWidth = (m: Drawn) => {
   const st = drawingFor(m)!.stage;
   return st.view.w / st.mm;
 };
@@ -151,7 +158,7 @@ const drawingWidth = (m: "echo-2" | "echo-dot-2") => {
           <span class="gen-name">
             {g.gen} <span class="year">{g.year}</span>
           </span>
-          {label[g.status] && <span class="chip-status">{label[g.status]}</span>}
+          <span class="chip-status">{g.chip ?? label[g.status]}</span>
           <span class="models">{g.models.map((m) => m.name).join(", ")}</span>
         </div>
       </div>
@@ -165,7 +172,7 @@ const drawingWidth = (m: "echo-2" | "echo-dot-2") => {
     --mm: 0.62px;
     position: relative;
     display: grid;
-    grid-template-columns: repeat(4, minmax(9rem, 1fr));
+    grid-template-columns: repeat(5, minmax(9rem, 1fr));
     gap: 0 12px;
     overflow-x: auto;
     padding-bottom: 6px;
@@ -362,7 +369,7 @@ const drawingWidth = (m: "echo-2" | "echo-dot-2") => {
   @media (max-width: 639px) {
     .gens {
       --mm: 0.5px;
-      grid-template-columns: repeat(4, 8.5rem);
+      grid-template-columns: repeat(5, 8.5rem);
     }
 
     .gen {

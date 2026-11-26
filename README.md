@@ -2,7 +2,7 @@
 
 An open, local-first voice satellite OS for Echo smart speakers: the
 **Echo (2nd gen)** and **Echo Dot (2nd gen)** (MediaTek MT8163), and, with
-limits, the **Echo Dot (5th gen)** (MediaTek MT8519). More Echo models are
+the **Echo Dot (5th gen)** (MediaTek MT8519). More Echo models are
 planned.
 
 Pinna turns the device into a voice satellite with an on-device wake word,
@@ -34,13 +34,8 @@ own, backs the device up first, and every step says how to undo it.
 
 The Echo Dot (5th gen) is different. It has no fastboot mode and no USB
 connector, and its unlock needs wires soldered to test pads. Pinna doesn't
-ship it. Pinna has no install guide
-for it yet. What was tried on one unit (2026-11-26): Pinna boots, the ring, the
-buttons and the microphone switch work, the speaker plays cleanly, and the
-wake word and a voice request through Home Assistant worked. Two of its three
-microphones are captured and the echo-cancelling reference isn't, so talking
-over music is weak. Updates over the air aren't available on it yet, and the
-setup hotspot is unmeasured on its Wi-Fi chip. See ADR 0035 in `docs/adr/`.
+ship it and has no install guide for it yet. What works, and the known limits,
+are in `website/src/content/docs/devices.md`. See ADR 0035 in `docs/adr/`.
 
 ## Layout
 

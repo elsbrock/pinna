@@ -57,6 +57,22 @@ const MODELS = [
       before it writes anything.
     </p>
 
+    <div class="pn-notice mt-8" data-tone="caution">
+      <Icon name="board" class="pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">The Echo Dot (5th gen) doesn't install here</p>
+        <p>
+          It has no fastboot mode and no USB connector, so this page can't
+          write to it. Pinna can run on it only after a community unlock of its
+          bootloader (firebreak, built with cannoli-os-builder), which needs
+          wires soldered to test pads. Pinna doesn't
+          ship that unlock, and has no install guide for the Echo Dot (5th gen)
+          yet. See <a class="link" href={docHref("devices")}>Echo devices</a>
+          for what works on it.
+        </p>
+      </div>
+    </div>
+
     <div id="install-unsupported" class="pn-notice mt-8" data-tone="danger" hidden>
       <Icon name="close" class="pn-notice-icon" />
       <div class="pn-notice-body">

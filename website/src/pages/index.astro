@@ -35,12 +35,13 @@ const goals = [
     >
       <div>
         <h1 class="font-display text-ink text-display-l sm:text-display-xl max-w-2xl text-balance">
-          A local voice satellite for your Echo and Echo&nbsp;Dot
+          A local voice satellite for your Echo
         </h1>
 
         <p class="text-ink-muted text-body-l mt-5 max-w-xl">
-          Pinna is an open-source operating system for Echo speakers. It
-          detects the wake word on the device and
+          Pinna is an open-source operating system for Echo speakers: the Echo
+          Dot (2nd gen), the Echo (2nd gen) and the Echo Dot
+          (5th gen). It detects the wake word on the device and
           sends your request to your own Home Assistant, or, in standalone mode,
           to the speech services and the language model or AI agent you choose.
           It doesn't use Amazon's services.
@@ -234,7 +235,8 @@ const goals = [
           <div class="fact">
             <span class="fact-title">Always a way back</span>
             <span class="fact-say">
-              Fastboot stays reachable on every start, and your backup restores the original firmware.
+              On the Echo Dot (2nd gen) and the Echo (2nd gen), fastboot stays reachable on every start, and your
+              backup restores the original firmware.
             </span>
           </div>
         </div>
@@ -248,8 +250,9 @@ const goals = [
       <p class="eyebrow">Devices</p>
       <h2 class="section-title">Supported devices</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        Pinna runs on the second generation: the Echo (2nd gen) and the Echo
-        Dot (2nd gen), on one image.
+        Pinna runs on the Echo (2nd gen) and the Echo Dot (2nd gen), which
+        install from the browser, and on the Echo Dot (5th gen), which
+        installs with a community installer. More Echos will follow.
       </p>
 
       <div class="mt-12">
@@ -260,7 +263,8 @@ const goals = [
         <div>
           <p class="text-ink font-semibold">Help bring Pinna to more Echos</p>
           <p class="text-ink-muted text-body mt-1">
-            Contributions to support more devices are welcome. Bringing one up
+            Contributions to support more devices are welcome. The Echo Dot
+            (5th gen) shows what that takes. Bringing one up
             takes its device tree, board support for its audio, microphones
             and ring, and a device to test on. If you have one, say so.
           </p>
@@ -297,16 +301,19 @@ const goals = [
             <span class="text-ink-muted text-body">
               Pinna installs on an Echo whose bootloader is unlocked. Back it
               up first if you want to go back to its current firmware later.
+              The Echo Dot (5th gen) needs a community unlock first, which
+              Pinna doesn't ship.
             </span>
           </li>
           <li>
             <span class="node">2</span>
             <span class="text-ink block font-semibold">Install from the browser</span>
             <span class="text-ink-muted text-body">
-              The installer downloads the newest release, checks its signature
-              and writes it over USB. From a terminal,
+              For the Echo Dot (2nd gen) and the Echo (2nd gen), the installer
+              downloads the newest release, checks its signature and writes it
+              over USB. From a terminal,
               <code class="font-mono text-sm">scripts/flash-gen2.sh</code> does
-              the same.
+              the same. The Echo Dot (5th gen) doesn't install this way.
             </span>
           </li>
           <li>
@@ -324,8 +331,8 @@ const goals = [
           <div class="card p-6">
             <p class="text-ink font-semibold">The installer</p>
             <p class="text-ink-muted text-body mt-2">
-              Choose your device, plug it in, and install. The page checks the
-              device first and asks you before it writes anything. It runs in
+              Choose your Echo Dot (2nd gen) or Echo (2nd gen), plug it in, and
+              install. The page checks the device first and asks you before it writes anything. It runs in
               Chrome, Edge, Brave or Opera on a computer.
             </p>
             <a class="pn-btn pn-btn-primary pn-btn-lg mt-5" href={href("/install/")}>
