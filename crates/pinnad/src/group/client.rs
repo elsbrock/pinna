@@ -16,6 +16,7 @@ use buffa::Message;
 use connectrpc::client::{CallOptions, ClientConfig, HttpClient};
 use connectrpc::{ConnectError, ErrorCode};
 use pinna_api::{PeerEnvelope, PeerJoinRequest, PeerJoinResponse, PeerServiceClient};
+use pinna_http::{NetError, trace};
 use tokio::time::Instant;
 
 use super::envelope::{self, Rpc};
@@ -109,7 +110,7 @@ impl Client {
         request: PeerJoinRequest,
         deadline: Duration,
     ) -> Result<PeerJoinResponse, Failed> {
-        self.reach(to, deadline, |client, options| {
+        self.reach(to, "Join", deadline, |client, options| {
             let request = request.clone();
             async move {
                 let answer = client.join_with_options(request, options).await?;
@@ -135,7 +136,7 @@ impl Client {
     ) -> Result<Resp, Failed> {
         let call = envelope::seal(group, own_mac, rpc.call(), body);
         let answer = self
-            .reach(to, deadline, |client, options| {
+            .reach(to, rpc.name(), deadline, |client, options| {
                 let call = call.clone();
                 async move {
                     let answer = match rpc {
@@ -154,8 +155,15 @@ impl Client {
     /// Run `call` against each of `to`'s addresses in turn, until one is
     /// reached, all within `deadline`. Only a failure to connect moves on to
     /// the next address: an answer, even a refusal, is the member's. With no
-    /// address to try, nothing answered.
-    async fn reach<T, F, Fut>(&self, to: &To, deadline: Duration, call: F) -> Result<T, Failed>
+    /// address to try, nothing answered. Each address tried is a request for
+    /// the debugging timeline, named `name`; no body is recorded.
+    async fn reach<T, F, Fut>(
+        &self,
+        to: &To,
+        name: &str,
+        deadline: Duration,
+        call: F,
+    ) -> Result<T, Failed>
     where
         F: Fn(PeerServiceClient<HttpClient>, CallOptions) -> Fut,
         Fut: Future<Output = Result<T, ConnectError>>,
@@ -172,14 +180,34 @@ impl Client {
             })?;
             let client = PeerServiceClient::new(self.http.clone(), ClientConfig::new(uri));
             let options = CallOptions::default().with_timeout(left);
+            let trace = trace::start(trace::Kind::Peer, name, &format!("http://{address}"));
             match tokio::time::timeout(left, call(client, options)).await {
                 Err(_) => {
+                    if let Some(trace) = trace {
+                        trace.end(trace::Outcome::Failed(NetError::Timeout));
+                    }
                     return Err(Failed::Unreachable(ConnectError::deadline_exceeded(
                         format!("{address} didn't answer within {deadline:?}"),
                     )));
                 }
-                Ok(Err(e)) if !connected(&e) => last = Some(e),
-                Ok(done) => return done.map_err(classify),
+                Ok(Err(e)) if !connected(&e) => {
+                    if let Some(trace) = trace {
+                        trace.end(trace::Outcome::Failed(NetError::Unreachable));
+                    }
+                    last = Some(e);
+                }
+                Ok(done) => {
+                    if let Some(trace) = trace {
+                        // A refusal is the member's answer, with its status.
+                        let status = done
+                            .as_ref()
+                            .err()
+                            .map_or(200, |e| e.code.http_status().as_u16());
+                        trace.response(status);
+                        trace.end(trace::Outcome::Done);
+                    }
+                    return done.map_err(classify);
+                }
             }
         }
         Err(Failed::Unreachable(last.unwrap_or_else(|| {

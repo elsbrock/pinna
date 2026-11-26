@@ -21,6 +21,16 @@ pub enum Rpc {
 }
 
 impl Rpc {
+    /// The RPC's name, for the debugging timeline.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::GetGroup => "GetGroup",
+            Self::PutGroup => "PutGroup",
+            Self::Deliver => "Deliver",
+            Self::Call => "Call",
+        }
+    }
+
     /// The purpose of a call to it.
     pub fn call(self) -> &'static str {
         match self {
