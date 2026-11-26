@@ -185,8 +185,10 @@
             {:else if wifi.hotspot}
               No saved networks. The satellite runs its setup hotspot, <strong>{wifi.hotspot}</strong>, with the
               password <code class="pn-code">pinnasetup</code>, until it joins one.
-            {:else}
+            {:else if usbModel}
               No saved networks: the satellite is reachable over USB only.
+            {:else}
+              No saved networks, and no setup hotspot runs.
             {/if}
           </span>
         {/if}
@@ -369,11 +371,13 @@
       {#if forgettingCurrent && othersSaved}
         It disconnects from it now and tries the other saved networks, so a page opened over Wi-Fi may lose it.
       {:else if forgettingCurrent && wifi.hasHotspot}
-        It disconnects from it now and has no other network then: it runs its setup hotspot, and is reachable over
-        USB at <code class="pn-code">http://10.42.0.1/</code>.
-      {:else if forgettingCurrent}
+        It disconnects from it now and has no other network then: it runs its setup hotspot{#if usbModel}, and is
+        reachable over USB at <code class="pn-code">http://10.42.0.1/</code>{/if}.
+      {:else if forgettingCurrent && usbModel}
         It disconnects from it now and has no other network then: it is reachable over USB only, at
         <code class="pn-code">http://10.42.0.1/</code>.
+      {:else if forgettingCurrent}
+        It disconnects from it now and has no other network then.
       {/if}
     </p>
   </Confirm>

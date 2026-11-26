@@ -14,7 +14,7 @@
   import { wifi } from "./lib/wifi.svelte.ts";
   import WifiTrial from "./lib/WifiTrial.svelte";
   import { discussionUrl } from "./lib/report.ts";
-  import { displayName, DOCS, health, healthWord, ringEffect } from "./lib/view.ts";
+  import { displayName, DOCS, hasUsb, health, healthWord, ringEffect } from "./lib/view.ts";
   import Assistant from "./pages/assistant/Assistant.svelte";
   import Conversation from "./pages/assistant/Conversation.svelte";
   import SatelliteGroupPage from "./pages/assistant/SatelliteGroupPage.svelte";
@@ -34,6 +34,7 @@
   import WakeWords from "./pages/WakeWords.svelte";
 
   const s = $derived(device.status);
+  const usb = $derived(hasUsb(s?.model ?? ""));
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
   const ring = $derived(ringEffect(s, device.link, device.testStep));
   const page = $derived(pageOf(router.path));
@@ -144,8 +145,9 @@
       <div class="pn-banner" data-tone="neutral" role="status">
         <Icon name="restart" />
         <p>
-          Resetting. The satellite restarts as it was installed. If its image doesn't set up Wi-Fi, it is then at
-          <code class="pn-code">http://10.42.0.1/</code> over USB only; otherwise this page reconnects on its own.
+          Resetting. The satellite restarts as it was installed. If its image doesn't set up Wi-Fi, it is then{#if usb}
+          at <code class="pn-code">http://10.42.0.1/</code> over USB only{:else}
+          on its setup hotspot{/if}; otherwise this page reconnects on its own.
         </p>
       </div>
     {:else if device.restarting && device.link !== "live"}
@@ -185,8 +187,8 @@
       <div class="pn-banner" role="status">
         <Icon name="alert" />
         <p>
-          {line.text}. Check that it has power and Wi-Fi; over USB it is at
-          <code class="pn-code">http://10.42.0.1/</code>. This page keeps trying.
+          {line.text}. Check that it has power and Wi-Fi{#if usb}; over USB it is at
+          <code class="pn-code">http://10.42.0.1/</code>{/if}. This page keeps trying.
         </p>
       </div>
     {/if}

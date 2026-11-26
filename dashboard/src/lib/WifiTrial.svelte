@@ -4,12 +4,13 @@
 <script lang="ts">
   import { device } from "./device.svelte.ts";
   import Icon from "./Icon.svelte";
-  import { mmss } from "./view.ts";
+  import { hasUsb, mmss } from "./view.ts";
   import { wifi } from "./wifi.svelte.ts";
 
   const t = $derived(wifi.trial);
   const left = $derived(wifi.keepLeft(device.now));
   const overUsb = location.hostname === "10.42.0.1";
+  const usbModel = $derived(hasUsb(device.status?.model ?? ""));
 </script>
 
 {#if t}
@@ -29,8 +30,10 @@
           Otherwise it goes back to {t.fallback} in {mmss(left)}.
         {:else if wifi.hasHotspot}
           Otherwise it leaves {t.ssid} in {mmss(left)}, and runs its setup hotspot again.
-        {:else}
+        {:else if usbModel}
           Otherwise it leaves {t.ssid} in {mmss(left)}, and is reachable over USB only.
+        {:else}
+          Otherwise it leaves {t.ssid} in {mmss(left)}, and has no other network.
         {/if}
       </p>
       <div class="actions">

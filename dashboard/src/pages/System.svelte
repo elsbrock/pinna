@@ -10,7 +10,7 @@
   import { THEME_LABEL, THEMES, theme } from "../lib/theme.svelte.ts";
   import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
-  import { displayName, DOCS, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
+  import { displayName, DOCS, hasUsb, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -333,8 +333,12 @@
         : ""}.
     </p>
     <p>
-      If its image doesn't set up Wi-Fi, it is then reachable over USB only, at
-      <code class="pn-code">http://10.42.0.1/</code>.
+      {#if hasUsb(s.model)}
+        If its image doesn't set up Wi-Fi, it is then reachable over USB only, at
+        <code class="pn-code">http://10.42.0.1/</code>.
+      {:else}
+        If its image doesn't set up Wi-Fi, it then runs its setup hotspot.
+      {/if}
       {#if !s.apiKeyFromImage}Home Assistant shows it as unavailable until you add it again.{/if}
     </p>
     <div class="pn-field">

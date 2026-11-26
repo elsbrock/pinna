@@ -6,10 +6,11 @@
   import { network } from "../lib/network.svelte.ts";
   import SignalBars from "../lib/SignalBars.svelte";
   import WifiPanel from "../lib/WifiPanel.svelte";
-  import { band, bitrate, interfaceLabel, signalWord, wifiConnected, wifiIssue } from "../lib/view.ts";
+  import { band, bitrate, hasUsb, interfaceLabel, signalWord, wifiConnected, wifiIssue } from "../lib/view.ts";
 
   $effect(() => network.watch());
   const net = $derived(network.current);
+  const usb = $derived(hasUsb(device.status?.model ?? ""));
   const wireless = $derived(network.wireless);
   const issue = $derived(net ? wifiIssue(wireless) : null);
   // Wi-Fi first; every interface gets its own group.
@@ -136,7 +137,7 @@
 
   <WifiPanel />
 
-  <Group title="Name and USB">
+  <Group title={usb ? "Name and USB" : "Name"}>
     <form
       class="pn-row is-stack"
       onsubmit={(e) => {
@@ -226,6 +227,7 @@
         </span>
       </div>
     </form>
+    {#if usb}
     <div class="pn-row">
       <span class="pn-row-icon"><Icon name="usb" /></span>
       <div class="pn-row-text">
@@ -235,6 +237,7 @@
         </span>
       </div>
     </div>
+    {/if}
   </Group>
 {:else if network.error && device.link === "live"}
   <p class="pn-field-error" role="alert"><Icon name="alert" />Can't read the network: {network.error}</p>
