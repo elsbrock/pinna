@@ -346,6 +346,10 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* Frosted white plastic: pale when dark, tinted by whatever LEDs are lit. */
 .pn-drawing .band { fill: none; stroke: color-mix(in oklab, var(--puck) 28%, white); stroke-width: 5; }
 .pn-drawing .band-edge { fill: none; stroke: color-mix(in oklab, var(--puck) 60%, black); stroke-width: 0.75; }
+/* Echo Dot (5th gen): the same plastic, round the bottom of its sphere, rounded by a shade. */
+.pn-drawing .band-side { fill: color-mix(in oklab, var(--puck) 28%, white); }
+.pn-drawing .band-shade-edge { stop-color: black; stop-opacity: 0.35; }
+.pn-drawing .band-shade-mid { stop-color: black; stop-opacity: 0; }
 .pn-drawing .led, .pn-drawing .led-glow { fill: none; stroke-linecap: butt; }
 .pn-drawing .led { stroke-width: 7; }
 .pn-drawing .led-glow { stroke-width: 12; }
