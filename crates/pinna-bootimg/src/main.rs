@@ -67,6 +67,10 @@ enum Cmd {
         /// C2N6L4 boots `cannoli-pvt-plastic`). The first is the default.
         #[arg(long = "conf", value_name = "NAME=N")]
         confs: Vec<String>,
+        /// The boot level the image provides, stored in the FIT's root node
+        /// (ADR 0022). Default: this tree's BOOT_LEVEL.
+        #[arg(long)]
+        level: Option<u32>,
         #[arg(long)]
         out: PathBuf,
     },
@@ -226,6 +230,7 @@ fn main() -> Result<()> {
             dtb,
             ramdisk,
             confs: named,
+            level,
             out,
         } => {
             let read =
@@ -296,7 +301,7 @@ fn main() -> Result<()> {
                     recovery: true,
                 }));
             }
-            let itb = fit::build(
+            let itb = fit::build_with_level(
                 "Pinna Echo Dot (5th gen) (cannoli)",
                 &z,
                 &dtbs,
@@ -304,6 +309,7 @@ fn main() -> Result<()> {
                 &confs,
                 fit::LOAD_ADDR,
                 fit::ENTRY_ADDR,
+                Some(level.unwrap_or(pinna_bootimg::BOOT_LEVEL)),
             )?;
             fs::write(&out, &itb)?;
             println!(

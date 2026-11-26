@@ -475,7 +475,7 @@ pub mod fit {
 
     /// Build a FIT image from a 32-bit `zImage`, the board device trees, an
     /// optional ramdisk, and the configurations. `default` is the first
-    /// configuration.
+    /// configuration. The image has no boot level; see [`build_with_level`].
     pub fn build(
         description: &str,
         zimage: &[u8],
@@ -484,6 +484,35 @@ pub mod fit {
         configs: &[Conf],
         load: u32,
         entry: u32,
+    ) -> Result<Vec<u8>> {
+        build_with_level(
+            description,
+            zimage,
+            dtbs,
+            ramdisk,
+            configs,
+            load,
+            entry,
+            None,
+        )
+    }
+
+    /// The FIT root property that holds the boot level (ADR 0035). The
+    /// sha256 hashes cover the images, so a root property doesn't touch them.
+    pub const LEVEL_PROP: &str = "pinna,boot-level";
+
+    /// [`build`], with the boot level the image provides stored in the root
+    /// node's [`LEVEL_PROP`] (ADR 0022).
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_with_level(
+        description: &str,
+        zimage: &[u8],
+        dtbs: &[Dtb],
+        ramdisk: Option<&[u8]>,
+        configs: &[Conf],
+        load: u32,
+        entry: u32,
+        level: Option<u32>,
     ) -> Result<Vec<u8>> {
         ensure!(is_zimage(zimage), "the kernel is not a 32-bit zImage");
         ensure!(!dtbs.is_empty(), "no device tree");
@@ -514,6 +543,9 @@ pub mod fit {
         w.begin_node(""); // root
         w.prop_str("description", description);
         w.prop_u32("#address-cells", 1);
+        if let Some(level) = level {
+            w.prop_u32(LEVEL_PROP, level);
+        }
 
         w.begin_node("images");
         w.begin_node("kernel-1");
@@ -709,6 +741,62 @@ pub mod fit {
             let v = self.prop(name)?;
             Some(u32::from_be_bytes(v.get(..4)?.try_into().ok()?))
         }
+    }
+
+    /// The boot level in a FIT's root node. It reads the root's properties
+    /// only, but their names are in the strings block at the end of the FIT,
+    /// so `data` must be the whole image, not a head. `None` when `data`
+    /// isn't a FIT or has no level.
+    pub fn level(data: &[u8]) -> Option<u32> {
+        let be = |o: usize| Some(u32::from_be_bytes(data.get(o..o + 4)?.try_into().ok()?));
+        if be(0)? != FDT_MAGIC {
+            return None;
+        }
+        let (off_struct, off_strings) = (be(8)? as usize, be(12)? as usize);
+        let align = |p: usize| (p + 3) & !3;
+        let mut pos = off_struct;
+        if be(pos)? != FDT_BEGIN_NODE {
+            return None;
+        }
+        pos = align(pos + 4 + data.get(pos + 4..)?.iter().position(|&c| c == 0)? + 1);
+        loop {
+            match be(pos)? {
+                FDT_NOP => pos += 4,
+                FDT_PROP => {
+                    let (len, name_off) = (be(pos + 4)? as usize, be(pos + 8)? as usize);
+                    let names = data.get(off_strings + name_off..)?;
+                    let name = &names[..names.iter().position(|&c| c == 0)?];
+                    if name == LEVEL_PROP.as_bytes() {
+                        return Some(u32::from_be_bytes(
+                            data.get(pos + 12..pos + 12 + len)?.try_into().ok()?,
+                        ));
+                    }
+                    pos = align(pos + 12 + len);
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// The root `compatible` strings of each device tree (`fdt-N`) in a FIT,
+    /// in image order, so the updater can check the FIT is for its board.
+    pub fn compatibles(data: &[u8]) -> Result<Vec<Vec<String>>> {
+        let root = parse(data)?;
+        let images = root
+            .child("images")
+            .ok_or_else(|| anyhow::anyhow!("the FIT has no images node"))?;
+        images
+            .children
+            .iter()
+            .filter(|n| n.name.starts_with("fdt-"))
+            .map(|n| {
+                let dtb = n
+                    .prop("data")
+                    .ok_or_else(|| anyhow::anyhow!("{} has no data", n.name))?;
+                super::arm64::root_compatibles(dtb)
+                    .ok_or_else(|| anyhow::anyhow!("{} is not a device tree", n.name))
+            })
+            .collect()
     }
 
     /// Parse a FIT (an FDT) into its root node.
@@ -931,10 +1019,34 @@ pub fn default_cmdline() -> String {
     format!("{BOOTOPT} {LEVEL_TAG}{BOOT_LEVEL}")
 }
 
-/// The boot level an image provides: `pinna.level=` in its header's command
-/// line, 1 for an image without one (all from before ADR 0022). `None` when
-/// it isn't a boot image.
+/// What kind of boot image some bytes are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Format {
+    /// An Android boot image (`ANDROID!`).
+    Android,
+    /// A U-Boot FIT (a flattened device tree, [`fit`]).
+    Fit,
+}
+
+/// The format of a boot image, by its magic; `None` for anything else.
+pub fn format(image: &[u8]) -> Option<Format> {
+    if image.starts_with(MAGIC) {
+        Some(Format::Android)
+    } else if image.starts_with(&DTB_MAGIC.to_be_bytes()) {
+        Some(Format::Fit)
+    } else {
+        None
+    }
+}
+
+/// The boot level an image provides: `pinna.level=` in an Android image's
+/// header command line, `pinna,boot-level` in a FIT's root node, 1 for an
+/// image without one (all from before ADR 0022). `None` when it isn't a boot
+/// image.
 pub fn level(image: &[u8]) -> Option<u32> {
+    if format(image) == Some(Format::Fit) {
+        return Some(fit::level(image).unwrap_or(1));
+    }
     if image.len() < CMDLINE.end || &image[..8] != MAGIC {
         return None;
     }
@@ -954,6 +1066,10 @@ pub fn level(image: &[u8]) -> Option<u32> {
 /// partition LK really loaded.
 pub fn tag_slot(image: &mut [u8], slot: char) -> Result<()> {
     ensure!(slot == 'a' || slot == 'b', "not a slot: {slot:?}");
+    ensure!(
+        format(image) != Some(Format::Fit),
+        "a FIT carries no slot tag (the kernel's slot is the root's slot, ADR 0035)"
+    );
     ensure!(
         image.len() >= CMDLINE.end && &image[..8] == MAGIC,
         "not a boot image (no ANDROID! magic)"
@@ -975,8 +1091,11 @@ pub fn tag_slot(image: &mut [u8], slot: char) -> Result<()> {
     Ok(())
 }
 
-/// The boot partition an image is marked for, if any.
+/// The boot partition an image is marked for, if any. A FIT has none.
 pub fn slot_tag(image: &[u8]) -> Option<char> {
+    if format(image) != Some(Format::Android) {
+        return None;
+    }
     let line = cstr(image.get(CMDLINE)?);
     String::from_utf8_lossy(&line)
         .split_whitespace()
@@ -1496,5 +1615,155 @@ mod tests {
         );
         // No device tree at all.
         assert!(fit::build("x", &z, &[], None, &[conf(0)], 0, 0).is_err());
+    }
+
+    /// A device tree with only a root `compatible`.
+    fn dtb_compatible(compatible: &str) -> Vec<u8> {
+        let mut value = compatible.as_bytes().to_vec();
+        value.push(0);
+        let mut structs = Vec::new();
+        structs.extend_from_slice(&1u32.to_be_bytes()); // FDT_BEGIN_NODE, ""
+        structs.extend_from_slice(&[0; 4]);
+        structs.extend_from_slice(&3u32.to_be_bytes()); // FDT_PROP
+        structs.extend_from_slice(&(value.len() as u32).to_be_bytes());
+        structs.extend_from_slice(&0u32.to_be_bytes());
+        structs.extend_from_slice(&value);
+        while structs.len() % 4 != 0 {
+            structs.push(0);
+        }
+        structs.extend_from_slice(&2u32.to_be_bytes()); // FDT_END_NODE
+        structs.extend_from_slice(&9u32.to_be_bytes()); // FDT_END
+        let strings = b"compatible\0";
+        let off_struct = 56u32;
+        let off_strings = off_struct + structs.len() as u32;
+        let total = off_strings + strings.len() as u32;
+        let mut d = Vec::new();
+        for v in [DTB_MAGIC, total, off_struct, off_strings, 40, 17, 16, 0] {
+            d.extend_from_slice(&v.to_be_bytes());
+        }
+        d.extend_from_slice(&(strings.len() as u32).to_be_bytes());
+        d.extend_from_slice(&(structs.len() as u32).to_be_bytes());
+        d.extend_from_slice(&[0; 16]);
+        d.extend_from_slice(&structs);
+        d.extend_from_slice(strings);
+        d
+    }
+
+    fn fit_with_level(level: Option<u32>) -> Vec<u8> {
+        let z = fake_zimage(2048);
+        let (hvt, pvt) = (dtb_compatible("cannoli-hvt"), dtb_compatible("cannoli-pvt"));
+        fit::build_with_level(
+            "test",
+            &z,
+            &[
+                fit::Dtb {
+                    description: "cannoli-hvt",
+                    data: &hvt,
+                },
+                fit::Dtb {
+                    description: "cannoli-pvt",
+                    data: &pvt,
+                },
+            ],
+            None,
+            &[fit::Conf {
+                node: "conf-1",
+                description: "x",
+                fdt: 0,
+                recovery: false,
+            }],
+            fit::LOAD_ADDR,
+            fit::ENTRY_ADDR,
+            level,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn fit_level_is_a_root_property() {
+        // Absent means 1, as for an Android image without a level.
+        assert_eq!(level(&fit_with_level(None)), Some(1));
+        let itb = fit_with_level(Some(3));
+        assert_eq!(level(&itb), Some(3));
+        assert_eq!(fit::parse(&itb).unwrap().prop_u32(fit::LEVEL_PROP), Some(3));
+    }
+
+    #[test]
+    fn fit_level_leaves_the_image_hashes_valid() {
+        let z = fake_zimage(2048);
+        let itb = fit_with_level(Some(2));
+        let root = fit::parse(&itb).unwrap();
+        let kernel = root.child("images").unwrap().child("kernel-1").unwrap();
+        assert_eq!(kernel.prop("data").unwrap(), z.as_slice());
+        assert_eq!(
+            kernel.child("hash-1").unwrap().prop("value").unwrap(),
+            sha2::Sha256::digest(&z).as_slice()
+        );
+    }
+
+    #[test]
+    fn formats_by_magic() {
+        assert_eq!(format(&fit_with_level(None)), Some(Format::Fit));
+        let android = BootImage {
+            header: Header::default(),
+            kernel: vec![1; 16],
+            ramdisk: vec![2; 16],
+            second: Vec::new(),
+            id: [0; 32],
+        }
+        .to_bytes(None)
+        .unwrap();
+        assert_eq!(format(&android), Some(Format::Android));
+        assert_eq!(format(b"hello world"), None);
+        assert_eq!(format(&[]), None);
+        assert_eq!(level(b"hello world"), None);
+    }
+
+    #[test]
+    fn a_fit_carries_no_slot_tag() {
+        let mut itb = fit_with_level(None);
+        let err = tag_slot(&mut itb, 'a').unwrap_err().to_string();
+        assert!(err.contains("a FIT carries no slot tag"), "{err}");
+        assert_eq!(slot_tag(&itb), None);
+        assert!(
+            tag_slot(&mut b"hello".to_vec(), 'a')
+                .unwrap_err()
+                .to_string()
+                .contains("not a boot image")
+        );
+    }
+
+    #[test]
+    fn fit_device_tree_compatibles() {
+        let itb = fit_with_level(None);
+        assert_eq!(
+            fit::compatibles(&itb).unwrap(),
+            vec![
+                vec!["cannoli-hvt".to_string()],
+                vec!["cannoli-pvt".to_string()]
+            ]
+        );
+        // A device tree that isn't one is refused.
+        let z = fake_zimage(2048);
+        let bad = fake_dtb(128);
+        let itb = fit::build(
+            "x",
+            &z,
+            &[fit::Dtb {
+                description: "x",
+                data: &bad,
+            }],
+            None,
+            &[fit::Conf {
+                node: "conf-1",
+                description: "x",
+                fdt: 0,
+                recovery: false,
+            }],
+            0,
+            0,
+        )
+        .unwrap();
+        assert!(fit::compatibles(&itb).is_err());
     }
 }
