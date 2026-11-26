@@ -407,6 +407,9 @@ pub struct WifiPaths {
     /// The board's chip joins WPA3 and networks that require management
     /// frame protection.
     pub sae: bool,
+    /// The board has a USB connector the owner can reach the satellite
+    /// through. The Echo Dot (5th gen) has none (ADR 0035).
+    pub usb: bool,
 }
 
 impl Default for WifiPaths {
@@ -419,6 +422,9 @@ impl Default for WifiPaths {
             trial_mark: "/run/pinna/wifi-trial".into(),
             has_radio: pinna_hal::board::detect().is_some(),
             sae: pinna_hal::board::detect().is_some_and(|b| b.wifi.supports_sae()),
+            usb: pinna_hal::board::detect().is_some_and(|b| {
+                matches!(b.bootloader, pinna_hal::board::Bootloader::Kaeru { .. })
+            }),
         }
     }
 }
@@ -1122,6 +1128,17 @@ enum Tried {
 /// Try `j` (ADR 0008): add it, select it, and wait up to `timeout` for an
 /// IPv4 address. With one, it is on trial; without, back to the saved
 /// networks with the reason.
+/// What a failed join says when there is no network to go back to.
+fn no_other_network(hotspot: bool, usb: bool) -> String {
+    if hotspot {
+        " The satellite has no other network now: it runs its setup hotspot again.".to_owned()
+    } else if usb {
+        " The satellite has no other network now: it is reachable over USB.".to_owned()
+    } else {
+        " The satellite has no other network now.".to_owned()
+    }
+}
+
 async fn run_join(
     shared: &Shared,
     ctrl: &Ctrl,
@@ -1270,11 +1287,7 @@ async fn run_join(
         )
     };
     let back = if fallback.is_empty() {
-        if shared.before_join.get().is_some() {
-            " The satellite has no other network now: it runs its setup hotspot again.".to_owned()
-        } else {
-            " The satellite has no other network now: it is reachable over USB.".to_owned()
-        }
+        no_other_network(shared.before_join.get().is_some(), shared.paths.usb)
     } else {
         format!(" Back on {fallback}.")
     };
@@ -1417,6 +1430,7 @@ pub mod fake {
                 trial_mark: self.dir.join("trial"),
                 has_radio: true,
                 sae: false,
+                usb: true,
             }
         }
 
@@ -1737,6 +1751,13 @@ mod tests {
         assert!(cmds.contains(&"SET_NETWORK 3 key_mgmt SAE".to_owned()));
         assert!(cmds.contains(&"SET_NETWORK 3 sae_password \"correct horse\"".to_owned()));
         assert!(cmds.contains(&"SET_NETWORK 3 ieee80211w 2".to_owned()));
+    }
+
+    #[test]
+    fn usb_is_named_only_on_a_board_that_has_it() {
+        assert!(no_other_network(false, true).contains("USB"));
+        assert!(!no_other_network(false, false).contains("USB"));
+        assert!(no_other_network(true, false).contains("hotspot"));
     }
 
     fn wifi(fake: &Fake, keep_for: Duration) -> Wifi {

@@ -15,7 +15,7 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::rescue::{ADDRESS, DOCS, FASTBOOT, Info, reboot_now};
+use crate::rescue::{ADDRESS, DOCS, Info, reboot_now};
 
 const PSTORE: &str = "/sys/fs/pstore";
 const ISSUES: &str = "https://github.com/elsbrock/pinna/issues";
@@ -215,7 +215,7 @@ fn page(info: &Info) -> String {
 <title>Pinna rescue</title><style>{STYLE}</style>\
 <h1>Pinna rescue mode</h1>\
 <p>{explain}</p><pre>{reason}: {detail}</pre>\
-<h2>To fix it</h2><p>{fix} {FASTBOOT} See <a href=\"{DOCS}\">Rescue mode</a> in the docs.</p>\
+<h2>To fix it</h2><p>{fix} {recovery} See <a href=\"{DOCS}\">Rescue mode</a> in the docs.</p>\
 <p><a href=/diagnostics.txt download>Download diagnostics</a>: pinna-init's log, the kernel \
 log, the slot records, the previous boot's records and the partitions, in one text file. To \
 report the problem, <a href=\"{ISSUES}\">open an issue</a> and attach it. Issues are public: \
@@ -223,12 +223,18 @@ read the file first. It holds the device's serial number and the kernel log.</p>
 <form method=post action=/restart><button>Restart</button> boots the same way, and ends here \
 again unless something changed. Download the diagnostics first: a restart replaces the previous \
 boot's records.</form>\
-<p>A root shell is on the USB serial port: <code>picocom -b 115200 /dev/ttyACM0</code>.</p>\
+{shell}\
 <h2>pinna-init's log</h2><pre>{log}</pre>",
         explain = escape(info.reason.explain()),
         reason = info.reason,
         detail = escape(&info.detail),
-        fix = escape(info.reason.fix(&info.detail)),
+        fix = escape(&info.fix()),
+        recovery = escape(info.recovery()),
+        shell = if info.has_usb() {
+            "<p>A root shell is on the USB serial port: <code>picocom -b 115200 /dev/ttyACM0</code>.</p>"
+        } else {
+            ""
+        },
         log = escape(&log),
     )
 }
@@ -330,6 +336,7 @@ mod tests {
         Info {
             reason: Reason::NoRoot,
             detail: "slot a: <bad> signature".into(),
+            bootloader: Some(pinna_board::ECHO_DOT_2.bootloader),
         }
     }
 
@@ -445,6 +452,15 @@ mod tests {
         assert!(!p.contains("<bad>"));
         assert!(p.contains("action=/restart"));
         assert!(p.contains("Volume Down"));
+        assert!(p.contains("/dev/ttyACM0"));
+        let dot5 = Info {
+            bootloader: Some(pinna_board::ECHO_DOT_5.bootloader),
+            ..info()
+        };
+        let p = page(&dot5);
+        assert!(!p.contains("Volume Down"));
+        assert!(!p.contains("ttyACM0"));
+        assert!(p.contains("community installer"));
         assert!(p.contains("#rescue-mode"));
         let r = restarting();
         assert!(r.contains("content=\"20;url=/\""));

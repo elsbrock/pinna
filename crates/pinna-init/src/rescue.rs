@@ -24,6 +24,7 @@ use std::thread::{self, sleep};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use pinna_board::Bootloader;
 use pinna_bootctl::stages;
 
 use crate::http;
@@ -93,26 +94,45 @@ impl Reason {
         }
     }
 
-    /// What usually fixes it, from fastboot ([`FASTBOOT`]).
-    pub fn fix(self, detail: &str) -> &'static str {
+    /// What usually fixes it. `fastboot`: the board has it, so a fix is a
+    /// flash; elsewhere the fix is the same image and [`recovery`] says how
+    /// it gets there.
+    pub fn fix(self, detail: &str, fastboot: bool) -> String {
+        let flash = if fastboot { "Flash" } else { "Install" };
         match self {
-            Reason::NoStorage => {
-                "The kernel in the boot image usually can't drive the storage. Flash a boot \
+            Reason::NoStorage => format!(
+                "The kernel in the boot image usually can't drive the storage. {flash} a boot \
                  image that worked before."
-            }
-            Reason::NoRoot if detail.contains("signature") => {
+            ),
+            Reason::NoRoot if detail.contains("signature") => format!(
                 "The boot image and the root filesystems were signed with different keys. \
-                 Flash a boot image and a root filesystem from the same build."
-            }
+                 {flash} a boot image and a root filesystem from the same build."
+            ),
             Reason::NoRoot | Reason::NoSystem => {
-                "Flash a root filesystem, and a boot image from the same build."
+                format!("{flash} a root filesystem, and a boot image from the same build.")
             }
-            Reason::Crashed(_) => "Flash a boot image that worked before.",
+            Reason::Crashed(_) => format!("{flash} a boot image that worked before."),
         }
     }
 }
 
-/// How to open fastboot, where every fix starts.
+/// How a fix reaches the satellite, from its bootloader (`None`: a board
+/// Pinna doesn't know). Only the MT8163 and MT8516 Echos' LK has fastboot; on
+/// the Echo Dot (5th gen) the way back is the community installer's
+/// preloader route over the USB test pads inside the base (ADR 0035), which
+/// the satellite can't describe further.
+pub fn recovery(bootloader: Option<Bootloader>) -> &'static str {
+    match bootloader {
+        Some(Bootloader::Kaeru { .. }) => FASTBOOT,
+        Some(Bootloader::AmazonUboot) => {
+            "This satellite has no fastboot. Install the image with the community installer, \
+             over the USB test pads inside the base."
+        }
+        None => "Pinna doesn't know this board, so it can't say how to install an image.",
+    }
+}
+
+/// How to open fastboot, where every fix on a Kaeru board starts.
 pub const FASTBOOT: &str =
     "Open fastboot: unplug the device, hold Volume Down, and plug it in again.";
 /// Where the docs describe rescue mode.
@@ -140,6 +160,35 @@ impl Failure {
 pub struct Info {
     pub reason: Reason,
     pub detail: String,
+    /// The board's bootloader, which decides what the text can tell the owner
+    /// to do: fastboot and a USB cable exist only on some boards.
+    pub bootloader: Option<Bootloader>,
+}
+
+impl Info {
+    pub fn fix(&self) -> String {
+        let fastboot = self.bootloader.and_then(Bootloader::fastboot_product);
+        self.reason.fix(&self.detail, fastboot.is_some())
+    }
+
+    pub fn recovery(&self) -> &'static str {
+        recovery(self.bootloader)
+    }
+
+    /// The rescue gadget's USB cable: the Echo Dot (5th gen) has no USB
+    /// connector (ADR 0035), so its page and shells don't send the owner there.
+    pub fn has_usb(&self) -> bool {
+        self.bootloader != Some(Bootloader::AmazonUboot)
+    }
+
+    /// Where the shell's owner reads the logs.
+    pub fn logs(&self) -> String {
+        if self.has_usb() {
+            format!("http://{ADDRESS} over this USB cable, or: dmesg | grep pinna-init")
+        } else {
+            "dmesg | grep pinna-init".into()
+        }
+    }
 }
 
 /// busybox, open (close-on-exec) after it left the initramfs, for a switch
@@ -247,6 +296,7 @@ pub fn run(failure: Failure, ring: &Ring) -> ! {
     let info = Arc::new(Info {
         reason,
         detail: format!("{error:#}"),
+        bootloader: pinna_board::detect().map(|b| b.bootloader),
     });
     {
         let info = Arc::clone(&info);
@@ -458,13 +508,15 @@ fn spawn_shell(bb: &str, tty: &str, info: &Info) -> std::io::Result<u32> {
     let _ = write!(
         t,
         "\r\nPinna rescue mode ({reason}): {detail}\r\n{explain}\r\n\r\n\
-         To fix it: {fix}\r\n{FASTBOOT}\r\n{DOCS}\r\n\r\n\
-         Logs: http://{ADDRESS} over this USB cable, or: dmesg | grep pinna-init\r\n\
+         To fix it: {fix}\r\n{recovery}\r\n{DOCS}\r\n\r\n\
+         Logs: {logs}\r\n\
          Restart: reboot\r\n\r\n",
         reason = info.reason,
         detail = info.detail,
         explain = info.reason.explain(),
-        fix = info.reason.fix(&info.detail),
+        fix = info.fix(),
+        recovery = info.recovery(),
+        logs = info.logs(),
     );
     let mut cmd = Command::new(bb);
     cmd.args(["sh", "-i"])
@@ -503,14 +555,42 @@ mod tests {
         assert_eq!(Reason::Crashed(2).as_str(), "crashed");
         assert!(
             Reason::NoRoot
-                .fix("slot a: footer signature does not verify")
+                .fix("slot a: footer signature does not verify", true)
                 .contains("keys")
         );
         assert!(
             !Reason::NoRoot
-                .fix("slot a: no erofs superblock")
+                .fix("slot a: no erofs superblock", true)
                 .contains("keys")
         );
+    }
+
+    #[test]
+    fn fastboot_and_the_cable_appear_only_where_the_board_has_them() {
+        use pinna_board::{ECHO_DOT_2, ECHO_DOT_5};
+        let info = |b: Option<&pinna_board::Board>| Info {
+            reason: Reason::NoRoot,
+            detail: String::new(),
+            bootloader: b.map(|b| b.bootloader),
+        };
+        let dot2 = info(Some(&ECHO_DOT_2));
+        assert_eq!(dot2.recovery(), FASTBOOT);
+        assert!(dot2.fix().starts_with("Flash"));
+        assert!(dot2.has_usb());
+        for i in [info(Some(&ECHO_DOT_5)), info(None)] {
+            for text in [i.recovery().to_owned(), i.fix()] {
+                assert!(!text.contains("Volume Down"), "{text}");
+                assert!(
+                    !text.contains("fastboot") || text.contains("no fastboot"),
+                    "{text}"
+                );
+                assert!(!text.contains("Flash"), "{text}");
+            }
+        }
+        let dot5 = info(Some(&ECHO_DOT_5));
+        assert!(dot5.recovery().contains("community installer"));
+        assert!(!dot5.has_usb());
+        assert!(!dot5.logs().contains("USB"));
     }
 
     #[test]
