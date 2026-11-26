@@ -50,16 +50,49 @@ pub struct UbiIoctl;
 /// `_IOW('O', 0, __s64)` from `<mtd/ubi-user.h>`.
 const UBI_IOCVOLUP: u32 = 0x4008_4F00;
 
+/// How often, and how far apart, an exclusive UBI request is tried while the
+/// volume is open elsewhere: about a second in all.
+const BUSY_TRIES: u32 = 20;
+const BUSY_WAIT: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Runs `op` again while it fails with EBUSY, up to `tries` times. The UBI
+/// requests that replace data (`UBI_IOCVOLUP`, `UBI_IOCEBCH`) need the volume
+/// to themselves, and fail at once while anyone else holds it open, even to
+/// read: pinnad reads `misc` and the system volumes whenever the dashboard
+/// asks for the update state, which it polls every 5 s.
+fn retry_busy<T>(
+    tries: u32,
+    wait: std::time::Duration,
+    mut op: impl FnMut() -> io::Result<T>,
+) -> io::Result<T> {
+    let mut left = tries.max(1);
+    loop {
+        match op() {
+            Err(e) if e.raw_os_error() == Some(libc::EBUSY) && left > 1 => {
+                left -= 1;
+                std::thread::sleep(wait);
+            }
+            other => return other,
+        }
+    }
+}
+
+/// One ioctl call, its failure as the OS error.
+fn ioctl_result(r: libc::c_int) -> io::Result<()> {
+    if r == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 impl VolumeUpdate for UbiIoctl {
     fn start(&self, dev: &File, size: u64) -> io::Result<()> {
         let bytes = i64::try_from(size).map_err(|_| io::ErrorKind::InvalidInput)?;
-        // SAFETY: the request takes a pointer to an __s64, which `bytes` is.
-        let r = unsafe { libc::ioctl(dev.as_raw_fd(), UBI_IOCVOLUP as _, &bytes) };
-        if r == 0 {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
+        retry_busy(BUSY_TRIES, BUSY_WAIT, || {
+            // SAFETY: the request takes a pointer to an __s64, which `bytes` is.
+            ioctl_result(unsafe { libc::ioctl(dev.as_raw_fd(), UBI_IOCVOLUP as _, &bytes) })
+        })
     }
 }
 
@@ -180,13 +213,11 @@ pub fn write_at(f: &File, data: &[u8], offset: u64) -> Result<()> {
         dtype: 3, // UBI_UNKNOWN; the kernel ignores it
         padding: [0; 7],
     };
-    // SAFETY: the request is a valid struct ubi_leb_change_req for the call.
-    let r = unsafe { libc::ioctl(f.as_raw_fd(), UBI_IOCEBCH as _, &req) };
-    ensure!(
-        r == 0,
-        "starting the UBI LEB change: {}",
-        std::io::Error::last_os_error()
-    );
+    retry_busy(BUSY_TRIES, BUSY_WAIT, || {
+        // SAFETY: the request is a valid struct ubi_leb_change_req for the call.
+        ioctl_result(unsafe { libc::ioctl(f.as_raw_fd(), UBI_IOCEBCH as _, &req) })
+    })
+    .context("starting the UBI LEB change")?;
     // The kernel writes the LEB once it has all `bytes`.
     (&*f).write_all(&leb).context("writing the UBI LEB")?;
     Ok(())
@@ -235,6 +266,40 @@ const UBI_IOCEBCH: u32 = 0x4004_4F02;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_busy_volume_is_tried_again_and_other_errors_are_not() {
+        use std::cell::Cell;
+        use std::time::Duration;
+        let busy = || io::Error::from_raw_os_error(libc::EBUSY);
+        // Busy twice, then free: the third try succeeds.
+        let n = Cell::new(0);
+        let r = super::retry_busy(5, Duration::ZERO, || {
+            n.set(n.get() + 1);
+            if n.get() < 3 { Err(busy()) } else { Ok(7) }
+        });
+        assert_eq!((r.unwrap(), n.get()), (7, 3));
+        // Busy throughout: it gives up after the tries, with EBUSY.
+        n.set(0);
+        let r: io::Result<()> = super::retry_busy(4, Duration::ZERO, || {
+            n.set(n.get() + 1);
+            Err(busy())
+        });
+        assert_eq!(
+            (r.unwrap_err().raw_os_error(), n.get()),
+            (Some(libc::EBUSY), 4)
+        );
+        // Anything else fails at once.
+        n.set(0);
+        let r: io::Result<()> = super::retry_busy(4, Duration::ZERO, || {
+            n.set(n.get() + 1);
+            Err(io::Error::from_raw_os_error(libc::EROFS))
+        });
+        assert_eq!(
+            (r.unwrap_err().raw_os_error(), n.get()),
+            (Some(libc::EROFS), 1)
+        );
+    }
+
     use super::*;
     use pinna_board::StorageKind;
     use std::sync::Mutex;
