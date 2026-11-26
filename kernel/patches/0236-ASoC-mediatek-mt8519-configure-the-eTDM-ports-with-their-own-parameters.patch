@@ -1,0 +1,160 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 16:40:00 +0100
+Subject: [PATCH] ASoC: mediatek: mt8519: configure the eTDM ports with their
+ own parameters
+
+Amazon's driver configured its back ends from dai->rate, dai->channels
+and dai->sample_bits: the back end's own parameters, after the machine
+driver's fixup. 6.12 names these dai->symmetric_rate, _channels and
+_sample_bits (set at hw_params, cleared at hw_free, as before). The port
+read substream->runtime instead, which a DPCM back end shares with its
+front end, so a back end got the front end's format: eTDM2, fixed at
+32 bits for the MAX98396, was set up for DL2's 16-bit samples.
+
+Read the DAI's parameters again, as Amazon's driver did.
+
+---
+--- a/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
++++ b/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
+@@ -901,9 +901,9 @@
+ 	struct mt8519_afe_private *afe_priv = afe->platform_priv;
+ 	struct mt8519_etdm_data *etdm_data =
+ 		&afe_priv->etdm_data[etdm_set];
+-	unsigned int rate = substream->runtime->rate;
+-	unsigned int channels = substream->runtime->channels;
+-	unsigned int bit_width = substream->runtime->sample_bits;
++	unsigned int rate = dai->symmetric_rate;
++	unsigned int channels = dai->symmetric_channels;
++	unsigned int bit_width = dai->symmetric_sample_bits;
+ 	unsigned int stream = SNDRV_PCM_STREAM_PLAYBACK;
+ 
+ 	dev_info(dai->dev, "%s#%u rate:%u ch:%u bits:%u slave:%d data:%u\n",
+@@ -925,9 +925,9 @@
+ 	struct mt8519_afe_private *afe_priv = afe->platform_priv;
+ 	struct mt8519_etdm_data *etdm_data =
+ 		&afe_priv->etdm_data[etdm_set];
+-	unsigned int rate = substream->runtime->rate;
+-	unsigned int channels = substream->runtime->channels;
+-	unsigned int bit_width = substream->runtime->sample_bits;
++	unsigned int rate = dai->symmetric_rate;
++	unsigned int channels = dai->symmetric_channels;
++	unsigned int bit_width = dai->symmetric_sample_bits;
+ 	unsigned int stream = SNDRV_PCM_STREAM_CAPTURE;
+ 
+ 	dev_info(dai->dev, "%s#%u rate:%u ch:%u bits:%u slave:%d data:%u\n",
+@@ -1000,7 +1000,7 @@
+ 	unsigned int stream = substream->stream;
+ 	bool reset_in_change = (stream == SNDRV_PCM_STREAM_CAPTURE) ||
+ 		(clk_mode == MT8519_ETDM_SHARED_CLOCK);
+-	unsigned int rate = substream->runtime->rate;
++	unsigned int rate = dai->symmetric_rate;
+ 	bool need_tuner = false;
+ 	bool slave_mode = etdm_data->slave_mode[stream];
+ 
+@@ -1073,7 +1073,7 @@
+ 		(clk_mode == MT8519_ETDM_SHARED_CLOCK);
+ 	bool need_tuner = false;
+ 	bool slave_mode = etdm_data->slave_mode[stream];
+-	unsigned int rate = substream->runtime->rate;
++	unsigned int rate = dai->symmetric_rate;
+ 	unsigned int mclk = afe_priv->etdm_data[etdm_set].mclk_freq[stream];
+ 	int ret;
+ 
+@@ -1226,7 +1226,7 @@
+ 		(clk_mode == MT8519_ETDM_SHARED_CLOCK);
+ 	bool need_tuner = false;
+ 	bool slave_mode = etdm_data->slave_mode[stream];
+-	unsigned int rate = substream->runtime->rate;
++	unsigned int rate = dai->symmetric_rate;
+ 
+ 	dev_info(dai->dev, "%s stream %u clk_mode %u occupied %d\n",
+ 		__func__, stream, clk_mode, etdm_data->occupied[stream]);
+@@ -1333,7 +1333,7 @@
+ 		(clk_mode == MT8519_ETDM_SHARED_CLOCK);
+ 	bool need_tuner = false;
+ 	bool slave_mode = etdm_data->slave_mode[stream];
+-	unsigned int rate = substream->runtime->rate;
++	unsigned int rate = dai->symmetric_rate;
+ 	unsigned int mclk = afe_priv->etdm_data[etdm_set].mclk_freq[stream];
+ 	int ret;
+ 
+@@ -2143,7 +2143,7 @@
+ 	bool lrck_inv = afe_priv->pcm_intf_data.lrck_inv;
+ 	bool bck_inv = afe_priv->pcm_intf_data.bck_inv;
+ 	unsigned int fmt = afe_priv->pcm_intf_data.format;
+-	unsigned int bit_width = substream->runtime->sample_bits;
++	unsigned int bit_width = dai->symmetric_sample_bits;
+ 	unsigned int val = 0;
+ 	int fs;
+ 
+@@ -2323,7 +2323,7 @@
+ 					struct snd_pcm_substream *substream,
+ 					struct snd_soc_dai *dai)
+ {
+-	unsigned int channels = substream->runtime->channels;
++	unsigned int channels = dai->symmetric_channels;
+ 	unsigned int val = 0;
+ 	unsigned int msk = 0;
+ 
+@@ -2442,8 +2442,8 @@
+ {
+ 	struct mt8519_afe_private *afe_priv = afe->platform_priv;
+ 	struct mt8519_dmic_data *dmic_data = &afe_priv->dmic_data;
+-	unsigned int rate = substream->runtime->rate;
+-	unsigned int channels = substream->runtime->channels;
++	unsigned int rate = dai->symmetric_rate;
++	unsigned int channels = dai->symmetric_channels;
+ 	bool two_wire_mode = dmic_data->two_wire_mode;
+ 	unsigned int clk_phase_sel_ch1 = dmic_data->clk_phase_sel_ch1;
+ 	unsigned int clk_phase_sel_ch2 = dmic_data->clk_phase_sel_ch2;
+@@ -2587,7 +2587,7 @@
+ 	struct mtk_base_afe *afe = snd_soc_dai_get_drvdata(dai);
+ 	struct mt8519_afe_private *afe_priv = afe->platform_priv;
+ 	unsigned int stream = substream->stream;
+-	unsigned int rate = substream->runtime->rate;
++	unsigned int rate = dai->symmetric_rate;
+ 
+ 	dev_dbg(dai->dev, "%s, rate:%u\n", __func__, rate);
+ 
+@@ -2617,7 +2617,7 @@
+ {
+ 	struct mtk_base_afe *afe = snd_soc_dai_get_drvdata(dai);
+ 	unsigned int stream = substream->stream;
+-	unsigned int rate = substream->runtime->rate;
++	unsigned int rate = dai->symmetric_rate;
+ 
+ 	dev_info(dai->dev, "%s stream %d, rate = %d\n", __func__, stream, rate);
+ 
+@@ -5365,12 +5365,12 @@
+ 	int ret = 0;
+ 
+ 	dev_dbg(dai->dev, "%s ch:%d bits:%d period_size:%lu\n",
+-		__func__, substream->runtime->channels, substream->runtime->sample_bits,
++		__func__, dai->symmetric_channels, dai->symmetric_sample_bits,
+ 		runtime->period_size);
+ 
+ 	ret = mt8519_afe_configure_multi_in(afe,
+-					    substream->runtime->channels,
+-					    substream->runtime->sample_bits,
++					    dai->symmetric_channels,
++					    dai->symmetric_sample_bits,
+ 					    runtime->period_size,
+ 					    true);
+ 
+@@ -5436,12 +5436,12 @@
+ 	int ret = 0;
+ 
+ 	dev_dbg(dai->dev, "%s ch:%d bits:%d period_size:%lu\n",
+-		__func__, substream->runtime->channels, substream->runtime->sample_bits,
++		__func__, dai->symmetric_channels, dai->symmetric_sample_bits,
+ 		runtime->period_size);
+ 
+ 	ret = mt8519_afe_configure_multi_in(afe,
+-					    substream->runtime->channels,
+-					    substream->runtime->sample_bits,
++					    dai->symmetric_channels,
++					    dai->symmetric_sample_bits,
+ 					    runtime->period_size,
+ 					    false);
+ 
