@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 12:45:00 +0100
+Subject: [PATCH] arm: dts: mediatek: run the Echo Dot (5th gen) SDIO at 50 MHz
+
+At SDR104 (200 MHz) the MT7663 accepted its ROM patch and N9 firmware over
+SDIO, then answered no command: mt7663s timed out starting the N9 firmware
+and btmtksdio timed out enabling Bluetooth, on cold and warm starts, with
+SDIO interrupts or polling. In high speed mode at 50 MHz both start, and
+Bluetooth scans (C2N6L4, 2026-11-26). Drop the UHS modes until SDR104
+tuning works on this host.
+
+---
+--- a/arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi
++++ b/arch/arm/boot/dts/mediatek/mt8519-amzn.dtsi
+@@ -103,12 +103,14 @@
+ 	pinctrl-3 = <&mmc1_pins_dat1>;
+ 	eint-gpios = <&pio 79 0>;
+ 	bus-width = <4>;
+-	max-frequency = <200000000>;
++	/*
++	 * High speed at 50 MHz. At SDR104 the MT7663 took its firmware but
++	 * answered no command once it ran: Wi-Fi's N9 start and Bluetooth's
++	 * WMT enable timed out (C2N6L4, 2026-11-26).
++	 */
++	max-frequency = <50000000>;
+ 	cap-sd-highspeed;
+ 	cap-sdio-async-int;
+-	sd-uhs-sdr104;
+-	sd-uhs-sdr50;
+-	sd-uhs-sdr25;
+ 	keep-power-in-suspend;
+ 	enable-sdio-wakeup;
+ 	cap-sdio-irq;
