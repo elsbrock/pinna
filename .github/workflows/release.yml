@@ -145,6 +145,8 @@ jobs:
             build/kernel/arch/arm/boot/zImage
             build/kernel/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dtb
             build/debs/linux-image-*.deb
+            build/kernel-mt8519/arch/arm/boot/zImage
+            build/kernel-mt8519/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dtb
           key: kernel-${{ hashFiles('kernel/**', 'scripts/fetch-firmware.sh', 'flake.nix', 'flake.lock') }}
 
       # git.kernel.org refused the runner's connections (dry run 2), so the
@@ -154,7 +156,7 @@ jobs:
         if: steps.kernel.outputs.cache-hit != 'true'
         env:
           LINUX_LOCAL: https://github.com/gregkh/linux.git
-        run: nix develop -c just kernel
+        run: nix develop -c just kernel kernel-mt8519
 
       - name: Save the kernel
         if: steps.kernel.outputs.cache-hit != 'true'
@@ -164,9 +166,15 @@ jobs:
             build/kernel/arch/arm/boot/zImage
             build/kernel/arch/arm/boot/dts/mediatek/mt8163-radar-puffin.dtb
             build/debs/linux-image-*.deb
+            build/kernel-mt8519/arch/arm/boot/zImage
+            build/kernel-mt8519/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dtb
           key: ${{ steps.kernel.outputs.cache-primary-key }}
 
+      # Every model, named here so that adding a model to the tree doesn't
+      # change a release unnoticed. The Echo Dot (5th gen) needs the FIT.
       - name: Build
+        env:
+          PINNA_MODELS: echo-dot-2 echo-2 echo-dot-5
         run: nix develop -c just models release
 
       - name: Check the files
