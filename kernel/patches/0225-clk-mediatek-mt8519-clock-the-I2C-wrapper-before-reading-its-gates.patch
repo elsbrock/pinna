@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 12:00:00 +0100
+Subject: [PATCH] clk: mediatek: mt8519: clock the I2C wrapper before reading
+ its gates
+
+The I2C3 and I2C4 gates live in the peripheral I2C wrapper, whose registers
+need the wrapper's bus clock, infra_ao_i2c_pwr_bclk_set. The I2C driver
+enables a gate only for a transfer, so the bus clock is off once the bus is
+idle. clk_disable_unused() then read the I2C4 gate's state with the bus clock
+off, and the read never returned: the Echo Dot (5th gen) stopped at
+"imp_iic_wrap_peri_ap_clock_i2c4_ro", 1.48 s into every boot, until the
+watchdog reset it (C2N6L4, 2026-11-26). Mark the gates
+CLK_OPS_PARENT_ENABLE, as the MT8188 and MT8195 I2C wrappers are, so the
+framework enables the bus clock around their register accesses.
+
+---
+--- a/drivers/clk/mediatek/clk-mt8519-imp_iic_wrap_peri.c
++++ b/drivers/clk/mediatek/clk-mt8519-imp_iic_wrap_peri.c
+@@ -19,7 +19,8 @@
+ };
+ 
+ #define GATE_IMP_IIC_WRAP_PERI(_id, _name, _parent, _shift)			\
+-	GATE_MTK(_id, _name, _parent, &imp_iic_wrap_peri_cg_regs, _shift, &mtk_clk_gate_ops_no_setclr)
++	GATE_MTK_FLAGS(_id, _name, _parent, &imp_iic_wrap_peri_cg_regs, _shift,	\
++		       &mtk_clk_gate_ops_no_setclr, CLK_OPS_PARENT_ENABLE)
+ 
+ static const struct mtk_gate imp_iic_wrap_peri_clks[] = {
+ 	GATE_IMP_IIC_WRAP_PERI(CLK_IMP_IIC_WRAP_PERI_AP_CLOCK_I2C3_RO,
