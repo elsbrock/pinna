@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 15:50:00 +0100
+Subject: [PATCH] ASoC: mediatek: mt8519: give the AFE its buffers at its own DRAM
+ address
+
+The MT8519's AFE reaches DRAM over the audio DSP's bus, which maps DRAM
+at another base than the CPU does: the ADSP node's "cpudram" and
+"dspdram" windows, 0x40000000 and 0x50000000. Amazon's kernel sets the
+bus's window in its DSP driver (adsp_memory_remap_init(): 1 to the bus
+remap at 0x1068f110, 0 to the EMI map at 0x1068fa00) and translates
+every AFE buffer address with afe_hal_phys_addr_cpu2dsp()
+(CONFIG_REMAP_ON_DSP_BUS). This port carries neither, so the memory
+interfaces were given CPU addresses. They ran, their pointers advanced,
+but they read and wrote other memory: on a C2N6L4 (2026-11-26) UL9's
+buffer sat at 0x429c0000 and the microphones and the speaker loopback
+captured exact zeros on all six lanes while a tone played. Translating
+the addresses without setting the window played loud noise on the
+speaker.
+
+Map the bus's configuration as the AFE's third register range, read the
+window from the ADSP node, and set the window before each memory
+interface gets its buffer, the way Amazon's driver does. The window
+must read back, or hw_params fails before the AFE touches memory. The
+AFE's AUDIO power domain sits inside ADSP_INFRA and ADSP_AO, which hold
+the bus; Amazon's DSP core (ADSP_TOP) powers off and on without the
+window being set again.
+
+---
+--- a/arch/arm/boot/dts/mediatek/mt8519.dtsi
++++ b/arch/arm/boot/dts/mediatek/mt8519.dtsi
+@@ -996,7 +996,8 @@
+ 		afe: audio-controller@10610000 {
+ 			compatible = "mediatek,mt8519-afe-pcm", "syscon";
+ 			reg = <0 0x10610000 0 0x4000>,
+-			      <0 0x10620000 0 0x10000>;
++			      <0 0x10620000 0 0x10000>,
++			      <0 0x1068f000 0 0x1000>;
+ 			interrupts = <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>;
+ 			clocks = <&topckgen CLK_TOP_AUDIO_SEL>,
+ 				<&topckgen CLK_TOP_AUD_INTBUS_SEL>,
+--- a/sound/soc/mediatek/mt8519/mt8519-afe-common.h
++++ b/sound/soc/mediatek/mt8519/mt8519-afe-common.h
+@@ -474,6 +474,15 @@
+ 	struct dentry *debugfs_dentry[MT8519_AFE_DEBUGFS_NUM];
+ #endif
+ 	int apll_tuner_ref_cnt[MT8519_AFE_APLL_NUM];
++	/*
++	 * The AFE reaches DRAM over the audio DSP's bus, where DRAM starts
++	 * at dram_bus_base instead of the CPU's dram_cpu_base. Both 0 when
++	 * the device tree gives no such window. dsp_bus maps the bus's
++	 * configuration, which holds the window.
++	 */
++	phys_addr_t dram_cpu_base;
++	phys_addr_t dram_bus_base;
++	void __iomem *dsp_bus;
+ };
+ 
+ bool mt8519_afe_rate_supported(unsigned int rate, unsigned int id);
+--- a/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
++++ b/sound/soc/mediatek/mt8519/mt8519-afe-pcm.c
+@@ -15,6 +15,7 @@
+ #include <linux/pm_runtime.h>
+ #include <linux/mfd/syscon.h>
+ #include <linux/atomic.h>
++#include <linux/sizes.h>
+ #include <sound/soc.h>
+ #include <sound/pcm_params.h>
+ #include "mt8519-afe-common.h"
+@@ -1535,6 +1536,88 @@
+ 	return irq_fs;
+ }
+ 
++/*
++ * A DRAM address as the AFE's memory interfaces see it. The MT8519's AFE
++ * reaches DRAM over the audio DSP's bus, which maps it at another base: the
++ * ADSP node's "cpudram" and "dspdram" (0x40000000 and 0x50000000). Amazon's
++ * kernel translates with its DSP driver's afe_hal_phys_addr_cpu2dsp()
++ * (CONFIG_REMAP_ON_DSP_BUS), which Pinna doesn't carry. Untranslated, the
++ * memory interfaces ran but read and wrote other memory: UL9 captured exact
++ * zeros, its buffer programmed at 0x429c0000 (C2N6L4, 2026-11-26).
++ *
++ * The bus maps that window only once it is told to. Amazon's DSP driver does
++ * it at probe (adsp_memory_remap_init()); translated addresses on a bus left
++ * as reset played noise on the speaker (C2N6L4, 2026-11-26).
++ */
++static dma_addr_t mt8519_afe_bus_addr(struct mtk_base_afe *afe, dma_addr_t addr)
++{
++	struct mt8519_afe_private *afe_priv = afe->platform_priv;
++
++	if (afe_priv->dram_bus_base && addr >= afe_priv->dram_cpu_base)
++		return addr - afe_priv->dram_cpu_base + afe_priv->dram_bus_base;
++	return addr;
++}
++
++static void mt8519_afe_read_dram_window(struct mtk_base_afe *afe)
++{
++	struct mt8519_afe_private *afe_priv = afe->platform_priv;
++	struct device_node *np;
++	struct resource cpu, bus;
++	int cpu_idx, bus_idx;
++
++	/* Without the bus's configuration the window can't be set. */
++	if (!afe_priv->dsp_bus)
++		return;
++	np = of_find_compatible_node(NULL, NULL, "mediatek,mt8519-audio_dsp");
++	if (!np)
++		return;
++	cpu_idx = of_property_match_string(np, "reg-names", "cpudram");
++	bus_idx = of_property_match_string(np, "reg-names", "dspdram");
++	if (cpu_idx >= 0 && bus_idx >= 0 &&
++	    !of_address_to_resource(np, cpu_idx, &cpu) &&
++	    !of_address_to_resource(np, bus_idx, &bus) &&
++	    bus.start > cpu.start && bus.start - cpu.start <= SZ_256M) {
++		afe_priv->dram_cpu_base = cpu.start;
++		afe_priv->dram_bus_base = bus.start;
++		dev_info(afe->dev, "DRAM at %pa for the CPU is at %pa for the AFE\n",
++			 &afe_priv->dram_cpu_base, &afe_priv->dram_bus_base);
++	}
++	of_node_put(np);
++}
++
++/* The DSP bus's DRAM window, as in Amazon's adsp_memory_remap_init(). */
++#define MT8519_DSP_BUS_REMAP	0x110
++#define MT8519_DSP_EMI_MAP	0xa00
++
++/*
++ * Points the DSP bus's window at DRAM. The bus's configuration is powered
++ * with the AFE: the AUDIO domain sits inside ADSP_INFRA and ADSP_AO, and
++ * Amazon's DSP core (ADSP_TOP) powers off and on without the window being
++ * set again. Called before each memory interface gets its buffer, so a
++ * window lost to a power cycle is set again; a window that doesn't read
++ * back fails the stream before the AFE touches memory.
++ */
++static int mt8519_afe_set_dram_window(struct mtk_base_afe *afe)
++{
++	struct mt8519_afe_private *afe_priv = afe->platform_priv;
++	u32 map, remap, emi;
++
++	if (!afe_priv->dram_bus_base)
++		return 0;
++	map = (afe_priv->dram_cpu_base + SZ_256M - afe_priv->dram_bus_base) >> 12;
++	writel(1, afe_priv->dsp_bus + MT8519_DSP_BUS_REMAP);
++	writel(map, afe_priv->dsp_bus + MT8519_DSP_EMI_MAP);
++	remap = readl(afe_priv->dsp_bus + MT8519_DSP_BUS_REMAP);
++	emi = readl(afe_priv->dsp_bus + MT8519_DSP_EMI_MAP);
++	if (!(remap & BIT(0)) || emi != map) {
++		dev_err(afe->dev,
++			"The DSP bus didn't take its DRAM window: remap %#x, EMI map %#x, expected 1 and %#x\n",
++			remap, emi, map);
++		return -EIO;
++	}
++	return 0;
++}
++
+ static int mt8519_alloc_dmabuf(struct snd_pcm_substream *substream,
+ 			       struct snd_pcm_hw_params *params,
+ 			       struct snd_soc_dai *dai)
+@@ -1729,6 +1812,10 @@
+ 				   UL_REORDER_CTRL_MASK, val);
+ 	}
+ 
++	ret = mt8519_afe_set_dram_window(afe);
++	if (ret)
++		return ret;
++
+ 	/* DMA allocate */
+ 	ret = mt8519_alloc_dmabuf(substream, params, dai);
+ 
+@@ -1736,15 +1823,12 @@
+ 		return ret;
+ 
+ 	msb_at_bit33 = upper_32_bits(substream->runtime->dma_addr) ? 1 : 0;
+-	memif->phys_buf_addr = lower_32_bits(substream->runtime->dma_addr);
++	memif->phys_buf_addr = lower_32_bits(mt8519_afe_bus_addr(afe,
++					     substream->runtime->dma_addr));
+ 	memif->buffer_size = substream->runtime->dma_bytes;
+ 	msb2_at_bit33 =
+ 		upper_32_bits(substream->runtime->dma_addr + memif->buffer_size - 1) ? 1 : 0;
+ 
+-#if IS_ENABLED(CONFIG_REMAP_ON_DSP_BUS)
+-	memif->phys_buf_addr = afe_hal_phys_addr_cpu2dsp(memif->phys_buf_addr);
+-#endif
+-
+ 	/* start */
+ 	if (memif->data->reg_ofs_base >= 0)
+ 		regmap_write(afe->regmap, memif->data->reg_ofs_base,
+@@ -9622,6 +9706,12 @@
+ 		}
+ 	}
+ 
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
++	if (res)
++		afe_priv->dsp_bus = devm_ioremap(&pdev->dev, res->start,
++						 resource_size(res));
++	mt8519_afe_read_dram_window(afe);
++
+ 	/* initial audio related clock */
+ 	ret = mt8519_afe_init_audio_clk(afe);
+ 	if (ret) {
+@@ -9725,6 +9815,13 @@
+ 
+ 	mt8519_afe_init_registers(afe);
+ 
++	if (afe_priv->dram_bus_base) {
++		dev_info(afe->dev, "DSP bus at reset: remap %#x, EMI map %#x\n",
++			 readl(afe_priv->dsp_bus + MT8519_DSP_BUS_REMAP),
++			 readl(afe_priv->dsp_bus + MT8519_DSP_EMI_MAP));
++		mt8519_afe_set_dram_window(afe);
++	}
++
+ 	mt8519_afe_init_debugfs(afe);
+ 
+ 	dev_info(&pdev->dev, "MT8519 AFE driver initialized.\n");
