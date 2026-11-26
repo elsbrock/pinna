@@ -123,6 +123,16 @@ if [ "$variant" = device ]; then
   [ -f "$fw" ] || { echo "$fw missing: run just firmware" >&2; exit 1; }
   install -Dm0644 "$fw" "$src/firmware/i2s_to_spi_v34.bin"
 fi
+if [ "$variant" = mt8519 ]; then
+  # Built into the kernel (CONFIG_EXTRA_FIRMWARE): the MT7663's Wi-Fi and
+  # Bluetooth drivers load it at probe, before the root is mounted.
+  # linux-firmware's files, fetched (scripts/fetch-firmware.sh, ADR 0035).
+  for f in mediatek/mt7663pr2h.bin mediatek/mt7663_n9_v3.bin; do
+    fw=$root/blobs/firmware/$f
+    [ -f "$fw" ] || { echo "$fw missing: run just firmware" >&2; exit 1; }
+    install -Dm0644 "$fw" "$src/firmware/$f"
+  done
+fi
 
 log "building ${targets[*]}"
 mk -s -j"$(nproc)" "${targets[@]}"
