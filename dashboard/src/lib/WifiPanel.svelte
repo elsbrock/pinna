@@ -14,7 +14,7 @@
   import Icon from "./Icon.svelte";
   import { network } from "./network.svelte.ts";
   import SignalBars from "./SignalBars.svelte";
-  import { joinTone, securityWord, unjoinable } from "./view.ts";
+  import { hasUsb, joinTone, securityWord, unjoinable } from "./view.ts";
   import { wifi } from "./wifi.svelte.ts";
 
   // WifiSecurity and JoinStage values.
@@ -24,6 +24,7 @@
 
   const live = $derived(device.link === "live");
   const overUsb = location.hostname === "10.42.0.1";
+  const usbModel = $derived(hasUsb(device.status?.model ?? ""));
   // On the setup hotspot (ADR 0028), which goes away while the satellite joins.
   const overHotspot = location.hostname === "10.42.1.1";
   const mac = $derived(network.wireless?.mac?.toLowerCase() ?? "");
@@ -332,8 +333,8 @@
               This page may lose the satellite. If it joins, connect to that network within 5 minutes and open
               <code class="pn-code">http://{local}/</code>{#if mac}
                 (or find <code class="pn-code">{mac}</code> in your router and open its address){/if}: it stays there.
-              Otherwise it comes back here. With a USB cable, <code class="pn-code">http://10.42.0.1/</code> reaches it
-              either way.
+              Otherwise it comes back here.{#if usbModel}
+                With a USB cable, <code class="pn-code">http://10.42.0.1/</code> reaches it either way.{/if}
             {/if}
           </p>
         {/if}

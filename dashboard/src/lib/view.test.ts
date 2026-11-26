@@ -503,6 +503,10 @@ test("updateSummary: the first matching state wins, failures first", async () =>
     hint: "Needs a new boot image, installed over USB",
     tone: "caution",
   });
+  assert.equal(
+    updateSummary(u({ release: { version: "0.3.0", action: ACTION.blocked } }), run, settings(), "echo-dot-5").hint,
+    "Needs a new boot image, which an update can't install",
+  );
   assert.deepEqual(updateSummary(u({ release: { version: "0.3.0", action: ACTION.install } }), run, settings()), {
     value: "0.3.0",
     hint: "Ready to install",
@@ -762,7 +766,8 @@ test("the drawing follows the board", () => {
   assert.equal(satelliteModel("Echo (2nd Gen)"), "echo-2");
   assert.equal(satelliteModel("Echo Dot (2nd Gen)"), "echo-dot-2");
   assert.equal(satelliteModel("Echo Dot (5th Gen)"), "echo-dot-5");
-  assert.equal(satelliteModel(""), "echo-dot-2");
+  assert.equal(satelliteModel(""), "");
+  assert.equal(satelliteModel("Echo Show 8"), "");
 });
 
 test("now playing says where media comes from: a stream's source, a station, Home Assistant, or the address", () => {

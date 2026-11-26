@@ -95,7 +95,7 @@
     if (live && !wasLive) void readUpdates();
     wasLive = live;
   });
-  const summary = $derived(updateSummary(updates, s?.version ?? "", s?.settings));
+  const summary = $derived(updateSummary(updates, s?.version ?? "", s?.settings, s?.model));
   const start = $derived(lastStart(s?.lastBoot));
 
   async function restart() {

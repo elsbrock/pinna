@@ -587,6 +587,7 @@ export function updateSummary(
   u: (UpdatesLike & Pick<GetUpdatesResponse, "unavailableReason" | "lastInstall" | "release" | "restartPending" | "check" | "manifestOverride">) | null,
   running: string,
   settings: Pick<Settings, "updateChannel" | "installUpdates" | "installWindowStart" | "installWindowEnd"> | undefined,
+  model = "",
 ): UpdateSummary {
   if (!u) return { value: running, hint: "Where updates come from, and installing them" };
   // The reason is for the Updates page; the row says it plainly.
@@ -606,7 +607,8 @@ export function updateSummary(
     return { value: waiting?.version || running, hint: "Starts at the next restart" };
   }
   if (u.release && action === ACTION.blocked) {
-    return { value: u.release.version, hint: "Needs a new boot image, installed over USB", tone: "caution" };
+    const hint = hasUsb(model) ? "Needs a new boot image, installed over USB" : "Needs a new boot image, which an update can't install";
+    return { value: u.release.version, hint, tone: "caution" };
   }
   if (u.release && action === ACTION.install) return { value: u.release.version, hint: "Ready to install" };
   // A developer's own update address replaces the channel (ADR 0022), so the channel says nothing.
@@ -880,8 +882,15 @@ export function satelliteMark(sat: Pick<Satellite, "groupMember">): string {
 /** The drawing's model id for a satellite's `board` (see `identity::model_name`). */
 export function satelliteModel(board: string): string {
   if (board === "Echo (2nd Gen)") return "echo-2";
+  if (board === "Echo Dot (2nd Gen)") return "echo-dot-2";
   if (board === "Echo Dot (5th Gen)") return "echo-dot-5";
-  return "echo-dot-2";
+  // No drawing: the flat Ring.
+  return "";
+}
+
+/** Whether a model (`Status.model`) can be reached over USB: the Echo Dot (5th gen) has no USB connector. */
+export function hasUsb(model: string): boolean {
+  return model !== "echo-dot-5";
 }
 
 // A stream's source as its header names it (ADR 0011), or `sendspin`, which
