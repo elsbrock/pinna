@@ -27,7 +27,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
-use pinna_board::StorageKind;
+use pinna_board::{BootFormat, StorageKind};
 use pinna_bootctl::bcb;
 use pinna_bootctl::slot::{self, Slot};
 use pinna_bootctl::stages;
@@ -332,6 +332,18 @@ fn lk_slot() -> Option<Slot> {
     boot_slot::lk_slot_from(&bootargs())
 }
 
+/// Whether pinna-init counts the boot attempts: no bootloader (the VMs), or
+/// one that doesn't count them (Amazon's U-Boot, ADR 0035).
+fn counts_attempts() -> bool {
+    let counts = pinna_board::detect().is_none_or(|b| b.bootloader.counts_tries());
+    boot_slot::counts_attempts(no_bootloader(), counts)
+}
+
+/// The format of the boot images this board's bootloader reads.
+fn boot_format() -> BootFormat {
+    pinna_board::detect().map_or(BootFormat::Android, |b| b.bootloader.boot_format())
+}
+
 /// A machine without a bootloader slot says so on the kernel command line.
 fn no_bootloader() -> bool {
     fs::read_to_string("/proc/cmdline")
@@ -451,12 +463,26 @@ fn bring_up_root(ring: &Ring) -> Result<(Slot, Footer), Failure> {
         }
         None => None,
     };
-    let plan = boot_slot::plan(lk_slot(), no_bootloader(), record);
+    let plan = boot_slot::plan(lk_slot(), counts_attempts(), record);
     log!("{}", plan.reason);
     if let Some(w) = &plan.write
         && let Err(e) = write_record(misc, w)
     {
         log!("WARNING: could not write the slot record: {e:#}");
+    }
+    if plan.restart {
+        // The kernel is the started slot's: only a restart loads the other.
+        log!(
+            "the kernel is slot {}'s but the count chose slot {}; restarting",
+            plan.slot.other(),
+            plan.slot
+        );
+        pmsg(&format!(
+            "pinna: reboot (slot {} is out of attempts, back to slot {})",
+            plan.slot.other(),
+            plan.slot
+        ));
+        rescue::reboot_now();
     }
 
     let s = plan.slot;
@@ -546,7 +572,7 @@ fn boot(argv: &[OsString], ring: &Ring) -> Failure {
     let protocol = root_protocol(Path::new(SYSROOT));
     // Which boot partition LK really loaded (ADR 0019): the updater writes
     // boot_a only once a boot from b has shown LK loads boot_b too.
-    let kernel = boot_slot::kernel_slot_from(&bootargs());
+    let kernel = boot_slot::kernel_slot(&bootargs(), boot_format());
     match kernel {
         Some(k) if k != s => log!(
             "the bootloader started slot {s} but loaded boot_{k}: it ignores the slot for the kernel"
