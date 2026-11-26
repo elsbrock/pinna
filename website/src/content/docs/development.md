@@ -117,6 +117,7 @@ python3 tests/kernel/test-mt8519-watchdog.py
 python3 tests/kernel/test-mt8519-codec-links.py
 python3 tests/kernel/test-mt8519-adc-clock.py
 python3 tests/kernel/test-mt8519-afe-dram.py
+python3 tests/kernel/test-mt8519-mclk.py
 python3 tests/kernel/test-mt8519-bt-wait.py
 ```
 

@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 16:40:00 +0100
+Subject: [PATCH] clk: mediatek: mt8519: round the audio MCLK dividers to the
+ closest rate
+
+The MT8519's three audio MCLK dividers (i2si1_mck, tdmin_mck, i2so1_mck)
+carry CLK_DIVIDER_ROUND_CLOSEST. Amazon's clk-mtk.c hands a composite's
+flags to its divider; 6.12's hands them to the clock core instead, where
+the bit means nothing, so the dividers rounded the rate down. APLL2 runs
+at 196608001 Hz, so 24.576 MHz took a divider of 9: on a C2N6L4
+(2026-11-26) tdmin_mck, the ADC's MCLK, and i2so1_mck ran at 21.845 MHz.
+
+Give struct mtk_composite a divider_flags field, set the divider's flags
+from it, and put the MT8519's flags there. Other SoCs leave it 0, as now.
+
+---
+--- a/drivers/clk/mediatek/clk-mt8519.c
++++ b/drivers/clk/mediatek/clk-mt8519.c
+@@ -508,7 +508,11 @@
+ /*
+  * 6.12's mtk_clk_desc takes a single composite array and has no DIV_GATE
+  * flags macro, so the muxes and the audio divider-gates are one array here,
+- * with a local flags-carrying DIV_GATE (upstream's DIV_GATE forces flags=0).
++ * with a local DIV_GATE that carries the divider's flags. Amazon's clk-mtk.c
++ * hands a composite's flags to its divider; here they go to divider_flags.
++ * Without CLK_DIVIDER_ROUND_CLOSEST the eTDM MCLKs came out at 21.845 MHz
++ * (APLL2 at 196608001 Hz, divided by 9) instead of 24.576 MHz (C2N6L4,
++ * 2026-11-26).
+  */
+ #define DIV_GATE_FLAGS(_id, _name, _parent, _gate_reg, _gate_shift,	\
+ 		       _div_reg, _div_width, _div_shift, _flags) {	\
+@@ -521,7 +525,7 @@
+ 		.gate_reg = _gate_reg,					\
+ 		.gate_shift = _gate_shift,				\
+ 		.mux_shift = -1,					\
+-		.flags = _flags,					\
++		.divider_flags = _flags,				\
+ 	}
+ 
+ static struct mtk_composite top_composites[] = {
+--- a/drivers/clk/mediatek/clk-mtk.c
++++ b/drivers/clk/mediatek/clk-mtk.c
+@@ -277,6 +277,7 @@
+ 		div->shift = mc->divider_shift;
+ 		div->width = mc->divider_width;
+ 		div->lock = lock;
++		div->flags = mc->divider_flags;
+ 
+ 		div_hw = &div->hw;
+ 		div_ops = &clk_divider_ops;
+--- a/drivers/clk/mediatek/clk-mtk.h
++++ b/drivers/clk/mediatek/clk-mtk.h
+@@ -105,6 +105,7 @@
+ 	signed char divider_width;
+ 
+ 	u8 mux_flags;
++	u8 divider_flags;
+ 
+ 	signed char num_parents;
+ };
