@@ -403,8 +403,8 @@ pub mod arm64 {
 /// / {
 ///   images {
 ///     kernel-1 { data=<zImage>; type="kernel"; arch="arm"; load; entry; }
-///     fdt-1    { data=<dtb>;    type="flat_dt"; … }   (one per board rev)
-///     ramdisk-1 { data=<cpio>; type="ramdisk"; … }    (if a ramdisk is given)
+///     fdt-1    { load; data=<dtb>; type="flat_dt"; … }   (one per board rev)
+///     ramdisk-1 { entry; load; data=<cpio>; type="ramdisk"; … }  (if given)
 ///   }
 ///   configurations {
 ///     default = "conf-1";
@@ -417,11 +417,12 @@ pub mod arm64 {
 /// The load and entry addresses and the configuration names are read from the
 /// stock boot FIT on a unit before the first image is written; the kernel
 /// load/entry here (`0x40008000`) are the stock Cannoli values. Integrity is a
-/// `crc32` hash per image; signing follows the installed bootloader's trust
+/// `sha256` hash per image; signing follows the installed bootloader's trust
 /// model, also read on a unit.
 pub mod fit {
     use super::ZIMAGE_MAGIC;
     use anyhow::{Result, bail, ensure};
+    use sha2::{Digest, Sha256};
     use std::collections::HashMap;
 
     /// Where U-Boot's `bootm` places the kernel: SDRAM base + 32 KiB, the
@@ -430,6 +431,22 @@ pub mod fit {
     pub const LOAD_ADDR: u32 = 0x4000_8000;
     /// The zImage entry; a self-relocating zImage takes the load address.
     pub const ENTRY_ADDR: u32 = 0x4000_8000;
+    /// Where U-Boot copies the ramdisk out of the FIT (`ramdisk-1`
+    /// `load`/`entry`), as in the stock Cannoli boot FIT.
+    ///
+    /// Amazon's U-Boot grows the device tree where it lies: the
+    /// hardware-config fixups and `fdt_increase_size()` for the IDME
+    /// properties (`bootm.c`). Without load addresses that is inside the FIT,
+    /// and the grown tree overwrites the ramdisk data that follows it. On an
+    /// Echo Dot (5th gen) (C2N6L4) the kernel then found device-tree strings
+    /// at the initrd start (`dex\0#interconnec`) and refused to unpack it. U-Boot
+    /// copies the ramdisk before it loads the device tree, so the copy is
+    /// intact. With these addresses the initrd starts `070701` (2026-11-26).
+    pub const RAMDISK_LOAD_ADDR: u32 = 0x4700_0000;
+    /// Where U-Boot copies each device tree out of the FIT (`fdt-N` `load`),
+    /// as in the stock Cannoli boot FIT. Growing the copy here clobbers
+    /// nothing. See [`RAMDISK_LOAD_ADDR`].
+    pub const FDT_LOAD_ADDR: u32 = 0x5000_0000;
 
     const FDT_MAGIC: u32 = 0xD00D_FEED;
     const FDT_BEGIN_NODE: u32 = 1;
@@ -511,6 +528,7 @@ pub mod fit {
         w.end_node();
         for (i, d) in dtbs.iter().enumerate() {
             w.begin_node(&format!("fdt-{}", i + 1));
+            w.prop_u32("load", FDT_LOAD_ADDR);
             w.prop_str("description", d.description);
             w.prop("data", d.data);
             w.prop_str("type", "flat_dt");
@@ -521,6 +539,8 @@ pub mod fit {
         }
         if let Some(rd) = ramdisk {
             w.begin_node("ramdisk-1");
+            w.prop_u32("entry", RAMDISK_LOAD_ADDR);
+            w.prop_u32("load", RAMDISK_LOAD_ADDR);
             w.prop("data", rd);
             w.prop_str("type", "ramdisk");
             w.prop_str("arch", "arm");
@@ -561,19 +581,6 @@ pub mod fit {
         }
         let total = be(4)? as usize;
         (total >= 40 && total <= b.len()).then_some(total)
-    }
-
-    /// Table-less CRC-32 (IEEE), the FIT `crc32` hash.
-    pub(crate) fn crc32(data: &[u8]) -> u32 {
-        let mut crc = !0u32;
-        for &b in data {
-            crc ^= b as u32;
-            for _ in 0..8 {
-                let mask = (crc & 1).wrapping_neg(); // all ones if the low bit is set
-                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
-            }
-        }
-        !crc
     }
 
     /// A flattened-device-tree writer: the FIT is an FDT.
@@ -635,11 +642,11 @@ pub mod fit {
             b.push(0);
             self.prop(name, &b);
         }
-        /// A `hash-1 { algo = "crc32"; value = <crc>; }` child.
+        /// A `hash-1 { algo = "sha256"; value = <digest>; }` child.
         fn hash(&mut self, data: &[u8]) {
             self.begin_node("hash-1");
-            self.prop_str("algo", "crc32");
-            self.prop_u32("value", crc32(data));
+            self.prop_str("algo", "sha256");
+            self.prop("value", &Sha256::digest(data));
             self.end_node();
         }
         fn finish(mut self) -> Vec<u8> {
@@ -979,6 +986,7 @@ pub fn slot_tag(image: &[u8]) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
 
     #[test]
     fn level_from_the_command_line() {
@@ -1242,10 +1250,36 @@ mod tests {
     }
 
     #[test]
-    fn crc32_matches_the_known_check_value() {
-        // The IEEE CRC-32 of "123456789" is 0xCBF43926.
-        assert_eq!(fit::crc32(b"123456789"), 0xCBF4_3926);
-        assert_eq!(fit::crc32(b""), 0);
+    fn fit_hashes_use_sha256() {
+        let z = fake_zimage(64);
+        let dtb = fake_dtb(64);
+        let itb = fit::build(
+            "test",
+            &z,
+            &[fit::Dtb {
+                description: "cannoli-hvt",
+                data: &dtb,
+            }],
+            None,
+            &[fit::Conf {
+                node: "conf-1",
+                description: "cannoli-hvt",
+                fdt: 0,
+                recovery: false,
+            }],
+            fit::LOAD_ADDR,
+            fit::ENTRY_ADDR,
+        )
+        .unwrap();
+
+        let root = fit::parse(&itb).unwrap();
+        let kernel = root.child("images").unwrap().child("kernel-1").unwrap();
+        let hash = kernel.child("hash-1").unwrap();
+        assert_eq!(hash.prop_str("algo").as_deref(), Some("sha256"));
+        assert_eq!(
+            hash.prop("value").unwrap(),
+            sha2::Sha256::digest(&z).as_slice()
+        );
     }
 
     #[test]
@@ -1304,10 +1338,10 @@ mod tests {
             dvt.as_slice()
         );
         assert!(images.child("ramdisk-1").is_none());
-        // The crc32 hash child is present and correct.
+        // The sha256 hash child is present and correct.
         let h = kernel.child("hash-1").unwrap();
-        assert_eq!(h.prop_str("algo").as_deref(), Some("crc32"));
-        assert_eq!(h.prop_u32("value"), Some(fit::crc32(&z)));
+        assert_eq!(h.prop_str("algo").as_deref(), Some("sha256"));
+        assert_eq!(h.prop("value").unwrap(), Sha256::digest(&z).as_slice());
 
         let cfgs = root.child("configurations").unwrap();
         assert_eq!(cfgs.prop_str("default").as_deref(), Some("conf-1"));
@@ -1358,6 +1392,42 @@ mod tests {
             .child("conf-1-recovery")
             .unwrap();
         assert_eq!(rec.prop_str("ramdisk").as_deref(), Some("ramdisk-1"));
+    }
+
+    #[test]
+    fn fit_has_u_boot_copy_the_ramdisk_and_device_trees_out() {
+        // Without load addresses Amazon's U-Boot grows the device tree inside
+        // the FIT, over the ramdisk that follows it.
+        let z = fake_zimage(2048);
+        let (hvt, dvt) = (fake_dtb(128), fake_dtb(128));
+        let rd = vec![0x42u8; 512];
+        let dtb = |description, data| fit::Dtb { description, data };
+        let conf = |node, fdt| fit::Conf {
+            node,
+            description: "x",
+            fdt,
+            recovery: true,
+        };
+        let itb = fit::build(
+            "test",
+            &z,
+            &[dtb("cannoli-hvt", &hvt), dtb("cannoli-dvt", &dvt)],
+            Some(&rd),
+            &[conf("conf-1", 0), conf("conf-2", 1)],
+            fit::LOAD_ADDR,
+            fit::ENTRY_ADDR,
+        )
+        .unwrap();
+        let root = fit::parse(&itb).unwrap();
+        let images = root.child("images").unwrap();
+        for fdt in ["fdt-1", "fdt-2"] {
+            let node = images.child(fdt).unwrap();
+            assert_eq!(node.prop_u32("load"), Some(0x5000_0000), "{fdt}");
+        }
+        let ramdisk = images.child("ramdisk-1").unwrap();
+        assert_eq!(ramdisk.prop_u32("load"), Some(0x4700_0000));
+        assert_eq!(ramdisk.prop_u32("entry"), Some(0x4700_0000));
+        assert_eq!(ramdisk.prop("data").unwrap(), rd.as_slice());
     }
 
     #[test]

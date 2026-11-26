@@ -10,3 +10,4 @@ rust-version.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 sha1.workspace = true
+sha2.workspace = true
