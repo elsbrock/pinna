@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 12:15:00 +0100
+Subject: [PATCH] usb: mtu3: force VBUS valid where no pin senses it
+
+The Echo Dot (5th gen) has no VBUS sense line to the SoC: its device tree
+marks the port "mediatek,force-vbus", and Amazon's 5.4 mtu3 driver forces
+VBUS valid in the device MAC and takes u2 port 0 from the OTG controller.
+6.12 ignores the property and clears the force bits, so the gadget pulled up
+D+ and the host never enumerated it: no serial console and no network over
+USB (C2N6L4, 2026-11-26). Read the property and set the bits as the 5.4
+driver did, in peripheral mode.
+
+---
+--- a/drivers/usb/mtu3/mtu3.h
++++ b/drivers/usb/mtu3/mtu3.h
+@@ -239,6 +239,7 @@
+  * @uwk: syscon including usb wakeup glue layer between SSUSB IP and SPM
+  * @uwk_reg_base: the base address of the wakeup glue layer in @uwk
+  * @uwk_vers: the version of the wakeup glue layer
++ * @force_vbus: no VBUS sense pin: the device side forces VBUS valid
+  */
+ struct ssusb_mtk {
+ 	struct device *dev;
+@@ -265,6 +266,7 @@
+ 	struct regmap *uwk;
+ 	u32 uwk_reg_base;
+ 	u32 uwk_vers;
++	bool force_vbus;
+ };
+ 
+ /**
+--- a/drivers/usb/mtu3/mtu3_plat.c
++++ b/drivers/usb/mtu3/mtu3_plat.c
+@@ -272,6 +272,7 @@
+ 		ssusb->dr_mode = USB_DR_MODE_OTG;
+ 
+ 	of_property_read_u32(node, "mediatek,u3p-dis-msk", &ssusb->u3p_dis_msk);
++	ssusb->force_vbus = of_property_read_bool(node, "mediatek,force-vbus");
+ 
+ 	if (ssusb->dr_mode == USB_DR_MODE_PERIPHERAL)
+ 		goto out;
+--- a/drivers/usb/mtu3/mtu3_core.c
++++ b/drivers/usb/mtu3/mtu3_core.c
+@@ -661,6 +661,11 @@
+ 	mtu3_writel(mbase, U3D_DEVICE_CONF, 0);
+ 	/* vbus detected by HW */
+ 	mtu3_clrbits(mbase, U3D_MISC_CTRL, VBUS_FRC_EN | VBUS_ON);
++	/* ... unless no pin senses it: force it valid, take port 0 from OTG */
++	if (mtu->ssusb->force_vbus) {
++		mtu3_clrbits(mtu->ippc_base, SSUSB_U2_CTRL(0), SSUSB_U2_PORT_OTG_SEL);
++		mtu3_setbits(mbase, U3D_MISC_CTRL, VBUS_FRC_EN | VBUS_ON);
++	}
+ 	/* use new QMU format when HW version >= 0x1003 */
+ 	if (mtu->gen2cp)
+ 		mtu3_writel(mbase, U3D_QFCR, ~0x0);
