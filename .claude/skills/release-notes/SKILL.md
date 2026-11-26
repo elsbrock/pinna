@@ -19,6 +19,12 @@ draft release. Don't commit, tag or push yourself unless asked.
 The version is `<major>.<minor>.<patch>` or `<major>.<minor>.<patch>-beta.<n>`
 (ADR 0022, "Versions"). Ask for it if it wasn't given.
 
+Picking it: while a version is in beta, a fix is the next beta
+(`0.6.0-beta.4` → `0.6.0-beta.5`). A stable release takes the version its
+betas led to (`0.6.0`). After a stable release, a fix raises the patch
+(`0.6.1`, or `0.6.1-beta.1` to test it first) and new features raise the
+minor (`0.7.0-beta.1`). Before 1.0, the minor takes the major's role.
+
 The previous release, on your computer:
 
 ```sh
@@ -94,6 +100,9 @@ website, design system, docs, tests, ADRs, chores, CI.
   (pinnad)`. Capitalise the first letter. Leave out the scopes that don't
   ship: `website`, `design`, `adr`, `vm`, `release`, `models`, `dev`. Start
   the section with the range in one line: "Changes since 0.3.0."
+- **A stable release after betas** covers everything since the last stable
+  release, as it works now: leave out what a later beta replaced or removed,
+  and fold a beta's fix to its own new feature into that feature.
 
 Leave out empty sections. The language rules are `AGENTS.md`, "Language":
 plain, short sentences, no hype, exclamation marks or emoji; the project's
