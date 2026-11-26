@@ -46,6 +46,11 @@
     @apply border-line bg-surface-raised rounded-md border;
   }
 
+  /* A badge that links: the news above the landing page's heading. */
+  a.pn-badge {
+    @apply hover:text-ink no-underline;
+  }
+
   /* Eyebrows carry the mark's gradient (the brand-* tokens, decoration only).
      fit-content, so a short label runs through all three stops. */
   .eyebrow {
