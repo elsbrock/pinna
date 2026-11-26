@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pinna <pinna@localhost>
+Date: Wed, 25 Nov 2026 08:20:00 +0100
+Subject: [PATCH] pinctrl: mediatek: accept default bias on PUPD R1/R0 pins
+
+Amazon's Cannoli device tree uses bare bias-pull-up and bias-pull-down on
+NAND and I2C pins. Generic DT parsing encodes these as MTK_ENABLE, but the
+6.12 PUPD R1/R0 setter accepts only the explicit 100-103 values. The NAND
+probe therefore aborts while applying pinctrl group 24, and UBI finds no
+MTD on the Echo Dot (5th gen).
+
+Restore Amazon 5.4's mapping of MTK_ENABLE to R1/R0 01. This is the default
+pull used by the working stock kernel on the same satellite.
+---
+ drivers/pinctrl/mediatek/pinctrl-mtk-common-v2.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/pinctrl/mediatek/pinctrl-mtk-common-v2.c b/drivers/pinctrl/mediatek/pinctrl-mtk-common-v2.c
+index 3a2d6437b4f6..d3f0e1a2c456 100644
+--- a/drivers/pinctrl/mediatek/pinctrl-mtk-common-v2.c
++++ b/drivers/pinctrl/mediatek/pinctrl-mtk-common-v2.c
+@@ -673,6 +673,9 @@ static int mtk_pinconf_bias_set_pupd_r1_r0(struct mtk_pinctrl *hw,
+ 	} else if (arg == MTK_PUPD_SET_R1R0_11) {
+ 		r0 = 1;
+ 		r1 = 1;
++	} else if (arg == MTK_ENABLE) {
++		r0 = 1;
++		r1 = 0;
+ 	} else {
+ 		err = -EINVAL;
+ 		goto out;
+-- 
+2.52.0
