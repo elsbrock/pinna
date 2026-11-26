@@ -170,11 +170,13 @@ jobs:
             build/kernel-mt8519/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dtb
           key: ${{ steps.kernel.outputs.cache-primary-key }}
 
-      # Every model, named here so that adding a model to the tree doesn't
-      # change a release unnoticed. The Echo Dot (5th gen) needs the FIT.
+      # The models the update manifest serves, named here so that adding a
+      # model to the tree doesn't change a release unnoticed. The Echo Dot
+      # (5th gen) isn't among them until updates on it are verified on a
+      # unit; its installer and FIT ship in the release anyway.
       - name: Build
         env:
-          PINNA_MODELS: echo-dot-2 echo-2 echo-dot-5
+          PINNA_MODELS: echo-dot-2 echo-2
         run: nix develop -c just models release
 
       - name: Check the files

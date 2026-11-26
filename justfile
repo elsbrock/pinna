@@ -161,7 +161,10 @@ all: kernel models image bootimg
 release: image bootimg
     #!/usr/bin/env bash
     set -euo pipefail
-    models=${PINNA_MODELS:-echo-dot-2 echo-2 echo-dot-5}
+    # The models the update manifest serves. The Echo Dot (5th gen) is left
+    # out until updates on it are verified on a unit; its installer ships in
+    # every release anyway (ADR 0035, Decisions 9 and 10).
+    models=${PINNA_MODELS:-echo-dot-2 echo-2}
     v=$(cargo run -q --release -p pinna-image -- info {{build}}/pinna.root.img | sed -n 's/^version: //p')
     rm -rf {{build}}/release
     mkdir -p {{build}}/release
@@ -175,17 +178,18 @@ release: image bootimg
             args+=(--boot {{build}}/release/pinna-boot.img)
             files+=(pinna-boot.img) ;;
     esac
+    # The Echo Dot (5th gen)'s installer: its FIT and the static armv7 tool it
+    # runs in TWRP (ADR 0035, Decision 10). The FIT enters the update manifest
+    # only when echo-dot-5 is among the models.
+    {{just_executable()}} fit
+    cp {{build}}/pinna-boot-mt8519.itb {{build}}/release/pinna-boot-mt8519.itb
+    cargo zigbuild --release --target {{target_arm}} -p pinna-bootctl
+    install -m0755 target/{{target_arm}}/release/pinna-bootctl {{build}}/release/pinna-bootctl-armv7
+    install -m0755 scripts/install-echo-dot-5.sh {{build}}/release/install-echo-dot-5.sh
+    files+=(pinna-boot-mt8519.itb pinna-bootctl-armv7 install-echo-dot-5.sh)
     case " $models " in
         *" echo-dot-5 "*)
-            {{just_executable()}} fit
-            cp {{build}}/pinna-boot-mt8519.itb {{build}}/release/pinna-boot-mt8519.itb
-            args+=(--boot-for echo-dot-5={{build}}/release/pinna-boot-mt8519.itb)
-            files+=(pinna-boot-mt8519.itb)
-            # The installer's device-side tool: static armv7, run in TWRP (ADR 0035, Decision 10)
-            cargo zigbuild --release --target {{target_arm}} -p pinna-bootctl
-            install -m0755 target/{{target_arm}}/release/pinna-bootctl {{build}}/release/pinna-bootctl-armv7
-            install -m0755 scripts/install-echo-dot-5.sh {{build}}/release/install-echo-dot-5.sh
-            files+=(pinna-bootctl-armv7 install-echo-dot-5.sh) ;;
+            args+=(--boot-for echo-dot-5={{build}}/release/pinna-boot-mt8519.itb) ;;
     esac
     [ -z "${PINNA_SUMMARY:-}" ] || args+=(--summary "$PINNA_SUMMARY")
     [ -z "${PINNA_NOTES_URL:-}" ] || args+=(--notes-url "$PINNA_NOTES_URL")

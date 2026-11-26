@@ -96,9 +96,12 @@ To go back to a channel, remove the lines and restart `pinnad` again.
 
 `just release` puts `PINNA_SUMMARY`, `PINNA_NOTES_URL` and `PINNA_MODELS`
 (models separated by spaces) into the manifest it signs, on your computer.
-Without `PINNA_MODELS`, the release is for every model, so it needs the Echo
-Dot (5th gen)'s kernel too (`just kernel-mt8519`); `just release` then builds
-its boot image with `just fit`. To build for the Echo Dot (2nd gen) only:
+Without `PINNA_MODELS`, the manifest serves the Echo Dot (2nd gen) and the
+Echo (2nd gen). Updates over the air aren't available on the Echo Dot (5th
+gen) yet, so it is in the manifest only when `PINNA_MODELS` names
+`echo-dot-5`. Every release folder carries its installer, its boot image
+and the tool the installer runs, so `just release` needs its kernel too
+(`just kernel-mt8519`). To build for the Echo Dot (2nd gen) only:
 
 ```sh
 PINNA_SUMMARY="The wake word interrupts a reply." PINNA_MODELS="echo-dot-2" just release
