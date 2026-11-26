@@ -15,7 +15,12 @@ if tr '\0' '\n' < /sys/firmware/devicetree/base/compatible | grep -qx 'mediatek,
     # microphones' node stayed in error (C2N6L4, 2026-11-26). These are the
     # routes of pinna-audio's MT8519 capture setup: the converter's slots to
     # channels 0-3, the speaker's loopback to 4-5. pinnad writes them again.
-    for route in "O26 I42" "O27 I43" "O28 I44" "O29 I45" "O30 I40" "O31 I41"; do
+    # The converter (TLV320ADC5140) puts a channel on its TDM output only
+    # with that channel's ASI_EN switch on; mainline leaves them off, where
+    # Amazon's driver turned them on, and the microphones read exact zeros
+    # (C2N6L4, 2026-11-26).
+    for route in "O26 I42" "O27 I43" "O28 I44" "O29 I45" "O30 I40" "O31 I41" \
+        CH1_ASI_EN CH2_ASI_EN CH3_ASI_EN; do
         amixer -q -c 0 cset name="$route Switch" 1 ||
             echo "pinna pipewire: could not set the $route Switch" >&2
     done

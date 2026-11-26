@@ -129,8 +129,10 @@ fn mt8163_capture_setup(micpga: u32) -> Vec<MixerCmd> {
 /// codec names are the mainline drivers' (`tlv320adcx140.c`).
 ///
 /// The converter's slots go to UL9's channels 0 to 3 and DL2 to channels 4
-/// and 5 (the echo reference). The converter's controls have not run on
-/// Pinna's kernel on the unit, so they are optional.
+/// and 5 (the echo reference). The converter's channels reach its TDM output
+/// only with their ASI_EN switches on (C2N6L4, 2026-11-26: exact zeros
+/// without). The converter's controls are optional: a board on another
+/// converter has none of them.
 ///
 /// `micpga` is in half dB, as on the MT8163; the converter's gain is whole
 /// dB, 0 to 42. 20 dB is TECHO5's default: a quiet room read -57 to -60
