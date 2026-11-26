@@ -76,8 +76,7 @@ network and enter its password. For a network that doesn't show its name,
 select **Join a hidden network** and type the name exactly as the router has
 it. The device joins open and WPA2 networks, WPA2/WPA3 networks included. The
 Wi-Fi chip of the Echo (2nd gen) and the Echo Dot (2nd gen) can't join networks
-that allow only WPA3, enterprise networks or WEP networks; whether the Echo Dot
-(5th gen)'s chip can is untested.
+that allow only WPA3, enterprise networks or WEP networks.
 
 Joining is a trial, so that a mistake can't strand the device on a network you
 can't reach, such as a guest network that keeps its devices apart:

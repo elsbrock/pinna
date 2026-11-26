@@ -96,8 +96,7 @@ attempts. The bootloader takes one attempt each time it starts the trial
 slot. When the health check passes, Pinna marks the slot good. When the
 attempts run out, the bootloader starts the other slot, kernel and root
 filesystem together. The running slot stays good the whole time, so one slot
-can always start. For the steps, see [Update Pinna](/docs/update/). Updates
-aren't available on the Echo Dot (5th gen) yet.
+can always start. For the steps, see [Update Pinna](/docs/update/).
 
 Each boot image is marked with its slot (`pinna.boot=a` or `=b`), and the
 bootloader passes the mark on, so Pinna sees which boot partition the kernel

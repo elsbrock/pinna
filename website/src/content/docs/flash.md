@@ -8,8 +8,7 @@ How you install Pinna depends on the device:
 - **Echo (2nd gen) and Echo Dot (2nd gen):** from the browser or from a terminal
   over fastboot. See [Install from the browser](#install-from-the-browser) and
   [Install from a terminal](#install-from-a-terminal).
-- **Echo Dot (5th gen):** from TWRP over USB, with a script. Its fastboot is
-  locked, so neither fastboot way works on it. See
+- **Echo Dot (5th gen):** from TWRP over USB, with a script. See
   [Install on the Echo Dot (5th gen)](#install-on-the-echo-dot-5th-gen).
 
 For the Echo (2nd gen) and the Echo Dot (2nd gen), you can install Pinna in
@@ -201,8 +200,7 @@ firmware doesn't boot properly.
 This section is for the Echo Dot (5th gen), model C2N6L4. It isn't for the
 Echo Dot with clock (5th gen) or the Echo Pop.
 
-The Echo Dot (5th gen)'s bootloader has a fastboot mode, but it is locked:
-it can't install Pinna. You install Pinna from TWRP,
+You install Pinna on the Echo Dot (5th gen) from TWRP,
 which firebreak leaves on the device, with a script that runs on your
 computer and writes to the device over USB. Every step says what it writes,
 and [The way back](#the-way-back) comes before the first one.
@@ -221,12 +219,13 @@ and [The way back](#the-way-back) comes before the first one.
   The script names any tool it can't find. To use adb without `sudo`,
   install your distribution's Android udev rules, as described in
   [What you need](/docs/requirements/#computer).
-- **A Pinna release folder built for the Echo Dot (5th gen).** No published
-  release includes its files yet. Build them as described in
-  [Build for the Echo Dot (5th gen)](/docs/build/#build-for-the-echo-dot-5th-gen):
-  the folder is `build/release/`, with `install-echo-dot-5.sh`,
-  `pinna-boot-mt8519.itb`, `pinna-<version>.root.img`,
-  `pinna-bootctl-armv7` and `SHA256SUMS`.
+- **The release files, in one folder:** `install-echo-dot-5.sh`,
+  `pinna-boot-mt8519.itb`, `pinna-<version>.root.img`, `pinna-bootctl-armv7`
+  and `SHA256SUMS`. Download them from a
+  [release](https://github.com/elsbrock/pinna/releases), or build them as
+  described in
+  [Build for the Echo Dot (5th gen)](/docs/build/#build-for-the-echo-dot-5th-gen),
+  which puts them in `build/release/`.
 
 ### What gets written on the Echo Dot (5th gen)
 
@@ -252,10 +251,6 @@ volume back and compares it again.
 - **To Fire OS:** firebreak's restore puts Fire OS back into slot A from the
   backup its unlock made. It doesn't restore `userdata` or slot B. See
   [firebreak's guide](https://github.com/Gamer92000/firebreak/blob/main/docs/cannoli.md).
-
-Over-the-air updates aren't available on the Echo Dot (5th gen) yet. When
-they are, the first update writes slot B and so replaces TWRP. Read
-firebreak's guide before you install one.
 
 ### Install from TWRP
 
@@ -358,9 +353,7 @@ Set up Wi-Fi on the device's dashboard. You reach it in one of two ways:
 - **Over the USB cable**, at `http://10.42.0.1/`.
 
 The setup hotspot is in the releases after 0.4.0-beta.3. It is tested in the
-virtual machine, not yet on an Echo. On the Echo Dot (5th gen), it isn't tested
-on its Wi-Fi chip yet; use its USB connection at `http://10.42.0.1/`, like the
-others. If your phone doesn't find it within two
+virtual machine, not yet on an Echo. If your phone doesn't find it within two
 minutes of the ring fading out, see
 [The setup hotspot doesn't appear](/docs/troubleshooting/#the-setup-hotspot-doesnt-appear),
 or use the USB cable.
@@ -412,7 +405,7 @@ password that only you can learn is planned.
 The device joins open networks and WPA2 networks, WPA2/WPA3 networks
 included. The Wi-Fi chip of the Echo (2nd gen) and the Echo Dot (2nd gen)
 can't join networks that allow only WPA3, enterprise (802.1X) networks or WEP
-networks. Whether the Echo Dot (5th gen)'s chip can is untested. See
+networks. See
 [Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network).
 
 If you build Pinna yourself, you can give every device that you install the

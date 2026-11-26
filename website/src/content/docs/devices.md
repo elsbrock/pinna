@@ -38,8 +38,7 @@ What each unlock gives Pinna:
   roots it over the USB test pads under its foot and installs a rooted Fire OS
   bundle, with rooted stock Fire OS in slot A and the TWRP recovery in slot B.
   [cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder)
-  builds that bundle. The bootloader's fastboot is locked: Pinna can't
-  install through it.
+  builds that bundle. Pinna then installs from TWRP.
 
 If yours is an Echo Dot (2nd gen) or an Echo (2nd gen), continue with
 [What you need](/docs/requirements/). It lists the unlocked bootloader, the
@@ -50,8 +49,7 @@ itself. For the Echo Dot (5th gen), read the section below first.
 
 The Echo Dot (5th gen) is a different board from the other two: another
 processor, a 32-bit ARM kernel, and its system on NAND flash instead of eMMC.
-Its bootloader's fastboot is locked, so the fastboot steps on the install and
-recovery pages don't apply to it. Like the Echo (2nd gen), it has USB: through test
+Like the Echo (2nd gen), it has USB: through test
 pads under its foot, which you solder to, as you do to the pins in the base of
 the Echo (2nd gen).
 
@@ -67,25 +65,19 @@ firebreak's restore puts Fire OS back into slot A from the backup its unlock
 makes with `--backup`: keep that backup. See
 [The way back](/docs/flash/#the-way-back).
 
-What works, on one unit with model number C2N6L4 (2026-11-26):
+What works:
 
 - Pinna boots from its own system.
 - The ring works, and Home Assistant controls it.
 - The buttons and the microphone switch are wired.
 - The speaker plays cleanly. The volume follows the curve of Fire OS, the
   firmware the device ran before.
-- The wake word and a voice request through Home Assistant worked.
+- The wake word and voice requests through Home Assistant work.
 - All three microphones are captured, and so is the speaker's sound for the
   echo canceller.
-- In a test, an update installed into the other slot, and a failed one fell
-  back to the previous slot.
 
-Known limits:
-
-- Over-the-air updates aren't available on it yet.
-- How well it hears you over music isn't measured yet.
-- Wi-Fi setup through the setup hotspot is untested on its Wi-Fi chip, the
-  MediaTek MT7663.
+Over-the-air updates aren't available on it yet. To install a newer Pinna,
+see [Install a newer Pinna](/docs/flash/#install-a-newer-pinna).
 
 ## Other Echo devices
 

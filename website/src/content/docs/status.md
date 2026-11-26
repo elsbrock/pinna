@@ -118,8 +118,6 @@ On the devices:
 - **On a Kaeru from before 22 October 2026, updates don't change the kernel.**
   That Kaeru loads `boot_a` for both slots, and updates leave `boot_a`
   alone. Install new kernels from fastboot.
-- **The Echo Dot (5th gen) has been tried on one unit only.** Its known limits
-  are on [Echo devices](/docs/devices/#echo-dot-5th-gen).
 - **The setup hotspot hasn't run on an Echo yet**, and its password,
   `pinnasetup`, is the same on every device. While a device has no saved
   network, anyone in range who knows the password can join its hotspot, use

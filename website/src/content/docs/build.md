@@ -9,8 +9,7 @@ or an Echo Dot (2nd gen): the boot image and the root filesystem image.
 build your own to develop Pinna or to sign with a key of your own.
 
 The Echo Dot (5th gen) boots a different boot image, in the FIT format, from
-the same root filesystem image. No published release includes its files yet:
-build them as described in
+the same root filesystem image. See
 [Build for the Echo Dot (5th gen)](#build-for-the-echo-dot-5th-gen).
 
 ## Before you begin
