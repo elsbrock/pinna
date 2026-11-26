@@ -1,0 +1,9 @@
+# Blank issues stay: the install page opens one with its report filled in.
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a question
+    url: https://github.com/elsbrock/pinna/discussions/new?category=q-a
+    about: How to set something up, or whether Pinna can do something.
+  - name: Share feedback
+    url: https://github.com/elsbrock/pinna/discussions/new?category=general
+    about: What works for you, what doesn't, and what you miss.

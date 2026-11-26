@@ -1,0 +1,38 @@
+# The dashboard's Logs page opens this form with ?template=problem.yml and
+# fills in the satellite field (dashboard/src/lib/report.ts). Released
+# dashboards keep those links: don't rename the file or the field ids.
+name: Report a problem
+description: Something on a satellite doesn't work as the docs say.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public: read what you paste before you submit it. For a question, or to say what you think, use [Discussions](https://github.com/elsbrock/pinna/discussions).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: satellite
+    attributes:
+      label: Satellite
+      description: >-
+        Open an issue on the dashboard's Logs page fills this in. Without the
+        dashboard, for example after a failed install or in rescue mode, give
+        the Pinna version and the device.
+      placeholder: |
+        - Pinna: 0.6.0
+        - Device: Echo Dot (2nd gen)
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: >-
+        Open an issue copied the log: paste it here. If you paste something
+        else (signing in to GitHub can replace what you copied), select Copy
+        the log again on the Logs page. In rescue mode, attach the file from
+        Download diagnostics on http://10.42.0.1 instead.
