@@ -39,10 +39,13 @@ done
 
 if [ "$arch" = x86_64 ]; then
   mkosi_arch=(--architecture x86-64)
+  # Only the virtual machine installs this image, not a satellite's slot.
+  seal_args=(--no-slot-check)
   raw=pinna-x86.root-x86-64.raw
   out=${out:-$root/build/pinna-x86.root.img}
 else
   mkosi_arch=()
+  seal_args=()
   raw=pinna.root-arm.raw
   out=${out:-$root/build/pinna.root.img}
 fi
@@ -90,4 +93,4 @@ mkdir -p "$outdir" "$(dirname "$out")"
 got=$(dump.erofs --path=/usr/lib/os-release --cat "$outdir/$raw" | sed -n 's/^IMAGE_VERSION=//p' | tr -d '"')
 [ "$got" = "$version" ] || { echo "os-release IMAGE_VERSION is '$got', expected '$version'" >&2; exit 1; }
 cargo run -q --release --manifest-path "$root/Cargo.toml" -p pinna-image -- \
-  seal --key "$root/secrets/release.key" --version "$version" "$outdir/$raw" "$out"
+  seal --key "$root/secrets/release.key" --version "$version" "${seal_args[@]}" "$outdir/$raw" "$out"

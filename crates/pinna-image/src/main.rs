@@ -37,6 +37,14 @@ enum Cmd {
         /// Hex salt (32 bytes); random by default.
         #[arg(long)]
         salt: Option<String>,
+        /// The models the root is for, comma-separated; it must fit the
+        /// smallest root slot of them (ADR 0035). Default: every model.
+        #[arg(long, value_delimiter = ',')]
+        models: Vec<String>,
+        /// Skip the slot size check, for an image no satellite installs (the
+        /// x86_64 virtual machine).
+        #[arg(long, conflicts_with = "models")]
+        no_slot_check: bool,
         input: PathBuf,
         output: PathBuf,
     },
@@ -55,10 +63,17 @@ enum Cmd {
         /// URL of the image, absolute or relative to the manifest.
         #[arg(long)]
         url: Option<String>,
-        /// The boot image that goes with the root (ADR 0019), listed by
-        /// its file name next to the manifest.
+        /// The Android boot image that goes with the root (ADR 0019), for the
+        /// models that boot one (echo-dot-2, echo-2), listed by its file name
+        /// next to the manifest. Old satellites read it as `boot`.
         #[arg(long)]
         boot: Option<PathBuf>,
+        /// A boot image for the models that boot its format, as
+        /// MODELS=PATH with the models comma-separated (ADR 0035), such as
+        /// echo-dot-5=pinna-boot-mt8519.itb; repeat for more. Listed in
+        /// `boots`.
+        #[arg(long = "boot-for", value_name = "MODELS=PATH")]
+        boot_for: Vec<String>,
         /// The key that signs the manifest; its public half must be compiled in.
         #[arg(long, default_value = "secrets/release.key")]
         key: PathBuf,
@@ -69,9 +84,11 @@ enum Cmd {
         /// The release notes' page.
         #[arg(long)]
         notes_url: Option<String>,
-        /// A model the release is for (echo-dot-2, echo-2); repeat for more.
-        /// Without one, the release is for every model.
-        #[arg(long = "model")]
+        /// The models the release is built for (echo-dot-2, echo-2,
+        /// echo-dot-5), comma-separated or repeated. Default: every model.
+        /// Each needs a boot image of its format, and the images must fit
+        /// the smallest slot of these models.
+        #[arg(long, alias = "model", value_delimiter = ',')]
         models: Vec<String>,
         /// Directory for manifest.json and manifest.json.sig.
         #[arg(long)]
@@ -99,9 +116,12 @@ fn main() -> Result<()> {
             key,
             version,
             salt,
+            models,
+            no_slot_check,
             input,
             output,
         } => {
+            let models = manifest::parse_models(&models)?;
             let path = key;
             let key = keys::read_secret(&path)?;
             ensure!(
@@ -125,6 +145,12 @@ fn main() -> Result<()> {
             let mut out = BufWriter::new(File::create(&tmp)?);
             let f = pinna_image::seal(&src, &version, salt, &key, &mut out)?;
             out.into_inner()?.sync_all()?;
+            // The slot holds the sealed image: the erofs, the footer and the
+            // hash tree.
+            if !no_slot_check && let Err(e) = manifest::check_root_size(f.image_size(), &models) {
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
             fs::rename(&tmp, &output)?;
             println!(
                 "{}: version {}, erofs {} + footer 4096 + hash tree {} = {} bytes, root hash {}",
@@ -173,6 +199,7 @@ fn main() -> Result<()> {
         Cmd::Manifest {
             url,
             boot,
+            boot_for,
             key,
             summary,
             notes_url,
@@ -205,20 +232,69 @@ fn main() -> Result<()> {
             })?;
             let summary = summary.unwrap_or_else(|| format!("Pinna {version}."));
             manifest::check_summary(&summary)?;
-            for m in &models {
-                ensure!(
-                    pinna_board::Model::from_id(m).is_some(),
-                    "unknown model {m:?}; the models are {}",
-                    manifest::models().join(", ")
-                );
-            }
+            let root_only = manifest::root_only(&models, boot.is_some() || !boot_for.is_empty());
+            let models = manifest::parse_models(&models)?;
+            manifest::check_root_size(size, &models)?;
             let url = match url {
                 Some(u) => u,
                 None => file_name(&image)?,
             };
+            let ids: Vec<&str> = models.iter().map(|m| m.id()).collect();
             let mut requires = serde_json::json!({ "boot_level": manifest::ROOT_BOOT_LEVEL });
-            if !models.is_empty() {
-                requires["models"] = serde_json::json!(models);
+            if !root_only {
+                requires["models"] = serde_json::json!(ids);
+            }
+            let mut boot_files: Vec<(Vec<pinna_board::Model>, PathBuf)> = Vec::new();
+            for arg in &boot_for {
+                boot_files.push(manifest::parse_boot_for(arg)?);
+            }
+            // `--boot` is the Android image: it serves the models that boot one.
+            let android: Vec<_> = models
+                .iter()
+                .copied()
+                .filter(|m| m.board().bootloader.boot_format() == pinna_board::BootFormat::Android)
+                .collect();
+            ensure!(
+                boot.is_none() || !android.is_empty(),
+                "--boot is an Android boot image, but none of the models ({}) boots one",
+                ids.join(", ")
+            );
+            // Every model has exactly one boot image.
+            let mut covered: Vec<pinna_board::Model> = Vec::new();
+            for (for_models, path) in &boot_files {
+                for m in for_models {
+                    ensure!(
+                        models.contains(m),
+                        "{} is for the {}, which is not in --models ({})",
+                        path.display(),
+                        m.name(),
+                        ids.join(", ")
+                    );
+                    ensure!(
+                        !(covered.contains(m) || boot.is_some() && android.contains(m)),
+                        "the {} has more than one boot image",
+                        m.name()
+                    );
+                    covered.push(*m);
+                }
+            }
+            if boot.is_some() {
+                covered.extend(&android);
+            }
+            for m in models.iter().filter(|_| !root_only) {
+                ensure!(
+                    covered.contains(m),
+                    "no boot image for the {}: it needs {} (--{})",
+                    m.name(),
+                    match m.board().bootloader.boot_format() {
+                        pinna_board::BootFormat::Android => "an Android boot image",
+                        pinna_board::BootFormat::Fit => "a U-Boot FIT",
+                    },
+                    match m.board().bootloader.boot_format() {
+                        pinna_board::BootFormat::Android => "boot".to_string(),
+                        pinna_board::BootFormat::Fit => format!("boot-for {}=PATH", m.id()),
+                    }
+                );
             }
             let mut m = serde_json::json!({
                 "version": f.version,
@@ -231,21 +307,33 @@ fn main() -> Result<()> {
             m["requires"] = requires;
             m["root"] =
                 serde_json::json!({ "url": url, "size": size, "sha256": sha256_file(&image)? });
-            if let Some(b) = boot {
-                let head = fs::read(&b).with_context(|| format!("reading {}", b.display()))?;
-                let level = pinna_bootimg::level(&head)
-                    .with_context(|| format!("{} is not a boot image", b.display()))?;
-                ensure!(
-                    level >= manifest::ROOT_BOOT_LEVEL,
-                    "{} provides boot level {level}; the root needs {}",
-                    b.display(),
-                    manifest::ROOT_BOOT_LEVEL
-                );
-                m["boot"] = serde_json::json!({
-                    "url": file_name(&b)?,
-                    "size": head.len(),
-                    "sha256": sha256_file(&b)?,
-                });
+            let entry = |path: &Path| -> Result<(serde_json::Value, Vec<u8>)> {
+                let bytes =
+                    fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+                Ok((
+                    serde_json::json!({
+                        "url": file_name(path)?,
+                        "size": bytes.len(),
+                        "sha256": sha256_file(path)?,
+                    }),
+                    bytes,
+                ))
+            };
+            if let Some(b) = &boot {
+                let (value, bytes) = entry(b)?;
+                manifest::check_boot(&b.display().to_string(), &bytes, &android)?;
+                m["boot"] = value;
+            }
+            let mut boots = Vec::new();
+            for (for_models, path) in &boot_files {
+                let (mut value, bytes) = entry(path)?;
+                manifest::check_boot(&path.display().to_string(), &bytes, for_models)?;
+                let ids: Vec<&str> = for_models.iter().map(|m| m.id()).collect();
+                value["models"] = serde_json::json!(ids);
+                boots.push(value);
+            }
+            if !boots.is_empty() {
+                m["boots"] = serde_json::json!(boots);
             }
             let text = format!("{}\n", serde_json::to_string_pretty(&m)?);
             fs::create_dir_all(&out)?;
