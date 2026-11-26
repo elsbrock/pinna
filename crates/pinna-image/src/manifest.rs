@@ -5,7 +5,7 @@
 //! over the manifest's exact bytes, made with the release key: the raw 64
 //! bytes, nothing else. A signature over the bytes needs no canonical JSON.
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use pinna_board::{BootFormat, Model, Slots};
 use std::path::PathBuf;
@@ -135,6 +135,28 @@ pub fn check_boot(label: &str, image: &[u8], models: &[Model]) -> Result<u32> {
             grouped(slot)
         );
     }
+    // A FIT bootloader picks the configuration by name, and a restart may ask
+    // for another one than a start from power-on (pinna-board): every name
+    // has to be there, or the satellite stops in fastboot.
+    for m in models {
+        let want = m.board().bootloader.fit_configs();
+        if want.is_empty() {
+            continue;
+        }
+        let have = pinna_bootimg::fit::configurations(image)
+            .with_context(|| format!("{label}: reading its configurations"))?;
+        let missing: Vec<&str> = want
+            .iter()
+            .copied()
+            .filter(|c| !have.iter().any(|h| h == c))
+            .collect();
+        ensure!(
+            missing.is_empty(),
+            "{label} lacks configurations the {}'s bootloader may start: {}",
+            m.name(),
+            missing.join(", ")
+        );
+    }
     let level = pinna_bootimg::level(image).unwrap_or(1);
     ensure!(
         level >= ROOT_BOOT_LEVEL,
@@ -224,10 +246,70 @@ mod tests {
         b
     }
 
-    fn fit(size: usize) -> Vec<u8> {
-        let mut b = vec![0u8; size];
-        b[..4].copy_from_slice(&0xD00D_FEEDu32.to_be_bytes());
+    /// A FIT with the configurations `names`, padded with zeros to `size`.
+    fn fit_named(size: usize, names: &[&str]) -> Vec<u8> {
+        use pinna_bootimg::fit;
+        let mut zimage = vec![0u8; 0x40];
+        zimage[0x24..0x28].copy_from_slice(&0x016f_2818u32.to_le_bytes());
+        let mut b = fit::build(
+            "test",
+            &zimage,
+            &[fit::Dtb {
+                description: "test",
+                data: &empty_dtb(),
+            }],
+            None,
+            &names
+                .iter()
+                .map(|n| fit::Conf {
+                    node: n,
+                    description: "test",
+                    fdt: 0,
+                    recovery: false,
+                })
+                .collect::<Vec<_>>(),
+            0,
+            0,
+        )
+        .unwrap();
+        assert!(b.len() <= size, "the test FIT is {} bytes", b.len());
+        b.resize(size, 0);
         b
+    }
+
+    /// A FIT for the Echo Dot (5th gen): every configuration its U-Boot boots.
+    fn fit(size: usize) -> Vec<u8> {
+        fit_named(size, Model::EchoDot5.board().bootloader.fit_configs())
+    }
+
+    /// A device tree with nothing but an empty root node.
+    fn empty_dtb() -> Vec<u8> {
+        let be = |v: u32| v.to_be_bytes();
+        let mut st = Vec::new();
+        st.extend_from_slice(&be(1)); // BEGIN_NODE ""
+        st.extend_from_slice(&[0; 4]);
+        st.extend_from_slice(&be(2)); // END_NODE
+        st.extend_from_slice(&be(9)); // END
+        let (off_mem, off_struct) = (40u32, 56u32);
+        let off_strings = off_struct + st.len() as u32;
+        let mut d = Vec::new();
+        for v in [
+            0xd00d_feed,
+            off_strings,
+            off_struct,
+            off_strings,
+            off_mem,
+            17,
+            16,
+            0,
+            0,
+            st.len() as u32,
+        ] {
+            d.extend_from_slice(&be(v));
+        }
+        d.extend_from_slice(&[0; 16]); // the empty memory reservation map
+        d.extend_from_slice(&st);
+        d
     }
 
     #[test]
@@ -269,6 +351,19 @@ mod tests {
         );
         assert!(check_boot("boot.itb", &f, &mt8163).is_err());
         assert!(check_boot("x", b"hello", &mt8163).is_err());
+    }
+
+    #[test]
+    fn a_fit_without_a_configuration_its_bootloader_starts_is_refused() {
+        let few = fit_named(4096, &["cannoli-pvt-plastic", "conf-1"]);
+        let err = check_boot("boot.itb", &few, &[Model::EchoDot5])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cannoli-pvt-aluminum-recovery"), "{err}");
+        assert_eq!(
+            check_boot("boot.itb", &fit(4096), &[Model::EchoDot5]).unwrap(),
+            1
+        );
     }
 
     #[test]
