@@ -1,7 +1,9 @@
 # Pinna
 
-An open, local-first voice satellite OS for the **Echo (2nd gen)** and
-**Echo Dot (2nd gen)** (MediaTek MT8163).
+An open, local-first voice satellite OS for Echo smart speakers: the
+**Echo (2nd gen)** and **Echo Dot (2nd gen)** (MediaTek MT8163), and, with
+limits, the **Echo Dot (5th gen)** (MediaTek MT8519). More Echo models are
+planned.
 
 Pinna turns the device into a voice satellite with an on-device wake word,
 light ring feedback and button control. You choose who answers requests: your
@@ -20,11 +22,25 @@ daemons.
 > Status: early development. Owners set up the satellite on its dashboard;
 > developers have SSH, `pinnactl` and `pinnad.toml`. Expect sharp edges.
 
-Pinna needs an Echo that has already been unlocked with Kaeru/amonet. To
-install it, follow `docs/runbook-first-flash.md`:
-it covers downloading a prebuilt image from a
-[release](https://github.com/elsbrock/pinna/releases) or building your own,
-backs the device up first, and every step says how to undo it.
+Pinna needs an Echo whose bootloader is already unlocked. On the Echo (2nd
+gen) and the Echo Dot (2nd gen), that is amonet with Kaeru, which gives
+Pinna fastboot. On the Echo Dot (5th gen), it is the community installer
+[firebreak](https://github.com/Gamer92000/firebreak), built with
+[cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder), and
+there is no fastboot. To install Pinna on the first two,
+follow `docs/runbook-first-flash.md`: it covers downloading a prebuilt image
+from a [release](https://github.com/elsbrock/pinna/releases) or building your
+own, backs the device up first, and every step says how to undo it.
+
+The Echo Dot (5th gen) is different. It has no fastboot mode and no USB
+connector, and its unlock needs wires soldered to test pads. Pinna doesn't
+ship it. Pinna has no install guide
+for it yet. What was tried on one unit (2026-11-26): Pinna boots, the ring, the
+buttons and the microphone switch work, the speaker plays cleanly, and the
+wake word and a voice request through Home Assistant worked. Two of its three
+microphones are captured and the echo-cancelling reference isn't, so talking
+over music is weak. Updates over the air aren't available on it yet, and the
+setup hotspot is unmeasured on its Wi-Fi chip. See ADR 0035 in `docs/adr/`.
 
 ## Layout
 
@@ -32,7 +48,7 @@ backs the device up first, and every step says how to undo it.
 |---|---|
 | `crates/` | Rust workspace: `pinnad` (device daemon), ESPHome API, wake word, HAL, audio, standalone requests (`pinna-assist`, `pinna-mcp`, `pinna-vad`, `pinna-http`), boot image tooling, `pinna-init` + signed A/B slot images and the updater |
 | `keys/` | Release public key (images are signed with `secrets/release.key`, see ADR 0003) |
-| `kernel/` | Debian 6.12 source pin, MT8163 board-support patches, config fragments and build (packaged as a Debian `.deb`) |
+| `kernel/` | Debian 6.12 source pin, board-support patches for the MT8163 (Echo (2nd gen), Echo Dot (2nd gen)) and the MT8519 (Echo Dot (5th gen)), config fragments and build (packaged as a Debian `.deb`) |
 | `mkosi/` | Debian trixie image definition |
 | `docs/` | Decision records and runbooks |
 | `services/updates/` | The release service behind `updates.getpinna.dev` (Cloudflare Worker): update channels and release downloads, ADR 0022 |
