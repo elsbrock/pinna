@@ -38,7 +38,8 @@ What each unlock gives Pinna:
   roots it over the USB test pads under its foot and installs a rooted Fire OS
   bundle, with rooted stock Fire OS in slot A and the TWRP recovery in slot B.
   [cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder)
-  builds that bundle. Pinna has no fastboot mode on this device.
+  builds that bundle. The bootloader's fastboot is locked: Pinna can't
+  install through it.
 
 If yours is an Echo Dot (2nd gen) or an Echo (2nd gen), continue with
 [What you need](/docs/requirements/). It lists the unlocked bootloader, the
@@ -49,8 +50,8 @@ itself. For the Echo Dot (5th gen), read the section below first.
 
 The Echo Dot (5th gen) is a different board from the other two: another
 processor, a 32-bit ARM kernel, and its system on NAND flash instead of eMMC.
-It has no fastboot mode, so the fastboot steps on the install and recovery
-pages don't apply to it. Like the Echo (2nd gen), it has USB: through test
+Its bootloader's fastboot is locked, so the fastboot steps on the install and
+recovery pages don't apply to it. Like the Echo (2nd gen), it has USB: through test
 pads under its foot, which you solder to, as you do to the pins in the base of
 the Echo (2nd gen).
 

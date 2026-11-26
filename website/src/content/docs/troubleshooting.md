@@ -407,7 +407,7 @@ version. See
 [Recover from a failed update](/docs/recovery/#recover-from-a-failed-update).
 
 Otherwise, install Pinna again. This erases the data partition. On an Echo
-Dot (5th gen), which has no fastboot mode, see
+Dot (5th gen), whose fastboot is locked, see
 [If it doesn't start](/docs/install-echo-dot-5/#if-it-doesnt-start) instead:
 you install again from TWRP in slot B. On the other two:
 

@@ -7,7 +7,8 @@ This page is for the Echo Dot (5th gen), model C2N6L4. It isn't for the
 Echo Dot with clock (5th gen) or the Echo Pop. For the Echo (2nd gen) and the
 Echo Dot (2nd gen), see [Install Pinna](/docs/flash/).
 
-The Echo Dot (5th gen) has no fastboot mode. You install Pinna from TWRP,
+The Echo Dot (5th gen)'s bootloader has a fastboot mode, but it is locked:
+it can't install Pinna. You install Pinna from TWRP,
 which firebreak leaves on the device, with a script that runs on your
 computer and writes to the device over USB. Every step says what it writes,
 and [The way back](#the-way-back) comes before the first one.
@@ -137,16 +138,26 @@ password.
 
 ## If it doesn't start
 
-- **Pinna starts but fails its health check:** it restarts and tries slot A
-  again a few times, then starts slot B, which is TWRP.
-- **The device doesn't get as far as Pinna's start:** it keeps restarting
-  slot A and doesn't go back to TWRP by itself.
+- **Pinna fails its health check, or doesn't start at all:** the bootloader
+  counts the starts of slot A, and after a few it starts slot B, which is
+  TWRP.
 - **Your computer sees a USB device named Pinna rescue:** Pinna couldn't
   start its system. Open `http://10.42.0.1/` to see why.
+- **The ring stays blue, and your computer sees a USB device named USB
+  download gadget:** the bootloader stopped in its fastboot mode. This was
+  seen after a reset without a shutdown and after the power was cut during a
+  restart. On your computer, run `fastboot`, from the same Android tools as
+  `adb`:
 
-In each case, start TWRP yourself: unplug the power, then hold **Volume Up**
-while you plug it in. From TWRP, run `install` again; `userdata` and your
-settings stay.
+  ```sh
+  fastboot continue
+  ```
+
+  The device continues to start Pinna.
+
+To install again, start TWRP yourself: unplug the power, then hold
+**Volume Up** while you plug it in. From TWRP, run `install` again;
+`userdata` and your settings stay.
 
 ## Install a newer Pinna
 
