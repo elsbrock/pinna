@@ -8,12 +8,11 @@
 use std::fs;
 use std::path::Path;
 
+use pinna_board::Board;
+
 pub const UDC_DIR: &str = "/sys/class/udc";
 pub const GADGET_DIR: &str = "/sys/kernel/config/usb_gadget/pinna";
-pub const DT_COMPATIBLE: &str = "/sys/firmware/devicetree/base/compatible";
 pub const NET_DIR: &str = "/sys/class/net";
-/// The board string `pinna-wifi.service` is conditioned on.
-pub const MT8163: &str = "mediatek,mt8163";
 
 /// A UDC to bind the gadget to exists: boards without USB gadget support
 /// (the VMs) skip the USB stage instead of failing it.
@@ -26,11 +25,11 @@ pub fn usb_bound(gadget_dir: &Path) -> bool {
     fs::read_to_string(gadget_dir.join("UDC")).is_ok_and(|s| !s.trim().is_empty())
 }
 
-/// The device tree says this is an MT8163 board, so `pinna-wifi.service` will
-/// run and the Wi-Fi stage applies.
-pub fn wifi_present(compatible: &Path) -> bool {
-    let bytes = fs::read(compatible).unwrap_or_default();
-    bytes.split(|b| *b == 0).any(|s| s == MT8163.as_bytes())
+/// This is a board Pinna knows, and every such board has a Wi-Fi chip whose
+/// driver brings up `wlan0`, so the Wi-Fi stage applies. Only the VMs, which
+/// have no board, skip it.
+pub fn wifi_present(board: Option<&Board>) -> bool {
+    board.is_some()
 }
 
 /// The Wi-Fi driver is up: `wlan0` exists.
@@ -49,7 +48,7 @@ impl Skips {
     pub fn detect() -> Self {
         Skips {
             usb: !usb_present(Path::new(UDC_DIR)),
-            wifi: !wifi_present(Path::new(DT_COMPATIBLE)),
+            wifi: !wifi_present(pinna_board::detect()),
         }
     }
 }
@@ -78,14 +77,10 @@ mod tests {
     }
 
     #[test]
-    fn wifi_present_matches_the_compatible_list() {
-        let d = tempfile::tempdir().unwrap();
-        let f = d.path().join("compatible");
-        assert!(!wifi_present(&f));
-        fs::write(&f, b"amazon,radar-puffin\0mediatek,mt8163\0").unwrap();
-        assert!(wifi_present(&f));
-        fs::write(&f, b"mediatek,mt8163-extra\0").unwrap();
-        assert!(!wifi_present(&f));
+    fn wifi_present_for_every_known_board() {
+        assert!(!wifi_present(None));
+        assert!(wifi_present(Some(&pinna_board::ECHO_DOT_2)));
+        assert!(wifi_present(Some(&pinna_board::ECHO_DOT_5)));
     }
 
     #[test]

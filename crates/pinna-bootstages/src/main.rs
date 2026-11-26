@@ -64,7 +64,7 @@ fn main() {
         log("no UDC on this board: skipping the USB stage");
     }
     if skips.wifi {
-        log("not an MT8163 board: skipping the Wi-Fi stage");
+        log("no known board: skipping the Wi-Fi stage");
     }
     log("up");
 
