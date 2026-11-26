@@ -12,9 +12,10 @@ pub mod reboot;
 pub mod ring;
 pub mod slot;
 pub mod stages;
+pub mod ubi;
 
 use std::fs::OpenOptions;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Read;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 
@@ -67,7 +68,7 @@ pub fn read_command(misc: &Path) -> Result<Command> {
 }
 
 fn write_command(misc: &Path, value: &[u8]) -> Result<()> {
-    let mut f = OpenOptions::new()
+    let f = OpenOptions::new()
         .read(true)
         .write(true)
         .open(misc)
@@ -77,8 +78,7 @@ fn write_command(misc: &Path, value: &[u8]) -> Result<()> {
     let mut sector = before[..SECTOR].to_vec();
     sector[..COMMAND_SIZE].fill(0);
     sector[..value.len()].copy_from_slice(value);
-    f.seek(SeekFrom::Start(0))?;
-    f.write_all(&sector)?;
+    ubi::write_at(&f, &sector, 0)?;
     f.sync_all()?;
     let mut after = vec![0u8; SECTOR * 2];
     f.read_exact_at(&mut after, 0)?;
@@ -115,6 +115,7 @@ pub fn clear(misc: &Path) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     fn misc_with(cmd: &[u8]) -> tempfile::NamedTempFile {
         let mut f = tempfile::NamedTempFile::new().unwrap();

@@ -386,7 +386,7 @@ pub fn write(misc: &Path, r: &Record) -> Result<()> {
     let at = (OFFSET - sector_start) as usize;
     let mut sector = before[SECTOR as usize..2 * SECTOR as usize].to_vec();
     sector[at..at + LEN].copy_from_slice(&r.encode());
-    f.write_all_at(&sector, sector_start)?;
+    crate::ubi::write_at(&f, &sector, sector_start)?;
     f.sync_all()?;
     // Read back from the device, not the page cache.
     // SAFETY: plain fadvise on an open fd.

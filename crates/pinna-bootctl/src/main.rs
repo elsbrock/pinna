@@ -11,8 +11,10 @@ use pinna_bootctl::*;
 #[derive(Parser)]
 #[command(about = "Board storage, bootloader message and A/B slot control")]
 struct Cli {
-    #[arg(long, default_value = "/dev/disk/by-partlabel/misc")]
-    misc: PathBuf,
+    /// The bootloader's misc (default: the board's, the GPT partition or the
+    /// UBI volume named misc).
+    #[arg(long)]
+    misc: Option<PathBuf>,
     #[arg(long, default_value = "/dev/disk/by-partlabel/expdb")]
     expdb: PathBuf,
     /// Where the slot partitions (system_a, system_b) are found by name.
@@ -82,6 +84,18 @@ fn kaeru_ok(cli: &Cli) -> anyhow::Result<bool> {
     Ok(false)
 }
 
+/// The board's misc: a GPT partition, or a UBI volume on the MT8519 (ADR 0035).
+fn misc(cli: &Cli) -> anyhow::Result<PathBuf> {
+    if let Some(p) = &cli.misc {
+        return Ok(p.clone());
+    }
+    Ok(match pinna_board::storage() {
+        StorageKind::Gpt => PathBuf::from("/dev/disk/by-partlabel/misc"),
+        StorageKind::Ubi => pinna_bootctl::ubi::volume(Path::new("/sys/class/ubi"), "misc")
+            .context("no UBI volume named misc")?,
+    })
+}
+
 /// The signed image in a slot partition, or why it is not bootable.
 fn slot_image(partdir: &Path, s: Slot) -> anyhow::Result<pinna_image::Footer> {
     slot::image(partdir, s, &pinna_image::keys::release_key())
@@ -97,14 +111,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             }
         ),
         Cmd::Status => {
-            let c = read_command(&cli.misc)?;
+            let c = read_command(&misc(cli)?)?;
             println!("command: {c:?}");
             println!("kaeru: {}", kaeru_present(&cli.expdb)?);
         }
         Cmd::GuardArm => {
             let booted = slot::booted_slot(&cli.run_dir)?;
             // An unreadable slot record must not disable the safety net.
-            let record = bcb::read(&cli.misc).unwrap_or(None);
+            let record = bcb::read(&misc(cli)?).unwrap_or(None);
             if !bcb::guard_should_arm(record, booted) {
                 let b = booted.expect("a trial boot has a booted slot");
                 println!(
@@ -112,12 +126,12 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     b.other()
                 );
             } else if kaeru_ok(cli)? {
-                arm(&cli.misc)?;
+                arm(&misc(cli)?)?;
                 println!("armed: next boot enters fastboot unless cleared");
             }
         }
         Cmd::GuardClear => {
-            if clear(&cli.misc)? {
+            if clear(&misc(cli)?)? {
                 println!("cleared: boot marked healthy");
             } else {
                 println!("nothing to clear");
@@ -125,7 +139,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         }
         Cmd::RebootBootloader => {
             anyhow::ensure!(kaeru_ok(cli)?, "refusing: no Kaeru payload");
-            arm(&cli.misc)?;
+            arm(&misc(cli)?)?;
             let _ = reboot::record_at(&cli.run_dir, "bootloader");
             let status = std::process::Command::new("systemctl")
                 .arg("reboot")
@@ -133,7 +147,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             anyhow::ensure!(status.success(), "systemctl reboot failed");
         }
         Cmd::SlotStatus => {
-            let record = bcb::read(&cli.misc)?;
+            let record = bcb::read(&misc(cli)?)?;
             let r = record.unwrap_or(Record::KAERU_DEFAULT);
             match record {
                 Some(_) => println!("state: valid"),
@@ -184,10 +198,10 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 );
                 return Ok(());
             };
-            let old = bcb::read(&cli.misc)?;
+            let old = bcb::read(&misc(cli)?)?;
             let new = bcb::mark_good(old.unwrap_or(Record::KAERU_DEFAULT), booted);
             if old != Some(new) {
-                bcb::write(&cli.misc, &new)?;
+                bcb::write(&misc(cli)?, &new)?;
             }
             // The verdict, for pinnad's stage 7 on the ring (ADR 0012) and for
             // the next boot's "how the last boot ended".
@@ -222,13 +236,13 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     })?
                     .version
             };
-            let old = bcb::read_or_default(&cli.misc)?;
+            let old = bcb::read_or_default(&misc(cli)?)?;
             if slot::booted_slot(&cli.run_dir)? == Some(s) {
                 // The running slot: undo a pending switch.
-                bcb::write(&cli.misc, &bcb::keep_booted(old, s)?)?;
+                bcb::write(&misc(cli)?, &bcb::keep_booted(old, s)?)?;
                 println!("slot {s} (version {version}) keeps booting");
             } else {
-                bcb::write(&cli.misc, &bcb::set_active(old, s, *attempts)?)?;
+                bcb::write(&misc(cli)?, &bcb::set_active(old, s, *attempts)?)?;
                 println!(
                     "slot {s} (version {version}) boots next as a trial with {attempts} attempts; slot {} is the fallback",
                     s.other()
