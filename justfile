@@ -139,12 +139,21 @@ bootimg-mt8516: initramfs
 # Amazon's U-Boot picks the configuration by the board revision's name; a C2N6L4 asks for cannoli-pvt-plastic
 # and the device tree is the DVT's, which is the one that has booted on a unit.
 # The image's boot level is pinna_bootimg::BOOT_LEVEL, fit-pack's default.
+# Every configuration name the Echo Dot (5th gen)'s U-Boot may boot, as in Fire OS's FIT: a restart
+# asks for cannoli-pvt-aluminum-recovery (pinna-board's CANNOLI_FIT_CONFIGS; just release checks them).
 fit: initramfs
     cargo run -q -p pinna-bootimg -- fit-pack \
         --zimage {{build}}/kernel-mt8519/arch/arm/boot/zImage \
         --dtb {{build}}/kernel-mt8519/arch/arm/boot/dts/mediatek/cannoli-dvt-plastic.dtb \
         --ramdisk {{build}}/initramfs.cpio \
-        --conf cannoli-pvt-plastic=1 --conf conf-1=1 \
+        --conf cannoli-pvt-plastic=1 --conf cannoli-pvt-aluminum=1 \
+        --conf cannoli-dvt-plastic=1 --conf cannoli-dvt-aluminum=1 \
+        --conf cannoli-evt-plastic=1 --conf cannoli-evt-aluminum=1 \
+        --conf cannoli-hvt=1 --conf conf-1=1 \
+        --conf cannoli-pvt-plastic-recovery=1 --conf cannoli-pvt-aluminum-recovery=1 \
+        --conf cannoli-dvt-plastic-recovery=1 --conf cannoli-dvt-aluminum-recovery=1 \
+        --conf cannoli-evt-plastic-recovery=1 --conf cannoli-evt-aluminum-recovery=1 \
+        --conf cannoli-hvt-recovery=1 \
         --out {{build}}/pinna-boot-mt8519.itb
     cargo run -q -p pinna-bootimg -- fit-info {{build}}/pinna-boot-mt8519.itb
 
