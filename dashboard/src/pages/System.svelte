@@ -6,6 +6,7 @@
   import Icon from "../lib/Icon.svelte";
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
   import { security } from "../lib/security.svelte.ts";
+  import { THEME_LABEL, THEMES, theme } from "../lib/theme.svelte.ts";
   import Select from "../lib/Select.svelte";
   import { toasts } from "../lib/toast.svelte.ts";
   import { displayName, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
@@ -256,6 +257,23 @@
     </div>
   </Group>
 
+  <!-- From 760px the sidebar has the theme switch. -->
+  <div class="phone-only">
+    <Group title="This browser">
+      <div class="pn-row is-stack theme-row">
+        <div class="pn-row-text">
+          <span class="pn-row-label" id="theme-label">Theme</span>
+          <span class="pn-row-hint">Saved in this browser only.</span>
+        </div>
+        <div class="pn-segmented" role="group" aria-labelledby="theme-label">
+          {#each THEMES as t (t)}
+            <button type="button" aria-pressed={theme.current === t} onclick={() => theme.set(t)}>{THEME_LABEL[t]}</button>
+          {/each}
+        </div>
+      </div>
+    </Group>
+  </div>
+
   <Group title="Details">
     {#each [["Node name", s.name], ["MAC", s.mac.toLowerCase()], ["Uptime", live ? uptime(up) : "—"], ["Audio backend", s.audioBackend], ["LED backend", s.ledBackend]] as [label, value] (label)}
       <div class="pn-row">
@@ -309,5 +327,14 @@
   .inline input {
     flex: 1 1 220px;
     width: auto;
+  }
+  @media (min-width: 760px) {
+    .phone-only {
+      display: none;
+    }
+  }
+  /* Stacked, the label above the choice: three choices don't fit beside it on a phone. */
+  .theme-row .pn-segmented {
+    margin-top: var(--space-2);
   }
 </style>

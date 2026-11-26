@@ -9,6 +9,7 @@
   import Logo from "./lib/Logo.svelte";
   import Satellites from "./lib/Satellites.svelte";
   import { SECTIONS, pageOf, router, subpagesOf } from "./lib/router.svelte.ts";
+  import { THEME_ICON, THEME_LABEL, theme } from "./lib/theme.svelte.ts";
   import Toasts from "./lib/Toasts.svelte";
   import { wifi } from "./lib/wifi.svelte.ts";
   import WifiTrial from "./lib/WifiTrial.svelte";
@@ -57,7 +58,18 @@
 
 <div class="shell" class:fill>
   <aside class="side">
-    <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
+    <div class="side-top">
+      <a class="home" href="#/" aria-label="Pinna, overview"><Logo /></a>
+      <button
+        class="pn-btn pn-btn-quiet pn-btn-sm pn-btn-icon theme"
+        type="button"
+        aria-label="Theme: {THEME_LABEL[theme.current]}. Switch to {THEME_LABEL[theme.upcoming()]}"
+        title="Theme: {THEME_LABEL[theme.current]}. Select for {THEME_LABEL[theme.upcoming()]}."
+        onclick={() => theme.next()}
+      >
+        <Icon name={THEME_ICON[theme.current]} />
+      </button>
+    </div>
     <nav class="pn-nav" aria-label="Sections">
       {#each groups as g (g)}
         <span class="pn-nav-label">{g}</span>
@@ -414,9 +426,17 @@
       border-right: 1px solid var(--line);
       box-shadow: var(--shadow-raised);
     }
+    /* The logo, and the theme switch level with it at the right. */
+    .side-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
     .side .home {
-      align-self: flex-start;
       padding: 2px var(--space-2) 14px;
+    }
+    .side-top .theme {
+      color: var(--ink-muted);
     }
     .side :global(.pn-logo-word) {
       font-size: 18px;
@@ -447,6 +467,7 @@
     .side-foot :global(.ext) {
       color: inherit;
     }
+
     .appbar,
     .tabbar {
       display: none;

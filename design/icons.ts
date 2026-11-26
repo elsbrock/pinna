@@ -31,6 +31,9 @@ export const ICONS = {
   "chevron-right": '<path d="m9 18 6-6-6-6"/>',
   "chevron-left": '<path d="m15 18-6-6 6-6"/>',
   "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+  // The theme: follows the system (Pinna's own), light (sun), dark (Lucide's moon).
+  contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

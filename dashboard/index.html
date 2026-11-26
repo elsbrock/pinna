@@ -6,6 +6,16 @@
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/svg+xml" href="../design/mark.svg" />
     <title>Pinna</title>
+    <script>
+      // Before the first paint, so a chosen theme never flashes. The key is
+      // the website's: lib/theme.svelte.ts keeps it.
+      try {
+        const theme = localStorage.getItem("pinna-theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch {
+        // A browser that blocks storage keeps the system theme.
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>
