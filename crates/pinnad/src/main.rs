@@ -198,19 +198,22 @@ fn volume_curve(curve: pinna_hal::board::VolumeCurve) -> VolumeCurve {
 }
 
 /// What the board's capture PCM delivers, for the microphone front end.
-fn capture_format(board: &Board) -> CaptureFormat {
+fn capture_format(board: &Board) -> Result<CaptureFormat> {
     let pcm = board.audio.capture;
-    CaptureFormat {
+    Ok(CaptureFormat {
         rate: pcm.rate,
         channels: pcm.channels,
         sample: match pcm.format {
             pinna_hal::board::SampleFormat::S24_3Le => SampleFormat::S24_3Le,
             pinna_hal::board::SampleFormat::S32Le => SampleFormat::S32Le,
             // The front end decodes only what a board's microphones deliver.
-            pinna_hal::board::SampleFormat::S16Le => unreachable!("no board captures S16_LE"),
+            pinna_hal::board::SampleFormat::S16Le => anyhow::bail!(
+                "the {} captures S16_LE, which the microphone front end doesn't decode",
+                board.model.name()
+            ),
         },
         mic_lanes: (0..board.mics.count).collect(),
-    }
+    })
 }
 
 /// The board whose drivers to use. Without a board description the Echo Dot
@@ -817,11 +820,15 @@ async fn main() -> Result<()> {
         sc.profile.codec = audio_codec(hw.audio.codec);
         sc.pcm_status = pcm_status_path(hw.audio.playback.device, false).or(sc.pcm_status.take());
         // The board's tuning, unless a developer named another.
-        let tuning = cfg
-            .audio
-            .speaker_profile
-            .as_deref()
-            .map_or(hw.audio.speaker, SpeakerTuning::named);
+        let tuning = match cfg.audio.speaker_profile.as_deref() {
+            None => hw.audio.speaker,
+            Some(name) => SpeakerTuning::named(name).unwrap_or_else(|| {
+                tracing::warn!(
+                    "speaker_profile {name:?} is neither Flat nor Radar: using the board's tuning"
+                );
+                hw.audio.speaker
+            }),
+        };
         sc.profile.codec_flat = tuning.codec_profile == Some(pinna_hal::board::CodecProfile::Flat);
         if echo_dot {
             sc.pre_gain_db = tuning.pre_gain_db;
@@ -881,7 +888,7 @@ async fn main() -> Result<()> {
         let mut capture = CaptureConfig::new(b.clone());
         capture.alsa_device = hw.audio.capture.device.into();
         capture.codec = audio_codec(hw.audio.codec);
-        capture.format = capture_format(hw);
+        capture.format = capture_format(hw)?;
         capture.front_end.mic_mask = hw.mics.speech_mask;
         capture.pw_target = cfg.audio.capture_target.clone();
         // Where PipeWire's stream is missing, and without PipeWire, pinnad
@@ -1246,7 +1253,7 @@ mod tests {
         for model in [Model::EchoDot2, Model::Echo2] {
             let hw = model.board();
             assert_eq!(audio_codec(hw.audio.codec), Codec::Mt8163Aic);
-            assert_eq!(capture_format(hw), CaptureFormat::default());
+            assert_eq!(capture_format(hw).unwrap(), CaptureFormat::default());
             assert_eq!(hw.audio.playback.device, speaker.alsa_device);
             assert_eq!(hw.audio.playback.rate, speaker.device_rate);
             assert_eq!(
@@ -1288,11 +1295,30 @@ mod tests {
         );
     }
 
+    /// A board that captures S16_LE is an error, not a panic.
+    #[test]
+    fn a_board_capturing_s16_is_refused_with_a_reason() {
+        use pinna_hal::board::{Audio, ECHO_DOT_2, Pcm, SampleFormat};
+        let board = Board {
+            audio: Audio {
+                capture: Pcm {
+                    format: SampleFormat::S16Le,
+                    ..ECHO_DOT_2.audio.capture
+                },
+                ..ECHO_DOT_2.audio
+            },
+            ..ECHO_DOT_2
+        };
+        let err = capture_format(&board).unwrap_err();
+        assert!(err.to_string().contains("S16_LE"), "{err}");
+    }
+
     /// Every board's capture format is one the front end decodes.
     #[test]
     fn every_boards_capture_format_decodes() {
         for model in Model::ALL {
             capture_format(model.board())
+                .unwrap()
                 .check()
                 .unwrap_or_else(|e| panic!("{model:?}: {e}"));
         }

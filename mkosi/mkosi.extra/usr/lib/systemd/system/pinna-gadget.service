@@ -1,5 +1,5 @@
 [Unit]
-Description=USB gadget: serial console and network over the micro-USB port
+Description=USB gadget: serial console and network over the board's USB port
 DefaultDependencies=no
 Requires=sys-kernel-config.mount
 After=sys-kernel-config.mount systemd-udevd.service

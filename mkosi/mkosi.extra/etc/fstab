@@ -1,3 +1,4 @@
 # The root is mounted read-only by the kernel (root=PARTLABEL=system_a).
 # Persistent state lives on userdata; formatted on first boot if empty.
+# This is the GPT boards' (MT8163, MT8516); UBI boards use fstab.ubi.
 PARTLABEL=userdata  /var  ext4  noatime,x-systemd.makefs,x-systemd.device-timeout=30s  0  2

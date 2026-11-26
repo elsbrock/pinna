@@ -123,9 +123,11 @@ pub fn scale_frame(frame: &Frame, k: f32) -> Frame {
     frame.map(|c| scaled(c, k))
 }
 
-/// LED i sits at 45 + 30 i degrees clockwise from the front, seen from above
-/// (pinna-hal's ring geometry). The Action button is at the back, 180
-/// degrees, between LEDs 4 and 5: the arc starts at LED 5.
+/// Pixel i sits at 45 + 30 i degrees clockwise from the front, seen from above
+/// (pinna-hal's ring geometry; a board's driver turns the pixels onto its own
+/// LEDs, see `ring::offset_for`). The MT8163 Echos' Action button is at the
+/// back, 180 degrees, between pixels 4 and 5, so the arc starts at pixel 5.
+/// Where the Echo Dot (5th gen)'s button is hasn't been checked.
 const ARC_START: usize = 5;
 
 const BLUE: [u8; 3] = [0x00, 0x30, 0xff];

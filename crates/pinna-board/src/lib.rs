@@ -496,12 +496,14 @@ impl SpeakerTuning {
     };
 
     /// The tuning a developer names in `pinnad.toml` (`speaker_profile`):
-    /// `Flat` in any case, otherwise `Radar`.
-    pub fn named(name: &str) -> SpeakerTuning {
+    /// `Flat` or `Radar` in any case; `None` for any other name.
+    pub fn named(name: &str) -> Option<SpeakerTuning> {
         if name.eq_ignore_ascii_case("flat") {
-            SpeakerTuning::FLAT
+            Some(SpeakerTuning::FLAT)
+        } else if name.eq_ignore_ascii_case("radar") {
+            Some(SpeakerTuning::RADAR)
         } else {
-            SpeakerTuning::RADAR
+            None
         }
     }
 }
@@ -887,10 +889,10 @@ mod tests {
 
     #[test]
     fn speaker_tuning_by_name() {
-        assert_eq!(SpeakerTuning::named("Flat"), SpeakerTuning::FLAT);
-        assert_eq!(SpeakerTuning::named("flat"), SpeakerTuning::FLAT);
-        assert_eq!(SpeakerTuning::named("Radar"), SpeakerTuning::RADAR);
-        assert_eq!(SpeakerTuning::named("anything"), SpeakerTuning::RADAR);
+        assert_eq!(SpeakerTuning::named("Flat"), Some(SpeakerTuning::FLAT));
+        assert_eq!(SpeakerTuning::named("flat"), Some(SpeakerTuning::FLAT));
+        assert_eq!(SpeakerTuning::named("Radar"), Some(SpeakerTuning::RADAR));
+        assert_eq!(SpeakerTuning::named("anything"), None);
         assert_eq!(ECHO_DOT_2.audio.speaker, SpeakerTuning::FLAT);
         assert_eq!(ECHO_2.audio.speaker, SpeakerTuning::RADAR);
     }

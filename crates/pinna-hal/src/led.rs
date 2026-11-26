@@ -15,8 +15,10 @@ use std::time::{Duration, Instant};
 /// Logical pixels Pinna draws. A board's ring driver maps them onto its
 /// LEDs ([`crate::board::Ring`]).
 pub const RING_PIXELS: usize = 12;
-/// The two pixels at the front centre of the ring. Every board Pinna runs on
-/// has its front centre here (a test checks the boards).
+/// The two pixels at the front centre of the ring, where the animations draw
+/// it. A board whose LEDs put the front centre elsewhere ([`crate::board::Ring`]'s
+/// `front_centre`, the Echo Dot (5th gen)'s is [6, 7]) has its driver turn the
+/// frame; a test checks every board.
 pub const FRONT_CENTRE: [usize; 2] = [10, 11];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

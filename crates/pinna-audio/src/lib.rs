@@ -54,13 +54,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Which audio stack to talk to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Backend {
-    /// Echo Dot: alsa-utils against the MT8163 sound card.
+    /// An Echo's own sound card through alsa-utils (`arecord`, `aplay`),
+    /// with the board's mixer sequences: pinnad mixes the microphones itself.
     EchoDot,
-    /// Echo Dot with the device's PipeWire microphone graph: the microphones'
+    /// An Echo with the device's PipeWire microphone graph: the microphones'
     /// mean and echo cancellation run in PipeWire, so capture reads one
     /// processed mono stream (`dot_wake`). The speaker is still driven through
-    /// ALSA at 48 kHz (with the amp and mixer sequences here); the echo canceller
-    /// takes what it plays from the microphones' loopback lanes (ADR 0004).
+    /// ALSA, at the board's playback rate (with the amp and mixer sequences
+    /// here); the echo canceller takes what it plays from the microphones'
+    /// loopback lanes (ADR 0004).
     EchoDotPipeWire,
     /// PipeWire tools (`pw-record` / `pw-play`) for laptops and VMs.
     PipeWire,
