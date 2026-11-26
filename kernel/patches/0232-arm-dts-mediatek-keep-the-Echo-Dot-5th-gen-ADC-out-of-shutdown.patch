@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 15:20:00 +0100
+Subject: [PATCH] arm: dts: mediatek: keep the Echo Dot (5th gen)'s ADC out of
+ shutdown
+
+The TLV320ADC5140's reset line is a fixed regulator on the CPLD's ADC_RST
+GPIO, which the device tree hands to the ADC as
+reset-adc-regulator-supply. Only Amazon's ADC driver takes that supply;
+mainline's tlv320adcx140 doesn't, so the regulator stayed disabled with
+no users and the ADC in shutdown (read on a C2N6L4, 2026-11-26). With the
+codec on its link (patch 0231) its component probe then failed with
+-ENXIO and took the whole card down.
+
+Keep the line high from boot. The regulator's 10 ms startup delay
+covers the ADC's wake-up before anything talks to it.
+
+---
+--- a/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
++++ b/arch/arm/boot/dts/mediatek/cannoli-cheesecake.dtsi
+@@ -35,6 +35,14 @@
+ 		gpio = <&cpld AMZ_CPLD_GPIO_ADC_RST GPIO_ACTIVE_HIGH>;
+ 		startup-delay-us = <10000>;
+ 		enable-active-high;
++		/*
++		 * The ADC's reset line. Amazon's ADC driver takes this supply
++		 * (reset-adc-regulator-supply); mainline's tlv320adcx140 has no
++		 * such supply, so nothing enabled it and the ADC stayed in
++		 * shutdown, answering nothing on I2C (C2N6L4, 2026-11-26).
++		 */
++		regulator-always-on;
++		regulator-boot-on;
+ 		status = "okay";
+ 	};
+ 
