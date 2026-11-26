@@ -7,10 +7,9 @@ at one spot. Amended 2026-11-24 (ADR 0004): `dot_wake` is the satellite's only
 microphone stream; it averages all the board's microphones, takes its
 reference from the loopback lane the speaker plays (lane 8, not 7), adapts
 with a step of 0.1 instead of 0.5, and carries the ring's direction. Measured
-offline only.
-at one spot. Amended 2026-11-24 by ADR 0035 (Decision 8): the Echo Dot (5th
-gen)'s graph also has a `dot_wake`, from its microphone 2 alone with its
-loopback lane 4 as the reference; not run on a device.
+offline only. Amended 2026-11-24 by ADR 0035 (Decision 8): the Echo Dot (5th
+gen)'s graph has the same `dot_wake`, over its three microphones with
+loopback lane 4 as the reference.
 
 ## Context
 
