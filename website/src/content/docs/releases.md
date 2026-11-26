@@ -95,7 +95,10 @@ internet, and offers the build when its version is newer than the running one.
 To go back to a channel, remove the lines and restart `pinnad` again.
 
 `just release` puts `PINNA_SUMMARY`, `PINNA_NOTES_URL` and `PINNA_MODELS`
-(models separated by spaces) into the manifest it signs, on your computer:
+(models separated by spaces) into the manifest it signs, on your computer.
+Without `PINNA_MODELS`, the release is for every model, so it needs the Echo
+Dot (5th gen)'s kernel too (`just kernel-mt8519`); `just release` then builds
+its boot image with `just fit`. To build for the Echo Dot (2nd gen) only:
 
 ```sh
 PINNA_SUMMARY="The wake word interrupts a reply." PINNA_MODELS="echo-dot-2" just release
@@ -153,7 +156,7 @@ reads anything in the manifest, and refuses a manifest without one.
   "channel": "stable",
   "summary": "Quiet speech from across the room now wakes the satellite.",
   "notes_url": "https://github.com/elsbrock/pinna/releases/tag/v0.4.0",
-  "requires": { "boot_level": 1 },
+  "requires": { "boot_level": 1, "models": ["echo-dot-2", "echo-2", "echo-dot-5"] },
   "root": {
     "url": "pinna-0.4.0.root.img",
     "size": 157286400,
@@ -163,7 +166,15 @@ reads anything in the manifest, and refuses a manifest without one.
     "url": "pinna-boot.img",
     "size": 16777216,
     "sha256": "…"
-  }
+  },
+  "boots": [
+    {
+      "models": ["echo-dot-5"],
+      "url": "pinna-boot-mt8519.itb",
+      "size": 9437184,
+      "sha256": "…"
+    }
+  ]
 }
 ```
 
@@ -173,15 +184,22 @@ reads anything in the manifest, and refuses a manifest without one.
 | `channel` | `stable`, or `beta` for a version with a prerelease part such as `0.4.0-beta.1` |
 | `summary` | One line of at most 255 characters, for the dashboard and Home Assistant |
 | `notes_url` | Optional: the release notes |
-| `requires.boot_level` | The lowest boot level the root needs. Each boot image says which level it provides (`pinna.level=` in its header) |
-| `requires.models` | Optional: the models the release is for, `echo-dot-2` or `echo-2`. Without it, every model |
+| `requires.boot_level` | The lowest boot level the root needs. Each boot image says which level it provides (`pinna.level=` in an Android image's header, `pinna,boot-level` in a FIT's root node) |
+| `requires.models` | The models the release is built for: `echo-dot-2`, `echo-2` or `echo-dot-5`. A manifest from before the Echo Dot (5th gen) may leave it out, which meant every model then |
 | `root.url` | Where to download the root image. A relative URL is relative to the manifest's address after redirects |
-| `root.size` | The image size in bytes. It must fit into the slot (768 MiB) |
+| `root.size` | The image size in bytes. One root serves every model, so it must fit into the smallest system slot of `requires.models`: 768 MiB for the Echo Dot (2nd gen) and the Echo (2nd gen), 131,088,384 bytes for the Echo Dot (5th gen) |
 | `root.sha256` | The SHA-256 checksum of the image |
-| `boot` | Optional: the boot image that goes with the root image. Without it, the update copies the running boot image into the other slot |
+| `boot` | Optional: the Android boot image that goes with the root image, for the Echo Dot (2nd gen) and the Echo (2nd gen). Satellites from before `boots` read only this. Without it, the update copies the running boot image into the other slot |
 | `boot.url`, `boot.size`, `boot.sha256` | As for `root`. The image must fit into the boot partition (16 MiB) |
+| `boots` | Optional: a boot image for each boot format the release carries. Each entry has `models` (the models it is for), `url`, `size` and `sha256`. The Echo Dot (5th gen) boots a U-Boot FIT, not an Android boot image. A satellite takes the entry that names its model, and otherwise `boot`. It refuses an image of the wrong format or for another board |
+| `boots[].size` | As for `boot.size`, against the smallest boot slot of the entry's models: 16 MiB, or 12,697,600 bytes for the Echo Dot (5th gen) |
 
-`just release` writes the manifest and its signature for you. Releases have
+`just release` writes the manifest and its signature for you. It refuses a
+release in which a model has no boot image of its format, or an image is
+larger than the smallest slot of the models it is for. `pinna-image manifest`,
+which it runs on your computer, takes `--models`, `--boot` for the Android
+image and `--boot-for <models>=<path>` for each other image, such as
+`--boot-for echo-dot-5=build/pinna-boot-mt8519.itb`. Releases have
 semantic versions: `0.4.0`, or `0.4.0-beta.1` for a beta. Builds of your own
 are versioned like `0.4.1-dev.202611170910.g1a2b3c4`: the nearest release tag
 before the commit with its patch raised by one (after a beta tag such as
