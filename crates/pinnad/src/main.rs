@@ -50,6 +50,7 @@ use clap::Parser;
 use pinna_audio::dsp::{CaptureFormat, SampleFormat};
 use pinna_audio::mixer::Codec;
 use pinna_audio::speaker::pcm_status_path;
+use pinna_audio::volume::VolumeCurve;
 use pinna_audio::{Agc, Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle};
 use pinna_hal::anim::Effect;
@@ -185,6 +186,14 @@ fn audio_codec(codec: pinna_hal::board::Codec) -> Codec {
     match codec {
         pinna_hal::board::Codec::Mt8163Aic => Codec::Mt8163Aic,
         pinna_hal::board::Codec::Mt8519Max98396 => Codec::Mt8519Max98396,
+    }
+}
+
+/// pinna-audio's volume curve for the board's (ADR 0032, as [`audio_codec`]).
+fn volume_curve(curve: pinna_hal::board::VolumeCurve) -> VolumeCurve {
+    match curve {
+        pinna_hal::board::VolumeCurve::LibreEcho => VolumeCurve::LibreEcho,
+        pinna_hal::board::VolumeCurve::Steps(steps) => VolumeCurve::Steps(steps),
     }
 }
 
@@ -779,6 +788,7 @@ async fn main() -> Result<()> {
                 hw.audio.speaker_channels,
                 pinna_hal::board::SpeakerChannels::Only(_)
             );
+            sc.volume_curve = volume_curve(tuning.volume_curve);
         }
         Arc::new(Speaker::new(sc))
     });

@@ -3127,8 +3127,8 @@ impl Brain {
     /// reply cannot be louder than the main volume).
     fn apply_reply_volume(&self) {
         let Some(s) = &self.speaker else { return };
-        let master = pinna_audio::volume::volume_gain(self.settings.volume);
-        let reply = pinna_audio::volume::volume_gain(self.settings.reply_volume());
+        let master = s.volume_gain(self.settings.volume);
+        let reply = s.volume_gain(self.settings.reply_volume());
         let pct = if master > 0.0 {
             (reply / master * 100.0).round().clamp(0.0, 100.0) as u8
         } else {

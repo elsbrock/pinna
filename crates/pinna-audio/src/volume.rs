@@ -1,4 +1,49 @@
-//! Playback volume curve, ported from LibreEcho's audio_engine.c.
+//! Playback volume curves: LibreEcho's (audio_engine.c), and a stock
+//! firmware's steps where the board has them.
+
+/// How a volume of 0 to 100 % becomes a gain: the board's
+/// `pinna_board::VolumeCurve`, which pinnad maps here (pinna-audio doesn't
+/// depend on the board crate, ADR 0032).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum VolumeCurve {
+    /// LibreEcho's curve ([`volume_db`]).
+    LibreEcho,
+    /// A stock firmware's volume steps in dB, from the first step above
+    /// mute to the top. 1 to 100 % spread evenly over them, in dB between
+    /// two steps.
+    Steps(&'static [f32]),
+}
+
+/// Gain in dB for a volume on `curve`. `None` for 0 (mute).
+pub fn curve_db(curve: VolumeCurve, percent: u8) -> Option<f64> {
+    match curve {
+        VolumeCurve::LibreEcho => volume_db(percent),
+        VolumeCurve::Steps(steps) => {
+            if percent == 0 || steps.is_empty() {
+                return None;
+            }
+            let last = steps.len() - 1;
+            let at = f64::from(percent.min(100) - 1) / 99.0 * last as f64;
+            let i = (at.floor() as usize).min(last);
+            let j = (i + 1).min(last);
+            let f = at - i as f64;
+            Some(f64::from(steps[i]) * (1.0 - f) + f64::from(steps[j]) * f)
+        }
+    }
+}
+
+/// Linear amplitude gain for a volume on `curve`; 0 for mute.
+pub fn curve_gain(curve: VolumeCurve, percent: u8) -> f32 {
+    match curve_db(curve, percent) {
+        None => 0.0,
+        Some(db) => 10f64.powf(db / 20.0) as f32,
+    }
+}
+
+/// [`stream_gain`] on `curve`.
+pub fn curve_stream_gain(curve: VolumeCurve, percent: u8) -> f32 {
+    curve_gain(curve, percent) / curve_gain(curve, 100)
+}
 
 /// Raw codec-equivalent index for a logical volume 1..=100:
 /// `103 - round(96 * (1 - x)^1.3)` with `x = (p - 1) / 99`.
@@ -54,6 +99,60 @@ pub fn top_boost_db(percent: u8) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pinna_board::SpeakerTuning;
+
+    /// What pinnad hands the speaker for a board's curve.
+    fn of(curve: pinna_board::VolumeCurve) -> VolumeCurve {
+        match curve {
+            pinna_board::VolumeCurve::LibreEcho => VolumeCurve::LibreEcho,
+            pinna_board::VolumeCurve::Steps(s) => VolumeCurve::Steps(s),
+        }
+    }
+
+    #[test]
+    fn libreecho_curve_is_the_master_curve() {
+        for p in 0..=100u8 {
+            assert_eq!(curve_db(VolumeCurve::LibreEcho, p), volume_db(p), "p={p}");
+            assert_eq!(
+                curve_gain(VolumeCurve::LibreEcho, p),
+                volume_gain(p),
+                "p={p}"
+            );
+        }
+        for t in [SpeakerTuning::FLAT, SpeakerTuning::RADAR] {
+            assert_eq!(of(t.volume_curve), VolumeCurve::LibreEcho);
+        }
+    }
+
+    #[test]
+    fn echo_dot_5_follows_fire_os_steps() {
+        let curve = of(SpeakerTuning::ECHO_DOT_5.volume_curve);
+        let db = |p| curve_db(curve, p).unwrap();
+        assert_eq!(curve_db(curve, 0), None);
+        // Fire OS's step 1 and its top step.
+        assert!((db(1) - -54.21).abs() < 1e-4);
+        assert!((db(100) - 0.0).abs() < 1e-9);
+        // Half volume lies between steps 15 (-11.48) and 16 (-9.35), where
+        // LibreEcho's curve gave -32 dB.
+        assert!((db(50) - -10.735).abs() < 0.01, "{}", db(50));
+        let mut prev = f64::NEG_INFINITY;
+        for p in 1..=100u8 {
+            assert!(db(p) >= prev, "p={p}: {prev} -> {}", db(p));
+            prev = db(p);
+        }
+        assert_eq!(curve_stream_gain(curve, 100), 1.0);
+        assert_eq!(curve_stream_gain(curve, 0), 0.0);
+    }
+
+    #[test]
+    fn steps_spread_from_one_to_a_hundred_percent() {
+        const TWO: [f32; 2] = [-40.0, 0.0];
+        let curve = VolumeCurve::Steps(&TWO);
+        assert_eq!(curve_db(curve, 1), Some(-40.0));
+        assert_eq!(curve_db(curve, 100), Some(0.0));
+        assert!((curve_db(curve, 50).unwrap() - -40.0 * 50.0 / 99.0).abs() < 1e-9);
+        assert_eq!(curve_db(VolumeCurve::Steps(&[]), 50), None);
+    }
 
     #[test]
     fn stream_gain_is_the_master_curve_from_full_level() {

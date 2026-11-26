@@ -331,17 +331,43 @@ pub enum Codec {
 }
 
 /// How the speaker is tuned: the codec's profile (a mixer control, kernel
-/// patch 0014) and the gain Pinna adds in software.
+/// patch 0014), the volume curve, and the gain Pinna adds in software.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpeakerTuning {
     /// `None` on a codec without the profile control.
     pub codec_profile: Option<CodecProfile>,
-    /// Gain before the volume curve, which tops out at -12 dB.
+    /// How a volume of 0 to 100 % becomes a gain.
+    pub volume_curve: VolumeCurve,
+    /// Gain on top of the volume curve.
     pub pre_gain_db: f32,
     /// The stock firmware's extra gain above 70 % volume; the speaker
     /// chain's limiter keeps it under full scale.
     pub volume_boost: bool,
 }
+
+/// How a volume of 0 to 100 % becomes a gain. 0 % is always silent.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum VolumeCurve {
+    /// LibreEcho's curve for the Echo Dot (2nd gen) (`audio_engine.c`):
+    /// -60 dB at 1 %, -32 dB at 50 %, -12 dB at 100 %.
+    LibreEcho,
+    /// A stock firmware's volume steps in dB, from the first step above
+    /// mute to the top. 1 to 100 % spread evenly over them, in dB between
+    /// two steps.
+    Steps(&'static [f32]),
+}
+
+/// Fire OS's speaker music curve on the Echo Dot (5th gen), steps 1 to 30,
+/// in dB. Fire OS build 8349's `VolumeCurves.xml` gives each step an index
+/// from 0 to 100, and audio_policy's default speaker curve turns an index
+/// into dB between its points 1:-58, 20:-40, 60:-17 and 100:0. Read by
+/// TECHO5 (MIT, `paths_cannoli.go`, `cannoliCurve`), which plays it with the
+/// amplifier at its unity level, as Pinna does (Speaker Volume 10).
+const FIRE_OS_ECHO_DOT_5_DB: [f32; 30] = [
+    -54.21, -51.37, -44.74, -40.0, -36.55, -33.1, -28.5, -25.63, -22.18, -19.3, -17.0, -14.88,
+    -13.6, -12.75, -11.48, -9.35, -7.65, -5.53, -4.68, -4.25, -3.83, -3.4, -2.98, -2.55, -2.13,
+    -1.7, -1.28, -0.85, -0.43, 0.0,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CodecProfile {
@@ -365,19 +391,24 @@ impl SpeakerTuning {
     /// The Echo Dot (2nd gen): +6 dB, and the boost above 70 %.
     pub const FLAT: SpeakerTuning = SpeakerTuning {
         codec_profile: Some(CodecProfile::Flat),
+        volume_curve: VolumeCurve::LibreEcho,
         pre_gain_db: 6.0,
         volume_boost: true,
     };
     /// The Echo (2nd gen): the codec's own profile, no extra gain.
     pub const RADAR: SpeakerTuning = SpeakerTuning {
         codec_profile: Some(CodecProfile::Radar),
+        volume_curve: VolumeCurve::LibreEcho,
         pre_gain_db: 0.0,
         volume_boost: false,
     };
-    /// The Echo Dot (5th gen): no profile control and no extra gain. Its
-    /// loudness against Fire OS is not measured yet.
+    /// The Echo Dot (5th gen): Fire OS's own volume curve, with no profile
+    /// control and no extra gain. LibreEcho's curve, made for the Dot (2nd
+    /// gen), played it 20 dB under Fire OS at half volume (C2N6L4,
+    /// 2026-11-26: "long low volume range").
     pub const ECHO_DOT_5: SpeakerTuning = SpeakerTuning {
         codec_profile: None,
+        volume_curve: VolumeCurve::Steps(&FIRE_OS_ECHO_DOT_5_DB),
         pre_gain_db: 0.0,
         volume_boost: false,
     };

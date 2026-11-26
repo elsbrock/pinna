@@ -27,7 +27,7 @@ use crate::spectrum::{Analyzer, Spectrum};
 use crate::timed::Timing;
 use crate::track::Track;
 use crate::upsample::{GROUP_DELAY, Upsampler2x};
-use crate::volume::{stream_gain, top_boost_db, volume_gain};
+use crate::volume::{VolumeCurve, curve_gain, curve_stream_gain, top_boost_db};
 use crate::{Backend, Error, Result, decode};
 use bytes::Bytes;
 use futures_util::stream::BoxStream;
@@ -72,6 +72,8 @@ pub struct SpeakerConfig {
     /// Extra gain at the top of the volume range ([`top_boost_db`]), applied
     /// in the Echo Dot speaker chain, whose limiter keeps it under full scale.
     pub volume_boost: bool,
+    /// How the volume becomes a gain (the board's).
+    pub volume_curve: VolumeCurve,
     /// The playback PCM's `/proc/asound` status file (Echo Dot). The amp is
     /// powered only once it reads `RUNNING`.
     pub pcm_status: Option<PathBuf>,
@@ -120,6 +122,7 @@ impl SpeakerConfig {
             duck_db: -20.0,
             pre_gain_db: 0.0,
             volume_boost: false,
+            volume_curve: VolumeCurve::LibreEcho,
             pcm_status: Some("/proc/asound/card0/pcm23p/sub0/status".into()),
             mono: false,
             device_rate: OUT_RATE,
@@ -382,6 +385,7 @@ struct Inner {
     /// Bumped by every [`Speaker::stop`]: a stream requested before it is
     /// dropped even if it reaches the actor after the stop.
     voice_epoch: Arc<AtomicU64>,
+    volume_curve: VolumeCurve,
 }
 
 #[derive(Clone)]
@@ -405,6 +409,7 @@ impl Speaker {
         let spectrum = Spectrum::default();
         let level = VoiceLevel::default();
         let voice_epoch = Arc::new(AtomicU64::new(0));
+        let volume_curve = cfg.volume_curve;
         let actor = Actor {
             feeder: Feeder::new(cfg.duck_db),
             // Only the Echo Dot's own sound card has a speaker clock to track.
@@ -442,6 +447,7 @@ impl Speaker {
                 session_open,
                 level,
                 voice_epoch,
+                volume_curve,
             }),
         }
     }
@@ -543,6 +549,11 @@ impl Speaker {
 
     pub fn volume(&self) -> u8 {
         self.inner.volume.load(Ordering::Relaxed)
+    }
+
+    /// The linear gain of a volume 0..=100 on this speaker's curve.
+    pub fn volume_gain(&self, percent: u8) -> f32 {
+        curve_gain(self.inner.volume_curve, percent)
     }
 
     /// Reply volume 0..=100: scales only the voice lane (default 100), on top
@@ -1364,7 +1375,8 @@ impl Actor {
                 continue; // not due yet
             }
             let volume = self.volume.load(Ordering::Relaxed);
-            let gain = volume_gain(volume) * 10f32.powf(self.cfg.pre_gain_db / 20.0);
+            let gain =
+                curve_gain(self.cfg.volume_curve, volume) * 10f32.powf(self.cfg.pre_gain_db / 20.0);
             let boost = if self.cfg.volume_boost {
                 10f32.powf(top_boost_db(volume) / 20.0)
             } else {
@@ -1373,9 +1385,10 @@ impl Actor {
             self.feeder
                 .voice_gain
                 .set(f32::from(self.voice_gain.load(Ordering::Relaxed)) / 100.0);
-            self.feeder
-                .media
-                .set_stream_gain(stream_gain(self.stream_volume.load(Ordering::Relaxed)));
+            self.feeder.media.set_stream_gain(curve_stream_gain(
+                self.cfg.volume_curve,
+                self.stream_volume.load(Ordering::Relaxed),
+            ));
             self.feeder.held_duck = self.held_duck.load(Ordering::Relaxed);
             // A timed source reads the audio due when this chunk is heard.
             self.feeder.media.set_timing(
