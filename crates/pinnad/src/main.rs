@@ -889,7 +889,6 @@ async fn main() -> Result<()> {
         capture.alsa_device = hw.audio.capture.device.into();
         capture.codec = audio_codec(hw.audio.codec);
         capture.format = capture_format(hw)?;
-        capture.front_end.mic_mask = hw.mics.speech_mask;
         capture.pw_target = cfg.audio.capture_target.clone();
         // Where PipeWire's stream is missing, and without PipeWire, pinnad
         // mixes the board's microphones itself (ADR 0004).
