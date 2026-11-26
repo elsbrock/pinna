@@ -28,11 +28,12 @@ Pinna fastboot. To install Pinna on those two, follow
 [release](https://github.com/elsbrock/pinna/releases) or building your own,
 backs the device up first, and every step says how to undo it.
 
-The Echo Dot (5th gen) is different. It has no fastboot mode and no USB
-connector, and its unlock is a community installer that needs wires soldered
-to test pads. Pinna doesn't ship it and has no install guide for the device
-yet. `website/src/content/docs/devices.md` names the unlock tools for each
-device. What works, and the known limits,
+The Echo Dot (5th gen) is different. It has no fastboot mode. Its USB is on
+test pads under its foot, and its unlock is firebreak, which needs wires
+soldered to those pads. Pinna doesn't ship firebreak.
+`website/src/content/docs/devices.md` names the unlock tools for each device,
+and `website/src/content/docs/install-echo-dot-5.md` will hold the install
+steps. What works, and the known limits,
 are in `website/src/content/docs/devices.md`. See ADR 0035 in `docs/adr/`.
 
 ## Layout

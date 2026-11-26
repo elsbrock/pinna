@@ -8,13 +8,14 @@
 // on them yet, and help is welcome. The 5th gen Dot is supported.
 import DeviceDrawing from "./DeviceDrawing.astro";
 import { drawingFor } from "../../../design/devices/index.ts";
+import { docHref } from "../lib/site";
 
 type Status = "supported" | "working" | "wanted" | "unplanned";
 type Ghost = "echo-1" | "dot-1" | "echo-3" | "dot-3" | "echo-4" | "dot-4";
 type Drawn = "echo-2" | "echo-dot-2" | "echo-dot-5";
 type Model = { name: string; drawing?: Drawn; ghost?: Ghost; tag?: string };
 
-const generations: { gen: string; year: string; status: Status; chip?: string; models: Model[] }[] = [
+const generations: { gen: string; year: string; status: Status; note?: string; models: Model[] }[] = [
   { gen: "1st gen", year: "2014", status: "unplanned", models: [{ name: "Echo (1st gen)", ghost: "echo-1" }] },
   {
     gen: "2nd gen",
@@ -48,6 +49,7 @@ const generations: { gen: string; year: string; status: Status; chip?: string; m
     gen: "5th gen",
     year: "2022",
     status: "supported",
+    note: "Model C2N6L4, not the clock model",
     models: [{ name: "Echo Dot (5th gen)", drawing: "echo-dot-5" }],
   },
 ];
@@ -158,8 +160,13 @@ const drawingWidth = (m: Drawn) => {
           <span class="gen-name">
             {g.gen} <span class="year">{g.year}</span>
           </span>
-          <span class="chip-status">{g.chip ?? label[g.status]}</span>
+          <span class="chip-status">{label[g.status]}</span>
           <span class="models">{g.models.map((m) => m.name).join(", ")}</span>
+          {g.note && (
+            <a class="note" href={docHref("devices") + "#echo-dot-5th-gen"}>
+              {g.note}
+            </a>
+          )}
         </div>
       </div>
     ))
@@ -336,6 +343,14 @@ const drawingWidth = (m: Drawn) => {
     color: var(--ink);
   }
 
+  .note {
+    color: var(--ink-muted);
+    font-size: 12px;
+    line-height: 16px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   /* A tag over one model, pointing down at it. */
   .model {
     position: relative;
@@ -367,9 +382,15 @@ const drawingWidth = (m: Drawn) => {
   }
 
   @media (max-width: 639px) {
+    /* One generation per row, the supported ones first. */
     .gens {
       --mm: 0.5px;
-      grid-template-columns: repeat(5, 8.5rem);
+      grid-template-columns: 1fr;
+      gap: 24px 0;
+    }
+
+    [data-status="supported"] {
+      order: -1;
     }
 
     .gen {

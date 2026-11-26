@@ -57,8 +57,7 @@ To install and set up Pinna, follow these pages in order:
 3. [Install Pinna](/docs/flash/): on an Echo Dot (2nd gen) or an Echo
    (2nd gen), from the browser with the [installer](/install/), or from a
    terminal over fastboot. The Echo Dot (5th gen) installs differently; see
-   [Echo devices](/docs/devices/#echo-dot-5th-gen). Then connect the device to
-   Wi-Fi.
+   [Install on the Echo Dot (5th gen)](/docs/install-echo-dot-5/). Then connect the device to Wi-Fi.
 4. [Set up the satellite](/docs/dashboard/): open its dashboard, and name
    it.
 5. Choose who answers: [connect to Home Assistant](/docs/home-assistant/), or

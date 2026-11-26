@@ -27,17 +27,18 @@ What each unlock gives Pinna:
 
 - **Echo Dot (2nd gen) and Echo (2nd gen):** amonet unlocks the bootloader and
   installs Kaeru, an addition that opens fastboot. Pinna then installs over
-  fastboot. [firebreak](https://github.com/Gamer92000/firebreak), a community installer, also unlocks these two. It runs the
+  fastboot. [firebreak](https://github.com/Gamer92000/firebreak) also unlocks these two. It runs the
   unlocks that Rortiz2 published on XDA, one thread for the
   [Echo Dot (2nd gen)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-dot-2nd-gen-2016-biscuit.4761416/)
   and one for the
   [Echo (2nd gen)](https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-2nd-gen-2017-radar.4801290/).
   Pinna needs Kaeru on these two; these docs don't say whether firebreak
   installs it.
-- **Echo Dot (5th gen):** [firebreak](https://github.com/Gamer92000/firebreak) roots it over the USB test pads inside its base
-  and installs a rooted Fire OS bundle, with rooted stock Fire OS in slot A
-  and the TWRP recovery in slot B. [cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder) builds that bundle. Pinna has no
-  fastboot mode on this device.
+- **Echo Dot (5th gen):** [firebreak](https://github.com/Gamer92000/firebreak)
+  roots it over the USB test pads under its foot and installs a rooted Fire OS
+  bundle, with rooted stock Fire OS in slot A and the TWRP recovery in slot B.
+  [cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder)
+  builds that bundle. Pinna has no fastboot mode on this device.
 
 If yours is an Echo Dot (2nd gen) or an Echo (2nd gen), continue with
 [What you need](/docs/requirements/). It lists the unlocked bootloader, the
@@ -48,17 +49,19 @@ itself. For the Echo Dot (5th gen), read the section below first.
 
 The Echo Dot (5th gen) is a different board from the other two: another
 processor, a 32-bit ARM kernel, and its system on NAND flash instead of eMMC.
-It has no fastboot mode and no USB connector, so the install steps, the
-browser installer and the recovery steps in these docs, which use fastboot and
-USB, don't apply to it.
+It has no fastboot mode, so the fastboot steps on the install and recovery
+pages don't apply to it. Like the Echo (2nd gen), it has USB: through test
+pads under its foot, which you solder to, as you do to the pins in the base of
+the Echo (2nd gen).
 
-How it is installed: with the community installer in the table above, which
-needs wires soldered to test pads inside the base and one particular Fire OS
-version. Pinna doesn't ship it and has no install guide for this device.
-Before anything is written, back up its whole NAND flash; Pinna has no script
-for it. If the device doesn't start, it stays in
-[rescue mode](/docs/recovery/#rescue-mode), and getting it running again
-needs the same by-hand route through the pads. Keep that backup.
+How it is installed: firebreak unlocks it, which needs wires soldered to those
+pads and one particular Fire OS version, and Pinna is then written into slot
+A. The steps are on [Install on the Echo Dot (5th gen)](/docs/install-echo-dot-5/). Pinna doesn't ship firebreak.
+
+If the device doesn't start, there is a way back. TWRP stays in slot B: hold
+**Volume Up** while you power it on. Pinna's rescue page works over USB, and
+firebreak restores Fire OS. Before anything is written, back up its whole NAND
+flash; Pinna has no script for it. Keep that backup.
 
 What works, on one unit with model number C2N6L4 (2026-11-26):
 

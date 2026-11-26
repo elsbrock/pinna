@@ -4,8 +4,8 @@ description: Install Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen), from t
 ---
 
 This page is for the Echo (2nd gen) and the Echo Dot (2nd gen). The Echo Dot
-(5th gen) has no fastboot mode and no USB connector, so neither way below
-works on it; see [Echo devices](/docs/devices/#echo-dot-5th-gen).
+(5th gen) has no fastboot mode, so neither install way below works on it; see
+[Install on the Echo Dot (5th gen)](/docs/install-echo-dot-5/).
 
 You can install Pinna in two ways. Both write the same partitions:
 

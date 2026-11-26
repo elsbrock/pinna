@@ -30,7 +30,7 @@ If the dashboard doesn't open, start with
 - **Over USB**: check that your computer sees the USB device **Pinna (Echo Dot
   2nd gen)**, or **Pinna (Echo 2nd gen)** on an Echo. Use a cable that carries
   data. Your computer gets an address between `10.42.0.10` and `10.42.0.29`.
-  The Echo Dot (5th gen) has no USB connector.
+  On the Echo Dot (5th gen), USB is on test pads under its foot.
 - **The USB device is named Pinna rescue, or the ring is green**: Pinna
   couldn't start. See [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
 - **The ring flashes white, pauses and repeats**: a start-up step didn't
@@ -116,8 +116,8 @@ Releases up to 0.4.0-beta.3 don't have it.
 5. If none of this helps, connect the USB cable and open `http://10.42.0.1/`.
    **Network** says whether the device has a hotspot: after a start that
    failed, it says the device is reachable over USB only, and tries again
-   every 5 minutes. The Echo Dot (5th gen) has no USB connector, so this step
-   doesn't apply to it.
+   every 5 minutes. On the Echo Dot (5th gen), the USB connection is on test pads
+   under its foot.
 
 ## Home Assistant doesn't find the device
 
@@ -408,7 +408,8 @@ version. See
 
 Otherwise, install Pinna again. This erases the data partition. On an Echo
 Dot (5th gen), which has no fastboot mode, see
-[Recover a device](/docs/recovery/) instead. On the other two:
+[Recover a device](/docs/recovery/) instead; TWRP in slot B and firebreak are
+the way back. On the other two:
 
 1. Unplug the device and open fastboot with **Volume Down**. See
    [Recover a device](/docs/recovery/).

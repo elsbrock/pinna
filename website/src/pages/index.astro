@@ -253,8 +253,9 @@ const goals = [
       <h2 class="section-title">Supported devices</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
         Pinna runs on the Echo (2nd gen) and the Echo Dot (2nd gen), which
-        install from the browser, and on the Echo Dot (5th gen), which
-        installs with a community installer. More Echos will follow.
+        install from the browser, and on the Echo Dot (5th gen), which is
+        unlocked with firebreak and installs with a guide of its own. More
+        Echos will follow.
       </p>
 
       <div class="mt-12">
@@ -265,10 +266,10 @@ const goals = [
         <div>
           <p class="text-ink font-semibold">Help bring Pinna to more Echos</p>
           <p class="text-ink-muted text-body mt-1">
-            Contributions to support more devices are welcome. Bringing up
-            another Echo takes its device tree, board support for its audio,
-            microphones and ring, and a device to test on. The Echo Dot
-            (5th gen) shows what that takes. If you have another Echo, say so.
+            Contributions to support more devices are welcome. The Echo Dot
+            (5th gen) is an example of a finished port: its device tree,
+            board support for its audio, microphones and ring, and a device
+            to test on. If you have another Echo, say so.
           </p>
         </div>
         <p class="flex shrink-0 flex-wrap gap-x-5 gap-y-2 text-sm">
@@ -303,8 +304,8 @@ const goals = [
             <span class="text-ink-muted text-body">
               Pinna installs on an Echo whose bootloader is unlocked. Back it
               up first if you want to go back to its current firmware later.
-              The Echo Dot (5th gen) needs a community unlock first, which
-              Pinna doesn't ship.
+              The Echo Dot (5th gen) needs firebreak first, which Pinna doesn't
+              ship.
             </span>
           </li>
           <li>
@@ -315,7 +316,8 @@ const goals = [
               downloads the newest release, checks its signature and writes it
               over USB. From a terminal,
               <code class="font-mono text-sm">scripts/flash-gen2.sh</code> does
-              the same. The Echo Dot (5th gen) doesn't install this way.
+              the same. The Echo Dot (5th gen) installs by a
+              <a class="link" href={docHref("install-echo-dot-5")}>guide of its own</a>.
             </span>
           </li>
           <li>

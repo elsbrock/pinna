@@ -22,15 +22,16 @@ MediaTek MT8163 processor, which runs Pinna in 32-bit ARM mode, and about
 - Four buttons, and a hardware switch that cuts the microphones.
 - Wi-Fi in the MT8163.
 - USB, which Pinna uses for a serial console and a network connection to your
-  computer: a micro-USB port on the Echo Dot (2nd gen), and the pins in the
-  base on the Echo (2nd gen).
+  computer: a micro-USB port on the Echo Dot (2nd gen), the pins in the base
+  on the Echo (2nd gen), and test pads under the foot of the Echo Dot (5th
+  gen).
 
 The Echo Dot (5th gen) has a different platform: a MediaTek MT8519 processor,
 which also runs Pinna in 32-bit ARM mode, and 512 MB of memory. It has three
 microphones, a ring of 12 RGB LEDs under the edge of its sphere, three buttons
 and a hardware switch that cuts the microphones, a speaker amplifier and
 Wi-Fi on a MediaTek MT7663 chip. Its system is on NAND flash, in UBI volumes
-instead of eMMC partitions, and it has no USB connector. Its bootloader is
+instead of eMMC partitions, and its USB is on test pads under its foot. Its bootloader is
 Amazon's U-Boot, which loads a boot image in a different format and has no
 fastboot mode. The rest of this page describes the Echo (2nd gen) and the Echo
 Dot (2nd gen), the two that install over fastboot; where the Echo Dot (5th
