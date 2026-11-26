@@ -1456,7 +1456,8 @@ impl DeviceService for DeviceApi {
         request: ServiceRequest<'_, JoinWifiRequest>,
     ) -> ServiceResult<ServiceStream<JoinWifiResponse>> {
         let req = request.to_owned_message();
-        let join = wifi::check_join(&req).map_err(ConnectError::invalid_argument)?;
+        let join = wifi::check_join(&req, self.wifi.supports_sae())
+            .map_err(ConnectError::invalid_argument)?;
         let live = self.wifi.join(join)?;
         // Until the final step; a lagging reader just skips ahead.
         let stream = futures::stream::unfold(Some(live), |rx| async move {

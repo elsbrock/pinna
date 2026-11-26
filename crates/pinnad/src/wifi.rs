@@ -182,8 +182,9 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Whether scan flags offer plain WPA/WPA2-Personal, which this Wi-Fi chip
-/// joins: `PSK`, but not `PSK-SHA256` (it needs management frame protection).
+/// Whether scan flags offer plain WPA/WPA2-Personal, which every Wi-Fi chip
+/// joins: `PSK`, but not `PSK-SHA256` (it needs management frame protection,
+/// which the MT8163's driver can't do).
 fn plain_psk(flags: &str) -> bool {
     flags
         .match_indices("PSK")
@@ -192,7 +193,8 @@ fn plain_psk(flags: &str) -> bool {
 
 /// The security a scan's flags (`[WPA2-PSK-CCMP][ESS]`) offer, as Pinna joins
 /// it: WPA2 where an access point also offers WPA3. A network that offers only
-/// WPA3 or PSK-SHA256 is `SAE`: its driver can do neither (ADR 0008).
+/// WPA3 or PSK-SHA256 is `SAE`: the MT8163's driver can do neither (ADR 0008);
+/// [`check_join`] lets it through on a chip that can.
 pub fn security_from_flags(flags: &str) -> WifiSecurity {
     if plain_psk(flags) {
         WifiSecurity::WIFI_SECURITY_WPA_PSK
@@ -296,7 +298,8 @@ pub struct Join {
 }
 
 /// Check a join request; the error is a sentence for the dashboard.
-pub fn check_join(req: &JoinWifiRequest) -> Result<Join, String> {
+/// `sae`: the board's chip joins WPA3 ([`pinna_hal::board::Wifi::supports_sae`]).
+pub fn check_join(req: &JoinWifiRequest, sae: bool) -> Result<Join, String> {
     let ssid = req.ssid.as_str();
     if ssid.trim().is_empty() {
         return Err("Enter the network's name.".into());
@@ -316,6 +319,17 @@ pub fn check_join(req: &JoinWifiRequest) -> Result<Join, String> {
                 return Err(
                     "A WPA password has 8 to 63 characters (letters, digits and symbols, \
                      no accents), or is 64 hexadecimal digits."
+                        .into(),
+                );
+            }
+        }
+        WifiSecurity::WIFI_SECURITY_SAE if sae => {
+            // sae_password is taken literally, so no 64-digit raw key.
+            let printable = pass.bytes().all(|b| (0x20..0x7f).contains(&b));
+            if !(printable && (8..=63).contains(&pass.len())) {
+                return Err(
+                    "A WPA3 password has 8 to 63 characters (letters, digits and symbols, \
+                     no accents)."
                         .into(),
                 );
             }
@@ -356,6 +370,15 @@ fn network_commands(id: u32, j: &Join) -> Vec<String> {
         } else {
             cmds.push(format!("SET_NETWORK {id} psk \"{}\"", j.passphrase));
         }
+    } else if j.security == WifiSecurity::WIFI_SECURITY_SAE {
+        // Only reached on a chip that joins WPA3 (check_join). WPA3 requires
+        // management frame protection.
+        cmds.push(format!("SET_NETWORK {id} key_mgmt SAE"));
+        cmds.push(format!(
+            "SET_NETWORK {id} sae_password \"{}\"",
+            j.passphrase
+        ));
+        cmds.push(format!("SET_NETWORK {id} ieee80211w 2"));
     } else {
         cmds.push(format!("SET_NETWORK {id} key_mgmt NONE"));
     }
@@ -381,6 +404,9 @@ pub struct WifiPaths {
     pub trial_mark: PathBuf,
     /// The board has Wi-Fi hardware (an Echo): no wlan0 means it didn't start.
     pub has_radio: bool,
+    /// The board's chip joins WPA3 and networks that require management
+    /// frame protection.
+    pub sae: bool,
 }
 
 impl Default for WifiPaths {
@@ -392,6 +418,7 @@ impl Default for WifiPaths {
             sysfs: "/sys/class/net/wlan0".into(),
             trial_mark: "/run/pinna/wifi-trial".into(),
             has_radio: pinna_hal::board::detect().is_some(),
+            sae: pinna_hal::board::detect().is_some_and(|b| b.wifi.supports_sae()),
         }
     }
 }
@@ -701,6 +728,11 @@ impl Shared {
 }
 
 impl Wifi {
+    /// Whether this board's chip joins WPA3 networks, for [`check_join`].
+    pub fn supports_sae(&self) -> bool {
+        self.shared.paths.sae
+    }
+
     pub fn new(paths: WifiPaths) -> Self {
         Self::with_timeouts(paths, JOIN_TIMEOUT, KEEP_FOR)
     }
@@ -1226,9 +1258,14 @@ async fn run_join(
         (
             JoinFailure::JOIN_FAILURE_NOT_FOUND,
             format!(
-                "{} didn't let the satellite connect. It may be out of range, or require \
-                 protected management frames, which this satellite's Wi-Fi can't do.",
-                j.ssid
+                "{} didn't let the satellite connect. It may be out of range{}.",
+                j.ssid,
+                if shared.paths.sae {
+                    ""
+                } else {
+                    ", or require protected management frames, which this satellite's Wi-Fi \
+                     can't do"
+                }
             ),
         )
     };
@@ -1379,6 +1416,7 @@ pub mod fake {
                 sysfs: self.dir.join("sys"),
                 trial_mark: self.dir.join("trial"),
                 has_radio: true,
+                sae: false,
             }
         }
 
@@ -1650,19 +1688,23 @@ mod tests {
             ..Default::default()
         };
         use WifiSecurity::*;
-        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, "correct horse")).is_ok());
-        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, &"a".repeat(64))).is_ok());
-        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, "short")).is_err());
-        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, "pässwörter")).is_err());
-        assert!(check_join(&req("Home", WIFI_SECURITY_SAE, "anything")).is_err());
-        assert!(check_join(&req("", WIFI_SECURITY_OPEN, "")).is_err());
-        assert!(check_join(&req(&"x".repeat(33), WIFI_SECURITY_OPEN, "")).is_err());
-        assert!(check_join(&req("Work", WIFI_SECURITY_ENTERPRISE, "")).is_err());
-        assert!(check_join(&req("Old", WIFI_SECURITY_WEP, "12345")).is_err());
-        assert!(check_join(&req("Home", WIFI_SECURITY_UNSPECIFIED, "")).is_err());
+        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, "correct horse"), false).is_ok());
+        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, &"a".repeat(64)), false).is_ok());
+        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, "short"), false).is_err());
+        assert!(check_join(&req("Home", WIFI_SECURITY_WPA_PSK, "pässwörter"), false).is_err());
+        assert!(check_join(&req("Home", WIFI_SECURITY_SAE, "anything"), false).is_err());
+        // A chip that joins WPA3 takes it, with a password that fits.
+        assert!(check_join(&req("Home", WIFI_SECURITY_SAE, "correct horse"), true).is_ok());
+        assert!(check_join(&req("Home", WIFI_SECURITY_SAE, "short"), true).is_err());
+        assert!(check_join(&req("Home", WIFI_SECURITY_SAE, &"a".repeat(64)), true).is_err());
+        assert!(check_join(&req("", WIFI_SECURITY_OPEN, ""), false).is_err());
+        assert!(check_join(&req(&"x".repeat(33), WIFI_SECURITY_OPEN, ""), false).is_err());
+        assert!(check_join(&req("Work", WIFI_SECURITY_ENTERPRISE, ""), false).is_err());
+        assert!(check_join(&req("Old", WIFI_SECURITY_WEP, "12345"), false).is_err());
+        assert!(check_join(&req("Home", WIFI_SECURITY_UNSPECIFIED, ""), false).is_err());
         // An open network takes no passphrase, even if one came.
         assert_eq!(
-            check_join(&req("Café", WIFI_SECURITY_OPEN, "ignored"))
+            check_join(&req("Café", WIFI_SECURITY_OPEN, "ignored"), false)
                 .unwrap()
                 .passphrase,
             ""
@@ -1681,6 +1723,20 @@ mod tests {
         assert_eq!(cmds[0], "SET_NETWORK 3 ssid 42c3bc726f");
         assert!(cmds.contains(&"SET_NETWORK 3 psk \"a \"quoted\" one\"".to_owned()));
         assert!(cmds.contains(&"SET_NETWORK 3 scan_ssid 1".to_owned()));
+    }
+
+    #[test]
+    fn a_wpa3_join_asks_for_sae_with_protected_management_frames() {
+        let j = Join {
+            ssid: "Home".into(),
+            security: WifiSecurity::WIFI_SECURITY_SAE,
+            passphrase: "correct horse".into(),
+            hidden: false,
+        };
+        let cmds = network_commands(3, &j);
+        assert!(cmds.contains(&"SET_NETWORK 3 key_mgmt SAE".to_owned()));
+        assert!(cmds.contains(&"SET_NETWORK 3 sae_password \"correct horse\"".to_owned()));
+        assert!(cmds.contains(&"SET_NETWORK 3 ieee80211w 2".to_owned()));
     }
 
     fn wifi(fake: &Fake, keep_for: Duration) -> Wifi {

@@ -592,6 +592,18 @@ pub enum Wifi {
 }
 
 impl Wifi {
+    /// Whether the chip joins WPA3-Personal (SAE) and PSK-SHA256 networks,
+    /// which need management frame protection. The MT8163's vendor driver
+    /// can do neither (ADR 0008). mt76 with wpa_supplicant should; that is
+    /// unmeasured on the MT7663 until a join to a WPA3-only network runs on
+    /// an Echo Dot (5th gen).
+    pub const fn supports_sae(self) -> bool {
+        match self {
+            Wifi::Mt8163Consys => false,
+            Wifi::Mt7663Sdio => true,
+        }
+    }
+
     /// The chip as the image's scripts name it (`pinnactl wifi-chip`).
     pub const fn id(self) -> &'static str {
         match self {
@@ -816,6 +828,13 @@ mod tests {
     fn wifi_ids_are_what_the_image_scripts_match() {
         assert_eq!(ECHO_DOT_2.wifi.id(), "mt8163-consys");
         assert_eq!(ECHO_DOT_5.wifi.id(), "mt7663-sdio");
+    }
+
+    #[test]
+    fn only_the_mac80211_chip_joins_wpa3() {
+        assert!(!ECHO_DOT_2.wifi.supports_sae());
+        assert!(!ECHO_2.wifi.supports_sae());
+        assert!(ECHO_DOT_5.wifi.supports_sae());
     }
 
     #[test]
