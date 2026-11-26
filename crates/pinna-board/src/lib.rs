@@ -133,12 +133,13 @@ pub enum Bootloader {
 /// `0660**141002**21` to `cannoli-pvt-plastic`, `0660**140002**21` to
 /// `cannoli-pvt-aluminum`, and so on down to `cannoli-hvt`), adds
 /// `-recovery` for a recovery start, and defaults to `conf-1`. On a C2N6L4
-/// (UART, 2026-11-26) a start from power-on or from `fastboot continue`
-/// booted `cannoli-pvt-plastic`, but every restart from Linux asked for
+/// (UART, 2026-11-26) restarts from Linux into slot A booted
+/// `cannoli-pvt-plastic`, but restarts into slot B asked for
 /// `cannoli-pvt-aluminum-recovery`: with a FIT that lacked it, U-Boot printed
-/// "Could not find configuration node" and stopped in fastboot, and with
-/// all of these names the same restart started the kernel. Fire OS's FIT
-/// carries exactly these 15; Pinna's boots the same kernel, device tree and
+/// "Could not find configuration node" and stopped in fastboot, three times
+/// out of three, and with all of these names the same restart started the
+/// kernel. Why slot B gets that name isn't known. Fire OS's FIT carries
+/// exactly these 15; Pinna's boots the same kernel, device tree and
 /// initramfs from each.
 pub const CANNOLI_FIT_CONFIGS: &[&str] = &[
     "cannoli-pvt-plastic",
