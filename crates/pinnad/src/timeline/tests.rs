@@ -547,3 +547,21 @@ async fn while_off_a_follower_gets_the_state_and_waits() {
     let waited = tokio::time::timeout(Duration::from_secs(5), stream.next()).await;
     assert!(waited.is_err(), "nothing else comes");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_brain_still_learns_the_newest_state() {
+    let (tx, mut rx) = mpsc::channel(1);
+    let t = Arc::new(Timeline::new(tx.clone()));
+    // The Brain's queue is full when debugging starts, and still when the
+    // levels are muted away.
+    tx.try_send(Input::Debugging(None)).unwrap();
+    t.start(FROM, 15, true, false);
+    t.muted();
+    assert!(matches!(rx.recv().await, Some(Input::Debugging(None))));
+    // Told late, but with the state as it is by then: on, without levels.
+    let told = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;
+    let Ok(Some(Input::Debugging(late))) = told else {
+        panic!("the Brain was never told");
+    };
+    assert!(late.is_some_and(|d| d.levels_until.is_none()));
+}

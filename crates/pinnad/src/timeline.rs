@@ -27,7 +27,7 @@ use pinna_api::{
 };
 use pinna_http::NetError;
 use pinna_http::trace::{self, Id, Kind, Level};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::Instant;
 
 use crate::voice::{DebuggingSnapshot, Input};
@@ -43,8 +43,10 @@ const MAX_REQUESTS: usize = 1_000;
 /// Chunks of levels; each holds at least one bucket, and 10 minutes are 6,000.
 const MAX_LEVELS: usize = 6_000;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
-/// What a follower that falls behind may miss before it is cut off.
-const LIVE_CAPACITY: usize = 2048;
+/// What a follower that falls behind may miss before it is cut off. The ring
+/// keeps its last items until they are overwritten, so it is small: a request
+/// goes through it up to four times.
+const LIVE_CAPACITY: usize = 512;
 /// Live items arriving within this time go out in one batch.
 const LIVE_GATHER: Duration = Duration::from_millis(250);
 /// A batch stays well under the 4 MiB of a Connect message, and under the
@@ -250,13 +252,15 @@ pub struct Record {
     pub bytes_out: Option<u64>,
     pub bytes_in: u64,
     pub outcome: Outcome,
-    pub body_out: Option<String>,
-    pub body_in: Option<String>,
+    /// Shared with the copies the live followers get, so the ring doesn't
+    /// hold a body of its own for each change of a request.
+    pub body_out: Option<Arc<str>>,
+    pub body_in: Option<Arc<str>>,
 }
 
 impl Record {
     fn text_bytes(&self) -> usize {
-        self.body_out.as_ref().map_or(0, String::len) + self.body_in.as_ref().map_or(0, String::len)
+        self.body_out.as_ref().map_or(0, |b| b.len()) + self.body_in.as_ref().map_or(0, |b| b.len())
     }
 
     fn proto(&self, clock: &Clock) -> TimelineRequest {
@@ -281,8 +285,8 @@ impl Record {
             bytes_out: self.bytes_out,
             bytes_in: self.bytes_in,
             outcome: self.outcome.proto().into(),
-            body_out: self.body_out.clone().unwrap_or_default(),
-            body_in: self.body_in.clone().unwrap_or_default(),
+            body_out: self.body_out.as_deref().unwrap_or_default().to_owned(),
+            body_in: self.body_in.as_deref().unwrap_or_default().to_owned(),
             ..Default::default()
         }
     }
@@ -488,6 +492,8 @@ pub struct Timeline {
     tx: broadcast::Sender<Item>,
     /// Told when the switch changes.
     brain: mpsc::Sender<Input>,
+    /// The switch as the Brain should know it, for a late telling.
+    latest: watch::Sender<Option<DebuggingSnapshot>>,
     /// Set the level `pinna_http::trace` records at. Only the process-wide
     /// timeline does, because that level is global.
     drive_http: bool,
@@ -509,6 +515,7 @@ impl Timeline {
             }),
             tx: broadcast::channel(LIVE_CAPACITY).0,
             brain,
+            latest: watch::channel(None).0,
             drive_http: false,
         }
     }
@@ -655,8 +662,22 @@ impl Timeline {
             levels_until: switch.levels_until.map(Instant::into_std),
             text_until: switch.text_until.map(Instant::into_std),
         });
-        if self.brain.try_send(Input::Debugging(snapshot)).is_err() {
-            tracing::warn!("the Brain didn't take the debugging state");
+        self.latest.send_replace(snapshot);
+        if let Err(mpsc::error::TrySendError::Full(_)) =
+            self.brain.try_send(Input::Debugging(snapshot))
+        {
+            // Status and Home Assistant's sensor must not keep a stale state:
+            // wait for room, then send the state as it is by then, so a
+            // later change that got through first isn't undone.
+            let brain = self.brain.clone();
+            let latest = self.latest.subscribe();
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move {
+                    if let Ok(permit) = brain.reserve().await {
+                        permit.send(Input::Debugging(*latest.borrow()));
+                    }
+                });
+            }
         }
     }
 
@@ -781,7 +802,7 @@ impl trace::Sink for Timeline {
                 bytes_out,
                 bytes_in: 0,
                 outcome: Outcome::Open,
-                body_out: body_out.filter(|_| text),
+                body_out: body_out.filter(|_| text).map(Arc::from),
                 body_in: None,
             };
             inner.text_bytes += record.text_bytes();
@@ -811,7 +832,7 @@ impl trace::Sink for Timeline {
                     stored.value.end = Some(Instant::from_std(at));
                     stored.value.bytes_in = bytes_in;
                     stored.value.outcome = outcome.into();
-                    stored.value.body_in = body_in.filter(|_| text);
+                    stored.value.body_in = body_in.filter(|_| text).map(Arc::from);
                 }
                 trace::Event::Started { .. } => {}
             }
