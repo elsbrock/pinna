@@ -972,13 +972,15 @@ fn hint_mime(hint: &mut Hint, content_type: &str) {
 
 /// Send a media or playlist request; a refused status is a sentence.
 async fn get_ok(request: reqwest::RequestBuilder, url: &str) -> Result<reqwest::Response> {
-    let resp = request.send().await.map_err(|e| {
-        // A media URL can carry a token (Home Assistant signs its URLs):
-        // the log names the host only.
-        tracing::warn!("media: open {}: {}", host_of(url), unreachable(&e));
-        tracing::debug!("media: open {url}: {e}");
-        Error::Other(unreachable(&e).into())
-    })?;
+    let resp = pinna_http::trace::send(pinna_http::trace::Kind::Media, request)
+        .await
+        .map_err(|e| {
+            // A media URL can carry a token (Home Assistant signs its URLs):
+            // the log names the host only.
+            tracing::warn!("media: open {}: {}", host_of(url), unreachable(&e));
+            tracing::debug!("media: open {url}: {e}");
+            Error::Other(unreachable(&e).into())
+        })?;
     if !resp.status().is_success() {
         return Err(Error::Other(format!(
             "The server answered HTTP {}. Check the address.",

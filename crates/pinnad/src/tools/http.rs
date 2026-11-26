@@ -41,7 +41,9 @@ impl Failure {
 pub(super) async fn get_json<T: DeserializeOwned>(
     request: reqwest::RequestBuilder,
 ) -> Result<T, Failure> {
-    let mut response = request.send().await.map_err(Failure::net)?;
+    let mut response = pinna_http::trace::send(pinna_http::trace::Kind::Tool, request)
+        .await
+        .map_err(Failure::net)?;
     if !response.status().is_success() {
         return Err(Failure::Http(response.status().as_u16()));
     }

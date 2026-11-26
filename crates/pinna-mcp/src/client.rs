@@ -365,7 +365,9 @@ impl McpClient {
         if let Some((name, value)) = &self.credential {
             request = request.header(name.clone(), value.clone());
         }
-        request.send().await.map_err(network)
+        pinna_http::trace::send(pinna_http::trace::Kind::Mcp, request)
+            .await
+            .map_err(network)
     }
 }
 

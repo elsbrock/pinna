@@ -118,8 +118,7 @@ where
     let request = auth
         .apply(request)
         .map_err(|_| ProviderError::new(slot, preset, Reason::Protocol))?;
-    let response = request
-        .send()
+    let response = pinna_http::trace::send(pinna_http::trace::Kind::Provider, request)
         .await
         .map_err(|error| network_error(slot, preset, &error, clock_synced))?;
     if !response.status().is_success() {
