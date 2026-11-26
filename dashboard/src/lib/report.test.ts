@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { issueReport, REPORT_MAX, scrub } from "./report.ts";
+import { discussionUrl, issueUrl, logBlock, REPORT_MAX, satelliteDetails, scrub } from "./report.ts";
 import { BOOT, CHANNEL } from "./view.ts";
 
 const dot = {
@@ -16,17 +16,16 @@ const dot = {
   name: "kitchen",
 };
 const at = { now: new Date("2026-11-20T20:44:10Z"), offset: 60 };
-const report = (st: typeof dot, u: typeof updates | null, log: string[], wifi: string[] = []) =>
-  issueReport(st, u, log, { ...at, wifi }).markdown;
 const updates = {
   slots: [
     { name: "a", booted: false },
     { name: "b", booted: true },
   ],
 };
+const details = (st: Parameters<typeof satelliteDetails>[0], u: typeof updates | null) => satelliteDetails(st, u, at);
 
-test("the report names the version, model, slot, last start, mode and channel", () => {
-  const md = report(dot, updates, ["21:16:06 INFO  microphone running"]);
+test("the details name the version, model, slot, last start, mode and channel, and nothing personal", () => {
+  const md = details(dot, updates);
   assert.equal(
     md,
     [
@@ -37,38 +36,55 @@ test("the report names the version, model, slot, last start, mode and channel", 
       "- Mode: Home Assistant",
       "- Update channel: Beta",
       "- Copied: 2026-11-20 21:44, UTC+01:00, the zone of the log's times",
-      "",
-      "<details>",
-      "<summary>Log, 1 line</summary>",
-      "",
-      "```text",
-      "21:16:06 INFO  microphone running",
-      "```",
-      "",
-      "</details>",
-      "",
     ].join("\n"),
   );
   assert.ok(!md.includes("f0:27") && !md.includes("kitchen"));
 });
 
-test("the report says what it doesn't know", () => {
-  const md = issueReport(
+test("the details say what they don't know", () => {
+  const md = satelliteDetails(
     { version: "1.0.0", model: "", virtualDevice: true, mode: 1, settings: { updateChannel: CHANNEL.stable } },
     null,
-    [],
     { now: at.now, offset: -330 },
-  ).markdown;
+  );
   assert.match(md, /^- Device: Virtual Echo Dot$/m);
   assert.match(md, /^- Running slot: unknown$/m);
   assert.match(md, /^- Last start: unknown$/m);
   assert.match(md, /^- Mode: Standalone$/m);
   assert.match(md, /^- Update channel: Stable$/m);
-  assert.match(md, /^- Copied: 2026-11-20 15:14, UTC-05:30, the zone of the log's times\n- Log: no lines on the page\n$/m);
-  assert.ok(!md.includes("<details>"));
-  assert.match(report({ ...dot, virtualDevice: true }, updates, []), /^- Device: Virtual Echo Dot$/m);
-  assert.match(report({ ...dot, model: "echo-2" }, updates, []), /^- Device: Echo \(2nd gen\)$/m);
-  assert.match(report({ ...dot, model: "kindle" }, { slots: [] }, []), /^- Device: Unknown \(kindle\)$\n- Running slot: none$/m);
+  assert.match(md, /^- Copied: 2026-11-20 15:14, UTC-05:30, the zone of the log's times$/m);
+  assert.match(details({ ...dot, virtualDevice: true }, updates), /^- Device: Virtual Echo Dot$/m);
+  assert.match(details({ ...dot, model: "echo-2" }, updates), /^- Device: Echo \(2nd gen\)$/m);
+  assert.match(details({ ...dot, model: "kindle" }, { slots: [] }), /^- Device: Unknown \(kindle\)$\n- Running slot: none$/m);
+});
+
+test("the log is a collapsed section, and nothing without lines", () => {
+  assert.equal(
+    logBlock(["21:16:06 INFO  microphone running"]).markdown,
+    ["<details>", "<summary>Log, 1 line</summary>", "", "```text", "21:16:06 INFO  microphone running", "```", "", "</details>", ""].join(
+      "\n",
+    ),
+  );
+  assert.deepEqual(logBlock([]), { markdown: "", kept: 0 });
+});
+
+test("the issue link opens the form with the details, and fits a URL", () => {
+  const md = details(dot, updates);
+  const url = new URL(issueUrl(md));
+  assert.equal(url.origin + url.pathname, "https://github.com/elsbrock/pinna/issues/new");
+  assert.equal(url.searchParams.get("template"), "problem.yml");
+  assert.equal(url.searchParams.get("satellite"), md);
+  // Spaces as %20, not +: what a form field gets is unambiguous.
+  assert.ok(!url.search.includes("+"));
+  assert.ok(url.href.length < 2000, `${url.href.length} characters`);
+});
+
+test("a discussion starts with one line about the satellite, or without one", () => {
+  const url = new URL(discussionUrl("q-a", dot));
+  assert.equal(url.origin + url.pathname, "https://github.com/elsbrock/pinna/discussions/new");
+  assert.equal(url.searchParams.get("category"), "q-a");
+  assert.equal(url.searchParams.get("body"), "\n\n---\nPinna 0.5.0-beta.2 · Echo Dot (2nd gen) · Home Assistant");
+  assert.equal(discussionUrl("general", null), "https://github.com/elsbrock/pinna/discussions/new?category=general");
 });
 
 test("the log loses MAC and IP addresses, but not loopback, ports, times or versions", () => {
@@ -104,18 +120,18 @@ test("the log loses Wi-Fi names", () => {
   assert.equal(scrub("joined net (2.4)", { wifi: ["net (2.4)"] }), "joined [Wi-Fi network]");
 });
 
-test("the report scrubs the log it holds", () => {
-  const md = report(dot, updates, ['Wi-Fi: trying "Home" (hidden: false)', "Home refused the password.", "gateway 10.0.0.1", "pinnad as pinna-aabbcc (f0:27:2d:aa:bb:cc)"], ["Home"]);
-  const log = md.split("<details>")[1];
+test("the log block scrubs the lines it holds", () => {
+  const log = logBlock(
+    ['Wi-Fi: trying "Home" (hidden: false)', "Home refused the password.", "gateway 10.0.0.1", "pinnad as pinna-aabbcc (f0:27:2d:aa:bb:cc)"],
+    { wifi: ["Home"], ownMac: dot.mac },
+  ).markdown;
   assert.ok(!log.includes("Home") && !log.includes("10.0.0.1") && !log.includes("aabbcc"), log);
   assert.match(log, /^Wi-Fi: trying "\[Wi-Fi network\]" \(hidden: false\)$/m);
-  // "Home Assistant" in the facts is the mode, not the network.
-  assert.match(md, /^- Mode: Home Assistant$/m);
 });
 
 test("a log too long for an issue keeps its newest lines", () => {
   const log = Array.from({ length: 2000 }, (_, i) => `21:16:06 INFO  line ${i} ${"x".repeat(60)}`);
-  const { markdown: md, kept } = issueReport(dot, updates, log, at);
+  const { markdown: md, kept } = logBlock(log);
   assert.ok(md.length <= REPORT_MAX, `${md.length} characters`);
   assert.ok(md.includes(`<summary>Log, the newest ${kept} of 2,000 lines</summary>`));
   assert.ok(kept > 500 && kept < 2000, `kept ${kept}`);
@@ -124,7 +140,7 @@ test("a log too long for an issue keeps its newest lines", () => {
 });
 
 test("backticks in the log don't end its code block", () => {
-  const md = report(dot, updates, ["a ``` b", "c ```` d"]);
+  const md = logBlock(["a ``` b", "c ```` d"]).markdown;
   assert.match(md, /^`````text$/m);
   assert.ok(md.endsWith("\n`````\n\n</details>\n"));
 });

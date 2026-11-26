@@ -1,14 +1,18 @@
-// "Copy for an issue" on the Logs page: what a bug report needs about the
-// satellite, then its log, as Markdown for a GitHub issue. Issues are public,
-// so the block leaves out the serial number, MAC and IP addresses and Wi-Fi
-// names, and scrubs them from the log too. Built from GetStatus, GetUpdates and
-// the log lines alone. No Svelte and no runtime imports, so `node --test` runs it.
+// "Open an issue" on the Logs page, and the links to Discussions: what a bug
+// report needs about the satellite, its log as Markdown, and the GitHub links
+// that carry them. The details go in the issue form's link; the log is too
+// long for a link, so the page copies it. Issues are public, so the details
+// leave out the serial number, MAC and IP addresses and Wi-Fi names, and the
+// log loses them too. Built from GetStatus, GetUpdates and the log lines
+// alone. No Svelte and no runtime imports, so `node --test` runs it.
 import { drawingFor } from "../../../design/devices/index.ts";
 import { MODE } from "./assistant.ts";
 import { channelName, lastStart } from "./view.ts";
 
-/** GitHub refuses an issue body over 65,536 characters; leave room for the owner's own words. */
+/** GitHub refuses an issue body over 65,536 characters; leave room for the details and the owner's own words. */
 export const REPORT_MAX = 50_000;
+
+const REPO = "https://github.com/elsbrock/pinna";
 
 type StatusLike = {
   version: string;
@@ -79,6 +83,8 @@ function slotName(u: UpdatesLike | null): string {
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+const modeName = (s: StatusLike) => (s.mode === MODE.standalone ? "Standalone" : "Home Assistant");
+
 /** "2026-11-20 21:44, UTC+01:00": `now` in the zone `offset` minutes east of UTC. */
 function when(now: Date, offset: number): string {
   const local = new Date(now.getTime() + offset * 60_000).toISOString();
@@ -87,38 +93,49 @@ function when(now: Date, offset: number): string {
   return `${local.slice(0, 10)} ${local.slice(11, 16)}, UTC${zone}`;
 }
 
-export type IssueReport = { markdown: string; kept: number };
+type When = { now?: Date; offset?: number };
 
 /**
- * The Markdown for an issue: the satellite's facts, then `log` (oldest first,
- * in the browser's time zone) in a collapsed section, scrubbed. When the whole
- * log doesn't fit in REPORT_MAX, the newest lines that do; `kept` says how many.
+ * The satellite's details for the issue form's Satellite field, as a Markdown
+ * list. The time is in the zone `offset` minutes east of UTC: the browser's,
+ * like the log's times.
  */
-export function issueReport(
+export function satelliteDetails(
   s: StatusLike,
   updates: UpdatesLike | null,
-  log: readonly string[],
-  { wifi = [], now = new Date(), offset = -now.getTimezoneOffset() }: { wifi?: readonly string[]; now?: Date; offset?: number } = {},
-): IssueReport {
-  const facts = [
+  { now = new Date(), offset = -now.getTimezoneOffset() }: When = {},
+): string {
+  return [
     `- Pinna: ${s.version}`,
     `- Device: ${deviceName(s)}`,
     `- Running slot: ${slotName(updates)}`,
     `- ${s.lastBoot ? lastStart(s.lastBoot).hint : "Last start: unknown"}`,
-    `- Mode: ${s.mode === MODE.standalone ? "Standalone" : "Home Assistant"}`,
+    `- Mode: ${modeName(s)}`,
     `- Update channel: ${capital(channelName(s.settings?.updateChannel))}`,
     // The log's times are the browser's, without a date.
     `- Copied: ${when(now, offset)}, the zone of the log's times`,
   ].join("\n");
-  if (!log.length) return { markdown: `${facts}\n- Log: no lines on the page\n`, kept: 0 };
+}
 
-  const lines = log.map((l) => scrub(l, { wifi, ownMac: s.mac }));
+export type LogBlock = { markdown: string; kept: number };
+
+/**
+ * `log` (oldest first) as a collapsed section for the issue form's Log field,
+ * scrubbed. When the whole log doesn't fit in REPORT_MAX, the newest lines
+ * that do; `kept` says how many. Empty when there are no lines.
+ */
+export function logBlock(
+  log: readonly string[],
+  { wifi = [], ownMac = "" }: { wifi?: readonly string[]; ownMac?: string } = {},
+): LogBlock {
+  if (!log.length) return { markdown: "", kept: 0 };
+  const lines = log.map((l) => scrub(l, { wifi, ownMac }));
   // A fence longer than any run of backticks in the log, so no line ends it.
   const longest = Math.max(0, ...lines.map((l) => Math.max(0, ...(l.match(/`+/g) ?? []).map((r) => r.length))));
   const fence = "`".repeat(Math.max(3, longest + 1));
 
   const n = (k: number) => k.toLocaleString("en-US");
-  const head = (summary: string) => `${facts}\n\n<details>\n<summary>${summary}</summary>\n\n${fence}text\n`;
+  const head = (summary: string) => `<details>\n<summary>${summary}</summary>\n\n${fence}text\n`;
   const tail = `${fence}\n\n</details>\n`;
   // Measured with the longest summary it can have, so what fits is decided once.
   let room = REPORT_MAX - head(`Log, the newest ${n(lines.length)} of ${n(lines.length)} lines`).length - tail.length;
@@ -131,4 +148,24 @@ export function issueReport(
       : `Log, the newest ${n(kept)} of ${n(lines.length)} lines`;
   const body = lines.slice(lines.length - kept).map((l) => `${l}\n`).join("");
   return { markdown: head(summary) + body + tail, kept };
+}
+
+/** The issue form (.github/ISSUE_TEMPLATE/problem.yml) with the Satellite field filled in. */
+export function issueUrl(details: string): string {
+  return `${REPO}/issues/new?template=problem.yml&satellite=${encodeURIComponent(details)}`;
+}
+
+/** The Discussions categories the dashboard links to, by their slugs. */
+export type Category = "q-a" | "general";
+
+/**
+ * A new discussion in `category`, starting with one line about the satellite
+ * below the owner's words: the version, the device and the mode, nothing that
+ * names the owner or their network.
+ */
+export function discussionUrl(category: Category, s: StatusLike | null): string {
+  const url = `${REPO}/discussions/new?category=${category}`;
+  if (!s) return url;
+  const line = `Pinna ${s.version} · ${deviceName(s)} · ${modeName(s)}`;
+  return `${url}&body=${encodeURIComponent(`\n\n---\n${line}`)}`;
 }

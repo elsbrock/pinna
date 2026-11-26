@@ -8,7 +8,7 @@
   import { copyText } from "../lib/copy.ts";
   import { client, device, errorSentence } from "../lib/device.svelte.ts";
   import Icon from "../lib/Icon.svelte";
-  import { issueReport } from "../lib/report.ts";
+  import { issueUrl, logBlock, satelliteDetails } from "../lib/report.ts";
   import { toasts } from "../lib/toast.svelte.ts";
   import { wifi } from "../lib/wifi.svelte.ts";
 
@@ -65,7 +65,7 @@
     return () => abort.abort();
   });
 
-  // The running slot, for Copy for an issue; it changes only with a restart.
+  // The running slot, for Open an issue; it changes only with a restart.
   // Without it the report says the slot is unknown.
   $effect(() => {
     client.getUpdates({}, { timeoutMs: 10_000 }).then(
@@ -173,16 +173,40 @@
     toasts.show(`Copied ${count(shown.length)}`);
   }
 
+  // Open an issue: the form's link carries the satellite's details, and the
+  // log, too long for a link, goes to the clipboard. The notice stays on this
+  // page, which the owner comes back to when the clipboard lost the log (a
+  // GitHub sign-in can replace it) or the browser didn't copy it.
+  type Handed = { state: "copying" | "copied" | "failed" | "empty"; markdown: string; kept: number; total: number };
+  let handed = $state<Handed | null>(null);
+  const loading = $derived(!lines.length && !error);
+  const issueHref = $derived(device.status ? issueUrl(satelliteDetails(device.status, updates)) : undefined);
+
   // Every line the page holds, whatever the filter: the reader of the issue
   // needs the context.
-  async function copyForIssue() {
-    if (!device.status) return;
+  function block(): Omit<Handed, "state"> {
     const names = [...(wifi.saved ?? []).map((w) => w.ssid), wifi.trial?.ssid, wifi.last?.ssid, wifi.lost];
-    const wifiNames = names.filter((n): n is string => !!n);
-    const { markdown, kept } = issueReport(device.status, updates, lines.map(text), { wifi: wifiNames });
-    await copyText(markdown);
-    const what = kept === lines.length ? `all ${count(kept)}` : `the newest ${kept} of ${count(lines.length)}`;
-    toasts.show(`Copied the details and ${what} of the log. Read it before you post it: issues are public.`);
+    const { markdown, kept } = logBlock(lines.map(text), {
+      wifi: names.filter((n): n is string => !!n),
+      ownMac: device.status?.mac,
+    });
+    return { markdown, kept, total: lines.length };
+  }
+
+  async function handOver() {
+    const b = block();
+    if (!b.markdown) return void (handed = { ...b, state: "empty" });
+    const again = handed?.state === "copied";
+    handed = { ...b, state: "copying" };
+    handed = { ...b, state: (await copyText(b.markdown)) ? "copied" : "failed" };
+    if (again && handed.state === "copied") toasts.show("Copied the log again");
+  }
+
+  function openIssue(e: MouseEvent) {
+    if (!device.status) return void e.preventDefault();
+    // The details' time is when the log was copied: now.
+    (e.currentTarget as HTMLAnchorElement).href = issueUrl(satelliteDetails(device.status, updates));
+    void handOver();
   }
 
   function download() {
@@ -236,8 +260,63 @@
       <Icon name="download" />
     </button>
   </div>
-  <button class="pn-btn issue" type="button" onclick={copyForIssue}>Copy for an issue</button>
+  {#if loading || !issueHref}
+    <button class="pn-btn issue" type="button" disabled>Open an issue</button>
+  {:else}
+    <a
+      class="pn-btn issue"
+      href={issueHref}
+      target="_blank"
+      rel="noreferrer"
+      title="Opens the issue form on GitHub and copies the log"
+      onclick={openIssue}
+      >Open an issue<Icon name="external" /><span class="sr">(opens in a new tab)</span></a
+    >
+  {/if}
 </div>
+
+{#if handed}
+  <div class="pn-notice" data-tone={handed.state === "failed" ? "caution" : undefined} role="status">
+    <Icon name={handed.state === "failed" ? "alert" : "info"} class="pn-icon pn-notice-icon" />
+    <div class="pn-notice-body">
+      {#if handed.state === "empty"}
+        <p class="pn-notice-title">No log to copy</p>
+        <p>
+          {error ? "The log didn't load, so" : "The page has no log lines, so"} there's nothing to copy. Say in the issue
+          what you see.
+        </p>
+      {:else if handed.state === "failed"}
+        <p class="pn-notice-title">This browser didn't copy the log</p>
+        <p>
+          Select the text below, copy it, and paste it into <strong>Log</strong> in the issue. Read it first: issues are
+          public.
+        </p>
+        <textarea
+          class="pn-input handed"
+          readonly
+          rows="3"
+          aria-label="The log for the issue"
+          onfocus={(e) => e.currentTarget.select()}>{handed.markdown}</textarea
+        >
+      {:else}
+        <p class="pn-notice-title">{handed.state === "copied" ? "The log is on your clipboard" : "Copying the log…"}</p>
+        <p>
+          Paste it into <strong>Log</strong> in the issue, and read it first: issues are public. IP and MAC addresses and
+          Wi-Fi names are left out.{#if handed.kept < handed.total}
+            It holds the newest {handed.kept.toLocaleString("en-US")} of {handed.total.toLocaleString("en-US")} lines.{/if}
+        </p>
+      {/if}
+      <div class="notice-actions">
+        {#if handed.state === "copied" || handed.state === "copying"}
+          <button class="pn-btn pn-btn-sm" type="button" disabled={handed.state === "copying"} onclick={handOver}>
+            <Icon name="copy" />Copy the log again
+          </button>
+        {/if}
+        <button class="pn-btn pn-btn-sm pn-btn-quiet" type="button" onclick={() => (handed = null)}>Done</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if error && !connected}
   <p class="pn-field-error" role="alert"><Icon name="alert" />{error} Trying again…</p>
@@ -280,6 +359,29 @@
   .files {
     display: flex;
     gap: var(--space-2);
+  }
+  .notice-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .handed {
+    margin-top: var(--space-2);
+    height: auto;
+    padding: var(--space-2) var(--space-3);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 20px;
+    resize: vertical;
   }
   /* On a phone, two rows: what to show and the files, then the filter and the issue. */
   @media (max-width: 600px) {
