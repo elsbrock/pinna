@@ -299,9 +299,10 @@ pub const MT8163_KEYS: &[(u16, Button)] = &[
     (KEY_HELP, Button::Action),
 ];
 
-/// The Echo Dot (5th gen)'s keys: `gpio-keys` on Amazon's CPLD for the
-/// volume keys and the action button (the device tree's `linux,code`, kernel
-/// patch 0204), and `gpio-privacy`'s button event for the microphone button.
+/// The Echo Dot (5th gen)'s keys: `gpio-keys` for the volume keys, on Amazon's
+/// CPLD, and the action button, on SoC GPIO 41 in the retail device tree the
+/// FIT ships (the device tree's `linux,code`, kernel patches 0204 and 0212),
+/// and `gpio-privacy`'s button event for the microphone button.
 /// TECHO5 read the same four codes from the input devices of a C2N6L4 on
 /// Amazon's kernel, with the same device tree (TECHO5 discussion #610,
 /// 2026-11-21): 114, 115 and 138 from `gpio-keys`, 113 from the privacy

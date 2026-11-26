@@ -407,8 +407,8 @@ pub struct WifiPaths {
     /// The board's chip joins WPA3 and networks that require management
     /// frame protection.
     pub sae: bool,
-    /// The board has a USB connector the owner can reach the satellite
-    /// through. The Echo Dot (5th gen) has none (ADR 0035).
+    /// The board has USB the owner can reach the satellite through: a
+    /// connector, or the Echo Dot (5th gen)'s test pads (ADR 0035).
     pub usb: bool,
 }
 

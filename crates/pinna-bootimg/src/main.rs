@@ -48,7 +48,7 @@ enum Cmd {
     /// Re-serialize an image and check it is byte-identical.
     Roundtrip { image: PathBuf },
     /// Build a U-Boot FIT (`.itb`) for the Echo Dot (5th gen) (MT8519, ADR
-    /// 0034): a 32-bit zImage, one DTB per board revision, and one
+    /// 0035): a 32-bit zImage, one DTB per board revision, and one
     /// configuration each (plus `-recovery` configurations when a ramdisk is
     /// given). The default configuration is `conf-1`.
     FitPack {
