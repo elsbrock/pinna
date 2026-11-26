@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 11:30:00 +0100
+Subject: [PATCH] mtd: nandx: add the sub-page write option
+
+The nandx port tests CONFIG_MTK_NANDX_WRITE_SUBPAGE, but no Kconfig defines
+it, so it is always off and the driver reports a 4096-byte sub-page. The Echo
+Dot (5th gen) volumes were written with 2048-byte sub-pages: Amazon's U-Boot
+reports "sub-page size 2048" and a VID header offset of 2048. With 4096 the
+kernel found the EC and VID headers in one minimal I/O unit, attached UBI
+read-only, and UBIFS could not mount the userdata volume read-write (measured
+on a C2N6L4, 2026-11-26). Amazon's 5.4 kernel defines the option in
+drivers/mtd/Kconfig and its mt8519_defconfig sets it.
+
+---
+--- a/drivers/mtd/nandx/Kconfig
++++ b/drivers/mtd/nandx/Kconfig
+@@ -3,3 +3,13 @@
+ 	depends on MTD && (ARCH_MEDIATEK || COMPILE_TEST)
+ 	help
+ 	  MediaTek's nandx SPI-NAND driver for the MT8519.
++
++config MTK_NANDX_WRITE_SUBPAGE
++	bool "MediaTek MT8519 NAND sub-page writes"
++	depends on MTD_NANDX_MT8519
++	help
++	  Program the two halves of a NAND page separately, as Amazon's
++	  bootloader and kernel do. UBI then keeps a block's erase-counter and
++	  volume headers in the two halves of its first page, the layout the
++	  Echo Dot (5th gen) volumes were written with. Without it UBI attaches
++	  them read-only.
