@@ -99,3 +99,14 @@ rm -f /usr/lib/udev/hwdb.d/20-pci-vendor-model.hwdb \
     /usr/lib/udev/hwdb.d/20-usb-vendor-model.hwdb \
     /usr/lib/udev/hwdb.d/20-OUI.hwdb
 systemd-hwdb update --usr
+
+# glibc's character set modules: the device speaks C.UTF-8, which libc converts
+# itself. Keep the Latin-1 family and the UTF-16/32 modules; the rest is 18 MB.
+# An iconv to a removed charset fails with EINVAL (the module does not load),
+# and gconv-modules.cache stays as it is: it lists names, not files.
+for d in /usr/lib/*/gconv; do
+    find "$d" -maxdepth 1 -name '*.so' \
+        ! -name ISO8859-1.so ! -name ISO8859-15.so ! -name CP1252.so \
+        ! -name UNICODE.so ! -name UTF-16.so ! -name UTF-32.so ! -name UTF-7.so \
+        -delete
+done
