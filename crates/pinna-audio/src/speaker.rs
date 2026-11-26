@@ -131,6 +131,10 @@ impl SpeakerConfig {
 /// anyway (it takes ~1.2 s on the Dot).
 const PCM_START_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// The player's buffer where the PCM doesn't bound it to this itself: the
+/// MT8163's, so the session's prime of twice the lead starts it.
+const PLAYER_BUFFER_MS: u64 = 128;
+
 /// How long a session that is kept open waits after a failed open before it
 /// tries again.
 const OPEN_RETRY: Duration = Duration::from_secs(5);
@@ -1116,9 +1120,8 @@ struct Actor {
 pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
     let rate = cfg.device_rate.to_string();
     match cfg.backend {
-        Backend::EchoDot | Backend::EchoDotPipeWire => Some((
-            cfg.aplay_bin.clone(),
-            [
+        Backend::EchoDot | Backend::EchoDotPipeWire => {
+            let mut a: Vec<String> = [
                 "-D",
                 &cfg.alsa_device,
                 "-f",
@@ -1132,8 +1135,22 @@ pub fn playback_command(cfg: &SpeakerConfig) -> Option<(String, Vec<String>)> {
                 "-q",
             ]
             .map(String::from)
-            .to_vec(),
-        )),
+            .to_vec();
+            // aplay starts the PCM once its buffer is full, and the session
+            // primes it with twice the lead of silence before it waits for
+            // that. The MT8163's PCM caps the buffer at 128 ms itself. The
+            // MT8519's DL2 lets aplay take its 500 ms default (buffer_size
+            // 48000 at 96 kHz, read on a C2N6L4, 2026-11-26): the prime
+            // never filled it, every session waited out PCM_START_TIMEOUT,
+            // and the speaker played half a second behind. A rate above
+            // OUT_RATE gets the MT8163's 128 ms, in four periods.
+            if cfg.device_rate != OUT_RATE {
+                let buffer = u64::from(cfg.device_rate) * PLAYER_BUFFER_MS / 1000;
+                a.push(format!("--buffer-size={buffer}"));
+                a.push(format!("--period-size={}", buffer / 4));
+            }
+            Some((cfg.aplay_bin.clone(), a))
+        }
         Backend::PipeWire => {
             // `--raw`: otherwise pw-play expects a container on stdin.
             let mut a: Vec<String> = [
@@ -2187,8 +2204,11 @@ mod tests {
         let (_, args) = playback_command(&cfg).unwrap();
         assert_eq!(
             args.join(" "),
-            "-D hw:0,1 -f S16_LE -c 2 -r 96000 -t raw -q"
+            "-D hw:0,1 -f S16_LE -c 2 -r 96000 -t raw -q --buffer-size=12288 --period-size=3072"
         );
+        // The session's prime (twice the lead) fills that buffer, so aplay
+        // starts the PCM without waiting out PCM_START_TIMEOUT.
+        assert!(Duration::from_millis(PLAYER_BUFFER_MS) < cfg.lead * 2);
         cfg.backend = Backend::PipeWire;
         let (_, args) = playback_command(&cfg).unwrap();
         assert_eq!(
