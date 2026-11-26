@@ -5,22 +5,17 @@ description: The device, the computer and the backup that you need before you in
 
 Collect everything on this page before you [install Pinna](/docs/flash/).
 Only the backup comes from your own device. Pinna's images include the
-device's Wi-Fi firmware, unmodified.
+device's Wi-Fi firmware, unmodified. This page covers the Echo (2nd gen) and
+the Echo Dot (2nd gen); for the Echo Dot (5th gen), see
+[Echo devices](/docs/devices/#echo-dot-5th-gen).
 
 ## Device
 
 - **An Echo (2nd gen) or an Echo Dot (2nd gen).** In fastboot, the Echo Dot
-  reports the product name `BISCUIT` and the Echo reports `RADAR`. The rest
-  of this page and the install pages are for these two. Pinna also runs on
-  the Echo Dot (5th gen), but it has no fastboot mode or USB
-  connector and doesn't install this way. Pinna doesn't support other Echo
-  devices yet; [Echo devices](/docs/devices/) says where each one stands.
-- **An unlocked bootloader.** On the Echo (2nd gen) and the Echo Dot
-  (2nd gen), the amonet unlock gives it Kaeru, and Pinna installs over
-  fastboot. On the Echo Dot (5th gen), the community installer
-  [firebreak](https://github.com/Gamer92000/firebreak) unlocks it, and there
-  is no fastboot; see [Echo devices](/docs/devices/#echo-dot-5th-gen). On the
-  first two, Pinna
+  reports the product name `BISCUIT` and the Echo reports `RADAR`. Pinna
+  doesn't support other Echo devices yet; [Echo devices](/docs/devices/)
+  says where each one stands.
+- **An unlocked bootloader with Kaeru.** Pinna installs over fastboot. It
   also needs Kaeru, a small addition to the bootloader that the amonet-based
   unlock installs: Kaeru opens fastboot when the system asks for it, and Pinna
   uses that to get back to fastboot after a failed boot. These docs don't
@@ -36,10 +31,6 @@ device's Wi-Fi firmware, unmodified.
 Back up the device before you install Pinna if you want to go back to the
 firmware it runs now: installing Pinna replaces it, and only a backup
 brings it back. Pinna can restore the backup.
-
-The backup script is for the Echo (2nd gen) and the Echo Dot (2nd gen). It
-copies eMMC, which the Echo Dot (5th gen) doesn't have. Back up its
-whole NAND flash before anything is written; Pinna has no script for it.
 
 The backup script is in Pinna's repository. Get it on your computer with
 `git clone https://github.com/elsbrock/pinna.git`, and run the commands below

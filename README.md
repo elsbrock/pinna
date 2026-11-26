@@ -1,9 +1,8 @@
 # Pinna
 
 An open, local-first voice satellite OS for Echo smart speakers: the
-**Echo (2nd gen)** and **Echo Dot (2nd gen)** (MediaTek MT8163), and, with
-the **Echo Dot (5th gen)** (MediaTek MT8519). More Echo models are
-planned.
+**Echo (2nd gen)** and **Echo Dot (2nd gen)** (MediaTek MT8163), and the
+**Echo Dot (5th gen)** (MediaTek MT8519). More Echo models are planned.
 
 Pinna turns the device into a voice satellite with an on-device wake word,
 light ring feedback and button control. You choose who answers requests: your
@@ -24,17 +23,16 @@ daemons.
 
 Pinna needs an Echo whose bootloader is already unlocked. On the Echo (2nd
 gen) and the Echo Dot (2nd gen), that is amonet with Kaeru, which gives
-Pinna fastboot. On the Echo Dot (5th gen), it is the community installer
-[firebreak](https://github.com/Gamer92000/firebreak), built with
-[cannoli-os-builder](https://github.com/Gamer92000/cannoli-os-builder), and
-there is no fastboot. To install Pinna on the first two,
-follow `docs/runbook-first-flash.md`: it covers downloading a prebuilt image
-from a [release](https://github.com/elsbrock/pinna/releases) or building your
-own, backs the device up first, and every step says how to undo it.
+Pinna fastboot. To install Pinna on those two, follow
+`docs/runbook-first-flash.md`: it covers downloading a prebuilt image from a
+[release](https://github.com/elsbrock/pinna/releases) or building your own,
+backs the device up first, and every step says how to undo it.
 
 The Echo Dot (5th gen) is different. It has no fastboot mode and no USB
-connector, and its unlock needs wires soldered to test pads. Pinna doesn't
-ship it and has no install guide for it yet. What works, and the known limits,
+connector, and its unlock is a community installer that needs wires soldered
+to test pads. Pinna doesn't ship it and has no install guide for the device
+yet. `website/src/content/docs/devices.md` names the unlock tools for each
+device. What works, and the known limits,
 are in `website/src/content/docs/devices.md`. See ADR 0035 in `docs/adr/`.
 
 ## Layout
