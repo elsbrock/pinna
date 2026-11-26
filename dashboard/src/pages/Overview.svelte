@@ -41,7 +41,8 @@
   const live = $derived(device.link === "live");
   const ring = $derived(ringEffect(s, device.link, device.testStep));
   const line = $derived(health(s, device.link, device.offlineSince, device.restarting));
-  const modelName = $derived(drawingFor(s?.model ?? "")?.name);
+  // A model without a drawing is named by its id.
+  const modelName = $derived(drawingFor(s?.model ?? "")?.name ?? (s?.model ? `Unknown model (${s.model})` : ""));
   const standalone = $derived(isStandalone(s));
   // While no password is set, anyone on the network can control the satellite (ADR 0029).
   const notice = $derived(openNotice(security.state, standalone));

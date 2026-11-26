@@ -498,14 +498,33 @@ test("updateSummary: the first matching state wins, failures first", async () =>
     value: "0.0.9",
     hint: "Starts at the next restart",
   });
-  assert.deepEqual(updateSummary(u({ release: { version: "0.3.0", action: ACTION.blocked } }), run, settings()), {
+  assert.deepEqual(updateSummary(u({ release: { version: "0.3.0", action: ACTION.blocked } }), run, settings(), "echo-dot-2"), {
     value: "0.3.0",
     hint: "Needs a new boot image, installed over USB",
     tone: "caution",
   });
   assert.equal(
     updateSummary(u({ release: { version: "0.3.0", action: ACTION.blocked } }), run, settings(), "echo-dot-5").hint,
+    "Needs a new boot image, installed over USB",
+  );
+  assert.equal(
+    updateSummary(u({ release: { version: "0.3.0", action: ACTION.blocked } }), run, settings(), "").hint,
     "Needs a new boot image, which an update can't install",
+  );
+  assert.equal(
+    updateSummary(
+      u({
+        release: {
+          version: "0.3.0",
+          action: ACTION.blocked,
+          note: "This release has no boot image for the Echo Dot (5th gen).",
+        },
+      }),
+      run,
+      settings(),
+      "echo-dot-5",
+    ).hint,
+    "This release has no boot image for the Echo Dot (5th gen).",
   );
   assert.deepEqual(updateSummary(u({ release: { version: "0.3.0", action: ACTION.install } }), run, settings()), {
     value: "0.3.0",

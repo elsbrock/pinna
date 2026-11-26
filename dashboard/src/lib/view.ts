@@ -607,7 +607,14 @@ export function updateSummary(
     return { value: waiting?.version || running, hint: "Starts at the next restart" };
   }
   if (u.release && action === ACTION.blocked) {
-    const hint = hasUsb(model) ? "Needs a new boot image, installed over USB" : "Needs a new boot image, which an update can't install";
+    // A release with no boot image for this model says so itself (`note`); the
+    // other blocks are told by the boot level.
+    const note = u.release.note ?? "";
+    const hint = note.startsWith("This release has no boot image")
+      ? note
+      : hasUsb(model)
+        ? "Needs a new boot image, installed over USB"
+        : "Needs a new boot image, which an update can't install";
     return { value: u.release.version, hint, tone: "caution" };
   }
   if (u.release && action === ACTION.install) return { value: u.release.version, hint: "Ready to install" };
@@ -888,9 +895,16 @@ export function satelliteModel(board: string): string {
   return "";
 }
 
-/** Whether a model (`Status.model`) can be reached over USB: the Echo Dot (5th gen) has no USB connector. */
+const USB_MODELS: ReadonlySet<string> = new Set(["echo-dot-2", "echo-2", "echo-dot-5"]);
+
+/**
+ * Whether a model (`Status.model`) can be reached over USB: the Echo Dot (2nd
+ * gen) by its micro-USB port, the Echo (2nd gen) by pins in its base and the
+ * Echo Dot (5th gen) by test pads under its foot. A model that isn't known
+ * gets no USB text.
+ */
 export function hasUsb(model: string): boolean {
-  return model !== "echo-dot-5";
+  return USB_MODELS.has(model);
 }
 
 // A stream's source as its header names it (ADR 0011), or `sendspin`, which

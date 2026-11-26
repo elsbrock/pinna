@@ -201,7 +201,11 @@
               <a class="pn-crumb" href="#{page.section.path}"><Icon name="chevron-left" />{page.section.title}</a>
             {/if}
             <h1 class="pn-type-display-m">{page.title}</h1>
-            <p>{page.description}</p>
+            <p>
+              {page.path === "/network" && s && !hasUsb(s.model)
+                ? "Wi-Fi and addresses."
+                : page.description}
+            </p>
           </div>
         </header>
       {/if}
