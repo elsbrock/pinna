@@ -171,10 +171,15 @@ case "${1:-}" in
     dev chmod 755 /tmp/pinna-bootctl
     [ "$(dev /tmp/pinna-bootctl storage-kind)" = ubi ] || die "pinna-bootctl in TWRP does not see UBI storage"
     [ "$(dev /tmp/pinna-bootctl bootloader)" = amazon-uboot ] || die "pinna-bootctl in TWRP does not see Amazon's U-Boot"
+    # set-active below needs slot B (TWRP) good as the fallback: check that
+    # before slot A is overwritten, not after.
+    dev "/tmp/pinna-bootctl --misc /dev/$misc_node slot-status" | grep -q '^b: good' ||
+      die "slot B isn't marked good in the slot record, so slot A couldn't be set to start on trial; nothing was written"
     write boot_a "$fit"
     write system_a "$root_img"
     say "slot a active, on trial"
-    adb shell -T "/tmp/pinna-bootctl --misc /dev/$misc_node set-active a"
+    adb shell -T "/tmp/pinna-bootctl --misc /dev/$misc_node set-active a" ||
+      die "boot_a and system_a are written, but slot A couldn't be set to start (above). The device is still in TWRP: run install again before you restart it"
     say "rebooting"
     adb reboot
     say "done: the satellite starts Pinna from slot a; its ring shows the boot stages"
