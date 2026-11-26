@@ -777,6 +777,22 @@ fn check_fit_board(image: &[u8], board: &Board) -> Result<()> {
         "this boot image is for another device: none of its device trees is for the {} ({family}, {soc})",
         board.model.name()
     );
+    // The bootloader picks the configuration by name, and a restart may ask
+    // for another one than a start from power-on (pinna-board).
+    let have = pinna_bootimg::fit::configurations(image)?;
+    let missing: Vec<&str> = board
+        .bootloader
+        .fit_configs()
+        .iter()
+        .copied()
+        .filter(|c| !have.iter().any(|h| h == c))
+        .collect();
+    ensure!(
+        missing.is_empty(),
+        "this boot image lacks configurations the {}'s bootloader may start ({}): the satellite would stop in fastboot",
+        board.model.name(),
+        missing.join(", ")
+    );
     Ok(())
 }
 

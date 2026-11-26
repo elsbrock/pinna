@@ -694,8 +694,18 @@ fn fit(fill: u8, len: usize) -> Vec<u8> {
     fit_for(fill, len, &["amzn,cannoli-dvt", "mediatek,mt8519"])
 }
 
-/// [`fit`] whose device tree's root names `compatible`.
+/// [`fit`] whose device tree's root names `compatible`, with every
+/// configuration the Echo Dot (5th gen)'s U-Boot may boot.
 fn fit_for(fill: u8, len: usize, compatible: &[&str]) -> Vec<u8> {
+    let names = pinna_board::Model::EchoDot5
+        .board()
+        .bootloader
+        .fit_configs();
+    fit_with_configs(fill, len, compatible, names)
+}
+
+/// [`fit_for`] with only the configurations `names`.
+fn fit_with_configs(fill: u8, len: usize, compatible: &[&str], names: &[&str]) -> Vec<u8> {
     use pinna_bootimg::fit;
     let mut zimage = vec![fill; len.max(0x30)];
     // The zImage magic `fit::build` looks for.
@@ -709,12 +719,15 @@ fn fit_for(fill: u8, len: usize, compatible: &[&str]) -> Vec<u8> {
             data: &dtb,
         }],
         None,
-        &[fit::Conf {
-            node: "conf-1",
-            description: "test",
-            fdt: 0,
-            recovery: false,
-        }],
+        &names
+            .iter()
+            .map(|n| fit::Conf {
+                node: n,
+                description: "test",
+                fdt: 0,
+                recovery: false,
+            })
+            .collect::<Vec<_>>(),
         0x4000_8000,
         0x4000_8000,
         Some(1),
@@ -923,6 +936,28 @@ fn a_fit_for_another_device_is_refused_before_anything_is_written() {
     let m = e.publish_json(&img, &m, Some(&key()));
     let err = e.install(&m).unwrap_err();
     assert!(format!("{err:#}").contains("for another device"), "{err:#}");
+    assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
+    assert!(e.part("system_b").iter().all(|&x| x == 0xbb));
+    assert_eq!(e.record(), None);
+}
+
+#[test]
+fn a_fit_without_a_configuration_u_boot_boots_is_refused() {
+    // Pinna's first Echo Dot (5th gen) FITs: U-Boot asks for
+    // cannoli-pvt-aluminum-recovery on a restart and stops in fastboot.
+    let img = sealed("2.0.0", 64, &key());
+    let e = env_fit("a");
+    let few = fit_with_configs(
+        0xdd,
+        8192,
+        &["amzn,cannoli-dvt", "mediatek,mt8519"],
+        &["cannoli-pvt-plastic", "conf-1"],
+    );
+    let m = with_boots(&e, &img, None, &[(&["echo-dot-5"], &few)]);
+    let m = e.publish_json(&img, &m, Some(&key()));
+    let err = format!("{:#}", e.install(&m).unwrap_err());
+    assert!(err.contains("cannoli-pvt-aluminum-recovery"), "{err}");
+    assert!(err.contains("stop in fastboot"), "{err}");
     assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
     assert!(e.part("system_b").iter().all(|&x| x == 0xbb));
     assert_eq!(e.record(), None);

@@ -119,9 +119,44 @@ pub enum Bootloader {
     /// to priority 0 and the good slot started). Its FITs' device trees name
     /// the board family `fit_board` at the
     /// start of their root `compatible` (`amzn,cannoli-dvt`): other Amazon
-    /// boards share the SoC.
-    AmazonUboot { fit_board: &'static str },
+    /// boards share the SoC. `fit_configs` are the configuration names its
+    /// U-Boot may boot (`bootm ${loadaddr}#${loadcfg}`); a FIT without one of
+    /// them doesn't start when U-Boot asks for it.
+    AmazonUboot {
+        fit_board: &'static str,
+        fit_configs: &'static [&'static str],
+    },
 }
+
+/// The configurations Amazon's U-Boot on the Echo Dot (5th gen) may ask for.
+/// It names the configuration from the board ID (its table maps
+/// `0660**141002**21` to `cannoli-pvt-plastic`, `0660**140002**21` to
+/// `cannoli-pvt-aluminum`, and so on down to `cannoli-hvt`), adds
+/// `-recovery` for a recovery start, and defaults to `conf-1`. On a C2N6L4
+/// (UART, 2026-11-26) a start from power-on or from `fastboot continue`
+/// booted `cannoli-pvt-plastic`, but every restart from Linux asked for
+/// `cannoli-pvt-aluminum-recovery`: with a FIT that lacked it, U-Boot printed
+/// "Could not find configuration node" and stopped in fastboot, and with
+/// all of these names the same restart started the kernel. Fire OS's FIT
+/// carries exactly these 15; Pinna's boots the same kernel, device tree and
+/// initramfs from each.
+pub const CANNOLI_FIT_CONFIGS: &[&str] = &[
+    "cannoli-pvt-plastic",
+    "cannoli-pvt-aluminum",
+    "cannoli-dvt-plastic",
+    "cannoli-dvt-aluminum",
+    "cannoli-evt-plastic",
+    "cannoli-evt-aluminum",
+    "cannoli-hvt",
+    "conf-1",
+    "cannoli-pvt-plastic-recovery",
+    "cannoli-pvt-aluminum-recovery",
+    "cannoli-dvt-plastic-recovery",
+    "cannoli-dvt-aluminum-recovery",
+    "cannoli-evt-plastic-recovery",
+    "cannoli-evt-aluminum-recovery",
+    "cannoli-hvt-recovery",
+];
 
 /// The format of a boot slot's image.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,7 +188,16 @@ impl Bootloader {
     pub const fn fit_board(self) -> Option<&'static str> {
         match self {
             Bootloader::Kaeru { .. } => None,
-            Bootloader::AmazonUboot { fit_board } => Some(fit_board),
+            Bootloader::AmazonUboot { fit_board, .. } => Some(fit_board),
+        }
+    }
+
+    /// The configuration names a FIT must carry, on a FIT bootloader (empty
+    /// on the others).
+    pub const fn fit_configs(self) -> &'static [&'static str] {
+        match self {
+            Bootloader::Kaeru { .. } => &[],
+            Bootloader::AmazonUboot { fit_configs, .. } => fit_configs,
         }
     }
 
@@ -746,6 +790,7 @@ pub static ECHO_DOT_5: Board = Board {
     // model through fastboot.
     bootloader: Bootloader::AmazonUboot {
         fit_board: "amzn,cannoli",
+        fit_configs: CANNOLI_FIT_CONFIGS,
     },
     soc: Soc::Mt8519,
     storage: StorageKind::Ubi,
@@ -1021,5 +1066,19 @@ mod tests {
             let (x, y) = g.position(lane);
             assert!(((x * x + y * y).sqrt() - 0.036).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn a_fit_board_lists_the_configurations_its_u_boot_boots() {
+        let dot5 = Model::EchoDot5.board().bootloader;
+        let confs = dot5.fit_configs();
+        // The name a restart asks for, and the one a cold start does.
+        assert!(confs.contains(&"cannoli-pvt-aluminum-recovery"));
+        assert!(confs.contains(&"cannoli-pvt-plastic"));
+        let mut unique = confs.to_vec();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), confs.len());
+        assert!(Model::EchoDot2.board().bootloader.fit_configs().is_empty());
     }
 }
