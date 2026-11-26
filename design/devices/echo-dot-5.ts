@@ -1,9 +1,11 @@
 // The Echo Dot (5th gen) in three-quarter view, as SVG markup: a sphere of
 // fabric on a narrow base, the top cut flat for the buttons. The ring is the
 // 12 LEDs under the sphere's lower edge, shining onto the surface the satellite
-// stands on, so it shows as a lit band on the floor around the base. The floor
-// band is drawn in a 100x100 box and squashed into an ellipse, as the other
-// drawings do their top faces. Light paths carry data-led / data-glow in pixel
+// stands on. Each one is drawn as a dot with its own small glow, never as a
+// continuous band: a lit band round the base would read as someone else's
+// ring. The state's colour as a whole is the halo's job (Device.svelte). The
+// dots sit in a 100x100 box squashed into an ellipse, as the other drawings
+// do their top faces. Light paths carry data-led / data-glow in pixel
 // order, for whoever animates them. A drawing of the device, not a photo: no
 // Amazon marks. Styled by .pn-drawing in design/pinna.css.
 import {
@@ -12,7 +14,6 @@ import {
   displayLevel,
   pixelAngle,
   ringFrame,
-  segmentPath,
   type Effect,
 } from "../ring.ts";
 
@@ -78,15 +79,14 @@ const GLYPHS: Record<(typeof buttons)[number]["glyph"], string> = {
 };
 
 // The ring on the floor round the base (local units, scaled by FLOOR_S). Each
-// LED lights a stretch of it wide enough to overlap its neighbours; blur and a
-// clip to the band diffuse it.
+// LED is one dot: a zero-length path with a round cap, as wide as its stroke.
 const FLOOR_S = 2;
-const BAND = { r: 33, inner: 30, outer: 36 };
+const DOT_R = 33;
 const floorTransform = `translate(${CX - 50 * FLOOR_S} ${BASE_BOTTOM - 50 * FLOOR_S * TILT}) scale(${FLOOR_S} ${FLOOR_S * TILT})`;
-const segments = Array.from({ length: RING_PIXELS }, (_, i) => segmentPath(pixelAngle(i), BAND.r, 19));
-const annulus = (o: number, n: number) =>
-  `M${50 - o} 50 A${o} ${o} 0 1 1 ${50 + o} 50 A${o} ${o} 0 1 1 ${50 - o} 50 Z ` +
-  `M${50 - n} 50 A${n} ${n} 0 1 1 ${50 + n} 50 A${n} ${n} 0 1 1 ${50 - n} 50 Z`;
+const dots = Array.from({ length: RING_PIXELS }, (_, i) => {
+  const rad = (pixelAngle(i) * Math.PI) / 180;
+  return `M${(50 + DOT_R * Math.sin(rad)).toFixed(2)} ${(50 - DOT_R * Math.cos(rad)).toFixed(2)}h0`;
+});
 
 /** Width over height, for layout before the SVG loads. */
 export const ASPECT = VIEW.w / VIEW.h;
@@ -95,7 +95,7 @@ export const ASPECT = VIEW.w / VIEW.h;
 export const STAGE = { view: VIEW, foot: { x: CX, y: BASE_BOTTOM }, mm: MM, radius: 50, tilt: TILT };
 
 /** How bright the glow paths are relative to the LEDs. */
-export const GLOW = 0.6;
+export const GLOW = 0.45;
 
 /**
  * The drawing as one `<svg>` element. `id` must be unique per page (it prefixes
@@ -108,11 +108,11 @@ export function svg(id: string, effect: Effect = "idle"): string {
     stroke: p.c ? `rgb(${p.c.join(",")})` : "none",
     opacity: p.c ? displayLevel(p.level) : 0,
   }));
-  const led = (cls: string, k: number, attr: string) =>
-    segments
+  const led = (cls: string, k: number, attr: string, width: number) =>
+    dots
       .map(
         (d, i) =>
-          `<path class="${cls}" d="${d}" ${attr} stroke="${lit[i].stroke}" stroke-opacity="${(lit[i].opacity * k).toFixed(3)}"/>`,
+          `<path class="${cls}" d="${d}" ${attr} style="stroke-linecap:round;stroke-width:${width}" stroke="${lit[i].stroke}" stroke-opacity="${(lit[i].opacity * k).toFixed(3)}"/>`,
       )
       .join("");
   return (
@@ -125,17 +125,13 @@ export function svg(id: string, effect: Effect = "idle"): string {
     `<stop offset="1" class="side-edge"/></linearGradient>` +
     `<radialGradient id="${id}-sheen" cx="0.36" cy="0.3" r="0.75"><stop offset="0" class="sheen-hi"/><stop offset="1" class="sheen-lo"/></radialGradient>` +
     `<filter id="${id}-shadow" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>` +
-    `<filter id="${id}-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4"/></filter>` +
-    `<filter id="${id}-diffuse" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="1.6"/></filter>` +
-    `<clipPath id="${id}-band"><path d="${annulus(BAND.outer, BAND.inner)}" clip-rule="evenodd"/></clipPath>` +
+    `<filter id="${id}-glow" x="-30%" y="-80%" width="160%" height="260%"><feGaussianBlur stdDeviation="3"/></filter>` +
     `<clipPath id="${id}-ball-clip"><path d="${sphere}"/></clipPath>` +
     `</defs>` +
     `<ellipse class="shadow" cx="${CX}" cy="${BASE_BOTTOM + 4}" rx="${(CUT_R + 6).toFixed(2)}" ry="${(CUT_RY + 4).toFixed(2)}" filter="url(#${id}-shadow)"/>` +
     `<g transform="${floorTransform}">` +
-    `<circle class="band" cx="50" cy="50" r="${BAND.r}"/>` +
-    `<g filter="url(#${id}-glow)">${led("led-glow", GLOW, "data-glow")}</g>` +
-    `<g clip-path="url(#${id}-band)"><g filter="url(#${id}-diffuse)">${led("led", 1, "data-led")}</g></g>` +
-    `<circle class="band-edge" cx="50" cy="50" r="${BAND.outer}" vector-effect="non-scaling-stroke"/>` +
+    `<g filter="url(#${id}-glow)">${led("led-glow", GLOW, "data-glow", 9)}</g>` +
+    led("led", 1, "data-led", 5) +
     `</g>` +
     `<path class="body" d="${base}" fill="url(#${id}-side)"/>` +
     `<path class="foot" d="${foot}"/>` +
