@@ -940,6 +940,8 @@ async fn main() -> Result<()> {
                 hw.audio.speaker_channels,
                 pinna_hal::board::SpeakerChannels::Only(_)
             );
+            // The corner protects the driver, so it follows the board.
+            sc.highpass_hz = hw.audio.speaker_highpass_hz;
             sc.volume_curve = volume_curve(tuning.volume_curve);
         }
         Arc::new(Speaker::new(sc))

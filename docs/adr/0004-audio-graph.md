@@ -13,6 +13,8 @@ a device yet.
 2026-11-24 by ADR 0035 (Decision 8): the Echo Dot (5th gen) runs a graph of
 its own with the same node names, chosen at run time, and its speaker plays
 at its PCM's 96 kHz. Everything below describes the MT8163 graph.
+Amended 2026-11-27: the speaker chain's high-pass corner is the board's, 40 Hz
+on the Echo (2nd gen), whose woofer the 150 Hz corner cut off.
 
 ## Context
 
@@ -58,7 +60,8 @@ The speaker is not in PipeWire. pinnad drives it through ALSA at 48 kHz
 (`EchoDotPipeWire` backend: aplay, its amp/codec sequences when the session
 opens and closes,
 and the speaker chain — a mono mix on boards whose speaker plays one channel,
-a 150 Hz high-pass, the stock firmware's extra gain
+a high-pass at the board's corner (150 Hz on the Echo Dot (2nd gen), 40 Hz on
+the Echo (2nd gen)), the stock firmware's extra gain
 above 70 % volume (up to +14.5 dB at 100 %) and a look-ahead peak limiter at
 −0.1 dBFS). The echo canceller's reference comes from the microphones' own
 loopback lanes, in their frames and on their clock, so pinnad no longer

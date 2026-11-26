@@ -92,10 +92,12 @@ impl SpeakerChain {
     /// `mono` mixes both channels into each, for a speaker that plays only
     /// one of them (`pinna_board::SpeakerChannels::Only`): the other channel
     /// would never sound, and the loopback lanes then match (ADR 0004).
-    pub fn new(mono: bool) -> Self {
+    /// `highpass_hz` is the EQ's corner, the board's
+    /// (`pinna_board::Audio::speaker_highpass_hz`).
+    pub fn new(mono: bool, highpass_hz: f32) -> Self {
         SpeakerChain {
             mono,
-            eq: SpeakerEq::new(),
+            eq: SpeakerEq::new(highpass_hz),
             boost: 1.0,
             limiter: Limiter::new(Self::CEILING_DBFS, Self::RELEASE_MS, 48_000.0),
         }
@@ -202,7 +204,7 @@ mod tests {
     fn chain_boosts_and_never_clips() {
         // A 1 kHz tone at -6 dBFS boosted by +14.5 dB, in 20 ms chunks.
         let x = sine(1_000.0, 16_384.0, 48_000);
-        let mut chain = SpeakerChain::new(false);
+        let mut chain = SpeakerChain::new(false, SpeakerEq::HIGHPASS_HZ);
         let boost = 10f32.powf(14.54 / 20.0);
         let mut out = Vec::new();
         for c in x.chunks(960) {
@@ -218,8 +220,8 @@ mod tests {
     #[test]
     fn chain_at_unity_is_the_eq() {
         let x = sine(1_000.0, 8_000.0, 9_600);
-        let mut chain = SpeakerChain::new(false);
-        let mut eq = SpeakerEq::new();
+        let mut chain = SpeakerChain::new(false, SpeakerEq::HIGHPASS_HZ);
+        let mut eq = SpeakerEq::default();
         let mut a = stereo(&x);
         let mut b = stereo(&x);
         chain.process(&mut a, 1.0);
@@ -240,7 +242,7 @@ mod tests {
             .iter()
             .flat_map(|&s| [(s.round() as i16).to_le_bytes(), [0, 0]].concat())
             .collect();
-        let mut chain = SpeakerChain::new(true);
+        let mut chain = SpeakerChain::new(true, SpeakerEq::HIGHPASS_HZ);
         let mut b = left_only.clone();
         chain.process(&mut b, 1.0);
         let right: Vec<f32> = b
@@ -251,9 +253,34 @@ mod tests {
         let p = peak(&right[4_800..]);
         assert!((p - 4_000.0).abs() < 200.0, "peak {p}");
         // Without the mix, the right channel stays silent.
-        let mut chain = SpeakerChain::new(false);
+        let mut chain = SpeakerChain::new(false, SpeakerEq::HIGHPASS_HZ);
         let mut b = left_only;
         chain.process(&mut b, 1.0);
         assert!(b.chunks_exact(4).all(|f| f[2] == 0 && f[3] == 0));
+    }
+
+    fn rms(x: &[f32]) -> f32 {
+        (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt()
+    }
+
+    /// RMS of a 60 Hz tone through a chain with this high-pass, after a
+    /// second of settling.
+    fn bass_through(highpass_hz: f32) -> f32 {
+        let mut chain = SpeakerChain::new(false, highpass_hz);
+        let mut b = stereo(&sine(60.0, 10_000.0, 96_000));
+        chain.process(&mut b, 1.0);
+        rms(&left(&b)[48_000..])
+    }
+
+    #[test]
+    fn the_echo_2_keeps_the_woofer_range_the_echo_dot_cuts() {
+        use pinna_board::{ECHO_2, ECHO_DOT_2};
+        let full = 10_000.0 / 2f32.sqrt();
+        let echo_2 = bass_through(ECHO_2.audio.speaker_highpass_hz);
+        let dot = bass_through(ECHO_DOT_2.audio.speaker_highpass_hz);
+        // 60 Hz is within 1 dB on the Echo (2nd gen), more than 10 dB down
+        // on the Echo Dot (2nd gen).
+        assert!(echo_2 > 0.89 * full, "Echo 2: 60 Hz rms {echo_2}");
+        assert!(dot < 0.32 * full, "Echo Dot: 60 Hz rms {dot}");
     }
 }

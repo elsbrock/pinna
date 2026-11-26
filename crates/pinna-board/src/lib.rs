@@ -424,6 +424,9 @@ pub struct Audio {
     pub speaker: SpeakerTuning,
     /// The playback channels the speaker reproduces.
     pub speaker_channels: SpeakerChannels,
+    /// The speaker chain's high-pass corner, in Hz: what the driver can
+    /// reproduce. It follows the model, not the tuning a developer picks.
+    pub speaker_highpass_hz: f32,
 }
 
 /// A channel of the stereo playback PCM.
@@ -701,6 +704,8 @@ const MT8163_AUDIO: Audio = Audio {
     // volume 55) and 13.3 dB (Echo (2nd gen), volume 75), from lane 7 0.8
     // and 0.9 dB. Recordings of 2026-11-21, measured with micbench (ADR 0004).
     speaker_channels: SpeakerChannels::Only(Channel::Right),
+    // The Echo Dot (2nd gen)'s single 40 mm driver.
+    speaker_highpass_hz: 150.0,
 };
 
 /// The seven-microphone array of both MT8163 Echos (LibreEcho's
@@ -762,6 +767,13 @@ pub static ECHO_2: Board = Board {
     privacy: AMZ_PRIVACY,
     audio: Audio {
         speaker: SpeakerTuning::RADAR,
+        // The woofer is meant to play down to 40 Hz: Amazon's tuning for
+        // this model lifts 40-80 and 80-125 Hz by 3 to 8 dB over
+        // 500-1000 Hz. Below that it adds excursion and no audible sound,
+        // and the stock firmware holds everything under 70 Hz at 20:1 with
+        // a limiter Pinna doesn't have. TECHO5's measurements (MIT) off a
+        // unit, 2026-10-16: echod/internal/lib/asp/asp_test.go and asp.go.
+        speaker_highpass_hz: 40.0,
         ..MT8163_AUDIO
     },
     mics: MT8163_MICS,
@@ -833,6 +845,8 @@ pub static ECHO_DOT_5: Board = Board {
         // measured; pinnad plays a mono mix, so both loopback lanes carry
         // what it plays.
         speaker_channels: SpeakerChannels::Only(Channel::Left),
+        // The Echo Dot (2nd gen)'s corner; not measured on this driver.
+        speaker_highpass_hz: 150.0,
     },
     mics: ECHO_DOT_5_MICS,
     wifi: Wifi::Mt7663Sdio,
@@ -977,6 +991,7 @@ mod tests {
         assert_eq!(
             Audio {
                 speaker: SpeakerTuning::FLAT,
+                speaker_highpass_hz: 150.0,
                 ..b.audio
             },
             a.audio

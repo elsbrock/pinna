@@ -114,6 +114,8 @@ pub struct SpeakerConfig {
     /// Play a mono mix: the board's speaker plays one channel only. Applied in
     /// the Echo Dot speaker chain.
     pub mono: bool,
+    /// The Echo Dot speaker chain's high-pass corner, in Hz (the board's).
+    pub highpass_hz: f32,
     /// The playback PCM's frame rate: [`OUT_RATE`], or twice it, which is
     /// upsampled to at the end of the chain (the Echo Dot (5th gen)'s PCM is
     /// fixed at 96 kHz). The player's `-r`; the PipeWire player stays at
@@ -159,6 +161,7 @@ impl SpeakerConfig {
             volume_curve: VolumeCurve::LibreEcho,
             pcm_status: Some("/proc/asound/card0/pcm23p/sub0/status".into()),
             mono: false,
+            highpass_hz: crate::refsink::SpeakerEq::HIGHPASS_HZ,
             device_rate: OUT_RATE,
         }
     }
@@ -1528,7 +1531,8 @@ impl Actor {
             anchor_frame: 0,
             rate,
             frames_written: 0,
-            chain: echo.then(|| crate::chain::SpeakerChain::new(self.cfg.mono)),
+            chain: echo
+                .then(|| crate::chain::SpeakerChain::new(self.cfg.mono, self.cfg.highpass_hz)),
             upsampler: (factor == 2).then(Upsampler2x::new),
             // The PCM just opened: its pointer counts this session's frames.
             pointer: self

@@ -66,7 +66,8 @@ impl Biquad {
     }
 }
 
-/// Speaker EQ: keep energy the 40 mm driver cannot reproduce out of it.
+/// Speaker EQ: keep energy the driver cannot reproduce out of it, below the
+/// board's corner.
 #[derive(Clone, Debug)]
 pub struct SpeakerEq {
     l: Biquad,
@@ -74,10 +75,12 @@ pub struct SpeakerEq {
 }
 
 impl SpeakerEq {
+    /// The Echo Dot (2nd gen)'s corner (`pinna_board::Audio::speaker_highpass_hz`).
     pub const HIGHPASS_HZ: f32 = 150.0;
 
-    pub fn new() -> Self {
-        let hp = Biquad::highpass(48_000.0, Self::HIGHPASS_HZ, std::f32::consts::FRAC_1_SQRT_2);
+    /// A second-order high-pass at `highpass_hz`.
+    pub fn new(highpass_hz: f32) -> Self {
+        let hp = Biquad::highpass(48_000.0, highpass_hz, std::f32::consts::FRAC_1_SQRT_2);
         Self {
             l: hp.clone(),
             r: hp,
@@ -105,7 +108,7 @@ impl SpeakerEq {
 
 impl Default for SpeakerEq {
     fn default() -> Self {
-        Self::new()
+        Self::new(Self::HIGHPASS_HZ)
     }
 }
 
@@ -134,10 +137,10 @@ mod tests {
 
     #[test]
     fn eq_cuts_bass_and_passes_mids() {
-        let mut eq = SpeakerEq::new();
+        let mut eq = SpeakerEq::default();
         let mut low = stereo_tone(50.0, 48_000, 10_000.0);
         eq.process(&mut low);
-        let mut eq = SpeakerEq::new();
+        let mut eq = SpeakerEq::default();
         let mut mid = stereo_tone(1_000.0, 48_000, 10_000.0);
         eq.process(&mut mid);
         let (l, m) = (rms(&low, 4_800), rms(&mid, 4_800));
