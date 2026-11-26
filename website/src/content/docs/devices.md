@@ -59,8 +59,9 @@ into slot A from TWRP. The steps are on
 [Install on the Echo Dot (5th gen)](/docs/flash/#install-on-the-echo-dot-5th-gen). Pinna doesn't
 ship firebreak.
 
-If the device doesn't start, there is a way back. TWRP stays in slot B: hold
-**Volume Up** while you power it on. Pinna's rescue page works over USB.
+If the device doesn't start, there is a way back. Until the first update,
+which replaces it, TWRP stays in slot B: hold **Volume Up** while you power
+it on. Pinna's rescue page works over USB.
 firebreak's restore puts Fire OS back into slot A from the backup its unlock
 makes with `--backup`: keep that backup. See
 [The way back](/docs/flash/#the-way-back).
@@ -75,9 +76,7 @@ What works:
 - The wake word and voice requests through Home Assistant work.
 - All three microphones are captured, and so is the speaker's sound for the
   echo canceller.
-
-Over-the-air updates aren't available on it yet. To install a newer Pinna,
-see [Install a newer Pinna](/docs/flash/#install-a-newer-pinna).
+- Updates install over the air, as on the other Echos.
 
 ## Other Echo devices
 

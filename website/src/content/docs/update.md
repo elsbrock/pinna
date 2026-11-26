@@ -14,9 +14,9 @@ mode [by asking the satellite](#ask-the-satellite-to-update). The satellite
 can also [install updates by itself](#install-updates-automatically), in a
 window that you choose.
 
-Updates over the air aren't available on the Echo Dot (5th gen) yet. To
-install a newer Pinna on it, see
-[Install a newer Pinna](/docs/flash/#install-a-newer-pinna).
+On the Echo Dot (5th gen), the first update installs into slot B, so it
+replaces TWRP. See [The way back](/docs/flash/#the-way-back) before you
+install it.
 
 ## How an update works
 

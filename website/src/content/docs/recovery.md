@@ -8,7 +8,7 @@ fastboot when you hold **Volume Down** while you connect the device, whatever
 software is installed. From fastboot, you can install Pinna again or restore
 your backup. This page covers each situation, from the most common to the
 least. The Echo Dot (5th gen) recovers from TWRP instead, which stays in
-slot B: hold **Volume Up** while you
+slot B until its first update: hold **Volume Up** while you
 power it on, and install Pinna again from there. See
 [If it doesn't start](/docs/flash/#if-it-doesnt-start) and
 [The way back](/docs/flash/#the-way-back).

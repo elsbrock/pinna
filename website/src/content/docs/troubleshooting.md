@@ -409,7 +409,7 @@ version. See
 Otherwise, install Pinna again. This erases the data partition. On an Echo
 Dot (5th gen), see
 [If it doesn't start](/docs/flash/#if-it-doesnt-start) instead:
-you install again from TWRP in slot B. On the other two:
+you install again from TWRP, while slot B holds it. On the other two:
 
 1. Unplug the device and open fastboot with **Volume Down**. See
    [Recover a device](/docs/recovery/).

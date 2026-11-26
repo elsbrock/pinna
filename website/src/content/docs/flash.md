@@ -252,6 +252,10 @@ volume back and compares it again.
   backup its unlock made. It doesn't restore `userdata` or slot B. See
   [firebreak's guide](https://github.com/Gamer92000/firebreak/blob/main/docs/cannoli.md).
 
+The first update installs into slot B, so it replaces TWRP. After that, a
+failed update goes back to the previous version, and firebreak's restore is
+the way back to Fire OS.
+
 ### Install from TWRP
 
 1. Start TWRP: unplug the power, then hold **Volume Up** while you plug it
@@ -316,8 +320,8 @@ ring shows the boot stages, as described in
 ### If it doesn't start
 
 - **Pinna fails its health check, or doesn't start at all:** the bootloader
-  counts the starts of slot A, and after a few it starts slot B, which is
-  TWRP.
+  counts the starts of the new slot, and after a few it starts the other
+  one: TWRP before the first update, the previous version after it.
 - **Your computer sees a USB device named Pinna rescue:** Pinna couldn't
   start its system. Open `http://10.42.0.1/` to see why.
 - **The ring stays blue, and your computer sees a USB device named USB
@@ -332,15 +336,9 @@ ring shows the boot stages, as described in
 
   The device continues to start Pinna.
 
-To install again, start TWRP yourself: unplug the power, then hold
+While slot B holds TWRP, you can install again: unplug the power, then hold
 **Volume Up** while you plug it in. From TWRP, run `install` again;
 `userdata` and your settings stay.
-
-### Install a newer Pinna
-
-Until over-the-air updates are available on the Echo Dot (5th gen), install
-a newer release the same way: start TWRP, then run the newer release
-folder's `install`. Your settings in `userdata` stay.
 
 ## Connect to Wi-Fi
 
