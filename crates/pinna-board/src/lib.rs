@@ -112,9 +112,12 @@ pub enum Bootloader {
     /// images, fastboot under this product name (`fastboot getvar product`),
     /// and a preloader that counts the slot record's tries.
     Kaeru { fastboot_product: &'static str },
-    /// Amazon's U-Boot (the Echo Dot (5th gen)): FIT boot images, no
-    /// fastboot, and the slot record read but nothing shown to count its
-    /// tries. Its FITs' device trees name the board family `fit_board` at the
+    /// Amazon's U-Boot (the Echo Dot (5th gen)): FIT boot images, and a
+    /// slot record whose tries it counts and whose spent trial slot it
+    /// retires, falling back to the other slot (C2N6L4, 2026-11-26: each
+    /// start lost a try before Linux ran, and a slot with none left was set
+    /// to priority 0 and the good slot started). Its FITs' device trees name
+    /// the board family `fit_board` at the
     /// start of their root `compatible` (`amzn,cannoli-dvt`): other Amazon
     /// boards share the SoC.
     AmazonUboot { fit_board: &'static str },
@@ -155,9 +158,13 @@ impl Bootloader {
     }
 
     /// Whether the bootloader counts the slot record's tries itself. Where it
-    /// doesn't, `pinna-init` counts them.
+    /// doesn't, `pinna-init` counts them. Kaeru's preloader and Amazon's
+    /// U-Boot both do: counting again in `pinna-init` would halve a trial.
     pub const fn counts_tries(self) -> bool {
-        matches!(self, Bootloader::Kaeru { .. })
+        matches!(
+            self,
+            Bootloader::Kaeru { .. } | Bootloader::AmazonUboot { .. }
+        )
     }
 }
 
@@ -969,7 +976,7 @@ mod tests {
         assert!(ECHO_2.bootloader.counts_tries());
         assert_eq!(ECHO_DOT_5.bootloader.boot_format(), BootFormat::Fit);
         assert_eq!(ECHO_DOT_5.bootloader.fastboot_product(), None);
-        assert!(!ECHO_DOT_5.bootloader.counts_tries());
+        assert!(ECHO_DOT_5.bootloader.counts_tries());
     }
 
     #[test]

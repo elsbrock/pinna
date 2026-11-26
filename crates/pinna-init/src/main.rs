@@ -333,7 +333,7 @@ fn lk_slot() -> Option<Slot> {
 }
 
 /// Whether pinna-init counts the boot attempts: no bootloader (the VMs), or
-/// one that doesn't count them (Amazon's U-Boot, ADR 0035).
+/// one that doesn't count them. Kaeru and Amazon's U-Boot both count.
 fn counts_attempts() -> bool {
     let counts = pinna_board::detect().is_none_or(|b| b.bootloader.counts_tries());
     boot_slot::counts_attempts(no_bootloader(), counts)

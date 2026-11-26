@@ -5,10 +5,11 @@
 //! the same slot and writes nothing. The VMs, which QEMU starts directly, say
 //! `pinna.bootloader=none` on their command line; there pinna-init plays
 //! preloader and LK on the same record, so the VM tests run the same rules.
-//! Amazon's U-Boot (the Echo Dot (5th gen)) reads the record but counts
-//! nothing (ADR 0035, Decision 9): there pinna-init counts too, and restarts
-//! when the count sends it to the other slot, because the kernel that runs
-//! is the one U-Boot loaded for the slot it started.
+//! Amazon's U-Boot (the Echo Dot (5th gen)) counts the same record's tries
+//! and falls back by itself (ADR 0035, Decision 9), so pinna-init counts
+//! nothing there either. Where it does count, and the count sends it to the
+//! other slot, it restarts: the kernel that runs is the one the bootloader
+//! loaded for the slot it started.
 
 use pinna_board::BootFormat;
 use pinna_bootctl::bcb::Record;
@@ -150,16 +151,17 @@ mod tests {
 
     #[test]
     fn the_attempts_are_counted_here_unless_the_bootloader_counts_them() {
-        // Kaeru's preloader counts; the VMs and Amazon's U-Boot don't.
+        // Kaeru's preloader and Amazon's U-Boot count; the VMs don't.
         assert!(!counts_attempts(false, true));
         assert!(counts_attempts(true, true));
         assert!(counts_attempts(false, false));
+        // Every board's bootloader counts: a second count would halve a trial
+        // (an Echo Dot (5th gen) trial with one attempt never booted, C2N6L4,
+        // 2026-11-26).
         for m in pinna_board::Model::ALL {
             let b = m.board();
-            let want = matches!(b.bootloader, pinna_board::Bootloader::AmazonUboot { .. });
-            assert_eq!(
-                counts_attempts(false, b.bootloader.counts_tries()),
-                want,
+            assert!(
+                !counts_attempts(false, b.bootloader.counts_tries()),
                 "{m:?}"
             );
         }
