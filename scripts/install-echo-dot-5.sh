@@ -52,6 +52,9 @@ need_device() {
   local n
   # TWRP's adbd lists the unit as "recovery", not "device" (TWRP 3.7.0 on a
   # C2N6L4, 2026-11-26).
+  if adb devices | awk 'NR > 1 && ($2 == "no" || $2 == "unauthorized")' | grep -q .; then
+    die "adb sees the device but may not use it (no permissions or unauthorized): add the udev rule for Android devices, or run adb as a user in the plugdev group, then try again"
+  fi
   n=$(adb devices | awk 'NR > 1 && ($2 == "device" || $2 == "recovery")' | wc -l)
   [ "$n" -eq 1 ] || die "adb sees $n devices, expected exactly 1 (hold the test pads' USB to the computer; TWRP in slot B must be running; set ANDROID_SERIAL to choose)"
   [ -n "$(dev getprop ro.twrp.version)" ] || die "the device is not running TWRP (ro.twrp.version is empty): boot slot B's TWRP"
@@ -93,6 +96,8 @@ check_artifacts() {
   [ "$(size "$fit")" -le "$boot_slot" ] || die "$fit is $(size "$fit") bytes, the boot slot takes $boot_slot"
   [ "$(size "$root_img")" -le "$root_slot" ] || die "$root_img is $(size "$root_img") bytes, the root slot takes $root_slot"
   check_sums "$fit" || say "no SHA256SUMS next to $(basename "$fit"): not checked"
+  # The tool that writes the volumes runs as root in TWRP.
+  check_sums "$bootctl" || say "no SHA256SUMS next to $(basename "$bootctl"): not checked"
   # Only a sealed slot image signed with the release key boots (pinna-init).
   if check_sums "$root_img"; then
     :
@@ -114,7 +119,8 @@ write() {
   # output and exit status. `adb exec-in` returns neither: on a C2N6L4 in
   # TWRP 3.7.0 (2026-11-26) both updates stopped part-way, left the volumes
   # flagged as interrupted, and the script carried on.
-  adb shell -T "/tmp/pinna-bootctl write-volume $1 --size $bytes --sha256 $sum" < "$2"
+  adb shell -T "/tmp/pinna-bootctl write-volume $1 --size $bytes --sha256 $sum" < "$2" ||
+    die "writing $1 failed (above). The device is still in TWRP and its slot record is unchanged: fix the cause and run install again before you restart it"
 }
 
 case "${1:-}" in
@@ -132,6 +138,10 @@ case "${1:-}" in
     done
     [ ! -s "$fit" ] || printf '  boot_a takes %s, the FIT is %s\n' "$boot_slot" "$(size "$fit")"
     [ ! -s "$root_img" ] || printf '  system_a takes %s, the root is %s\n' "$root_slot" "$(size "$root_img")"
+    # The checks install makes before it writes: a missing or oversized file,
+    # or one that doesn't match SHA256SUMS, is an error here too.
+    check_artifacts
+    say "ready to install: nothing was written"
     ;;
   install)
     yes=0
@@ -149,7 +159,8 @@ case "${1:-}" in
     say "system_a (/dev/$sys_node) <- $(basename "$root_img") ($(size "$root_img") bytes)"
     say "misc     (/dev/$misc_node) <- slot a active, on trial (the slot record only)"
     say "boot_b (TWRP), system_b, userdata and every other volume stay as they are."
-    say "A slot a that fails its boots falls back to TWRP in slot B. The way back to Fire OS is firebreak."
+    say "If Pinna starts but fails its health check, slot B (TWRP) starts after a few tries."
+    say "If the device doesn't get as far as Pinna, hold Volume Up at power-on to start TWRP."
     if [ "$yes" -ne 1 ]; then
       # End of input (a pipe that adb already read) is a no, said out loud.
       read -r -p 'Type "yes" to write: ' a || a=
@@ -170,7 +181,8 @@ case "${1:-}" in
     ;;
   restore)
     say "Fire OS is not restored from here: this script has no Fire OS images."
-    say "Restore it with firebreak. While slot B is still TWRP, holding Volume Up at power-on starts it."
+    say "firebreak's restore puts Fire OS back into slot A from the backup its unlock made (--backup);"
+    say "it doesn't restore userdata or slot B. While slot B is still TWRP, holding Volume Up at power-on starts it."
     ;;
   *)
     sed -n '2,12p' "$0"
