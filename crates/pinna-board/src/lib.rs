@@ -614,13 +614,14 @@ pub enum Wifi {
 impl Wifi {
     /// Whether the chip joins WPA3-Personal (SAE) and PSK-SHA256 networks,
     /// which need management frame protection. The MT8163's vendor driver
-    /// can do neither (ADR 0008). mt76 with wpa_supplicant should; that is
-    /// unmeasured on the MT7663 until a join to a WPA3-only network runs on
-    /// an Echo Dot (5th gen).
+    /// can do neither (ADR 0008). mt76 with wpa_supplicant should, but no
+    /// join to a WPA3-only network has run on an Echo Dot (5th gen), so the
+    /// MT7663 isn't claimed either: until it is measured, such a network is
+    /// refused up front, as the dashboard says, not tried and lost.
     pub const fn supports_sae(self) -> bool {
         match self {
             Wifi::Mt8163Consys => false,
-            Wifi::Mt7663Sdio => true,
+            Wifi::Mt7663Sdio => false,
         }
     }
 
@@ -856,7 +857,8 @@ mod tests {
     fn only_the_mac80211_chip_joins_wpa3() {
         assert!(!ECHO_DOT_2.wifi.supports_sae());
         assert!(!ECHO_2.wifi.supports_sae());
-        assert!(ECHO_DOT_5.wifi.supports_sae());
+        // Unmeasured on the MT7663: not claimed until a WPA3-only join runs.
+        assert!(!ECHO_DOT_5.wifi.supports_sae());
     }
 
     #[test]
