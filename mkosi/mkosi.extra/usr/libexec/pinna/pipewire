@@ -9,6 +9,16 @@
 set -eu
 
 if tr '\0' '\n' < /sys/firmware/devicetree/base/compatible | grep -qx 'mediatek,mt8519'; then
+    # The MT8519's microphone PCM (UL9) opens only with a back end routed to
+    # it. PipeWire opens it as soon as it starts, before pinnad writes the
+    # AFE's routes, and without them the kernel found no back end and the
+    # microphones' node stayed in error (C2N6L4, 2026-11-26). These are the
+    # routes of pinna-audio's MT8519 capture setup: the converter's slots to
+    # channels 0-3, the speaker's loopback to 4-5. pinnad writes them again.
+    for route in "O26 I42" "O27 I43" "O28 I44" "O29 I45" "O30 I40" "O31 I41"; do
+        amixer -q -c 0 cset name="$route Switch" 1 ||
+            echo "pinna pipewire: could not set the $route Switch" >&2
+    done
     exec /usr/bin/pipewire -c pinna-echo-dot-5.conf
 fi
 exec /usr/bin/pipewire
