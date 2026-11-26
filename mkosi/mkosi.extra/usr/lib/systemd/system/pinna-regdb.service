@@ -1,0 +1,22 @@
+[Unit]
+Description=Load the Wi-Fi regulatory database
+# cfg80211 is built into the kernel and asks for regulatory.db while the
+# initramfs is still the root, where there is none, and it never asks again:
+# the radio keeps the world rules and ignores the country that wpa_supplicant
+# or hostapd sets. Under those rules mt76 scans 5 GHz passively only and can't
+# find a hidden network on a DFS channel (Echo Dot (5th gen), C2N6L4,
+# 2026-11-26: "failed to load regulatory.db" at 1.05 s; `iw reg reload`
+# loaded it).
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target wpa_supplicant@wlan0.service pinna-hotspot.service
+Wants=network-pre.target
+ConditionPathIsDirectory=/sys/class/ieee80211
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/iw reg reload
+
+[Install]
+WantedBy=multi-user.target

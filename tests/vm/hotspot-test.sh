@@ -227,5 +227,13 @@ log "forgetting the last network"
 rpc ForgetWifi "{\"ssid\":\"$home_ssid\"}" >/dev/null
 if hotspot_on 90; then pass "the hotspot comes back"; else fail "no hotspot after forgetting"; fi
 
+# The kernel asks for regulatory.db before the root is mounted;
+# pinna-regdb.service loads it afterwards, so a country can apply.
+if ssh_vm 'iw reg set DE && sleep 1 && iw reg get' | grep -q '^country DE:'; then
+  pass "the regulatory database is loaded (country DE applies)"
+else
+  fail "the regulatory database isn't loaded: iw reg set DE had no effect"
+fi
+
 if [ "$status" = 0 ]; then log "setup hotspot test passed"; else log "setup hotspot test FAILED"; fi
 exit "$status"
