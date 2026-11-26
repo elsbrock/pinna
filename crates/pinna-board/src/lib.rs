@@ -185,6 +185,15 @@ pub enum Soc {
 }
 
 impl Soc {
+    pub const ALL: [Soc; 2] = [Soc::Mt8163, Soc::Mt8519];
+
+    /// The SoC the device tree at `compatible` names, when Pinna knows it.
+    pub fn in_compatible(compatible: &Path) -> Option<Soc> {
+        Soc::ALL
+            .into_iter()
+            .find(|s| detect::compatible_has(compatible, s.compatible()))
+    }
+
     /// The SoC's entry in the device tree's root `compatible` list.
     pub const fn compatible(self) -> &'static str {
         match self {

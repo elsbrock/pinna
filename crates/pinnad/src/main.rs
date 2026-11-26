@@ -54,7 +54,7 @@ use pinna_audio::volume::VolumeCurve;
 use pinna_audio::{Agc, Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle};
 use pinna_hal::anim::Effect;
-use pinna_hal::board::{Board, Model, SpeakerTuning};
+use pinna_hal::board::{Board, Model, Soc, SpeakerTuning};
 use pinna_hal::led::{LedHandle, MockLeds, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, watch};
 
@@ -210,6 +210,20 @@ fn capture_format(board: &Board) -> CaptureFormat {
             pinna_hal::board::SampleFormat::S16Le => unreachable!("no board captures S16_LE"),
         },
         mic_lanes: (0..board.mics.count).collect(),
+    }
+}
+
+/// The board whose drivers to use. Without a board description the Echo Dot
+/// (2nd gen)'s stand in, which is right on an MT8163 (an idme id Pinna doesn't
+/// know) and on hardware with no known SoC (a computer, the VM), where they
+/// find nothing. On any other known SoC they would run the MT8163's mixer
+/// sequences on the wrong card, so `Err` names the SoC and pinnad starts
+/// without audio and ring drivers.
+fn driver_board(board: Option<&'static Board>, soc: Option<Soc>) -> Result<&'static Board, Soc> {
+    match (board, soc) {
+        (Some(b), _) => Ok(b),
+        (None, Some(soc)) if soc != Soc::Mt8163 => Err(soc),
+        (None, _) => Ok(&pinna_hal::board::ECHO_DOT_2),
     }
 }
 
@@ -562,7 +576,18 @@ async fn main() -> Result<()> {
     // (2nd gen)'s are and find nothing there. The virtual Dot stands in for
     // the Echo Dot's model.
     let board = pinna_hal::board::detect();
-    let hw = board.unwrap_or(&pinna_hal::board::ECHO_DOT_2);
+    let soc = Soc::in_compatible(Path::new(pinna_hal::board::DT_COMPATIBLE));
+    let (hw, drivers) = match driver_board(board, soc) {
+        Ok(hw) => (hw, true),
+        Err(soc) => {
+            tracing::warn!(
+                "this {} board is not one Pinna knows: starting without audio and the light \
+                 ring, since the Echo Dot (2nd gen)'s drivers don't fit it",
+                soc.compatible()
+            );
+            (&pinna_hal::board::ECHO_DOT_2, false)
+        }
+    };
     let model = if virt.is_some() {
         Some(Model::EchoDot2)
     } else {
@@ -652,7 +677,11 @@ async fn main() -> Result<()> {
     // so that a word that fails isn't offered. A custom word that crashes
     // pinnad here is failed at the next start (the loading mark), never
     // again: there is no crash loop.
-    let backend = audio_backend(&cfg.audio.backend, hw.audio.card);
+    let backend = if drivers {
+        audio_backend(&cfg.audio.backend, hw.audio.card)
+    } else {
+        None
+    };
     let mut keywords = Vec::new();
     if backend.is_some() && cfg.wake.enabled {
         let loaded = catalogue.load(&active_wake);
@@ -742,6 +771,7 @@ async fn main() -> Result<()> {
     // The virtual Echo Dot's ring is the dashboard's drawing of WatchRing.
     let ring = match &virt {
         Some(_) => None,
+        None if !drivers => None,
         None => led_ring(&cfg.leds, hw)?,
     };
     let led_backend = match (&ring, cfg.leds.backend.as_str()) {
@@ -1182,6 +1212,16 @@ mod tests {
         assert_eq!(gid_in(groups, "audio"), Some(29));
         assert_eq!(gid_in(groups, "pinna"), None);
         assert_eq!(gid_in("broken", "broken"), None);
+    }
+
+    #[test]
+    fn an_unknown_board_on_another_known_soc_gets_no_drivers() {
+        let dot2 = &pinna_hal::board::ECHO_DOT_2;
+        let dot5 = &pinna_hal::board::ECHO_DOT_5;
+        assert_eq!(driver_board(Some(dot5), Some(Soc::Mt8519)), Ok(dot5));
+        assert_eq!(driver_board(None, Some(Soc::Mt8519)), Err(Soc::Mt8519));
+        assert_eq!(driver_board(None, Some(Soc::Mt8163)), Ok(dot2));
+        assert_eq!(driver_board(None, None), Ok(dot2));
     }
 
     /// The MT8163 boards hand pinna-audio what it assumed before the audio
