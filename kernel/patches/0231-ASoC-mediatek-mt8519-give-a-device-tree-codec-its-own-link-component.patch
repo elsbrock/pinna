@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 13:40:00 +0100
+Subject: [PATCH] ASoC: mediatek: mt8519: give a device tree codec its own link
+ component
+
+The Echo Dot (5th gen)'s sound card declares its eTDM links with
+COMP_DUMMY() codecs and then fills in the codec the device tree names.
+On 6.12 COMP_DUMMY() is an empty array, which snd_soc_fill_dummy_dai()
+points at the dummy component all such links share. The driver wrote the
+device tree's codec into that empty array, past its end, so the codec
+never reached its link: on a C2N6L4 (2026-11-26) the TLV320ADC5140 was
+not part of the card, none of its controls existed, and opening UL9 for
+the microphones failed in the MAX98396's hw_params ("no PCM config for 6
+channels"), so the microphones never ran.
+
+Give a link whose device tree names a codec a component of its own,
+allocated with the card, and leave links without one on the dummy.
+
+---
+--- a/sound/soc/mediatek/mt8519/mendocino.c
++++ b/sound/soc/mediatek/mt8519/mendocino.c
+@@ -1826,6 +1826,7 @@
+ 	int ret;
+ 	unsigned int i, num_codecs;
+ 	struct device_node *codec_node;
++	struct snd_soc_dai_link_component *codec;
+ 
+ 	snprintf(prop, sizeof(prop), PREFIX"%s-audio-codec-num", name);
+ 	ret = of_property_read_u32(np, prop, &num_codecs);
+@@ -1879,16 +1880,32 @@
+ 	// parse codec_of_node
+ 	snprintf(prop, sizeof(prop), PREFIX"%s-audio-codec", name);
+ 	codec_node = of_parse_phandle(np, prop, 0);
+-	if (codec_node) {
+-		dai_link->codecs->of_node = codec_node;
+-		dai_link->codecs->name = NULL;
++	if (!codec_node)
++		return;
++
++	/*
++	 * The links are declared with COMP_DUMMY(), which on 6.12 is an empty
++	 * array: snd_soc_fill_dummy_dai() points it at the one dummy component
++	 * every such link shares. A codec from the device tree needs a
++	 * component of the link's own. Written into the empty array, it landed
++	 * in the next static object, and the ADC never joined the card (seen on
++	 * a C2N6L4, 2026-11-26, where opening UL9 then failed in the
++	 * MAX98396's hw_params).
++	 */
++	codec = devm_kzalloc(dev, sizeof(*codec), GFP_KERNEL);
++	if (!codec) {
++		of_node_put(codec_node);
++		return;
+ 	}
++	codec->of_node = codec_node;
+ 
+ 	// parse codec dai name
+ 	snprintf(prop, sizeof(prop), PREFIX"%s-codec-dai-name", name);
+-	of_property_read_string(np, prop, &dai_link->codecs->dai_name);
+-	dai_link->codecs->dai_name =
+-		mt8519_mendocino_codec_dai_name(dai_link->codecs->dai_name);
++	of_property_read_string(np, prop, &codec->dai_name);
++	codec->dai_name = mt8519_mendocino_codec_dai_name(codec->dai_name);
++
++	dai_link->codecs = codec;
++	dai_link->num_codecs = 1;
+ }
+ 
+ static void mt8519_mendocino_parse_of(struct snd_soc_card *card,
