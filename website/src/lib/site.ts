@@ -31,7 +31,6 @@ export const DOCS_NAV: DocGroup[] = [
       { slug: "devices", title: "Echo devices" },
       { slug: "requirements", title: "What you need" },
       { slug: "flash", title: "Install Pinna" },
-      { slug: "install-echo-dot-5", title: "Install on the Echo Dot (5th gen)" },
       { slug: "dashboard", title: "Set up the satellite" },
     ],
   },

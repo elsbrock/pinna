@@ -58,14 +58,14 @@ the Echo (2nd gen).
 How it is installed: firebreak unlocks it, which needs wires soldered to those
 pads and a Fire OS version that firebreak supports, and Pinna is then written
 into slot A from TWRP. The steps are on
-[Install on the Echo Dot (5th gen)](/docs/install-echo-dot-5/). Pinna doesn't
+[Install on the Echo Dot (5th gen)](/docs/flash/#install-on-the-echo-dot-5th-gen). Pinna doesn't
 ship firebreak.
 
 If the device doesn't start, there is a way back. TWRP stays in slot B: hold
 **Volume Up** while you power it on. Pinna's rescue page works over USB.
 firebreak's restore puts Fire OS back into slot A from the backup its unlock
 makes with `--backup`: keep that backup. See
-[The way back](/docs/install-echo-dot-5/#the-way-back).
+[The way back](/docs/flash/#the-way-back).
 
 What works, on one unit with model number C2N6L4 (2026-11-26):
 

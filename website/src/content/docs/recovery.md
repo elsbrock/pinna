@@ -10,8 +10,8 @@ your backup. This page covers each situation, from the most common to the
 least. The Echo Dot (5th gen)'s fastboot is locked, so the fastboot steps
 don't apply to it. On it, TWRP stays in slot B: hold **Volume Up** while you
 power it on, and install Pinna again from there. See
-[If it doesn't start](/docs/install-echo-dot-5/#if-it-doesnt-start) and
-[The way back](/docs/install-echo-dot-5/#the-way-back).
+[If it doesn't start](/docs/flash/#if-it-doesnt-start) and
+[The way back](/docs/flash/#the-way-back).
 
 ## Start fastboot
 

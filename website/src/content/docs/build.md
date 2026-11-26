@@ -178,7 +178,7 @@ on the device, and puts them into `build/release/` with their checksums:
 
 The folder also holds the 2nd gen's boot image and installer, and the update
 manifest. To install from it, see
-[Install on the Echo Dot (5th gen)](/docs/install-echo-dot-5/).
+[Install on the Echo Dot (5th gen)](/docs/flash/#install-on-the-echo-dot-5th-gen).
 
 ## Check the build (optional)
 

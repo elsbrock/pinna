@@ -33,7 +33,7 @@ Pinna installs from TWRP instead. Its USB is on
 test pads under its foot, and its unlock is firebreak, which needs wires
 soldered to those pads. Pinna doesn't ship firebreak.
 `website/src/content/docs/devices.md` names the unlock tools for each device,
-and `website/src/content/docs/install-echo-dot-5.md` will hold the install
+and `website/src/content/docs/flash.md` holds the install
 steps. What works, and the known limits,
 are in `website/src/content/docs/devices.md`. See ADR 0035 in `docs/adr/`.
 
