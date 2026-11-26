@@ -269,6 +269,21 @@ cd dashboard && PINNA_URL=http://127.0.0.1:18090 npm run dev
 
 Open the `localhost` address Vite prints. The virtual Echo Dot works there too.
 
+Without a satellite or the virtual machine, you can still work on the
+dashboard's layout and text. This serves the dashboard with made-up data for
+an Echo Dot (2nd gen) named Kitchen:
+
+```sh
+cd dashboard && npm run dev:mock
+```
+
+The mock backend keeps its state in memory. The pages show Wi-Fi, updates,
+logs, the Assistant setup and the other settings, and a change you make, such
+as the volume or a switch, shows at once. An action that needs a real
+satellite, such as a restart, an update or joining a Wi-Fi network, answers
+that the mock backend doesn't do it. Restarting `npm run dev:mock` resets the
+data.
+
 To use your own Home Assistant instead of `just dev-ha`, start the virtual
 machine with `ESPHOME_BIND=0.0.0.0 just dev-vm`. Then add the satellite under
 **Settings › Devices & services › Add integration › ESPHome**, with this

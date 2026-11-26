@@ -15,7 +15,7 @@ If `just`, `cargo` or `npm` isn't on `PATH`, run the commands through
 
 | The change | Run |
 | --- | --- |
-| Dashboard layout or text, no new RPC | Vite against the virtual Echo Dot |
+| Dashboard layout or text, no new RPC | `npm run dev:mock` (made-up data, no satellite), or Vite against the virtual Echo Dot |
 | `pinnad`: RPCs, the ring, voice, settings | The virtual Echo Dot, with `just push-vm` for new binaries |
 | Audio, Wi-Fi, LEDs, buttons, boot on real hardware | A device with `just push`, only when the owner asks |
 | The website | `cd website && npm run dev` |
@@ -65,6 +65,13 @@ Vite proxies the API to `PINNA_URL`: the virtual Echo Dot, or a satellite at
 `127.0.0.1:7470`. Pages are routed by hash: `#/voice`, `#/voice/wake-word`,
 `#/voice/media-sources`, `#/home-assistant`, `#/network`, `#/system`,
 `#/system/logs`.
+
+For layout and text changes that need no satellite, `cd dashboard && npm run
+dev:mock -- --port 5173 --strictPort` serves the dashboard with made-up data
+for an Echo Dot (2nd gen): status, Wi-Fi, updates, logs, the Assistant setup.
+Settings you change apply in memory and the pages react. Restarts, updates,
+Wi-Fi joins, recording and pairing answer that the mock backend doesn't do
+them; use the virtual Echo Dot for those and for anything in `pinnad`.
 
 Browsers give the microphone only to `localhost` and `127.0.0.1`, so the
 virtual Echo Dot's microphone works only on those addresses.
