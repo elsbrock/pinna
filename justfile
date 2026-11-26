@@ -152,12 +152,12 @@ fit: initramfs
 all: kernel models image bootimg
     ls -l {{build}}/pinna-boot.img {{build}}/pinna.root.img
 
-# release artifacts: build/release/{pinna-<version>.root.img, pinna-boot.img, pinna-boot-mt8519.itb, manifest.json(.sig)}
+# release artifacts: build/release/{pinna-<version>.root.img, pinna-boot.img, pinna-boot-mt8519.itb,
+# pinna-bootctl-armv7, install-echo-dot-5.sh, flash-gen2.sh, manifest.json(.sig), SHA256SUMS}
 # PINNA_SUMMARY and PINNA_NOTES_URL go into the signed manifest (ADR 0022). PINNA_MODELS (space-separated,
-# default: every model) are the models it is for; each needs a boot image of its board's format (ADR 0035):
-# pinna-boot.img for the Echo Dot (2nd gen) and the Echo (2nd gen), the FIT (just fit, kernel-mt8519) for the
-# Echo Dot (5th gen), which also gets install-echo-dot-5.sh and its static pinna-bootctl-armv7.
-# PINNA_MODELS="echo-dot-2 echo-2" is a release without the FIT.
+# default: echo-dot-2 echo-2) are the models the update manifest serves; each needs a boot image of its
+# board's format (ADR 0035). Every release builds and ships the Echo Dot (5th gen)'s FIT and installer, so
+# it needs just kernel-mt8519 too; the FIT enters the manifest only when PINNA_MODELS names echo-dot-5.
 release: image bootimg
     #!/usr/bin/env bash
     set -euo pipefail
