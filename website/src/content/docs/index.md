@@ -53,7 +53,8 @@ To install and set up Pinna, follow these pages in order:
 
 1. [Echo devices](/docs/devices/): check that Pinna runs on your Echo.
 2. [What you need](/docs/requirements/): the device, the computer and a
-   backup.
+   backup. For the Echo Dot (5th gen), its install page lists what you
+   need.
 3. [Install Pinna](/docs/flash/): on an Echo Dot (2nd gen) or an Echo
    (2nd gen), from the browser with the [installer](/install/), or from a
    terminal over fastboot. The Echo Dot (5th gen) installs differently; see

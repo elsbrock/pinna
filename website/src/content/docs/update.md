@@ -14,7 +14,9 @@ mode [by asking the satellite](#ask-the-satellite-to-update). The satellite
 can also [install updates by itself](#install-updates-automatically), in a
 window that you choose.
 
-Updates over the air aren't available on the Echo Dot (5th gen) yet.
+Updates over the air aren't available on the Echo Dot (5th gen) yet. To
+install a newer Pinna on it, see
+[Install a newer Pinna](/docs/install-echo-dot-5/#install-a-newer-pinna).
 
 ## How an update works
 

@@ -5,9 +5,9 @@ description: The device, the computer and the backup that you need before you in
 
 Collect everything on this page before you [install Pinna](/docs/flash/).
 Only the backup comes from your own device. Pinna's images include the
-device's Wi-Fi firmware, unmodified. This page covers the Echo (2nd gen) and
-the Echo Dot (2nd gen); for the Echo Dot (5th gen), see
-[Echo devices](/docs/devices/#echo-dot-5th-gen).
+device's Wi-Fi firmware, unmodified. The Device, Backup and Computer sections
+cover the Echo (2nd gen) and the Echo Dot (2nd gen); for the Echo Dot (5th
+gen), see [Install on the Echo Dot (5th gen)](/docs/install-echo-dot-5/#before-you-begin).
 
 ## Device
 

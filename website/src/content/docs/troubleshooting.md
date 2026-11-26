@@ -408,8 +408,8 @@ version. See
 
 Otherwise, install Pinna again. This erases the data partition. On an Echo
 Dot (5th gen), which has no fastboot mode, see
-[Recover a device](/docs/recovery/) instead; TWRP in slot B and firebreak are
-the way back. On the other two:
+[If it doesn't start](/docs/install-echo-dot-5/#if-it-doesnt-start) instead:
+you install again from TWRP in slot B. On the other two:
 
 1. Unplug the device and open fastboot with **Volume Down**. See
    [Recover a device](/docs/recovery/).

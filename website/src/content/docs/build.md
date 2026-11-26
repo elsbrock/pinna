@@ -4,11 +4,14 @@ description: Build the boot image and the signed root filesystem image that you 
 ---
 
 This page shows how to build the two files you install on an Echo (2nd gen)
-or an Echo Dot (2nd gen): the boot image and the root filesystem image. The
-Echo Dot (5th gen) boots a different boot image, in the FIT format, built
-from the same root filesystem image. How to install it isn't documented yet.
+or an Echo Dot (2nd gen): the boot image and the root filesystem image.
 [Releases](https://github.com/elsbrock/pinna/releases) carry prebuilt ones;
 build your own to develop Pinna or to sign with a key of your own.
+
+The Echo Dot (5th gen) boots a different boot image, in the FIT format, from
+the same root filesystem image. No published release includes its files yet:
+build them as described in
+[Build for the Echo Dot (5th gen)](#build-for-the-echo-dot-5th-gen).
 
 ## Before you begin
 
@@ -149,6 +152,33 @@ You don't need to rebuild everything after each change:
 
 `just bootimg` uses the kernel from the last `just kernel`. After you change
 the kernel, run `just kernel` before `just bootimg`.
+
+## Build for the Echo Dot (5th gen)
+
+The Echo Dot (5th gen) has its own kernel, and installs from a release folder
+with its own script. On your computer, in the repository:
+
+```sh
+just kernel
+just kernel-mt8519
+just release
+```
+
+`just kernel-mt8519` builds the Echo Dot (5th gen)'s kernel. `just release`
+builds the root filesystem, both boot images and the tool the installer runs
+on the device, and puts them into `build/release/` with their checksums:
+
+| File | Contents |
+| --- | --- |
+| `pinna-<version>.root.img` | The root filesystem, the same for every model |
+| `pinna-boot-mt8519.itb` | The Echo Dot (5th gen)'s boot image (FIT) |
+| `pinna-bootctl-armv7` | The tool the installer runs in TWRP to write the device |
+| `install-echo-dot-5.sh` | The installer |
+| `SHA256SUMS` | The checksums of the files |
+
+The folder also holds the 2nd gen's boot image and installer, and the update
+manifest. To install from it, see
+[Install on the Echo Dot (5th gen)](/docs/install-echo-dot-5/).
 
 ## Check the build (optional)
 
