@@ -778,6 +778,16 @@ pub mod fit {
         }
     }
 
+    /// The configuration names in a FIT, in image order: what U-Boot can
+    /// select with `bootm <addr>#<name>`.
+    pub fn configurations(data: &[u8]) -> Result<Vec<String>> {
+        let root = parse(data)?;
+        let confs = root
+            .child("configurations")
+            .ok_or_else(|| anyhow::anyhow!("the FIT has no configurations node"))?;
+        Ok(confs.children.iter().map(|n| n.name.clone()).collect())
+    }
+
     /// The root `compatible` strings of each device tree (`fdt-N`) in a FIT,
     /// in image order, so the updater can check the FIT is for its board.
     pub fn compatibles(data: &[u8]) -> Result<Vec<Vec<String>>> {
@@ -1731,6 +1741,16 @@ mod tests {
                 .to_string()
                 .contains("not a boot image")
         );
+    }
+
+    #[test]
+    fn fit_configuration_names() {
+        let itb = fit_with_level(None);
+        assert_eq!(
+            fit::configurations(&itb).unwrap(),
+            vec!["conf-1".to_string()]
+        );
+        assert!(fit::configurations(b"hello").is_err());
     }
 
     #[test]
