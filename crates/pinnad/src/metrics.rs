@@ -696,8 +696,9 @@ impl Collector for Status {
 #[derive(Debug)]
 struct Host(Sources);
 
-/// File systems worth reporting: those on a block device.
-const REAL_FS: [&str; 6] = ["ext4", "f2fs", "erofs", "vfat", "btrfs", "xfs"];
+/// File systems worth reporting: those on a block device, and ubifs on the
+/// Echo Dot (5th gen)'s raw NAND, where /var lives.
+const REAL_FS: [&str; 7] = ["ext4", "f2fs", "erofs", "vfat", "btrfs", "xfs", "ubifs"];
 
 impl Collector for Host {
     fn encode(&self, mut enc: DescriptorEncoder) -> fmt::Result {
@@ -1251,6 +1252,7 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
             &format!(
                 "proc /proc proc rw 0 0\n\
                  /dev/mmcblk0p20 {} ext4 rw 0 0\n\
+                 ubi0:userdata / ubifs rw 0 0\n\
                  tmpfs /run tmpfs rw 0 0\n",
                 dir.display()
             ),
@@ -1342,6 +1344,10 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
             "{t}"
         );
         assert!(!t.contains("tmpfs"), "{t}");
+        assert!(
+            t.contains("{device=\"ubi0:userdata\",mountpoint=\"/\",fstype=\"ubifs\"}"),
+            "{t}"
+        );
         has(
             &t,
             "node_thermal_zone_temp{zone=\"0\",type=\"cpu_thermal\"} 47.5",
