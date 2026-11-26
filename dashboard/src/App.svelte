@@ -368,14 +368,11 @@
     flex-direction: column;
     gap: var(--space-6);
   }
-  /* A page that fills the window: the full width of the content area and, in
-     a window tall enough for its heading, its toolbar and a few lines, as tall
-     as the window, the content taking what the bars leave. A shorter window
-     (a phone held sideways) scrolls as a whole instead, so that the page's
-     bottom is never out of reach. */
-  .fill .content {
-    max-width: none;
-  }
+  /* A page that fills the window: in a window tall enough for its heading,
+     its toolbar and a few lines, as tall as the window, the content taking
+     what the bars leave. It keeps the width of the other pages. A shorter
+     window (a phone held sideways) scrolls as a whole instead, so that the
+     page's bottom is never out of reach. */
   @media (max-width: 759.98px) and (min-height: 700px), (min-width: 760px) and (min-height: 560px) {
     .shell.fill {
       height: 100dvh;

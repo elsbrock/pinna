@@ -201,7 +201,7 @@
 </script>
 
 <div class="tools">
-  <div class="pn-segmented" role="group" aria-label="Show">
+  <div class="pn-segmented show" role="group" aria-label="Show">
     <button type="button" aria-pressed={!onlyProblems} onclick={() => (onlyProblems = false)}>All</button>
     <button type="button" aria-pressed={onlyProblems} onclick={() => (onlyProblems = true)}>Warnings and errors</button>
   </div>
@@ -214,15 +214,29 @@
     spellcheck="false"
     bind:value={query}
   />
-  <div class="actions">
-    <button class="pn-btn" type="button" disabled={!shown.length} onclick={copy}>
-      Copy
+  <div class="files">
+    <button
+      class="pn-btn pn-btn-icon"
+      type="button"
+      aria-label="Copy"
+      title="Copy the lines shown"
+      disabled={!shown.length}
+      onclick={copy}
+    >
+      <Icon name="copy" />
     </button>
-    <button class="pn-btn" type="button" disabled={!shown.length} onclick={download}>
-      Download
+    <button
+      class="pn-btn pn-btn-icon"
+      type="button"
+      aria-label="Download"
+      title="Download the lines shown as a text file"
+      disabled={!shown.length}
+      onclick={download}
+    >
+      <Icon name="download" />
     </button>
-    <button class="pn-btn" type="button" onclick={copyForIssue}>Copy for an issue</button>
   </div>
+  <button class="pn-btn issue" type="button" onclick={copyForIssue}>Copy for an issue</button>
 </div>
 
 {#if error && !connected}
@@ -234,10 +248,12 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="log" bind:this={box} onscroll={scrolled} tabindex="0" role="log" aria-label="Log lines">
     {#each shown as l (l.key)}
+      <!-- Most lines are INFO: only the others name their level. -->
       <div class="line" data-level={l.level} data-key={l.key}>
         <span class="time">{l.time}</span>
-        <span class="level">{l.level}</span>
-        <span class="msg">{l.message}</span>
+        <span class="msg"
+          >{#if l.level !== "INFO"}<span class="level">{l.level}</span>{" "}{/if}{l.message}</span
+        >
       </div>
     {:else}
       <p class="empty">{empty}</p>
@@ -261,10 +277,23 @@
     flex: 1 1 12rem;
     width: auto;
   }
-  .actions {
+  .files {
     display: flex;
-    flex-wrap: wrap;
     gap: var(--space-2);
+  }
+  /* On a phone, two rows: what to show and the files, then the filter and the issue. */
+  @media (max-width: 600px) {
+    .files {
+      order: 1;
+      margin-left: auto;
+    }
+    .filter {
+      order: 2;
+      flex-basis: 8rem;
+    }
+    .issue {
+      order: 3;
+    }
   }
   /* The rest of the window, down to its bottom edge (or the tab bar). */
   .frame {
@@ -277,11 +306,10 @@
     flex: 1;
     min-width: 0;
     overflow: auto;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-2) 0;
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
     background: var(--surface-raised);
-    box-shadow: var(--shadow-raised);
     font-family: var(--font-mono);
     font-size: 13px;
     line-height: 20px;
@@ -300,21 +328,34 @@
   }
   .line {
     display: grid;
-    grid-template-columns: max-content 5ch minmax(0, 1fr);
-    gap: var(--space-3);
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--space-4);
+    padding: 1px var(--space-4);
+  }
+  .line:hover {
+    background: var(--surface-sunken);
   }
   .time {
     color: var(--ink-muted);
   }
+  .line[data-level="WARN"] {
+    background: color-mix(in srgb, var(--caution-soft) 70%, transparent);
+    box-shadow: inset 3px 0 0 var(--caution);
+  }
+  .line[data-level="ERROR"] {
+    background: color-mix(in srgb, var(--danger-soft) 70%, transparent);
+    box-shadow: inset 3px 0 0 var(--danger);
+  }
   .level {
-    font-weight: 650;
-    color: var(--ink-muted);
+    margin-right: 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
   .line[data-level="WARN"] .level {
     color: var(--caution);
   }
-  .line[data-level="ERROR"] .level,
-  .line[data-level="ERROR"] .msg {
+  .line[data-level="ERROR"] .level {
     color: var(--danger);
   }
   .msg {
@@ -323,13 +364,14 @@
   }
   .empty {
     margin: 0;
+    padding: 0 var(--space-4);
     overflow-wrap: anywhere;
     color: var(--ink-muted);
     font-family: var(--font-text);
   }
   @media (max-width: 600px) {
     .line {
-      grid-template-columns: max-content minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
     }
     .time {
       display: none;

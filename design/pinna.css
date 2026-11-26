@@ -61,6 +61,9 @@
 .pn-btn-sm { height: var(--control-sm); padding: 0 var(--space-3); font-size: 13px; gap: 6px; }
 .pn-btn-lg { height: var(--control-lg); padding: 0 20px; font-size: 16px; }
 .pn-btn-quiet.pn-btn-sm { padding: 0 var(--space-2); }
+/* A button that shows only its icon: square, with an aria-label and a title for its name. */
+.pn-btn-icon { width: var(--control-md); padding: 0; }
+.pn-btn-icon.pn-btn-sm { width: var(--control-sm); }
 
 /* ---------- Segmented (one of a few choices that applies at once, such as the mode) ---------- */
 /* Toggle buttons in a role="group": the chosen one has aria-pressed="true". */
