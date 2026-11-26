@@ -75,12 +75,15 @@ What works, on one unit with model number C2N6L4 (2026-11-26):
 - The speaker plays cleanly. The volume follows the curve of Fire OS, the
   firmware the device ran before.
 - The wake word and a voice request through Home Assistant worked.
+- All three microphones are captured, and so is the speaker's sound for the
+  echo canceller.
+- In a test, an update installed into the other slot, and a failed one fell
+  back to the previous slot.
 
 Known limits:
 
 - Over-the-air updates aren't available on it yet.
-- Two of its three microphones are captured. The third and the
-  echo-cancelling reference aren't, so talking over music is weak.
+- How well it hears you over music isn't measured yet.
 - Wi-Fi setup through the setup hotspot is untested on its Wi-Fi chip, the
   MediaTek MT7663.
 
