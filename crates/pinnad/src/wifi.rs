@@ -422,9 +422,10 @@ impl Default for WifiPaths {
             trial_mark: "/run/pinna/wifi-trial".into(),
             has_radio: pinna_hal::board::detect().is_some(),
             sae: pinna_hal::board::detect().is_some_and(|b| b.wifi.supports_sae()),
-            usb: pinna_hal::board::detect().is_some_and(|b| {
-                matches!(b.bootloader, pinna_hal::board::Bootloader::Kaeru { .. })
-            }),
+            // Every board Pinna knows has the USB gadget: a micro-USB port,
+            // the Echo (2nd gen)'s base pins or the Echo Dot (5th gen)'s
+            // test pads.
+            usb: pinna_hal::board::detect().is_some(),
         }
     }
 }

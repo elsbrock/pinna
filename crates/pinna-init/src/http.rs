@@ -230,11 +230,7 @@ boot's records.</form>\
         detail = escape(&info.detail),
         fix = escape(&info.fix()),
         recovery = escape(info.recovery()),
-        shell = if info.has_usb() {
-            "<p>A root shell is on the USB serial port: <code>picocom -b 115200 /dev/ttyACM0</code>.</p>"
-        } else {
-            ""
-        },
+        shell = "<p>A root shell is on the USB serial port: <code>picocom -b 115200 /dev/ttyACM0</code>.</p>",
         log = escape(&log),
     )
 }
@@ -459,8 +455,9 @@ mod tests {
         };
         let p = page(&dot5);
         assert!(!p.contains("Volume Down"));
-        assert!(!p.contains("ttyACM0"));
-        assert!(p.contains("community installer"));
+        // Its test pads carry the same USB serial shell.
+        assert!(p.contains("ttyACM0"));
+        assert!(p.contains("TWRP"));
         assert!(p.contains("#rescue-mode"));
         let r = restarting();
         assert!(r.contains("content=\"20;url=/\""));

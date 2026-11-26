@@ -118,15 +118,14 @@ impl Reason {
 
 /// How a fix reaches the satellite, from its bootloader (`None`: a board
 /// Pinna doesn't know). Only the MT8163 and MT8516 Echos' LK has fastboot; on
-/// the Echo Dot (5th gen) the way back is the community installer's
-/// preloader route over the USB test pads inside the base (ADR 0035), which
-/// the satellite can't describe further.
+/// the Echo Dot (5th gen) firebreak leaves TWRP in slot B, from which the
+/// install guide writes slot A again over USB (ADR 0035).
 pub fn recovery(bootloader: Option<Bootloader>) -> &'static str {
     match bootloader {
         Some(Bootloader::Kaeru { .. }) => FASTBOOT,
         Some(Bootloader::AmazonUboot) => {
-            "This satellite has no fastboot. Install the image with the community installer, \
-             over the USB test pads inside the base."
+            "This satellite has no fastboot. Hold Volume Up while it powers on to start TWRP, \
+             then install the image again as the install guide describes."
         }
         None => "Pinna doesn't know this board, so it can't say how to install an image.",
     }
@@ -161,7 +160,7 @@ pub struct Info {
     pub reason: Reason,
     pub detail: String,
     /// The board's bootloader, which decides what the text can tell the owner
-    /// to do: fastboot and a USB cable exist only on some boards.
+    /// to do: only some boards have fastboot.
     pub bootloader: Option<Bootloader>,
 }
 
@@ -175,19 +174,11 @@ impl Info {
         recovery(self.bootloader)
     }
 
-    /// The rescue gadget's USB cable: the Echo Dot (5th gen) has no USB
-    /// connector (ADR 0035), so its page and shells don't send the owner there.
-    pub fn has_usb(&self) -> bool {
-        self.bootloader != Some(Bootloader::AmazonUboot)
-    }
-
-    /// Where the shell's owner reads the logs.
+    /// Where the shell's owner reads the logs. Every Echo Pinna runs on has
+    /// the rescue gadget's USB: a micro-USB port, the Echo (2nd gen)'s base
+    /// pins, or the Echo Dot (5th gen)'s test pads under its foot.
     pub fn logs(&self) -> String {
-        if self.has_usb() {
-            format!("http://{ADDRESS} over this USB cable, or: dmesg | grep pinna-init")
-        } else {
-            "dmesg | grep pinna-init".into()
-        }
+        format!("http://{ADDRESS} over this USB cable, or: dmesg | grep pinna-init")
     }
 }
 
@@ -576,7 +567,6 @@ mod tests {
         let dot2 = info(Some(&ECHO_DOT_2));
         assert_eq!(dot2.recovery(), FASTBOOT);
         assert!(dot2.fix().starts_with("Flash"));
-        assert!(dot2.has_usb());
         for i in [info(Some(&ECHO_DOT_5)), info(None)] {
             for text in [i.recovery().to_owned(), i.fix()] {
                 assert!(!text.contains("Volume Down"), "{text}");
@@ -588,9 +578,8 @@ mod tests {
             }
         }
         let dot5 = info(Some(&ECHO_DOT_5));
-        assert!(dot5.recovery().contains("community installer"));
-        assert!(!dot5.has_usb());
-        assert!(!dot5.logs().contains("USB"));
+        assert!(dot5.recovery().contains("TWRP"));
+        assert!(dot5.logs().contains("USB"));
     }
 
     #[test]
