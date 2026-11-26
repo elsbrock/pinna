@@ -1,11 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use pinna_board::StorageKind;
+use pinna_board::{BootFormat, Bootloader, StorageKind};
 use pinna_bootctl::bcb::{self, Record};
 use pinna_bootctl::slot::{self, Slot};
+use pinna_bootctl::storage::Parts;
 use pinna_bootctl::*;
 
 #[derive(Parser)]
@@ -15,11 +16,13 @@ struct Cli {
     /// UBI volume named misc).
     #[arg(long)]
     misc: Option<PathBuf>,
-    #[arg(long, default_value = "/dev/disk/by-partlabel/expdb")]
-    expdb: PathBuf,
-    /// Where the slot partitions (system_a, system_b) are found by name.
-    #[arg(long, default_value = "/dev/disk/by-partlabel")]
-    partdir: PathBuf,
+    /// The Kaeru payload's partition (default: the board's expdb).
+    #[arg(long)]
+    expdb: Option<PathBuf>,
+    /// A directory to find the slot partitions (system_a, system_b) in by
+    /// name (default: the board's, GPT partitions or UBI volumes).
+    #[arg(long)]
+    partdir: Option<PathBuf>,
     /// Where pinna-init records the booted slot and version.
     #[arg(long, default_value = slot::RUN_DIR)]
     run_dir: PathBuf,
@@ -37,6 +40,8 @@ struct Cli {
 enum Cmd {
     /// Print the storage backend this board uses.
     StorageKind,
+    /// Print the bootloader this board has: kaeru or amazon-uboot.
+    Bootloader,
     /// Show the current bootloader command.
     Status,
     /// Arm a one-shot "enter fastboot on next boot" (dev safety net). Skipped
@@ -73,15 +78,54 @@ fn main() -> ExitCode {
     }
 }
 
+/// The bootloader's name: the board's, else by its storage (an MT8519
+/// without a board description still has Amazon's U-Boot).
+fn bootloader_name() -> &'static str {
+    match pinna_board::detect() {
+        Some(b) => match b.bootloader {
+            Bootloader::Kaeru { .. } => "kaeru",
+            Bootloader::AmazonUboot => "amazon-uboot",
+        },
+        None => match pinna_board::storage() {
+            StorageKind::Gpt => "kaeru",
+            StorageKind::Ubi => "amazon-uboot",
+        },
+    }
+}
+
+/// The Kaeru payload's partition: `--expdb`, else the board's.
+fn expdb(cli: &Cli) -> PathBuf {
+    cli.expdb
+        .clone()
+        .unwrap_or_else(|| parts(cli).path("expdb"))
+}
+
+/// Only a Kaeru bootloader reads the request; any other has nothing to
+/// honour it.
 fn kaeru_ok(cli: &Cli) -> anyhow::Result<bool> {
-    if cli.allow_no_kaeru || kaeru_present(&cli.expdb)? {
+    if cli.allow_no_kaeru {
+        return Ok(true);
+    }
+    if bootloader_name() != "kaeru" {
+        eprintln!("pinna-bootctl: this board's bootloader has no fastboot request; misc untouched");
+        return Ok(false);
+    }
+    if kaeru_present(&expdb(cli))? {
         return Ok(true);
     }
     eprintln!(
         "pinna-bootctl: no Kaeru payload in {} — nothing would honour the request; misc untouched",
-        cli.expdb.display()
+        expdb(cli).display()
     );
     Ok(false)
+}
+
+/// The slot partitions: `--partdir`, else the board's.
+fn parts(cli: &Cli) -> Parts {
+    match &cli.partdir {
+        Some(d) => Parts::in_dir(d),
+        None => Parts::board(),
+    }
 }
 
 /// The board's misc: a GPT partition, or a UBI volume on the MT8519 (ADR 0035).
@@ -89,16 +133,18 @@ fn misc(cli: &Cli) -> anyhow::Result<PathBuf> {
     if let Some(p) = &cli.misc {
         return Ok(p.clone());
     }
-    Ok(match pinna_board::storage() {
-        StorageKind::Gpt => PathBuf::from("/dev/disk/by-partlabel/misc"),
-        StorageKind::Ubi => pinna_bootctl::ubi::volume(Path::new("/sys/class/ubi"), "misc")
-            .context("no UBI volume named misc")?,
-    })
+    parts(cli).node("misc").context("no UBI volume named misc")
 }
 
 /// The signed image in a slot partition, or why it is not bootable.
-fn slot_image(partdir: &Path, s: Slot) -> anyhow::Result<pinna_image::Footer> {
-    slot::image(partdir, s, &pinna_image::keys::release_key())
+fn slot_image(parts: &Parts, s: Slot) -> anyhow::Result<pinna_image::Footer> {
+    slot::image(parts, s, &pinna_image::keys::release_key())
+}
+
+/// Whether the bootloader loads the started slot's kernel, for this board.
+fn kernel_slots(cli: &Cli) -> slot::KernelSlots {
+    let format = pinna_board::detect().map_or(BootFormat::Android, |b| b.bootloader.boot_format());
+    slot::KernelSlots::for_format(format, &cli.kernel_slots)
 }
 
 fn run(cli: &Cli) -> anyhow::Result<()> {
@@ -110,10 +156,13 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 StorageKind::Ubi => "ubi",
             }
         ),
+        Cmd::Bootloader => println!("{}", bootloader_name()),
         Cmd::Status => {
             let c = read_command(&misc(cli)?)?;
             println!("command: {c:?}");
-            println!("kaeru: {}", kaeru_present(&cli.expdb)?);
+            if bootloader_name() == "kaeru" {
+                println!("kaeru: {}", kaeru_present(&expdb(cli))?);
+            }
         }
         Cmd::GuardArm => {
             let booted = slot::booted_slot(&cli.run_dir)?;
@@ -159,7 +208,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 None => println!("active: none (no slot can boot)"),
             }
             for x in [Slot::A, Slot::B] {
-                let image = match slot_image(&cli.partdir, x) {
+                let image = match slot_image(&parts(cli), x) {
                     Ok(f) => format!("version {}", f.version),
                     Err(e) => format!("no valid image ({e:#})"),
                 };
@@ -179,7 +228,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             }
             println!(
                 "bootloader: {}",
-                match slot::KernelSlots::read(&cli.kernel_slots) {
+                match kernel_slots(cli) {
                     slot::KernelSlots::Honoured => "loads the kernel of the slot it starts",
                     slot::KernelSlots::Ignored =>
                         "loads boot_a whichever slot it starts: new kernels need fastboot",
@@ -208,8 +257,11 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             let _ = std::fs::write(cli.run_dir.join("boot-ok"), "1\n");
             // A healthy boot of slot b shows whether the bootloader loads
             // boot_b: the updater writes boot_a only once it has (ADR 0019).
-            if let Some(seen) =
-                slot::KernelSlots::seen(booted, slot::booted_kernel(&cli.run_dir).ok().flatten())
+            if bootloader_name() == "kaeru"
+                && let Some(seen) = slot::KernelSlots::seen(
+                    booted,
+                    slot::booted_kernel(&cli.run_dir).ok().flatten(),
+                )
                 && let Err(e) = seen.write(&cli.kernel_slots)
             {
                 eprintln!("pinna-bootctl: {e:#}");
@@ -230,7 +282,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             let version = if *force {
                 "unchecked".to_owned()
             } else {
-                slot_image(&cli.partdir, s)
+                slot_image(&parts(cli), s)
                     .with_context(|| {
                         format!("slot {s} has no bootable image (--force skips this check)")
                     })?

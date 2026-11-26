@@ -268,7 +268,7 @@ if [ "$2" = --check ]; then echo '{{"ok":true,"url":"https://u/v1/releases/v{fou
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     let updater = Updater::new(UpdaterPaths {
         misc: dir.join("misc"),
-        partdir: dir.join("parts"),
+        parts: pinna_bootctl::storage::Parts::in_dir(dir.join("parts")),
         run_dir: dir.join("run"),
         pinnactl: script,
         reboot: vec!["true".into()],

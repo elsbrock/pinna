@@ -12,6 +12,7 @@ pub mod reboot;
 pub mod ring;
 pub mod slot;
 pub mod stages;
+pub mod storage;
 pub mod ubi;
 
 use std::fs::OpenOptions;

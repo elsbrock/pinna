@@ -6,6 +6,9 @@ use std::fmt;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use pinna_board::BootFormat;
+
+use crate::storage::Parts;
 
 /// Where pinna-init records what it booted.
 pub const RUN_DIR: &str = "/run/pinna";
@@ -35,6 +38,16 @@ impl KernelSlots {
             (Slot::B, Slot::B) => Some(KernelSlots::Honoured),
             (Slot::B, Slot::A) => Some(KernelSlots::Ignored),
             (Slot::A, _) => None,
+        }
+    }
+
+    /// What this board's bootloader does with the slot. A FIT bootloader
+    /// (Amazon's U-Boot) reads `boot_<slot>` by design and there is nothing
+    /// to learn from a boot, so the file is not consulted.
+    pub fn for_format(format: BootFormat, path: &Path) -> KernelSlots {
+        match format {
+            BootFormat::Fit => KernelSlots::Honoured,
+            BootFormat::Android => KernelSlots::read(path),
         }
     }
 
@@ -86,7 +99,7 @@ impl Slot {
             Slot::B => 'b',
         }
     }
-    /// GPT partition name of the slot's root.
+    /// The partition (or UBI volume) name of the slot's root.
     pub fn partname(self) -> &'static str {
         match self {
             Slot::A => "system_a",
@@ -111,11 +124,11 @@ impl fmt::Display for Slot {
 /// The signed image in a slot partition, checked as pinna-init checks it
 /// before booting: the footer's signature and the top hash block.
 pub fn image(
-    partdir: &Path,
+    parts: &Parts,
     s: Slot,
     key: &pinna_image::keys::VerifyingKey,
 ) -> Result<pinna_image::Footer> {
-    let path = partdir.join(s.partname());
+    let path = parts.path(s.partname());
     let dev = std::fs::File::open(&path).with_context(|| format!("opening {}", path.display()))?;
     let f = pinna_image::read_footer(&dev, key)?;
     pinna_image::check_top_hash(&dev, &f)?;
@@ -160,6 +173,10 @@ mod tests {
         assert_eq!(KernelSlots::read(&p), Honoured);
         std::fs::write(d.path().join("boot-kernel"), "b\n").unwrap();
         assert_eq!(booted_kernel(d.path()).unwrap(), Some(Slot::B));
+        // A FIT bootloader loads the started slot's kernel whatever the file says.
+        let none = d.path().join("none");
+        assert_eq!(KernelSlots::for_format(BootFormat::Fit, &none), Honoured);
+        assert_eq!(KernelSlots::for_format(BootFormat::Android, &none), Unknown);
     }
 
     #[test]

@@ -75,10 +75,12 @@ struct UpdateArgs {
     #[arg(long = "tries", default_value_t = pinna_bootctl::bcb::DEFAULT_ATTEMPTS,
           value_parser = clap::value_parser!(u8).range(1..=pinna_bootctl::bcb::MAX_ATTEMPTS as i64))]
     attempts: u8,
-    #[arg(long, default_value = "/dev/disk/by-partlabel/misc", hide = true)]
-    misc: std::path::PathBuf,
-    #[arg(long, default_value = "/dev/disk/by-partlabel", hide = true)]
-    partdir: std::path::PathBuf,
+    /// Default: the board's misc.
+    #[arg(long, hide = true)]
+    misc: Option<std::path::PathBuf>,
+    /// Default: the board's slot partitions.
+    #[arg(long, hide = true)]
+    partdir: Option<std::path::PathBuf>,
     #[arg(long, default_value = pinna_bootctl::slot::RUN_DIR, hide = true)]
     run_dir: std::path::PathBuf,
 }
@@ -86,14 +88,18 @@ struct UpdateArgs {
 /// Blocking (no tokio): the download uses pinna-http's blocking client.
 fn update(args: UpdateArgs) -> Result<()> {
     let model = pinna_hal::board::detect().map(|b| b.model.id());
-    let opts = pinna_update::Options {
+    let mut opts = pinna_update::Options {
         attempts: args.attempts,
-        misc: args.misc,
-        partdir: args.partdir,
         run_dir: args.run_dir,
         model: model.map(str::to_owned),
         ..Default::default()
     };
+    if let Some(dir) = args.partdir {
+        opts.parts = pinna_bootctl::storage::Parts::in_dir(dir);
+    }
+    if let Some(misc) = args.misc {
+        opts.misc = misc;
+    }
     if args.check {
         return check(&opts, &args.manifest);
     }

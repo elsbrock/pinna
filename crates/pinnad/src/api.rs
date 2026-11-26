@@ -3607,7 +3607,7 @@ mod tests {
             std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
             let paths = UpdaterPaths {
                 misc: dir.join("misc"),
-                partdir: dir.join("parts"),
+                parts: pinna_bootctl::storage::Parts::in_dir(dir.join("parts")),
                 run_dir: dir.join("run"),
                 pinnactl: script,
                 reboot: vec!["true".into()],
@@ -3629,7 +3629,7 @@ mod tests {
             std::fs::write(self.paths.run_dir.join("boot-version"), "1.0\n").unwrap();
             std::fs::write(&self.paths.misc, vec![0u8; 0x80000]).unwrap();
             pinna_bootctl::bcb::write(&self.paths.misc, &state).unwrap();
-            let b = self.paths.partdir.join("system_b");
+            let b = self.paths.parts.path("system_b");
             std::fs::write(b, sealed(b_version, key)).unwrap();
         }
 
@@ -4532,7 +4532,7 @@ mod tests {
         // A corrupted top hash block.
         let rig = Rig::new("refuse-hash", "");
         rig.slots("a", good, "0.9", &slot_key());
-        let b = rig.paths.partdir.join("system_b");
+        let b = rig.paths.parts.path("system_b");
         let mut img = std::fs::read(&b).unwrap();
         let last = img.len() - 1;
         img[last] ^= 0xff;

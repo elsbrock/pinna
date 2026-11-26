@@ -4,9 +4,11 @@ use std::net::TcpListener;
 use ed25519_dalek::SigningKey;
 use pinna_bootctl::bcb::Record;
 
+use pinna_bootctl::storage::Parts;
 use pinna_image::version::Version;
 
 use super::*;
+use pinna_board::BootFormat;
 
 const PART: usize = 2 << 20;
 const BOOT_PART: usize = 1 << 20;
@@ -69,12 +71,14 @@ fn env(booted: &str, record: Option<Record>) -> Env {
     let opts = Options {
         attempts: 3,
         misc: p("misc"),
-        partdir: p("parts"),
+        parts: Parts::in_dir(p("parts")),
         run_dir: p("run"),
         kernel_slots: p("kernel-slots"),
         key: key().verifying_key(),
         model: Some("echo-dot-2".into()),
+        board: None,
         dev_overlay: p("pinna-dev"),
+        volume_update: Arc::new(UbiIoctl),
     };
     Env { dir, opts }
 }
@@ -682,4 +686,180 @@ fn the_boot_level_of_the_kernel_that_starts_the_slot() {
     let m = needs_two(&e, &img, None);
     let blocked = check(&e.opts, m.to_str().unwrap()).unwrap().blocked;
     assert_eq!(blocked, Some(Blocked::BootLevel { needs: 2, has: 1 }));
+}
+
+/// A FIT as U-Boot reads it: the flattened device tree's magic, then `fill`.
+fn fit(fill: u8, len: usize) -> Vec<u8> {
+    let mut v = vec![fill; len];
+    v[..4].copy_from_slice(&0xd00d_feedu32.to_be_bytes());
+    v
+}
+
+/// The Echo Dot (5th gen): Amazon's U-Boot, FIT boot images.
+fn env_fit(booted: &str) -> Env {
+    let mut e = env(booted, None);
+    e.opts.board = Some(pinna_board::Model::EchoDot5.board());
+    e.opts.model = Some("echo-dot-5".into());
+    std::fs::write(e.path("parts/boot_a"), vec![0xaa; BOOT_PART]).unwrap();
+    std::fs::write(e.path("parts/boot_b"), vec![0xbb; BOOT_PART]).unwrap();
+    e
+}
+
+/// A manifest whose boot images are `boots`: (models, image).
+fn with_boots(
+    e: &Env,
+    img: &[u8],
+    boot: Option<&[u8]>,
+    boots: &[(&[&str], &[u8])],
+) -> serde_json::Value {
+    let mut m = e.manifest(img, "2.0.0", None, boot.map(|b| (b, None)));
+    let rel = e.path("rel");
+    let list: Vec<_> = boots
+        .iter()
+        .enumerate()
+        .map(|(i, (models, b))| {
+            std::fs::write(rel.join(format!("boot{i}.itb")), b).unwrap();
+            serde_json::json!({
+                "models": models,
+                "url": format!("boot{i}.itb"),
+                "size": b.len(),
+                "sha256": keys::hex(&Sha256::digest(b)),
+            })
+        })
+        .collect();
+    if !list.is_empty() {
+        m["boots"] = list.into();
+    }
+    m
+}
+
+#[test]
+fn a_satellite_takes_the_boot_image_naming_its_model() {
+    let e = env("a", None);
+    let img = sealed("2.0.0", 64, &key());
+    let (android, itb) = (bootimg(0xcc, 8192), fit(0xdd, 8192));
+    let m = with_boots(&e, &img, Some(&android), &[(&["echo-dot-5"], &itb)]);
+    let m: Manifest = serde_json::from_value(m).unwrap();
+    let url = |a: Option<&Artifact>| a.map(|a| a.url.clone());
+    use BootFormat::{Android, Fit};
+    assert_eq!(
+        url(m.boot_for(Some("echo-dot-5"), Fit)).as_deref(),
+        Some("boot0.itb")
+    );
+    // Without an entry for its model, an Android bootloader falls back to
+    // `boot`; a FIT one has nothing it could start.
+    assert_eq!(
+        url(m.boot_for(Some("echo-dot-2"), Android)).as_deref(),
+        Some("boot.img")
+    );
+    assert_eq!(url(m.boot_for(Some("echo-dot-2"), Fit)), None);
+    assert_eq!(url(m.boot_for(None, Fit)), None);
+    // A manifest without `boots` still parses.
+    let old: Manifest = serde_json::from_value(e.manifest(&img, "2.0.0", None, None)).unwrap();
+    assert!(old.boots.is_empty() && old.boot_for(None, Android).is_none());
+}
+
+#[test]
+fn on_a_fit_board_the_release_boot_image_goes_into_the_target_slots_volume() {
+    for (booted, target) in [("a", "b"), ("b", "a")] {
+        let mut e = env_fit(booted);
+        if booted == "b" {
+            bcb::write(&e.opts.misc, &rec(0x8e, 0x8f)).unwrap();
+        }
+        // None of the Android kernel rules applies, whatever they last saw.
+        slot::KernelSlots::Ignored
+            .write(&e.opts.kernel_slots)
+            .unwrap();
+        e.opts.attempts = 3;
+        let img = sealed("2.0.0", 64, &key());
+        let itb = fit(0xdd, 8192);
+        let m = with_boots(&e, &img, None, &[(&["echo-dot-5"], &itb)]);
+        let m = e.publish_json(&img, &m, Some(&key()));
+        assert_eq!(check(&e.opts, m.to_str().unwrap()).unwrap().blocked, None);
+        let lines = e.install(&m).unwrap();
+        let boot = e.part(&format!("boot_{target}"));
+        // Written as it is: no slot tag, and the other slot's volume stays.
+        assert_eq!(&boot[..itb.len()], &itb[..], "{booted}");
+        let other = e.part(&format!("boot_{booted}"));
+        assert!(
+            other
+                .iter()
+                .all(|&x| x == if booted == "a" { 0xaa } else { 0xbb })
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("kernel from") && l.contains(&format!("boot_{target}"))),
+            "{lines:?}"
+        );
+        assert!(!lines.iter().any(|l| l.contains("the kernel stays")));
+        assert_eq!(&e.part(&format!("system_{target}"))[..img.len()], &img[..]);
+    }
+}
+
+#[test]
+fn a_fit_board_without_a_boot_image_for_its_model_is_blocked() {
+    let e = env_fit("a");
+    let img = sealed("2.0.0", 64, &key());
+    // Only an Android boot image, and a FIT for another model.
+    let android = bootimg(0xcc, 8192);
+    let other = fit(0xdd, 8192);
+    let m = with_boots(&e, &img, Some(&android), &[(&["echo-9"], &other)]);
+    let m = e.publish_json(&img, &m, Some(&key()));
+    let blocked = check(&e.opts, m.to_str().unwrap()).unwrap().blocked;
+    assert_eq!(blocked.as_ref().map(Blocked::kind), Some("boot_image"));
+    assert_eq!(
+        blocked.unwrap().to_string(),
+        "This release has no boot image for the Echo Dot (5th gen): install a release built for it."
+    );
+    assert!(e.install(&m).is_err());
+    assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
+    assert!(e.part("system_b").iter().all(|&x| x == 0xbb));
+    assert_eq!(e.record(), None);
+}
+
+#[test]
+fn a_boot_image_of_the_wrong_format_is_refused_before_anything_is_written() {
+    let img = sealed("2.0.0", 64, &key());
+    // An Android image where the board reads FITs.
+    let e = env_fit("a");
+    let m = with_boots(&e, &img, None, &[(&["echo-dot-5"], &bootimg(0xcc, 8192))]);
+    let m = e.publish_json(&img, &m, Some(&key()));
+    let err = e.install(&m).unwrap_err();
+    assert!(format!("{err:#}").contains("needs a FIT"), "{err:#}");
+    assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
+    assert!(e.part("system_b").iter().all(|&x| x == 0xbb));
+    assert_eq!(e.record(), None);
+
+    // A FIT where the board reads Android boot images.
+    let e = env("a", None);
+    e.with_boot_parts();
+    let m = with_boots(&e, &img, None, &[(&["echo-dot-2"], &fit(0xdd, 8192))]);
+    let m = e.publish_json(&img, &m, Some(&key()));
+    let err = e.install(&m).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("needs an Android boot image"),
+        "{err:#}"
+    );
+}
+
+#[test]
+fn an_image_larger_than_the_boards_slot_is_refused() {
+    let e = env_fit("a");
+    let slot = pinna_board::Model::EchoDot5.board().slots.root;
+    let big = std::fs::OpenOptions::new()
+        .write(true)
+        .open(e.path("parts/system_b"))
+        .unwrap();
+    big.set_len(slot + (8 << 20)).unwrap();
+    let img = sealed("2.0.0", 64, &key());
+    let itb = fit(0xdd, 8192);
+    let mut m = with_boots(&e, &img, None, &[(&["echo-dot-5"], &itb)]);
+    m["root"]["size"] = (slot + 1).into();
+    let m = e.publish_json(&img, &m, Some(&key()));
+    let err = e.install(&m).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("does not fit into the Echo Dot (5th gen)'s root slot"),
+        "{err:#}"
+    );
 }

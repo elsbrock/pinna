@@ -4,7 +4,8 @@
 //!
 //! The manifest is JSON: `{ "version", "channel", "summary", "notes_url",
 //! "requires": { "boot_level", "models" }, "root": { "url", "size",
-//! "sha256" }, "boot": { … } }`, `boot` optional. `manifest.json.sig`, next
+//! "sha256" }, "boot": { … }, "boots": [{ "models", "url", "size", "sha256" }] }`,
+//! `boot` and `boots` optional. `manifest.json.sig`, next
 //! to it after redirects, is an ed25519 signature over its exact bytes; it is
 //! checked before anything in the manifest is read. URLs may be relative to
 //! the manifest's address after redirects. Manifest and images can come from
@@ -18,33 +19,41 @@
 //! 4. The kernel: the manifest's boot image, or without one the running
 //!    slot's, marked for the target slot. boot_b is written unless a boot
 //!    from b showed that the bootloader ignores the slot for the kernel;
-//!    boot_a only once a boot from b showed that it loads boot_b.
+//!    boot_a only once a boot from b showed that it loads boot_b. On a
+//!    bootloader with FIT boot images (Amazon's U-Boot) the kernel's slot is
+//!    the root's: the release's boot image for the model always goes into the
+//!    target slot's boot volume, and without one the release is blocked.
 //! 5. The target slot is marked unbootable before it is overwritten.
 //! 6. The kernel is written and read back; the root is streamed into the
-//!    target partition while its size and sha256 are checked.
+//!    target partition (or UBI volume, replaced whole) while its size and
+//!    sha256 are checked.
 //! 7. Read back from the device: footer signature (release key), version, and
 //!    the whole dm-verity hash tree recomputed from the data.
 //! 8. Only then the target becomes active for a trial with N boot attempts.
 
 use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Read;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::{FileExt, FileTypeExt, OpenOptionsExt};
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail, ensure};
+use pinna_board::{Board, BootFormat};
 use pinna_bootctl::bcb;
 use pinna_bootctl::slot::{self, KernelSlots, Slot};
+use pinna_bootctl::storage::Parts;
 use pinna_http::reqwest;
-use pinna_image::ReadAt;
 use pinna_image::keys::{self, VerifyingKey};
 use pinna_image::manifest::{self as signed, MANIFEST_MAX, SIGNATURE_LEN};
 use pinna_image::version::{self, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
+use writer::{SlotWriter, UbiIoctl, VolumeUpdate};
+
+pub mod writer;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Manifest {
@@ -62,6 +71,35 @@ pub struct Manifest {
     /// The boot image (kernel and pinna-init) that goes with the root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot: Option<Artifact>,
+    /// Boot images by the models they are for: a satellite takes the entry
+    /// naming its model, else `boot` if its bootloader reads Android boot
+    /// images.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub boots: Vec<BootEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BootEntry {
+    pub models: Vec<String>,
+    #[serde(flatten)]
+    pub artifact: Artifact,
+}
+
+impl Manifest {
+    /// The boot image for a satellite of `model` whose bootloader reads
+    /// `format` images.
+    pub fn boot_for(&self, model: Option<&str>, format: BootFormat) -> Option<&Artifact> {
+        let named = model.and_then(|m| {
+            self.boots
+                .iter()
+                .find(|e| e.models.iter().any(|x| x == m))
+                .map(|e| &e.artifact)
+        });
+        named.or(match format {
+            BootFormat::Android => self.boot.as_ref(),
+            BootFormat::Fit => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -135,8 +173,9 @@ pub struct Options {
     /// Boot attempts the new slot gets before rolling back.
     pub attempts: u8,
     pub misc: PathBuf,
-    /// Directory with the slot partitions by name (system_a, boot_a, …).
-    pub partdir: PathBuf,
+    /// The slot partitions by name (system_a, boot_a, …): the board's, or a
+    /// directory of them.
+    pub parts: Parts,
     /// Where pinna-init records the booted slot.
     pub run_dir: PathBuf,
     /// What `pinna-bootctl mark-good` learned about the bootloader.
@@ -144,21 +183,30 @@ pub struct Options {
     pub key: VerifyingKey,
     /// This satellite's model (`echo-dot-2`, `echo-2`); `None` when unknown.
     pub model: Option<String>,
+    /// This satellite's board: its bootloader decides how the kernel goes
+    /// along, and its slots how large an image may be. `None` on hardware
+    /// Pinna doesn't know (the VMs), which takes Android boot images.
+    pub board: Option<&'static Board>,
     /// The `just push` overlay (ADR 0025).
     pub dev_overlay: PathBuf,
+    /// Replaces a UBI volume; the kernel's ioctl unless a test says otherwise.
+    pub volume_update: Arc<dyn VolumeUpdate>,
 }
 
 impl Default for Options {
     fn default() -> Self {
+        let parts = Parts::board();
         Self {
             attempts: bcb::DEFAULT_ATTEMPTS,
-            misc: "/dev/disk/by-partlabel/misc".into(),
-            partdir: "/dev/disk/by-partlabel".into(),
+            misc: parts.path("misc"),
+            parts,
             run_dir: slot::RUN_DIR.into(),
             kernel_slots: slot::KERNEL_SLOTS.into(),
             key: keys::release_key(),
             model: None,
+            board: pinna_board::detect(),
             dev_overlay: "/var/lib/extensions/pinna-dev".into(),
+            volume_update: Arc::new(UbiIoctl),
         }
     }
 }
@@ -228,6 +276,9 @@ pub enum Blocked {
     },
     /// A `just push` overlay is active.
     Overlay(PathBuf),
+    /// The release has no boot image for this satellite's model, and its
+    /// bootloader can't start the kernel of another format.
+    NoBootImage { model: Option<String> },
 }
 
 impl Blocked {
@@ -236,6 +287,7 @@ impl Blocked {
             Blocked::BootLevel { .. } => "boot_level",
             Blocked::Model { .. } => "model",
             Blocked::Overlay(_) => "overlay",
+            Blocked::NoBootImage { .. } => "boot_image",
         }
     }
 }
@@ -256,6 +308,14 @@ impl fmt::Display for Blocked {
                     .map(|m| model_name(m))
                     .collect::<Vec<_>>()
                     .join(" and "),
+                model.as_deref().map_or_else(
+                    || "this satellite's model, which is unknown".to_owned(),
+                    model_name
+                )
+            ),
+            Blocked::NoBootImage { model } => write!(
+                f,
+                "This release has no boot image for {}: install a release built for it.",
                 model.as_deref().map_or_else(
                     || "this satellite's model, which is unknown".to_owned(),
                     model_name
@@ -458,6 +518,10 @@ fn check_manifest(m: &Manifest) -> Result<()> {
     if let Some(b) = &m.boot {
         check_artifact("boot", b)?;
     }
+    for (i, e) in m.boots.iter().enumerate() {
+        ensure!(!e.models.is_empty(), "boots[{i}].models is empty");
+        check_artifact(&format!("boots[{i}]"), &e.artifact)?;
+    }
     Ok(())
 }
 
@@ -515,21 +579,39 @@ enum KernelPlan {
     FromManifest { part: PathBuf },
     /// The running slot's boot image, from `src`, goes into `part`.
     FromRunning { part: PathBuf, src: PathBuf },
+    /// A FIT bootloader needs the release's boot image for the target slot,
+    /// and the release has none for this model.
+    NoBootImage,
 }
 
-fn boot_part(partdir: &Path, s: Slot) -> PathBuf {
-    partdir.join(format!("boot_{s}"))
+fn boot_part(parts: &Parts, s: Slot) -> PathBuf {
+    parts.path(&format!("boot_{s}"))
+}
+
+/// The format of the boot images the bootloader reads.
+fn boot_format(opts: &Options) -> BootFormat {
+    opts.board
+        .map_or(BootFormat::Android, |b| b.bootloader.boot_format())
 }
 
 fn kernel_plan(opts: &Options, has_boot: bool, booted: Slot, target: Slot) -> KernelPlan {
-    let part = boot_part(&opts.partdir, target);
+    let part = boot_part(&opts.parts, target);
+    // A FIT bootloader starts boot_<slot> with root <slot>: the kernel is
+    // always the release's, and none of the Android slot rules applies.
+    if boot_format(opts) == BootFormat::Fit {
+        return if has_boot {
+            KernelPlan::FromManifest { part }
+        } else {
+            KernelPlan::NoBootImage
+        };
+    }
     if !part.exists() {
         return KernelPlan::Stays {
             why: format!("no {} partition: the kernel stays as it is", part.display()),
             loads: None,
         };
     }
-    let boot_a = boot_part(&opts.partdir, Slot::A);
+    let boot_a = boot_part(&opts.parts, Slot::A);
     let kernel_slots = KernelSlots::read(&opts.kernel_slots);
     if kernel_slots == KernelSlots::Ignored {
         return KernelPlan::Stays {
@@ -552,7 +634,7 @@ fn kernel_plan(opts: &Options, has_boot: bool, booted: Slot, target: Slot) -> Ke
     } else {
         KernelPlan::FromRunning {
             part,
-            src: boot_part(&opts.partdir, booted),
+            src: boot_part(&opts.parts, booted),
         }
     }
 }
@@ -588,7 +670,15 @@ fn blocked_for(
             models: models.clone(),
         }));
     }
-    let has = match kernel_plan(opts, m.boot.is_some(), booted, target) {
+    let has_boot = m
+        .boot_for(opts.model.as_deref(), boot_format(opts))
+        .is_some();
+    let has = match kernel_plan(opts, has_boot, booted, target) {
+        KernelPlan::NoBootImage => {
+            return Ok(Some(Blocked::NoBootImage {
+                model: opts.model.clone(),
+            }));
+        }
         KernelPlan::Stays { loads: None, .. } => 1,
         KernelPlan::Stays { loads: Some(p), .. } => partition_level(&p)?,
         KernelPlan::FromRunning { src, .. } => partition_level(&src)?,
@@ -605,19 +695,35 @@ fn plan_kernel(
     booted: Slot,
     target: Slot,
 ) -> Result<Kernel> {
-    let (part, mut image, from) = match kernel_plan(opts, m.boot.is_some(), booted, target) {
+    let format = boot_format(opts);
+    let boot = m.boot_for(opts.model.as_deref(), format);
+    let (part, mut image, from) = match kernel_plan(opts, boot.is_some(), booted, target) {
         KernelPlan::Stays { why, .. } => return Ok(Kernel::Stays(why)),
+        KernelPlan::NoBootImage => bail!(
+            "{}",
+            Blocked::NoBootImage {
+                model: opts.model.clone()
+            }
+        ),
         KernelPlan::FromManifest { part } => {
-            let b = m.boot.as_ref().expect("the plan saw a boot image");
+            let b = boot.expect("the plan saw a boot image");
             let url = resolve(Some(manifest_url), &b.url)?;
             let image = fetch_artifact(&url, b)?;
-            let has = pinna_bootimg::level(&image)
-                .with_context(|| format!("{url} is not a boot image"))?;
-            let needs = m.requires.boot_level;
-            ensure!(
-                has >= needs,
-                "the release's own boot image provides boot level {has}, its root needs {needs}"
-            );
+            check_boot_magic(&image, format).with_context(|| format!("{url}"))?;
+            // TODO(merge): pinna_bootimg::level() reads a FIT's level from the
+            // strings block at the end of the image; once it is on this
+            // branch, check `has >= needs` here on the whole `image` for a FIT
+            // too. `partition_level` (first 4 KiB) must never see a FIT, and
+            // doesn't: a FIT board's plan never reads the volume's level.
+            if format == BootFormat::Android {
+                let has = pinna_bootimg::level(&image)
+                    .with_context(|| format!("{url} is not a boot image"))?;
+                let needs = m.requires.boot_level;
+                ensure!(
+                    has >= needs,
+                    "the release's own boot image provides boot level {has}, its root needs {needs}"
+                );
+            }
             (part, image, url.to_string())
         }
         KernelPlan::FromRunning { part, src } => {
@@ -626,7 +732,8 @@ fn plan_kernel(
             (part, image, format!("the running {}", src.display()))
         }
     };
-    let size = std::fs::File::open(&part)?.size()?;
+    let size = SlotWriter::open(&part, opts.parts.kind(), &*opts.volume_update)?.capacity()?;
+    let size = size.min(opts.board.map_or(u64::MAX, |b| b.slots.boot));
     ensure!(
         image.len() as u64 <= size,
         "the boot image ({}) does not fit into {} ({})",
@@ -634,60 +741,42 @@ fn plan_kernel(
         part.display(),
         mib(size)
     );
-    pinna_bootimg::tag_slot(&mut image, target.letter())
-        .with_context(|| format!("marking the boot image from {from} for slot {target}"))?;
+    if format == BootFormat::Android {
+        pinna_bootimg::tag_slot(&mut image, target.letter())
+            .with_context(|| format!("marking the boot image from {from} for slot {target}"))?;
+    }
     Ok(Kernel::Write { part, image, from })
 }
 
+/// An Android boot image starts with `ANDROID!`, a FIT with the flattened
+/// device tree's magic: a boot image of the other format would leave the
+/// bootloader with nothing to start.
+fn check_boot_magic(image: &[u8], format: BootFormat) -> Result<()> {
+    let (magic, name): (&[u8], _) = match format {
+        BootFormat::Android => (b"ANDROID!", "an Android boot image"),
+        BootFormat::Fit => (&0xd00d_feedu32.to_be_bytes(), "a FIT"),
+    };
+    ensure!(
+        image.starts_with(magic),
+        "this satellite's bootloader needs {name}, which this boot image is not"
+    );
+    Ok(())
+}
+
 /// Write the boot image and read it back from the device.
-fn write_kernel(part: &Path, image: &[u8]) -> Result<()> {
-    let dev = open_target(part)?;
-    dev.write_all_at(image, 0)
-        .with_context(|| format!("writing {}", part.display()))?;
-    dev.sync_all()?;
-    drop_cache(&dev);
+fn write_kernel(opts: &Options, part: &Path, image: &[u8]) -> Result<()> {
+    let mut dev = SlotWriter::open(part, opts.parts.kind(), &*opts.volume_update)?;
+    dev.begin(image.len() as u64)?;
+    dev.write(image)?;
+    dev.finish()?;
     let mut back = vec![0u8; image.len()];
-    FileExt::read_exact_at(&dev, &mut back, 0)?;
+    FileExt::read_exact_at(dev.file(), &mut back, 0)?;
     ensure!(
         back == image,
         "{} doesn't hold the boot image after writing it",
         part.display()
     );
     Ok(())
-}
-
-/// The slot partition, refusing anything in use (mounted, held by dm-verity).
-fn open_target(path: &Path) -> Result<File> {
-    let real = path
-        .canonicalize()
-        .with_context(|| format!("resolving {}", path.display()))?;
-    let is_dev = std::fs::metadata(&real)?.file_type().is_block_device();
-    if is_dev {
-        let name = real.file_name().unwrap().to_string_lossy().into_owned();
-        let holders = Path::new("/sys/class/block").join(&name).join("holders");
-        if let Ok(mut d) = std::fs::read_dir(&holders) {
-            ensure!(
-                d.next().is_none(),
-                "{} is in use (holders in {})",
-                real.display(),
-                holders.display()
-            );
-        }
-    }
-    // O_EXCL on a block device: exclusive claim, EBUSY if mounted or held.
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(if is_dev { libc::O_EXCL } else { 0 })
-        .open(&real)
-        .with_context(|| format!("opening {} for writing", real.display()))
-}
-
-fn drop_cache(f: &File) {
-    // SAFETY: plain fadvise on an open fd.
-    unsafe {
-        libc::posix_fadvise(f.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
-    }
 }
 
 fn mib(n: u64) -> String {
@@ -799,9 +888,9 @@ pub fn install(
         m.version
     ));
 
-    let part = opts.partdir.join(target.partname());
-    let dev = open_target(&part)?;
-    let part_size = dev.size()?;
+    let part = opts.parts.path(target.partname());
+    let mut dev = SlotWriter::open(&part, opts.parts.kind(), &*opts.volume_update)?;
+    let part_size = dev.capacity()?;
     ensure!(
         m.root.size <= part_size,
         "image ({}) does not fit into {} ({})",
@@ -809,6 +898,15 @@ pub fn install(
         part.display(),
         mib(part_size)
     );
+    if let Some(b) = opts.board {
+        ensure!(
+            m.root.size <= b.slots.root,
+            "image ({}) does not fit into the {}'s root slot ({})",
+            mib(m.root.size),
+            b.model.name(),
+            mib(b.slots.root)
+        );
+    }
 
     // Before anything is overwritten: a kernel that can't be fetched leaves
     // the target slot as it was.
@@ -823,7 +921,7 @@ pub fn install(
     match kernel {
         Kernel::Stays(why) => say(&why),
         Kernel::Write { part, image, from } => {
-            write_kernel(&part, &image)?;
+            write_kernel(opts, &part, &image)?;
             say(&format!(
                 "kernel from {from} ({}) written to {} and read back",
                 mib(image.len() as u64),
@@ -838,6 +936,7 @@ pub fn install(
         part.display()
     ));
     let mut src = open(&image_url)?;
+    dev.begin(m.root.size)?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
     let mut written = 0u64;
@@ -855,8 +954,7 @@ pub fn install(
             m.root.size
         );
         h.update(&buf[..n]);
-        dev.write_all_at(&buf[..n], written)
-            .with_context(|| format!("writing {}", part.display()))?;
+        dev.write(&buf[..n])?;
         written += n as u64;
         if written >= next_report && written < m.root.size {
             say(&format!("  {} of {}", mib(written), mib(m.root.size)));
@@ -874,12 +972,11 @@ pub fn install(
         "sha256 mismatch: got {sha}, manifest says {}",
         m.root.sha256
     );
-    dev.sync_all()?;
+    dev.finish()?;
     say(&format!("written and flushed {}; sha256 OK", mib(written)));
 
     // Verify what is on the device now, not what went through memory.
-    drop_cache(&dev);
-    let footer = pinna_image::verify(&dev, &opts.key)
+    let footer = pinna_image::verify(dev.file(), &opts.key)
         .with_context(|| format!("verifying slot {target} after writing"))?;
     ensure!(
         footer.version == m.version,

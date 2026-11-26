@@ -29,6 +29,7 @@ use pinna_api::{
 };
 use pinna_bootctl::bcb::{self, Record};
 use pinna_bootctl::slot::{self, Slot};
+use pinna_bootctl::storage::Parts;
 use pinna_image::keys::VerifyingKey;
 use pinna_image::version;
 use serde::{Deserialize, Serialize};
@@ -215,7 +216,7 @@ const REBOOT_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Debug, Clone)]
 pub struct UpdaterPaths {
     pub misc: PathBuf,
-    pub partdir: PathBuf,
+    pub parts: Parts,
     pub run_dir: PathBuf,
     pub pinnactl: PathBuf,
     pub reboot: Vec<String>,
@@ -237,9 +238,10 @@ pub struct UpdaterPaths {
 
 impl Default for UpdaterPaths {
     fn default() -> Self {
+        let parts = Parts::board();
         Self {
-            misc: "/dev/disk/by-partlabel/misc".into(),
-            partdir: "/dev/disk/by-partlabel".into(),
+            misc: parts.path("misc"),
+            parts,
             run_dir: slot::RUN_DIR.into(),
             pinnactl: "pinnactl".into(),
             reboot: vec!["systemctl".into(), "reboot".into()],
@@ -1338,7 +1340,7 @@ fn switch_slot(paths: &UpdaterPaths, target: Slot) -> Result<(Option<Record>, Sl
                 "slot {target} can't boot: install an update into it instead"
             )));
         }
-        let image = slot::image(&paths.partdir, target, &paths.key).map_err(|e| {
+        let image = slot::image(&paths.parts, target, &paths.key).map_err(|e| {
             ConnectError::failed_precondition(format!("slot {target} has no bootable image: {e:#}"))
         })?;
         tracing::info!(
@@ -1443,7 +1445,7 @@ fn older_than(version: &str, running: &str) -> bool {
 /// the footer is read: hashing the whole slot would take too long.
 fn slot_version(paths: &UpdaterPaths, s: Slot) -> String {
     let read = || -> Result<String> {
-        let dev = std::fs::File::open(paths.partdir.join(s.partname()))?;
+        let dev = std::fs::File::open(paths.parts.path(s.partname()))?;
         Ok(pinna_image::read_footer(&dev, &paths.key)?.version)
     };
     read().unwrap_or_default()
