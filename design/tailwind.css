@@ -88,6 +88,11 @@
   --color-danger-soft: var(--danger-soft);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-threshold: var(--chart-threshold);
   --color-scrim: var(--scrim);
   --color-puck: var(--puck);
   --color-puck-rim: var(--puck-rim);

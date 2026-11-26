@@ -55,6 +55,11 @@
   --danger-soft: #fbe6e4;
   --ok: #23763f;
   --ok-soft: #e2f2e7;
+  --chart-1: #257de0;
+  --chart-2: #f47230;
+  --chart-3: #00b894;
+  --chart-grid: var(--line);
+  --chart-threshold: var(--ink-muted);
   --scrim: rgba(18, 23, 27, 0.45);
   --puck: #1b2024;
   --puck-rim: #2e363c;
@@ -124,6 +129,9 @@
     --danger-soft: #3a1614;
     --ok: #5ccb86;
     --ok-soft: #12301e;
+    --chart-1: #338ced;
+    --chart-2: #e76624;
+    --chart-3: #00a888;
     --scrim: rgba(0, 0, 0, 0.62);
     --puck: #22292e;
     --puck-rim: #3a444b;
@@ -159,6 +167,9 @@
   --danger-soft: #3a1614;
   --ok: #5ccb86;
   --ok-soft: #12301e;
+  --chart-1: #338ced;
+  --chart-2: #e76624;
+  --chart-3: #00a888;
   --scrim: rgba(0, 0, 0, 0.62);
   --puck: #22292e;
   --puck-rim: #3a444b;
