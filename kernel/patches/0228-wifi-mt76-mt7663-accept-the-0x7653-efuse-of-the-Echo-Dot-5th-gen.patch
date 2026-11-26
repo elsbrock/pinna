@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 14:30:00 +0100
+Subject: [PATCH] wifi: mt76: mt7663: accept the 0x7653 efuse of the Echo Dot
+ (5th gen)
+
+The MT7663 on the Echo Dot (5th gen) reads 0x7653 as the chip ID in its
+efuse and one TX path in HW_CONF1. mt76 passed the efuse to the firmware as
+is, and the radio never received anything: no false CCA, no frame in monitor
+mode on any 2.4 or 5 GHz channel, scans empty. Given the same efuse with the
+ID 0x7663 it received (35 networks), and with both TX paths enabled it also
+associated, at -54 dBm and 72 Mbit/s (C2N6L4, 2026-11-26). Amazon's driver
+runs the chip with one spatial stream on both paths. Correct the ID and
+enable both paths for this efuse.
+
+---
+--- a/drivers/net/wireless/mediatek/mt76/mt7615/eeprom.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7615/eeprom.c
+@@ -330,6 +330,25 @@
+ 	}
+ }
+ 
++/*
++ * The Echo Dot (5th gen)'s MT7663 carries 0x7653 in its efuse chip ID and one
++ * TX path in HW_CONF1. With the ID as is, the firmware ignored the EEPROM
++ * buffer and the receiver stayed deaf: no false CCA, no frame in monitor
++ * mode. With the ID 0x7663 and one TX path it received but could not
++ * associate; with both paths it associated (C2N6L4, 2026-11-26).
++ */
++static void mt7663_eeprom_fixup(struct mt7615_dev *dev)
++{
++	u8 *eep = dev->mt76.eeprom.data;
++
++	if (!is_mt7663(&dev->mt76) || get_unaligned_le16(eep) != 0x7653)
++		return;
++
++	put_unaligned_le16(0x7663, eep);
++	eep[MT7663_EE_HW_CONF1] &= ~MT_EE_HW_CONF1_TX_MASK;
++	eep[MT7663_EE_HW_CONF1] |= FIELD_PREP(MT_EE_HW_CONF1_TX_MASK, 2);
++}
++
+ int mt7615_eeprom_init(struct mt7615_dev *dev, u32 addr)
+ {
+ 	int ret;
+@@ -347,6 +366,7 @@
+ 		mt7615_cal_free_data(dev);
+ 	}
+ 
++	mt7663_eeprom_fixup(dev);
+ 	mt7615_eeprom_parse_hw_cap(dev);
+ 	memcpy(dev->mphy.macaddr, dev->mt76.eeprom.data + MT_EE_MAC_ADDR,
+ 	       ETH_ALEN);
