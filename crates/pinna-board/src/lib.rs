@@ -88,11 +88,12 @@ pub struct Board {
     pub model: Model,
     /// The bootloader's idme `device_type_id`.
     pub device_type_id: &'static str,
-    /// The product fastboot reports (`fastboot getvar product`).
-    pub fastboot_product: &'static str,
+    pub bootloader: Bootloader,
     pub soc: Soc,
     /// Where the partitions live, and so how the initramfs finds them.
     pub storage: StorageKind,
+    /// How much a boot slot and a root slot hold.
+    pub slots: Slots,
     pub ring: Ring,
     /// Key codes the board's input devices send, and the button each is.
     pub keys: &'static [(u16, Button)],
@@ -103,6 +104,78 @@ pub struct Board {
 }
 
 /// The system on chip. Every board of one SoC boots the same kernel.
+/// The bootloader that starts Pinna, and what follows from it (ADR 0035,
+/// Decision 9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bootloader {
+    /// LK with the Kaeru payload (the MT8163 and MT8516 Echos): Android boot
+    /// images, fastboot under this product name (`fastboot getvar product`),
+    /// and a preloader that counts the slot record's tries.
+    Kaeru { fastboot_product: &'static str },
+    /// Amazon's U-Boot (the Echo Dot (5th gen)): FIT boot images, no
+    /// fastboot, and the slot record read but nothing shown to count its
+    /// tries.
+    AmazonUboot,
+}
+
+/// The format of a boot slot's image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BootFormat {
+    /// An Android boot image (`ANDROID!`).
+    Android,
+    /// A U-Boot FIT (a flattened device tree holding the kernel, the device
+    /// trees and the ramdisk).
+    Fit,
+}
+
+impl Bootloader {
+    pub const fn boot_format(self) -> BootFormat {
+        match self {
+            Bootloader::Kaeru { .. } => BootFormat::Android,
+            Bootloader::AmazonUboot => BootFormat::Fit,
+        }
+    }
+
+    /// The product fastboot reports, on a bootloader that has fastboot.
+    pub const fn fastboot_product(self) -> Option<&'static str> {
+        match self {
+            Bootloader::Kaeru { fastboot_product } => Some(fastboot_product),
+            Bootloader::AmazonUboot => None,
+        }
+    }
+
+    /// Whether the bootloader counts the slot record's tries itself. Where it
+    /// doesn't, `pinna-init` counts them.
+    pub const fn counts_tries(self) -> bool {
+        matches!(self, Bootloader::Kaeru { .. })
+    }
+}
+
+/// How many bytes a boot slot and a root slot hold: the most an image
+/// written there may take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Slots {
+    pub boot: u64,
+    pub root: u64,
+}
+
+impl Slots {
+    /// The MT8163 Echos' GPT partitions: `boot_*` 16 MiB, `system_*` 768 MiB
+    /// (ADR 0019).
+    pub const MT8163: Slots = Slots {
+        boot: 16 << 20,
+        root: 768 << 20,
+    };
+
+    /// The slots every one of `models` can take.
+    pub fn smallest(models: &[Model]) -> Option<Slots> {
+        models.iter().map(|m| m.board().slots).reduce(|a, b| Slots {
+            boot: a.boot.min(b.boot),
+            root: a.root.min(b.root),
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Soc {
     /// MediaTek MT8163, 4x Cortex-A53 run in AArch32.
@@ -562,9 +635,12 @@ const MT8163_RING: Ring = Ring {
 pub static ECHO_DOT_2: Board = Board {
     model: Model::EchoDot2,
     device_type_id: "A3S5BH2HU6VAYF",
-    fastboot_product: "BISCUIT",
+    bootloader: Bootloader::Kaeru {
+        fastboot_product: "BISCUIT",
+    },
     soc: Soc::Mt8163,
     storage: StorageKind::Gpt,
+    slots: Slots::MT8163,
     ring: MT8163_RING,
     keys: MT8163_KEYS,
     privacy: AMZ_PRIVACY,
@@ -578,9 +654,12 @@ pub static ECHO_DOT_2: Board = Board {
 pub static ECHO_2: Board = Board {
     model: Model::Echo2,
     device_type_id: "A7WXQPH584YP",
-    fastboot_product: "RADAR",
+    bootloader: Bootloader::Kaeru {
+        fastboot_product: "RADAR",
+    },
     soc: Soc::Mt8163,
     storage: StorageKind::Gpt,
+    slots: Slots::MT8163,
     ring: MT8163_RING,
     keys: MT8163_KEYS,
     privacy: AMZ_PRIVACY,
@@ -613,9 +692,16 @@ pub static ECHO_DOT_5: Board = Board {
     // The product Fire OS reports on the same unit (`getprop`, 2026-11-22).
     // Stock U-Boot's fastboot product was not read: Pinna doesn't flash this
     // model through fastboot.
-    fastboot_product: "cannoli",
+    bootloader: Bootloader::AmazonUboot,
     soc: Soc::Mt8519,
     storage: StorageKind::Ubi,
+    // The UBI volumes of a C2N6L4: system_a/b hold 508 LEBs of 258048 bytes.
+    // U-Boot reads `bootimage_size` = 0xC1C000 bytes of the 53-LEB boot
+    // volume (Amazon's board_r.c), so that is all a FIT may take.
+    slots: Slots {
+        boot: 0xC1C000,
+        root: 131_088_384,
+    },
     ring: Ring {
         driver: RingDriver::Is31fl3246Class,
         leds: 12,
@@ -816,6 +902,28 @@ mod tests {
             ..ECHO_DOT_2
         };
         assert_eq!(left.speaker_lane(), Some(7));
+    }
+
+    #[test]
+    fn the_bootloader_decides_the_boot_format_and_who_counts_tries() {
+        assert_eq!(ECHO_DOT_2.bootloader.boot_format(), BootFormat::Android);
+        assert_eq!(ECHO_DOT_2.bootloader.fastboot_product(), Some("BISCUIT"));
+        assert!(ECHO_2.bootloader.counts_tries());
+        assert_eq!(ECHO_DOT_5.bootloader.boot_format(), BootFormat::Fit);
+        assert_eq!(ECHO_DOT_5.bootloader.fastboot_product(), None);
+        assert!(!ECHO_DOT_5.bootloader.counts_tries());
+    }
+
+    #[test]
+    fn the_echo_dot_5_has_the_smallest_slots() {
+        let all = Slots::smallest(&Model::ALL).unwrap();
+        assert_eq!(all, ECHO_DOT_5.slots);
+        assert_eq!(all.root, 508 * 258_048);
+        assert_eq!(
+            Slots::smallest(&[Model::EchoDot2, Model::Echo2]),
+            Some(Slots::MT8163)
+        );
+        assert_eq!(Slots::smallest(&[]), None);
     }
 
     #[test]
