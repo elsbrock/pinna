@@ -114,8 +114,10 @@ pub enum Bootloader {
     Kaeru { fastboot_product: &'static str },
     /// Amazon's U-Boot (the Echo Dot (5th gen)): FIT boot images, no
     /// fastboot, and the slot record read but nothing shown to count its
-    /// tries.
-    AmazonUboot,
+    /// tries. Its FITs' device trees name the board family `fit_board` at the
+    /// start of their root `compatible` (`amzn,cannoli-dvt`): other Amazon
+    /// boards share the SoC.
+    AmazonUboot { fit_board: &'static str },
 }
 
 /// The format of a boot slot's image.
@@ -132,7 +134,7 @@ impl Bootloader {
     pub const fn boot_format(self) -> BootFormat {
         match self {
             Bootloader::Kaeru { .. } => BootFormat::Android,
-            Bootloader::AmazonUboot => BootFormat::Fit,
+            Bootloader::AmazonUboot { .. } => BootFormat::Fit,
         }
     }
 
@@ -140,7 +142,15 @@ impl Bootloader {
     pub const fn fastboot_product(self) -> Option<&'static str> {
         match self {
             Bootloader::Kaeru { fastboot_product } => Some(fastboot_product),
-            Bootloader::AmazonUboot => None,
+            Bootloader::AmazonUboot { .. } => None,
+        }
+    }
+
+    /// The board family a FIT's device trees must name, on a FIT bootloader.
+    pub const fn fit_board(self) -> Option<&'static str> {
+        match self {
+            Bootloader::Kaeru { .. } => None,
+            Bootloader::AmazonUboot { fit_board } => Some(fit_board),
         }
     }
 
@@ -725,7 +735,9 @@ pub static ECHO_DOT_5: Board = Board {
     // The product Fire OS reports on the same unit (`getprop`, 2026-11-22).
     // Stock U-Boot's fastboot product was not read: Pinna doesn't flash this
     // model through fastboot.
-    bootloader: Bootloader::AmazonUboot,
+    bootloader: Bootloader::AmazonUboot {
+        fit_board: "amzn,cannoli",
+    },
     soc: Soc::Mt8519,
     storage: StorageKind::Ubi,
     // The UBI volumes of a C2N6L4: system_a/b hold 508 LEBs of 258048 bytes.

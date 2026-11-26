@@ -123,7 +123,7 @@ impl Reason {
 pub fn recovery(bootloader: Option<Bootloader>) -> &'static str {
     match bootloader {
         Some(Bootloader::Kaeru { .. }) => FASTBOOT,
-        Some(Bootloader::AmazonUboot) => {
+        Some(Bootloader::AmazonUboot { .. }) => {
             "This satellite has no fastboot. Hold Volume Up while it powers on to start TWRP, \
              then install the image again as the install guide describes."
         }

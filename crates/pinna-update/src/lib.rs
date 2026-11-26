@@ -767,10 +767,15 @@ fn check_boot_magic(image: &[u8], format: BootFormat) -> Result<()> {
 /// device.
 fn check_fit_board(image: &[u8], board: &Board) -> Result<()> {
     let soc = board.soc.compatible();
+    // Other Amazon boards share the SoC: the board family has to match too.
+    let family = board.bootloader.fit_board().unwrap_or(soc);
     let trees = pinna_bootimg::fit::compatibles(image)?;
     ensure!(
-        trees.iter().any(|c| c.iter().any(|s| s == soc)),
-        "this boot image is for another device: none of its device trees is for {soc}"
+        trees
+            .iter()
+            .any(|c| c.iter().any(|s| s == soc) && c.iter().any(|s| s.starts_with(family))),
+        "this boot image is for another device: none of its device trees is for the {} ({family}, {soc})",
+        board.model.name()
     );
     Ok(())
 }

@@ -929,6 +929,20 @@ fn a_fit_for_another_device_is_refused_before_anything_is_written() {
 }
 
 #[test]
+fn a_fit_for_another_board_of_the_same_soc_is_refused() {
+    // Another Amazon MT8519 board: the SoC matches, the board doesn't.
+    let img = sealed("2.0.0", 64, &key());
+    let e = env_fit("a");
+    let other = fit_for(0xdd, 8192, &["amzn,othermt8519-pvt", "mediatek,mt8519"]);
+    let m = with_boots(&e, &img, None, &[(&["echo-dot-5"], &other)]);
+    let m = e.publish_json(&img, &m, Some(&key()));
+    let err = e.install(&m).unwrap_err();
+    assert!(format!("{err:#}").contains("for another device"), "{err:#}");
+    assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
+    assert_eq!(e.record(), None);
+}
+
+#[test]
 fn an_image_larger_than_the_boards_slot_is_refused() {
     let e = env_fit("a");
     let slot = pinna_board::Model::EchoDot5.board().slots.root;

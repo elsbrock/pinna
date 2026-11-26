@@ -97,7 +97,7 @@ fn bootloader_name() -> &'static str {
     match pinna_board::detect() {
         Some(b) => match b.bootloader {
             Bootloader::Kaeru { .. } => "kaeru",
-            Bootloader::AmazonUboot => "amazon-uboot",
+            Bootloader::AmazonUboot { .. } => "amazon-uboot",
         },
         None => match pinna_board::storage() {
             StorageKind::Gpt => "kaeru",

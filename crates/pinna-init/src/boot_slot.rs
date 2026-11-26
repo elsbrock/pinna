@@ -156,7 +156,7 @@ mod tests {
         assert!(counts_attempts(false, false));
         for m in pinna_board::Model::ALL {
             let b = m.board();
-            let want = matches!(b.bootloader, pinna_board::Bootloader::AmazonUboot);
+            let want = matches!(b.bootloader, pinna_board::Bootloader::AmazonUboot { .. });
             assert_eq!(
                 counts_attempts(false, b.bootloader.counts_tries()),
                 want,
