@@ -30,6 +30,7 @@ mod sendspin;
 mod settings;
 mod standalone;
 mod store;
+mod timeline;
 mod timezone;
 mod tools;
 mod updates;
@@ -848,6 +849,9 @@ async fn main() -> Result<()> {
 
     let shared = Arc::new(Shared::default());
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);
+    // The debugging timeline (ADR 0036): off until the dashboard turns it on.
+    let timeline = timeline::init(in_tx.clone());
+    pinna_http::trace::install(timeline.clone());
 
     // Microphone + wake word. Words chosen later reach the detector here.
     let mut keyword_tx = None;
@@ -1019,6 +1023,14 @@ async fn main() -> Result<()> {
     // With a password and no key, the ESPHome API refuses connections until
     // the owner opens its window.
     auth.attach_esphome(esp.clone());
+    // New sessions, a new password or Sign out everywhere end debugging.
+    let mut sessions_ended = auth.subscribe_end();
+    let ending = timeline.clone();
+    tokio::spawn(async move {
+        while sessions_ended.changed().await.is_ok() {
+            ending.sessions_ended();
+        }
+    });
 
     // The satellite group (ADR 0026): its calls to the other members, the
     // calls they make here, and the exchange of lists after every search.
@@ -1071,6 +1083,7 @@ async fn main() -> Result<()> {
         device_api
             .with_auth(auth.clone())
             .with_recorder(recorder)
+            .with_timeline(timeline)
             .with_group(group.clone())
             .with_ring(shown_rx)
             .with_satellites(satellites_rx.clone())

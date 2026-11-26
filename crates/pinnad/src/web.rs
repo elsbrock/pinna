@@ -520,7 +520,9 @@ mod tests {
             key_from_image: false,
         };
         let (assistant, peer, mcp, auth) = assistant(&dir, status_rx.clone(), in_tx.clone());
-        let mut api = DeviceApi::new(info, status_rx, in_tx).with_auth(auth.clone());
+        let mut api = DeviceApi::new(info, status_rx, in_tx)
+            .with_auth(auth.clone())
+            .with_timeline(Arc::new(crate::timeline::Timeline::new(mpsc::channel(8).0)));
         if let Some(wifi) = wifi {
             api = api.with_wifi(wifi);
         }
@@ -701,6 +703,74 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let (status, ..) = send(&f, with_session("DeviceService/GetStatus")).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    /// ADR 0036: the length is one of three, and the audio levels and the text
+    /// need a password, a session and, for the text, a grant of this session.
+    #[tokio::test]
+    async fn debugging_needs_a_password_a_session_and_for_the_text_a_grant() {
+        let mut f = fixture("debugging", false);
+        let post = |procedure: &str, body: &str| {
+            call(
+                "pinna.local",
+                procedure,
+                "application/json",
+                body.as_bytes().to_vec(),
+            )
+        };
+        let start = r#"{"minutes":15}"#;
+        let (status, _, body) =
+            send(&f, post("DeviceService/StartDebugging", r#"{"minutes":7}"#)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body.contains("Choose 15, 60 or 480 minutes."), "{body}");
+        let levels = r#"{"minutes":15,"levels":true}"#;
+        let (status, _, body) = send(&f, post("DeviceService/StartDebugging", levels)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body.contains("failed_precondition"), "{body}");
+        let (status, ..) = send(&f, post("DeviceService/StartDebugging", start)).await;
+        assert_eq!(status, StatusCode::OK, "the metadata needs no password");
+        let (status, ..) = send(&f, post("DeviceService/StopDebugging", "{}")).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (id, _) = f
+            .auth
+            .start_confirmation(Ipv4Addr::LOCALHOST.into(), auth::Purpose::Password, None)
+            .unwrap();
+        let mut progress = f.auth.watch_confirmation(&id).unwrap();
+        let Some(crate::voice::Input::Presence(presence)) = f._inputs.recv().await else {
+            panic!("no presence")
+        };
+        presence.pressed.send(()).unwrap();
+        progress.changed().await.unwrap();
+        let auth::ConfirmProgress::Confirmed(grant) = progress.borrow().clone() else {
+            panic!("not confirmed")
+        };
+        let set = format!(r#"{{"newPassword":"correct horse","grant":"{grant}"}}"#);
+        let (status, ..) = send(&f, post("DeviceService/SetDashboardPassword", &set)).await;
+        assert_eq!(status, StatusCode::OK);
+        let login = axum::http::Request::post("/auth/login")
+            .header(header::HOST, "pinna.local")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"password":"correct horse"}"#))
+            .unwrap();
+        let (_, headers, _) = send(&f, login).await;
+        let cookie = headers[header::SET_COOKIE].to_str().unwrap();
+        let cookie = cookie.split_once(';').unwrap().0.to_owned();
+        let with_session = |procedure: &str, body: &str| {
+            let mut r = post(procedure, body);
+            r.headers_mut()
+                .insert(header::COOKIE, cookie.parse().unwrap());
+            r
+        };
+
+        let (status, ..) = send(&f, with_session("DeviceService/StartDebugging", levels)).await;
+        assert_eq!(status, StatusCode::OK, "the levels need a session only");
+        let bad = r#"{"minutes":15,"textGrant":"not a grant"}"#;
+        let (status, _, body) = send(&f, with_session("DeviceService/StartDebugging", bad)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains("permission_denied"), "{body}");
+        let (status, _, body) = send(&f, with_session("DeviceService/GetStatus", "{}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
     }
 
     #[tokio::test]

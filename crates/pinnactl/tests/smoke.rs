@@ -423,6 +423,30 @@ impl DeviceService for Fake {
         Err(ConnectError::unimplemented("fake"))
     }
 
+    async fn start_debugging(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StartDebuggingRequest>,
+    ) -> ServiceResult<StartDebuggingResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn stop_debugging(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, StopDebuggingRequest>,
+    ) -> ServiceResult<StopDebuggingResponse> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
+    async fn watch_timeline(
+        &self,
+        _: RequestContext,
+        _: ServiceRequest<'_, WatchTimelineRequest>,
+    ) -> ServiceResult<ServiceStream<WatchTimelineResponse>> {
+        Err(ConnectError::unimplemented("fake"))
+    }
+
     async fn create_token(
         &self,
         _: RequestContext,

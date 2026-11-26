@@ -1088,3 +1088,38 @@ async fn a_recording_nobody_ended_is_forgotten_after_its_time_and_a_grace() {
     d.brain.tick().await;
     assert!(d.brain.recording.is_none());
 }
+
+/// The Debugging binary sensor (ADR 0036): it follows what the timeline tells
+/// the Brain, is part of the status, and is sent again when Home Assistant
+/// connects.
+#[tokio::test]
+async fn debugging_is_a_binary_sensor_and_part_of_the_status() {
+    let mut d = Device::new();
+    let state = |state| DeviceEvent::BinarySensorState {
+        object_id: "debugging".into(),
+        state,
+    };
+    let now = Instant::now();
+    let snapshot = DebuggingSnapshot {
+        until: now + Duration::from_secs(900),
+        levels_until: Some(now + Duration::from_secs(900)),
+        text_until: None,
+    };
+    d.brain.handle(Input::Debugging(Some(snapshot))).await;
+    d.expect(&[state(true)]);
+    assert_eq!(d.brain.snapshot().debugging, Some(snapshot));
+
+    d.ha(HaCommand::ClientConnected {
+        peer: "192.0.2.1:6053".into(),
+    })
+    .await;
+    let mut events = Vec::new();
+    while let Ok(event) = d.events.try_recv() {
+        events.push(event);
+    }
+    assert!(events.contains(&state(true)), "{events:?}");
+
+    d.brain.handle(Input::Debugging(None)).await;
+    d.expect(&[state(false)]);
+    assert_eq!(d.brain.snapshot().debugging, None);
+}

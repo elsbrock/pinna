@@ -61,6 +61,10 @@ use pinna_api::{
     StopBluetoothPairingRequest, StopBluetoothPairingResponse,
 };
 use pinna_api::{RemoveWakeWordRequest, RemoveWakeWordResponse};
+use pinna_api::{
+    StartDebuggingRequest, StartDebuggingResponse, StopDebuggingRequest, StopDebuggingResponse,
+    WatchTimelineRequest, WatchTimelineResponse,
+};
 use pinna_hal::led::{Frame, RING_PIXELS, Rgb};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -120,6 +124,8 @@ pub struct DeviceApi {
     group: Option<Arc<Group>>,
     /// Records the microphones (ADR 0030).
     recorder: Option<Arc<crate::recording::Recorder>>,
+    /// The debugging timeline (ADR 0036).
+    timeline: Option<Arc<crate::timeline::Timeline>>,
 }
 
 /// WatchRing sends at most one frame per this interval.
@@ -152,6 +158,7 @@ impl DeviceApi {
             auth: None,
             group: None,
             recorder: None,
+            timeline: None,
         }
     }
 
@@ -159,6 +166,19 @@ impl DeviceApi {
     pub fn with_recorder(mut self, recorder: Arc<crate::recording::Recorder>) -> Self {
         self.recorder = Some(recorder);
         self
+    }
+
+    /// Answer `StartDebugging`, `StopDebugging` and `WatchTimeline` with
+    /// `timeline`.
+    pub fn with_timeline(mut self, timeline: Arc<crate::timeline::Timeline>) -> Self {
+        self.timeline = Some(timeline);
+        self
+    }
+
+    fn timeline(&self) -> Result<&Arc<crate::timeline::Timeline>, ConnectError> {
+        self.timeline
+            .as_ref()
+            .ok_or_else(|| ConnectError::unavailable("This satellite can't debug."))
     }
 
     pub fn with_hotspot(
@@ -388,6 +408,16 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
         media: MessageField::some(media(&s.media)),
         assistant: MessageField::some(assistant(&s.assist)),
         held_messages: s.held_messages,
+        debugging: s.debugging.map_or_else(MessageField::none, |d| {
+            let left =
+                |until: Instant| until.saturating_duration_since(now).as_secs_f32().ceil() as u32;
+            MessageField::some(pinna_api::Debugging {
+                seconds_left: left(d.until),
+                levels_seconds_left: d.levels_until.map_or(0, left),
+                text_seconds_left: d.text_until.map_or(0, left),
+                ..Default::default()
+            })
+        }),
         recording: s.recording.map_or_else(MessageField::none, |r| {
             MessageField::some(pinna_api::Recording {
                 seconds_left: r.until.saturating_duration_since(now).as_secs_f32().ceil() as u32,
@@ -1616,6 +1646,9 @@ impl DeviceService for DeviceApi {
             Some(pinna_api::ConfirmationPurpose::CONFIRMATION_PURPOSE_RECORDING) => {
                 Purpose::Recording
             }
+            Some(pinna_api::ConfirmationPurpose::CONFIRMATION_PURPOSE_DEBUGGING_TEXT) => {
+                Purpose::DebuggingText
+            }
             _ => Purpose::Password,
         };
         let (id, seconds) =
@@ -1712,6 +1745,56 @@ impl DeviceService for DeviceApi {
             recorder.stop();
         }
         Response::ok(StopRecordingResponse::default())
+    }
+
+    async fn start_debugging(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, StartDebuggingRequest>,
+    ) -> ServiceResult<StartDebuggingResponse> {
+        let timeline = self.timeline()?;
+        if !matches!(request.minutes, 15 | 60 | 480) {
+            return Err(ConnectError::invalid_argument(
+                "Choose 15, 60 or 480 minutes.",
+            ));
+        }
+        let text = !request.text_grant.is_empty();
+        if request.levels || text {
+            let auth = self.auth()?;
+            if !auth.security(false).password_set {
+                return Err(ConnectError::failed_precondition(
+                    "Set a dashboard password to record the audio levels or what was said.",
+                ));
+            }
+            if !signed_in(&ctx) {
+                return Err(ConnectError::unauthenticated(
+                    "Sign in to record the audio levels or what was said.",
+                ));
+            }
+            // Last: a refusal above doesn't cost a press.
+            if text {
+                auth.take_debugging_text_grant(request.text_grant, session_cookie(&ctx))?;
+            }
+        }
+        timeline.start(caller(&ctx), request.minutes, request.levels, text);
+        Response::ok(StartDebuggingResponse::default())
+    }
+
+    async fn stop_debugging(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, StopDebuggingRequest>,
+    ) -> ServiceResult<StopDebuggingResponse> {
+        self.timeline()?.stop(caller(&ctx));
+        Response::ok(StopDebuggingResponse::default())
+    }
+
+    async fn watch_timeline(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, WatchTimelineRequest>,
+    ) -> ServiceResult<ServiceStream<WatchTimelineResponse>> {
+        Response::ok(Box::pin(self.timeline()?.watch().map(Ok)))
     }
 
     async fn create_token(

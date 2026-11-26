@@ -48,6 +48,12 @@ impl Id {
     pub fn get(self) -> u64 {
         self.0
     }
+
+    /// An id made by hand, for a sink's tests. Ids from [`send`] and
+    /// [`start`] are unique; these are not.
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

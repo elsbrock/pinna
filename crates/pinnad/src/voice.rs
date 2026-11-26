@@ -144,6 +144,18 @@ pub enum Input {
     RecordingEnded {
         id: u64,
     },
+    /// Debugging was turned on or off, or changed what it records (ADR 0036).
+    /// The Brain shows it to Home Assistant and the dashboards, and changes
+    /// nothing else.
+    Debugging(Option<DebuggingSnapshot>),
+}
+
+/// Debugging as it runs, as the API shows it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DebuggingSnapshot {
+    pub until: Instant,
+    pub levels_until: Option<Instant>,
+    pub text_until: Option<Instant>,
 }
 
 /// A running recording, as the API shows it.
@@ -451,6 +463,8 @@ pub struct Snapshot {
     pub held_messages: u32,
     /// The running recording (ADR 0030).
     pub recording: Option<RecordingSnapshot>,
+    /// Debugging (ADR 0036).
+    pub debugging: Option<DebuggingSnapshot>,
 }
 
 /// A running calibration, as the API shows it.
@@ -495,6 +509,7 @@ impl Default for Snapshot {
             update_channel: crate::updates::UpdateChannel::Off,
             held_messages: 0,
             recording: None,
+            debugging: None,
         }
     }
 }
@@ -703,6 +718,10 @@ pub struct Brain {
     /// A recording runs (ADR 0030): the ring shows Listening when nothing
     /// else shows, and an update's restart waits.
     recording: Option<RecordingSnapshot>,
+    /// Debugging runs (ADR 0036), for the Home Assistant sensor and the API.
+    debugging: Option<DebuggingSnapshot>,
+    /// The microphones were muted at the last refresh, to see the edges.
+    was_muted: bool,
     /// Action confirmed a change and is still held: the rest of that hold
     /// is the confirmation's too, so no `long_press` follows (ADR 0029).
     confirm_held: bool,
@@ -864,6 +883,8 @@ impl Brain {
             calibration: None,
             presence: None,
             recording: None,
+            debugging: None,
+            was_muted: false,
             confirm_held: false,
             reconnect_pending: false,
             update_restart_tried: None,
@@ -974,6 +995,14 @@ impl Brain {
 
     fn muted(&self) -> bool {
         self.hw_muted || self.sw_muted
+    }
+
+    async fn send_debugging(&self) {
+        self.send(DeviceEvent::BinarySensorState {
+            object_id: "debugging".into(),
+            state: self.debugging.is_some(),
+        })
+        .await;
     }
 
     async fn send(&self, ev: DeviceEvent) {
@@ -1103,6 +1132,10 @@ impl Brain {
                 if self.recording.is_some_and(|r| r.id == id) {
                     self.recording = None;
                 }
+            }
+            Input::Debugging(debugging) => {
+                self.debugging = debugging;
+                self.send_debugging().await;
             }
         }
         self.tend_messages(Instant::now());
@@ -1371,6 +1404,7 @@ impl Brain {
             update_channel: self.update_channel(),
             held_messages: self.messages.held() as u32,
             recording: self.recording,
+            debugging: self.debugging,
             airplay: self.airplay_report.borrow().clone(),
             sendspin: self.sendspin_report.borrow().clone(),
             bluetooth: crate::bluetooth::report(
@@ -1811,6 +1845,7 @@ impl Brain {
                 .await;
                 self.send_calibration_switch(self.calibration.is_some())
                     .await;
+                self.send_debugging().await;
                 self.send_media_state().await;
             }
             HaCommand::ClientDisconnected => {
@@ -3748,6 +3783,9 @@ impl Brain {
     /// Recompute derived outputs (LED state, wake word gate) from the state.
     fn refresh(&mut self) {
         let muted = self.muted();
+        if muted != std::mem::replace(&mut self.was_muted, muted) {
+            crate::timeline::muted(muted);
+        }
         let led_test = self.led_test.map(|t| {
             let step = (t.elapsed().as_millis() / LED_TEST_STEP.as_millis()) as usize;
             LED_TEST_EFFECTS[step.min(LED_TEST_EFFECTS.len() - 1)]
@@ -3759,7 +3797,9 @@ impl Brain {
         } else if self.presence.is_some() {
             // Above Muted: someone who has to press Action needs to see it.
             match self.presence.as_ref().map(|p| p.purpose) {
-                Some(crate::auth::Purpose::Recording) => Effect::ConfirmRecording,
+                Some(crate::auth::Purpose::Recording | crate::auth::Purpose::DebuggingText) => {
+                    Effect::ConfirmRecording
+                }
                 _ => Effect::Confirm,
             }
         } else if muted {

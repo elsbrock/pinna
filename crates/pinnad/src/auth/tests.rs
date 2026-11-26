@@ -865,3 +865,55 @@ async fn recording_needs_a_password_when_the_grant_is_presented_too() {
         .unwrap_err();
     assert_eq!(code(e), ErrorCode::FailedPrecondition);
 }
+
+#[tokio::test]
+async fn a_debugging_text_grant_needs_a_password_its_session_and_ten_seconds() {
+    let mut rig = rig();
+    let e = rig
+        .auth
+        .take_debugging_text_grant("anything", Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e.clone()), ErrorCode::FailedPrecondition);
+    assert_eq!(
+        e.message.as_deref(),
+        Some("Set a dashboard password to record what was said.")
+    );
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::DebuggingText, Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::FailedPrecondition);
+
+    rig.with_password().await;
+    rig.auth.confirmations.lock().unwrap().current = None;
+    let e = rig
+        .auth
+        .start_confirmation(WHO, Purpose::DebuggingText, None)
+        .unwrap_err();
+    assert_eq!(code(e.clone()), ErrorCode::Unauthenticated);
+    assert_eq!(
+        e.message.as_deref(),
+        Some("Sign in to record what was said.")
+    );
+
+    let grant = rig.press_for(Purpose::DebuggingText, Some("mine")).await;
+    let e = rig
+        .auth
+        .take_debugging_text_grant(&grant, Some("theirs"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    // A recording doesn't take it.
+    let e = rig
+        .auth
+        .take_recording_grant(&grant, Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    rig.auth
+        .take_debugging_text_grant(&grant, Some("mine"))
+        .unwrap();
+    let e = rig
+        .auth
+        .take_debugging_text_grant(&grant, Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+}

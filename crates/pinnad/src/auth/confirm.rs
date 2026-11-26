@@ -32,13 +32,16 @@ pub enum Purpose {
     Password,
     /// A recording from the microphones (ADR 0030).
     Recording,
+    /// What was said, in the debugging timeline (ADR 0036). Bound to a
+    /// session like a recording.
+    DebuggingText,
 }
 
 impl Purpose {
     fn grant_ttl(self) -> Duration {
         match self {
             Purpose::Password => GRANT_TTL,
-            Purpose::Recording => RECORDING_GRANT_TTL,
+            Purpose::Recording | Purpose::DebuggingText => RECORDING_GRANT_TTL,
         }
     }
 }
@@ -208,6 +211,23 @@ mod tests {
         assert!(!again, "single use");
         g.add("late".into(), t, Purpose::Recording, Some("mine".into()));
         assert!(!g.consume("late", Purpose::Recording, Some("mine"), t + s(10)));
+    }
+
+    #[test]
+    fn a_debugging_text_grant_belongs_to_its_session_and_lasts_ten_seconds() {
+        let t = Instant::now();
+        let mut g = Grants::default();
+        g.add("d".into(), t, Purpose::DebuggingText, Some("mine".into()));
+        assert!(!g.consume("d", Purpose::Recording, Some("mine"), t));
+        assert!(!g.consume("d", Purpose::DebuggingText, Some("theirs"), t));
+        assert!(g.consume("d", Purpose::DebuggingText, Some("mine"), t + s(9)));
+        g.add(
+            "late".into(),
+            t,
+            Purpose::DebuggingText,
+            Some("mine".into()),
+        );
+        assert!(!g.consume("late", Purpose::DebuggingText, Some("mine"), t + s(10)));
     }
 
     #[test]

@@ -162,6 +162,14 @@ service DeviceService {
   // End the running recording, from any signed-in dashboard. Nothing
   // running is not an error.
   rpc StopRecording(StopRecordingRequest) returns (StopRecordingResponse);
+  // Turn debugging on for a time, or replace what it records while it runs
+  // (ADR 0036). The audio levels need a password and a session; what was
+  // said needs a grant from a DEBUGGING_TEXT confirmation this session asked for.
+  rpc StartDebugging(StartDebuggingRequest) returns (StartDebuggingResponse);
+  // Turn debugging off and clear what it kept, here and in every open page.
+  rpc StopDebugging(StopDebuggingRequest) returns (StopDebuggingResponse);
+  // The state, what debugging kept (at most 10 minutes), then what it records next.
+  rpc WatchTimeline(WatchTimelineRequest) returns (stream WatchTimelineResponse);
   // Create the token for /metrics or for /mcp. It is returned once and
   // replaces the old one.
   rpc CreateToken(CreateTokenRequest) returns (CreateTokenResponse);
@@ -385,6 +393,15 @@ message Status {
   Sendspin sendspin = 32;
   // The running recording (ADR 0030); unset when none runs.
   Recording recording = 33;
+  // Debugging (ADR 0036); unset while it is off.
+  Debugging debugging = 34;
+}
+
+// Debugging as it runs. The seconds left of each part; 0 = not recorded.
+message Debugging {
+  uint32 seconds_left = 1;
+  uint32 levels_seconds_left = 2;
+  uint32 text_seconds_left = 3;
 }
 
 // A recording from the microphones (ADR 0030). The phase doesn't change while
@@ -1416,6 +1433,10 @@ enum ConfirmationPurpose {
   // its own pattern, and the grant is good for 10 seconds, for the session
   // that asked.
   CONFIRMATION_PURPOSE_RECORDING = 1;
+  // What was said, in the debugging timeline (ADR 0036): like a recording,
+  // it needs a password and a session, the grant is good for 10 seconds for
+  // the session that asked, and the ring shows the recording pattern.
+  CONFIRMATION_PURPOSE_DEBUGGING_TEXT = 2;
 }
 
 message StartConfirmationRequest {
@@ -1566,4 +1587,150 @@ message SignOutEverywhereRequest {}
 
 message SignOutEverywhereResponse {
   Security security = 1;
+}
+
+message StartDebuggingRequest {
+  // 15, 60 or 480. The audio levels and what was said stop after 60 at most.
+  uint32 minutes = 1;
+  // Record the audio levels. Needs a password and a session.
+  bool levels = 2;
+  // The grant of a DEBUGGING_TEXT confirmation; empty records no text.
+  string text_grant = 3;
+}
+
+message StartDebuggingResponse {}
+
+message StopDebuggingRequest {}
+
+message StopDebuggingResponse {}
+
+message WatchTimelineRequest {}
+
+message WatchTimelineResponse {
+  oneof item {
+    TimelineState state = 1;
+    TimelineBatch batch = 2;
+  }
+}
+
+// Whether debugging runs and what it records. Sent first, and again at every
+// change.
+message TimelineState {
+  bool on = 1;
+  // Unix milliseconds when each part stops; 0 = not recorded.
+  uint64 until_unix_ms = 2;
+  uint64 levels_until_unix_ms = 3;
+  uint64 text_until_unix_ms = 4;
+  // The length of a level bucket, 100.
+  uint32 bucket_ms = 5;
+  // The page drops what it holds: debugging was stopped or the sessions ended.
+  bool cleared = 6;
+  // The satellite's clock, to line the page's clock up with it.
+  uint64 now_unix_ms = 7;
+  // How long entries are kept, 600.
+  uint32 keep_seconds = 8;
+}
+
+// New entries. A request is sent whole at each change and replaces the one
+// with the same id.
+message TimelineBatch {
+  repeated TimelineEvent events = 1;
+  repeated TimelineRequest requests = 2;
+  repeated TimelineLevels levels = 3;
+}
+
+enum TimelineEventKind {
+  TIMELINE_EVENT_KIND_UNSPECIFIED = 0;
+  TIMELINE_EVENT_KIND_PHASE = 1;
+  TIMELINE_EVENT_KIND_MUTED = 2;
+  TIMELINE_EVENT_KIND_UNMUTED = 3;
+  TIMELINE_EVENT_KIND_WAKE = 4;
+  TIMELINE_EVENT_KIND_NEAR_MISS = 5;
+  TIMELINE_EVENT_KIND_RUN = 6;
+  TIMELINE_EVENT_KIND_END_OF_SPEECH = 7;
+  TIMELINE_EVENT_KIND_INTERRUPTED = 8;
+  TIMELINE_EVENT_KIND_ERROR = 9;
+  TIMELINE_EVENT_KIND_HOME_ASSISTANT = 10;
+  TIMELINE_EVENT_KIND_STAGE = 11;
+  TIMELINE_EVENT_KIND_MODE = 12;
+  TIMELINE_EVENT_KIND_WAKE_WORD = 13;
+  TIMELINE_EVENT_KIND_CALIBRATION = 14;
+  TIMELINE_EVENT_KIND_MICROPHONE = 15;
+}
+
+message TimelineEvent {
+  uint64 unix_ms = 1;
+  TimelineEventKind kind = 2;
+  // Words for the page: a milestone, a cause, a Home Assistant event, a
+  // stage, a word or a mode.
+  string detail = 3;
+  // For PHASE.
+  Phase phase = 4;
+  // For WAKE and NEAR_MISS.
+  float score = 5;
+  float threshold = 6;
+  float level_dbfs = 7;
+  float gain_db = 8;
+  // For STAGE: when it ended; 0 for an instant.
+  uint64 end_unix_ms = 9;
+  // A standalone run's id; 0 otherwise.
+  uint64 run = 10;
+}
+
+enum TimelineRequestKind {
+  TIMELINE_REQUEST_KIND_UNSPECIFIED = 0;
+  TIMELINE_REQUEST_KIND_PROVIDER = 1;
+  TIMELINE_REQUEST_KIND_MCP = 2;
+  TIMELINE_REQUEST_KIND_TOOL = 3;
+  TIMELINE_REQUEST_KIND_MEDIA = 4;
+  TIMELINE_REQUEST_KIND_GROUP = 5;
+}
+
+enum TimelineOutcome {
+  TIMELINE_OUTCOME_OPEN = 0;
+  TIMELINE_OUTCOME_DONE = 1;
+  // The caller stopped reading before the end.
+  TIMELINE_OUTCOME_DROPPED = 2;
+  TIMELINE_OUTCOME_TIMEOUT = 3;
+  TIMELINE_OUTCOME_UNREACHABLE = 4;
+  TIMELINE_OUTCOME_TLS = 5;
+  TIMELINE_OUTCOME_PROTOCOL = 6;
+}
+
+message TimelineRequest {
+  uint64 id = 1;
+  TimelineRequestKind kind = 2;
+  string method = 3;
+  // Cut as ADR 0036 says: no query, and only the host for media and MCP.
+  string url = 4;
+  uint64 start_unix_ms = 5;
+  uint32 status = 6;
+  uint64 response_unix_ms = 7;
+  uint64 first_body_unix_ms = 8;
+  // 0 while open.
+  uint64 end_unix_ms = 9;
+  optional uint64 bytes_out = 10;
+  uint64 bytes_in = 11;
+  TimelineOutcome outcome = 12;
+  // Only while what was said is recorded.
+  string body_out = 13;
+  string body_in = 14;
+}
+
+// Consecutive buckets from start_unix_ms, bucket_ms apart. NaN = nothing was
+// computed then.
+message TimelineLevels {
+  uint64 start_unix_ms = 1;
+  repeated float before_gain_dbfs = 2;
+  repeated float after_gain_dbfs = 3;
+  repeated float gain_db = 4;
+  repeated float speaker_dbfs = 5;
+  repeated bool speech = 6;
+  repeated TimelineWord words = 7;
+}
+
+message TimelineWord {
+  string name = 1;
+  float threshold = 2;
+  repeated float scores = 3;
 }

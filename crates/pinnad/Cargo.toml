@@ -60,6 +60,7 @@ pinna-assist = { path = "../pinna-assist", features = ["testing"] }
 pinna-esphome = { path = "../pinna-esphome", features = ["test-util"] }
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }
 # A Sendspin server for the session tests (ADR 0027): both already in the build,
 # under pinna-sendspin and axum.
 snow = "0.10.0"

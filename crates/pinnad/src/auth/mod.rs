@@ -65,6 +65,8 @@ const RECORDING_NEEDS_PASSWORD: &str =
     "Recording needs a dashboard password. Set one under System > Password and tokens.";
 const RECORDING_NEEDS_SESSION: &str = "Sign in to record from the microphones.";
 const BAD_RECORDING_GRANT: &str = "The confirmation has expired, was already used or belongs to another browser. Confirm at the satellite again.";
+const TEXT_NEEDS_PASSWORD: &str = "Set a dashboard password to record what was said.";
+const TEXT_NEEDS_SESSION: &str = "Sign in to record what was said.";
 const NO_RANDOM: &str = "The satellite couldn't make random numbers. Try again.";
 
 /// Why a login didn't give a session.
@@ -364,6 +366,7 @@ impl Auth {
             confirmation_purpose: match purpose {
                 Purpose::Password => ConfirmationPurpose::CONFIRMATION_PURPOSE_PASSWORD,
                 Purpose::Recording => ConfirmationPurpose::CONFIRMATION_PURPOSE_RECORDING,
+                Purpose::DebuggingText => ConfirmationPurpose::CONFIRMATION_PURPOSE_DEBUGGING_TEXT,
             }
             .into(),
             ..Default::default()
@@ -588,12 +591,16 @@ impl Auth {
         purpose: Purpose,
         session: Option<&str>,
     ) -> Result<(String, u32), ConnectError> {
-        if purpose == Purpose::Recording {
+        if purpose != Purpose::Password {
+            let (no_password, no_session) = match purpose {
+                Purpose::DebuggingText => (TEXT_NEEDS_PASSWORD, TEXT_NEEDS_SESSION),
+                _ => (RECORDING_NEEDS_PASSWORD, RECORDING_NEEDS_SESSION),
+            };
             if !credentials::has_password(&self.credentials()) {
-                return Err(ConnectError::failed_precondition(RECORDING_NEEDS_PASSWORD));
+                return Err(ConnectError::failed_precondition(no_password));
             }
             if session.is_none() {
-                return Err(ConnectError::unauthenticated(RECORDING_NEEDS_SESSION));
+                return Err(ConnectError::unauthenticated(no_session));
             }
         }
         let now = Instant::now();
@@ -632,7 +639,7 @@ impl Auth {
             from,
             purpose,
             session: session
-                .filter(|_| purpose == Purpose::Recording)
+                .filter(|_| purpose != Purpose::Password)
                 .map(str::to_owned),
             started: now,
             ended: None,
@@ -707,6 +714,32 @@ impl Auth {
         let granted = self.grants.lock().unwrap().consume(
             grant,
             Purpose::Recording,
+            Some(session),
+            Instant::now(),
+        );
+        if granted {
+            Ok(())
+        } else {
+            Err(ConnectError::permission_denied(BAD_RECORDING_GRANT))
+        }
+    }
+
+    /// Use the grant of a debugging timeline's text: as for a recording, from
+    /// a DEBUGGING_TEXT confirmation (ADR 0036).
+    pub fn take_debugging_text_grant(
+        &self,
+        grant: &str,
+        session: Option<&str>,
+    ) -> Result<(), ConnectError> {
+        if !credentials::has_password(&self.credentials()) {
+            return Err(ConnectError::failed_precondition(TEXT_NEEDS_PASSWORD));
+        }
+        let Some(session) = session else {
+            return Err(ConnectError::unauthenticated(TEXT_NEEDS_SESSION));
+        };
+        let granted = self.grants.lock().unwrap().consume(
+            grant,
+            Purpose::DebuggingText,
             Some(session),
             Instant::now(),
         );
