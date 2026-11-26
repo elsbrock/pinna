@@ -465,37 +465,55 @@ attach them to a public issue.
 
 ## Report a problem
 
-If you can't solve it,
-[open an issue](https://github.com/elsbrock/pinna/issues/new):
+If you can't solve it, open an issue on GitHub. You need a GitHub account,
+and your phone or computer needs internet access to reach GitHub. On the
+setup hotspot it has none: open the dashboard over the USB cable instead,
+which leaves your computer's own connection alone, or connect the satellite
+to your Wi-Fi first.
 
 1. On the dashboard, open **System > Logs**. If the problem happened a while
    ago, make it happen again first: the page starts with the log's last
    1,000 lines at most.
-2. Select **Copy for an issue**. It copies these details:
+2. Select **Open an issue**. A new tab opens the issue form on GitHub, with
+   **Satellite** filled in:
    - the version and the device model
    - the slot the satellite runs from, and how its last start ended
    - the mode: Home Assistant or standalone
    - the update channel
-   - when you copied it, in the time zone of the log's times
-   - the log, in a collapsed section. It has every line on the page, also
-     the lines that **Warnings and errors** or **Filter** hide.
-3. Paste it into the issue. Above it, say what you did and what happened.
-4. Read it before you post it: issues are public. The block has no serial
-   number. In the log, IP addresses, MAC addresses and the names of the
-   satellite's Wi-Fi networks become `[IP]`, `[MAC]` and `[Wi-Fi network]`,
-   and so does the part of the MAC address in the satellite's default name
-   (`pinna-[MAC]`). The log can still hold other details: a name you gave
-   the satellite, the names of paired phones and timers, and host names and
-   web addresses.
+   - when you selected **Open an issue** (**Copied**), in the time zone of
+     the log's times
 
-The block holds at most 50,000 characters, which leaves room for your own
-words under GitHub's limit of 65,536. A longer log is cut to its newest
-lines, and the title of the collapsed section says so, such as **Log, the
-newest 600 of 2,000 lines**. To attach every line the page holds, select
-**All**, clear **Filter**, select **Download**, and attach the text file to
-the issue. **Download** saves the lines as they are, with addresses and
+   At the same time, the dashboard copies the log to your clipboard. It has
+   every line on the page, also the lines that **Warnings and errors** or
+   **Filter** hide.
+3. In **Title**, say in a few words what goes wrong. In **What happened**,
+   say what you did, what you expected and what happened instead.
+4. Paste the log into **Log**. There it is text that starts with
+   `<details>`; the posted issue shows it as a collapsed section. If you paste something else, for example
+   because signing in to GitHub replaced what you copied, go back to the
+   dashboard's tab and select **Copy the log again**. If the browser didn't
+   copy the log, the Logs page says so and shows the log in a box: select
+   it, copy it and paste it.
+5. Read it before you submit it: issues are public. **Satellite** has no
+   serial number. In the log, IP addresses other than `0.0.0.0` and
+   `127.0.0.1`, which say nothing about your network, MAC addresses and the
+   names of the satellite's Wi-Fi networks become `[IP]`, `[MAC]` and
+   `[Wi-Fi network]`, and so does the part of the MAC address in the
+   satellite's default name (`pinna-[MAC]`). The log can still hold other
+   details: a name you gave the satellite, the names of paired phones and
+   timers, and host names and web addresses.
+
+The copied log holds at most 50,000 characters. A longer log is cut to its
+newest lines, and the title of the collapsed section says so, such as **Log,
+the newest 600 of 2,000 lines**. To attach every line the page holds, select
+**All**, clear **Filter**, select **Download** (the icon button next to
+**Copy**), and attach the text file in **Log**. **Download** saves the lines as they are, with addresses and
 network names, and the file's name starts with the satellite's name: check
 it before you attach it.
+
+To open an issue without the dashboard, use the
+[issue form](https://github.com/elsbrock/pinna/issues/new?template=problem.yml)
+and give the version and the device under **Satellite**.
 
 In rescue mode, the dashboard doesn't run. Attach the file from **Download
 diagnostics** on `http://10.42.0.1` instead. Read it before you post it: the

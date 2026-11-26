@@ -153,8 +153,10 @@ These plans follow the project's [goals](/docs/goals/).
 
 - **Say what you think.** Before 1.0, feedback changes the most. Say what
   works for you, what doesn't and what you miss, in
-  [Discussions](https://github.com/elsbrock/pinna/discussions). Standalone
-  mode needs it most.
+  [Discussions](https://github.com/elsbrock/pinna/discussions): on the
+  dashboard, **Feedback** at the foot of the sidebar, or **Share feedback**
+  under **Help** on the **System** page, starts one.
+  Standalone mode needs it most.
 - **Test it on a device.** Problems show up on real hardware first. Report
   what you see in an [issue](https://github.com/elsbrock/pinna/issues), with
   the version and the log from the dashboard, as
