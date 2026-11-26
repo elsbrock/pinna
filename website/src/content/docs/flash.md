@@ -1,6 +1,6 @@
 ---
 title: Install Pinna
-description: Install Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen), from the browser or from a terminal over fastboot, or on an Echo Dot (5th gen), from TWRP over USB, and connect it to Wi-Fi.
+description: Install Pinna on your Echo, from the browser or from a terminal, and connect it to Wi-Fi.
 ---
 
 How you install Pinna depends on the device:

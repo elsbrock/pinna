@@ -114,7 +114,7 @@ first that fits; [Audio](/docs/audio/) explains the audio path.
 
 | Backend | Used when |
 | --- | --- |
-| `echodot-pipewire` | On the Echo (2nd gen), the Echo Dot (2nd gen) and the Echo Dot (5th gen), when PipeWire runs. The normal case |
+| `echodot-pipewire` | On every supported Echo, when PipeWire runs. The normal case |
 | `echodot` | The same, without PipeWire. Microphones and speaker through ALSA |
 | `pipewire` | On other computers, through PipeWire, when `$XDG_RUNTIME_DIR/pipewire-0` exists. The virtual Echo Dot sets it in its own configuration |
 | `wav:<path>` | Reads the microphone signal from a WAV file. The speaker plays to nothing. For tests |

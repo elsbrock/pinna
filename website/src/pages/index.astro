@@ -39,9 +39,8 @@ const goals = [
         </h1>
 
         <p class="text-ink-muted text-body-l mt-5 max-w-xl">
-          Pinna is an open-source operating system for Echo speakers: the Echo
-          Dot (2nd gen), the Echo (2nd gen) and the Echo Dot
-          (5th gen). It detects the wake word on the device and
+          Pinna is an open-source operating system for Echo speakers. It
+          detects the wake word on the device and
           sends your request to your own Home Assistant, or, in standalone mode,
           to the speech services and the language model or AI agent you choose.
           It doesn't use Amazon's services.
@@ -97,8 +96,8 @@ const goals = [
         the language model or AI agent that works out what you asked and
         answers. You set it up on the satellite's dashboard, and it uses the
         tools you allow.
-        Standalone mode is new: it has been tried on an Echo Dot (2nd gen)
-        with OpenRouter and ElevenLabs, not yet with every service.
+        Standalone mode is new: it has been tried with OpenRouter and
+        ElevenLabs, not yet with every service.
       </p>
       <div class="mt-12">
         <Switchboard />
@@ -188,7 +187,7 @@ const goals = [
             <div class="fact">
               <span class="fact-title">The wake word still hears you</span>
               <span class="fact-say">
-                On the Echo (2nd gen) and the Echo Dot (2nd gen), the satellite removes its own sound from the microphones
+                The satellite removes its own sound from the microphones
                 without muting you, so the wake word hears you over music.
               </span>
             </div>
@@ -214,8 +213,7 @@ const goals = [
         <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
           The satellite has two copies of its system. An update goes into the
           one it isn't running, and if that one doesn't start, the satellite
-          goes back to the other by itself, kernel included. Updates over the air
-          aren't available on the Echo Dot (5th gen) yet.
+          goes back to the other by itself, kernel included.
         </p>
         <div class="mt-10">
           <UpdateSlots />
@@ -237,8 +235,8 @@ const goals = [
           <div class="fact">
             <span class="fact-title">Always a way back</span>
             <span class="fact-say">
-              On the Echo Dot (2nd gen) and the Echo (2nd gen), fastboot stays reachable on every start, and your
-              backup restores the original firmware.
+              Every supported Echo can go back to its original firmware, and
+              the docs say how.
             </span>
           </div>
         </div>
@@ -252,10 +250,9 @@ const goals = [
       <p class="eyebrow">Devices</p>
       <h2 class="section-title">Supported devices</h2>
       <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-        Pinna runs on the Echo (2nd gen) and the Echo Dot (2nd gen), which
-        install from the browser, and on the Echo Dot (5th gen), which is
-        unlocked with firebreak and installs with a guide of its own. More
-        Echos will follow.
+        Pinna runs on Echo speakers from more than one generation, and more
+        will follow. The devices page lists each one, how it is unlocked and
+        what works on it.
       </p>
 
       <div class="mt-12">
@@ -266,10 +263,9 @@ const goals = [
         <div>
           <p class="text-ink font-semibold">Help bring Pinna to more Echos</p>
           <p class="text-ink-muted text-body mt-1">
-            Contributions to support more devices are welcome. The Echo Dot
-            (5th gen) is an example of a finished port: its device tree,
-            board support for its audio, microphones and ring, and a device
-            to test on. If you have another Echo, say so.
+            Contributions to support more devices are welcome. A port is a
+            device tree, board support for the audio, microphones and ring,
+            and a device to test on. If you have another Echo, say so.
           </p>
         </div>
         <p class="flex shrink-0 flex-wrap gap-x-5 gap-y-2 text-sm">
@@ -304,20 +300,19 @@ const goals = [
             <span class="text-ink-muted text-body">
               Pinna installs on an Echo whose bootloader is unlocked. Back it
               up first if you want to go back to its current firmware later.
-              The Echo Dot (5th gen) needs firebreak first, which Pinna doesn't
-              ship.
+              <a class="link" href={docHref("devices")}>Echo devices</a> says
+              how to unlock each one.
             </span>
           </li>
           <li>
             <span class="node">2</span>
-            <span class="text-ink block font-semibold">Install from the browser</span>
+            <span class="text-ink block font-semibold">Install it</span>
             <span class="text-ink-muted text-body">
-              For the Echo Dot (2nd gen) and the Echo (2nd gen), the installer
-              downloads the newest release, checks its signature and writes it
-              over USB. From a terminal,
-              <code class="font-mono text-sm">scripts/flash-gen2.sh</code> does
-              the same. The Echo Dot (5th gen) installs from TWRP, in a
-              <a class="link" href={docHref("flash") + "#install-on-the-echo-dot-5th-gen"}>section of its own</a>.
+              The installer downloads the newest release, checks its signature
+              and writes it over USB, from your browser. Some Echos install
+              from a terminal instead:
+              <a class="link" href={docHref("flash")}>Install Pinna</a> has
+              the steps for each.
             </span>
           </li>
           <li>
@@ -335,8 +330,7 @@ const goals = [
           <div class="card p-6">
             <p class="text-ink font-semibold">The installer</p>
             <p class="text-ink-muted text-body mt-2">
-              Choose your Echo Dot (2nd gen) or Echo (2nd gen), plug it in, and
-              install. The page checks the device first and asks you before it writes anything. It runs in
+              Choose your Echo, plug it in, and install. The page checks the device first and asks you before it writes anything. It runs in
               Chrome, Edge, Brave or Opera on a computer.
             </p>
             <a class="pn-btn pn-btn-primary pn-btn-lg mt-5" href={href("/install/")}>
