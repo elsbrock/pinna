@@ -1,0 +1,15 @@
+#!/bin/sh
+# Give a network interface the MAC address from the bootloader's idme record
+# (mac_addr, 12 hex digits). The Echo Dot (5th gen)'s MT7663 efuse carries
+# MediaTek's placeholder, 00:0c:43:29:50:00, so without this every unit would
+# join with the same address. Run by udev before anything brings the
+# interface up.
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+v=$(tr -d '\000' 2>/dev/null < /sys/firmware/devicetree/base/idme/mac_addr/value) || exit 0
+case "$v" in
+  *[!0-9A-Fa-f]*) exit 0 ;;
+esac
+[ "${#v}" -eq 12 ] || exit 0
+mac=$(echo "$v" | sed 's/../&:/g; s/:$//' | tr 'A-F' 'a-f')
+ip link set dev "$1" address "$mac"

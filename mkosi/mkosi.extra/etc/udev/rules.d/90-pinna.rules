@@ -1,3 +1,6 @@
+# The Echo Dot (5th gen)'s MT7663 takes its MAC from the idme record: its efuse
+# holds MediaTek's placeholder. Runs before systemd sees wlan0.
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan0", DRIVERS=="mt7663s", RUN+="/usr/libexec/pinna/idme-mac %k"
 # Start the Wi-Fi client once the WMT bring-up has created wlan0.
 SUBSYSTEM=="net", KERNEL=="wlan0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="wpa_supplicant@wlan0.service"
 # Root console on the USB serial gadget.
