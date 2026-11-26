@@ -12,6 +12,10 @@ After=local-fs.target
 Before=network-pre.target wpa_supplicant@wlan0.service pinna-hotspot.service
 Wants=network-pre.target
 ConditionPathIsDirectory=/sys/class/ieee80211
+# The MT8163 and MT8516 Echos' Wi-Fi drivers are vendor drivers, not tested
+# with a country applied; they keep main's world rules until they are.
+ConditionFirmware=!device-tree-compatible(mediatek,mt8163)
+ConditionFirmware=!device-tree-compatible(mediatek,mt8516)
 
 [Service]
 Type=oneshot
