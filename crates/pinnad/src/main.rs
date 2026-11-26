@@ -227,6 +227,19 @@ fn driver_board(board: Option<&'static Board>, soc: Option<Soc>) -> Result<&'sta
     }
 }
 
+/// The raw lanes as PipeWire's `dot_mics` hands them to `pw-record`: every
+/// lane of the board's capture PCM as 24-bit samples at 16 kHz, the
+/// microphones first. The graph's clock sets the rate, not the sound card's
+/// (the Echo Dot (5th gen)'s PCM is 96 kHz, S32_LE).
+fn raw_lanes_format(board: &Board) -> CaptureFormat {
+    CaptureFormat {
+        rate: pinna_audio::dsp::SAMPLE_RATE,
+        channels: board.audio.capture.channels,
+        sample: SampleFormat::S24_3Le,
+        mic_lanes: (0..board.mics.count).collect(),
+    }
+}
+
 /// `card` is the board's sound card id ([`pinna_hal::board::Audio`]).
 fn audio_backend(spec: &str, card: &str) -> Option<Backend> {
     match spec {
@@ -883,6 +896,7 @@ async fn main() -> Result<()> {
             .filter(|_| cfg.audio.capture_target.is_none())
             .map(|target| pinna_audio::capture::RawFallback {
                 target: target.to_owned(),
+                format: raw_lanes_format(hw),
                 after: std::time::Duration::from_secs(1),
                 retry_after: std::time::Duration::from_secs(60),
             });
@@ -1244,6 +1258,34 @@ mod tests {
                 pinna_audio::dsp::FrontEndConfig::default().mic_mask
             );
         }
+    }
+
+    /// The raw fallback follows the board: its lanes, not the MT8163's nine.
+    #[test]
+    fn the_raw_fallback_follows_the_boards_lanes() {
+        assert_eq!(
+            raw_lanes_format(&pinna_hal::board::ECHO_DOT_2),
+            CaptureFormat::default()
+        );
+        let dot5 = &pinna_hal::board::ECHO_DOT_5;
+        let format = raw_lanes_format(dot5);
+        assert_eq!(format.channels, 6);
+        assert_eq!(format.rate, 16_000);
+        assert_eq!(format.mic_lanes, (0..dot5.mics.count).collect::<Vec<_>>());
+        assert_eq!(format.channels, dot5.mics.lanes());
+        format.check().unwrap();
+        let mut cfg = CaptureConfig::new(Backend::EchoDotPipeWire);
+        cfg.raw_fallback = Some(pinna_audio::capture::RawFallback {
+            target: "dot_mics".into(),
+            format,
+            after: std::time::Duration::from_secs(1),
+            retry_after: std::time::Duration::from_secs(60),
+        });
+        let (_, args) = pinna_audio::capture::capture_command(&cfg, true).unwrap();
+        assert_eq!(
+            args.join(" "),
+            "--raw --rate 16000 --channels 6 --format s24 --target dot_mics -"
+        );
     }
 
     /// Every board's capture format is one the front end decodes.

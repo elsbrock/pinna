@@ -2,8 +2,7 @@
 //! (`arecord` on the Echo Dot, `pw-record` elsewhere) or a WAV file.
 
 use crate::dsp::{
-    CaptureFormat, FRAME_SAMPLES, FrontEnd, FrontEndConfig, RAW_CHANNELS, SAMPLE_RATE,
-    SimpleFrontEnd,
+    CaptureFormat, FRAME_SAMPLES, FrontEnd, FrontEndConfig, SAMPLE_RATE, SimpleFrontEnd,
 };
 use crate::mixer::{self, MICPGA_DEFAULT, MixerRunner};
 use crate::{Backend, Error, Result};
@@ -84,9 +83,12 @@ impl CaptureConfig {
 /// they end, the capture tries the processed stream again.
 #[derive(Clone, Debug)]
 pub struct RawFallback {
-    /// The raw lanes' node, `dot_mics`, delivering [`crate::dsp::RAW_CHANNELS`]
-    /// lanes of 24-bit samples.
+    /// The raw lanes' node, `dot_mics`.
     pub target: String,
+    /// What it delivers: the board's lanes as 24-bit samples at the graph's
+    /// 16 kHz, whatever the sound card's own format is (the Echo Dot (5th
+    /// gen)'s is 96 kHz, S32_LE; PipeWire's adapter converts it).
+    pub format: CaptureFormat,
     pub after: Duration,
     pub retry_after: Duration,
 }
@@ -148,9 +150,12 @@ impl Drop for CaptureStream {
 
 /// Start capturing with the default [`SimpleFrontEnd`] built from the config.
 pub async fn start_capture(cfg: CaptureConfig) -> Result<CaptureStream> {
-    let (fe_cfg, format) = (cfg.front_end.clone(), cfg.format.clone());
+    let fe_cfg = cfg.front_end.clone();
     cfg.format.check().map_err(Error::Other)?;
-    start_capture_with(cfg, move || {
+    if let Some(f) = &cfg.raw_fallback {
+        f.format.check().map_err(Error::Other)?;
+    }
+    start_capture_with(cfg, move |format| {
         Box::new(
             SimpleFrontEnd::with_format(fe_cfg.clone(), format.clone()).expect("format checked"),
         )
@@ -158,10 +163,11 @@ pub async fn start_capture(cfg: CaptureConfig) -> Result<CaptureStream> {
 }
 
 /// Like [`start_capture`] with a custom multi-channel front end (beamforming,
-/// AEC...) created on every (re)start. Only used by the Echo Dot backend.
+/// AEC...) created on every (re)start, for the format of the lanes it will
+/// read: the capture's own, or the raw fallback's. Only used by the Echo Dot backend.
 pub fn start_capture_with(
     cfg: CaptureConfig,
-    front_end: impl Fn() -> Box<dyn FrontEnd> + Send + Sync + 'static,
+    front_end: impl Fn(&CaptureFormat) -> Box<dyn FrontEnd> + Send + Sync + 'static,
 ) -> Result<CaptureStream> {
     cfg.format.check().map_err(Error::Other)?;
     let (tx, rx) = mpsc::channel(cfg.queue_frames.max(1));
@@ -198,7 +204,7 @@ enum RunEnd {
     Retry,
 }
 
-type FrontEndFactory = Box<dyn Fn() -> Box<dyn FrontEnd> + Send + Sync>;
+type FrontEndFactory = Box<dyn Fn(&CaptureFormat) -> Box<dyn FrontEnd> + Send + Sync>;
 
 async fn supervise(
     cfg: CaptureConfig,
@@ -334,7 +340,7 @@ pub fn capture_command(cfg: &CaptureConfig, raw: bool) -> Option<(String, Vec<St
                 "--rate",
                 "16000",
                 "--channels",
-                &RAW_CHANNELS.to_string(),
+                &f.format.channels.to_string(),
                 "--format",
                 "s24",
                 "--target",
@@ -446,7 +452,12 @@ async fn run_process(
         Err(e) => return RunEnd::Died(format!("spawn {bin}: {e}"), false),
     };
     let mut stdout = child.stdout.take().expect("piped");
-    let mut fe = make_fe();
+    // The lanes this process delivers: the capture's own, or the fallback's.
+    let format = match (&cfg.raw_fallback, raw) {
+        (Some(f), true) => &f.format,
+        _ => &cfg.format,
+    };
+    let mut fe = make_fe(format);
     // Raw lanes of 24-bit samples, mixed by the front end.
     let echo = cfg.backend == Backend::EchoDot || raw;
     let mut framer = Framer {
@@ -520,7 +531,7 @@ async fn run_process(
         carry.extend_from_slice(&buf[..n]);
         samples.clear();
         if echo {
-            let frame = cfg.format.frame_bytes();
+            let frame = format.frame_bytes();
             let whole = carry.len() / frame * frame;
             fe.process(&carry[..whole], &mut samples);
             carry.drain(..whole);
@@ -788,6 +799,7 @@ mod tests {
         let mut cfg = CaptureConfig::new(Backend::EchoDotPipeWire);
         cfg.raw_fallback = Some(RawFallback {
             target: "dot_mics".into(),
+            format: CaptureFormat::default(),
             after: Duration::from_secs(1),
             retry_after: Duration::from_secs(60),
         });
@@ -823,6 +835,7 @@ mod tests {
         cfg.apply_mixer = false;
         cfg.raw_fallback = Some(RawFallback {
             target: "dot_mics".into(),
+            format: CaptureFormat::default(),
             after: Duration::from_millis(200),
             retry_after: Duration::from_secs(60),
         });
@@ -842,6 +855,59 @@ mod tests {
             .unwrap()
             .unwrap();
         // The mean of lanes whose samples are all 0x101010 >> 8 = 0x1010.
+        assert!(next.iter().all(|&x| x == 0x1010), "{:?}", &next[..4]);
+        drop(s);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The raw lanes follow the fallback's format, not the sound card's: on
+    /// the Echo Dot (5th gen) the card is 96 kHz S32_LE with 6 lanes, and
+    /// PipeWire hands the raw node 6 lanes of 24-bit samples at 16 kHz.
+    #[tokio::test]
+    async fn the_raw_lanes_are_decoded_in_the_fallbacks_format() {
+        let dir = std::env::temp_dir().join(format!("pinna-fakepw6-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("pw-record");
+        // dot_mics: 640 frames of 6 x S24_3LE, every byte 0x10 (octal 020).
+        std::fs::write(
+            &script,
+            "#!/bin/sh\ncase \"$*\" in\n*dot_mics*) head -c 11520 /dev/zero | tr '\\000' '\\020'; sleep 1 ;;\n*) head -c 640 /dev/zero; sleep 10 ;;\nesac\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut cfg = CaptureConfig::new(Backend::EchoDotPipeWire);
+        cfg.pw_record_bin = script.to_string_lossy().into();
+        cfg.apply_mixer = false;
+        cfg.format = CaptureFormat {
+            rate: 96_000,
+            channels: 6,
+            sample: crate::dsp::SampleFormat::S32Le,
+            mic_lanes: vec![0, 1, 2, 3],
+        };
+        cfg.raw_fallback = Some(RawFallback {
+            target: "dot_mics".into(),
+            format: CaptureFormat {
+                rate: 16_000,
+                channels: 6,
+                sample: crate::dsp::SampleFormat::S24_3Le,
+                mic_lanes: vec![0, 1, 2, 3],
+            },
+            after: Duration::from_millis(200),
+            retry_after: Duration::from_secs(60),
+        });
+        cfg.front_end.mic_mask = 0b1111;
+        cfg.front_end.highpass = false;
+        cfg.front_end.digital_gain = 100;
+        let mut s = start_capture(cfg).await.unwrap();
+        let _processed = tokio::time::timeout(Duration::from_secs(3), s.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let next = tokio::time::timeout(Duration::from_secs(3), s.recv())
+            .await
+            .unwrap()
+            .unwrap();
         assert!(next.iter().all(|&x| x == 0x1010), "{:?}", &next[..4]);
         drop(s);
         std::fs::remove_dir_all(dir).unwrap();
@@ -873,6 +939,7 @@ mod tests {
         cfg.apply_mixer = false;
         cfg.raw_fallback = Some(RawFallback {
             target: "dot_mics".into(),
+            format: CaptureFormat::default(),
             after: Duration::from_secs(1),
             retry_after: Duration::from_millis(300),
         });
