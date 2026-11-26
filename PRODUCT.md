@@ -1,8 +1,8 @@
 # Pinna: product
 
 **Who it is for.**
-- Home Assistant users who own an Echo Dot (2nd gen) or an Echo (2nd gen) and
-  want to use it as a voice satellite without Amazon.
+- Home Assistant users who own an Echo Dot (2nd gen), an Echo (2nd gen) or an
+  Echo Dot (5th gen) and want to use it as a voice satellite without Amazon.
 - Owners of the same devices who don't run Home Assistant and want a voice
   assistant without Amazon, using services they choose: timers, the weather,
   radio and questions to a model (standalone mode, ADR 0017). This is the
@@ -10,8 +10,9 @@
 - People who run an AI agent such as Hermes or OpenClaw and want the device as
   its voice and speaker. Standalone mode serves them too, second.
 
-All of them are comfortable with a terminal, fastboot and building an image,
-and they accept early-stage software.
+All of them are comfortable with a terminal, unlocking the device (Kaeru on
+the 2nd gen, firebreak on the Echo Dot (5th gen)), fastboot or adb, and
+building an image, and they accept early-stage software.
 
 **What it does for them.**
 - In Home Assistant mode it turns the device into a Home Assistant voice
