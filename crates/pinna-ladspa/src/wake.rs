@@ -191,8 +191,14 @@ unsafe extern "C" fn instantiate(_d: *const Descriptor, rate: c_ulong) -> Handle
         return ptr::null_mut();
     }
     catch_unwind(|| {
-        let board = Lanes::of(pinna_hal::board::detect().unwrap_or(&ECHO_DOT_2));
-        let beamformer = Beamformer::new(board.speech, DEFAULT_BEAMS)
+        let described = pinna_hal::board::detect().unwrap_or(&ECHO_DOT_2);
+        let board = Lanes::of(described);
+        // The beams are designed for where this board's microphones are, so
+        // the ring points the right way on any array.
+        let mics = &described.mics;
+        let positions: Vec<(f64, f64)> =
+            (0..mics.count).map(|m| mics.geometry.position(m)).collect();
+        let beamformer = Beamformer::with_positions(&positions, board.speech, DEFAULT_BEAMS)
             .unwrap_or_else(|_| Beamformer::default_echo_dot());
         let mut wake = Box::new(Wake {
             ports: [ptr::null_mut(); PORT_COUNT],
@@ -337,8 +343,11 @@ mod tests {
                     .iter()
                     .all(|&l| l >= b.mics.loopback_at && l < INPUTS)
             );
+            let positions: Vec<(f64, f64)> = (0..b.mics.count)
+                .map(|i| b.mics.geometry.position(i))
+                .collect();
             assert!(
-                Beamformer::new(lanes.speech, DEFAULT_BEAMS).is_ok(),
+                Beamformer::with_positions(&positions, lanes.speech, DEFAULT_BEAMS).is_ok(),
                 "{m:?}"
             );
         }
