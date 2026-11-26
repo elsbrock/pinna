@@ -27,6 +27,7 @@
   import Password from "./pages/Password.svelte";
   import RecordAudio from "./pages/RecordAudio.svelte";
   import System from "./pages/System.svelte";
+  import Timeline from "./pages/Timeline.svelte";
   import Updates from "./pages/Updates.svelte";
   import MediaSources from "./pages/MediaSources.svelte";
   import Voice from "./pages/Voice.svelte";
@@ -39,8 +40,8 @@
   const ring = $derived(ringEffect(s, device.link, device.testStep));
   const page = $derived(pageOf(router.path));
   const groups = [...new Set(SECTIONS.map((x) => x.group))];
-  // Logs fills the window, and only its log scrolls.
-  const fill = $derived(page.path === "/system/logs");
+  // Logs and the Timeline fill the window, and only their data scrolls.
+  const fill = $derived(page.path === "/system/logs" || page.path === "/system/timeline");
 
   // The satellite switcher (ADR 0021), opened from the sidebar's device box or,
   // on phones, the name in the app bar.
@@ -249,7 +250,8 @@
         {:else if page.path === "/system/updates"}<Updates />
         {:else if page.path === "/system/password"}<Password />
         {:else if page.path === "/system/record"}<RecordAudio />
-        {:else if page.path === "/system/logs"}<Logs />{/if}
+        {:else if page.path === "/system/logs"}<Logs />
+        {:else if page.path === "/system/timeline"}<Timeline />{/if}
       {/if}
     </main>
   </div>

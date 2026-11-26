@@ -14,6 +14,7 @@
   import StatTile from "../lib/StatTile.svelte";
   import NowPlaying from "../lib/NowPlaying.svelte";
   import Timers from "../lib/Timers.svelte";
+  import { recordedWords, timeLeft } from "../lib/timeline.ts";
   import { toasts } from "../lib/toast.svelte.ts";
   import VirtualDevice from "../lib/VirtualDevice.svelte";
   import {
@@ -74,6 +75,21 @@
       toasts.show(errorSentence(e), "danger");
     }
     stoppingRecording = false;
+  }
+  // Debugging runs (ADR 0036): the timeline keeps requests, and with a password the audio levels and what was said.
+  const debugging = $derived(s?.debugging);
+  const debuggingLeft = $derived(
+    debugging ? secondsUntil(device.receivedAt + debugging.secondsLeft * 1000, device.now) : 0,
+  );
+  let stoppingDebugging = $state(false);
+  async function stopDebugging() {
+    stoppingDebugging = true;
+    try {
+      await client.stopDebugging({});
+    } catch (e) {
+      toasts.show(errorSentence(e), "danger");
+    }
+    stoppingDebugging = false;
   }
   // With a password and no key, the satellite refuses Home Assistant until the owner opens a window.
   $effect(() => windows.watch());
@@ -160,6 +176,9 @@
           {#if waiting.recording}
             A browser at {waiting.from} is waiting for a press of Action to record from the microphones, {waitingLeft}
             s left. Don't press it unless that was you.
+          {:else if waiting.debugging}
+            A browser at {waiting.from} is waiting for a press of Action to record what was said, {waitingLeft} s
+            left. Don't press it unless that was you.
           {:else}
             A browser at {waiting.from} is waiting for a press of Action, {waitingLeft} s left. Don't press it unless
             that was you.
@@ -181,6 +200,24 @@
         </p>
         <div>
           <button class="pn-btn" disabled={stoppingRecording || !live} onclick={stopRecording}>Stop it</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if debugging && debuggingLeft > 0}
+    <div class="pn-notice" data-tone="caution" role="status">
+      <Icon name="alert" class="pn-icon pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">Debugging is on: {timeLeft(debuggingLeft)}.</p>
+        <p>
+          It records {recordedWords({
+            levelsSecondsLeft: debugging.levelsSecondsLeft,
+            textSecondsLeft: debugging.textSecondsLeft,
+          })}. <a href="#/system/timeline">Open the timeline</a>
+        </p>
+        <div>
+          <button class="pn-btn" disabled={stoppingDebugging || !live} onclick={stopDebugging}>Stop it</button>
         </div>
       </div>
     </div>

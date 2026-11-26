@@ -9,6 +9,7 @@
   import { security } from "../lib/security.svelte.ts";
   import { THEME_LABEL, THEMES, theme } from "../lib/theme.svelte.ts";
   import Select from "../lib/Select.svelte";
+  import { debuggingHint } from "../lib/timeline.ts";
   import { toasts } from "../lib/toast.svelte.ts";
   import { displayName, DOCS, hasUsb, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
 
@@ -219,6 +220,13 @@
       <span class="pn-row-text">
         <span class="pn-row-label">Logs</span>
         <span class="pn-row-hint" class:is-danger={start.danger}>{start.hint}</span>
+      </span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+    <a class="pn-row" href="#/system/timeline">
+      <span class="pn-row-text">
+        <span class="pn-row-label">Timeline</span>
+        <span class="pn-row-hint">{debuggingHint(s?.debugging)}</span>
       </span>
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>

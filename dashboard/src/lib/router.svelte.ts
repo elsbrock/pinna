@@ -116,6 +116,11 @@ const SUBPAGES: Omit<Page, "section">[] = [
     description:
       "What the satellite is doing, newest at the bottom. Debug lines stay on the satellite, because they can contain what was said.",
   },
+  {
+    path: "/system/timeline",
+    title: "Timeline",
+    description: "Requests and the audio pipeline, for debugging.",
+  },
 ];
 
 /** A section's sub-pages, in the order the sidebar lists them under it. */

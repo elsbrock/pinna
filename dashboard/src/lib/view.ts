@@ -674,6 +674,7 @@ export const PATHS = [
   "/system/password",
   "/system/record",
   "/system/logs",
+  "/system/timeline",
 ] as const;
 export type Path = (typeof PATHS)[number];
 
@@ -1073,19 +1074,21 @@ export const PASSWORD_NOTICES: Record<PasswordNotice, string> = {
 };
 
 /** pinna.v1.ConfirmationPurpose values (generated as a TS enum, which `node --test` cannot load). */
-export const PURPOSE = { password: 0, recording: 1 } as const;
+export const PURPOSE = { password: 0, recording: 1, debuggingText: 2 } as const;
 
 /** The Overview's warning about a confirmation someone else started; null when none waits
- *  or this browser started it. `recording`: it is for a recording, not a password. */
+ *  or this browser started it. `recording`: it is for a recording, not a password.
+ *  `debugging`: it is for the debugging timeline's text. */
 export function confirmationWarning(
   sec: Security | null,
   startedHere: boolean,
-): { from: string; left: number; recording: boolean } | null {
+): { from: string; left: number; recording: boolean; debugging: boolean } | null {
   if (!sec?.signedIn || startedHere || sec.confirmationLeftS <= 0) return null;
   return {
     from: sec.confirmationWaitingFrom,
     left: sec.confirmationLeftS,
     recording: sec.confirmationPurpose === PURPOSE.recording,
+    debugging: sec.confirmationPurpose === PURPOSE.debuggingText,
   };
 }
 

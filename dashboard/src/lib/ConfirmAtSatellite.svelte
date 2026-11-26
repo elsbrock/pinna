@@ -1,6 +1,6 @@
 <!-- Asks for someone at the satellite (ADR 0029): the ring circles for 60
      seconds, white for a password and in the Listening colour for a recording
-     (ADR 0030), and a press of Action hands the caller a one-time grant. Starts
+     (ADR 0030, ADR 0036), and a press of Action hands the caller a one-time grant. Starts
      when it appears. Cancel, and leaving while it waits, stop the ring at once. -->
 <script lang="ts">
   import { onMount } from "svelte";
@@ -17,7 +17,9 @@
     oncancel,
     purpose = ConfirmationPurpose.PASSWORD,
   }: { ongrant: (grant: string) => void; oncancel: () => void; purpose?: ConfirmationPurpose } = $props();
-  const recording = $derived(purpose === ConfirmationPurpose.RECORDING);
+  const debugging = $derived(purpose === ConfirmationPurpose.DEBUGGING_TEXT);
+  // The ring shows the recording pattern for both: what you say goes to this browser.
+  const recording = $derived(purpose === ConfirmationPurpose.RECORDING || debugging);
 
   let stage = $state<"starting" | "waiting" | "expired" | "stopped" | "refused" | "done">("starting");
   // The satellite sends the seconds left once, when the wait starts: count down here.
@@ -99,7 +101,9 @@
     <p>Asking the satellite…</p>
   {:else if stage === "waiting"}
     {#if recording}
-      <p class="pn-notice-title">Press Action on the satellite to start recording.</p>
+      <p class="pn-notice-title">
+        Press Action on the satellite to {debugging ? "record what was said" : "start recording"}.
+      </p>
       <p>The ring circles in the Listening colour. {secondsWord(left)} left.</p>
     {:else}
       <p class="pn-notice-title">Press the Action button (the one with the dot) on the satellite.</p>

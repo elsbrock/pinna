@@ -1115,11 +1115,23 @@ test("a grant lasts five minutes from when the page got it", () => {
 
 test("the Overview warns of a confirmation another browser started, for a signed-in session", () => {
   const waiting = { signedIn: true, confirmationWaitingFrom: "192.168.1.23", confirmationLeftS: 41 };
-  assert.deepEqual(confirmationWarning(security(waiting), false), { from: "192.168.1.23", left: 41, recording: false });
+  assert.deepEqual(confirmationWarning(security(waiting), false), {
+    from: "192.168.1.23",
+    left: 41,
+    recording: false,
+    debugging: false,
+  });
   assert.deepEqual(confirmationWarning(security({ ...waiting, confirmationPurpose: PURPOSE.recording }), false), {
     from: "192.168.1.23",
     left: 41,
     recording: true,
+    debugging: false,
+  });
+  assert.deepEqual(confirmationWarning(security({ ...waiting, confirmationPurpose: PURPOSE.debuggingText }), false), {
+    from: "192.168.1.23",
+    left: 41,
+    recording: false,
+    debugging: true,
   });
   assert.equal(confirmationWarning(security(waiting), true), null, "this browser started it");
   assert.equal(confirmationWarning(security({ ...waiting, confirmationLeftS: 0 }), false), null);
