@@ -1,9 +1,9 @@
 //! The entity set of LibreEcho, so Home Assistant keeps its entity IDs.
 
 use crate::types::{
-    ButtonConfig, DeviceConfig, EntityCategory, EventConfig, LightConfig, MediaFormat,
-    MediaPlayerConfig, MediaPurpose, NumberConfig, NumberMode, SelectConfig, SwitchConfig,
-    TextSensorConfig, TimeConfig, UpdateConfig, media_feature,
+    BinarySensorConfig, ButtonConfig, DeviceConfig, EntityCategory, EventConfig, LightConfig,
+    MediaFormat, MediaPlayerConfig, MediaPurpose, NumberConfig, NumberMode, SelectConfig,
+    SwitchConfig, TextSensorConfig, TimeConfig, UpdateConfig, media_feature,
 };
 
 fn strings(v: &[&str]) -> Vec<String> {
@@ -208,6 +208,14 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
         object_id: "last_wake_word".into(),
         name: "Last wake word".into(),
         icon: "mdi:account-voice".into(),
+    }];
+    // On while debugging runs on the satellite (ADR 0036). Home Assistant can
+    // only read it: there is deliberately no switch.
+    cfg.binary_sensors = vec![BinarySensorConfig {
+        object_id: "debugging".into(),
+        name: "Debugging".into(),
+        icon: "mdi:bug".into(),
+        device_class: "running".into(),
     }];
     cfg.media_player = Some(MediaPlayerConfig {
         object_id: "media_player".into(),

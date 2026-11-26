@@ -22,6 +22,8 @@ from aioesphomeapi.core import (
     RequiresEncryptionAPIError,
 )
 from aioesphomeapi.model import (
+    BinarySensorInfo,
+    BinarySensorState,
     ButtonInfo,
     EntityCategory,
     Event,
@@ -175,8 +177,8 @@ async def test_entities(client):
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
     # 1 light, 11 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
-    # 1 media player, 3 selects, 2 times and 1 update.
-    assert len(by_key) == len(entities) == 1 + 11 + 4 + 1 + 8 + 1 + 1 + 3 + 2 + 1
+    # 1 binary sensor, 1 media player, 3 selects, 2 times and 1 update.
+    assert len(by_key) == len(entities) == 1 + 11 + 4 + 1 + 8 + 1 + 1 + 1 + 3 + 2 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -312,6 +314,25 @@ async def test_text_sensor_update(client, demo):
         lambda: any(isinstance(s, TextSensorState) and s.state == "Okay Nabu" for s in got), "text state"
     )
     assert all(s.key == t.key for s in got if isinstance(s, TextSensorState))
+
+
+@pytest.mark.asyncio
+async def test_binary_sensor_debugging(client, demo):
+    sensors = await infos(client, BinarySensorInfo)
+    d = sensors["Debugging"]
+    assert (set(sensors), d.object_id, d.icon, d.device_class) == ({"Debugging"}, "debugging", "mdi:bug", "running")
+
+    got = []
+    client.subscribe_states(got.append)
+    await eventually(lambda: any(isinstance(s, BinarySensorState) for s in got), "initial binary state")
+    initial = [s for s in got if isinstance(s, BinarySensorState)][0]
+    assert initial.key == d.key and initial.state is False and initial.missing_state is False
+
+    demo.send("binary debugging on")
+    await eventually(
+        lambda: any(isinstance(s, BinarySensorState) and s.state is True and not s.missing_state for s in got),
+        "debugging on",
+    )
 
 
 @pytest.mark.asyncio

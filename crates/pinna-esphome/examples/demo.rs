@@ -154,6 +154,13 @@ async fn main() -> anyhow::Result<()> {
                             value: value.to_owned(),
                         }).await?;
                     }
+                    ("binary", rest) => {
+                        let (object_id, state) = rest.split_once(' ').unwrap_or((rest, ""));
+                        handle.send(DeviceEvent::BinarySensorState {
+                            object_id: object_id.to_owned(),
+                            state: state == "on",
+                        }).await?;
+                    }
                     ("rename", name) => {
                         handle.send(DeviceEvent::FriendlyName(name.to_owned())).await?;
                         handle.send(DeviceEvent::Disconnect).await?;

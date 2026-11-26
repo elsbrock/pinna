@@ -86,6 +86,15 @@ pub struct TextSensorConfig {
     pub icon: String,
 }
 
+/// A read-only binary sensor entity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinarySensorConfig {
+    pub object_id: String,
+    pub name: String,
+    pub icon: String,
+    pub device_class: String,
+}
+
 /// A switch besides the built-in microphone mute switch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwitchConfig {
@@ -229,6 +238,7 @@ pub struct DeviceConfig {
     pub buttons: Vec<ButtonConfig>,
     pub events: Vec<EventConfig>,
     pub text_sensors: Vec<TextSensorConfig>,
+    pub binary_sensors: Vec<BinarySensorConfig>,
     pub switches: Vec<SwitchConfig>,
     pub selects: Vec<SelectConfig>,
     pub times: Vec<TimeConfig>,
@@ -286,6 +296,7 @@ impl DeviceConfig {
             buttons: Vec::new(),
             events: Vec::new(),
             text_sensors: Vec::new(),
+            binary_sensors: Vec::new(),
             switches: Vec::new(),
             selects: Vec::new(),
             times: Vec::new(),
@@ -401,6 +412,10 @@ pub enum DeviceEvent {
     TextSensorState {
         object_id: String,
         value: String,
+    },
+    BinarySensorState {
+        object_id: String,
+        state: bool,
     },
     /// State of a configured switch (not the microphone mute switch).
     SwitchState {

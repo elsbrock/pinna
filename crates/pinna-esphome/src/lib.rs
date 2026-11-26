@@ -43,8 +43,8 @@ pub use profile::{
 };
 pub use server::{EsphomeHandle, LIGHT_KEY, MUTE_KEY, Stopped, serve};
 pub use types::{
-    ButtonConfig, DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory, EventConfig,
-    HaCommand, InvalidKey, LightConfig, LightState, MediaFormat, MediaPlayerCommand,
+    BinarySensorConfig, ButtonConfig, DeviceConfig, DeviceEvent, ESPHOME_VERSION, EntityCategory,
+    EventConfig, HaCommand, InvalidKey, LightConfig, LightState, MediaFormat, MediaPlayerCommand,
     MediaPlayerConfig, MediaPlayerStateKind, MediaPurpose, NumberConfig, NumberMode, SelectConfig,
     SwitchConfig, TextSensorConfig, TimeConfig, TimerEventType, UpdateCommand, UpdateConfig,
     UpdateState, VOICE_FEATURE_FLAGS, VoiceEventType, WakeWordInfo, mdns_txt, media_feature,

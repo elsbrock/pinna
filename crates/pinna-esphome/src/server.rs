@@ -68,6 +68,10 @@ fn check_keys(cfg: &DeviceConfig) -> anyhow::Result<()> {
             cfg.text_sensors.iter().map(|e| &e.object_id).collect(),
         ),
         (
+            "binary_sensor",
+            cfg.binary_sensors.iter().map(|e| &e.object_id).collect(),
+        ),
+        (
             "media_player",
             cfg.media_player.iter().map(|e| &e.object_id).collect(),
         ),
@@ -528,6 +532,7 @@ struct Actor {
     muted: bool,
     numbers: HashMap<String, f32>,
     texts: HashMap<String, String>,
+    binaries: HashMap<String, bool>,
     switches: HashMap<String, bool>,
     selects: HashMap<String, String>,
     times: HashMap<String, (u32, u32)>,
@@ -544,6 +549,11 @@ impl Actor {
         name: SharedName,
     ) -> Self {
         let active_wake = cfg.active_wake_words.clone();
+        let cfg_binaries = cfg
+            .binary_sensors
+            .iter()
+            .map(|b| (b.object_id.clone(), false))
+            .collect();
         Self {
             cfg,
             cmds,
@@ -556,6 +566,8 @@ impl Actor {
             muted: false,
             numbers: HashMap::new(),
             texts: HashMap::new(),
+            // The device always knows its state, so a sensor starts off, not missing.
+            binaries: cfg_binaries,
             switches: HashMap::new(),
             selects: HashMap::new(),
             times: HashMap::new(),
@@ -770,6 +782,14 @@ impl Actor {
         }
     }
 
+    fn binary_state_msg(&self, object_id: &str) -> proto::BinarySensorStateResponse {
+        proto::BinarySensorStateResponse {
+            key: entity_key("binary_sensor", object_id),
+            state: self.binaries.get(object_id).copied().unwrap_or(false),
+            ..Default::default()
+        }
+    }
+
     fn media_state_msg(&self) -> Option<proto::MediaPlayerStateResponse> {
         let mp = self.cfg.media_player.as_ref()?;
         let (state, volume, muted) = self.media;
@@ -875,6 +895,20 @@ impl Actor {
                 }
                 self.texts.insert(object_id.clone(), value);
                 let m = self.text_state_msg(&object_id);
+                self.broadcast(&m, true);
+            }
+            DeviceEvent::BinarySensorState { object_id, state } => {
+                if !self
+                    .cfg
+                    .binary_sensors
+                    .iter()
+                    .any(|b| b.object_id == object_id)
+                {
+                    warn!(%object_id, "state for unknown binary sensor dropped");
+                    return;
+                }
+                self.binaries.insert(object_id.clone(), state);
+                let m = self.binary_state_msg(&object_id);
                 self.broadcast(&m, true);
             }
             DeviceEvent::ActiveWakeWords(ids) => {
@@ -1166,6 +1200,16 @@ impl Actor {
                     .collect();
                 for o in ids {
                     let m = self.text_state_msg(&o);
+                    self.send(id, &m);
+                }
+                let ids: Vec<String> = self
+                    .cfg
+                    .binary_sensors
+                    .iter()
+                    .map(|b| b.object_id.clone())
+                    .collect();
+                for o in ids {
+                    let m = self.binary_state_msg(&o);
                     self.send(id, &m);
                 }
                 if let Some(m) = self.media_state_msg() {
@@ -1579,6 +1623,19 @@ impl Actor {
                     object_id: t.object_id,
                     name: t.name,
                     icon: t.icon,
+                    ..Default::default()
+                },
+            );
+        }
+        for b in self.cfg.binary_sensors.clone() {
+            self.send(
+                id,
+                &proto::ListEntitiesBinarySensorResponse {
+                    key: entity_key("binary_sensor", &b.object_id),
+                    object_id: b.object_id,
+                    name: b.name,
+                    icon: b.icon,
+                    device_class: b.device_class,
                     ..Default::default()
                 },
             );
