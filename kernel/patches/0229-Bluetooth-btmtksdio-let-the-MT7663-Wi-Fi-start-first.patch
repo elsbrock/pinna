@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 14:45:00 +0100
+Subject: [PATCH] Bluetooth: btmtksdio: let the MT7663 Wi-Fi start first
+
+On the Echo Dot (5th gen) the MT7663's Bluetooth and Wi-Fi functions probe
+together. Bluetooth's first WMT command came 0.6 ms after Wi-Fi began loading
+the ROM patch and N9 firmware; on two cold boots in three both then timed
+out ("Execution of wmt command timed out", "Failed to start N9 firmware"),
+and neither came up. With Bluetooth's driver kept out of the boot, Wi-Fi
+started every time, its N9 running about 0.3 s after probe (C2N6L4,
+2026-11-26). Wait 3 s before Bluetooth's MT7663 setup talks to the chip;
+the MT7668, which shares the setup, doesn't wait.
+It runs from hci_power_on's work, so the wait delays nothing else.
+
+---
+--- a/drivers/bluetooth/btmtksdio.c
++++ b/drivers/bluetooth/btmtksdio.c
+@@ -848,6 +848,17 @@
+ 	int err, status;
+ 	u8 param = 0x1;
+ 
++	/*
++	 * The MT7663's Wi-Fi function loads the ROM patch and its N9 firmware
++	 * over the same SDIO card in parallel with this. A WMT command that
++	 * lands while it does times out, and the Wi-Fi start fails with it
++	 * (two cold boots in three on the Echo Dot (5th gen), C2N6L4,
++	 * 2026-11-26). Its N9 runs about 0.3 s after probe: let it finish.
++	 * The MT7668 shares this setup and isn't known to race: it doesn't wait.
++	 */
++	if (bdev->data->chipid == 0x7663)
++		msleep(3000);
++
+ 	/* Query whether the firmware is already download */
+ 	wmt_params.op = BTMTK_WMT_SEMAPHORE;
+ 	wmt_params.flag = 1;

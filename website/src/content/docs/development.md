@@ -114,6 +114,7 @@ python3 tests/kernel/test-mt8519-privacy.py
 python3 tests/kernel/test-mt8519-light.py
 python3 tests/kernel/test-mt8519-sdio.py
 python3 tests/kernel/test-mt8519-watchdog.py
+python3 tests/kernel/test-mt8519-bt-wait.py
 ```
 
 They need `cc` and the patched source in `build/linux`. They compile the actual
