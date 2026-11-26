@@ -48,6 +48,10 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Print the board's Wi-Fi chip (for the image's scripts): `mt8163-consys`
+    /// or `mt7663-sdio`; nothing on hardware Pinna doesn't know.
+    #[command(hide = true)]
+    WifiChip,
     /// Install a release into the inactive A/B slot (as root, on the device).
     Update(UpdateArgs),
 }
@@ -351,7 +355,9 @@ async fn run(client: &Client, command: Command) -> Result<()> {
                 }
             }
         }
-        Command::Update(_) => unreachable!("handled before the runtime starts"),
+        Command::Update(_) | Command::WifiChip => {
+            unreachable!("handled before the runtime starts")
+        }
     }
     Ok(())
 }
@@ -360,6 +366,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     if let Command::Update(args) = cli.command {
         return update(args).context("update");
+    }
+    if let Command::WifiChip = cli.command {
+        if let Some(b) = pinna_hal::board::detect() {
+            println!("{}", b.wifi.id());
+        }
+        return Ok(());
     }
     tokio::runtime::Builder::new_current_thread()
         .enable_all()

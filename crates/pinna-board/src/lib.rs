@@ -582,6 +582,16 @@ pub enum Wifi {
     Mt7663Sdio,
 }
 
+impl Wifi {
+    /// The chip as the image's scripts name it (`pinnactl wifi-chip`).
+    pub const fn id(self) -> &'static str {
+        match self {
+            Wifi::Mt8163Consys => "mt8163-consys",
+            Wifi::Mt7663Sdio => "mt7663-sdio",
+        }
+    }
+}
+
 const MT8163_AUDIO: Audio = Audio {
     card: "mt-snd-card",
     playback: Pcm {
@@ -791,6 +801,12 @@ mod tests {
         assert_eq!(Model::EchoDot5.id(), "echo-dot-5");
         assert_eq!(Model::from_id(""), None);
         assert_eq!(Model::from_id("echo-dot-3"), None);
+    }
+
+    #[test]
+    fn wifi_ids_are_what_the_image_scripts_match() {
+        assert_eq!(ECHO_DOT_2.wifi.id(), "mt8163-consys");
+        assert_eq!(ECHO_DOT_5.wifi.id(), "mt7663-sdio");
     }
 
     #[test]
