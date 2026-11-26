@@ -1,0 +1,9 @@
+#!/bin/sh
+# The fastboot guard arms Kaeru's one-shot fastboot request in the GPT misc
+# partition. Only the MT8163 and MT8516 Echos run Kaeru. A UBI board has no
+# such partition, and the guard's wait for it would hold up the boot for the
+# device timeout, so mask the guard there.
+set -eu
+if storage=$(/usr/bin/pinna-bootctl storage-kind) && [ "$storage" = ubi ]; then
+    ln -sf /dev/null "$2/pinna-fastboot-guard.service"
+fi
