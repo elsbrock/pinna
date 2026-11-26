@@ -688,11 +688,82 @@ fn the_boot_level_of_the_kernel_that_starts_the_slot() {
     assert_eq!(blocked, Some(Blocked::BootLevel { needs: 2, has: 1 }));
 }
 
-/// A FIT as U-Boot reads it: the flattened device tree's magic, then `fill`.
+/// A FIT as Pinna builds it for the Echo Dot (5th gen): a `zImage` of `len`
+/// bytes of `fill`, one MT8519 device tree, boot level 1.
 fn fit(fill: u8, len: usize) -> Vec<u8> {
-    let mut v = vec![fill; len];
-    v[..4].copy_from_slice(&0xd00d_feedu32.to_be_bytes());
-    v
+    fit_for(fill, len, &["amzn,cannoli-dvt", "mediatek,mt8519"])
+}
+
+/// [`fit`] whose device tree's root names `compatible`.
+fn fit_for(fill: u8, len: usize, compatible: &[&str]) -> Vec<u8> {
+    use pinna_bootimg::fit;
+    let mut zimage = vec![fill; len.max(0x30)];
+    // The zImage magic `fit::build` looks for.
+    zimage[0x24..0x28].copy_from_slice(&0x016f_2818u32.to_le_bytes());
+    let dtb = dtb_with(compatible);
+    fit::build_with_level(
+        "test",
+        &zimage,
+        &[fit::Dtb {
+            description: "test",
+            data: &dtb,
+        }],
+        None,
+        &[fit::Conf {
+            node: "conf-1",
+            description: "test",
+            fdt: 0,
+            recovery: false,
+        }],
+        0x4000_8000,
+        0x4000_8000,
+        Some(1),
+    )
+    .unwrap()
+}
+
+/// A minimal DTB whose root node has `compatible`.
+fn dtb_with(compatible: &[&str]) -> Vec<u8> {
+    let be = |v: u32| v.to_be_bytes();
+    let value: Vec<u8> = compatible
+        .iter()
+        .flat_map(|c| [c.as_bytes(), b"\0"].concat())
+        .collect();
+    let strings = b"compatible\0";
+    let mut st = Vec::new();
+    st.extend_from_slice(&be(1)); // BEGIN_NODE ""
+    st.extend_from_slice(&[0; 4]);
+    st.extend_from_slice(&be(3)); // PROP compatible
+    st.extend_from_slice(&be(value.len() as u32));
+    st.extend_from_slice(&be(0));
+    st.extend_from_slice(&value);
+    while st.len() % 4 != 0 {
+        st.push(0);
+    }
+    st.extend_from_slice(&be(2)); // END_NODE
+    st.extend_from_slice(&be(9)); // END
+    let (off_mem, off_struct) = (40usize, 56usize);
+    let off_strings = off_struct + st.len();
+    let total = off_strings + strings.len();
+    let mut d = Vec::new();
+    for v in [
+        0xd00d_feed,
+        total as u32,
+        off_struct as u32,
+        off_strings as u32,
+        off_mem as u32,
+        17,
+        16,
+        0,
+        strings.len() as u32,
+        st.len() as u32,
+    ] {
+        d.extend_from_slice(&be(v));
+    }
+    d.extend_from_slice(&[0; 16]);
+    d.extend_from_slice(&st);
+    d.extend_from_slice(strings);
+    d
 }
 
 /// The Echo Dot (5th gen): Amazon's U-Boot, FIT boot images.
@@ -841,6 +912,20 @@ fn a_boot_image_of_the_wrong_format_is_refused_before_anything_is_written() {
         format!("{err:#}").contains("needs an Android boot image"),
         "{err:#}"
     );
+}
+
+#[test]
+fn a_fit_for_another_device_is_refused_before_anything_is_written() {
+    let img = sealed("2.0.0", 64, &key());
+    let e = env_fit("a");
+    let other = fit_for(0xdd, 8192, &["amazon,biscuit", "mediatek,mt8163"]);
+    let m = with_boots(&e, &img, None, &[(&["echo-dot-5"], &other)]);
+    let m = e.publish_json(&img, &m, Some(&key()));
+    let err = e.install(&m).unwrap_err();
+    assert!(format!("{err:#}").contains("for another device"), "{err:#}");
+    assert!(e.part("boot_b").iter().all(|&x| x == 0xbb));
+    assert!(e.part("system_b").iter().all(|&x| x == 0xbb));
+    assert_eq!(e.record(), None);
 }
 
 #[test]

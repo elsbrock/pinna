@@ -710,19 +710,17 @@ fn plan_kernel(
             let url = resolve(Some(manifest_url), &b.url)?;
             let image = fetch_artifact(&url, b)?;
             check_boot_magic(&image, format).with_context(|| format!("{url}"))?;
-            // TODO(merge): pinna_bootimg::level() reads a FIT's level from the
-            // strings block at the end of the image; once it is on this
-            // branch, check `has >= needs` here on the whole `image` for a FIT
-            // too. `partition_level` (first 4 KiB) must never see a FIT, and
-            // doesn't: a FIT board's plan never reads the volume's level.
-            if format == BootFormat::Android {
-                let has = pinna_bootimg::level(&image)
-                    .with_context(|| format!("{url} is not a boot image"))?;
-                let needs = m.requires.boot_level;
-                ensure!(
-                    has >= needs,
-                    "the release's own boot image provides boot level {has}, its root needs {needs}"
-                );
+            // The whole image: a FIT's level lives in the strings block at
+            // its end, where a 4 KiB head wouldn't reach.
+            let has = pinna_bootimg::level(&image)
+                .with_context(|| format!("{url} is not a boot image"))?;
+            let needs = m.requires.boot_level;
+            ensure!(
+                has >= needs,
+                "the release's own boot image provides boot level {has}, its root needs {needs}"
+            );
+            if let (BootFormat::Fit, Some(board)) = (format, opts.board) {
+                check_fit_board(&image, board).with_context(|| format!("{url}"))?;
             }
             (part, image, url.to_string())
         }
@@ -759,6 +757,19 @@ fn check_boot_magic(image: &[u8], format: BootFormat) -> Result<()> {
     ensure!(
         image.starts_with(magic),
         "this satellite's bootloader needs {name}, which this boot image is not"
+    );
+    Ok(())
+}
+
+/// A FIT carries a device tree per board revision; at least one must be
+/// for this satellite's SoC, or U-Boot would start a kernel for another
+/// device.
+fn check_fit_board(image: &[u8], board: &Board) -> Result<()> {
+    let soc = board.soc.compatible();
+    let trees = pinna_bootimg::fit::compatibles(image)?;
+    ensure!(
+        trees.iter().any(|c| c.iter().any(|s| s == soc)),
+        "this boot image is for another device: none of its device trees is for {soc}"
     );
     Ok(())
 }
