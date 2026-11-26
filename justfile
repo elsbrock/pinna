@@ -156,7 +156,8 @@ all: kernel models image bootimg
 # PINNA_SUMMARY and PINNA_NOTES_URL go into the signed manifest (ADR 0022). PINNA_MODELS (space-separated,
 # default: every model) are the models it is for; each needs a boot image of its board's format (ADR 0035):
 # pinna-boot.img for the Echo Dot (2nd gen) and the Echo (2nd gen), the FIT (just fit, kernel-mt8519) for the
-# Echo Dot (5th gen). PINNA_MODELS="echo-dot-2 echo-2" is a release without the FIT.
+# Echo Dot (5th gen), which also gets install-echo-dot-5.sh and its static pinna-bootctl-armv7.
+# PINNA_MODELS="echo-dot-2 echo-2" is a release without the FIT.
 release: image bootimg
     #!/usr/bin/env bash
     set -euo pipefail
@@ -179,7 +180,12 @@ release: image bootimg
             {{just_executable()}} fit
             cp {{build}}/pinna-boot-mt8519.itb {{build}}/release/pinna-boot-mt8519.itb
             args+=(--boot-for echo-dot-5={{build}}/release/pinna-boot-mt8519.itb)
-            files+=(pinna-boot-mt8519.itb) ;;
+            files+=(pinna-boot-mt8519.itb)
+            # The installer's device-side tool: static armv7, run in TWRP (ADR 0035, Decision 10)
+            cargo zigbuild --release --target {{target_arm}} -p pinna-bootctl
+            install -m0755 target/{{target_arm}}/release/pinna-bootctl {{build}}/release/pinna-bootctl-armv7
+            install -m0755 scripts/install-echo-dot-5.sh {{build}}/release/install-echo-dot-5.sh
+            files+=(pinna-bootctl-armv7 install-echo-dot-5.sh) ;;
     esac
     [ -z "${PINNA_SUMMARY:-}" ] || args+=(--summary "$PINNA_SUMMARY")
     [ -z "${PINNA_NOTES_URL:-}" ] || args+=(--notes-url "$PINNA_NOTES_URL")
@@ -189,6 +195,10 @@ release: image bootimg
     (cd {{build}}/release && sha256sum -- "${files[@]}" manifest.json manifest.json.sig flash-gen2.sh > SHA256SUMS)
     ls -l {{build}}/release
     cat {{build}}/release/manifest.json
+
+# install Pinna on an Echo Dot (5th gen) in TWRP over adb: check, install [--yes] or restore (ADR 0035; needs: just fit image, and pinna-bootctl built for armv7)
+install-echo-dot-5 *args:
+    scripts/install-echo-dot-5.sh {{args}}
 
 # fetch the wake word models (openWakeWord CC BY-NC-SA, Okay Nabu from an Apache-2.0 repository; never committed) into blobs/
 models:
