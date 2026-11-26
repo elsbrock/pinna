@@ -29,7 +29,8 @@ If the dashboard doesn't open, start with
   `http://10.42.0.1/`. See [The device has no Wi-Fi](#the-device-has-no-wi-fi).
 - **Over USB**: check that your computer sees the USB device **Pinna (Echo Dot
   2nd gen)**, or **Pinna (Echo 2nd gen)** on an Echo. Use a cable that carries
-  data. The Echo Dot (5th gen) has no USB connector. Your computer gets an address between `10.42.0.10` and `10.42.0.29`.
+  data. Your computer gets an address between `10.42.0.10` and `10.42.0.29`.
+  The Echo Dot (5th gen) has no USB connector.
 - **The USB device is named Pinna rescue, or the ring is green**: Pinna
   couldn't start. See [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
 - **The ring flashes white, pauses and repeats**: a start-up step didn't
@@ -113,11 +114,10 @@ Releases up to 0.4.0-beta.3 don't have it.
    network is out of range. An image you built with
    `secrets/wifi/wpa_supplicant-wlan0.conf` has one.
 5. If none of this helps, connect the USB cable and open `http://10.42.0.1/`.
-   The Echo Dot (5th gen) has no USB connector, so this step doesn't apply to
-   it.
    **Network** says whether the device has a hotspot: after a start that
    failed, it says the device is reachable over USB only, and tries again
-   every 5 minutes.
+   every 5 minutes. The Echo Dot (5th gen) has no USB connector, so this step
+   doesn't apply to it.
 
 ## Home Assistant doesn't find the device
 

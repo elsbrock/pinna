@@ -117,7 +117,7 @@ its microphone FPGA. They aren't part of the repository. `just kernel` and
 and checks their sha256. Pinna doesn't modify them, and its license doesn't cover them.
 It also downloads the Wi-Fi firmware of the Echo Dot (3rd gen), and
 linux-firmware's patch for its Wi-Fi and Bluetooth chip, and the image
-installs both, for the Dot's planned port.
+installs both, for a planned port to the Echo Dot (3rd gen).
 
 ## Build the images
 

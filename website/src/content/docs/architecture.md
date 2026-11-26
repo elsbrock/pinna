@@ -57,6 +57,10 @@ gen) differs, the section says so.
    answers and SSH runs. If they do, it marks the slot as good and cancels the
    fastboot request. If they don't within five minutes, it restarts the device.
 
+On the Echo Dot (5th gen), Amazon's U-Boot loads the boot image from
+`boot_a` or `boot_b`, as a FIT image that holds the kernel and device trees,
+instead of an Android boot image. It has no fastboot request to cancel.
+
 ## Storage
 
 | Partition | Size | Contents |
@@ -65,6 +69,11 @@ gen) differs, the section says so.
 | `system_a`, `system_b` | 768 MiB each | The root filesystem of slot A and of slot B |
 | `userdata` | The rest | `/var`: settings, the Wi-Fi configuration, keys, logs |
 | `misc` | 512 KiB | The bootloader command (the fastboot request) and the bootloader's slot record |
+
+On the Echo Dot (5th gen), the storage is NAND flash with UBI volumes, not
+eMMC partitions: `boot_a`, `boot_b`, `system_a`, `system_b`, `misc` and
+`userdata`, among Amazon's other volumes. The slots are smaller than above, and
+`userdata` is a UBIFS volume that Pinna mounts as `/var`.
 
 A slot's root filesystem partition holds three parts:
 
@@ -86,7 +95,8 @@ attempts. The bootloader takes one attempt each time it starts the trial
 slot. When the health check passes, Pinna marks the slot good. When the
 attempts run out, the bootloader starts the other slot, kernel and root
 filesystem together. The running slot stays good the whole time, so one slot
-can always start. For the steps, see [Update Pinna](/docs/update/).
+can always start. For the steps, see [Update Pinna](/docs/update/). Updates
+aren't available on the Echo Dot (5th gen) yet.
 
 Each boot image is marked with its slot (`pinna.boot=a` or `=b`), and the
 bootloader passes the mark on, so Pinna sees which boot partition the kernel

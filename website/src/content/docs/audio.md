@@ -27,10 +27,11 @@ PipeWire.
 The Echo Dot (5th gen) is wired differently. Its speaker plays at 96 kHz:
 Pinna keeps mixing at 48 kHz and doubles the rate just before the speaker.
 Its three microphones arrive at 96 kHz, and PipeWire brings them down to
-16 kHz, with a graph of its own. The wake word hears the three microphones
-averaged. The microphone level, the beam and the echo canceller haven't been
-measured on this device. See [Echo devices](/docs/devices/#echo-dot-5th-gen)
-for what is captured today.
+16 kHz, with a graph of its own. The graph averages the microphones that
+arrive. On the unit tried, two of the three do, and there is no echo
+reference, so the satellite doesn't remove its own sound yet. The microphone
+level, the beam and the echo canceller haven't been measured on this device.
+See [Echo devices](/docs/devices/#echo-dot-5th-gen).
 
 ## Microphones
 

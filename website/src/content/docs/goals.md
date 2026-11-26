@@ -81,7 +81,7 @@ Pinna's images carry it. It isn't under Pinna's license.
 ## Later
 
 - **More devices.** Pinna supports the Echo (2nd gen) and the Echo Dot
-  (2nd gen), and the Echo Dot (5th gen). The aim is to support
+  (2nd gen) and the Echo Dot (5th gen). The aim is to support
   more Echo devices; each needs board
   support and a device to test on. [Echo devices](/docs/devices/) says where
   each one stands. Other hardware, such as a Raspberry Pi with

@@ -148,7 +148,8 @@ On the devices:
   one answer when several hear the wake word.
 - **A setup hotspot password that only the owner can learn**, instead of one
   that every device shares.
-- **64-bit ARM**: the processor supports it, but nobody has started on it.
+- **64-bit ARM**: the MT8163, the processor of the Echo (2nd gen) and the Echo
+  Dot (2nd gen), supports it, but nobody has started on it.
 - **Pairing for Sendspin through Home Assistant**: Home Assistant would hand
   the satellite's pairing key to Music Assistant, so that only your Music
   Assistant could play to it.

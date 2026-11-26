@@ -247,8 +247,9 @@ password that only you can learn is planned.
    do, the device goes back after 5 minutes, or when it restarts.
 
 The device joins open networks and WPA2 networks, WPA2/WPA3 networks
-included. Its Wi-Fi chip can't join networks that allow only WPA3, enterprise
-(802.1X) networks or WEP networks. See
+included. The Wi-Fi chip of the Echo (2nd gen) and the Echo Dot (2nd gen)
+can't join networks that allow only WPA3, enterprise (802.1X) networks or WEP
+networks. Whether the Echo Dot (5th gen)'s chip can is untested. See
 [Change the Wi-Fi network](/docs/settings/#change-the-wi-fi-network).
 
 If you build Pinna yourself, you can give every device that you install the

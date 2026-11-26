@@ -14,6 +14,8 @@ mode [by asking the satellite](#ask-the-satellite-to-update). The satellite
 can also [install updates by itself](#install-updates-automatically), in a
 window that you choose.
 
+Updates over the air aren't available on the Echo Dot (5th gen) yet.
+
 ## How an update works
 
 1. The satellite checks the signature of the release, then downloads the new

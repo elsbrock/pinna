@@ -1,6 +1,6 @@
 ---
 title: Light ring and buttons
-description: What each colour and animation of the light ring means, and what the four buttons do.
+description: What each colour and animation of the light ring means, and what the buttons and the microphone switch do.
 ---
 
 The device has no screen. The light ring shows what it is doing, and the
@@ -257,15 +257,16 @@ front of the device towards you, the buttons are:
 - **Volume up** (+), on the left
 
 The Echo Dot (5th gen) has an Action button, a Volume up button and a Volume
-down button, and a microphone switch. Pinna reads them the same way, so the
-table below applies to it.
+down button, which work as the table below says, and a microphone switch in
+place of the **Microphone off** button. Pinna reads the switch's position; see
+[Microphone off](#microphone-off).
 
 | Button | Press | Hold |
 | --- | --- | --- |
 | Action | Starts a request without the wake word. While the device listens or answers, cancels the request. While it speaks an announcement, stops it. While a timer rings, stops it. While calibration runs, ends it. While the ring shows a notification, clears it. While the ring circles white or blue, confirms a [change at the device](#confirm-a-change-at-the-device) or a recording and does nothing else | Sends a `long_press` event to Home Assistant after 2 seconds |
 | Volume up | Raises the volume by 5. While calibration runs, raises the wake word sensitivity to catch the strongest near miss heard in the last 15 seconds instead | Keeps raising the volume |
 | Volume down | Lowers the volume by 5. While calibration runs, lowers the wake word sensitivity to ignore the last wake instead | Keeps lowering the volume |
-| Microphone off | Turns the microphones off or on | Nothing |
+| Microphone off | Turns the microphones off or on. The Echo Dot (5th gen) has a switch instead of a press | Nothing |
 
 If you use Home Assistant, every press also sends it an event, so you can use
 the buttons in automations. While calibration runs, the volume buttons tune the
@@ -317,6 +318,12 @@ dashboard does.
 If you turned the microphones off on the dashboard or in Home Assistant, press
 **Microphone off** until the ring is no longer red. That takes one or two
 presses, and the press that turns them on also clears that mute.
+
+On the Echo Dot (5th gen), the microphone control is a switch, not a button
+you press, and Pinna reads the position of the switch. Put the switch in the
+position that turns the microphones on to turn them on again, wherever the
+mute started. A mute made only on the dashboard or in Home Assistant can also
+be turned off there. The ring is red while the microphones are off.
 
 ## What's next
 

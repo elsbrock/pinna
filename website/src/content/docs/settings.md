@@ -68,15 +68,17 @@ Open **Network**. **Saved networks** lists the networks that the device
 joins: the first one it finds, from the top. **Forget** removes one. Forgetting
 the network in use disconnects the device. If it was the only one, the device
 runs its [setup hotspot](/docs/flash/#over-the-setup-hotspot), with the
-dashboard at `http://10.42.1.1/`, and stays reachable over USB at
-`http://10.42.0.1/`.
+dashboard at `http://10.42.1.1/`. The Echo Dot (2nd gen) and the Echo (2nd gen)
+stay reachable over USB at `http://10.42.0.1/`; the Echo Dot (5th gen) has no
+USB connector, so the hotspot is its only way in then.
 
 To join another network, select **Scan** under **Join a network**, select the
 network and enter its password. For a network that doesn't show its name,
 select **Join a hidden network** and type the name exactly as the router has
-it. The device joins open and WPA2 networks, WPA2/WPA3 networks included; its
-Wi-Fi chip can't join networks that allow only WPA3, enterprise networks or WEP
-networks.
+it. The device joins open and WPA2 networks, WPA2/WPA3 networks included. The
+Wi-Fi chip of the Echo (2nd gen) and the Echo Dot (2nd gen) can't join networks
+that allow only WPA3, enterprise networks or WEP networks; whether the Echo Dot
+(5th gen)'s chip can is untested.
 
 Joining is a trial, so that a mistake can't strand the device on a network you
 can't reach, such as a guest network that keeps its devices apart:
@@ -151,8 +153,10 @@ The device forgets:
 It then restarts as it was installed. Its log stays, and so does the version
 of Pinna it runs. If its image doesn't set up Wi-Fi, which a prebuilt release
 doesn't, the device runs its setup hotspot afterwards, with the dashboard at
-`http://10.42.1.1/`, and stays reachable over USB at `http://10.42.0.1/`:
-[connect it to Wi-Fi](/docs/flash/#connect-to-wi-fi) again. If Home Assistant had set its key, Home Assistant shows it as
+`http://10.42.1.1/`: [connect it to Wi-Fi](/docs/flash/#connect-to-wi-fi) again.
+The Echo Dot (2nd gen) and the Echo (2nd gen) stay reachable over USB at
+`http://10.42.0.1/` too; the Echo Dot (5th gen) falls back to the hotspot
+only. If Home Assistant had set its key, Home Assistant shows it as
 unavailable until you add it again.
 
 ## What's next
