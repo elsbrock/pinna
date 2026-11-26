@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Thu, 26 Nov 2026 11:45:00 +0100
+Subject: [PATCH] gpio: amzncpld: hand child interrupts to their handlers
+
+The port marked the CPLD's GPIO interrupts as nested threads, but the driver
+dispatches them with generic_handle_irq() from its work function, as Amazon's
+5.4 driver does with its non-nested gpiochip_irqchip_add(). A nested child
+gets irq_nested_primary_handler as its primary handler, so every dispatch
+warned "Primary handler called for nested irq", the consumer's thread never
+ran, and the unacknowledged interrupt fired again about every 20 ms (light
+sensor on irq 170, Echo Dot (5th gen) C2N6L4, 2026-11-26). Register the
+children as ordinary interrupts, as the 5.4 driver did.
+
+---
+--- a/drivers/gpio/gpio-amzncpld.c
++++ b/drivers/gpio/gpio-amzncpld.c
+@@ -728,7 +728,6 @@
+ 		girq->chip = &amzncpld_irq_chip;
+ 		girq->handler = handle_simple_irq;
+ 		girq->default_type = IRQ_TYPE_NONE;
+-		girq->threaded = true;
+ 	}
+ 
+ 	ret = devm_gpiochip_add_data(cpld->dev, &cpld->gpio_chip, cpld);
