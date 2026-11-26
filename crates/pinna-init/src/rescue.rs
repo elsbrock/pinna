@@ -117,15 +117,15 @@ impl Reason {
 }
 
 /// How a fix reaches the satellite, from its bootloader (`None`: a board
-/// Pinna doesn't know). Only the MT8163 and MT8516 Echos' LK has fastboot; on
-/// the Echo Dot (5th gen) firebreak leaves TWRP in slot B, from which the
-/// install guide writes slot A again over USB (ADR 0035).
+/// Pinna doesn't know). The Kaeru boards install over fastboot. On the Echo
+/// Dot (5th gen), Pinna installs from the TWRP that firebreak leaves in slot
+/// B, until the first update replaces it (ADR 0035).
 pub fn recovery(bootloader: Option<Bootloader>) -> &'static str {
     match bootloader {
         Some(Bootloader::Kaeru { .. }) => FASTBOOT,
         Some(Bootloader::AmazonUboot { .. }) => {
-            "This satellite has no fastboot. Hold Volume Up while it powers on to start TWRP, \
-             then install the image again as the install guide describes."
+            "While slot B still holds TWRP, hold Volume Up while the satellite powers on to \
+             start it, then install the image again as the install guide describes."
         }
         None => "Pinna doesn't know this board, so it can't say how to install an image.",
     }
@@ -579,6 +579,9 @@ mod tests {
         }
         let dot5 = info(Some(&ECHO_DOT_5));
         assert!(dot5.recovery().contains("TWRP"));
+        // Its U-Boot has a fastboot mode, and an update replaces TWRP.
+        assert!(!dot5.recovery().contains("no fastboot"));
+        assert!(dot5.recovery().contains("still holds TWRP"));
         assert!(dot5.logs().contains("USB"));
     }
 
