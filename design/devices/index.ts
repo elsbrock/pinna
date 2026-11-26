@@ -3,6 +3,7 @@
 import type { Effect } from "../ring.ts";
 import * as echo2 from "./echo-2.ts";
 import * as echoDot2 from "./echo-dot-2.ts";
+import * as echoDot5 from "./echo-dot-5.ts";
 
 export type Stage = typeof echoDot2.STAGE;
 
@@ -21,6 +22,7 @@ export type Drawing = {
 
 const DRAWINGS: Record<string, Drawing> = {
   "echo-dot-2": { name: "Echo Dot (2nd gen)", aspect: echoDot2.ASPECT, glow: echoDot2.GLOW, stage: echoDot2.STAGE, svg: echoDot2.svg },
+  "echo-dot-5": { name: "Echo Dot (5th gen)", aspect: echoDot5.ASPECT, glow: echoDot5.GLOW, stage: echoDot5.STAGE, svg: echoDot5.svg },
   "echo-2": { name: "Echo (2nd gen)", aspect: echo2.ASPECT, glow: echo2.GLOW, stage: echo2.STAGE, svg: echo2.svg },
 };
 
