@@ -149,7 +149,7 @@ impl Local {
 }
 
 pub(super) struct LocalRun {
-    id: RunId,
+    pub(super) id: RunId,
     kind: RunKind,
     task: Option<JoinHandle<()>>,
     deadline: Instant,
@@ -198,7 +198,7 @@ impl Brain {
         };
         if let Some(why) = refused {
             tracing::warn!("no standalone {}: {why}", kind_label(&kind));
-            self.error_feedback();
+            self.error_feedback(why);
             return;
         }
         debug_assert!(self.local.run.is_none(), "a standalone run is still live");
@@ -357,7 +357,7 @@ impl Brain {
                 Effect::CloseMic => self.shared.mic.close(),
                 Effect::EndOfSpeech => self.end_of_speech(now),
                 Effect::Event(kind) => self.event("voice_assistant", kind).await,
-                Effect::ErrorCue => self.error_feedback(),
+                Effect::ErrorCue => self.error_feedback("Nothing was heard."),
                 Effect::StartPlayer => self.start_reply_player(),
                 Effect::Finish => self.finish_local().await,
                 Effect::Fail(error) => self.fail_local(error).await,
@@ -424,11 +424,12 @@ impl Brain {
         self.phase = Phase::Idle;
         self.event("voice_assistant", "stopped").await;
         tracing::warn!("standalone request failed: {error}{}", error.said_suffix());
+        let sentence = pinna_assist::check::request_failure(&error);
         self.local.last_error = Some(LastFailure {
             error,
             at: SystemTime::now(),
         });
-        self.error_feedback();
+        self.error_feedback(&sentence);
         self.apply_deferred_mute().await;
     }
 

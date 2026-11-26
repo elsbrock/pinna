@@ -59,9 +59,30 @@ const BATCH_BODY_BYTES: usize = 512 * 1024;
 
 static TIMELINE: OnceLock<Arc<Timeline>> = OnceLock::new();
 
+#[cfg(test)]
+thread_local! {
+    static FOR_THIS_TEST: std::cell::Cell<Option<&'static Arc<Timeline>>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// The one timeline of this process, from [`init`].
 pub fn get() -> Option<&'static Arc<Timeline>> {
+    #[cfg(test)]
+    if let Some(timeline) = FOR_THIS_TEST.with(std::cell::Cell::get) {
+        return Some(timeline);
+    }
     TIMELINE.get()
+}
+
+/// For a test: the taps on this thread use a timeline of their own, off
+/// until it is started, so parallel tests don't hear each other's events.
+#[cfg(test)]
+pub fn for_this_test() -> Arc<Timeline> {
+    let (tx, rx) = mpsc::channel(64);
+    std::mem::forget(rx);
+    let timeline = Arc::new(Timeline::new(tx));
+    FOR_THIS_TEST.with(|t| t.set(Some(Box::leak(Box::new(timeline.clone())))));
+    timeline
 }
 
 /// Make the process-wide timeline. It tells the Brain when the switch
@@ -81,6 +102,42 @@ pub fn event(kind: EventKind, detail: &str) {
     if let Some(timeline) = get() {
         timeline.event(kind, detail);
     }
+}
+
+/// Run `f` on the timeline if debugging is on, so a tap builds nothing
+/// while it is off.
+pub fn with(f: impl FnOnce(&Timeline)) {
+    if let Some(timeline) = get().filter(|t| t.on()) {
+        f(timeline);
+    }
+}
+
+/// The phase the API shows changed.
+pub fn phase(phase: Phase) {
+    with(|t| {
+        let word = match phase {
+            Phase::PHASE_IDLE => "idle",
+            Phase::PHASE_LISTENING => "listening",
+            Phase::PHASE_THINKING => "thinking",
+            Phase::PHASE_SPEAKING => "speaking",
+            _ => "",
+        };
+        let mut event = Event::new(EventKind::Phase, word);
+        event.phase = phase;
+        t.push(event);
+    });
+}
+
+/// A stage that took `took` and ends now, for a standalone run (0 for none).
+pub fn stage(detail: impl FnOnce() -> String, took: Duration, run: u64) {
+    with(|t| {
+        let end = Instant::now();
+        let mut event = Event::new(EventKind::Stage, &detail());
+        event.at = end.checked_sub(took).unwrap_or(end);
+        event.end = Some(end);
+        event.run = run;
+        t.push(event);
+    });
 }
 
 /// The microphones were muted or turned on again: a mute ends the levels and

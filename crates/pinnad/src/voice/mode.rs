@@ -40,6 +40,13 @@ impl Brain {
         self.continue_conversation = false;
         self.stale_run = false;
         self.settings.mode = new;
+        crate::timeline::event(
+            crate::timeline::EventKind::Mode,
+            match new {
+                Mode::HomeAssistant => "Home Assistant",
+                Mode::Standalone => "standalone",
+            },
+        );
         self.send(DeviceEvent::VoiceFeatureFlags(new.voice_feature_flags()))
             .await;
         self.send_mode().await;

@@ -722,6 +722,8 @@ pub struct Brain {
     debugging: Option<DebuggingSnapshot>,
     /// The microphones were muted at the last refresh, to see the edges.
     was_muted: bool,
+    /// The phase the API showed at the last refresh, to see the changes.
+    was_phase: pinna_api::Phase,
     /// Action confirmed a change and is still held: the rest of that hold
     /// is the confirmation's too, so no `long_press` follows (ADR 0029).
     confirm_held: bool,
@@ -885,6 +887,7 @@ impl Brain {
             recording: None,
             debugging: None,
             was_muted: false,
+            was_phase: pinna_api::Phase::PHASE_IDLE,
             confirm_held: false,
             reconnect_pending: false,
             update_restart_tried: None,
@@ -1033,6 +1036,10 @@ impl Brain {
                         if self.local.run.is_some() {
                             self.count_guard(pinna_assist::observe::Guard::StoppedByWake);
                         }
+                        crate::timeline::event(
+                            crate::timeline::EventKind::Interrupted,
+                            "wake word",
+                        );
                         self.interrupt().await;
                     }
                     if self.ringing.is_some() {
@@ -1341,12 +1348,7 @@ impl Brain {
         Snapshot {
             mode: self.settings.mode,
             assist: self.local.status(),
-            phase: match self.phase {
-                Phase::Idle => pinna_api::Phase::PHASE_IDLE,
-                Phase::Starting(_) | Phase::Listening(_) => pinna_api::Phase::PHASE_LISTENING,
-                Phase::Thinking(_) => pinna_api::Phase::PHASE_THINKING,
-                Phase::Speaking => pinna_api::Phase::PHASE_SPEAKING,
-            },
+            phase: self.api_phase(),
             hw_muted: self.hw_muted,
             sw_muted: self.sw_muted,
             volume: self.settings.volume,
@@ -1893,6 +1895,7 @@ impl Brain {
             } => {
                 tracing::info!("announcement: {media_id}");
                 if self.phase != Phase::Idle {
+                    crate::timeline::event(crate::timeline::EventKind::Interrupted, "announcement");
                     self.abort_run(true).await;
                 }
                 let urls: Vec<String> = [preannounce_media_id, media_id]
@@ -2009,6 +2012,12 @@ impl Brain {
             }
             HaCommand::Button { object_id } if object_id == "cancel_request" => {
                 tracing::info!("cancel requested by Home Assistant");
+                if self.phase != Phase::Idle {
+                    crate::timeline::event(
+                        crate::timeline::EventKind::Interrupted,
+                        "Home Assistant",
+                    );
+                }
                 self.cancel().await;
             }
             HaCommand::MediaPlayer {
@@ -2044,6 +2053,13 @@ impl Brain {
                 .map(|(_, v)| v.clone())
         };
         tracing::debug!("voice event {event:?} {data:?}");
+        // The type only: the data carries addresses and text.
+        crate::timeline::with(|t| {
+            t.event(
+                crate::timeline::EventKind::HomeAssistant,
+                &voice_event_name(event),
+            )
+        });
         if self.stale_run {
             match event {
                 // The stopped run's last event.
@@ -2130,7 +2146,7 @@ impl Brain {
                 }
                 self.phase = Phase::Idle;
                 self.stop_playback();
-                self.error_feedback();
+                self.error_feedback("Home Assistant reported an error.");
             }
             _ => {}
         }
@@ -2510,6 +2526,7 @@ impl Brain {
                     if self.local.run.is_some() {
                         self.count_guard(pinna_assist::observe::Guard::StoppedByButton);
                     }
+                    crate::timeline::event(crate::timeline::EventKind::Interrupted, "Action");
                     self.abort_run(true).await;
                 } else if matches!(
                     self.playback,
@@ -2524,7 +2541,7 @@ impl Brain {
                     self.message_stopped("the Action button");
                     self.stop_playback();
                 } else if self.muted() {
-                    self.error_feedback();
+                    self.error_feedback("The microphones are muted.");
                 } else if self.notification_shown() {
                     self.clear_notification().await;
                 } else {
@@ -2544,6 +2561,14 @@ impl Brain {
     // --- Home Assistant entities ------------------------------------------------
 
     async fn event(&self, object_id: &str, event_type: &str) {
+        if object_id == "voice_assistant" {
+            crate::timeline::with(|t| {
+                let mut event =
+                    crate::timeline::Event::new(crate::timeline::EventKind::Run, event_type);
+                event.run = self.local.run.as_ref().map_or(0, |r| r.id.0);
+                t.push(event);
+            });
+        }
         self.send(DeviceEvent::Event {
             object_id: object_id.into(),
             event_type: event_type.into(),
@@ -2696,6 +2721,10 @@ impl Brain {
             return;
         }
         tracing::info!("wake words: {:?}", self.opts.wake_words.phrases(&ids));
+        crate::timeline::with(|t| {
+            let words = format!("words: {}", self.opts.wake_words.phrases(&ids));
+            t.event(crate::timeline::EventKind::WakeWord, &words);
+        });
         self.active_wake = ids.clone();
         self.settings.wake_words = Some(ids.clone());
         self.store.save(&self.settings);
@@ -2998,6 +3027,10 @@ impl Brain {
     async fn set_wake_word(&mut self, on: bool) {
         tracing::info!("wake word detection: {on}");
         self.settings.wake_word = on;
+        crate::timeline::event(
+            crate::timeline::EventKind::WakeWord,
+            if on { "on" } else { "off" },
+        );
         self.store.save(&self.settings);
         if !on && self.calibration.is_some() {
             self.end_calibration().await;
@@ -3055,6 +3088,7 @@ impl Brain {
             self.settings.wake_sensitivity,
             Instant::now(),
         ));
+        crate::timeline::event(crate::timeline::EventKind::Calibration, "started");
         self.send_calibration_switch(true).await;
         Ok(())
     }
@@ -3063,6 +3097,7 @@ impl Brain {
     async fn end_calibration(&mut self) {
         if self.calibration.take().is_some() {
             tracing::info!("calibration: ended");
+            crate::timeline::event(crate::timeline::EventKind::Calibration, "ended");
         }
         self.send_calibration_switch(false).await;
     }
@@ -3091,7 +3126,7 @@ impl Brain {
             }
             Err(why) => {
                 tracing::info!("calibration: {why:?}, no change");
-                self.error_feedback();
+                self.error_feedback("The sensitivity can't change further.");
             }
         }
     }
@@ -3221,6 +3256,7 @@ impl Brain {
             if announcement {
                 // Announcements play on the voice lane, which ducks the music.
                 if self.phase != Phase::Idle {
+                    crate::timeline::event(crate::timeline::EventKind::Interrupted, "announcement");
                     self.abort_run(true).await;
                 }
                 self.play_urls(vec![url], PlaybackKind::MediaAnnounce);
@@ -3327,7 +3363,7 @@ impl Brain {
         }
         if !self.voice_subscribed {
             tracing::warn!("no Home Assistant voice subscription; cannot start a run");
-            self.error_feedback();
+            self.error_feedback("Home Assistant isn't subscribed to the voice assistant.");
             return;
         }
         self.shared.counters.runs.inc();
@@ -3364,6 +3400,7 @@ impl Brain {
     /// The microphone stopped: wait for the reply. The speaker is warmed
     /// again so a long utterance can't have outlasted its idle timeout.
     fn end_of_speech(&mut self, now: Instant) {
+        crate::timeline::event(crate::timeline::EventKind::EndOfSpeech, "");
         self.phase = Phase::Thinking(now);
         self.speech_ended = Some(now);
         self.warm_speaker();
@@ -3442,10 +3479,13 @@ impl Brain {
         self.stop_streaming();
         self.phase = Phase::Idle;
         self.continue_conversation = false;
-        self.error_feedback();
+        self.error_feedback("Home Assistant didn't start the request.");
     }
 
-    fn error_feedback(&mut self) {
+    /// The error cue; `why` is the one-sentence reason for the debugging
+    /// timeline, never anything that was said.
+    fn error_feedback(&mut self, why: &str) {
+        crate::timeline::event(crate::timeline::EventKind::Error, why);
         self.overlay(Effect::Error);
         if self.playback.is_none() {
             self.play_pcm(tone::error_tone(), PlaybackKind::Cue);
@@ -3463,6 +3503,7 @@ impl Brain {
             self.end_calibration().await;
         }
         if m && self.phase != Phase::Idle {
+            crate::timeline::event(crate::timeline::EventKind::Interrupted, "mute");
             self.abort_run(true).await;
         }
         if let Some(lamp) = &self.opts.mute_lamp
@@ -3662,7 +3703,7 @@ impl Brain {
                 Phase::Thinking(t) if now - t > THINK_TIMEOUT => {
                     tracing::warn!("Assist run timed out");
                     self.abort_run(true).await;
-                    self.error_feedback();
+                    self.error_feedback("The request timed out.");
                 }
                 _ => {}
             }
@@ -3780,8 +3821,22 @@ impl Brain {
             .send_modify(|s| s.overlay = Some((effect, Instant::now())));
     }
 
+    /// The phase as the API shows it.
+    fn api_phase(&self) -> pinna_api::Phase {
+        match self.phase {
+            Phase::Idle => pinna_api::Phase::PHASE_IDLE,
+            Phase::Starting(_) | Phase::Listening(_) => pinna_api::Phase::PHASE_LISTENING,
+            Phase::Thinking(_) => pinna_api::Phase::PHASE_THINKING,
+            Phase::Speaking => pinna_api::Phase::PHASE_SPEAKING,
+        }
+    }
+
     /// Recompute derived outputs (LED state, wake word gate) from the state.
     fn refresh(&mut self) {
+        let phase = self.api_phase();
+        if phase != std::mem::replace(&mut self.was_phase, phase) {
+            crate::timeline::phase(phase);
+        }
         let muted = self.muted();
         if muted != std::mem::replace(&mut self.was_muted, muted) {
             crate::timeline::muted(muted);
@@ -3926,6 +3981,31 @@ fn button_entity(b: Button) -> &'static str {
         Button::VolumeDown => "volume_down",
         Button::Mute => "microphone_mute",
         Button::Action => "action",
+    }
+}
+
+/// A Home Assistant voice event as the timeline names it: its ESPHome name
+/// in lower kebab case.
+fn voice_event_name(event: VoiceEventType) -> String {
+    match event {
+        VoiceEventType::Error => "error".into(),
+        VoiceEventType::RunStart => "run-start".into(),
+        VoiceEventType::RunEnd => "run-end".into(),
+        VoiceEventType::SttStart => "stt-start".into(),
+        VoiceEventType::SttEnd => "stt-end".into(),
+        VoiceEventType::IntentStart => "intent-start".into(),
+        VoiceEventType::IntentEnd => "intent-end".into(),
+        VoiceEventType::TtsStart => "tts-start".into(),
+        VoiceEventType::TtsEnd => "tts-end".into(),
+        VoiceEventType::WakeWordStart => "wake-word-start".into(),
+        VoiceEventType::WakeWordEnd => "wake-word-end".into(),
+        VoiceEventType::SttVadStart => "stt-vad-start".into(),
+        VoiceEventType::SttVadEnd => "stt-vad-end".into(),
+        VoiceEventType::WakeWordRejected => "wake-word-rejected".into(),
+        VoiceEventType::TtsStreamStart => "tts-stream-start".into(),
+        VoiceEventType::TtsStreamEnd => "tts-stream-end".into(),
+        VoiceEventType::IntentProgress => "intent-progress".into(),
+        VoiceEventType::Unknown(n) => format!("event-{n}"),
     }
 }
 

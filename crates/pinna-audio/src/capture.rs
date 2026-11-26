@@ -98,6 +98,9 @@ pub enum CaptureStatus {
     Starting,
     /// Audio is flowing.
     Running,
+    /// Audio is flowing from the raw lanes, without echo cancellation: the
+    /// processed stream delivered nothing.
+    RunningRaw,
     /// The capture process died or failed to start; retrying after backoff.
     Restarting {
         attempt: u32,
@@ -510,7 +513,11 @@ async fn run_process(
         };
         if !running {
             running = true;
-            let _ = status.send(CaptureStatus::Running);
+            let _ = status.send(if raw {
+                CaptureStatus::RunningRaw
+            } else {
+                CaptureStatus::Running
+            });
             if !raw && *warned {
                 *warned = false;
                 tracing::info!("microphone: the processed stream delivers again");

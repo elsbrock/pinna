@@ -1123,3 +1123,93 @@ async fn debugging_is_a_binary_sensor_and_part_of_the_status() {
     d.expect(&[state(false)]);
     assert_eq!(d.brain.snapshot().debugging, None);
 }
+
+/// The events the timeline kept, as (kind, detail).
+fn timeline_kept(t: &crate::timeline::Timeline) -> Vec<(i32, String)> {
+    t.backlog()
+        .batches
+        .into_iter()
+        .flat_map(|b| b.events)
+        .map(|e| (e.kind.to_i32(), e.detail))
+        .collect()
+}
+
+fn kind(kind: crate::timeline::EventKind) -> i32 {
+    use buffa::Enumeration as _;
+    use pinna_api::TimelineEventKind as K;
+    match kind {
+        crate::timeline::EventKind::Phase => K::TIMELINE_EVENT_KIND_PHASE,
+        crate::timeline::EventKind::Run => K::TIMELINE_EVENT_KIND_RUN,
+        crate::timeline::EventKind::Interrupted => K::TIMELINE_EVENT_KIND_INTERRUPTED,
+        crate::timeline::EventKind::HomeAssistant => K::TIMELINE_EVENT_KIND_HOME_ASSISTANT,
+        _ => unreachable!("not used by these tests"),
+    }
+    .to_i32()
+}
+
+fn kept_of(t: &crate::timeline::Timeline, k: crate::timeline::EventKind) -> Vec<String> {
+    timeline_kept(t)
+        .into_iter()
+        .filter(|(n, _)| *n == kind(k))
+        .map(|(_, d)| d)
+        .collect()
+}
+
+#[tokio::test]
+async fn the_timeline_hears_each_phase_change_once_and_the_runs_milestones() {
+    use crate::timeline::EventKind;
+    let t = crate::timeline::for_this_test();
+    t.start("127.0.0.1".parse().unwrap(), 15, false, false);
+    let mut d = Device::new();
+    // The run loop refreshes after each input.
+    d.listen().await;
+    d.brain.refresh();
+    d.brain.refresh();
+    d.voice(VoiceEventType::SttVadEnd, &[]).await;
+    d.brain.refresh();
+    d.voice(VoiceEventType::TtsEnd, &[("url", "http://ha.test/reply")])
+        .await;
+    let token = d.brain.playback.as_ref().unwrap().0;
+    d.brain.handle(Input::PlaybackStarted { token }).await;
+    d.brain.refresh();
+    d.voice(VoiceEventType::RunEnd, &[]).await;
+    d.brain
+        .handle(Input::PlaybackDone { token, ok: true })
+        .await;
+    d.brain.refresh();
+    assert_eq!(
+        kept_of(&t, EventKind::Phase),
+        ["listening", "thinking", "speaking", "idle"]
+    );
+    assert_eq!(
+        kept_of(&t, EventKind::Run),
+        ["wake_word", "listening", "thinking", "replying", "finished"]
+    );
+    // The event type only, never its data (the reply's address).
+    let ha = kept_of(&t, EventKind::HomeAssistant);
+    assert!(ha.contains(&"tts-end".to_owned()), "{ha:?}");
+    assert!(ha.iter().all(|d| !d.contains("ha.test")), "{ha:?}");
+}
+
+#[tokio::test]
+async fn the_wake_word_interrupting_a_reply_is_an_interruption() {
+    use crate::timeline::EventKind;
+    let t = crate::timeline::for_this_test();
+    t.start("127.0.0.1".parse().unwrap(), 15, false, false);
+    let mut d = Device::new();
+    d.listen().await;
+    d.reply().await;
+    d.wake().await;
+    assert_eq!(kept_of(&t, EventKind::Interrupted), ["wake word"]);
+}
+
+#[tokio::test]
+async fn nothing_reaches_the_timeline_while_debugging_is_off() {
+    let t = crate::timeline::for_this_test();
+    let mut d = Device::new();
+    d.listen().await;
+    d.reply().await;
+    d.wake().await;
+    d.brain.refresh();
+    assert!(timeline_kept(&t).is_empty());
+}

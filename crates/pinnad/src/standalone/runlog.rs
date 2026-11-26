@@ -100,6 +100,20 @@ impl RunLog {
 impl Observer for RunLog {
     fn stage(&self, slot: Slot, seconds: f64) {
         self.metrics.stage(slot, seconds);
+        // Tool calls are timed where they run, with the tool's name.
+        let name = match slot {
+            Slot::Stt => Some("speech-to-text"),
+            Slot::Chat => Some("model"),
+            Slot::Tts => Some("text-to-speech"),
+            Slot::Tool => None,
+        };
+        if let Some(name) = name {
+            crate::timeline::stage(
+                || name.to_owned(),
+                std::time::Duration::from_secs_f64(seconds.max(0.0)),
+                self.run.0,
+            );
+        }
         let mut seen = self.seen.lock().unwrap();
         match slot {
             Slot::Stt => seen.stt = Some(seconds),
@@ -157,6 +171,32 @@ mod tests {
 
     fn log() -> Arc<RunLog> {
         RunLog::new(RunId(7), Arc::new(Nothing))
+    }
+
+    #[tokio::test]
+    async fn a_stage_is_a_span_that_ends_now() {
+        let t = crate::timeline::for_this_test();
+        t.start("127.0.0.1".parse().unwrap(), 15, false, false);
+        let log = log();
+        log.stage(Slot::Stt, 0.5);
+        log.stage(Slot::Tool, 0.1);
+        let events: Vec<_> = t
+            .backlog()
+            .batches
+            .into_iter()
+            .flat_map(|b| b.events)
+            .collect();
+        // A tool call is timed where it runs.
+        assert_eq!(events.len(), 1);
+        let stage = &events[0];
+        assert_eq!(stage.detail, "speech-to-text");
+        assert_eq!(stage.run, 7);
+        assert!(
+            (499..=501).contains(&(stage.end_unix_ms - stage.unix_ms)),
+            "{} to {}",
+            stage.unix_ms,
+            stage.end_unix_ms
+        );
     }
 
     #[test]

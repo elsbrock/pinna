@@ -52,7 +52,9 @@ use pinna_audio::dsp::{CaptureFormat, SampleFormat};
 use pinna_audio::mixer::Codec;
 use pinna_audio::speaker::pcm_status_path;
 use pinna_audio::volume::VolumeCurve;
-use pinna_audio::{Agc, Backend, CaptureConfig, Speaker, SpeakerConfig, start_capture};
+use pinna_audio::{
+    Agc, Backend, CaptureConfig, CaptureStatus, Speaker, SpeakerConfig, start_capture,
+};
 use pinna_esphome::{DeviceConfig, DeviceEvent, EsphomeHandle};
 use pinna_hal::anim::Effect;
 use pinna_hal::board::{Board, Model, Soc, SpeakerTuning};
@@ -324,11 +326,20 @@ impl CaptureGain {
 
 /// The gain in each wake word's measurement line (ADR 0026): the automatic
 /// gain as it stands after the latest frame, or the fixed one.
+impl CaptureGain {
+    fn db(&self) -> f32 {
+        match self {
+            CaptureGain::Auto { agc, .. } => agc.gain_db(),
+            CaptureGain::Fixed(g) => 20.0 * g.log10(),
+        }
+    }
+}
+
 impl std::fmt::Display for CaptureGain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CaptureGain::Auto { agc, .. } => write!(f, "automatic gain {:+.1} dB", agc.gain_db()),
-            CaptureGain::Fixed(g) => write!(f, "fixed gain {:+.1} dB", 20.0 * g.log10()),
+            CaptureGain::Auto { .. } => write!(f, "automatic gain {:+.1} dB", self.db()),
+            CaptureGain::Fixed(_) => write!(f, "fixed gain {:+.1} dB", self.db()),
         }
     }
 }
@@ -353,6 +364,15 @@ fn apply_gain(frame: &mut [i16], gain: f32) {
     }
 }
 
+/// The word as the timeline names it, and whether the input ignores it.
+fn wake_detail(word: &str, shared: &Shared) -> String {
+    if shared.wake_enabled.load(Ordering::Relaxed) {
+        word.to_owned()
+    } else {
+        format!("{word} (wake word off)")
+    }
+}
+
 async fn capture_loop(
     (capture, mut gain): (CaptureConfig, CaptureGain),
     mut detector: Option<pinna_wakeword::Detector>,
@@ -369,6 +389,26 @@ async fn capture_loop(
         }
     };
     tracing::info!("microphone running");
+    // The stream changing explains a gap in the debugging timeline.
+    let mut status = stream.status();
+    tokio::spawn(async move {
+        let mut last = "";
+        loop {
+            let now = match &*status.borrow_and_update() {
+                CaptureStatus::Running => "processed stream",
+                CaptureStatus::RunningRaw => "raw lanes, without echo cancellation",
+                CaptureStatus::Starting | CaptureStatus::Restarting { .. } => "starting",
+                CaptureStatus::Finished | CaptureStatus::Stopped => "stopped",
+            };
+            if now != last {
+                last = now;
+                crate::timeline::event(crate::timeline::EventKind::Microphone, now);
+            }
+            if status.changed().await.is_err() {
+                break;
+            }
+        }
+    });
     let mut router = MicRouter::default();
     // Peak detector score of the current utterance, for near-miss logging.
     let mut peak = 0.0f32;
@@ -376,6 +416,10 @@ async fn capture_loop(
     let mut peak_reached = false;
     // Which word scored the peak, for the near-miss log.
     let mut peak_word = String::new();
+    // The peak's level and gain, for the debugging timeline: the level
+    // window is gone by the time a near miss is decided.
+    let mut peak_level = 0.0f32;
+    let mut peak_gain = 0.0f32;
     let mut peak_at = std::time::Instant::now();
     // The newest set of wake words applied (ADR 0013).
     let mut generation = 0u64;
@@ -449,6 +493,10 @@ async fn capture_loop(
                             peak_reached = b.score >= threshold;
                             peak_at = std::time::Instant::now();
                             new_peak = b.keyword;
+                            if crate::timeline::get().is_some_and(|t| t.on()) {
+                                peak_level = levels.word(b.sample_index).map_or(0.0, |l| l.dbfs);
+                                peak_gain = gain.db();
+                            }
                         }
                     })
                 });
@@ -469,6 +517,17 @@ async fn capture_loop(
                         .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(4));
                     if peak >= 0.2 && !after_detection {
                         tracing::info!("wake word near miss ({peak_word}): peak score {peak:.2}");
+                        crate::timeline::with(|t| {
+                            let mut event = crate::timeline::Event::new(
+                                crate::timeline::EventKind::NearMiss,
+                                &wake_detail(&peak_word, &shared),
+                            );
+                            event.score = peak;
+                            event.threshold = threshold;
+                            event.level_dbfs = peak_level;
+                            event.gain_db = peak_gain;
+                            t.push(event);
+                        });
                         if shared.wake_enabled.load(Ordering::Relaxed) {
                             let _ = inputs
                                 .send(Input::NearMiss {
@@ -480,6 +539,20 @@ async fn capture_loop(
                     }
                     peak = 0.0;
                 }
+                crate::timeline::with(|t| {
+                    for det in &detections {
+                        let word = d.keyword(det.keyword).map_or("", |k| k.name());
+                        let mut event = crate::timeline::Event::new(
+                            crate::timeline::EventKind::Wake,
+                            &wake_detail(word, &shared),
+                        );
+                        event.score = det.score;
+                        event.threshold = threshold;
+                        event.level_dbfs = levels.word(det.sample_index).map_or(0.0, |l| l.dbfs);
+                        event.gain_db = gain.db();
+                        t.push(event);
+                    }
+                });
                 if shared.wake_enabled.load(Ordering::Relaxed) && !detections.is_empty() {
                     // The time the detector decided, taken here because
                     // journald stamps a line only when it arrives.

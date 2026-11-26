@@ -931,6 +931,22 @@ impl ToolSet for DeviceTools {
                 .counters
                 .tool_call(name, server, via, !output.is_error);
             log_call(self.caller, name, server, &output, started.elapsed());
+            let run = match self.caller {
+                Caller::Run(run) => run.0,
+                _ => 0,
+            };
+            crate::timeline::stage(
+                || {
+                    // A name the model made up is not repeated, as in the log.
+                    if pinna_mcp::tool_name(name) {
+                        format!("tool {name}")
+                    } else {
+                        "tool with an invalid name".to_owned()
+                    }
+                },
+                started.elapsed(),
+                run,
+            );
             output
         })
     }
