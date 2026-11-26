@@ -5,6 +5,7 @@ mod error;
 mod secret;
 mod sse;
 mod tls;
+pub mod trace;
 
 #[cfg(feature = "blocking")]
 pub use client::blocking_client;

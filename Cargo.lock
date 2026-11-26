@@ -2311,6 +2311,9 @@ name = "pinna-http"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
+ "http",
+ "http-body",
  "pinna-version",
  "reqwest",
  "rustls",
