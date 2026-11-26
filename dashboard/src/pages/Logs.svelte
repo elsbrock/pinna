@@ -83,7 +83,7 @@
     ),
   );
   const empty = $derived.by(() => {
-    if (!lines.length) return connected ? "No log lines yet." : "Loading the log…";
+    if (!lines.length) return connected ? "No log lines yet." : error ? "The log didn't load." : "Loading the log…";
     const what = onlyProblems ? "No warnings or errors" : "No lines";
     return needle ? `${what} match “${query.trim()}”.` : `${what}.`;
   });
@@ -149,6 +149,11 @@
       if (box) scrollable = box.scrollHeight > box.clientHeight;
     });
     watch.observe(box);
+    // The web fonts rewrap the lines without resizing the box: on a phone the
+    // newest line was left half below the bottom after a reload.
+    void document.fonts?.ready.then(() => {
+      if (follow) toEnd();
+    });
     return () => watch.disconnect();
   });
 
@@ -169,8 +174,8 @@
   const count = (n: number) => `${n} ${n === 1 ? "line" : "lines"}`;
 
   async function copy() {
-    await copyText(shown.map(text).join("\n"));
-    toasts.show(`Copied ${count(shown.length)}`);
+    if (await copyText(shown.map(text).join("\n"))) toasts.show(`Copied ${count(shown.length)}`);
+    else toasts.show("This browser didn't copy the lines. Select Download instead.", "danger");
   }
 
   // Open an issue: the form's link carries the satellite's details, and the
