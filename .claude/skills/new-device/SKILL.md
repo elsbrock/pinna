@@ -26,9 +26,10 @@ Echo (2nd gen) took. The Echo Dot (5th gen) is an MT8519 on Amazon's U-Boot
 - The board's `bootloader` in `pinna-board` decides what follows. On the
   Kaeru payload (`Bootloader::Kaeru`, the MT8163 and MT8516 Echos) Pinna
   relies on it for unsigned boot images, fastboot and the fastboot guard. On
-  Amazon's U-Boot (`Bootloader::AmazonUboot`, the Echo Dot (5th gen)) there
-  is no fastboot: the boot image is a signed FIT, the way back is the
-  community installer's preloader route over the USB test pads, and the
+  Amazon's U-Boot (`Bootloader::AmazonUboot`, the Echo Dot (5th gen)) the
+  boot image is a FIT that must carry every configuration name U-Boot may
+  ask for (`fit_configs`; read them from the stock FIT and watch a restart on
+  the UART), the way back is firebreak over the USB test pads, and the
   storage is UBI volumes, not a GPT. Take the bootloader, the storage kind
   (`StorageKind`) and the slot sizes from the device and record them in the
   `Board`.
