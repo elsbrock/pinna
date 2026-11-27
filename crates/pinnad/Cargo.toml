@@ -19,6 +19,7 @@ pinna-wakeword = { path = "../pinna-wakeword" }
 pinna-bootctl = { path = "../pinna-bootctl" }
 pinna-image = { path = "../pinna-image" }
 pinna-sendspin = { path = "../pinna-sendspin" }
+pinna-speaker = { path = "../pinna-speaker" }
 anyhow.workspace = true
 clap.workspace = true
 libc.workspace = true
@@ -26,6 +27,7 @@ md-5.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
 toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true

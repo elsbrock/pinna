@@ -29,6 +29,7 @@ use crate::config::Web;
 use crate::group::peer::{self, PeerApi};
 use crate::mcp::{self, McpServer};
 use crate::metrics::{self, Counters};
+use crate::people_api::{self, PeopleApi};
 use crate::virtual_device::{self, VirtualDevice};
 use crate::voice::Snapshot;
 
@@ -118,7 +119,8 @@ fn normalise(name: &str) -> String {
 const PEER_ROUTES: &str = "/pinna.v1.PeerService/";
 
 /// The routes: Connect procedures under `/pinna.v1.DeviceService/`,
-/// `/pinna.v1.AssistantService/` and `/pinna.v1.PeerService/`, `/metrics`
+/// `/pinna.v1.AssistantService/`, `/pinna.v1.PeopleService/` and
+/// `/pinna.v1.PeerService/`, `/metrics`
 /// (ADR 0020), the virtual Echo Dot's socket in the development VM
 /// (ADR 0014), Pinna's MCP server (ADR 0017), `/auth/login` and
 /// `/auth/logout` (ADR 0029), the dashboard's files for everything else.
@@ -126,6 +128,7 @@ const PEER_ROUTES: &str = "/pinna.v1.PeerService/";
 pub fn app(
     api: Arc<DeviceApi>,
     assistant: Arc<AssistantApi>,
+    people: Arc<PeopleApi>,
     peer: Arc<PeerApi>,
     root: &Path,
     hosts: Hosts,
@@ -149,6 +152,10 @@ pub fn app(
         .route_service(
             auth::layer::ASSISTANT_ROUTE,
             assistant_api::router(assistant).into_axum_service(),
+        )
+        .route_service(
+            auth::layer::PEOPLE_ROUTE,
+            people_api::router(people).into_axum_service(),
         )
         .route_service(
             auth::layer::PEER_ROUTE,
@@ -347,6 +354,7 @@ async fn cache_control(req: Request, next: Next) -> Response {
 pub async fn start(
     api: Arc<DeviceApi>,
     assistant: Arc<AssistantApi>,
+    people: Arc<PeopleApi>,
     peer: Arc<PeerApi>,
     cfg: &Web,
     virt: Option<Arc<VirtualDevice>>,
@@ -378,6 +386,7 @@ pub async fn start(
     let app = app(
         api,
         assistant,
+        people,
         peer,
         &cfg.root,
         hosts,
@@ -529,7 +538,8 @@ mod tests {
             last_boot: boot::LastBoot::cold(),
             key_from_image: false,
         };
-        let (assistant, peer, mcp, auth) = assistant(&dir, status_rx.clone(), in_tx.clone());
+        let (assistant, people, peer, mcp, auth) =
+            assistant(&dir, status_rx.clone(), in_tx.clone());
         let mut api = DeviceApi::new(info, status_rx, in_tx)
             .with_auth(auth.clone())
             .with_timeline(Arc::new(crate::timeline::Timeline::new(mpsc::channel(8).0)));
@@ -541,6 +551,7 @@ mod tests {
             app: app(
                 api,
                 assistant,
+                people,
                 peer,
                 &dir,
                 hosts(),
@@ -557,11 +568,18 @@ mod tests {
 
     /// The setup API, the satellite group's calls and `/mcp` over files in
     /// `dir`.
+    #[allow(clippy::type_complexity)]
     fn assistant(
         dir: &Path,
         status: watch::Receiver<Snapshot>,
         inputs: mpsc::Sender<crate::voice::Input>,
-    ) -> (Arc<AssistantApi>, Arc<PeerApi>, Arc<McpServer>, Arc<Auth>) {
+    ) -> (
+        Arc<AssistantApi>,
+        Arc<PeopleApi>,
+        Arc<PeerApi>,
+        Arc<McpServer>,
+        Arc<Auth>,
+    ) {
         let service = Service::load(Paths::beside(&dir.join("settings.toml")), status.clone());
         let mcp = McpServer::new(
             service.clone(),
@@ -581,6 +599,10 @@ mod tests {
         let auth = Auth::new(service.clone(), "02:00:00:aa:bb:cc", inputs.clone());
         (
             Arc::new(AssistantApi::new(service, inputs)),
+            Arc::new(PeopleApi::new(crate::people::People::open(
+                &crate::people::Paths::beside(&dir.join("settings.toml")),
+                "/nonexistent/speaker.onnx".into(),
+            ))),
             Arc::new(PeerApi::new(Arc::new(group))),
             Arc::new(mcp),
             auth,
@@ -1079,7 +1101,7 @@ mod tests {
             key_from_image: false,
         };
         let api = Arc::new(DeviceApi::new(info, rx.clone(), tx.clone()));
-        let (assistant, peer, mcp, auth) = assistant(&f.dir, rx, tx.clone());
+        let (assistant, people, peer, mcp, auth) = assistant(&f.dir, rx, tx.clone());
         let cfg = Web {
             listen: String::new(),
             root: f.dir.clone(),
@@ -1090,6 +1112,7 @@ mod tests {
             start(
                 api.clone(),
                 assistant.clone(),
+                people.clone(),
                 peer.clone(),
                 &cfg,
                 None,
@@ -1107,9 +1130,11 @@ mod tests {
             ..cfg
         };
         assert!(
-            start(api, assistant, peer, &cfg, None, mcp, &counters, auth)
-                .await
-                .is_err()
+            start(
+                api, assistant, people, peer, &cfg, None, mcp, &counters, auth
+            )
+            .await
+            .is_err()
         );
     }
 }

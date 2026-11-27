@@ -6,6 +6,7 @@ const FILES: &[&str] = &[
     "pinna/v1/device.proto",
     "pinna/v1/assistant.proto",
     "pinna/v1/peer.proto",
+    "pinna/v1/people.proto",
 ];
 
 fn main() -> anyhow::Result<()> {

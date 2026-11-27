@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package pinna.v1;
+
+// The people the satellite recognizes by voice (ADR 0038): their names, the
+// extra instructions each one gets, and the state of their voiceprints. Served
+// with the dashboard, behind the same sign-in as AssistantService.
+//
+// Voiceprints never leave the satellite: no response carries one.
+//
+// An edit is refused with INVALID_ARGUMENT when it is wrong in itself, and
+// ABORTED when it names a revision that changed meanwhile. Every refusal is
+// one sentence for the owner, and a refused edit changes nothing.
+service PeopleService {
+  // Everyone else, the people, the state of recognition and the limits.
+  rpc GetPeople(GetPeopleRequest) returns (GetPeopleResponse);
+  // Add a person, or change a person's name and extra instructions.
+  rpc SetPerson(SetPersonRequest) returns (SetPersonResponse);
+  // Remove a person and their voiceprint. A request that is running keeps
+  // the profile it started with.
+  rpc DeletePerson(DeletePersonRequest) returns (DeletePersonResponse);
+  // Change the extra instructions of everyone who isn't a person on the list.
+  rpc SetEveryoneElse(SetEveryoneElseRequest) returns (SetEveryoneElseResponse);
+}
+
+// What a person's voiceprint is worth now.
+enum VoiceState {
+  VOICE_STATE_UNSPECIFIED = 0;
+  // There is no voiceprint: the person hasn't enrolled.
+  VOICE_STATE_NONE = 1;
+  // The voiceprint is from the installed model and the current microphone
+  // processing.
+  VOICE_STATE_ENROLLED = 2;
+  // The voiceprint is from another speaker model. It is ignored: the person
+  // counts as not enrolled and has to enroll again.
+  VOICE_STATE_OTHER_MODEL = 3;
+  // The voiceprint is from older microphone processing. It is still used;
+  // enrolling again is suggested.
+  VOICE_STATE_OLDER_CAPTURE = 4;
+}
+
+// Whether the satellite can recognize voices now.
+enum RecognitionState {
+  RECOGNITION_STATE_UNSPECIFIED = 0;
+  // Nobody has a usable voiceprint, so the speaker model isn't loaded.
+  RECOGNITION_STATE_NOT_NEEDED = 1;
+  // The speaker model is loading, which takes several seconds. Requests run
+  // as Everyone else until it is ready.
+  RECOGNITION_STATE_LOADING = 2;
+  // The speaker model is loaded.
+  RECOGNITION_STATE_READY = 3;
+  // The speaker model couldn't be loaded; `Recognition.reason` says why.
+  RECOGNITION_STATE_UNAVAILABLE = 4;
+}
+
+// The profile for everyone who isn't on the list.
+message EveryoneElse {
+  // Extra instructions for the brain, at most Limits.max_instructions
+  // characters.
+  string instructions = 1;
+  // Goes up with every change; edits name the revision they were made on.
+  uint64 revision = 2;
+}
+
+// One person the satellite is asked to recognize.
+message Person {
+  // Assigned by the satellite, such as `p1`. Never reused.
+  string id = 1;
+  // At most Limits.max_name characters. The "Last speaker" entity in Home
+  // Assistant shows it.
+  string name = 2;
+  // Extra instructions for the brain, at most Limits.max_instructions
+  // characters.
+  string instructions = 3;
+  // Goes up with every change; edits name the revision they were made on.
+  uint64 revision = 4;
+  // What this person's voiceprint is worth now.
+  VoiceState voice = 5;
+  // The ids of the other people whose voiceprints are close to this one's,
+  // so the satellite may mix them up. Only voiceprints that are used count.
+  repeated string close_to = 6;
+}
+
+// Whether recognition can run.
+message Recognition {
+  RecognitionState state = 1;
+  // Why the model is unavailable, as a sentence; empty otherwise.
+  string reason = 2;
+}
+
+// What the satellite accepts.
+message Limits {
+  // The most people on the list.
+  uint32 max_people = 1;
+  // The most characters of extra instructions in a profile.
+  uint32 max_instructions = 2;
+  // The most characters in a name.
+  uint32 max_name = 3;
+}
+
+message GetPeopleRequest {}
+
+message GetPeopleResponse {
+  EveryoneElse everyone_else = 1;
+  repeated Person people = 2;
+  Recognition recognition = 3;
+  Limits limits = 4;
+}
+
+message SetPersonRequest {
+  // Empty adds a person.
+  string id = 1;
+  // The revision the edit was made on; ignored when adding.
+  uint64 revision = 2;
+  // Unique among the people, ignoring case, and not "Everyone else".
+  string name = 3;
+  string instructions = 4;
+}
+
+message SetPersonResponse {
+  // The person as saved.
+  Person person = 1;
+}
+
+message DeletePersonRequest {
+  string id = 1;
+}
+
+message DeletePersonResponse {}
+
+message SetEveryoneElseRequest {
+  string instructions = 1;
+  // The revision the edit was made on.
+  uint64 revision = 2;
+}
+
+message SetEveryoneElseResponse {
+  EveryoneElse everyone_else = 1;
+}

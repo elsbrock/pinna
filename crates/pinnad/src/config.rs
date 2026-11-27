@@ -65,6 +65,9 @@ pub struct Wake {
     /// The openWakeWord models: the shared mel and embedding models, and the
     /// built-in words' classifiers (ADR 0013).
     pub models: PathBuf,
+    /// The speaker model that tells people apart by voice (ADR 0038). It
+    /// loads only once someone is enrolled.
+    pub speaker_model: PathBuf,
     /// The word that listens until the active words are first chosen (from
     /// Home Assistant or the dashboard): its classifier file in `models`...
     pub keyword: String,
@@ -181,6 +184,7 @@ impl Default for Wake {
         Self {
             enabled: true,
             models: "/usr/share/pinna/models/openwakeword-0.5.1".into(),
+            speaker_model: "/usr/share/pinna/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx".into(),
             keyword: "alexa_v0.1.onnx".into(),
             id: "alexa_v0.1".into(),
             phrase: "Alexa".into(),

@@ -23,6 +23,8 @@ mod mcp;
 mod metrics;
 mod mic;
 mod network;
+mod people;
+mod people_api;
 mod recording;
 mod satellites;
 mod secrets;
@@ -1286,6 +1288,12 @@ async fn main() -> Result<()> {
             .with_satellites(satellites_rx, dc_mac)
             .with_group(group.clone()),
     );
+    // The speaker model loads in the background when someone is enrolled
+    // (ADR 0038).
+    let people_api = Arc::new(people_api::PeopleApi::new(people::People::open(
+        &people::Paths::beside(&cli.settings),
+        cfg.wake.speaker_model.clone(),
+    )));
     // The tools' HTTP clients, counters and updater, shared by every run and /mcp call.
     let tool_kit = tools::ToolKit::new(shared.counters.clone())
         .with_updater(updater.clone())
@@ -1307,6 +1315,7 @@ async fn main() -> Result<()> {
     match web::start(
         device_api,
         assistant_api,
+        people_api,
         peer_api,
         &cfg.web,
         virt,

@@ -37,11 +37,13 @@ pub const LOGIN: &str = "/auth/login";
 pub const LOGOUT: &str = "/auth/logout";
 pub const DEVICE_ROUTE: &str = "/pinna.v1.DeviceService/{method}";
 pub const ASSISTANT_ROUTE: &str = "/pinna.v1.AssistantService/{method}";
+pub const PEOPLE_ROUTE: &str = "/pinna.v1.PeopleService/{method}";
 pub const PEER_ROUTE: &str = "/pinna.v1.PeerService/{method}";
 pub const METRICS: &str = "/metrics";
 
 const DEVICE_PREFIX: &str = "/pinna.v1.DeviceService/";
 const ASSISTANT_PREFIX: &str = "/pinna.v1.AssistantService/";
+const PEOPLE_PREFIX: &str = "/pinna.v1.PeopleService/";
 
 /// The `DeviceService` calls that need no session: they say who may call them
 /// themselves.
@@ -155,7 +157,10 @@ pub async fn guard(State(auth): State<Arc<Auth>>, mut req: Request, next: Next) 
 
 /// Connect's `unauthenticated` for the Connect services, plain 401 elsewhere.
 fn unauthenticated(path: &str) -> Response {
-    if path.starts_with(DEVICE_PREFIX) || path.starts_with(ASSISTANT_PREFIX) {
+    if path.starts_with(DEVICE_PREFIX)
+        || path.starts_with(ASSISTANT_PREFIX)
+        || path.starts_with(PEOPLE_PREFIX)
+    {
         let error = ConnectError::unauthenticated(SIGN_IN);
         return (
             error.http_status(),
@@ -332,6 +337,7 @@ mod tests {
         };
         axum::Router::new()
             .route(DEVICE_ROUTE, post(|| async { "device" }))
+            .route(PEOPLE_ROUTE, post(|| async { "people" }))
             .route(PEER_ROUTE, post(|| async { "peer" }))
             .route(mcp::ROUTE, any(|| async { "mcp" }))
             .route(METRICS, get(|| async { "metrics" }))
@@ -455,6 +461,10 @@ mod tests {
         }
         let res = send(&app, req("POST", "/pinna.v1.AssistantService/GetAssistant")).await;
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let res = send(&app, req("POST", "/pinna.v1.PeopleService/GetPeople")).await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let body: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+        assert_eq!(body["code"], "unauthenticated");
     }
 
     #[tokio::test]

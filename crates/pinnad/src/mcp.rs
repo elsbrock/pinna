@@ -292,9 +292,16 @@ mod tests {
                 crate::group::Limits::default(),
             );
             let peer = Arc::new(crate::group::peer::PeerApi::new(Arc::new(group)));
+            let people = Arc::new(crate::people_api::PeopleApi::new(
+                crate::people::People::open(
+                    &crate::people::Paths::beside(&dir.path().join("settings.toml")),
+                    "/nonexistent/speaker.onnx".into(),
+                ),
+            ));
             let app = web::app(
                 api,
                 assistant,
+                people,
                 peer,
                 Path::new("/nonexistent"),
                 hosts,
