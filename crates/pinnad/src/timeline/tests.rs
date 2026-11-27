@@ -648,3 +648,38 @@ async fn turning_the_levels_off_keeps_what_is_finished_and_stops() {
     pass(Duration::from_secs(5)).await;
     assert_eq!(kept_levels(&t).len(), 1);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_request_open_when_debugging_ends_is_followed_to_its_end() {
+    let (t, _rx) = rig();
+    t.start(FROM, 15, false, false);
+    t.record(started(1));
+    pass(minutes(15)).await;
+    assert!(!t.on());
+    t.record(ended(1, trace::Outcome::Done, None));
+    let (_, requests) = kept(&t);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].outcome, TimelineOutcome::TIMELINE_OUTCOME_DONE);
+    // Nothing new starts while off.
+    t.record(started(2));
+    assert_eq!(kept(&t).1.len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn what_was_kept_ages_out_while_nothing_new_arrives() {
+    let (t, _rx) = rig();
+    t.spawn_ageing();
+    t.start(FROM, 15, false, false);
+    pass(minutes(10)).await;
+    t.event(EventKind::Wake, "x");
+    pass(minutes(5)).await;
+    assert!(!t.on());
+    assert_eq!(
+        t.inner.lock().unwrap().events.len(),
+        1,
+        "kept after the end"
+    );
+    // No follower and nothing new: the ageing task drops it on its own.
+    pass(minutes(6)).await;
+    assert!(t.inner.lock().unwrap().events.is_empty());
+}

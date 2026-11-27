@@ -97,10 +97,15 @@ pub fn init(brain: mpsc::Sender<Input>) -> Arc<Timeline> {
         .get_or_init(|| {
             let mut timeline = Timeline::new(brain);
             timeline.drive_http = true;
-            Arc::new(timeline)
+            let timeline = Arc::new(timeline);
+            timeline.spawn_ageing();
+            timeline
         })
         .clone()
 }
+
+/// How often what was kept is aged when nothing new arrives.
+const AGE_EVERY: Duration = Duration::from_secs(30);
 
 /// Push an event if debugging is on.
 pub fn event(kind: EventKind, detail: &str) {
@@ -722,6 +727,23 @@ impl Timeline {
         running
     }
 
+    /// Age what was kept even when nothing new arrives: after debugging ends,
+    /// or while it runs quietly, nothing outlives its 10 minutes for long.
+    pub fn spawn_ageing(self: &Arc<Self>) {
+        let timeline = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(AGE_EVERY);
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                every.tick().await;
+                let Some(timeline) = timeline.upgrade() else {
+                    return;
+                };
+                timeline.inner.lock().unwrap().age(Instant::now());
+            }
+        });
+    }
+
     /// A task that turns each part off at its time. A later start makes it end.
     fn spawn_expiry(self: &Arc<Self>, generation: u64) {
         let timeline = self.clone();
@@ -913,7 +935,9 @@ fn level(switch: &Switch) -> Level {
 
 impl trace::Sink for Timeline {
     fn record(&self, event: trace::Event) {
-        if !self.on() {
+        // A request that started while debugging ran is followed to its end,
+        // so that it doesn't stay open in what was kept; nothing new starts.
+        if !self.on() && matches!(event, trace::Event::Started { .. }) {
             return;
         }
         let mut inner = self.inner.lock().unwrap();
