@@ -129,8 +129,8 @@ Select **Assistant**, then **Conversation**.
   as the satellite's voice rules: short, plain spoken answers. **Reset to the
   voice rules** brings them back. With each request the satellite adds the
   local time, the place, the language and its name, and in a satellite group
-  the other satellites' names, with those in Home Assistant mode named as out
-  of reach.
+  the other satellites' names, with those in Home Assistant mode named as
+  taking messages and control but not timers.
 - **Follow-ups**: on at first. After each reply, the satellite listens for 4
   seconds more, without the wake word, so you can answer. If you say nothing,
   it stops listening.

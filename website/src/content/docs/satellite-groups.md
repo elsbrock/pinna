@@ -1,11 +1,12 @@
 ---
 title: Satellite groups
-description: Put satellites in standalone mode in a group, so that they pass messages to each other and act on each other.
+description: Put satellites in a group, so that they pass messages to each other and act on each other.
 ---
 
-Satellites in standalone mode that are in one group pass messages to each
-other, such as "tell the kitchen that dinner is ready", and act on each other,
-such as "turn the kitchen down".
+Satellites in one group pass messages to each other, such as "tell the
+kitchen that dinner is ready", and act on each other, such as "turn the
+kitchen down". You talk to a satellite in standalone mode. The satellites it
+reaches can be in standalone mode or in Home Assistant mode.
 
 ## Set up a satellite group
 
@@ -16,8 +17,10 @@ Before you begin:
 - The satellite you talk to is in standalone mode, with a language model as
   its brain. An agent such as Hermes or OpenClaw gets no device tools, so it
   can't send messages or act on another satellite.
-- Each satellite that should take messages is in standalone mode, with
-  text-to-speech that has passed its check.
+- Each satellite that should take messages has text-to-speech that has
+  passed its check, under **Assistant > Services**, in either mode. A
+  satellite in Home Assistant mode speaks messages with that service, not
+  with Home Assistant's voice.
 
 1. Name each satellite something easy to say, such as `Kitchen`, on
    **System** on its dashboard; see
@@ -117,8 +120,7 @@ group** on every member so that the group ends, and set it up again.
 
 ## Pass messages between satellites
 
-With more than one satellite in standalone mode, you can ask one to pass a
-message to another, such as "tell the kitchen that dinner is ready". The
+You can ask a satellite in standalone mode to pass a message to another, such as "tell the kitchen that dinner is ready". The
 satellite in the kitchen says "Message from Hall: dinner is ready." in its
 own voice. The opening is in the receiving satellite's **Language**, under
 **Conversation**. With no **Language** set, or one that Pinna has no wording
@@ -128,8 +130,8 @@ If two satellites hear the wake word, both answer. Choosing one is planned.
 
 ### How messages play
 
-- The brain gets the `send_message` tool once another satellite of the group
-  is in standalone mode. It sends a message to one satellite by its name, or
+- The brain gets the `send_message` tool once it has heard from another
+  satellite of the group. It sends a message to one satellite by its name, or
   to all of them, and tells you what each one did: it played the message, it
   holds it, it refused it and why, or it couldn't be reached.
 - A satellite says a message at once when it is idle or plays only music,
@@ -138,15 +140,16 @@ If two satellites hear the wake word, both answer. Choosing one is planned.
   while its microphones are off, it holds the message. Held messages play by
   themselves, oldest first, once it is idle and its microphones are on.
 - A satellite holds at most 5 messages, each for 12 hours at most. It forgets
-  them when it restarts, when it switches to Home Assistant mode, and when its
-  **Satellite group** switch is turned off. A satellite removed from its
+  them when it restarts and when its **Satellite group** switch is turned
+  off. A satellite removed from its
   group, or whose group ended, keeps them and plays them. The dashboard's
   **Overview** shows how many it holds, such as "2 messages held". While the
   microphones are off, it adds that they play once the microphones are on.
 - The wake word stops a message, which plays again later. The Action button
   stops it for good.
-- A satellite in Home Assistant mode stays in its group, but takes no
-  messages: the brain says it is out of reach.
+- A satellite in Home Assistant mode takes messages too, and holds them
+  while it answers a request for Home Assistant. It sends none: Home
+  Assistant answers what you ask it.
 - To stop a satellite from taking messages, select **Assistant > Satellite
   group** on its dashboard, and under **From the group**, turn off **Group messages**.
   **From the group** shows while **Satellite group** is on. Home Assistant
@@ -180,7 +183,7 @@ such as "turn the kitchen down" or "set a 10 minute timer in the office". The
 satellites must be in one group; see
 [Set up a satellite group](#set-up-a-satellite-group).
 
-- Once another satellite of the group is in standalone mode, the brain can
+- Once it has heard from another satellite of the group, the brain can
   name it for these tools: the volume and the reply volume, the ring light,
   playing a stream, pausing, resuming and stopping music and radio, playing
   and listing radio stations, and setting, listing and cancelling timers. It
@@ -189,16 +192,18 @@ satellites must be in one group; see
   doesn't play again. Without a name, a tool acts on the satellite you are
   talking to.
 - A timer set on another satellite rings there, and that satellite lists and
-  cancels it.
+  cancels it. A satellite in Home Assistant mode refuses timers from the
+  group: Home Assistant sets its timers.
 - Radio stations are the other satellite's own: it plays a station from its
   own list.
 - The other satellite runs the tool as if an MCP client had called it: its
   own tool switches apply, and it is busy while it runs two tool calls
   already. A tool switched off on the satellite you are talking to isn't
   offered for any satellite.
-- The brain says when another satellite can't do it: it is in Home Assistant
-  mode, the search doesn't find it, it doesn't answer within 9.5 seconds (what
-  it was asked may still happen), or it refused.
+- The brain says when another satellite can't do it: the search doesn't find
+  it, it doesn't answer within 9.5 seconds (what it was asked may still
+  happen), or it refused, such as a timer on a satellite in Home Assistant
+  mode.
 - To stop the others from acting on a satellite, select **Assistant >
   Satellite group** on its dashboard, and under **From the group**, turn off **Control from the
   group**. **From the group** shows while **Satellite group** is on.
