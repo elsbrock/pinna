@@ -597,6 +597,13 @@ impl Detector {
         self.heads.len()
     }
 
+    /// Each keyword's name and the raw score of the latest 80 ms block, in
+    /// the order the detector holds them. The score is 0 until the first
+    /// block, and during startup suppression. Reading it changes nothing.
+    pub fn scores(&self) -> impl Iterator<Item = (&str, f32)> {
+        self.heads.iter().map(|h| (h.keyword.name(), h.current))
+    }
+
     /// The keyword with this block's highest score, and that score.
     fn best_current(&self) -> (Option<usize>, f32) {
         let mut best = (None, 0.0);

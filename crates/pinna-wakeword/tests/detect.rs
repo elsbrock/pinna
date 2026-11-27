@@ -217,3 +217,23 @@ fn rejects_models_that_are_not_classifiers() {
         println!("{other}: {e:#}");
     }
 }
+
+/// `scores` reads what the latest block scored: the highest of them is the
+/// score `push_with` reports for that block, and reading changes nothing.
+#[test]
+fn scores_read_the_latest_block() {
+    let Some(mut det) = detector() else { return };
+    assert!(det.scores().all(|(name, s)| !name.is_empty() && s == 0.0));
+    let samples = read_wav(&fixture("alexa-what-time.wav"));
+    let mut checked = 0;
+    for c in samples.chunks(1280) {
+        let mut block = None;
+        det.push_with(c, |b| block = Some(b.score));
+        let Some(reported) = block else { continue };
+        let best = det.scores().map(|(_, s)| s).fold(0.0, f32::max);
+        assert_eq!(best, reported);
+        assert_eq!(det.scores().count(), det.keyword_count());
+        checked += 1;
+    }
+    assert!(checked > 10);
+}
