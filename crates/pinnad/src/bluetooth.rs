@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
 
-use crate::airplay::{State, systemctl, unit_state};
+use crate::airplay::{State, shutting_down, systemctl, unit_state};
 
 const TARGET: &str = "pinna-bluetooth.target";
 const BRIDGE: &str = "pinna-bt.service";
@@ -194,18 +194,18 @@ pub fn worker(unit: watch::Sender<State>) -> mpsc::UnboundedSender<bool> {
                     }
                 }
                 _ = poll.tick(), if on => {
-                    if let Ok(state) = tokio::task::spawn_blocking(|| unit_state(BRIDGE)).await {
-                        unit.send_if_modified(|u| {
-                            let changed = *u != state;
-                            if changed && let State::Failed(why) = &state {
-                                tracing::warn!(
-                                    "bluetooth: the bridge stopped ({why}); \
-                                     journalctl -u pinna-bt says why"
-                                );
-                            }
-                            *u = state;
-                            changed
-                        });
+                    if let Ok(state) = tokio::task::spawn_blocking(|| unit_state(BRIDGE)).await
+                        && *unit.borrow() != state
+                    {
+                        if let State::Failed(why) = &state
+                            && !tokio::task::spawn_blocking(shutting_down).await.unwrap_or(false)
+                        {
+                            tracing::warn!(
+                                "bluetooth: the bridge stopped ({why}); \
+                                 journalctl -u pinna-bt says why"
+                            );
+                        }
+                        unit.send_replace(state);
                     }
                 }
             }

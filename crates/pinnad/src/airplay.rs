@@ -195,6 +195,15 @@ pub(crate) fn systemctl(args: &[&str]) {
     }
 }
 
+/// The system is shutting down. The bridges are ordered after pinnad, so
+/// systemd stops them first: a bridge that stops now isn't a fault.
+pub(crate) fn shutting_down() -> bool {
+    std::process::Command::new("systemctl")
+        .arg("is-system-running")
+        .output()
+        .is_ok_and(|o| o.stdout.starts_with(b"stopping"))
+}
+
 /// A task that applies the receiver as pinnad wants it, `Some` on under that
 /// name or `None` off, one change at a time (changes that pile up collapse
 /// into the latest), and while it is on watches the bridge and reports.
@@ -229,19 +238,19 @@ pub fn worker(report: watch::Sender<Report>) -> mpsc::UnboundedSender<Option<Air
                     }
                 }
                 _ = poll.tick(), if want.is_some() => {
-                    if let Ok(state) = tokio::task::spawn_blocking(|| unit_state(UNIT)).await {
-                        report.send_if_modified(|r| {
-                            let changed = r.state != state;
-                            if changed && let State::Failed(why) = &state {
-                                // The dashboard sends people to this log.
-                                tracing::warn!(
-                                    "airplay: the receiver stopped ({why}); \
-                                     journalctl -u pinna-airplay says why"
-                                );
-                            }
-                            r.state = state;
-                            changed
-                        });
+                    if let Ok(state) = tokio::task::spawn_blocking(|| unit_state(UNIT)).await
+                        && report.borrow().state != state
+                    {
+                        if let State::Failed(why) = &state
+                            && !tokio::task::spawn_blocking(shutting_down).await.unwrap_or(false)
+                        {
+                            // The dashboard sends people to this log.
+                            tracing::warn!(
+                                "airplay: the receiver stopped ({why}); \
+                                 journalctl -u pinna-airplay says why"
+                            );
+                        }
+                        report.send_modify(|r| r.state = state);
                     }
                 }
             }
