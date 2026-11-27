@@ -2,6 +2,7 @@
 //! detection (a port of LibreEcho's buttond input handling).
 
 use std::collections::HashSet;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -128,9 +129,14 @@ struct RawKey {
     value: i32,
 }
 
+/// An input node, by path and inode: a device that takes the `eventN` of
+/// one that left gets a new node.
+type Node = (PathBuf, u64);
+
 async fn run_buttons(dir: PathBuf, keys: &'static [(u16, Button)], tx: mpsc::Sender<ButtonEvent>) {
     let (raw_tx, mut raw_rx) = mpsc::channel::<RawKey>(64);
     let watched: Arc<Mutex<HashSet<PathBuf>>> = Arc::default();
+    let skipped: Arc<Mutex<HashSet<Node>>> = Arc::default();
     let mut tracker = KeyTracker::new();
     let mut rescan = tokio::time::interval(RESCAN_INTERVAL);
     loop {
@@ -143,7 +149,19 @@ async fn run_buttons(dir: PathBuf, keys: &'static [(u16, Button)], tx: mpsc::Sen
         };
         let mut events = Vec::new();
         tokio::select! {
-            _ = rescan.tick() => scan_devices(&dir, keys, &watched, &raw_tx),
+            _ = rescan.tick() => {
+                // Opening and closing input nodes can block for tens of
+                // milliseconds (`to_open`). On a runtime worker that holds
+                // up pinnad's audio tasks.
+                let (dir, watched, skipped, raw_tx) =
+                    (dir.clone(), watched.clone(), skipped.clone(), raw_tx.clone());
+                let scan = tokio::task::spawn_blocking(move || {
+                    scan_devices(&dir, keys, &watched, &skipped, &raw_tx)
+                });
+                if let Err(e) = scan.await {
+                    tracing::warn!("looking for button devices: {e}");
+                }
+            }
             Some(k) = raw_rx.recv() => {
                 events.extend(tracker.key(k.button, k.value, Instant::now()));
             }
@@ -161,21 +179,11 @@ fn scan_devices(
     dir: &Path,
     keys: &'static [(u16, Button)],
     watched: &Arc<Mutex<HashSet<PathBuf>>>,
+    skipped: &Mutex<HashSet<Node>>,
     raw_tx: &mpsc::Sender<RawKey>,
 ) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        tracing::debug!("cannot read {}", dir.display());
-        return;
-    };
-    for entry in rd.flatten() {
-        let path = entry.path();
-        let is_event = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("event"));
-        if !is_event || watched.lock().unwrap().contains(&path) {
-            continue;
-        }
+    let nodes = to_open(dir, &watched.lock().unwrap(), &mut skipped.lock().unwrap());
+    for (path, ino) in nodes {
         let Ok(dev) = evdev::Device::open(&path) else {
             continue;
         };
@@ -183,6 +191,7 @@ fn scan_devices(
             is_button_device(keys, |c| supported.contains(evdev::KeyCode::new(c)))
         });
         if !interesting {
+            skipped.lock().unwrap().insert((path, ino));
             continue;
         }
         let Ok(mut stream) = dev.into_event_stream() else {
@@ -218,6 +227,43 @@ fn scan_devices(
             watched.lock().unwrap().remove(&path);
         });
     }
+}
+
+/// The `event*` nodes in `dir` to open: not watched, and not already found
+/// to send none of the board's keys. Skipped nodes that are gone are
+/// forgotten.
+///
+/// Closing an evdev node waits for an RCU grace period (`evdev_release`).
+/// On the Echo Dot (5th gen), `gpio-privacy-state` has no keys; reopening
+/// and closing it on every rescan blocked for 64 ms or more each time, and
+/// the speaker ran dry every 5 s (measured 2026-11-27, 0.7.0-beta.1).
+fn to_open(dir: &Path, watched: &HashSet<PathBuf>, skipped: &mut HashSet<Node>) -> Vec<Node> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        tracing::debug!("cannot read {}", dir.display());
+        return Vec::new();
+    };
+    let mut present = HashSet::new();
+    let mut open = Vec::new();
+    for entry in rd.flatten() {
+        let path = entry.path();
+        let is_event = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("event"));
+        if !is_event || watched.contains(&path) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let node = (path, meta.ino());
+        if !skipped.contains(&node) {
+            open.push(node.clone());
+        }
+        present.insert(node);
+    }
+    skipped.retain(|n| present.contains(n));
+    open
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +322,38 @@ mod tests {
         assert_eq!(Button::from_code(116), Some(Button::Mute));
         assert_eq!(Button::from_code(248), Some(Button::Mute));
         assert_eq!(Button::from_code(30), None);
+    }
+
+    #[test]
+    fn a_node_without_keys_is_opened_once() {
+        let dir = std::env::temp_dir().join(format!("pinna-buttons-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (event0, event1) = (dir.join("event0"), dir.join("event1"));
+        for f in [&event0, &event1, &dir.join("mice")] {
+            std::fs::write(f, b"").unwrap();
+        }
+        let watched = HashSet::from([event1.clone()]);
+        let mut skipped = HashSet::new();
+
+        let first = to_open(&dir, &watched, &mut skipped);
+        assert_eq!(
+            first.iter().map(|n| &n.0).collect::<Vec<_>>(),
+            [&event0],
+            "only event nodes nobody watches"
+        );
+        // scan_devices found none of the board's keys on it.
+        skipped.extend(first);
+        assert!(to_open(&dir, &watched, &mut skipped).is_empty());
+
+        // Another device takes event0: a new node, checked again.
+        std::fs::write(dir.join("new"), b"").unwrap();
+        std::fs::rename(dir.join("new"), &event0).unwrap();
+        let again = to_open(&dir, &watched, &mut skipped);
+        assert_eq!(again.iter().map(|n| &n.0).collect::<Vec<_>>(), [&event0]);
+        assert!(skipped.is_empty(), "the old node is forgotten");
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
