@@ -5,7 +5,8 @@ released in v0.4.0-beta.1. Builds on ADR 0008 (the Wi-Fi trial) and
 ADR 0021 (finding the other satellites). Amends ADR 0005 (a second kind of
 caller on the dashboard's listener), ADR 0017 (a key that leaves the device,
 and the tools), ADR 0020 (metrics) and ADR 0024 (more changes that rewrite
-the mDNS record).
+the mDNS record). Amended 2026-11-27: a member in Home Assistant mode takes
+messages and runs the group's control calls, except timers.
 
 Not built yet (2026-11-19): the wake word arbitration of "One answer to the
 wake word". Only its measurement is built: the capture loop logs each wake
@@ -68,17 +69,22 @@ group.
 - **A satellite takes part only when its owner switches it on.** The switch
   *Satellite group* is on the Satellite group page, under Assistant, off by
   default.
-- **The group works in standalone mode only.** A member in Home Assistant
-  mode stays a member and keeps the key, but sends, receives and arbitrates
-  nothing. The other members list it as in Home Assistant mode, and their
-  brain can't reach it. A member's mode travels in every signed call and
-  answer it sends, not in the mDNS record, so a mode change doesn't restart
-  resolved. Until a member's first signed call or answer since pinnad
-  started, its mode isn't known: the brain's context names it without a
-  mode, and `send_message` and the control tools (`Call`) call it as they
-  call a member in standalone mode. It doesn't count toward offering those
-  tools, though: the brain gets them only once another member was heard in
-  standalone mode.
+- **A member in Home Assistant mode receives, but doesn't send.** It takes
+  messages and speaks them in its own voice, and runs the other members'
+  control calls, except timers: Home Assistant owns its timers. It sends
+  nothing, since Home Assistant runs its requests and pinnad's brain, whose
+  tools send, doesn't run; and it takes no part in the wake word
+  arbitration. The other members list it with its mode. A member's mode
+  travels in every signed call and answer it sends, not in the mDNS record,
+  so a mode change doesn't restart resolved. Until a member's first signed
+  call or answer since pinnad started, its mode isn't known: the brain's
+  context names it without a mode, and it doesn't count toward offering
+  `send_message` and `satellite`: the brain gets them only once another
+  member was heard, in either mode.
+  Amended 2026-11-27: a member in Home Assistant mode sent, received and
+  arbitrated nothing, and the other members' brains called it out of reach.
+  The owner's group then had one member in standalone mode and two in Home
+  Assistant mode, so its messages and control reached no member.
 - **A satellite is in at most one group.** A group is an id (16 random bytes,
   in lowercase hex), a key (32 random bytes) and its member list, both from
   `ring`'s secure random generator.
@@ -208,7 +214,8 @@ group.
 ### Messages
 
 - **A device tool, `send_message`,** is offered to the brain while the
-  satellite is in a group with at least one other member in standalone mode.
+  satellite is in a group with at least one other member heard, in either
+  mode.
   Only a brain whose tools pinnad runs gets it. An agent such as Hermes or
   OpenClaw gets no device tools (ADR 0017), and `/mcp` doesn't offer it.
   - `to` is another member's name, or `all` for every other member;
@@ -219,14 +226,18 @@ group.
 - **`Deliver` answers once the receiver has taken the message**, before it
   plays: played now, held, or refused with the reason. A receiver whose
   text-to-speech slot hasn't passed its check refuses; a voice that is set
-  up but unchecked isn't enough, unlike for `speak`. The tool's result names
+  up but unchecked isn't enough, unlike for `speak`. That holds in either
+  mode: a member in Home Assistant mode speaks with the text-to-speech
+  service set up for standalone mode, which stays set up across a switch of
+  mode, and one without refuses until its owner sets one up under Services. The tool's result names
   each member's answer, or unreachable, and the brain can say it. A message
   whose speech fails on the receiver is held again once, and tried again no
   sooner than 30 s later; if it fails again, it is dropped, with a log line.
 - **The brain knows the members.** The context pinnad adds to each request
-  (ADR 0017) lists the members in standalone mode by name, and names those in
-  Home Assistant mode as out of reach, so the brain can say why. A member
-  whose mode isn't known yet is listed by its name alone.
+  (ADR 0017) lists the members by name, and says of those in Home Assistant
+  mode that they take messages and control but not timers, so the brain can
+  say why a timer there is refused. A member whose mode isn't known yet is
+  listed by its name alone.
 - **It plays now when it can, and is held when it can't.**
   - Idle, or with only music playing: it plays at once on the voice lane and
     ducks the music, as `speak` does.
@@ -247,8 +258,9 @@ group.
   dashboard's Overview shows how many are held.
 - **Held messages stay in RAM**: at most 5, each forgotten after 12 hours and
   on a restart, an update's included. A message held again goes back to the
-  front; when a sixth arrives, the oldest of the others is dropped. Switching
-  to Home Assistant mode or turning *Satellite group* off drops them.
+  front; when a sixth arrives, the oldest of the others is dropped. Turning
+  *Satellite group* off drops them; a switch of mode doesn't (it did before
+  2026-11-27).
 - **The receiver chooses.** The switch *Group messages*, on by default, which
   is also a Home Assistant switch entity, so an automation can turn messages
   off at night. While it's off, `Deliver` refuses; messages already held
@@ -262,7 +274,7 @@ group.
 - **Device tools that act on the satellite take an optional `satellite`**: a
   member's name. Empty means this satellite. The brain gets `satellite` on
   the same terms as `send_message`: while at least one other member was
-  heard in standalone mode. The brain sees one tool for each
+  heard, in either mode. The brain sees one tool for each
   action, not one for each member, so the tool limit of 64 (ADR 0017) holds.
   - The tools: volume (set and change), reply volume, the ring light, the
     media player (play a URL, pause, resume, stop), radio (play a station,
@@ -277,7 +289,11 @@ group.
 - **The member runs a call as its own `/mcp` would** (ADR 0017): its tool
   switches and its busy rule apply, with the 7 s limit above, and the result
   comes back as text. It refuses a tool that isn't on the list above, and a
-  call that names a `satellite`, so a call is never passed on.
+  call that names a `satellite`, so a call is never passed on. A member in
+  Home Assistant mode runs the call too, although its `/mcp` refuses callers
+  in that mode (ADR 0017): the group's key and *Control from the group* are
+  its owner's consent. It refuses the timer tools, saying that its timers
+  are Home Assistant's.
 - **Both satellites' switches apply.** A tool switched off on the calling
   satellite isn't offered to its brain at all, for itself or for another
   member.
@@ -364,8 +380,8 @@ group.
   satellite behaves at a given time, not how it's set up. Like the
   *Assistant* select (ADR 0017), it is a field of `settings.toml`, owned by
   the voice state machine and set through `DeviceService`'s settings, and
-  Home Assistant lists it in both modes. It does nothing in Home Assistant
-  mode or while *Satellite group* is off. The other switches and the member
+  Home Assistant lists it in both modes. It does nothing while *Satellite
+  group* is off. The other switches and the member
   list are dashboard only.
 - **In `standalone.toml`**: `[group]` holds the switches and the id, and each
   member is an entry of its own (`[[group_member]]`), so an entry this image
@@ -407,5 +423,6 @@ group.
     refuses that);
   - groups across subnets;
   - several satellites sharing one conversation (ADR 0017);
-  - Home Assistant mode, where Home Assistant runs the request. Whether its
-    satellites should answer the wake word once too is a later decision.
+  - sending from a member in Home Assistant mode, where Home Assistant runs
+    the request, and timers on it. Whether satellites in Home Assistant mode
+    should answer the wake word once too is a later decision.
