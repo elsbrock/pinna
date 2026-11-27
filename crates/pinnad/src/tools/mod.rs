@@ -999,10 +999,9 @@ impl DeviceTools {
     /// on another member when `satellite` names one (ADR 0026). Only the
     /// brain names one; `/mcp` and the group refuse `satellite` as an
     /// argument the tool doesn't take. The run's tool list may have offered
-    /// `satellite` while another member was in standalone mode, so it is
-    /// taken out even once none is: no name, or this satellite's, runs
-    /// here, and another member's name hears why that member is out of
-    /// reach.
+    /// `satellite` while another member was heard, so it is taken out even
+    /// once the group is gone: no name, or this satellite's, runs here, and
+    /// another member's name hears why that member can't be called.
     fn target(&self, tool: &Tool, args: Value) -> Result<(Value, Target), String> {
         let group = match self.kit.group() {
             Some(group) if self.surface == Surface::Run && tool.remote != Remote::No => group,
@@ -1441,8 +1440,8 @@ mod tests {
         for tool in &listed {
             // A tool that starts off is not in a list until it is turned on.
             // send_message is the brain's, but offered only in a group with
-            // another member in standalone mode; cancel_request is the
-            // brain's there too, for another member only.
+            // another member heard; cancel_request is the brain's there too,
+            // for another member only.
             let offered = run_names.iter().any(|n| n == tool.name)
                 || tool.off_by_default
                 || [message::NAME, "cancel_request"].contains(&tool.name);

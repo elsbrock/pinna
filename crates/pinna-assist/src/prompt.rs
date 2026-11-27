@@ -42,11 +42,13 @@ pub struct GroupMember {
     pub mode: Option<MemberMode>,
 }
 
-/// A member's mode: the group works in standalone mode only.
+/// A member's mode. A member in Home Assistant mode takes messages and
+/// control but not timers, and sends nothing (ADR 0026).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemberMode {
     Standalone,
-    /// Out of reach: the brain says so when asked to reach it.
+    /// Takes messages and control, not timers: the brain says so when asked
+    /// for a timer there.
     HomeAssistant,
 }
 
