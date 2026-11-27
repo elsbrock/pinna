@@ -53,8 +53,15 @@ settings.
 
 ## Change a setting
 
-1. On the device, open `/var/lib/pinna/pinnad.toml` in an editor. Create it if
-   it doesn't exist.
+1. The device has no text editor, so edit the file on your computer. Copy it
+   from the device, or start an empty one if the device has none yet. On your
+   computer:
+
+   ```sh
+   scp root@10.42.0.1:/var/lib/pinna/pinnad.toml . || touch pinnad.toml
+   ```
+
+   Over Wi-Fi, use the device's `.local` name instead of `10.42.0.1`.
 2. Add the setting under its section. For example, to use a fixed microphone
    gain of +18 dB instead of the automatic gain:
 
@@ -63,13 +70,19 @@ settings.
    capture_gain_db = 18.0
    ```
 
-3. Restart Pinna:
+3. Copy the file back to the device. On your computer:
+
+   ```sh
+   scp pinnad.toml root@10.42.0.1:/var/lib/pinna/pinnad.toml
+   ```
+
+4. Restart Pinna, on the device:
 
    ```sh
    systemctl restart pinnad
    ```
 
-4. Check that Pinna started:
+5. Check that Pinna started:
 
    ```sh
    systemctl status pinnad
