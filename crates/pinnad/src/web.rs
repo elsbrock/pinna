@@ -492,6 +492,16 @@ mod tests {
 
     /// The same, with Wi-Fi run through `wifi`.
     fn fixture_with(name: &str, with_files: bool, wifi: Option<crate::wifi::Wifi>) -> Fixture {
+        fixture_status(name, with_files, wifi, Snapshot::default())
+    }
+
+    /// The same, from the satellite's state `snapshot` (its name is set here).
+    fn fixture_status(
+        name: &str,
+        with_files: bool,
+        wifi: Option<crate::wifi::Wifi>,
+        snapshot: Snapshot,
+    ) -> Fixture {
         let dir = std::env::temp_dir().join(format!("pinnad-web-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         if with_files {
@@ -505,7 +515,7 @@ mod tests {
         }
         let (_status_tx, status_rx) = watch::channel(Snapshot {
             name: "pinna-test".into(),
-            ..Default::default()
+            ..snapshot
         });
         let (in_tx, in_rx) = mpsc::channel(1);
         let info = Info {
@@ -771,6 +781,34 @@ mod tests {
         assert!(body.contains("permission_denied"), "{body}");
         let (status, _, body) = send(&f, with_session("DeviceService/GetStatus", "{}")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    /// ADR 0036: mute stops the levels and the text, so they don't start
+    /// while the microphones are off. The rest does.
+    #[tokio::test]
+    async fn debugging_records_no_levels_while_muted() {
+        let f = fixture_status(
+            "debugging-muted",
+            false,
+            None,
+            Snapshot {
+                sw_muted: true,
+                ..Default::default()
+            },
+        );
+        let post = |body: &str| {
+            call(
+                "pinna.local",
+                "DeviceService/StartDebugging",
+                "application/json",
+                body.as_bytes().to_vec(),
+            )
+        };
+        let (status, _, body) = send(&f, post(r#"{"minutes":15,"levels":true}"#)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body.contains("Turn the microphones on"), "{body}");
+        let (status, ..) = send(&f, post(r#"{"minutes":15}"#)).await;
+        assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]

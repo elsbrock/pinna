@@ -1760,6 +1760,17 @@ impl DeviceService for DeviceApi {
         }
         let text = !request.text_grant.is_empty();
         if request.levels || text {
+            // Mute stops them (ADR 0036): starting them muted would record
+            // the speaker and nothing of the room.
+            let muted = {
+                let s = self.status.borrow();
+                s.hw_muted || s.sw_muted
+            };
+            if muted {
+                return Err(ConnectError::failed_precondition(
+                    "Turn the microphones on to record the audio levels or what was said.",
+                ));
+            }
             let auth = self.auth()?;
             if !auth.security(false).password_set {
                 return Err(ConnectError::failed_precondition(
