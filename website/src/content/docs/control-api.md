@@ -319,8 +319,8 @@ returns `unauthenticated`, a call for a group this satellite isn't in returns
 `PeerDelivery`, comes once the satellite has taken the message, before it
 plays: `OUTCOME_PLAYED` (it plays now), `OUTCOME_HELD` (it plays once the
 satellite is idle and the microphones are on) or `OUTCOME_REFUSED` with a
-`reason`, one sentence. The satellite refuses a message in Home Assistant
-mode or while it waits to switch to it, with `group_messages` off, before its
+`reason`, one sentence. The satellite takes messages in either mode. It
+refuses one with `group_messages` off, before its
 text-to-speech has passed its check, without a working speaker, when the text
 is empty or longer than 500 characters, and when it is busy: its queue is
 nearly full, or it doesn't take the message within 2 seconds. A message it
@@ -342,9 +342,10 @@ For a call from a member it doesn't list yet, the satellite first fetches that
 member's list. When that takes all 7 seconds, the tool doesn't run.
 `cancel_request` from another member also stops a
 message or `speak` that plays, and drops the message. The satellite refuses,
-as a result with `is_error` set and one sentence, in Home Assistant mode, with
-`control` off in `SetSatelliteGroup`, for any other tool, and for arguments
-that name a `satellite`: it never passes a call on.
+as a result with `is_error` set and one sentence, with `control` off in
+`SetSatelliteGroup`, for any other tool, for the timer tools in Home Assistant
+mode (Home Assistant owns its timers), and for arguments that name a
+`satellite`: it never passes a call on.
 
 After each search for the other satellites, which runs once a minute, a member
 asks every other member that the search lists for its member list, and merges
