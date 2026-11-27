@@ -1438,7 +1438,7 @@ impl Actor {
             if OUTPUT_LEVEL_ON.load(Ordering::Relaxed)
                 && let Some(sink) = OUTPUT_LEVEL_SINK.get()
             {
-                sink(s.time_of(base), chunk_mean_square(&chunk));
+                sink(s.heard_at(base), chunk_mean_square(&chunk));
             }
             if self.feeder.media.phase() == MediaPhase::Playing {
                 if gain <= 0.0 {
