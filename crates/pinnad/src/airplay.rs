@@ -191,7 +191,7 @@ fn device_mac() -> Option<[u8; 6]> {
 pub(crate) fn systemctl(args: &[&str]) {
     match std::process::Command::new("systemctl").args(args).status() {
         Ok(s) if s.success() => {}
-        other => tracing::warn!("airplay: systemctl {}: {other:?}", args.join(" ")),
+        other => tracing::warn!("systemctl {}: {other:?}", args.join(" ")),
     }
 }
 

@@ -170,13 +170,15 @@ pub fn worker(unit: watch::Sender<State>) -> mpsc::UnboundedSender<bool> {
                                 tracing::warn!("bluetooth: {MARKER}: {e}; not starting");
                                 return Err(format!("can't write {MARKER}"));
                             }
-                            // A failed unit, or one past its start limit, starts afresh.
-                            systemctl(&[
-                                "reset-failed",
-                                "bluetooth.service",
-                                "bluealsa.service",
-                                BRIDGE,
-                            ]);
+                            // A failed unit, or one past its start limit, starts
+                            // afresh. At boot none is loaded yet: systemctl
+                            // fails for each with nothing to reset, so its
+                            // output and result don't matter.
+                            let _ = std::process::Command::new("systemctl")
+                                .args(["reset-failed", "bluetooth.service", "bluealsa.service", BRIDGE])
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .status();
                             systemctl(&["start", TARGET]);
                             tracing::info!("bluetooth: on");
                         } else {
