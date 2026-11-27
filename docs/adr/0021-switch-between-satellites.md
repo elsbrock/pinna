@@ -84,10 +84,10 @@ Builds on ADR 0010 (hostname).
   resolved stays the only mDNS socket. A satellite stays listed until it
   misses two searches in a row, so one lost packet doesn't drop it. After
   that, it stays listed while its dashboard still accepts a connection at
-  the addresses last heard (checked as below), for up to ten searches in a
-  row: a satellite that is on but whose answers keep getting lost isn't
-  dropped, and one whose address passed to another device with a web server
-  leaves within ten minutes. A failed
+  the addresses it was last listed with (checked as below), until it has
+  missed ten searches in a row: a satellite that is on but whose answers
+  keep getting lost isn't dropped, and one whose address passed to another
+  device with a web server leaves after about ten minutes. A failed
   search counts as a miss for every satellite, so the list doesn't freeze
   while searches fail. A search fails only when no query went out on either
   family; a family whose socket won't open or whose send fails is skipped. Satellites
@@ -155,8 +155,10 @@ Builds on ADR 0010 (hostname).
 - pinnad gets a small mDNS client: one-shot queries only, no responder. Each
   satellite searches once a minute (a query per family and link, then up to
   three follow-ups to the same addresses, each sent three times), and opens
-  a connection a minute to each other satellite's dashboard. A search takes
-  up to 4.2 seconds.
+  a connection a minute to each other satellite's dashboard. A search's
+  queries take up to 4.2 seconds. Its dashboard checks run at once for every
+  satellite and take up to 6 seconds, then up to 6 more for those the
+  queries missed.
 - A satellite that comes on, leaves or changes its address shows the change
   within a minute; one that goes off stays listed for up to two.
 - To check when building: switching from an `https` dashboard address to an
