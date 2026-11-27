@@ -1,7 +1,8 @@
 <!-- Assistant › Satellite group (ADR 0026): the switch, the members, how this
      satellite takes part, and the satellites the search found, with Add and
-     Remove. Shown in both modes: a member in Home Assistant mode stays a
-     member. Read every 30 s while it shows, and after each change. -->
+     Remove. Shown in both modes: a member in Home Assistant mode takes
+     messages and control, except timers, and sends nothing. Read every 30 s
+     while it shows, and after each change. -->
 <script lang="ts">
   import { tick } from "svelte";
 
@@ -150,9 +151,8 @@
 
 {#if view && s}
   {#snippet homeAssistantFoot()}
-    The group works in standalone mode. In Home Assistant mode this satellite {inGroup
-      ? "stays a member"
-      : "can still be added"}, but it sends and takes no messages.
+    In Home Assistant mode, this satellite takes messages and control from the other members, but not timers: Home
+    Assistant sets them. It sends none, because Home Assistant answers its requests.
   {/snippet}
   <Group
     bind:this={groupCard}
@@ -170,7 +170,7 @@
       checked={view.on}
       disabled={!live}
       busy={!!group.running}
-      hint="Lets this satellite join a group of satellites that pass messages to each other in standalone mode, such as “tell the kitchen that dinner is ready”."
+      hint="Lets this satellite join a group of satellites that pass messages to each other, such as “tell the kitchen that dinner is ready”."
       toggle={toggleOn}
     />
     {#if view.on && !view.inGroup}
@@ -217,7 +217,7 @@
     <Group bind:this={membersCard} title="Members">
       {#snippet aside()}{lists.count} {lists.count === 1 ? "satellite" : "satellites"}{/snippet}
       {#snippet foot()}
-        A member in Home Assistant mode stays in the group, but takes no messages until it is back in standalone mode.
+        A member in Home Assistant mode takes messages and control, but not timers, and sends none.
       {/snippet}
       {#each memberRows as { key, item: { member: m, outside } } (key)}
         {@const name = m.name || m.mac}

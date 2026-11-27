@@ -401,8 +401,7 @@ test("the Satellite group row: off, on, in a group, and an open adding window", 
   assert.deepEqual(groupSummary(view(), true, 0), { value: "On", hint: "Not in a group yet" });
   assert.deepEqual(groupSummary(view({ inGroup: true, members: two }), false, 0), {
     value: "2 satellites",
-    hint: "Sends and takes nothing while Home Assistant answers requests",
-    tone: "caution",
+    hint: "Takes messages and control; Home Assistant answers requests",
   });
   assert.deepEqual(groupSummary(view({ inGroup: true, members: two }), true, 0), {
     value: "2 satellites",

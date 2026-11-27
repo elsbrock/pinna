@@ -66,9 +66,7 @@ export function groupSummary(
   }
   if (!view.on) return { value, hint: "Pass messages between satellites, and act on one by its name" };
   if (!view.inGroup) return { value, hint: "Not in a group yet" };
-  if (!standalone) {
-    return { value, hint: "Sends and takes nothing while Home Assistant answers requests", tone: "caution" };
-  }
+  if (!standalone) return { value, hint: "Takes messages and control; Home Assistant answers requests" };
   return { value, hint: "Messages and control between them" };
 }
 

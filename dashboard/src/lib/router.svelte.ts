@@ -92,7 +92,7 @@ const SUBPAGES: Omit<Page, "section">[] = [
   {
     path: "/assistant/group",
     title: "Satellite group",
-    description: "Satellites in standalone mode that pass messages to each other and act on each other by name.",
+    description: "Satellites that pass messages to each other and act on each other by name.",
   },
   {
     path: "/system/password",
