@@ -18,9 +18,9 @@
     phaseSections,
     PHASE_WORDS,
     requestBars,
+    requestRows,
     requestFailed,
     requestLabel,
-    requestRows,
     sectionAt,
     speechSpans,
     stageSpans,
@@ -62,7 +62,6 @@
   const STAGE_ROW = 22;
   const LANE_H = 68;
   const REQ_ROW = 20;
-  const MAX_REQUESTS = 40;
   const MARKER = 10;
   /** Every dBFS row shares this scale, so their heights compare. */
   const DBFS: [number, number] = [-90, 0];
@@ -77,6 +76,18 @@
   const t0 = $derived(end - windowMs);
   const sc = $derived(timeScale(t0, t1, 0, pw));
   const ticks = $derived(timeTicks(t0, t1, pw, 78));
+  /** The ticks whose labels fit: one that would touch the label before it goes. */
+  const labelled = $derived.by(() => {
+    // Mono digits are about 7.4 px wide at 12 px; the locale may add AM or PM.
+    const room = (ticks.length ? fmtTick(ticks[0]).length : 8) * 7.4 + 12;
+    let last = -Infinity;
+    return ticks.filter((t) => {
+      const x = sc.x(t);
+      if (x - last < room || x < room / 2 || x > pw - room / 2) return false;
+      last = x;
+      return true;
+    });
+  });
   const bucketMs = $derived(tl.state?.bucketMs || 100);
   const withSeconds = $derived(windowMs <= 5 * 60_000);
 
@@ -125,7 +136,6 @@
     unit: string;
     lo: number;
     hi: number;
-    grid: number[];
     series: LaneSeries[];
     fmt: (v: number) => string;
     thresholds: { name: string; v: number }[];
@@ -154,7 +164,6 @@
         unit: "score",
         lo: 0,
         hi: 1,
-        grid: [0, 0.5, 1],
         series: words.map((w, i) => ({
           name: w.name,
           cls: SERIES[i],
@@ -172,7 +181,6 @@
         unit: "dBFS",
         lo: DBFS[0],
         hi: DBFS[1],
-        grid: [-60, -30],
         series: [make("Before gain", "s1", (l) => l.beforeGain, "minmax"), make("After gain", "s2", (l) => l.afterGain, "minmax")],
         fmt: db,
         thresholds: [],
@@ -184,7 +192,6 @@
         unit: "dB",
         lo: gLo,
         hi: gHi,
-        grid: [gLo, gHi],
         series: [gain],
         fmt: (v) => `${v.toFixed(1)} dB`,
         thresholds: [],
@@ -196,7 +203,6 @@
         unit: "dBFS",
         lo: DBFS[0],
         hi: DBFS[1],
-        grid: [-60, -30],
         series: [make("Output level", "s1", (l) => l.speaker, "minmax")],
         fmt: db,
         thresholds: [],
@@ -210,21 +216,9 @@
     return 5 + (1 - f) * (LANE_H - 10);
   };
 
-  // Where each line ends, for its direct label: apart when two end close together.
-  function endLabels(lane: Lane): { name: string; cls: string; y: number }[] {
-    const y = ly(lane);
-    const ends = lane.series
-      .map((s) => {
-        const last = [...s.pts].reverse().find((p) => Number.isFinite(p.v));
-        return last ? { name: s.name, cls: s.cls, y: y(last.v) } : null;
-      })
-      .filter((e): e is { name: string; cls: string; y: number } => e !== null)
-      .sort((a, b) => a.y - b.y);
-    for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 13) ends[i].y = ends[i - 1].y + 13;
-    return ends.map((e) => ({ ...e, y: Math.min(LANE_H - 3, Math.max(11, e.y - 5)) }));
-  }
-
-  // Requests.
+  // Requests: one row each, its method, address, status and duration beside
+  // its bar (or before it, near the right edge).
+  const MAX_REQUESTS = 40;
   const visibleRequests = $derived(
     requestRows(tl.requests.filter((r) => inWindow(r.startMs, r.endMs || end))).slice(-MAX_REQUESTS),
   );
@@ -235,9 +229,9 @@
   const barLabel = (r: TimelineRequest, startX: number, endX: number) => {
     const text = requestLabel(r, end);
     const room = text.length * 6.3;
-    if (endX + 6 + room <= pw) return { text, x: endX + 6, anchor: "start" as const, halo: false };
-    if (startX - 6 - room >= 0) return { text, x: startX - 6, anchor: "end" as const, halo: false };
-    return { text, x: 6, anchor: "start" as const, halo: true };
+    if (endX + 6 + room <= pw) return { text, x: endX + 6, anchor: "start" as const };
+    if (startX - 6 - room >= 0) return { text, x: startX - 6, anchor: "end" as const };
+    return { text, x: 6, anchor: "start" as const };
   };
 
   // The pointer.
@@ -320,14 +314,14 @@
 
 {#snippet grid(h: number)}
   {#each ticks as t (t)}
-    <line class="grid" x1={sc.x(t)} x2={sc.x(t)} y1="0" y2={h} />
+    <line class="vgrid" x1={sc.x(t)} x2={sc.x(t)} y1="0" y2={h} />
   {/each}
 {/snippet}
 
 <div class="chart" role="group" aria-label="Timeline chart. The Requests view lists the same requests as a table.">
   <!-- The pointer is read here for the whole plot; the Requests view is the keyboard's. -->
   <div class="rows" bind:this={rowsEl} role="presentation" onpointermove={move} onpointerleave={() => (hover = null)} onclick={click}>
-    <div class="row" data-row="axis">
+    <div class="row axis-row" data-row="axis">
       <div class="label"></div>
       <div class="cell" bind:clientWidth={cellW} bind:this={cellEl}>
         <svg width={pw} height={AXIS_H} aria-hidden="true">
@@ -335,12 +329,16 @@
           {#each ticks as t (t)}
             {@const x = sc.x(t)}
             <line class="axis" x1={x} x2={x} y1={AXIS_H - 5} y2={AXIS_H} />
-            <text class="tick" x={Math.min(pw - 2, Math.max(2, x))} y="12" text-anchor={x < 30 ? "start" : x > pw - 30 ? "end" : "middle"}>{fmtTick(t)}</text>
+          {/each}
+          {#each labelled as t (t)}
+            <text class="tick" x={sc.x(t)} y="12" text-anchor="middle">{fmtTick(t)}</text>
           {/each}
         </svg>
       </div>
     </div>
 
+    <section class="band" aria-label="Voice">
+    <h3 class="band-title pn-eyebrow">Voice</h3>
     <div class="row" data-row="phase">
       <div class="label">Phase</div>
       <div class="cell">
@@ -349,8 +347,8 @@
           {#each sections as s (s.startMs)}
             {@const x0 = clampX(sc.x(s.startMs))}
             {@const x1 = clampX(sc.x(s.endMs))}
-            {#if x1 - x0 > 0}
-              <rect class="sec {phaseClass[s.phase] ?? 'idle'}" x={x0} y="3" width={x1 - x0} height={PHASE_H - 6} />
+            {#if x1 - x0 > 0 && phaseClass[s.phase] && phaseClass[s.phase] !== "idle"}
+              <rect class="sec {phaseClass[s.phase]}" x={x0} y="3" width={x1 - x0} height={PHASE_H - 6} rx="2" />
               {#if x1 - x0 > 76}
                 <text class="sec-word" x={x0 + 6} y={PHASE_H / 2 + 4}>{PHASE_WORDS[s.phase] ?? ""}</text>
               {/if}
@@ -405,13 +403,17 @@
       </div>
     </div>
 
+    </section>
+
+    <section class="band" aria-label="Audio">
+    <h3 class="band-title pn-eyebrow">Audio</h3>
     {#if hasLevels}
       {#each lanes as lane (lane.id)}
         {@const y = ly(lane)}
         <div class="row" data-row={lane.id}>
           <div class="label">
             <span>{lane.title}</span>
-            <span class="unit">{lane.unit}</span>
+            <span class="unit">{lane.unit}, {lane.lo} to {lane.hi}</span>
             {#if lane.series.length > 1 || lane.id === "wake"}
               <span class="legend">
                 {#each lane.series as s (s.name)}
@@ -425,10 +427,7 @@
           <div class="cell">
             <svg width={pw} height={LANE_H} aria-hidden="true">
               {@render grid(LANE_H)}
-              {#each lane.grid as g (g)}
-                <line class="grid" x1="0" x2={pw} y1={y(g)} y2={y(g)} />
-                <text class="ylab" x="3" y={y(g) - 2}>{g}</text>
-              {/each}
+              <line class="floor" x1="0" x2={pw} y1={y(lane.lo) + 0.5} y2={y(lane.lo) + 0.5} />
               {#each lane.speech as s (s.startMs)}
                 <rect class="speech" x={clampX(sc.x(s.startMs))} y={LANE_H - 7} width={Math.max(1, clampX(sc.x(s.endMs)) - clampX(sc.x(s.startMs)))} height="4" />
               {/each}
@@ -438,12 +437,6 @@
               {#each lane.series as s (s.name)}
                 <path class="line {s.cls}" d={linePath(s.pts, sc.x, y)} />
               {/each}
-              {#each endLabels(lane) as e (e.name)}
-                <text class="direct" x={pw - 4} y={e.y} text-anchor="end">{e.name}</text>
-              {/each}
-              {#if lane.thresholds.length}
-                <text class="direct thr" x="3" y={y(lane.thresholds[0].v) - 3}>threshold</text>
-              {/if}
             </svg>
             {#if lane.note}<p class="lane-note">{lane.note}</p>{/if}
           </div>
@@ -466,9 +459,12 @@
         </p>
       </div>
     {/if}
+    </section>
 
+    <section class="band" aria-label="Requests">
+    <h3 class="band-title pn-eyebrow">Requests</h3>
     <div class="row" data-row="requests">
-      <div class="label">Requests</div>
+      <div class="label"></div>
       <div class="cell">
         <svg width={pw} height={REQ_H} aria-hidden="true">
           <defs>
@@ -510,6 +506,7 @@
         {/if}
       </div>
     </div>
+    </section>
 
     {#if hover}
       <div class="cross" style:left="{hover.left}px"></div>
@@ -562,10 +559,33 @@
     display: grid;
     grid-template-columns: 7.5rem minmax(0, 1fr);
     gap: var(--space-3);
-    border-top: 1px solid var(--chart-grid);
   }
-  .row:first-child {
-    border-top: 0;
+  /* Three bands: what the satellite did, what it heard and played, what it
+     asked. Space and a rule apart; inside a band, rows are apart by space. */
+  /* The time stays in view while the page scrolls past the bands. Under the
+     app bar on phones. */
+  .axis-row {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--chart-grid);
+  }
+  @media (max-width: 759.98px) {
+    .axis-row {
+      top: var(--bar-h);
+    }
+  }
+  .band {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line-strong);
+  }
+  .band-title {
+    margin: 0;
   }
   .label {
     padding-top: 6px;
@@ -627,7 +647,13 @@
     max-width: 100%;
     overflow: hidden;
   }
-  .grid {
+  /* The time lines stay behind everything, so the marks read first. */
+  .vgrid {
+    stroke: var(--chart-grid);
+    stroke-width: 1;
+    stroke-dasharray: 2 4;
+  }
+  .floor {
     stroke: var(--chart-grid);
     stroke-width: 1;
   }
@@ -636,11 +662,9 @@
     stroke-width: 1;
   }
   .tick,
-  .ylab,
   .stage-word,
   .sec-word,
-  .none,
-  .direct {
+  .none {
     font-family: var(--font-mono);
     font-size: 12px;
     fill: var(--ink-muted);
@@ -649,24 +673,14 @@
   .stage-word {
     fill: var(--ink);
   }
-  .ylab,
-  .direct,
   .req-label {
     paint-order: stroke;
     stroke: var(--surface-raised);
     stroke-width: 3px;
     stroke-linejoin: round;
   }
-  .direct {
-    fill: var(--ink);
-  }
-  .direct.thr {
-    fill: var(--ink-muted);
-  }
   .sec {
-    fill: var(--surface-sunken);
-    stroke: var(--line);
-    stroke-width: 1;
+    stroke: none;
   }
   .sec.listening {
     fill: var(--listening-soft);

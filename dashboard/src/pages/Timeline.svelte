@@ -213,9 +213,13 @@
 {:else}
   {#if on}
     <p class="status">
-      {debuggingHint({ secondsLeft: left })}{#if levelsLeft > 0}
-        · Levels: {timeLeft(levelsLeft)}{/if}{#if textLeft > 0}
-        · Text: {timeLeft(textLeft)}{/if}
+      {[
+        debuggingHint({ secondsLeft: left }),
+        levelsLeft > 0 && `Levels: ${timeLeft(levelsLeft)}`,
+        textLeft > 0 && `Text: ${timeLeft(textLeft)}`,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
     </p>
     <div class="tools">
       <button class="pn-btn" type="button" disabled={stopping || !live} onclick={stop}>Stop</button>
@@ -337,9 +341,9 @@
   .frame-skeleton {
     height: 12rem;
   }
-  /* The rest of the window, down to its bottom edge (or the tab bar). */
+  /* The page scrolls, not the frame: the chart's time axis stays at the top
+     of the window while the bands go by. */
   .frame {
-    flex: 1 1 0;
     min-height: 16rem;
     display: flex;
     min-width: 0;
@@ -347,7 +351,6 @@
   .scroll {
     flex: 1;
     min-width: 0;
-    overflow: auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);

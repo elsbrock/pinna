@@ -40,8 +40,9 @@
   const ring = $derived(ringEffect(s, device.link, device.testStep));
   const page = $derived(pageOf(router.path));
   const groups = [...new Set(SECTIONS.map((x) => x.group))];
-  // Logs and the Timeline fill the window, and only their data scrolls.
-  const fill = $derived(page.path === "/system/logs" || page.path === "/system/timeline");
+  // Logs fills the window, and only its log scrolls. The Timeline scrolls as
+  // a page: it follows time sideways, not new lines at the bottom.
+  const fill = $derived(page.path === "/system/logs");
 
   // The satellite switcher (ADR 0021), opened from the sidebar's device box or,
   // on phones, the name in the app bar.
