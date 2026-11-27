@@ -1,6 +1,8 @@
 # ADR 0036: A debugging timeline of requests and the audio pipeline
 
-Status: proposed (2026-11-26). Follows ADR 0029 (the dashboard password and
+Status: proposed (2026-11-26), accepted (2026-11-26), built (2026-11-27),
+with the tests that run without hardware, the end-to-end tests included;
+not run on a device. Follows ADR 0029 (the dashboard password and
 the confirmation at the device), ADR 0030 (recording the microphones) and
 ADR 0017 (standalone mode's requests). Amends the rule that what was said
 never reaches the dashboard (`pinnad/src/logs.rs`, `Status.last_error`): with
@@ -59,8 +61,9 @@ a press of Action, for at most an hour.
   - **Run stages.** In standalone mode, a request's stages report durations
     to an `Observer`. In Home Assistant mode, every voice event passes through
     `voice_event`.
-  - **The wake word detector** runs only while no request streams the
-    microphones, the wake word is on and no calibration runs.
+  - **The wake word detector** runs whenever no request streams the
+    microphones, also with the wake word off and during a calibration; only
+    what it reports is gated.
 - **Who can see what.**
   - The Logs page drops DEBUG and TRACE lines, because they carry transcripts.
     `Status.last_error` never carries what was said.
@@ -108,17 +111,20 @@ Each carries the time in Unix milliseconds, as log lines do. Recorded:
 
 - **phase changes**, from a diff in `Brain::refresh()`;
 - **mute**, as its own span;
-- **runs and their milestones**, from `Brain::event()`, with the mode;
+- **runs and their milestones**, from `Brain::event()`, with the standalone
+  run's id (the mode is an event of its own, below);
 - **wake detections and near misses**, with the word, the score, the level
   and the gain;
 - **end of speech**;
-- **interruptions**, with the cause: the wake word, Action, Home Assistant or
-  mute;
+- **interruptions**, with the cause: the wake word, Action, Home Assistant,
+  an announcement or mute;
 - **errors**;
 - **Home Assistant's voice events**: speech-to-text, intent and
   text-to-speech, each start and end;
-- **standalone stage spans**, with a start and an end: speech-to-text, each
-  model round, text-to-speech and each tool call;
+- **standalone stage spans**, with a start and an end: speech-to-text, the
+  model until its first words (once per request, as the request's log line
+  measures it; the requests show every round), text-to-speech and each tool
+  call;
 - **changes that explain a gap**:
   - the mode switching between Home Assistant and standalone;
   - the wake word turned on or off, or the chosen words changing;
@@ -141,7 +147,8 @@ Each carries the time in Unix milliseconds, as log lines do. Recorded:
   - Media and MCP requests show the host only.
   - Headers are never recorded.
 - **Group calls** show the RPC as the method and the member's address as the
-  host.
+  host. They are Connect calls, not `reqwest` requests, so they are recorded
+  by hand: their status and end, without a first byte, sizes or bodies.
 
 #### Audio lanes
 
@@ -151,18 +158,22 @@ Recorded in buckets of 100 ms. They are numbers, never audio:
 - the gain;
 - each wake word's score, with the threshold;
 - whether the detector hears speech;
-- the speaker's output level, after the mix and the volume.
+- the speaker's output level, after the mix and the volume, before the boost
+  the speaker chain adds at the top volumes (+1.8 dB at 75, up to +14.5 dB
+  at 100).
 
 How to read them:
 
-- **Gaps.** The scores have a gap whenever the detector doesn't run:
-  Listening, the wake word off, a calibration. All the lanes have a gap while
-  muted. The events above say why.
+- **Gaps.** The scores have a gap whenever the detector doesn't run: while
+  Listening. The microphone lanes have a gap while muted, and the levels
+  don't start while muted, so the speaker lane never runs alone. The events
+  above say why.
 - **Alignment.**
   - The microphone lanes are timed when pinnad receives a frame. That is
     after the capture graph and the echo canceller, a few tens of
     milliseconds after the sound.
-  - The speaker lane is timed when the sound plays.
+  - The speaker lane is timed when the sound is heard: when the chunk is
+    written, plus the speaker chain's delay.
   - The offset is not measured. Like ADR 0030's channel 10, the lanes are
     not aligned to the frame.
 
@@ -217,6 +228,9 @@ How to read them:
     is sent, so a clock set late (no network time yet) doesn't throw entries
     away.
   - A request that is still open is kept until it ends, and shown clipped.
+    One still open when debugging ends is followed to its end.
+  - A task ages what was kept every 30 seconds, so nothing outlives its 10
+    minutes when no page asks and nothing new arrives.
 - **Stop** clears everything at once, on the satellite and in every open
   page. **Download** first to keep it.
 - **When the time runs out**, recording stops, and what was kept ages out
@@ -227,7 +241,7 @@ How to read them:
   |---|---|
   | Events | 5,000 |
   | Requests | 1,000 |
-  | Lanes (10 minutes) | about 250 KB |
+  | Lanes | 6,000 messages (10 minutes at one a second, about 250 KB) |
   | Text | 2 MB |
 
   Nothing is written to storage.
@@ -236,11 +250,18 @@ How to read them:
 
 - **`WatchTimeline` is a server stream on `DeviceService`.** It sends:
   1. the state: on or off, until when, what is recorded and for how long,
-     the bucket length, and the wake words' names;
+     the bucket length, the satellite's time, how long entries are kept, and
+     `cleared` when Stop or the end of the sessions cleared them (the page
+     then drops what it holds);
   2. what was kept, in messages of at most 1 MiB;
   3. what happens next.
-- A request is sent when it starts and again when it ends.
-- While debugging is off, the stream sends the state and waits.
+- A request is sent, whole, whenever it changes: when it starts, when its
+  answer starts, at its first body byte and when it ends. Live changes that
+  come within 250 ms go out in one message.
+- The wake words' names come with each message of levels, so a change of
+  words mid-window is drawn right.
+- While debugging is off, the stream sends the state and what is still kept,
+  then waits.
 - A browser that falls behind is cut off. The dashboard connects again and
   gets what was kept, as the Logs page does.
 
@@ -253,7 +274,8 @@ How to read them:
   - notes a stop when the caller drops it.
 
   Each request is reported to one sink that pinnad installs.
-- **Who uses it:** the four helpers and the group client.
+- **Who uses it:** the four helpers. The group client records its calls by
+  hand (above).
 - **Not recorded:**
   - update checks, which run in pinnactl;
   - Sendspin and AirPlay, because others connect to the satellite;
@@ -264,11 +286,15 @@ How to read them:
 
 ### In the dashboard
 
-- **System > Timeline** is a subpage that fills the window, as Logs does.
+- **System > Timeline** is a subpage that scrolls as a page: it follows time
+  sideways, not new lines at the bottom, so it doesn't fill the window as
+  Logs does. The chart's time axis stays in view while the page scrolls.
 - **Off.** Choose how long, then **Start**. Two choices go with it:
-  - **Audio levels.** Shown only with a password; up to an hour.
-  - **Include what was said and the replies.** Shown only with a password;
-    up to an hour. It waits for a press of Action, as Record audio does.
+  - **Audio levels**: up to an hour.
+  - **What was said and the replies**: up to an hour. It waits for a press
+    of Action, as Record audio does.
+
+  Both are always shown; without a password they can't be turned on.
 
   Without a password, the page says: "Set a dashboard password to record the
   audio levels or what was said." with a link.
