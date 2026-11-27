@@ -5,7 +5,9 @@ points that were marked *default*. Builds on ADR 0015 (prebuilt releases); the
 setup ends on the dashboard over USB (ADR 0007, ADR 0008), since ADR 0009 was
 withdrawn. Built: stages 1 and 2, at `/install/`, linked from the docs. Not built yet:
 stage 3 (backup and restore, which ADR 0019 moves to the recovery image) and
-stage 4 (unlock).
+stage 4 (unlock). Amended (2026-11-27): the page also installs the Echo Dot
+(5th gen), from TWRP over adb (Install on the Echo Dot (5th gen)), which
+replaces the by-hand-only install that ADR 0035 recorded.
 
 ## Context
 
@@ -145,10 +147,59 @@ stage 4 (unlock).
   of that model has been unlocked through the page. The project has none, so
   that first unit is a user's, who knows the risk.
 
+### Install on the Echo Dot (5th gen), from TWRP over adb
+
+- The Echo Dot (5th gen) has no fastboot that Pinna installs through (ADR
+  0035, Decision 10). Its unlock, firebreak, leaves TWRP in slot B, and
+  `scripts/install-echo-dot-5.sh` installs from it over adb. The page does
+  the same steps over WebUSB, as a third model. The unlock stays firebreak's
+  and happens before the page.
+- What TWRP offers (firebreak's Cannoli TWRP, `twrp_device_amazon_cannoli`,
+  its sources read 2026-11-27): USB `18d1:d001`, product "Cannoli-TWRP", one
+  adb interface (`ff/42/01`). Its adbd is Android 9's and gives a root shell
+  without a key ("an unauthenticated root USB ADB": the Echo has no screen to
+  accept one).
+- The page speaks adb itself, without a dependency: `CNXN`, then `OPEN`,
+  `WRTE`, `OKAY` and `CLSE` on one stream at a time. A device that asks for
+  `AUTH` stops the page: this TWRP never does. Commands run through shell
+  protocol v2 (`shell,v2,raw:`), which carries stdin, closes it, and returns
+  the exit status. A device without `shell_v2` stops the page. The script's
+  `adb exec-in` returned no status, and on a C2N6L4 in TWRP 3.7.0
+  (2026-11-26) it stopped both writes part-way.
+- Identify, read-only: `ro.twrp.version` is set, `/proc/idme/device_type_id`
+  is `A4ZXE0RM7LQ7A`, and the UBI volumes `boot_a`, `system_a` and `misc`
+  exist. The banner's `ro.product.device` goes into the report only.
+- Before the first write, after the confirmation as on the fastboot path,
+  each image must fit its volume and the board's slot (pinna-board's
+  `ECHO_DOT_5.slots`, as the script checks): U-Boot reads 0xC1C000 bytes of
+  `boot_a`, which is larger.
+- Install, as `install-echo-dot-5.sh install` does: copy `pinna-bootctl`
+  for armv7 to TWRP's `/tmp` (RAM) and check that it sees UBI storage and
+  Amazon's U-Boot, and that slot B is marked good. Then
+  `pinna-bootctl write-volume` replaces `boot_a` with the FIT and
+  `system_a` with the root, each checked read back against its SHA-256.
+  `set-active a` starts slot A on trial, and the page restarts the device.
+  Nothing else is written: TWRP in `boot_b` and `system_b`, `userdata` and
+  every other volume stay.
+- A write that fails, or a disconnect, leaves the slot record as it was and
+  TWRP running or startable: holding Volume Up at power-on starts it, and a
+  slot A that fails its starts falls back to it (ADR 0035, Decision 9). The
+  page starts again from the check.
+- Files: the FIT is the manifest's `boots` entry for `echo-dot-5`. The tool
+  runs as root, so the signed manifest names it too: `bootctl`, a list of
+  `{ "models", "url", "size", "sha256" }` like `boots`. Satellites don't read
+  it. The page doesn't download a release without a `bootctl` entry for the
+  model. Picked files are found in `SHA256SUMS` by name,
+  `pinna-boot-mt8519.itb` and `pinna-bootctl-armv7`, with the trust every
+  picked file and the script have: `SHA256SUMS` proves the download is
+  intact, not who made it.
+
 ## Consequences
 
 - Installing needs a Chromium-based browser and a USB cable, and on Linux one
-  udev rule, on Windows the WinUSB driver. No `fastboot`, `adb`, bash or Nix.
+  udev rule, on Windows the WinUSB driver. On the Echo Dot (5th gen), the rule
+  and the driver name TWRP's `18d1:d001`, and a running `adb` server must be
+  stopped first. No `fastboot`, `adb`, bash or Nix.
 - The terminal guide stays, for other browsers and for developers.
 - Every stage is tested on hardware the project owns except the unlock. Its
   first run is on a user's device, and the pinned table needs updating when
