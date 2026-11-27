@@ -46,7 +46,7 @@ survive a restart.
 | Entity | Object ID | Type | Value |
 | --- | --- | --- | --- |
 | Last wake word | `last_wake_word` | Text sensor | The wake word heard most recently, for example `Hey Jarvis`. With two words active, it names the one that fired |
-| Debugging | `debugging` | Binary sensor | On while debugging runs on the satellite. You can only read it: it turns on and off from the dashboard, under **System > Timeline** |
+| Debugging | `debugging` | Binary sensor | On while debugging runs on the satellite. You can only read it: debugging starts on the dashboard, under **System > Timeline**, and ends there, with **Stop it** on **Overview**, or when its time runs out |
 
 ## Events
 

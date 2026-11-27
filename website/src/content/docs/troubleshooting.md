@@ -277,8 +277,10 @@ In standalone mode, the log has one line per request with the time each
 service took; see **Replies are slow** under
 [Standalone mode doesn't answer](#standalone-mode-doesnt-answer).
 
-To see which request took the time, and whether it was waiting for the first
-byte or for the rest, [follow the request on the timeline](#follow-a-request-on-the-timeline).
+To see where the time went, [follow the request on the timeline](#follow-a-request-on-the-timeline).
+In Home Assistant mode it shows Home Assistant's steps. In standalone mode it
+shows each request, and whether it waited for the answer to start or for the
+rest.
 
 ## The ring flashes red three times
 
@@ -421,63 +423,87 @@ you install again from TWRP, while slot B holds it. On the other two:
 
 ## Follow a request on the timeline
 
-When a reply is slow, a service fails, or the wake word goes unheard during a
-reply, the timeline shows what happened, in the order it happened. It records
-the satellite's phases and events, every request the satellite sends to a
-service, and, if you choose, the audio levels and the text of the requests.
-Debugging is off until you turn it on, and it turns itself off when its time
-runs out.
+When a reply is slow, a service fails, or the wake word goes unheard, the
+timeline shows what the satellite did, in the order it happened. Debugging is
+off until you turn it on, and it turns itself off when its time runs out.
 
-The satellite keeps the timeline in memory for 10 minutes and doesn't store
-it. A restart, including the one after an update installs, ends debugging and
-loses what was kept. While debugging runs, every dashboard shows it, and the
-**Debugging** sensor in Home Assistant is on.
+The satellite keeps only the last 10 minutes, in memory: each entry is
+dropped 10 minutes after it ends, and nothing is written to storage. You can
+close the page. When you open it again, it shows the last 10 minutes. When
+the time you chose runs out, recording stops, and what was kept stays for 10
+more minutes.
 
-What it records:
+While debugging runs, **Overview** says so in every browser, with **Stop it**,
+and the **Debugging** sensor in Home Assistant is on. **Stop**, **Stop it**, a
+restart (including the one after an update installs), a new or changed
+dashboard password, and **Sign out everywhere** end debugging and clear what
+was kept.
+
+### What it records
 
 - **Always**: the phases (Idle, Listening, Thinking, Speaking and Muted), wake
   words and near misses with their scores, the end of speech, interruptions,
-  errors, Home Assistant's voice events, and in standalone mode the time
-  speech-to-text, the model, text-to-speech and each tool took. For each
-  request: the address without its query, the status, when the first byte
-  and the end arrived, and the size. Media and MCP requests show the host only,
-  because their addresses can carry tokens. Headers are never recorded.
+  errors, and Home Assistant's voice events by type. In standalone mode, also
+  the time that speech-to-text, the model, text-to-speech and each tool took.
+  Every request the satellite sends to a service, with its address without the
+  query, its status, when the answer started and ended, and its size. Media and
+  MCP requests show the host only, because their addresses can carry tokens.
+  Headers are never recorded.
 - **Audio levels**, with a dashboard password: every 100 ms, the microphone
   level before and after the gain, the gain, each wake word's score, and the
-  speaker's level. They are numbers, never audio. They show when someone
+  speaker's level. They are numbers, never audio, but they show when someone
   speaks, so they stop after an hour.
 - **What was said and the replies**, with a dashboard password and a press of
   **Action** on the satellite: the text of each request, such as the
-  transcript, the prompt and the reply. Keys are masked. It stops after an
-  hour.
+  transcript, the prompt and the reply. Anything that looks like a key is
+  masked. It stops after an hour.
+
+In Home Assistant mode, Home Assistant makes the requests itself. The
+satellite's only request is the one that fetches the reply's audio, so the
+timeline shows Home Assistant's steps instead, and the text adds nothing.
 
 Turning the microphones off stops the audio levels and the text at once. The
 rest goes on.
 
+### Record a timeline
+
 1. To record the audio levels or the text, set a
    [dashboard password](/docs/dashboard/#set-change-and-remove-the-password),
-   if you haven't.
+   if you haven't. If you set it just now, wait a minute before step 4: a new
+   confirmation can start only a minute after the last one.
 2. On the dashboard, open **System > Timeline**.
-3. Under **How long**, choose 15 minutes, 1 hour or 8 hours. Turn on
-   **Audio levels** or **What was said and the replies** if you need them.
-4. Select **Start**. If you chose the text, the ring circles in blue for up to
-   60 seconds: press **Action** on the satellite while it does. Press it only
-   if you started debugging yourself.
-5. Make the problem happen. The page draws it as it happens: the phases, the
-   events and the stages at the top, the audio levels below them, and each
-   request as a bar from its start to its end. Hover over the chart to read
-   every value at that time. Select an event or a request to see its details.
-   **Requests** lists the requests as a table.
-6. Select **Download** to save what the page holds as a JSON file.
-7. Select **Stop**. It turns debugging off and clears what was kept, on the
-   satellite and in every open dashboard.
+3. Under **How long**, choose 15 minutes, 1 hour or 8 hours. If you can't make
+   the problem happen on demand, choose a longer time. For a slow reply, leave
+   both switches off. Turn on **Audio levels** for a wake word that goes
+   unheard. Turn on **What was said and the replies** only in standalone mode,
+   and only if a developer asks for it.
+4. Select **Start**. If you chose the text, the ring circles in blue, the
+   Listening colour, for up to 60 seconds: press **Action** on the satellite
+   while it does. Press it only if you started debugging yourself. If nobody
+   presses it in time, debugging doesn't start: select **Start** again.
+5. Make the problem happen. Within 10 minutes after it does, select
+   **Download** to save the last 10 minutes as a JSON file, such as
+   `kitchen-timeline-2026-11-27-101500.json`.
+6. Select **Stop** to turn debugging off and clear what was kept.
 
-The timeline doesn't record update checks, Sendspin or AirPlay. In Home
-Assistant mode, Home Assistant makes the requests itself, so the satellite's
-only request is the one that fetches the reply's audio.
+The file names the satellite and gives the address of each service it called,
+such as your Home Assistant's IP address. Unlike the log that **Open an
+issue** copies, these aren't masked. With the audio levels, the file shows
+when someone spoke. With the text, it holds what they said. Send a file with
+the levels or the text privately, not in a public issue. Check any other file
+before you post it.
 
-A file that holds the text holds what people said. Send it privately, not in a
-public issue.
+### Read the timeline
+
+The chart shows the last 1, 5 or 10 minutes: choose **1 min**, **5 min** or
+**10 min**. **Pause** holds it still while new entries keep arriving. From the
+top, it draws the phases, the events and the stages, then the audio levels,
+then each request as a bar: the lighter part waits for the answer to start,
+the darker part receives the rest. Hold the pointer over the chart to read
+every value at that time. Select an event or a request to see its details.
+**Requests** lists the requests as a table.
+
+The timeline doesn't record update checks, Sendspin or AirPlay.
 
 ## Record what the satellite hears
 
