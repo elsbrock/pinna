@@ -10,6 +10,7 @@ import {
   emptyTimeline,
   prune,
   satelliteNow,
+  type Selection,
   type Timeline,
   type TimelineBatch,
   type TimelineState,
@@ -73,6 +74,14 @@ export class TimelineStore {
   connected = $state(false);
   error = $state<string | null>(null);
 
+  // The page's view, kept here so it survives leaving the page and coming back.
+  view = $state<"timeline" | "requests">("timeline");
+  windowMin = $state(typeof matchMedia === "function" && matchMedia("(max-width: 600px)").matches ? 1 : 5);
+  paused = $state(false);
+  /** What the chart showed when it was paused. */
+  frozen = $state.raw<{ tl: Timeline; end: number } | null>(null);
+  selected = $state.raw<Selection | null>(null);
+
   /** The satellite's time, now. */
   now = () => satelliteNow(this.data, Date.now());
 
@@ -113,3 +122,6 @@ export class TimelineStore {
     };
   }
 }
+
+/** The one store: the page holds on to what it follows while another page is open. */
+export const timelineStore = new TimelineStore();

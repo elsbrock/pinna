@@ -34,13 +34,13 @@
 
   function requestFields(r: TimelineRequest): [string, string][] {
     return [
-      ["Kind", REQ_KIND_WORDS[r.kind] ?? "Unknown"],
+      ["Service", REQ_KIND_WORDS[r.kind] ?? "Unknown"],
       ["Request", `${r.method} ${r.url}`],
       ["Status", requestStatus(r)],
-      ["Outcome", outcomeWord(r.outcome)],
+      ["Result", outcomeWord(r.outcome)],
       ["Started", time(r.startMs)],
-      ["Response after", after(r, r.responseMs)],
-      ["First body byte after", after(r, r.firstBodyMs)],
+      ["Answer started after", after(r, r.responseMs)],
+      ["First data after", after(r, r.firstBodyMs)],
       ["Total", r.endMs ? formatDuration(r.endMs - r.startMs) : `${formatDuration(now - r.startMs)} so far, still open`],
       ["Sent", r.bytesOut === null ? "unknown" : formatSize(r.bytesOut)],
       ["Received", formatSize(r.bytesIn)],
@@ -59,8 +59,30 @@
       out.push(["Score", e.score.toFixed(2)], ["Threshold", e.threshold.toFixed(2)]);
       out.push(["Level", `${e.levelDbfs.toFixed(1)} dBFS`], ["Gain", `${e.gainDb.toFixed(1)} dB`]);
     }
-    if (e.run) out.push(["Run", String(e.run)]);
+    if (e.run) out.push(["Request number", String(e.run)]);
     return out;
+  }
+
+  // A selection brings the details into view and takes focus; closing gives focus back.
+  let root = $state<HTMLElement>();
+  let heading = $state<HTMLElement>();
+  let opener: HTMLElement | null = null;
+  $effect(() => {
+    void selection;
+    if (!root || !heading) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && !root.contains(active)) opener = active;
+    root.scrollIntoView({ block: "nearest" });
+    heading.focus({ preventScroll: true });
+  });
+  function close() {
+    const back = opener;
+    onclose();
+    back?.focus();
+  }
+  function keydown(e: KeyboardEvent) {
+    if (e.key !== "Escape" || e.defaultPrevented || document.querySelector("dialog[open]")) return;
+    close();
   }
 
   async function copy(text: string) {
@@ -69,10 +91,12 @@
   }
 </script>
 
-<section class="details" aria-label="Details">
+<svelte:window onkeydown={keydown} />
+
+<section class="details" aria-label="Details" bind:this={root}>
   <div class="head">
-    <h3>{request ? "Request" : (event ? eventWord(event.kind) : "Request")}</h3>
-    <button class="pn-btn pn-btn-sm" type="button" onclick={onclose}>Close</button>
+    <h3 tabindex="-1" bind:this={heading}>{request ? "Request" : (event ? eventWord(event.kind) : "Request")}</h3>
+    <button class="pn-btn pn-btn-sm" type="button" onclick={close}>Close</button>
   </div>
   {#if selection.type === "request" && !request}
     <p class="muted">This request is no longer kept.</p>
@@ -114,6 +138,10 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
+  }
+  h3:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
   }
   h3 {
     margin: 0;

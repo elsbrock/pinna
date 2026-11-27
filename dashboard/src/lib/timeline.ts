@@ -25,22 +25,22 @@ export const EV = {
 
 /** pinna.v1.TimelineRequestKind values. */
 export const REQ_KIND_WORDS: Record<number, string> = {
-  1: "Provider",
-  2: "MCP",
+  1: "Assistant service (provider)",
+  2: "MCP server",
   3: "Tool",
   4: "Media",
-  5: "Group",
+  5: "Satellite group",
 };
 
 /** pinna.v1.TimelineOutcome values. */
 export const OUTCOME = { open: 0, done: 1, dropped: 2, timeout: 3, unreachable: 4, tls: 5, protocol: 6 } as const;
 const OUTCOME_WORDS: Record<number, string> = {
   0: "Open",
-  1: "Done",
-  2: "Stopped by the caller",
+  1: "Completed",
+  2: "Stopped reading",
   3: "Timed out",
   4: "Unreachable",
-  5: "TLS failed",
+  5: "Secure connection failed",
   6: "Protocol error",
 };
 export const outcomeWord = (o: number) => OUTCOME_WORDS[o] ?? "Unknown";
@@ -367,7 +367,7 @@ export function packRows<T extends Span>(spans: readonly T[]): { row: number; sp
     });
 }
 
-/** Stage events that have a span, for the stages row. */
+/** Step events that have a span, for the steps row. */
 export const stageSpans = (events: readonly TimelineEvent[]) =>
   events
     .filter((e) => e.kind === EV.stage && e.endMs > e.unixMs)
@@ -376,6 +376,25 @@ export const stageSpans = (events: readonly TimelineEvent[]) =>
 /** Requests by start, then id. */
 export const requestRows = (requests: readonly TimelineRequest[]): TimelineRequest[] =>
   [...requests].sort((a, b) => a.startMs - b.startMs || a.id - b.id);
+
+/** Requests, newest first, as the Requests view lists them. */
+export const requestsNewestFirst = (requests: readonly TimelineRequest[]): TimelineRequest[] =>
+  requestRows(requests).reverse();
+
+/** `POST /v1/audio/transcriptions`: the method and the path, without scheme, host or query. */
+export function requestAddress(r: Pick<TimelineRequest, "method" | "url">): string {
+  const path = r.url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, "").replace(/[?#].*$/, "") || "/";
+  return `${r.method} ${path}`;
+}
+
+/** The newest end of anything kept (an event, a request or a level bucket); 0 when nothing is. */
+export function lastRecorded(tl: Pick<Timeline, "events" | "requests" | "levels">): number {
+  let last = 0;
+  for (const e of tl.events) last = Math.max(last, e.unixMs, e.endMs);
+  for (const r of tl.requests) last = Math.max(last, r.endMs || r.responseMs || r.startMs);
+  for (const l of tl.levels) last = Math.max(last, levelsEnd(l));
+  return last;
+}
 
 /** A request's two bars: waiting until the response, then receiving until the end or `now`. */
 export function requestBars(r: TimelineRequest, now: number): { waiting: Span; receiving: Span | null; open: boolean } {
@@ -442,7 +461,7 @@ const EVENT_WORDS: Record<number, string> = {
   [EV.interrupted]: "Interrupted",
   [EV.error]: "Error",
   [EV.homeAssistant]: "Home Assistant",
-  [EV.stage]: "Stage",
+  [EV.stage]: "Step",
   [EV.mode]: "Mode changed",
   [EV.wakeWord]: "Wake word setting changed",
   [EV.calibration]: "Calibration",
@@ -452,7 +471,7 @@ export const eventWord = (kind: number) => EVENT_WORDS[kind] ?? "Event";
 
 export type Marker = "triangle" | "triangle-open" | "bar" | "square" | "circle" | "circle-open" | "diamond";
 
-/** The shape the events row draws for an event; null for what other rows show (phases, mute, stages). */
+/** The shape the events row draws for an event; null for what other rows show (phases, mute, steps, run milestones). */
 export function markerShape(kind: number): Marker | null {
   switch (kind) {
     case EV.wake:
@@ -472,8 +491,6 @@ export function markerShape(kind: number): Marker | null {
     case EV.calibration:
     case EV.microphone:
       return "diamond";
-    case EV.run:
-      return "circle-open";
     default:
       return null;
   }
@@ -493,7 +510,7 @@ export function timeTicks(t0: number, t1: number, width: number, minGap: number)
 export function timeLeft(seconds: number): string {
   if (seconds <= 0) return "No time left";
   if (seconds < 60) return "Less than a minute left";
-  const min = Math.ceil(seconds / 60);
+  const min = Math.floor(seconds / 60);
   if (min < 60) return `${min} min left`;
   const h = Math.floor(min / 60);
   return `${h} h${min % 60 ? ` ${min % 60} min` : ""} left`;

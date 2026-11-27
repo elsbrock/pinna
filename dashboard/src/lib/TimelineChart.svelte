@@ -106,7 +106,9 @@
   const markers = $derived(
     tl.events
       .filter((e) => markerShape(e.kind) !== null && e.unixMs >= t0 && e.unixMs <= t1)
-      .map((e) => ({ event: e, shape: markerShape(e.kind) as Marker, x: sc.x(e.unixMs) })),
+      .map((e) => ({ event: e, shape: markerShape(e.kind) as Marker, x: sc.x(e.unixMs) }))
+      // Wake words are drawn last, so nothing covers them.
+      .sort((a, b) => Number(a.event.kind === EV.wake) - Number(b.event.kind === EV.wake)),
   );
   const markerClass = (kind: number) =>
     kind === EV.wake || kind === EV.nearMiss
@@ -203,7 +205,7 @@
         unit: "dBFS",
         lo: DBFS[0],
         hi: DBFS[1],
-        series: [make("Output level", "s1", (l) => l.speaker, "minmax")],
+        series: [make("Speaker", "s1", (l) => l.speaker, "minmax")],
         fmt: db,
         thresholds: [],
         speech: [],
@@ -231,12 +233,13 @@
     const room = text.length * 6.3;
     if (endX + 6 + room <= pw) return { text, x: endX + 6, anchor: "start" as const };
     if (startX - 6 - room >= 0) return { text, x: startX - 6, anchor: "end" as const };
-    return { text, x: 6, anchor: "start" as const };
+    // Fits neither side: the tooltip and the details have it.
+    return null;
   };
 
   // The pointer.
   type Hover = { x: number; left: number; top: number; t: number; hit: Selection | null };
-  let hover = $state<Hover | null>(null);
+  let hover = $state.raw<Hover | null>(null);
 
   function hitAt(row: string | undefined, x: number, y: number, t: number): Selection | null {
     if (row === "events") {
@@ -280,13 +283,32 @@
   const isSelected = (s: Selection | null, e: TimelineEvent) => s?.type === "event" && s.event === e;
 
   // What the tooltip says about the time under the pointer.
-  const atPhase = $derived(hover ? sectionAt(sections, hover.t) : undefined);
-  const atMute = $derived(hover ? mutes.some((m) => hover!.t >= m.startMs && hover!.t <= m.endMs) : false);
+  // When the pointer hits an item, the tooltip is about the item's own time.
+  const hitRequest = $derived(
+    hover?.hit?.type === "request" ? visibleRequests.find((q) => q.id === (hover!.hit as { id: number }).id) : undefined,
+  );
+  const hitEvent = $derived(hover?.hit?.type === "event" ? hover.hit.event : undefined);
+  const tipT = $derived(hitEvent ? hitEvent.unixMs : hitRequest ? hitRequest.startMs : (hover?.t ?? 0));
+  const tipSpan = $derived(
+    hitEvent && hitEvent.endMs > hitEvent.unixMs
+      ? hitEvent.endMs - hitEvent.unixMs
+      : hitRequest?.endMs
+        ? hitRequest.endMs - hitRequest.startMs
+        : 0,
+  );
+  const hitScore = $derived(hitEvent && (hitEvent.kind === EV.wake || hitEvent.kind === EV.nearMiss) ? hitEvent : undefined);
+  const atPhase = $derived(hover ? sectionAt(sections, tipT) : undefined);
+  const atMute = $derived(hover ? mutes.some((m) => tipT >= m.startMs && tipT <= m.endMs) : false);
+  const phaseWord = $derived(atMute ? "Muted" : atPhase ? PHASE_WORDS[atPhase.phase] : undefined);
   const atValues = $derived(
     hover
-      ? lanes.flatMap((l) =>
-          l.series.map((s) => ({ lane: l.title, name: s.name, cls: s.cls, v: valueAt(s.full, hover!.t, bucketMs), fmt: l.fmt })),
-        )
+      ? lanes
+          // A wake word that is hit shows its own score, not the lane's.
+          .filter((l) => !(hitScore && l.id === "wake"))
+          .flatMap((l) =>
+            l.series.map((s) => ({ lane: l.title, name: s.name, cls: s.cls, v: valueAt(s.full, tipT, bucketMs), fmt: l.fmt })),
+          )
+          .filter((v) => !Number.isNaN(v.v))
       : [],
   );
 
@@ -349,6 +371,7 @@
             {@const x1 = clampX(sc.x(s.endMs))}
             {#if x1 - x0 > 0 && phaseClass[s.phase] && phaseClass[s.phase] !== "idle"}
               <rect class="sec {phaseClass[s.phase]}" x={x0} y="3" width={x1 - x0} height={PHASE_H - 6} rx="2" />
+              <rect class="bar {phaseClass[s.phase]}" x={x0} y="3" width={x1 - x0} height="3" />
               {#if x1 - x0 > 76}
                 <text class="sec-word" x={x0 + 6} y={PHASE_H / 2 + 4}>{PHASE_WORDS[s.phase] ?? ""}</text>
               {/if}
@@ -359,6 +382,7 @@
             {@const x1 = clampX(sc.x(m.endMs))}
             {#if x1 - x0 > 0}
               <rect class="sec muted" x={x0} y="3" width={x1 - x0} height={PHASE_H - 6} />
+              <rect class="bar muted" x={x0} y="3" width={x1 - x0} height="3" />
               {#if x1 - x0 > 60}
                 <text class="sec-word" x={x0 + 6} y={PHASE_H / 2 + 4}>Muted</text>
               {/if}
@@ -384,7 +408,7 @@
     </div>
 
     <div class="row" data-row="stages">
-      <div class="label">Stages</div>
+      <div class="label">Steps</div>
       <div class="cell">
         <svg width={pw} height={STAGES_H} aria-hidden="true">
           {@render grid(STAGES_H)}
@@ -397,7 +421,7 @@
             {/if}
           {/each}
           {#if !stages.length}
-            <text class="none" x="2" y="18">No stages in this window.</text>
+            <text class="none" x="2" y="18">No steps in this window.</text>
           {/if}
         </svg>
       </div>
@@ -492,7 +516,9 @@
               {:else}
                 <rect class="wait" x={x0} y={yy + 2} width={Math.max(2, x1 - x0)} height="12" rx="2" />
               {/if}
-              <text class="req-label" x={label.x} y={yy + 12} text-anchor={label.anchor}>{label.text}</text>
+              {#if label}
+                <text class="req-label" x={label.x} y={yy + 12} text-anchor={label.anchor}>{label.text}</text>
+              {/if}
             </g>
           {/each}
           {#if !visibleRequests.length}
@@ -511,35 +537,35 @@
     {#if hover}
       <div class="cross" style:left="{hover.left}px"></div>
       <div class="tip" class:flip={hover.x > pw / 2} style:left="{hover.left}px" style:top="{Math.max(0, hover.top - 8)}px" role="presentation">
-        <p class="tip-time">{clock(hover.t)}</p>
-        {#if hover.hit?.type === "event"}
-          <p class="tip-hit">{eventWord(hover.hit.event.kind)}{hover.hit.event.detail ? `: ${hover.hit.event.detail}` : ""}</p>
-          {#if hover.hit.event.endMs > hover.hit.event.unixMs}
-            <p class="tip-line">{formatDuration(hover.hit.event.endMs - hover.hit.event.unixMs)}</p>
+        <p class="tip-time">{clock(tipT)}{tipSpan ? `, ${formatDuration(tipSpan)}` : ""}</p>
+        {#if hitEvent}
+          <p class="tip-hit">{eventWord(hitEvent.kind)}{hitEvent.detail ? `: ${hitEvent.detail}` : ""}</p>
+          {#if hitScore}
+            <p class="tip-line">Score: {hitScore.score.toFixed(2)} (threshold {hitScore.threshold.toFixed(2)})</p>
           {/if}
-        {:else if hover.hit?.type === "request"}
-          {@const id = hover.hit.id}
-          {@const r = visibleRequests.find((q) => q.id === id)}
-          {#if r}
-            <p class="tip-hit">{requestLabel(r, end)}</p>
-            <p class="tip-line">{formatSize(r.bytesOut ?? 0)} out · {formatSize(r.bytesIn)} in</p>
-          {/if}
+        {:else if hitRequest}
+          <p class="tip-hit">{requestLabel(hitRequest, end)}</p>
+          <p class="tip-line">{formatSize(hitRequest.bytesOut ?? 0)} out · {formatSize(hitRequest.bytesIn)} in</p>
         {/if}
-        <p class="tip-line">Phase: {atMute ? "Muted" : atPhase ? (PHASE_WORDS[atPhase.phase] ?? "Unknown") : "Unknown"}</p>
+        {#if phaseWord}<p class="tip-line">Phase: {phaseWord}</p>{/if}
         {#each atValues as v (v.lane + v.name)}
-          <p class="tip-line"><i class="sw {v.cls}"></i>{v.name}: {Number.isNaN(v.v) ? "no value" : v.fmt(v.v)}</p>
+          <p class="tip-line"><i class="sw {v.cls}"></i>{v.name}: {v.fmt(v.v)}</p>
         {/each}
       </div>
     {/if}
   </div>
 
   <p class="legend-line">
+    <span class="key"><i class="ph listening"></i>Listening</span>
+    <span class="key"><i class="ph thinking"></i>Thinking</span>
+    <span class="key"><i class="ph speaking"></i>Speaking</span>
+    <span class="key"><i class="ph muted"></i>Muted</span>
     <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("triangle", 6, 6, "m-signal", false)}</svg>Wake word</span>
     <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("triangle-open", 6, 6, "m-signal", false)}</svg>Near miss</span>
     <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("bar", 6, 6, "m-muted", false)}</svg>End of speech</span>
     <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("square", 6, 6, "m-caution", false)}</svg>Interrupted</span>
     <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("circle", 6, 6, "m-danger", false)}</svg>Error</span>
-    <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("circle-open", 6, 6, "m-speaking", false)}</svg>Home Assistant, request</span>
+    <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("circle-open", 6, 6, "m-speaking", false)}</svg>Home Assistant step</span>
     <span class="key"><svg width="12" height="12" aria-hidden="true">{@render shape("diamond", 6, 6, "m-muted", false)}</svg>Mode, wake word, calibration or microphone changed</span>
   </p>
 </div>
@@ -642,6 +668,31 @@
   .cell {
     min-width: 0;
   }
+  /* A phase in the legend: the soft fill under its strong bar, as in the chart. */
+  .ph {
+    display: inline-block;
+    width: 14px;
+    height: 12px;
+    flex: none;
+    border-radius: 2px;
+    border-top: 3px solid;
+  }
+  .ph.listening {
+    background: var(--listening-soft);
+    border-color: var(--listening);
+  }
+  .ph.thinking {
+    background: var(--thinking-soft);
+    border-color: var(--thinking);
+  }
+  .ph.speaking {
+    background: var(--speaking-soft);
+    border-color: var(--speaking);
+  }
+  .ph.muted {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+  }
   svg {
     display: block;
     max-width: 100%;
@@ -693,6 +744,21 @@
   }
   .sec.muted {
     fill: var(--danger-soft);
+  }
+  .bar {
+    stroke: none;
+  }
+  .bar.listening {
+    fill: var(--listening);
+  }
+  .bar.thinking {
+    fill: var(--thinking);
+  }
+  .bar.speaking {
+    fill: var(--speaking);
+  }
+  .bar.muted {
+    fill: var(--danger);
   }
   .mark.fill {
     stroke: none;

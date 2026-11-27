@@ -119,7 +119,7 @@ const SUBPAGES: Omit<Page, "section">[] = [
   {
     path: "/system/timeline",
     title: "Timeline",
-    description: "Requests and the audio pipeline, for debugging.",
+    description: "What the satellite did and asked, to find a problem.",
   },
 ];
 

@@ -3,10 +3,9 @@
      first cell selects the row, and covers it for the pointer. -->
 <script lang="ts">
   import {
-    REQ_KIND_WORDS,
     formatDuration,
-    formatSize,
     outcomeWord,
+    requestAddress,
     requestFailed,
     requestStatus,
     type TimelineRequest,
@@ -14,55 +13,54 @@
 
   let {
     requests,
+    filtered,
     now,
     selectedId,
     onselect,
-  }: { requests: TimelineRequest[]; now: number; selectedId: number | null; onselect: (id: number) => void } = $props();
+  }: {
+    requests: TimelineRequest[];
+    /** A filter is typed: an empty list means nothing matches, not that nothing happened. */
+    filtered: boolean;
+    now: number;
+    selectedId: number | null;
+    onselect: (id: number) => void;
+  } = $props();
 
   const time = (ms: number) =>
     new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const firstByte = (r: TimelineRequest) => {
-    const at = r.firstBodyMs || r.responseMs;
-    return at ? formatDuration(at - r.startMs) : "";
-  };
   const total = (r: TimelineRequest) => (r.endMs ? formatDuration(r.endMs - r.startMs) : `${formatDuration(now - r.startMs)} so far`);
 </script>
 
 <div class="wrap">
   <table>
-    <caption class="sr">Requests, oldest first. Select a row for its details.</caption>
+    <caption class="sr">Requests, newest first. Select a row for its details.</caption>
     <thead>
       <tr>
         <th scope="col">Time</th>
-        <th scope="col">Kind</th>
-        <th scope="col">Method</th>
-        <th scope="col">Address</th>
         <th scope="col">Status</th>
-        <th scope="col" class="num">First byte</th>
         <th scope="col" class="num">Total</th>
-        <th scope="col" class="num">Sent</th>
-        <th scope="col" class="num">Received</th>
-        <th scope="col">Outcome</th>
+        <th scope="col">Address</th>
+        <th scope="col">Result</th>
       </tr>
     </thead>
     <tbody>
       {#each requests as r (r.id)}
         <tr class:selected={selectedId === r.id} class:failed={requestFailed(r)}>
           <td class="mono">
-            <button type="button" aria-pressed={selectedId === r.id} onclick={() => onselect(r.id)}>{time(r.startMs)}</button>
+            <button
+              type="button"
+              aria-label="{requestAddress(r)}, {requestStatus(r)}"
+              aria-pressed={selectedId === r.id}
+              onclick={() => onselect(r.id)}>{time(r.startMs)}</button
+            >
           </td>
-          <td>{REQ_KIND_WORDS[r.kind] ?? ""}</td>
-          <td class="mono">{r.method}</td>
-          <td class="mono addr">{r.url}</td>
           <td class="mono">{requestStatus(r)}</td>
-          <td class="mono num">{firstByte(r)}</td>
           <td class="mono num">{total(r)}</td>
-          <td class="mono num">{r.bytesOut === null ? "" : formatSize(r.bytesOut)}</td>
-          <td class="mono num">{formatSize(r.bytesIn)}</td>
+          <td class="mono addr">{requestAddress(r)}</td>
           <td>{outcomeWord(r.outcome)}</td>
         </tr>
       {:else}
-        <tr class="none"><td colspan="10">No requests match.</td></tr>
+        <tr class="none"><td colspan="5">{filtered ? "No requests match." : "No requests yet."}</td></tr>
       {/each}
     </tbody>
   </table>
@@ -112,8 +110,8 @@
   tr.selected {
     background: var(--signal-soft);
   }
-  tr.failed td:nth-child(5),
-  tr.failed td:nth-child(10) {
+  tr.failed td:nth-child(2),
+  tr.failed td:nth-child(5) {
     color: var(--danger);
     font-weight: 650;
   }

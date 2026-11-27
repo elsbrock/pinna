@@ -2,6 +2,7 @@
   import { drawingFor } from "../../../design/devices/index.ts";
   import type { GetUpdatesResponse } from "../gen/pinna/v1/device_pb.ts";
   import { brainLabel, failureText, isStandalone } from "../lib/assistant.ts";
+  import Confirm from "../lib/Confirm.svelte";
   import Controls from "../lib/Controls.svelte";
   import Device from "../lib/Device.svelte";
   import { client, device, errorSentence } from "../lib/device.svelte.ts";
@@ -82,6 +83,7 @@
     debugging ? secondsUntil(device.receivedAt + debugging.secondsLeft * 1000, device.now) : 0,
   );
   let stoppingDebugging = $state(false);
+  let confirmingStopDebugging = $state(false);
   async function stopDebugging() {
     stoppingDebugging = true;
     try {
@@ -217,7 +219,7 @@
           })}. <a href="#/system/timeline">Open the timeline</a>
         </p>
         <div>
-          <button class="pn-btn" disabled={stoppingDebugging || !live} onclick={stopDebugging}>Stop it</button>
+          <button class="pn-btn" disabled={stoppingDebugging || !live} onclick={() => (confirmingStopDebugging = true)}>Stop it</button>
         </div>
       </div>
     </div>
@@ -382,6 +384,10 @@
       <NowPlaying />
     </div>
   </div>
+
+  <Confirm bind:open={confirmingStopDebugging} title="Stop debugging?" action="Stop and clear" danger confirm={stopDebugging}>
+    <p>This clears what the satellite kept, here and in every open dashboard. Download it first to keep it.</p>
+  </Confirm>
 {/if}
 
 <style>

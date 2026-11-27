@@ -15,6 +15,7 @@ import {
   formatDuration,
   formatSize,
   holdsText,
+  lastRecorded,
   levelSeries,
   linePath,
   markerShape,
@@ -27,7 +28,9 @@ import {
   requestFailed,
   requestLabel,
   recordedWords,
+  requestAddress,
   requestRows,
+  requestsNewestFirst,
   satelliteNow,
   speechSpans,
   timeLeft,
@@ -365,7 +368,10 @@ test("the time left reads in minutes and hours", () => {
   assert.equal(timeLeft(0), "No time left");
   assert.equal(timeLeft(30), "Less than a minute left");
   assert.equal(timeLeft(42 * 60), "42 min left");
-  assert.equal(timeLeft(42 * 60 - 20), "42 min left");
+  assert.equal(timeLeft(42 * 60 - 20), "41 min left");
+  assert.equal(timeLeft(15 * 60 - 1), "14 min left");
+  assert.equal(timeLeft(15 * 60), "15 min left");
+  assert.equal(timeLeft(60), "1 min left");
   assert.equal(timeLeft(3600), "1 h left");
   assert.equal(timeLeft(5400), "1 h 30 min left");
   assert.equal(debuggingHint(undefined), "Off");
@@ -403,3 +409,30 @@ test("the export holds what the page holds, with gaps as null, and says whether 
   assert.equal(exportName("", new Date(2026, 0, 2, 3, 4, 5)), "pinna-timeline-2026-01-02-030405.json");
 });
 
+
+test("the Requests view lists the newest first, with the method and path as the address", () => {
+  const rows = requestsNewestFirst([request({ id: 1 }), request({ id: 3, startMs: NOW + 20 }), request({ id: 2, startMs: NOW + 10 })]);
+  assert.deepEqual(rows.map((r) => r.id), [3, 2, 1]);
+  assert.equal(requestAddress({ method: "POST", url: "https://api.example.com/v1/audio/transcriptions" }), "POST /v1/audio/transcriptions");
+  assert.equal(requestAddress({ method: "GET", url: "http://10.0.0.2:8123/api/x?token=1" }), "GET /api/x");
+  assert.equal(requestAddress({ method: "GET", url: "https://example.com" }), "GET /");
+});
+
+test("the last recorded time is the newest end of an event, a request or a level bucket", () => {
+  assert.equal(lastRecorded(emptyTimeline()), 0);
+  const levels: TimelineLevels = {
+    startMs: NOW,
+    bucketMs: 100,
+    beforeGain: [1, 2, 3],
+    afterGain: [],
+    gain: [],
+    speaker: [],
+    speech: [],
+    words: [],
+  };
+  const tl = { ...emptyTimeline(), events: [event({ unixMs: NOW + 500 }), event({ unixMs: NOW + 100, endMs: NOW + 900 })] };
+  assert.equal(lastRecorded(tl), NOW + 900);
+  assert.equal(lastRecorded({ ...tl, requests: [request({ startMs: NOW, endMs: NOW + 2100 })] }), NOW + 2100);
+  assert.equal(lastRecorded({ ...tl, levels: [levels] }), NOW + 900);
+  assert.equal(lastRecorded({ ...tl, requests: [request({ endMs: 0, responseMs: 0, startMs: NOW + 3000 })] }), NOW + 3000);
+});

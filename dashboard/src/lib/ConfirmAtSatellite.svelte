@@ -16,7 +16,14 @@
     ongrant,
     oncancel,
     purpose = ConfirmationPurpose.PASSWORD,
-  }: { ongrant: (grant: string) => void; oncancel: () => void; purpose?: ConfirmationPurpose } = $props();
+    skip,
+  }: {
+    ongrant: (grant: string) => void;
+    oncancel: () => void;
+    purpose?: ConfirmationPurpose;
+    /** Another way on when the wait ends without a press. */
+    skip?: { label: string; onskip: () => void };
+  } = $props();
   const debugging = $derived(purpose === ConfirmationPurpose.DEBUGGING_TEXT);
   // The ring shows the recording pattern for both: what you say goes to this browser.
   const recording = $derived(purpose === ConfirmationPurpose.RECORDING || debugging);
@@ -128,6 +135,7 @@
   <div class="actions">
     {#if stage === "expired" || stage === "stopped" || stage === "refused"}
       <button class="pn-btn pn-btn-primary" type="button" disabled={retryIn > 0} onclick={start}>Try again</button>
+      {#if skip}<button class="pn-btn" type="button" onclick={() => { release(); skip.onskip(); }}>{skip.label}</button>{/if}
     {/if}
     <button class="pn-btn" type="button" onclick={cancel}>Cancel</button>
   </div>
