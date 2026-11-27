@@ -8,10 +8,27 @@
 # access point mode on the MT7663 is unmeasured. Elsewhere (simulated radios
 # in the virtual Echo Dot) the interface is already there under that name.
 #
+# After hostapd stops, --remove takes the interface iw added off the radio
+# again. With ap0 left on the MT7663, wlan0 associates and completes WPA,
+# but nothing it sends arrives: the DHCP server saw no DISCOVER, where the
+# same join without ap0 got a lease in 0.3 s (Echo Dot (5th gen),
+# 2026-11-27). The MT8163's ap0 stays registered.
+#
 #   wifi-ap ap0
+#   wifi-ap --remove ap0
 set -u
-iface=${1:?usage: wifi-ap <interface>}
 log() { echo "wifi-ap: $*"; }
+
+if [ "${1:-}" = --remove ]; then
+    iface=${2:?usage: wifi-ap --remove <interface>}
+    [ "$(pinnactl wifi-chip 2>/dev/null)" = mt7663-sdio ] || exit 0
+    [ -e "/sys/class/net/$iface" ] || exit 0
+    iw dev "$iface" del || { log "couldn't remove $iface"; exit 1; }
+    log "$iface removed"
+    exit 0
+fi
+
+iface=${1:?usage: wifi-ap <interface>}
 
 [ -e "/sys/class/net/$iface" ] && exit 0
 if [ -c /dev/wmtWifi ]; then

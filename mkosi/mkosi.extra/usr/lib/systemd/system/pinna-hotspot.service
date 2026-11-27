@@ -12,6 +12,8 @@ StartLimitIntervalSec=0
 [Service]
 ExecStartPre=/usr/libexec/pinna/wifi-ap ap0
 ExecStart=/usr/sbin/hostapd /run/pinna/hostapd.conf
+# Frees the radio for a join on chips where ap0 was added for the hotspot.
+ExecStopPost=-/usr/libexec/pinna/wifi-ap --remove ap0
 RuntimeDirectory=hostapd
 RuntimeDirectoryMode=0700
 NoNewPrivileges=yes
