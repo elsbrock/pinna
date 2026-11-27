@@ -140,7 +140,7 @@ fn ser_conv(
         // 0 1 2 3  4  5  6  7  8
         // x w b x0 xs k0 ks y0 ys
         let k0_tract = facts[5].konst.as_ref().unwrap().cast_to_scalar::<i32>()? as i64;
-        let kscale = facts[6].konst.as_ref().unwrap().as_slice::<f32>()?;
+        let kscale = facts[6].konst.as_ref().unwrap().try_as_plain_ram()?.as_slice::<f32>()?;
         let per_channel = !kscale.iter().all_equal();
         if per_channel {
             let kernel = model
@@ -155,7 +155,7 @@ fn ser_conv(
                 .context("tract TODO: dynamic convolution and per-channel scales")?;
             inputs.push(builder.write_fact_with_per_axis_q(
                 format!("{node_name}.weights"),
-                kernel,
+                TypedFact::try_from(kernel.clone())?,
                 &vec![k0_tract; conv.output_channels()],
                 kscale,
                 0,
@@ -164,7 +164,7 @@ fn ser_conv(
             let bias = bias.clone().into_tensor().cast_to::<i32>()?.into_owned().into_arc_tensor();
             inputs.push(builder.write_fact_with_per_axis_q(
                 format!("{node_name}.bias"),
-                &bias,
+                TypedFact::try_from(bias.clone())?,
                 &vec![0i64; bias.len()],
                 &bscale,
                 0,
@@ -176,7 +176,8 @@ fn ser_conv(
                 .datum_type()
                 .quantize(QParams::ZpScale { zero_point: 0, scale: iscale * kscale[0] });
             let bias = bias.cast_to_dt(bias_qdt)?.into_owned();
-            inputs.push(builder.write_fact(format!("{node_name}.bias"), bias)?);
+            inputs
+                .push(builder.write_fact(format!("{node_name}.bias"), TypedFact::try_from(bias)?)?);
         }
     } else {
         inputs.push(builder.map_outlet(model, node.inputs[1])?);
@@ -294,7 +295,7 @@ fn de_dw_conv2d(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
     let mut inputs = tvec!(op.inputs[0], op.inputs[1], op.inputs[2]);
     if bias.datum_type.is_quantized() {
         inputs[2] = op.ctx.target.wire_node(
-            op.ctx.target.unique_name(format!("{}.bias", &op.prefix)),
+            op.ctx.target.unique_name(format!("{}.bias", op.prefix)),
             cast(bias.datum_type.unquantized()),
             &[inputs[2]],
         )?[0];
@@ -312,7 +313,7 @@ fn de_dw_conv2d(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
 
 fn ser_pad(
     builder: &mut SubgraphBuilder,
-    _model: &TypedModel,
+    model: &TypedModel,
     node: &TypedNode,
     pad: &Pad,
 ) -> TractResult<()> {
@@ -324,11 +325,19 @@ fn ser_pad(
     let paddings = tract_ndarray::Array2::<i32>::from_shape_fn((pad.pads.len(), 2), |(d, side)| {
         (if side == 0 { pad.pads[d].0 } else { pad.pads[d].1 }) as i32
     });
-    inputs.push(builder.write_fact(format!("{node_name}.paddings"), paddings.into_tensor())?);
+    inputs.push(builder.write_fact(
+        format!("{node_name}.paddings"),
+        TypedFact::try_from(paddings.into_tensor())?,
+    )?);
     let PadMode::Constant(pad_value) = &pad.mode else {
         bail!("Only constant padding is supported by tflite");
     };
-    inputs.push(builder.write_fact(format!("{node_name}.pad_value"), pad_value)?);
+    // PADV2 takes constant_values in the type of the tensor it pads.
+    let dt = model.outlet_fact(node.inputs[0])?.datum_type;
+    inputs.push(builder.write_fact(
+        format!("{node_name}.pad_value"),
+        TypedFact::try_from(pad_value.cast_to_dt(dt)?.into_owned())?,
+    )?);
     let options = PadOptions::create(builder.fb(), &PadOptionsArgs {});
     builder.write_op_with_options(
         &inputs,

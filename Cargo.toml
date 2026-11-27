@@ -31,6 +31,6 @@ codegen-units = 1
 strip = true
 opt-level = 3
 
-# tract-tflite 0.22.5 with fixes for openWakeWord's .tflite classifiers (ADR 0013).
+# tract-tflite 0.23.10 with a fix for openWakeWord's .tflite classifiers (ADR 0013).
 [patch.crates-io]
 tract-tflite = { path = "vendor/tract-tflite" }

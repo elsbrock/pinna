@@ -39,7 +39,13 @@ pub fn register_all(reg: &mut Registry) {
 fn de_broadcast_to(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
     let (_input, shape) = args_2!(op.facts()?);
     let shape = shape.konst.clone().context("Dynamic BROADCAST_TO is not supported")?;
-    let shape = shape.cast_to::<i32>()?.as_slice::<i32>()?.iter().map(|d| *d as usize).collect();
+    let shape = shape
+        .cast_to::<i32>()?
+        .try_as_plain_ram()?
+        .as_slice::<i32>()?
+        .iter()
+        .map(|d| *d as usize)
+        .collect();
     op.ctx.target.wire_node(op.prefix, MultiBroadcastTo { shape }, &op.inputs[0..1])
 }
 
@@ -59,7 +65,8 @@ fn de_expand_dims(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
     let axes = axes.konst.clone().context("Dynamic EXPAND_DIMS is not supported")?;
     let mut wire = tvec!(op.inputs[0]);
     let prefix = op.prefix;
-    for (ix, &axis) in axes.as_slice::<i32>()?.iter().sorted().rev().enumerate() {
+    for (ix, &axis) in axes.try_as_plain_ram()?.as_slice::<i32>()?.iter().sorted().rev().enumerate()
+    {
         let axis = if axis < 0 { axis + input.rank() as i32 } else { axis };
         wire =
             op.ctx.target.wire_node(format!("{prefix}.{ix}"), AxisOp::Add(axis as usize), &wire)?;
@@ -71,7 +78,7 @@ fn de_pad(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
     let (input, pads) = args_2!(op.facts()?);
     let pads = pads.konst.as_ref().context("Dynamic PAD is not supported")?;
     let prefix = op.prefix;
-    let pads: ArrayView2<i32> = pads.to_array_view::<i32>()?.into_dimensionality()?;
+    let pads: ArrayView2<i32> = pads.to_plain_array_view::<i32>()?.into_dimensionality()?;
     let pads: Vec<(usize, usize)> =
         pads.rows().into_iter().map(|row| (row[0] as usize, row[1] as usize)).collect();
     let mode =
@@ -83,7 +90,7 @@ fn de_padv2(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
     let (_input, pads, value) = args_3!(op.facts()?);
     let pads = pads.konst.as_ref().context("Dynamic PADV2 is not supported")?;
     let prefix = op.prefix;
-    let pads: ArrayView2<i32> = pads.to_array_view::<i32>()?.into_dimensionality()?;
+    let pads: ArrayView2<i32> = pads.to_plain_array_view::<i32>()?.into_dimensionality()?;
     let pads: Vec<(usize, usize)> =
         pads.rows().into_iter().map(|row| (row[0] as usize, row[1] as usize)).collect();
     let mode = tract_core::ops::array::PadMode::Constant(value.konst.context("Constant expected")?);
@@ -99,7 +106,7 @@ fn de_reshape(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
         rctensor1(&options.new_shape().as_ref().unwrap().iter().collect::<Vec<i32>>())
     };
     let shape = shape.cast_to::<TDim>()?;
-    let shape = shape.as_slice::<TDim>()?;
+    let shape = shape.try_as_plain_ram()?.as_slice::<TDim>()?;
     let mut wire = tvec!(op.inputs[0]);
     let prefix = op.prefix;
     for (ix, axis_op) in to_axis_ops_with_tf_rules(&input_shape, shape)?.into_iter().enumerate() {
@@ -119,8 +126,8 @@ fn de_slice(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
     let mut wire = tvec!(op.inputs[0]);
     if let (Some(begins), Some(sizes)) = (begins.konst, sizes.konst) {
         for ix in 0..input.rank() {
-            let start = begins.as_slice::<i32>()?[ix] as usize;
-            let size = sizes.as_slice::<i32>()?[ix] as usize;
+            let start = begins.try_as_plain_ram()?.as_slice::<i32>()?[ix] as usize;
+            let size = sizes.try_as_plain_ram()?.as_slice::<i32>()?[ix] as usize;
             if start > 0 || size.to_dim() != input.shape[ix] {
                 wire = op.ctx.target.wire_node(
                     format!("{}.{ix}", op.prefix),
@@ -166,7 +173,8 @@ fn de_transpose(op: &mut DeserOp) -> TractResult<TVec<OutletId>> {
         .konst
         .as_ref()
         .context("Dynamic TRANSPOSE in not supported by tract")?;
-    let perm = perm.as_slice::<i32>()?.iter().map(|x| *x as usize).collect_vec();
+    let perm =
+        perm.try_as_plain_ram()?.as_slice::<i32>()?.iter().map(|x| *x as usize).collect_vec();
     let mut wire = tvec!(op.inputs[0]);
     let prefix = op.prefix;
     for (ix, axis_op) in perm_to_ops(&perm).into_iter().enumerate() {
@@ -189,7 +197,10 @@ fn ser_axisop(
             let mut permutation: Vec<i32> = (0..rank).map(|d| d as i32).collect();
             permutation.remove(*from);
             permutation.insert(*to, *from as _);
-            inputs.push(builder.write_fact(format!("{}.perm", node.name), tensor1(&permutation))?);
+            inputs.push(builder.write_fact(
+                format!("{}.perm", node.name),
+                TypedFact::try_from(tensor1(&permutation))?,
+            )?);
             let options = TransposeOptions::create(builder.fb(), &TransposeOptionsArgs {});
             builder.write_op_with_options(
                 &inputs,
@@ -199,7 +210,10 @@ fn ser_axisop(
             )
         }
         AxisOp::Add(a) => {
-            inputs.push(builder.write_fact(format!("{}.axis", node.name), tensor0(*a as i32))?);
+            inputs.push(builder.write_fact(
+                format!("{}.axis", node.name),
+                TypedFact::try_from(tensor0(*a as i32))?,
+            )?);
             let options = ExpandDimsOptions::create(builder.fb(), &ExpandDimsOptionsArgs {});
             builder.write_op_with_options(
                 &inputs,
@@ -232,7 +246,7 @@ fn ser_axisop(
                 .shape
                 .iter()
                 .map(|x| x.to_i32())
-                .collect::<TractResult<Vec<i32>>>()?;
+                .collect::<Result<Vec<i32>, _>>()?;
             let new_shape = builder.fb().create_vector(&new_shape);
             let options = ReshapeOptions::create(
                 builder.fb(),
@@ -257,8 +271,9 @@ fn ser_broadcast_to(
     let mut inputs = tvec!(builder.outlets_to_tensors[&node.inputs[0]]);
     let output = builder.outlets_to_tensors[&node.id.into()];
     let shape =
-        node.outputs[0].fact.shape.iter().map(|x| x.to_i32()).collect::<TractResult<Vec<i32>>>()?;
-    let shape = builder.write_fact(format!("{}.shape", node.name), tensor1(&shape))?;
+        node.outputs[0].fact.shape.iter().map(|x| x.to_i32()).collect::<Result<Vec<i32>, _>>()?;
+    let shape = builder
+        .write_fact(format!("{}.shape", node.name), TypedFact::try_from(tensor1(&shape))?)?;
     inputs.push(shape);
     builder.write_op(&inputs, &[output], 130, 3, BuiltinOperator::BROADCAST_TO)
 }
@@ -310,9 +325,19 @@ fn ser_downsample(
         ends[op.axis] = 0;
     }
     let mut inputs = tvec!(builder.outlets_to_tensors[&node.inputs[0]]);
-    inputs.push(builder.write_fact(format!("{}.begins", node.name), tensor1(&begins))?);
-    inputs.push(builder.write_fact(format!("{}.ends", node.name), tensor1(&ends))?);
-    inputs.push(builder.write_fact(format!("{}.strides", node.name), tensor1(&strides))?);
+    inputs.push(
+        builder
+            .write_fact(format!("{}.begins", node.name), TypedFact::try_from(tensor1(&begins))?)?,
+    );
+    inputs.push(
+        builder.write_fact(format!("{}.ends", node.name), TypedFact::try_from(tensor1(&ends))?)?,
+    );
+    inputs.push(
+        builder.write_fact(
+            format!("{}.strides", node.name),
+            TypedFact::try_from(tensor1(&strides))?,
+        )?,
+    );
     let output = builder.outlets_to_tensors[&OutletId::new(node.id, 0)];
     let options = StridedSliceOptions::create(
         builder.fb(),
@@ -354,8 +379,8 @@ fn ser_slice(
     let begins = tensor1(&begins);
     let sizes = tensor1(&sizes);
     let mut inputs = tvec!(builder.outlets_to_tensors[&node.inputs[0]]);
-    inputs.push(builder.write_fact(format!("{}.begins", node.name), begins)?);
-    inputs.push(builder.write_fact(format!("{}.sizes", node.name), sizes)?);
+    inputs.push(builder.write_fact(format!("{}.begins", node.name), TypedFact::try_from(begins)?)?);
+    inputs.push(builder.write_fact(format!("{}.sizes", node.name), TypedFact::try_from(sizes)?)?);
     let output = builder.outlets_to_tensors[&OutletId::new(node.id, 0)];
     let options = SliceOptions::create(builder.fb(), &SliceOptionsArgs {});
     builder.write_op_with_options(

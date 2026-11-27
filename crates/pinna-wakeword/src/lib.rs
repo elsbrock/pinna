@@ -36,7 +36,7 @@ const STARTUP_SUPPRESSED: u32 = 5;
 /// VAD frame size (10 ms at 16 kHz), as in LibreEcho's AFE path.
 const VAD_FRAME_SAMPLES: usize = 160;
 
-type Plan = TypedRunnableModel<TypedModel>;
+type Plan = Arc<TypedRunnableModel>;
 
 /// Detection tuning. `Default` is LibreEcho's configuration.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -180,7 +180,7 @@ impl Keyword {
 
     fn score(&self, features: &[f32]) -> Result<f32> {
         let out = run(&self.plan, features, &[1, FEATURE_FRAMES, FEATURE_BINS])?;
-        Ok(out.as_slice::<f32>()?[0])
+        Ok(out.try_as_plain_ram()?.as_slice::<f32>()?[0])
     }
 }
 
@@ -256,6 +256,7 @@ fn classifier_plan(bytes: &[u8]) -> Result<Plan> {
         .run(tvec!(Tensor::zero::<f32>(&shape)?.into_tvalue()))
         .context("the model doesn't run on openWakeWord features")?;
     let out = out.first().context("the model has no output")?;
+    let out = out.try_as_plain_ram()?;
     let scores = out
         .as_slice::<f32>()
         .context("the model's output isn't a float")?;
@@ -683,6 +684,7 @@ impl Detector {
             &self.mel
         };
         let mel = run(plan, &self.audio[..n], &[1, n])?;
+        let mel = mel.try_as_plain_ram()?;
         let mel = mel.as_slice::<f32>()?;
         ensure!(
             !mel.is_empty() && mel.len() % MEL_BINS == 0,
@@ -697,6 +699,7 @@ impl Detector {
             &self.mel_history,
             &[1, MEL_FRAMES, MEL_BINS, 1],
         )?;
+        let emb = emb.try_as_plain_ram()?;
         let emb = emb.as_slice::<f32>()?;
         ensure!(emb.len() == FEATURE_BINS, "invalid embedding output shape");
         self.last_embedding.copy_from_slice(emb);

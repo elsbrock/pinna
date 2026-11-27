@@ -9,17 +9,18 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 pinna-vad = { path = "../pinna-vad" }
-tract-onnx = "0.22"
-tract-tflite = "0.22"
+# Without the default `transformers` ops, which openWakeWord's models don't use (about 1 MB).
+tract-onnx = { version = "=0.23.10", default-features = false }
+tract-tflite = "=0.23.10"
 
 [dev-dependencies]
 # The version tract-tflite builds with, for the TFLite fixture in tests/upload.rs.
-flatbuffers = "23.1.21"
+flatbuffers = "25.12.19"
 hound = "3"
 pinna-audio = { path = "../pinna-audio" }
 pinna-board = { path = "../pinna-board" }
 serde_json = "1"
-prost = "0.11"
+prost = "0.14"
 
 # The microphone bench's own tests (synthetic takes) run with `cargo test`.
 [[example]]

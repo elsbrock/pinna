@@ -1,25 +1,31 @@
 use tract_core::internal::*;
 use tract_core::ops::array::{Pad, PadMode};
-use tract_core::ops::cnn::{rewrite_conv_with_n_axis, KernelFormat, MaxPool, PoolSpec, SumPool};
+use tract_core::ops::cnn::{
+    rewrite_conv_1d_to_2d, rewrite_conv_with_n_axis, KernelFormat, MaxPool, PoolSpec, SumPool,
+};
 use tract_core::ops::cnn::{Conv, PaddingSpec};
 use tract_core::ops::einsum::prefix_matmul::PrefixMatMul;
 use tract_core::ops::element_wise::ElementWiseOp;
 use tract_core::ops::math::Recip;
-use tract_core::ops::nn::{expand_mean_of_squares, DataFormat, Softmax};
+use tract_core::ops::nn::{
+    expand_mean_of_squares, rewrite_nearest_upsample_to_broadcast, DataFormat, Resize, Softmax,
+};
 use tract_core::tract_data::itertools::Itertools;
 
 pub fn rewrite_for_tflite(model: &mut TypedModel) -> TractResult<()> {
-    tract_core::ops::einsum::prefix_matmul::rewrite_einsum_to_prefix_matmul(model)?;
+    tract_core::ops::einsum::prefix_matmul::rewrite_einsum_to_prefix_matmul(model, true)?;
     Rewriter::default()
         .with_rule_for("trivial_axes_around_matmul", trivial_axes_around_matmul)
         .with_rule_for("kernel_in_ohwi", kernel_in_ohwi)
         .with_rule_for("bias_as_vector", bias_as_vector)
         //        .with_rule_for("per_layer_in_u8", per_layer_in_u8)
-        .with_rule_for("make_1d_2d", make_1d_2d)
+        .with_rule_for("make_1d_2d", rewrite_conv_1d_to_2d)
         .with_rule_for("rewrite_conv_with_n_axis", rewrite_conv_with_n_axis)
         .with_rule_for("conv-nchw-to-nhwc", conv_nchw_to_nhwc)
         .with_rule_for("maxpool-nchw-to-nhwc", maxpool_nchw_to_nhwc)
         .with_rule_for("sumpool-nchw-to-nhwc", sumpool_nchw_to_nhwc)
+        .with_rule_for("resize-nchw-to-nhwc", resize_nchw_to_nhwc)
+        .with_rule_for("nearest-upsample-to-broadcast", rewrite_nearest_upsample_to_broadcast)
         .with_rule_for("padding", padding)
         .with_rule_for("manual_recip", manual_recip)
         .with_rule_for("softmax_on_last_axis", softmax_on_last_axis)
@@ -37,9 +43,7 @@ fn trivial_axes_around_matmul(
 ) -> TractResult<Option<TypedModelPatch>> {
     let facts = model.node_input_facts(node.id)?;
     let rank = facts[0].rank();
-    if rank <= 4 {
-        return Ok(None);
-    }
+    rule_if!(rank > 4);
     let trivial_axes = (0..rank - 2)
         .filter(|axis| facts[0].shape[*axis].is_one() && facts[1].shape[*axis].is_one())
         .collect_vec();
@@ -68,9 +72,7 @@ fn kernel_in_ohwi(
     name: &str,
     conv: &Conv,
 ) -> TractResult<Option<TypedModelPatch>> {
-    if conv.kernel_fmt == KernelFormat::OHWI {
-        return Ok(None);
-    }
+    rule_if!(conv.kernel_fmt != KernelFormat::OHWI);
     if conv.group != 1 && conv.group != conv.output_channels() {
         bail!("Arbitrary grouping is not supported in tflite")
     }
@@ -116,9 +118,7 @@ fn bias_as_vector(
 ) -> TractResult<Option<TypedModelPatch>> {
     let bias_fact = model.outlet_fact(node.inputs[2])?;
     let co = conv.output_channels();
-    if *bias_fact.shape == [co.to_dim()] {
-        return Ok(None);
-    }
+    rule_if!(*bias_fact.shape != [co.to_dim()]);
     let mut patch = TypedModelPatch::default();
     let mut wire = patch.taps(model, &node.inputs)?;
     wire[2] = tract_core::ops::cnn::wire_reshape_bias_as_vector(
@@ -144,12 +144,8 @@ let input_fact = model.outlet_fact(node.inputs[0])?;
 let idt = input_fact.datum_type;
 let kernel_fact = model.outlet_fact(node.inputs[1])?;
 let kdt = kernel_fact.datum_type;
-if idt.is_float() || model.outlet_fact(node.inputs[6])?.shape.len() > 1 {
-return Ok(None);
-}
-if idt.unquantized() == u8::datum_type() && kdt.unquantized() == u8::datum_type() {
-return Ok(None);
-}
+rule_if!(!idt.is_float() && model.outlet_fact(node.inputs[6])?.shape.len() <= 1);
+rule_if!(idt.unquantized() != u8::datum_type() || kdt.unquantized() != u8::datum_type());
 let mut patch = TypedModelPatch::default();
 let wire = patch.taps(model, &node.inputs)?;
 let [mut i, mut k, b, mut i0, is, mut k0, ks, o0, os] = &*wire else {
@@ -162,31 +158,6 @@ patch.shunt_outside(model, node.id.into(), output[0])?;
 Ok(Some(patch))
 }
 */
-
-fn make_1d_2d(
-    _ctx: &(),
-    model: &TypedModel,
-    node: &TypedNode,
-    name: &str,
-    conv: &Conv,
-) -> TractResult<Option<TypedModelPatch>> {
-    if conv.pool_spec.rank() == 1 {
-        let mut new = conv.clone();
-        new.pool_spec = conv.pool_spec.change_geo_axes(&AxisOp::Add(1))?;
-        let mut patch = TypedModelPatch::default();
-        let mut wire = patch.taps(model, &node.inputs)?;
-        let pos_data = conv.pool_spec.data_format.h_axis() + 1;
-        wire[0] = patch.wire_node(format!("{name}.add_dim"), AxisOp::Add(pos_data), &[wire[0]])?[0];
-        let pos_kernel = conv.kernel_fmt.h_axis() + 1;
-        wire[1] =
-            patch.wire_node(format!("{name}.add_dim_k"), AxisOp::Add(pos_kernel), &[wire[1]])?[0];
-        wire = patch.wire_node(name, new, &wire)?;
-        wire = patch.wire_node(format!("{name}.rm_dim"), AxisOp::Rm(pos_data), &wire)?;
-        patch.shunt_outside(model, node.id.into(), wire[0])?;
-        return Ok(Some(patch));
-    }
-    Ok(None)
-}
 
 fn conv_nchw_to_nhwc(
     _ctx: &(),
@@ -253,6 +224,40 @@ fn nchw_to_nhwc(
         return Ok(Some(patch));
     }
     Ok(None)
+}
+
+/// tflite resizes the axes in the middle of an NHWC tensor, so a resize aiming
+/// at the last axis needs the channel axis moved out of the way, along with the
+/// scales or sizes vector naming it.
+fn resize_nchw_to_nhwc(
+    _ctx: &(),
+    model: &TypedModel,
+    node: &TypedNode,
+    name: &str,
+    op: &Resize,
+) -> TractResult<Option<TypedModelPatch>> {
+    let input = model.outlet_fact(node.inputs[0])?;
+    let output = &node.outputs[0].fact;
+    rule_if!(input.rank() == 4);
+    rule_if!(input.shape[0] == output.shape[0] && input.shape[1] == output.shape[1]);
+    rule_if!(input.shape[3] != output.shape[3]);
+    let mut patch = TypedModelPatch::default();
+    let mut wire = patch.taps(model, &node.inputs)?;
+    wire[0] = patch.wire_node(format!("{name}.nhwc"), AxisOp::Move(1, 3), &[wire[0]])?[0];
+    for slot in [op.optional_scales_input, op.optional_sizes_input].into_iter().flatten() {
+        rule_if_some!(nchw = &model.outlet_fact(node.inputs[slot])?.konst);
+        rule_if!(nchw.len() == 4);
+        let axes = [0, 2, 3, 1]
+            .iter()
+            .map(|ax| nchw.slice(0, *ax, ax + 1))
+            .collect::<TractResult<TVec<_>>>()?;
+        wire[slot] =
+            patch.add_const(format!("{name}.nhwc.{slot}"), Tensor::stack_tensors(0, &axes)?)?;
+    }
+    let resized = patch.wire_node(name, op.clone(), &wire)?;
+    let out = patch.wire_node(format!("{name}.nchw"), AxisOp::Move(3, 1), &resized)?;
+    patch.shunt_outside(model, node.id.into(), out[0])?;
+    Ok(Some(patch))
 }
 
 fn padding(

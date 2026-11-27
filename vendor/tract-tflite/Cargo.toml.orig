@@ -1,11 +1,12 @@
 [package]
 name = "tract-tflite"
-version = "0.22.5"
+version = "0.23.10"
 authors = ["Mathieu Poumeyrol <kali@zoy.org>"]
 license = "MIT OR Apache-2.0"
 description = "Tiny, no-nonsense, self contained, TensorFlow and ONNX inference"
-repository = "https://github.com/snipsco/tract"
+repository = "https://github.com/sonos/tract"
 edition = "2021"
+include = [ "/Cargo.toml", "/LICENSE*", "/src/**/*.rs", "/Readme.md", "/schema/*.fbs" ]
 
 [dependencies]
 derive-new.workspace = true
