@@ -1,7 +1,7 @@
 <!-- Requests and the audio pipeline on one time axis (ADR 0036). Debugging is off
      until someone starts it, for a time. The page follows WatchTimeline, holds at
-     most ten minutes, and fills the window like Logs: the toolbar stays, and the
-     data scrolls. -->
+     most ten minutes, and scrolls as a page: it follows time sideways, and the
+     chart's time axis stays in view. -->
 <script lang="ts">
   import { onMount } from "svelte";
 
