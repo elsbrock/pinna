@@ -2,7 +2,10 @@
 
 Status: proposed (2026-11-19). Amends ADR 0009, which keeps no access point
 mode, and ADR 0008, where USB is the only way back after the last network is
-forgotten; decides the setup hotspot that ADR 0012 leaves open. Not run on a device yet: the kernel side is compiled, the rest is
+forgotten; decides the setup hotspot that ADR 0012 leaves open. On the
+Echo Dot (5th gen), hostapd runs on `ap0` and a join from the Network page
+gets an address once `ap0` is removed (2026-11-27); a phone on its hotspot
+isn't measured. On the MT8163 the kernel side is compiled only. The rest is
 tested on the virtual Echo Dot with simulated radios.
 
 ## Context
@@ -28,7 +31,7 @@ tested on the virtual Echo Dot with simulated radios.
   - Amazon's driver has an "OOBE AP mode" (`CONFIG_MTK_WIFI_OOBE_AP_MODE`,
     11b/g rates for an access point). It isn't known whether the Echo builds
     used it. It stays off.
-- Not known until a device runs it:
+- Not known until an MT8163 runs it:
   - whether `ap0` beacons and takes a WPA2 client;
   - whether `wlan0` can scan while `ap0` runs;
   - whether `wlan0` joins a network with `ap0` registered but stopped.
@@ -58,6 +61,11 @@ tested on the virtual Echo Dot with simulated radios.
   - Its start step registers `ap0` on the MT8163 once per boot, by writing
     `A`, and leaves it registered until the next boot. It never writes `S`
     or `0`: the chip powers up once per boot (ADR 0008).
+  - On the Echo Dot (5th gen)'s MT7663 (mt76, a mac80211 driver), the start
+    step adds `ap0` to the radio with `iw`, and the unit's stop step removes
+    it again. The virtual Echo Dot's `ap0` is a simulated radio of its own
+    and stays. With `ap0` left on, `wlan0` associated and completed WPA, but the
+    DHCP server never saw its DISCOVER (measured 2026-11-27).
   - The unit isn't enabled and doesn't restart hostapd; pinnad starts and
     stops it, and stops one an earlier pinnad left running.
 - **A hotspot that doesn't work:** hostapd counts as started once it has run
