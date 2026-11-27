@@ -380,6 +380,8 @@ async fn capture_loop(
     shared: Arc<Shared>,
     esp: EsphomeHandle,
     inputs: mpsc::Sender<Input>,
+    // The words' phrases, for the debugging timeline: the detector knows ids.
+    catalogue: Arc<Catalogue>,
 ) {
     let mut stream = match start_capture(capture).await {
         Ok(s) => s,
@@ -506,7 +508,10 @@ async fn capture_loop(
                     })
                 });
                 if let Some((before, after, gain_db)) = lane.take() {
-                    let scores: Vec<_> = d.scores().collect();
+                    let scores: Vec<_> = d
+                        .scores()
+                        .map(|(id, s)| (catalogue.phrase(id), s))
+                        .collect();
                     timeline::levels_frame(
                         tokio::time::Instant::now(),
                         before,
@@ -539,7 +544,7 @@ async fn capture_loop(
                         crate::timeline::with(|t| {
                             let mut event = crate::timeline::Event::new(
                                 crate::timeline::EventKind::NearMiss,
-                                &wake_detail(&peak_word, &shared),
+                                &wake_detail(catalogue.phrase(&peak_word), &shared),
                             );
                             event.score = peak;
                             event.threshold = threshold;
@@ -563,7 +568,7 @@ async fn capture_loop(
                         let word = d.keyword(det.keyword).map_or("", |k| k.name());
                         let mut event = crate::timeline::Event::new(
                             crate::timeline::EventKind::Wake,
-                            &wake_detail(word, &shared),
+                            &wake_detail(catalogue.phrase(word), &shared),
                         );
                         event.score = det.score;
                         event.threshold = threshold;
@@ -1018,6 +1023,7 @@ async fn main() -> Result<()> {
             shared.clone(),
             esp.clone(),
             in_tx.clone(),
+            catalogue.clone(),
         ));
     } else {
         tracing::warn!("no audio backend: wake word and speech disabled");
