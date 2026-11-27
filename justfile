@@ -196,7 +196,10 @@ release: image bootimg
     files+=(pinna-boot-mt8519.itb pinna-bootctl-armv7 install-echo-dot-5.sh)
     case " $models " in
         *" echo-dot-5 "*)
-            args+=(--boot-for echo-dot-5={{build}}/release/pinna-boot-mt8519.itb) ;;
+            # The browser installer runs pinna-bootctl in TWRP (ADR 0016): the
+            # signed manifest names it, so the page checks it like the images.
+            args+=(--boot-for echo-dot-5={{build}}/release/pinna-boot-mt8519.itb
+                --bootctl-for echo-dot-5={{build}}/release/pinna-bootctl-armv7) ;;
     esac
     [ -z "${PINNA_SUMMARY:-}" ] || args+=(--summary "$PINNA_SUMMARY")
     [ -z "${PINNA_NOTES_URL:-}" ] || args+=(--notes-url "$PINNA_NOTES_URL")

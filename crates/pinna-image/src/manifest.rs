@@ -167,12 +167,23 @@ pub fn check_boot(label: &str, image: &[u8], models: &[Model]) -> Result<u32> {
 
 /// A `--boot-for` value: `model[,model...]=path`.
 pub fn parse_boot_for(arg: &str) -> Result<(Vec<Model>, PathBuf)> {
+    parse_for("boot-for", arg, "echo-dot-5=build/pinna-boot-mt8519.itb")
+}
+
+/// A `--bootctl-for` value: `model[,model...]=path`.
+pub fn parse_bootctl_for(arg: &str) -> Result<(Vec<Model>, PathBuf)> {
+    parse_for(
+        "bootctl-for",
+        arg,
+        "echo-dot-5=build/release/pinna-bootctl-armv7",
+    )
+}
+
+fn parse_for(flag: &str, arg: &str, example: &str) -> Result<(Vec<Model>, PathBuf)> {
     let Some((ids, path)) = arg.split_once('=') else {
-        bail!(
-            "--boot-for {arg}: expected MODELS=PATH, such as echo-dot-5=build/pinna-boot-mt8519.itb"
-        );
+        bail!("--{flag} {arg}: expected MODELS=PATH, such as {example}");
     };
-    ensure!(!path.is_empty(), "--boot-for {arg}: no path");
+    ensure!(!path.is_empty(), "--{flag} {arg}: no path");
     let ids: Vec<String> = ids.split(',').map(str::to_owned).collect();
     Ok((parse_models(&ids)?, path.into()))
 }
@@ -387,6 +398,10 @@ mod tests {
         assert!(parse_boot_for("a.img").is_err());
         assert!(parse_boot_for("nope=a.img").is_err());
         assert!(parse_boot_for("echo-2=").is_err());
+        let (models, path) = parse_bootctl_for("echo-dot-5=pinna-bootctl-armv7").unwrap();
+        assert_eq!(models, vec![Model::EchoDot5]);
+        assert_eq!(path, PathBuf::from("pinna-bootctl-armv7"));
+        assert!(parse_bootctl_for("pinna-bootctl-armv7").is_err());
     }
 
     #[test]

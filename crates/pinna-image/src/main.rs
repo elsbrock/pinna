@@ -74,6 +74,13 @@ enum Cmd {
         /// `boots`.
         #[arg(long = "boot-for", value_name = "MODELS=PATH")]
         boot_for: Vec<String>,
+        /// pinna-bootctl for the models the browser installer runs it on
+        /// (ADR 0016), as MODELS=PATH, such as
+        /// echo-dot-5=pinna-bootctl-armv7; repeat for more. Listed in
+        /// `bootctl`, so the page checks it against the signature.
+        /// Satellites don't read it.
+        #[arg(long = "bootctl-for", value_name = "MODELS=PATH")]
+        bootctl_for: Vec<String>,
         /// The key that signs the manifest; its public half must be compiled in.
         #[arg(long, default_value = "secrets/release.key")]
         key: PathBuf,
@@ -200,6 +207,7 @@ fn main() -> Result<()> {
             url,
             boot,
             boot_for,
+            bootctl_for,
             key,
             summary,
             notes_url,
@@ -334,6 +342,33 @@ fn main() -> Result<()> {
             }
             if !boots.is_empty() {
                 m["boots"] = serde_json::json!(boots);
+            }
+            let mut bootctl = Vec::new();
+            let mut tooled: Vec<pinna_board::Model> = Vec::new();
+            for arg in &bootctl_for {
+                let (for_models, path) = manifest::parse_bootctl_for(arg)?;
+                for m in &for_models {
+                    ensure!(
+                        models.contains(m),
+                        "{} is for the {}, which is not in --models ({})",
+                        path.display(),
+                        m.name(),
+                        ids.join(", ")
+                    );
+                    ensure!(
+                        !tooled.contains(m),
+                        "the {} has more than one pinna-bootctl",
+                        m.name()
+                    );
+                    tooled.push(*m);
+                }
+                let (mut value, _) = entry(&path)?;
+                let for_ids: Vec<&str> = for_models.iter().map(|m| m.id()).collect();
+                value["models"] = serde_json::json!(for_ids);
+                bootctl.push(value);
+            }
+            if !bootctl.is_empty() {
+                m["bootctl"] = serde_json::json!(bootctl);
             }
             let text = format!("{}\n", serde_json::to_string_pretty(&m)?);
             fs::create_dir_all(&out)?;

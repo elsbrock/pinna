@@ -5,7 +5,9 @@
 //! The manifest is JSON: `{ "version", "channel", "summary", "notes_url",
 //! "requires": { "boot_level", "models" }, "root": { "url", "size",
 //! "sha256" }, "boot": { … }, "boots": [{ "models", "url", "size", "sha256" }] }`,
-//! `boot` and `boots` optional. `manifest.json.sig`, next
+//! `boot` and `boots` optional. A `bootctl` list like `boots` names the
+//! pinna-bootctl the browser installer runs (ADR 0016); the updater ignores
+//! it. `manifest.json.sig`, next
 //! to it after redirects, is an ed25519 signature over its exact bytes; it is
 //! checked before anything in the manifest is read. URLs may be relative to
 //! the manifest's address after redirects. Manifest and images can come from
