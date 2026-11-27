@@ -296,7 +296,9 @@
         checked={view.control}
         disabled={!live}
         busy={!!group.running}
-        hint="Lets the other members' brains control this satellite, such as its volume, music and timers."
+        hint={standalone
+          ? "Lets the other members' brains control this satellite, such as its volume, music and timers."
+          : "Lets the other members' brains control this satellite, such as its volume and music. Its timers are Home Assistant's."}
         toggle={(on) => group.setControl(on)}
       />
       {#if refused?.change.kind === "control"}
