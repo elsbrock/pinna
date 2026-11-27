@@ -17,12 +17,15 @@ Run: just e2e   (needs `just models`)
 
 import array
 import asyncio
+import http.client
 import http.server
 import io
 import json
 import math
+import struct
 import threading
 import time
+import urllib.error
 import wave
 from pathlib import Path
 
@@ -35,8 +38,9 @@ TRANSCRIPT = "set a tea timer for one minute"
 ANSWER = "Your tea timer runs for one minute."
 
 
-def request_wav(dst: Path):
-    """The fixture's first wake word, then a 1.5 s tone and silence."""
+def request_wav(dst: Path, lead: float = 0.0):
+    """`lead` seconds of silence, the fixture's first wake word, then a 1.5 s
+    tone and silence."""
     with wave.open(str(FIXTURE)) as w:
         params = w.getparams()
         rate = w.getframerate()
@@ -47,7 +51,7 @@ def request_wav(dst: Path):
     silence = bytes(2 * int(0.3 * rate))
     with wave.open(str(dst), "wb") as w:
         w.setparams(params)
-        w.writeframes(head + silence + tone.tobytes() + bytes(2 * 4 * rate))
+        w.writeframes(bytes(2 * int(lead * rate)) + head + silence + tone.tobytes() + bytes(2 * 4 * rate))
 
 
 def reply_wav() -> bytes:
@@ -247,5 +251,149 @@ def test_a_spoken_request_runs_on_the_owners_services(tmp_path):
         assert KEY not in log
         assert TRANSCRIPT not in log and ANSWER not in log
     finally:
+        provider.shutdown()
+        runs.close()
+
+
+class Timeline:
+    """`WatchTimeline` on the satellite's API: every message it sends, as the
+    dashboard reads it."""
+
+    def __init__(self, api: int):
+        self.items: list[dict] = []
+        self.lock = threading.Lock()
+        self.conn = http.client.HTTPConnection("127.0.0.1", api, timeout=30)
+        payload = b"{}"
+        self.conn.request(
+            "POST",
+            "/pinna.v1.DeviceService/WatchTimeline",
+            b"\0" + struct.pack(">I", len(payload)) + payload,
+            {"Content-Type": "application/connect+json", "Connect-Protocol-Version": "1"},
+        )
+        self.res = self.conn.getresponse()
+        assert self.res.status == 200, self.res.status
+        threading.Thread(target=self.read, daemon=True).start()
+
+    def read(self):
+        try:
+            while True:
+                head = self.res.read(5)
+                if len(head) < 5:
+                    return
+                flags, size = head[0], struct.unpack(">I", head[1:])[0]
+                payload = json.loads(self.res.read(size) or b"{}")
+                if flags & 2:
+                    return
+                with self.lock:
+                    self.items.append(payload)
+        except (OSError, http.client.HTTPException):
+            return
+
+    def close(self):
+        self.conn.close()
+
+    def snapshot(self) -> list[dict]:
+        with self.lock:
+            return list(self.items)
+
+    def events(self) -> list[dict]:
+        return [e for i in self.snapshot() for e in i.get("batch", {}).get("events", [])]
+
+    def requests(self) -> dict[str, dict]:
+        """The last version of each request, by id."""
+        out = {}
+        for i in self.snapshot():
+            for r in i.get("batch", {}).get("requests", []):
+                out[r["id"]] = r
+        return out
+
+
+def start_debugging(api: int):
+    # The API is still starting on the first calls.
+    for _ in range(100):
+        try:
+            return rpc(api, "StartDebugging", {"minutes": 15})
+        except (urllib.error.URLError, ConnectionError):
+            time.sleep(0.1)
+    raise AssertionError("StartDebugging never answered")
+
+
+def test_a_request_with_debugging_on_leaves_its_timeline(tmp_path):
+    provider = Provider()
+    threading.Thread(target=provider.serve_forever, daemon=True).start()
+    base_url = f"http://127.0.0.1:{provider.server_port}/v1"
+    mic = tmp_path / "request.wav"
+    # Silence first, so debugging is on before the wake word is heard.
+    request_wav(mic, lead=6.0)
+    api = free_port()
+    runs = start_pinnad(
+        settings='mode = "standalone"\n',
+        extra=f'[api]\nlisten = "127.0.0.1:{api}"\n',
+        fixture=mic,
+        before_start=lambda settings_file: seed(settings_file.parent, base_url),
+    )
+    timeline = None
+    try:
+        next(runs)
+        start_debugging(api)
+        timeline = Timeline(api)
+        state = wait_for("the state", lambda: (timeline.snapshot() or [None])[0], 5)
+        assert state["state"].get("on") is True, state
+
+        def phases():
+            return [e["detail"] for e in timeline.events() if e["kind"] == "TIMELINE_EVENT_KIND_PHASE"]
+
+        wait_for("the request to end", lambda: phases()[-1:] == ["idle"] and len(phases()) >= 4, 40)
+        requests = wait_for(
+            "the requests",
+            lambda: (r := timeline.requests())
+            and sum(q.get("outcome") == "TIMELINE_OUTCOME_DONE" for q in r.values()) >= 4
+            and r,
+            10,
+        )
+        events = timeline.events()
+
+        def of(kind: str) -> list[dict]:
+            return [e for e in events if e["kind"] == f"TIMELINE_EVENT_KIND_{kind}"]
+
+        assert any("alexa" in e["detail"].lower() for e in of("WAKE")), of("WAKE")
+        assert phases() == ["listening", "thinking", "speaking", "idle"], phases()
+        assert of("END_OF_SPEECH"), events
+        stages = {e["detail"]: e for e in of("STAGE")}
+        for name in ["speech-to-text", "model", "text-to-speech", "tool set_timer"]:
+            assert name in stages, (name, list(stages))
+        for stage in stages.values():
+            assert int(stage["endUnixMs"]) >= int(stage["unixMs"]) > 0, stage
+
+        ours = sorted(
+            (r for r in requests.values() if "/v1/" in r["url"]), key=lambda r: int(r["startUnixMs"])
+        )
+        assert [(r["method"], r["url"].split("/v1")[1]) for r in ours] == [
+            ("POST", "/audio/transcriptions"),
+            ("POST", "/chat/completions"),
+            ("POST", "/chat/completions"),
+            ("POST", "/audio/speech"),
+        ], ours
+        for r in ours:
+            assert r["outcome"] == "TIMELINE_OUTCOME_DONE" and r["status"] == 200, r
+            assert int(r["firstBodyUnixMs"]) > 0 and int(r["endUnixMs"]) > 0, r
+
+        # What was said reaches no field of the stream.
+        everything = json.dumps(timeline.snapshot())
+        assert TRANSCRIPT not in everything and ANSWER not in everything
+        assert KEY not in everything
+        assert all(not r.get("bodyOut") and not r.get("bodyIn") for r in requests.values())
+
+        # Stopping clears it: the next follower sees it off and empty.
+        rpc(api, "StopDebugging", {})
+        timeline.close()
+        timeline = Timeline(api)
+        first = wait_for("the state", lambda: (timeline.snapshot() or [None])[0], 5)
+        assert not first["state"].get("on"), first
+        time.sleep(1)
+        assert len(timeline.snapshot()) == 1, timeline.snapshot()
+    finally:
+        if timeline:
+            timeline.close()
         provider.shutdown()
         runs.close()
