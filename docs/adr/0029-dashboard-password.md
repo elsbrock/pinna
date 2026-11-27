@@ -7,7 +7,8 @@ ESPHome API before Home Assistant sets a key), ADR 0020 (who may read
 calls from members without a password). Points marked *default* are not
 confirmed by the owner yet. Built (2026-11-20), with the tests that run
 without hardware; not run on a device, and the PBKDF2 iteration count is not
-measured on one yet.
+measured on one yet. Amended 2026-11-27: the list of satellites no longer
+marks the members of the group.
 
 ## Context
 
@@ -234,13 +235,18 @@ measured on one yet.
   satellite with a password opens its login form.
 - **Anyone on the LAN can announce a satellite** (ADR 0021), and with
   passwords a fake entry could lead to a look-alike login form. The list
-  marks an entry as a member of this satellite's group only when it carries
-  a member's MAC, announces the address that member's last signed call came
-  from, and has no dashboard address of its own, which the key can't vouch
-  for. Every other entry is only what the network announced, and the list
-  says so. The mark can't bind the link itself: a browser resolves a
-  `.local` name through mDNS, which anyone on the LAN can answer. The docs
-  don't suggest one password for every satellite.
+  doesn't tell the entries apart (amended 2026-11-27). It marked an entry
+  as a member of this satellite's group only when it carried a member's MAC,
+  announced the address that member's last signed call came from, and had
+  no dashboard address of its own, which the key can't vouch for, and said
+  every other entry was only what the network announced. A member with a
+  dashboard address, which is how an owner reaches satellites behind a
+  proxy, was therefore always "only announced", so the mark warned about
+  the owner's own satellites. `ListSatellites` still returns
+  `group_member`. The mark couldn't bind the link anyway: a browser
+  resolves a `.local` name through mDNS, which anyone on the LAN can answer.
+  The address bar shows where a login form came from. The docs don't
+  suggest one password for every satellite.
 
 ### What doesn't change
 

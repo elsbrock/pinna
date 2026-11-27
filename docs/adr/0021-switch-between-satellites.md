@@ -3,8 +3,10 @@
 Status: accepted (2026-11-16), amended 2026-11-17: pinnad looks in the
 background, and lists a satellite only when its dashboard answers;
 asks over IPv4 and IPv6, and takes the `.local` name from the SRV record
-(with ADR 0024); amended 2026-11-27: each query goes out three times, and a
-satellite the search misses stays listed while its dashboard answers. Amends ADR
+(with ADR 0024); amended 2026-11-27: each query goes out three times, a
+satellite the search misses stays listed while its dashboard answers, and the
+list opens out of the device box with each satellite's drawing and name only.
+Amends ADR
 0005 and ADR 0007 (the host allowlist and the dashboard's `allowed_hosts`).
 Builds on ADR 0010 (hostname).
 
@@ -105,10 +107,16 @@ Builds on ADR 0010 (hostname).
   The dashboard address isn't checked. It may lead through a reverse proxy, a
   login or a VPN that the satellite can't pass, and the browser opens it, not
   the satellite.
-- **The sidebar's device box opens the list.** On phones, the name in the app
-  bar does. The list shows this satellite first, marked as current, then the
-  others: drawing, friendly name, and where the link goes (host). Choosing one
-  opens that satellite's dashboard in the same tab.
+- **The sidebar's device box opens into the list.** The box keeps its place
+  and width and grows upward: the other satellites stack above this
+  satellite's row, which stays where the box was. On phones, the name in the
+  app bar opens the list below it, with this satellite first, marked as
+  current. Each other satellite shows its drawing and friendly name, nothing
+  else. Choosing one opens that satellite's dashboard in the same tab. The
+  browser's status bar shows where a link goes when the pointer is on it.
+  Amended 2026-11-27: the list was a separate box above the device box, and
+  each entry also named the link's host, the group mark of ADR 0029 and the
+  ways around below; the owner found it too much text to read.
   - The link is the other satellite's dashboard address when it has one.
   - Otherwise: if this page was opened by a `.local` name, the other's
     `.local` name: the host its SRV record names, not its instance name,
@@ -121,8 +129,9 @@ Builds on ADR 0010 (hostname).
   - The list states: looking (before the first search has finished); no
     other satellites on this network; this satellite isn't on a network yet
     (USB only); the search failed (the error, this satellite still shown).
-  - A satellite whose dashboard address is set but doesn't open: the list
-    shows its `.local` name and IP address under the link as a way around.
+  - A satellite whose dashboard address is set but doesn't open has no way
+    around in the list (amended 2026-11-27; it showed the `.local` name and
+    IP address under the link): the owner opens one of those by hand.
 
 ## Consequences
 
@@ -135,10 +144,12 @@ Builds on ADR 0010 (hostname).
 - The Network page shows one address instead of a list of names. A second
   custom name, such as the router's name next to a reverse proxy's, needs
   `[web] allowed_hosts`, a developer setting.
-- Proposed in ADR 0029: the list marks members of the satellite's group, and
-  says that the other entries are only what the network announced.
-- Anyone on the LAN can announce a fake satellite whose link goes elsewhere;
-  the list shows each link's host. Anyone on the LAN can already control the
+- ADR 0029 marked the members of the satellite's group in the list, and said
+  that the other entries were only what the network announced. Since
+  2026-11-27 the list marks neither (ADR 0029).
+- Anyone on the LAN can announce a fake satellite whose link goes elsewhere.
+  The list doesn't show the link's host; the browser's status bar and then
+  its address bar do. Anyone on the LAN can already control the
   satellites (ADR 0005), so this widens nothing that matters while there is no
   authentication.
 - pinnad gets a small mDNS client: one-shot queries only, no responder. Each
