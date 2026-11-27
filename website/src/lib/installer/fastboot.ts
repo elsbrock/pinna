@@ -10,8 +10,11 @@
 export interface Transport {
   /** Send one transfer. */
   write(bytes: Uint8Array): Promise<void>;
-  /** Receive one transfer. Rejects with a TimeoutError after `timeoutMs`. */
-  read(timeoutMs: number): Promise<Uint8Array>;
+  /**
+   * Receive one transfer, of at most `length` bytes when given. Rejects with
+   * a TimeoutError after `timeoutMs`.
+   */
+  read(timeoutMs: number, length?: number): Promise<Uint8Array>;
 }
 
 export class TimeoutError extends Error {
