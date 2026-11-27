@@ -3,7 +3,8 @@
 Status: accepted (2026-11-16), amended 2026-11-17: pinnad looks in the
 background, and lists a satellite only when its dashboard answers;
 asks over IPv4 and IPv6, and takes the `.local` name from the SRV record
-(with ADR 0024). Amends ADR
+(with ADR 0024); amended 2026-11-27: each query goes out three times, and a
+satellite the search misses stays listed while its dashboard answers. Amends ADR
 0005 and ADR 0007 (the host allowlist and the dashboard's `allowed_hosts`).
 Builds on ADR 0010 (hostname).
 
@@ -55,23 +56,36 @@ Builds on ADR 0010 (hostname).
   off, `web_port` is left out.
 - **pinnad looks in the background.** Once at start and then every minute,
   pinnad sends a one-shot mDNS query for `_esphomelib._tcp.local` from its own
-  UDP ports: once to 224.0.0.251, out of the interface the kernel picks, and
+  UDP ports: to 224.0.0.251, out of the interface the kernel picks, and
   to ff02::fb on each interface besides the USB link that is up and has an
-  address (link-local IPv6 is enough). It collects answers for a second.
+  address (link-local IPv6 is enough). It collects answers for 1.2 seconds.
   Records heard over either family are merged: on 2026-11-17 an Echo (2nd
   gen) whose resolved was in the state ADR 0024 describes answered PTR
   queries over IPv6 but not over IPv4. For instances whose SRV, TXT or
   address records didn't come with the answers, it asks again for what is
-  still missing, to the same addresses, up to three times, half a second
-  each: a responder may answer only the question asked, so the addresses
-  come only after the SRV record names the host. It keeps those with
+  still missing, to the same addresses, up to three times, a second each:
+  a responder may answer only the question asked, so the addresses come
+  only after the SRV record names the host. resolved does: it answers the
+  PTR question with the PTR record alone, so a search takes three rounds.
+  **Every query goes out three times, 300 ms apart**, each time with a new
+  id, and the answers to all three are merged. On 2026-11-27, an Echo Dot
+  (2nd gen) heard the Echo Dot (5th gen)'s PTR answer to 8 of 15 single
+  queries, and to 14 of 15 queries sent three times; resolved answers each
+  copy. With one copy per round, that satellite was listed after about one
+  search in six, and the Echo Dot (2nd gen) didn't list it for minutes on
+  end. It keeps those with
   `project_name=pinna.satellite`, leaving out itself (by MAC), and lists
   each MAC once: a reload of resolved could leave an old instance of the
   same satellite published (ADR 0024). Of those it keeps the one whose host
   has addresses, then the one named like its host, else the first heard;
   entries without a MAC aren't merged. pinnad never binds port 5353:
   resolved stays the only mDNS socket. A satellite stays listed until it
-  misses two searches in a row, so one lost packet doesn't drop it. A failed
+  misses two searches in a row, so one lost packet doesn't drop it. After
+  that, it stays listed while its dashboard still accepts a connection at
+  the addresses last heard (checked as below), for up to ten searches in a
+  row: a satellite that is on but whose answers keep getting lost isn't
+  dropped, and one whose address passed to another device with a web server
+  leaves within ten minutes. A failed
   search counts as a miss for every satellite, so the list doesn't freeze
   while searches fail. A search fails only when no query went out on either
   family; a family whose socket won't open or whose send fails is skipped. Satellites
@@ -129,8 +143,9 @@ Builds on ADR 0010 (hostname).
   authentication.
 - pinnad gets a small mDNS client: one-shot queries only, no responder. Each
   satellite searches once a minute (a query per family and link, then up to
-  three follow-ups to the same addresses), and opens a connection a minute
-  to each other satellite's dashboard.
+  three follow-ups to the same addresses, each sent three times), and opens
+  a connection a minute to each other satellite's dashboard. A search takes
+  up to 4.2 seconds.
 - A satellite that comes on, leaves or changes its address shows the change
   within a minute; one that goes off stays listed for up to two.
 - To check when building: switching from an `https` dashboard address to an

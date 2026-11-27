@@ -195,8 +195,8 @@ group.
   a call to `PeerService` doesn't count.
 - **Members call each other at the addresses the search heard**: the first
   IPv4 address, then the first IPv6 address, 1 s each to connect. A member
-  the search no longer lists (two missed searches, ADR 0021) is unreachable
-  and isn't called.
+  the search no longer lists (two missed searches, and its dashboard no
+  longer answers, ADR 0021) is unreachable and isn't called.
 - **A call ends inside the caller's tool limit** of 10 s (ADR 0017): the
   caller gives up after 9.5 s, the member runs the tool with 7 s (`/mcp` has
   no limit of its own, so `Call` adds it), and a call to several members goes
