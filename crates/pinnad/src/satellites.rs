@@ -2,8 +2,10 @@
 //! background once a minute: a one-shot mDNS query for `_esphomelib._tcp`,
 //! sent from an ordinary UDP port. A responder answers such a legacy unicast
 //! query by unicast to that port (RFC 6762, section 6.7), so pinnad never binds
-//! 5353: systemd-resolved stays the only mDNS socket. A satellite is listed
-//! while its dashboard accepts a connection at its host name's addresses.
+//! 5353: systemd-resolved stays the only mDNS socket. Each query goes out
+//! three times, since a satellite on a lossy Wi-Fi link misses many single
+//! ones. A satellite is listed while its dashboard accepts a connection at its
+//! host name's addresses.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
@@ -24,9 +26,15 @@ const PROJECT: &str = "pinna.satellite";
 const MDNS: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251)), 5353);
 const MDNS6: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb);
 /// How long answers to the first query are collected.
-const FIRST_WINDOW: Duration = Duration::from_millis(1000);
+const FIRST_WINDOW: Duration = Duration::from_millis(1200);
 /// How long answers to each follow-up for missing records are collected.
-const SECOND_WINDOW: Duration = Duration::from_millis(500);
+const SECOND_WINDOW: Duration = Duration::from_millis(1000);
+/// Each query goes out this many times, `COPY_EVERY` apart, each copy with a
+/// new id. On 2026-11-27 an Echo Dot (2nd gen) heard the Echo Dot (5th gen)
+/// answer 8 of 15 single PTR queries, and 14 of 15 queries sent three times
+/// 300 ms apart; resolved answers every copy (ADR 0021).
+const COPIES: u32 = 3;
+const COPY_EVERY: Duration = Duration::from_millis(300);
 /// Follow-ups after the first query. A responder may answer only the question
 /// asked: PTR, then SRV and TXT, then the addresses of the host the SRV names.
 const FOLLOW_UPS: usize = 3;
@@ -41,6 +49,10 @@ const CONNECT: Duration = Duration::from_secs(3);
 /// Searches a satellite may miss in a row before it leaves the list: one lost
 /// packet shouldn't drop it.
 const MISSES: u8 = 2;
+/// Searches a satellite may miss in a row while its dashboard still answers
+/// at the addresses last heard: one that is on stays listed through a run of
+/// lost answers, and one whose address passed to another device leaves.
+const UNHEARD: u8 = 10;
 /// The satellite's own USB link, which every satellite has.
 const USB_NET: (Ipv4Addr, u8) = (Ipv4Addr::new(10, 42, 0, 0), 24);
 
@@ -68,7 +80,9 @@ pub struct Found {
     pub group: Option<String>,
     /// Searches it has missed in a row since it was last heard and its
     /// dashboard answered: 0 when the latest search heard it. Until it has
-    /// missed `MISSES`, it stays listed as the last search that heard it.
+    /// missed `MISSES`, it stays listed as the last search that heard it;
+    /// after that, only while its dashboard still answers, until it has
+    /// missed `UNHEARD`.
     pub missed: u8,
 }
 
@@ -299,7 +313,9 @@ pub async fn run(own_mac: String, tx: watch::Sender<Seen>) {
     let mut kept = Vec::new();
     loop {
         let last = tx.borrow().search;
-        let seen = after(&mut kept, last, look(&own_mac).await);
+        let looked = look(&own_mac).await;
+        let up = still_answering(&kept, &looked).await;
+        let seen = after(&mut kept, last, looked, &up);
         // Once per new failure, not once a minute.
         if let Some(why) = &seen.error
             && tx.borrow().error.as_ref() != Some(why)
@@ -316,8 +332,14 @@ pub async fn run(own_mac: String, tx: watch::Sender<Seen>) {
     }
 }
 
-/// What is known after one more search, of which `last` came before.
-fn after(kept: &mut Vec<(Found, u8)>, last: u64, looked: Result<Option<Vec<Found>>>) -> Seen {
+/// What is known after one more search, of which `last` came before. `up`
+/// are the satellites it missed whose dashboard still answers.
+fn after(
+    kept: &mut Vec<(Found, u8)>,
+    last: u64,
+    looked: Result<Option<Vec<Found>>>,
+    up: &[Found],
+) -> Seen {
     match looked {
         // Nothing was asked, so it isn't a search.
         Ok(None) => {
@@ -331,7 +353,7 @@ fn after(kept: &mut Vec<(Found, u8)>, last: u64, looked: Result<Option<Vec<Found
         Ok(Some(found)) => Seen {
             searched: true,
             on_network: true,
-            satellites: keep(kept, found),
+            satellites: keep(kept, found, up),
             error: None,
             search: last + 1,
         },
@@ -340,7 +362,7 @@ fn after(kept: &mut Vec<(Found, u8)>, last: u64, looked: Result<Option<Vec<Found
         Err(e) => Seen {
             searched: true,
             on_network: true,
-            satellites: keep(kept, Vec::new()),
+            satellites: keep(kept, Vec::new(), up),
             error: Some(format!("{e:#}")),
             search: last + 1,
         },
@@ -384,10 +406,36 @@ async fn answers(f: &Found) -> bool {
     false
 }
 
+/// The listed satellites that the search `looked` missed and that would
+/// leave the list now, whose dashboard still accepts a connection at the
+/// addresses last heard.
+async fn still_answering(kept: &[(Found, u8)], looked: &Result<Option<Vec<Found>>>) -> Vec<Found> {
+    let found: &[Found] = match looked {
+        Ok(None) => return Vec::new(),
+        Ok(Some(found)) => found,
+        Err(_) => &[],
+    };
+    let unheard: Vec<&Found> = kept
+        .iter()
+        .filter(|(k, missed)| {
+            (MISSES..UNHEARD).contains(&(missed + 1)) && !found.iter().any(|f| same(k, f))
+        })
+        .map(|(k, _)| k)
+        .collect();
+    let up = futures::future::join_all(unheard.iter().map(|f| answers(f))).await;
+    unheard
+        .into_iter()
+        .zip(up)
+        .filter(|(_, up)| *up)
+        .map(|(f, _)| f.clone())
+        .collect()
+}
+
 /// Merge one search into what the earlier ones found: a satellite found now is
 /// listed as it is now; one not found stays until it has missed `MISSES`
-/// searches in a row.
-fn keep(kept: &mut Vec<(Found, u8)>, found: Vec<Found>) -> Vec<Found> {
+/// searches in a row, and while it is among `up`, whose dashboard still
+/// answers, until it has missed `UNHEARD`.
+fn keep(kept: &mut Vec<(Found, u8)>, found: Vec<Found>, up: &[Found]) -> Vec<Found> {
     for (_, missed) in kept.iter_mut() {
         *missed += 1;
     }
@@ -397,7 +445,9 @@ fn keep(kept: &mut Vec<(Found, u8)>, found: Vec<Found>) -> Vec<Found> {
             None => kept.push((f, 0)),
         }
     }
-    kept.retain(|(_, missed)| *missed < MISSES);
+    kept.retain(|(k, missed)| {
+        *missed < MISSES || (*missed < UNHEARD && up.iter().any(|u| same(u, k)))
+    });
     listed(kept)
 }
 
@@ -508,14 +558,18 @@ async fn discover(own_mac: &str, v6_links: &[u32]) -> Result<Vec<Found>> {
             .iter()
             .map(|&i| SocketAddr::V6(SocketAddrV6::new(MDNS6, 5353, 0, i))),
     );
-    discover_at(&targets, own_mac, FIRST_WINDOW, SECOND_WINDOW).await
+    discover_at(&targets, own_mac, FIRST_WINDOW, SECOND_WINDOW, COPY_EVERY).await
 }
 
+/// Ask for satellites, collecting answers to the first query for `first` and
+/// to each follow-up for `second`; the copies of a query go out `every`
+/// apart.
 async fn discover_at(
     targets: &[SocketAddr],
     own_mac: &str,
     first: Duration,
     second: Duration,
+    every: Duration,
 ) -> Result<Vec<Found>> {
     // Either family alone is enough: `send` fails when nothing went out.
     let v4 = if targets.iter().any(SocketAddr::is_ipv4) {
@@ -543,18 +597,39 @@ async fn discover_at(
     };
     let sockets = (v4.as_ref(), v6.as_ref());
     let mut collected = Collected::default();
-    let ask = vec![(SERVICE.to_owned(), TYPE::PTR)];
-    send(sockets, targets, &query(fastrand::u16(1..), &ask)?).await?;
-    listen(sockets, &mut collected, first).await;
+    let service = [(SERVICE.to_owned(), TYPE::PTR)];
+    ask(sockets, targets, &service, &mut collected, first, every).await?;
     for _ in 0..FOLLOW_UPS {
         let missing = collected.missing();
         if missing.is_empty() {
             break;
         }
-        send(sockets, targets, &query(fastrand::u16(1..), &missing)?).await?;
-        listen(sockets, &mut collected, second).await;
+        ask(sockets, targets, &missing, &mut collected, second, every).await?;
     }
     Ok(collected.finish(own_mac))
+}
+
+/// Send `questions` `COPIES` times, `every` apart, each copy with a new id,
+/// and collect the answers until `window` ends. Fails only when the first
+/// copy went out nowhere: a later copy that doesn't go out costs only its
+/// own answers.
+async fn ask(
+    sockets: Sockets<'_>,
+    targets: &[SocketAddr],
+    questions: &[(String, TYPE)],
+    collected: &mut Collected,
+    window: Duration,
+    every: Duration,
+) -> Result<()> {
+    let start = Instant::now();
+    let end = start + window;
+    send(sockets, targets, &query(fastrand::u16(1..), questions)?).await?;
+    for copy in 1..COPIES {
+        listen(sockets, collected, end.min(start + every * copy)).await;
+        let _ = send(sockets, targets, &query(fastrand::u16(1..), questions)?).await;
+    }
+    listen(sockets, collected, end).await;
+    Ok(())
 }
 
 type Sockets<'a> = (Option<&'a UdpSocket>, Option<&'a UdpSocket>);
@@ -580,15 +655,14 @@ async fn send((v4, v6): Sockets<'_>, targets: &[SocketAddr], packet: &[u8]) -> R
     }
 }
 
-/// Collect answers on both sockets until `window` ends.
-async fn listen((v4, v6): Sockets<'_>, collected: &mut Collected, window: Duration) {
+/// Collect answers on both sockets until `end`.
+async fn listen((v4, v6): Sockets<'_>, collected: &mut Collected, end: Instant) {
     async fn recv(s: Option<&UdpSocket>, buf: &mut [u8]) -> std::io::Result<usize> {
         match s {
             Some(s) => s.recv_from(buf).await.map(|(n, _)| n),
             None => std::future::pending().await,
         }
     }
-    let end = Instant::now() + window;
     let (mut b4, mut b6) = (vec![0u8; 9000], vec![0u8; 9000]);
     loop {
         let got = tokio::time::timeout_at(end, async {
@@ -838,38 +912,41 @@ mod tests {
         let target = server.local_addr().unwrap();
         let responder = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
-            // First query: the PTR record alone.
-            let (n, from) = server.recv_from(&mut buf).await.unwrap();
-            let q = Packet::parse(&buf[..n]).unwrap();
-            assert_eq!(q.questions.len(), 1);
-            let mut p = Packet::new_reply(q.id());
-            p.answers.push(rr(SERVICE, ptr(INSTANCE)));
-            server
-                .send_to(&p.build_bytes_vec_compressed().unwrap(), from)
-                .await
-                .unwrap();
-            // Follow-up: SRV and TXT, then (after the next one) the address.
-            let (n, from) = server.recv_from(&mut buf).await.unwrap();
-            let q = Packet::parse(&buf[..n]).unwrap();
-            assert_eq!(q.questions.len(), 2);
-            let mut p = Packet::new_reply(q.id());
-            p.answers.push(rr(INSTANCE, srv(HOST, 6053)));
-            p.answers.push(rr(INSTANCE, txt(&pinna_txt())));
-            p.additional_records.push(rr(HOST, a([192, 168, 1, 20])));
-            server
-                .send_to(&p.build_bytes_vec().unwrap(), from)
-                .await
-                .unwrap();
+            let mut asked = Vec::new();
+            let wait = Duration::from_millis(500);
+            while let Ok(Ok((n, from))) =
+                tokio::time::timeout(wait, server.recv_from(&mut buf)).await
+            {
+                let q = Packet::parse(&buf[..n]).unwrap();
+                asked.push(q.questions.len());
+                let mut p = Packet::new_reply(q.id());
+                if q.questions.len() == 1 {
+                    // The first query: the PTR record alone.
+                    p.answers.push(rr(SERVICE, ptr(INSTANCE)));
+                } else {
+                    // The follow-up: SRV and TXT, with the address.
+                    p.answers.push(rr(INSTANCE, srv(HOST, 6053)));
+                    p.answers.push(rr(INSTANCE, txt(&pinna_txt())));
+                    p.additional_records.push(rr(HOST, a([192, 168, 1, 20])));
+                }
+                server
+                    .send_to(&p.build_bytes_vec_compressed().unwrap(), from)
+                    .await
+                    .unwrap();
+            }
+            asked
         });
         let found = discover_at(
             &[target],
             "02:00:00:00:00:01",
             Duration::from_millis(150),
             Duration::from_millis(150),
+            Duration::from_millis(20),
         )
         .await
         .unwrap();
-        responder.await.unwrap();
+        // Each query in three copies.
+        assert_eq!(responder.await.unwrap(), [1, 1, 1, 2, 2, 2]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].friendly_name, "Kitchen");
         assert_eq!(found[0].ipv4, [Ipv4Addr::new(192, 168, 1, 20)]);
@@ -918,11 +995,12 @@ mod tests {
             "",
             Duration::from_millis(150),
             Duration::from_millis(150),
+            Duration::from_millis(20),
         )
         .await
         .unwrap();
         let asked = responder.await.unwrap();
-        assert_eq!(asked.len(), 5, "{asked:?}");
+        assert_eq!(asked.len(), 15, "five questions in three copies: {asked:?}");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].url, "https://kitchen.example.com/");
         assert_eq!(found[0].ipv4, [Ipv4Addr::new(192, 168, 1, 20)]);
@@ -952,19 +1030,74 @@ mod tests {
         let (a, b) = (found("a", "02:00:00:00:00:0a"), found("b", ""));
         let names = |l: Vec<Found>| l.into_iter().map(|f| f.name).collect::<Vec<_>>();
         assert_eq!(
-            names(keep(&mut kept, vec![b.clone(), a.clone()])),
+            names(keep(&mut kept, vec![b.clone(), a.clone()], &[])),
             ["a", "b"]
         );
-        assert_eq!(names(keep(&mut kept, vec![a.clone()])), ["a", "b"]);
-        assert_eq!(names(keep(&mut kept, vec![a.clone()])), ["a"]);
-        assert_eq!(names(keep(&mut kept, vec![b.clone()])), ["a", "b"]);
+        assert_eq!(names(keep(&mut kept, vec![a.clone()], &[])), ["a", "b"]);
+        assert_eq!(names(keep(&mut kept, vec![a.clone()], &[])), ["a"]);
+        assert_eq!(names(keep(&mut kept, vec![b.clone()], &[])), ["a", "b"]);
         // Found again, it starts over: one more miss keeps it.
-        assert_eq!(names(keep(&mut kept, vec![b])), ["b"]);
+        assert_eq!(names(keep(&mut kept, vec![b], &[])), ["b"]);
     }
 
     /// The record's `group` key (ADR 0026): an empty value and no value both
     /// mean the switch is on, in no group; resolved may publish an empty
     /// value as the bare key.
+    #[test]
+    fn a_missed_satellite_stays_while_its_dashboard_answers() {
+        let mut kept = Vec::new();
+        let (a, b) = (
+            found("a", "02:00:00:00:00:0a"),
+            found("b", "02:00:00:00:00:0b"),
+        );
+        let names = |l: Vec<Found>| l.into_iter().map(|f| f.name).collect::<Vec<_>>();
+        keep(&mut kept, vec![a.clone(), b.clone()], &[]);
+        assert_eq!(names(keep(&mut kept, vec![], &[])), ["a", "b"]);
+        // The second miss: a's dashboard answers, b's doesn't.
+        assert_eq!(
+            names(keep(&mut kept, vec![], std::slice::from_ref(&a))),
+            ["a"]
+        );
+        for _ in MISSES + 1..UNHEARD {
+            assert_eq!(
+                names(keep(&mut kept, vec![], std::slice::from_ref(&a))),
+                ["a"]
+            );
+        }
+        assert!(
+            keep(&mut kept, vec![], std::slice::from_ref(&a)).is_empty(),
+            "unheard for {UNHEARD} searches, its address may be another device's"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_a_satellite_about_to_leave_is_checked() {
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let mut a = found("a", "02:00:00:00:00:0a");
+        a.web_port = listener.local_addr().unwrap().port();
+        a.ipv4 = vec![Ipv4Addr::LOCALHOST];
+        let b = Found {
+            name: "b".into(),
+            mac: "02:00:00:00:00:0b".into(),
+            ..a.clone()
+        };
+        // a missed the search before; b was heard in it.
+        let kept = vec![(a.clone(), 1), (b, 0)];
+        assert_eq!(still_answering(&kept, &Ok(Some(vec![]))).await, [a.clone()]);
+        let failed = Err(anyhow::anyhow!("no socket"));
+        assert_eq!(still_answering(&kept, &failed).await, [a.clone()]);
+        let heard = Ok(Some(vec![a.clone()]));
+        assert!(still_answering(&kept, &heard).await.is_empty(), "heard now");
+        assert!(
+            still_answering(&kept, &Ok(None)).await.is_empty(),
+            "off the network"
+        );
+        drop(listener);
+        assert!(still_answering(&kept, &Ok(Some(vec![]))).await.is_empty());
+    }
+
     #[test]
     fn the_record_tells_a_switch_that_is_off_from_no_group() {
         let group = |extra: Option<(&str, Option<&str>)>| {
@@ -997,26 +1130,34 @@ mod tests {
         let mut kept = Vec::new();
         let (a, b) = (found("a", "02:00:00:00:00:0a"), found("b", ""));
         let missed = |l: Vec<Found>| l.into_iter().map(|f| f.missed).collect::<Vec<_>>();
-        assert_eq!(missed(keep(&mut kept, vec![a.clone(), b.clone()])), [0, 0]);
-        assert_eq!(missed(keep(&mut kept, vec![a.clone()])), [0, 1]);
-        assert_eq!(missed(keep(&mut kept, vec![b.clone()])), [1, 0]);
-        assert_eq!(missed(keep(&mut kept, vec![b])), [0]);
+        assert_eq!(
+            missed(keep(&mut kept, vec![a.clone(), b.clone()], &[])),
+            [0, 0]
+        );
+        assert_eq!(missed(keep(&mut kept, vec![a.clone()], &[])), [0, 1]);
+        assert_eq!(missed(keep(&mut kept, vec![b.clone()], &[])), [1, 0]);
+        assert_eq!(missed(keep(&mut kept, vec![b], &[])), [0]);
     }
 
     #[test]
     fn every_search_counts_but_none_runs_off_the_network() {
         let mut kept = Vec::new();
         let a = found("a", "02:00:00:00:00:0a");
-        let seen = after(&mut kept, 0, Ok(Some(vec![a.clone()])));
+        let seen = after(&mut kept, 0, Ok(Some(vec![a.clone()])), &[]);
         assert_eq!((seen.search, seen.satellites[0].missed), (1, 0));
-        let seen = after(&mut kept, seen.search, Err(anyhow::anyhow!("no socket")));
+        let seen = after(
+            &mut kept,
+            seen.search,
+            Err(anyhow::anyhow!("no socket")),
+            &[],
+        );
         assert_eq!(seen.search, 2);
         assert_eq!(seen.error.as_deref(), Some("no socket"));
         assert_eq!(seen.satellites[0].missed, 1, "a failed search is a miss");
-        let seen = after(&mut kept, seen.search, Ok(None));
+        let seen = after(&mut kept, seen.search, Ok(None), &[]);
         assert_eq!(seen.search, 2, "nothing was asked");
         assert!(!seen.on_network && seen.satellites.is_empty());
-        let seen = after(&mut kept, seen.search, Ok(Some(vec![a])));
+        let seen = after(&mut kept, seen.search, Ok(Some(vec![a])), &[]);
         assert_eq!((seen.search, seen.satellites[0].missed), (3, 0));
     }
 
@@ -1036,10 +1177,10 @@ mod tests {
     #[test]
     fn a_satellite_found_again_is_listed_as_it_is_now() {
         let mut kept = Vec::new();
-        keep(&mut kept, vec![found("kitchen", "02:00:00:00:00:0a")]);
+        keep(&mut kept, vec![found("kitchen", "02:00:00:00:00:0a")], &[]);
         let mut renamed = found("hall", "02-00-00-00-00-0A");
         renamed.url = "https://hall.example.com/".into();
-        let list = keep(&mut kept, vec![renamed.clone()]);
+        let list = keep(&mut kept, vec![renamed.clone()], &[]);
         assert_eq!(list, [renamed]);
     }
 
@@ -1128,6 +1269,25 @@ mod tests {
         assert_eq!(names, ["echo2"], "the one whose host has addresses");
     }
 
+    /// The answer to every question in `q`, alone.
+    fn answer(q: &Packet<'_>) -> Vec<u8> {
+        let mut p = Packet::new_reply(q.id());
+        for question in &q.questions {
+            let QTYPE::TYPE(ty) = question.qtype else {
+                continue;
+            };
+            p.answers.push(match ty {
+                TYPE::PTR => rr(SERVICE, ptr(INSTANCE)),
+                TYPE::SRV => rr(INSTANCE, srv(HOST, 6053)),
+                TYPE::TXT => rr(INSTANCE, txt(&pinna_txt())),
+                TYPE::A => rr(HOST, a([192, 168, 1, 20])),
+                TYPE::AAAA => rr(HOST, aaaa("2001:db8::20")),
+                _ => continue,
+            });
+        }
+        p.build_bytes_vec_compressed().unwrap()
+    }
+
     /// A responder that answers every question asked, alone.
     fn answer_what_is_asked(server: UdpSocket) -> tokio::task::JoinHandle<usize> {
         tokio::spawn(async move {
@@ -1139,27 +1299,47 @@ mod tests {
             {
                 queries += 1;
                 let q = Packet::parse(&buf[..n]).unwrap();
-                let mut p = Packet::new_reply(q.id());
-                for question in &q.questions {
-                    let QTYPE::TYPE(ty) = question.qtype else {
-                        continue;
-                    };
-                    p.answers.push(match ty {
-                        TYPE::PTR => rr(SERVICE, ptr(INSTANCE)),
-                        TYPE::SRV => rr(INSTANCE, srv(HOST, 6053)),
-                        TYPE::TXT => rr(INSTANCE, txt(&pinna_txt())),
-                        TYPE::A => rr(HOST, a([192, 168, 1, 20])),
-                        TYPE::AAAA => rr(HOST, aaaa("2001:db8::20")),
-                        _ => continue,
-                    });
-                }
-                server
-                    .send_to(&p.build_bytes_vec_compressed().unwrap(), from)
-                    .await
-                    .unwrap();
+                server.send_to(&answer(&q), from).await.unwrap();
             }
             queries
         })
+    }
+
+    /// The Echo Dot (5th gen) missed about half the single queries on
+    /// 2026-11-27: a satellite that never hears the first copy of a query is
+    /// still found, by the copies after it.
+    #[tokio::test]
+    async fn a_query_lost_on_the_way_is_made_up_by_its_copies() {
+        let server = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let target = server.local_addr().unwrap();
+        let responder = tokio::spawn(async move {
+            let mut buf = vec![0u8; 2000];
+            let mut heard: Vec<Vec<QTYPE>> = Vec::new();
+            let wait = Duration::from_millis(500);
+            while let Ok(Ok((n, from))) =
+                tokio::time::timeout(wait, server.recv_from(&mut buf)).await
+            {
+                let q = Packet::parse(&buf[..n]).unwrap();
+                let asked: Vec<QTYPE> = q.questions.iter().map(|q| q.qtype).collect();
+                if !heard.contains(&asked) {
+                    heard.push(asked);
+                    continue;
+                }
+                server.send_to(&answer(&q), from).await.unwrap();
+            }
+        });
+        let found = discover_at(
+            &[target],
+            "",
+            Duration::from_millis(150),
+            Duration::from_millis(150),
+            Duration::from_millis(20),
+        )
+        .await
+        .unwrap();
+        responder.await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].ipv4, [Ipv4Addr::new(192, 168, 1, 20)]);
     }
 
     /// The case seen on an Echo (2nd gen): its resolved answered over IPv6
@@ -1178,6 +1358,7 @@ mod tests {
             "",
             Duration::from_millis(150),
             Duration::from_millis(150),
+            Duration::from_millis(20),
         )
         .await
         .unwrap();
@@ -1197,6 +1378,7 @@ mod tests {
             "",
             Duration::from_millis(50),
             Duration::from_millis(50),
+            Duration::from_millis(20),
         )
         .await
         .unwrap();
