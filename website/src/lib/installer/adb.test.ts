@@ -172,7 +172,8 @@ test("a failed write stops it before the slot record changes", async () => {
   const { adb, report } = await checked(d);
   await assert.rejects(
     installTwrp(adb, report, images()),
-    (e: unknown) => e instanceof CommandError && e.step === "Writing the root image to system_a" && /read back sha256 differs/.test(e.message),
+    (e: unknown) =>
+      e instanceof CommandError && e.step === "Writing the root image to system_a" && e.wrote && /^Writing system_a failed: system_a: read back sha256 differs\./.test(e.message),
   );
   assert.ok(!d.commands.some((c) => c.endsWith("set-active a")));
   assert.equal(d.reboots, 0);

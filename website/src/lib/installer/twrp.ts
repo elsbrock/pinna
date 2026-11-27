@@ -41,13 +41,16 @@ export class CommandError extends Error {
   readonly step: string;
   readonly exit: number;
   readonly output: string;
+  /** Whether the install had begun writing the device's volumes. */
+  readonly wrote: boolean;
 
-  constructor(step: string, exit: number, output: string, message: string) {
+  constructor(step: string, exit: number, output: string, message: string, wrote: boolean) {
     super(message);
     this.name = "CommandError";
     this.step = step;
     this.exit = exit;
     this.output = output;
+    this.wrote = wrote;
   }
 }
 
@@ -155,8 +158,10 @@ export async function installTwrp(adb: Adb, report: TwrpReport, images: TwrpImag
   const { misc } = planTwrp(report, images);
   const total = images.bootctl.length + images.boot.length + images.root.length;
   let before = 0;
+  let wrote = false;
 
-  const run = async (label: string, command: string, opts: ShellOptions & { failed: string }) => {
+  /** `failed` names what failed; the command's last line follows it, then `then`, what to do. */
+  const run = async (label: string, command: string, opts: ShellOptions & { failed: string; then: string }) => {
     onProgress({ label, phase: opts.stdin ? "sending" : "writing", sent: before, total });
     const result = await adb.shell(command, {
       ...opts,
@@ -166,28 +171,34 @@ export async function installTwrp(adb: Adb, report: TwrpReport, images: TwrpImag
     const output = `${result.stderr}\n${result.stdout}`;
     if (result.exit !== 0) {
       const said = lastLine(output);
-      throw new CommandError(label, result.exit, output, `${opts.failed}${said ? ` It said: ${said}` : ""}`);
+      throw new CommandError(label, result.exit, output, `${opts.failed}${said ? `: ${said}` : ""}. ${opts.then}`, wrote);
     }
     return result.stdout.replace(/\r/g, "").trim();
   };
 
   const nothing = "Nothing on the device was written.";
+  const askIssue = `${nothing} Open an issue with the report below.`;
   await run("Copying pinna-bootctl to TWRP", `cat > ${TOOL}.part && chmod 755 ${TOOL}.part && mv ${TOOL}.part ${TOOL}`, {
     stdin: images.bootctl,
-    failed: `TWRP couldn't store pinna-bootctl in /tmp. ${nothing}`,
+    failed: "TWRP couldn't store pinna-bootctl in /tmp",
+    then: askIssue,
   });
-  const kind = await run("Checking the storage", `${TOOL} storage-kind`, { failed: `pinna-bootctl doesn't run in TWRP. ${nothing}` });
-  if (kind !== "ubi") throw new InstallError(`pinna-bootctl in TWRP sees ${JSON.stringify(kind)} storage, not UBI. ${nothing}`);
-  const loader = await run("Checking the bootloader", `${TOOL} bootloader`, { failed: `pinna-bootctl doesn't run in TWRP. ${nothing}` });
-  if (loader !== "amazon-uboot") throw new InstallError(`pinna-bootctl in TWRP sees the bootloader ${JSON.stringify(loader)}, not Amazon's U-Boot. ${nothing}`);
+  const kind = await run("Checking the storage", `${TOOL} storage-kind`, { failed: "pinna-bootctl doesn't run in TWRP", then: askIssue });
+  if (kind !== "ubi") throw new InstallError(`pinna-bootctl in TWRP sees ${JSON.stringify(kind)} storage, not UBI. ${askIssue}`);
+  const loader = await run("Checking the bootloader", `${TOOL} bootloader`, { failed: "pinna-bootctl doesn't run in TWRP", then: askIssue });
+  if (loader !== "amazon-uboot") throw new InstallError(`pinna-bootctl in TWRP sees the bootloader ${JSON.stringify(loader)}, not Amazon's U-Boot. ${askIssue}`);
   // Slot A starts on trial only with slot B (TWRP) good to fall back to:
   // check before slot A is overwritten, not after.
-  const slots = await run("Reading the slot record", `${TOOL} --misc /dev/${misc.node} slot-status`, { failed: `pinna-bootctl couldn't read the slot record. ${nothing}` });
+  const slots = await run("Reading the slot record", `${TOOL} --misc /dev/${misc.node} slot-status`, {
+    failed: "pinna-bootctl couldn't read the slot record",
+    then: askIssue,
+  });
   if (!/^b: good/m.test(slots)) {
-    throw new InstallError(`Slot B isn't marked good in the slot record, so slot A couldn't start on trial. ${nothing}`);
+    throw new InstallError(`Slot B isn't marked good in the slot record, so a failed start of slot A couldn't fall back to TWRP. ${askIssue}`);
   }
 
-  const rest = "TWRP still runs, and the slot record is as it was: install again before you restart the device.";
+  const rest = "TWRP still runs, and the slot record is as it was: install again before you restart the device";
+  wrote = true;
   for (const [name, bytes, what] of [
     ["boot_a", images.boot, "boot image"],
     ["system_a", images.root, "root image"],
@@ -195,11 +206,13 @@ export async function installTwrp(adb: Adb, report: TwrpReport, images: TwrpImag
     await run(`Writing the ${what} to ${name}`, `${TOOL} write-volume ${name} --size ${bytes.length} --sha256 ${await sha256(bytes)}`, {
       stdin: bytes,
       timeoutMs: WRITE_VOLUME_TIMEOUT_MS,
-      failed: `Writing ${name} failed. ${rest}`,
+      failed: `Writing ${name} failed`,
+      then: `${rest}.`,
     });
   }
   await run("Setting slot A to start", `${TOOL} --misc /dev/${misc.node} set-active a`, {
-    failed: "boot_a and system_a are written, but slot A couldn't be set to start. TWRP still runs: install again before you restart the device.",
+    failed: "boot_a and system_a are written, but slot A couldn't be set to start",
+    then: "TWRP still runs: install again before you restart the device.",
   });
 
   onProgress({ label: "Restarting the device", phase: "restarting", sent: total, total });

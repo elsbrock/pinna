@@ -267,13 +267,17 @@ export function startInstallPage(): void {
       showProblem(
         "TWRP asks for an adb key",
         "This page can't answer it. firebreak's TWRP for the Echo Dot (5th gen) doesn't ask for one, so this may be another build. Install from a terminal instead.",
+        { href: "#help-title", label: "If it doesn't work" },
       );
     } else if (error instanceof AdbError && error.kind === "unsupported") {
-      showProblem("TWRP's adb is too old for this page", `${sentence(error.message)} Install from a terminal instead.`);
+      showProblem("TWRP's adb is too old for this page", `${sentence(error.message)} Install from a terminal instead.`, {
+        href: "#help-title",
+        label: "If it doesn't work",
+      });
     } else if (error instanceof FastbootError && error.kind === "fail" && stage === "install") {
       showProblem("The device refused a write", `${step ? `${step}: it` : "It"} answered ${JSON.stringify(error.message)}. Nothing after that step was written.`);
     } else if (error instanceof CommandError) {
-      showProblem("The device refused a step", `${error.step}: ${error.message}`);
+      showProblem(`The device refused a step: ${error.step}`, error.message);
     } else if (error instanceof InstallError) {
       showProblem("Pinna can't be installed on this device", error.message);
     } else {
@@ -289,8 +293,8 @@ export function startInstallPage(): void {
     $("install-headline").textContent = assessment.headline;
     $("install-detail").textContent = assessment.detail;
     $("install-next").textContent =
-      found.kind === "twrp" && assessment.state === "stop"
-        ? "To leave TWRP, unplug the power and plug it in again. If the result looks wrong, open an issue with the report below."
+      found.kind === "twrp" && assessment.state === "stop" && found.report.twrp
+        ? "To leave TWRP without installing, unplug the power and plug it in again. If the result looks wrong, open an issue with the report below."
         : NEXT[assessment.state];
     const facts: [string, string][] =
       found.kind === "twrp"
@@ -332,7 +336,7 @@ export function startInstallPage(): void {
     showReport(deviceText(found), `Device check: ${found.kind === "twrp" ? "Echo Dot (5th gen)" : found.report.product}, ${assessment.state}`);
     $("install-agree-text").textContent =
       found.kind === "twrp"
-        ? `I want to replace Fire OS in slot A of this ${MODEL_NAMES[model]} (${maskSerial(found.report.serial)}) with Pinna.`
+        ? `I want to install Pinna in slot A of this ${MODEL_NAMES[model]}, serial ${maskSerial(found.report.serial)}.`
         : `I want to erase this ${MODEL_NAMES[model]} (${maskSerial(found.report.serial)}) and install Pinna on it.`;
   };
 
@@ -349,17 +353,19 @@ export function startInstallPage(): void {
         release = null;
         downloaded = false;
         files.value = "";
-        $("install-download-status").replaceChildren();
         $("install-files-status").replaceChildren();
       }
+      // A download's outcome, an error included, was for the model before.
+      if (!release) $("install-download-status").replaceChildren();
     } else if (name === "channel") {
       showLatest();
       if (downloaded) {
         // The release downloaded is from the other channel.
         release = null;
         downloaded = false;
-        $("install-download-status").replaceChildren();
       }
+      // A download's outcome, an error included, was for the other channel.
+      if (!release) $("install-download-status").replaceChildren();
     }
     sync();
   });
@@ -391,8 +397,11 @@ export function startInstallPage(): void {
     if (busy || !model) return;
     const list = $("install-download-status");
     const channel = chosenChannel();
-    release = null;
-    $("install-files-status").replaceChildren();
+    // Files picked by hand stay until a download succeeds.
+    if (downloaded) {
+      release = null;
+      downloaded = false;
+    }
     busy = true;
     sync();
     const line = (text: string, tone: "ok" | "danger" | "muted") => {
@@ -408,6 +417,8 @@ export function startInstallPage(): void {
       });
       release = got;
       downloaded = true;
+      files.value = "";
+      $("install-files-status").replaceChildren();
       list.replaceChildren(
         line(`Pinna ${got.version}, signed with Pinna's release key`, "ok"),
         ...(got.summary ? [line(got.summary, "muted")] : []),
@@ -567,9 +578,14 @@ export function startInstallPage(): void {
     } catch (error) {
       if (error instanceof FastbootError && error.kind === "fail") {
         text.textContent = "The install stopped. The device stays in fastboot: tick the box and install again, or start again from step 3.";
-      } else if (error instanceof CommandError) {
+      } else if (error instanceof CommandError && error.wrote) {
         // The connection is fine; the device said no.
-        text.textContent = "The install stopped. TWRP still runs: tick the box and install again, or start again from step 3.";
+        text.textContent =
+          "The install stopped after it began writing. TWRP still runs: tick the box and install again before you restart the device. If it restarts, hold Volume Up while you plug in the power to start TWRP (step 3).";
+      } else if (before.kind === "twrp" && (error instanceof CommandError || error instanceof InstallError)) {
+        text.textContent = "The install stopped before it wrote anything. TWRP still runs. Fix the cause, then connect again in step 4.";
+        checked = null;
+        device = null;
       } else {
         // The device may still be in the middle of a command: anything sent
         // now could be taken for its data. Only a fresh start is safe.
@@ -577,6 +593,8 @@ export function startInstallPage(): void {
         checked = null;
         device = null;
       }
+      // The check's "nothing was written" may no longer be true.
+      status.textContent = "";
       explain(error, model, "install", step, found);
     } finally {
       window.removeEventListener("beforeunload", warn);

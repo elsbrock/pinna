@@ -100,10 +100,18 @@ const MODELS = [
           <Icon name="disk" size={18} />
           <span>
             <strong class="text-ink">A backup, if you want to go back later.</strong>
-            Installing replaces the current firmware and erases the device's
-            data. Make the backup as described in
-            <a class="link" href={`${docHref("requirements")}#backup-of-the-device`}>What you need</a>;
-            this page can't make one yet.
+            <span data-for-kind="fastboot">
+              Installing replaces the current firmware and erases the device's
+              data. Make the backup as described in
+              <a class="link" href={`${docHref("requirements")}#backup-of-the-device`}>What you need</a>;
+              this page can't make one yet.
+            </span>
+            <span data-for-kind="twrp">
+              On the Echo Dot (5th gen), installing replaces Fire OS in slot A
+              and keeps <code>userdata</code>. The backup that firebreak's
+              unlock made with <code>--backup</code> is the way back to Fire OS:
+              keep it.
+            </span>
           </span>
         </li>
         <li class="before-item">
@@ -283,6 +291,11 @@ const MODELS = [
               <span data-for-kind="twrp"><strong>Cannoli-TWRP</strong> (<code>18d1:d001</code>).</span>
               The page then reads what the device is; it writes nothing yet.
             </p>
+            <p class="mt-2" data-for-kind="twrp">
+              If <code>adb</code> runs on your computer, stop it first with
+              <code>adb kill-server</code>: the browser can't use the device
+              while adb holds it.
+            </p>
             <div class="mt-4 flex flex-wrap items-center gap-3">
               <button id="install-connect" type="button" class="pn-btn pn-btn-primary" disabled>
                 Connect
@@ -345,15 +358,16 @@ const MODELS = [
                   order:
                 </p>
                 <ul class="bulleted mt-2">
-                  <li><code>boot_a</code>: Pinna's boot image, in place of Fire OS's.</li>
-                  <li><code>system_a</code>: Pinna's root filesystem, in place of Fire OS.</li>
+                  <li><code>boot_a</code>: Pinna's boot image.</li>
+                  <li><code>system_a</code>: Pinna's root filesystem.</li>
                   <li>The slot record in <code>misc</code>: slot A starts next, on trial.</li>
                 </ul>
+                <p class="mt-3">This replaces what slot A holds now: Fire OS, after firebreak's unlock.</p>
                 <p class="mt-3">
                   TWRP in slot B, <code>userdata</code> and every other volume stay
                   as they are. Before the first write, the page checks that slot B
-                  is marked good, so that a slot A that fails its starts falls back
-                  to TWRP. Holding <strong>Volume Up</strong> while you plug in the
+                  is marked good, so that if Pinna in slot A fails to start, the
+                  device falls back to TWRP. Holding <strong>Volume Up</strong> while you plug in the
                   power starts TWRP too. To get Fire OS back, use firebreak's
                   restore, as described in
                   <a class="link" href={docHref("flash") + "#the-way-back"}>The way back</a>.
@@ -395,8 +409,10 @@ const MODELS = [
                   the device to Wi-Fi there.
                 </p>
                 <p class="mt-3">
-                  Without the cable, a release after 0.4.0-beta.3 also runs a
-                  Wi-Fi network named <strong>Pinna setup</strong> followed by
+                  Without the cable,
+                  <span data-for-kind="fastboot">a release after 0.4.0-beta.3 also runs</span>
+                  <span data-for-kind="twrp">Pinna also runs</span>
+                  a Wi-Fi network named <strong>Pinna setup</strong> followed by
                   its hostname, with the password <code>pinnasetup</code>. Join
                   it from a phone to open the dashboard.
                 </p>
@@ -409,7 +425,11 @@ const MODELS = [
                 </div>
                 <p class="mt-3 text-sm">
                   If the device is named <strong>Pinna rescue</strong> instead,
-                  see <a class="link" href={`${docHref("flash")}#check-the-device`}>Check the device</a>.
+                  see
+                  <a class="link" data-for-kind="fastboot" href={`${docHref("flash")}#check-the-device`}>Check the device</a><a
+                    class="link"
+                    data-for-kind="twrp"
+                    href={`${docHref("flash")}#if-it-doesnt-start`}>If it doesn't start</a>.
                 </p>
               </div>
             </div>
@@ -452,8 +472,11 @@ const MODELS = [
     <section class="mt-16" aria-labelledby="help-title">
       <h2 id="help-title" class="font-display text-ink text-display-m">If it doesn't work</h2>
       <p class="text-ink-muted mt-2">
-        You can also
-        <a class="link" href={docHref("flash") + "#install-from-a-terminal"}>install from a terminal</a>.
+        You can also install from a terminal:
+        <a class="link" data-for-kind="fastboot" href={docHref("flash") + "#install-from-a-terminal"}>Install from a terminal</a><a
+          class="link"
+          data-for-kind="twrp"
+          href={docHref("flash") + "#install-from-a-terminal-on-the-echo-dot-5th-gen"}>Install from a terminal on the Echo Dot (5th gen)</a>.
       </p>
 
       <div class="help mt-5">
@@ -479,7 +502,7 @@ const MODELS = [
             <code>/etc/udev/rules.d/60-pinna-fastboot.rules</code>:
           </p>
           <pre><code>{UDEV_RULE}</code></pre>
-          <p>Then load it:</p>
+          <p>Then load them:</p>
           <pre><code>sudo udevadm control --reload-rules && sudo udevadm trigger</code></pre>
           <p>
             On NixOS, put the rule in <code>services.udev.extraRules</code>
