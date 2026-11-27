@@ -32,6 +32,9 @@ use tokio::time::Instant;
 
 use crate::voice::{DebuggingSnapshot, Input};
 
+mod levels;
+pub use levels::Detected;
+
 /// How long an entry is kept after it ended.
 pub const KEEP: Duration = Duration::from_secs(600);
 /// The length of a level bucket.
@@ -42,6 +45,8 @@ const MAX_EVENTS: usize = 5_000;
 const MAX_REQUESTS: usize = 1_000;
 /// Chunks of levels; each holds at least one bucket, and 10 minutes are 6,000.
 const MAX_LEVELS: usize = 6_000;
+/// How often the finished buckets of the audio lanes are kept.
+const LEVELS_EVERY: Duration = Duration::from_secs(1);
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 /// What a follower that falls behind may miss before it is cut off. The ring
 /// keeps its last items until they are overwritten, so it is small: a request
@@ -150,6 +155,34 @@ pub fn muted(muted: bool) {
         } else {
             timeline.event(EventKind::Unmuted, "");
         }
+    }
+}
+
+/// A capture frame, for the audio lanes. Call it only while [`levels_on`].
+pub fn levels_frame(
+    at: Instant,
+    before: f64,
+    after: f64,
+    gain_db: f32,
+    detected: Option<Detected<'_>>,
+) {
+    if let Some(timeline) = get() {
+        timeline
+            .levels
+            .lock()
+            .unwrap()
+            .frame(at, before, after, gain_db, detected);
+    }
+}
+
+/// The speaker's output level for a chunk heard at `at`.
+pub fn levels_speaker(at: std::time::Instant, mean_square: f32) {
+    if let Some(timeline) = get().filter(|t| t.levels_on()) {
+        timeline
+            .levels
+            .lock()
+            .unwrap()
+            .speaker(Instant::from_std(at), mean_square);
     }
 }
 
@@ -545,6 +578,9 @@ pub struct Timeline {
     /// Debugging runs. Read by the taps without the lock.
     on: AtomicBool,
     levels_on: AtomicBool,
+    /// The audio lanes, until they are emitted. Locked after `inner`, never
+    /// before it.
+    levels: Mutex<levels::Accumulator>,
     inner: Mutex<Inner>,
     tx: broadcast::Sender<Item>,
     /// Told when the switch changes.
@@ -561,6 +597,7 @@ impl Timeline {
         Self {
             on: AtomicBool::new(false),
             levels_on: AtomicBool::new(false),
+            levels: Mutex::new(levels::Accumulator::default()),
             inner: Mutex::new(Inner {
                 switch: Switch::default(),
                 generation: 0,
@@ -593,6 +630,7 @@ impl Timeline {
         let total = Duration::from_secs(u64::from(minutes) * 60);
         let short = total.min(LEVELS_AND_TEXT_MAX);
         let mut inner = self.inner.lock().unwrap();
+        let levels_were_on = self.levels_on();
         inner.generation += 1;
         let generation = inner.generation;
         inner.switch = Switch {
@@ -615,6 +653,9 @@ impl Timeline {
             );
         }
         self.spawn_expiry(generation);
+        if levels && !levels_were_on {
+            self.spawn_levels();
+        }
     }
 
     /// Turn debugging off and clear what it kept, here and in every page.
@@ -707,8 +748,30 @@ impl Timeline {
     fn changed(&self, inner: &mut Inner, cleared: bool) {
         let switch = inner.switch;
         self.on.store(switch.until.is_some(), Ordering::Relaxed);
-        self.levels_on
-            .store(switch.levels_until.is_some(), Ordering::Relaxed);
+        let levels_were_on = self
+            .levels_on
+            .swap(switch.levels_until.is_some(), Ordering::Relaxed);
+        let levels_on = switch.levels_until.is_some();
+        if levels_on != levels_were_on {
+            let now = Instant::now();
+            let mut lanes = self.levels.lock().unwrap();
+            if levels_on {
+                lanes.begin(now);
+            } else {
+                // What the lanes hold is kept, unless everything is cleared.
+                let finished = lanes.take_finished(now, Duration::ZERO);
+                lanes.end();
+                drop(lanes);
+                if !cleared {
+                    for chunk in finished {
+                        self.keep_levels(inner, chunk);
+                    }
+                }
+            }
+            if self.drive_http {
+                pinna_audio::speaker::report_output_level(levels_on);
+            }
+        }
         if self.drive_http {
             trace::set_level(level(&switch));
         }
@@ -768,12 +831,38 @@ impl Timeline {
         if !self.levels_on() {
             return;
         }
-        let mut inner = self.inner.lock().unwrap();
+        self.keep_levels(&mut self.inner.lock().unwrap(), levels);
+    }
+
+    fn keep_levels(&self, inner: &mut Inner, levels: Levels) {
         let seq = inner.next_seq();
         let _ = self.tx.send(Item::Levels(seq, levels.clone()));
         inner.levels.push_back(Stored { seq, value: levels });
         inner.age(Instant::now());
         inner.trim();
+    }
+
+    /// A task that hands the finished buckets of the audio lanes to the
+    /// timeline once a second while the levels are on. When they turn off,
+    /// `changed` hands over the rest.
+    fn spawn_levels(self: &Arc<Self>) {
+        let timeline = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(LEVELS_EVERY).await;
+                if !timeline.levels_on() {
+                    return;
+                }
+                let finished = timeline
+                    .levels
+                    .lock()
+                    .unwrap()
+                    .take_finished(Instant::now(), levels::LAG);
+                for chunk in finished {
+                    timeline.push_levels(chunk);
+                }
+            }
+        });
     }
 
     /// What a new follower needs: the live items from now on, and everything

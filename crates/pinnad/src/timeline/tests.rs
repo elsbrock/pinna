@@ -565,3 +565,86 @@ async fn a_busy_brain_still_learns_the_newest_state() {
     };
     assert!(late.is_some_and(|d| d.levels_until.is_none()));
 }
+
+fn kept_levels(t: &Timeline) -> Vec<TimelineLevels> {
+    t.backlog()
+        .batches
+        .into_iter()
+        .flat_map(|b| b.levels)
+        .collect()
+}
+
+fn lane_frame(at: Instant) {
+    let detected = Detected {
+        threshold: 0.55,
+        scores: &[("alexa", 0.3)],
+        speech: true,
+    };
+    levels_frame(at, 0.01, 0.1, 12.0, Some(detected));
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_lanes_are_kept_once_a_second_while_the_levels_are_on() {
+    let t = for_this_test();
+    t.start(FROM, 15, true, false);
+    // Let the task start its first second.
+    tokio::task::yield_now().await;
+    let t0 = Instant::now();
+    for i in 0..10 {
+        lane_frame(t0 + Duration::from_millis(i * 20));
+    }
+    levels_speaker((t0 + Duration::from_millis(1_250)).into_std(), 0.25);
+    // Nothing is finished yet.
+    pass(Duration::from_millis(900)).await;
+    assert!(kept_levels(&t).is_empty());
+    // At 1 s the buckets that ended 0.5 s ago go out, the first five. The
+    // speaker's sample for 1.2 s is in a bucket that is still ahead.
+    pass(Duration::from_millis(100)).await;
+    let kept = kept_levels(&t);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].after_gain_dbfs.len(), 5);
+    assert!((kept[0].after_gain_dbfs[0] + 10.0).abs() < 1e-3);
+    assert!(kept[0].speaker_dbfs.iter().all(|s| s.is_nan()));
+    assert_eq!(kept[0].words[0].scores[0], 0.3);
+    assert_eq!(kept[0].speech, [true, true, false, false, false]);
+    // At 2 s the next eight, with that sample in its own bucket, once.
+    pass(Duration::from_secs(1)).await;
+    let kept = kept_levels(&t);
+    assert_eq!(kept.len(), 2);
+    assert_eq!(kept[1].speaker_dbfs.len(), 8);
+    assert!((kept[1].speaker_dbfs[7] + 6.0206).abs() < 1e-3);
+    assert!(kept[1].words.is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn nothing_is_computed_or_kept_while_the_levels_are_off() {
+    let t = for_this_test();
+    t.start(FROM, 15, false, true);
+    assert!(!levels_on());
+    lane_frame(Instant::now());
+    levels_speaker(Instant::now().into_std(), 0.25);
+    assert!(!t.levels.lock().unwrap().running());
+    pass(Duration::from_secs(5)).await;
+    assert!(kept_levels(&t).is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn turning_the_levels_off_keeps_what_is_finished_and_stops() {
+    let t = for_this_test();
+    t.start(FROM, 15, true, false);
+    let t0 = Instant::now();
+    lane_frame(t0);
+    lane_frame(t0 + Duration::from_millis(120));
+    pass(Duration::from_millis(350)).await;
+    assert!(kept_levels(&t).is_empty());
+    t.muted();
+    assert!(!t.levels_on() && !t.levels.lock().unwrap().running());
+    // The two buckets that hold frames are kept at once, without the tick.
+    let kept = kept_levels(&t);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].after_gain_dbfs.len(), 2);
+    // Nothing follows.
+    lane_frame(Instant::now());
+    pass(Duration::from_secs(5)).await;
+    assert_eq!(kept_levels(&t).len(), 1);
+}

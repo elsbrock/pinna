@@ -454,6 +454,9 @@ async fn capture_loop(
         // The recording hears the frame before and after the gain (ADR 0030).
         let before_gain = shared.recording.active().then_some(frame);
         gain.apply(&mut frame);
+        // The timeline's audio lanes (ADR 0036): one check while they are off.
+        let mut lane = timeline::levels_on()
+            .then(|| (pre_gain, pinna_audio::agc::mean_square(&frame), gain.db()));
         if let Some(before) = &before_gain {
             shared.recording.frame(before, &frame);
         }
@@ -484,10 +487,12 @@ async fn capture_loop(
             if let Some(d) = detector.as_mut() {
                 let threshold = d.threshold();
                 let mut new_peak = None;
+                let mut speech = false;
                 levels.frame(pre_gain);
                 let detections = tokio::task::block_in_place(|| {
                     d.push_with(&frame, |b| {
                         levels.block(b);
+                        speech |= b.vad_active;
                         if b.score > peak {
                             peak = b.score;
                             peak_reached = b.score >= threshold;
@@ -500,6 +505,20 @@ async fn capture_loop(
                         }
                     })
                 });
+                if let Some((before, after, gain_db)) = lane.take() {
+                    let scores: Vec<_> = d.scores().collect();
+                    timeline::levels_frame(
+                        tokio::time::Instant::now(),
+                        before,
+                        after,
+                        gain_db,
+                        Some(timeline::Detected {
+                            threshold,
+                            scores: &scores,
+                            speech,
+                        }),
+                    );
+                }
                 shared
                     .noise_energy
                     .store(d.noise_energy().unwrap_or(0), Ordering::Relaxed);
@@ -583,6 +602,10 @@ async fn capture_loop(
                     }
                 }
             }
+        }
+        // A frame the detector didn't hear has no words.
+        if let Some((before, after, gain_db)) = lane {
+            timeline::levels_frame(tokio::time::Instant::now(), before, after, gain_db, None);
         }
     }
     shared.mic.close();
@@ -925,6 +948,7 @@ async fn main() -> Result<()> {
     // The debugging timeline (ADR 0036): off until the dashboard turns it on.
     let timeline = timeline::init(in_tx.clone());
     pinna_http::trace::install(timeline.clone());
+    pinna_audio::speaker::install_output_level(Arc::new(timeline::levels_speaker));
 
     // Microphone + wake word. Words chosen later reach the detector here.
     let mut keyword_tx = None;

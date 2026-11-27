@@ -311,3 +311,39 @@ def test_a_recording_runs_across_an_interrupted_reply(pinnad_with_password):
     # The grant was used once: the recording ended, a new one is a new press.
     status = unary(web, "GetStatus", {}, cookie)["status"]
     assert "recording" not in status, status
+
+
+def test_debugging_records_the_audio_levels_in_100_ms_buckets(pinnad_with_password):
+    _, web, proc = pinnad_with_password
+    cookie = login(web)
+    unary(web, "StartDebugging", {"minutes": 15, "levels": True}, cookie)
+    try:
+        # The microphone is a WAV that plays in real time; the first second
+        # of buckets goes out at about 1.5 s.
+        time.sleep(2)
+        conn, items = stream(web, "WatchTimeline", {}, cookie)
+        try:
+            levels = []
+            bucket_ms = None
+            for item in items:
+                bucket_ms = item.get("state", {}).get("bucketMs", bucket_ms)
+                levels += item.get("batch", {}).get("levels", [])
+                if levels:
+                    break
+        finally:
+            conn.close()
+        assert levels, "no audio levels arrived"
+        assert bucket_ms == 100, bucket_ms
+        for chunk in levels:
+            for lane in ("beforeGainDbfs", "afterGainDbfs", "gainDb"):
+                values = chunk[lane]
+                assert values and all(isinstance(v, (int, float)) for v in values), (lane, values)
+            # The fixture speaks, so the gain made it louder than silence.
+            assert max(chunk["afterGainDbfs"]) > -100, chunk["afterGainDbfs"]
+        # Each message starts where the previous one's buckets end.
+        for a, b in zip(levels, levels[1:]):
+            gap = int(b["startUnixMs"]) - int(a["startUnixMs"])
+            assert abs(gap - 100 * len(a["afterGainDbfs"])) <= 1, (a, b)
+    finally:
+        unary(web, "StopDebugging", {}, cookie)
+    assert proc.poll() is None, "pinnad exited"
