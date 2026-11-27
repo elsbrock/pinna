@@ -169,8 +169,11 @@ group.
     others.
   - A group left with one member ends.
   - The key doesn't change. A satellite that kept it could still act as a
-    member. It could already make any standalone satellite speak and act
-    through `/mcp`, so a new key buys nothing while the LAN is trusted.
+    member. It could already make any satellite without a dashboard password
+    speak and act: through `/mcp` in standalone mode, and in either mode
+    through the dashboard's API, which plays any URL and switches the mode
+    (ADR 0005). So a new key buys nothing while the LAN is trusted. With a
+    password, ADR 0029 applies.
 
 ### Calls between members
 
@@ -196,7 +199,8 @@ group.
   as above: `GetGroup`, and a sender the receiver doesn't know yet. A refusal
   is an unsigned Connect error, which is why it never makes a satellite
   forget. There is no replay protection: the LAN is trusted (ADR 0005) and
-  can already call `/mcp`.
+  can already call `/mcp`, and the dashboard's API of a satellite without a
+  password.
 - **A member's call doesn't confirm a Wi-Fi trial.** During a trial
   (ADR 0008), only the owner opening the dashboard keeps the new network;
   a call to `PeerService` doesn't count.
@@ -398,7 +402,7 @@ group.
   others (ADR 0021).
 - The key keeps other groups' satellites out of a group's calls, and is ready
   for a dashboard login. Until there is one, it secures nothing that the LAN
-  can't already do through `/mcp`.
+  can't already do through `/mcp` or the dashboard's API.
 - Once the arbitration is built, the wake sound in a group comes up to one
   window later. A satellite that stands down shows its ring for that window,
   which tells the owner it heard the wake word.
