@@ -1,0 +1,19 @@
+[package]
+name = "pinna-speaker"
+description = "Recognizes who is speaking: CAM++ voiceprints on tract, matching and enrollment checks"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pinna-vad = { path = "../pinna-vad" }
+rustfft = "6.4"
+sha2.workspace = true
+thiserror.workspace = true
+# Without the default `transformers` ops, which CAM++ doesn't use.
+tract-onnx = { version = "=0.23.10", default-features = false }
+
+[dev-dependencies]
+hound = "3"
+serde_json.workspace = true

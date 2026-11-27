@@ -2285,6 +2285,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinna-speaker"
+version = "0.1.0"
+dependencies = [
+ "hound",
+ "pinna-vad",
+ "rustfft",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tract-onnx",
+]
+
+[[package]]
 name = "pinna-update"
 version = "0.1.0"
 dependencies = [
