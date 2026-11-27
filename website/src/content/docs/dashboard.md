@@ -85,21 +85,17 @@ dashboard address, so another satellite starts with its own.
 ## Switch between satellites
 
 With more than one device, you can move from one dashboard to the next. On a
-computer, select the device at the foot of the sidebar; on a phone, select the
-name at the top. A list opens with this device first, then the other devices
-on the same subnet, each with its name and the address it opens. Devices on
-another subnet or VLAN aren't listed, even if your router passes mDNS between
-them. Select one
-to open its dashboard in the same tab.
+computer, select the device at the foot of the sidebar: it opens into a list
+of the other devices on the same subnet, above this one. On a phone, select
+the name at the top: the list opens below it, with this device first. Each
+device shows its picture and name. Devices on another subnet or VLAN aren't
+listed, even if your router passes mDNS between them. Select one to open its
+dashboard in the same tab.
 
 Anyone on your network can announce a device, so a fake entry could lead to a
-page that looks like a login form. The list marks an entry as **In this
-satellite's group** only when it carries the MAC address of a member of this
-device's [satellite group](/docs/satellite-groups/), announces the address that
-member's last signed call came from, and has no dashboard address of its own.
-Every other entry says **Only announced on the network**: that is all it is.
-Check the address before you enter a password on a page you opened
-from the list.
+page that looks like a login form. Check the address in the address bar
+before you enter a password on a page you opened from the list. On a
+computer, your browser shows where an entry leads when you point at it.
 
 Each device looks for the others once a minute, so the list opens at once. A
 device you just turned on can take a minute to show up. One that you turn off,
@@ -108,9 +104,9 @@ or whose dashboard stops answering, leaves the list within two minutes.
 The link goes to the other device's dashboard address if it has one. If not, it
 goes to its `.local` name when you opened this dashboard by a `.local` name, and
 to its IP address otherwise (an IPv6 address if you opened this one by IPv6),
-because some browsers, such as many on Android, don't find `.local` names. When
-a device has a dashboard address, its `.local` name and IP address are listed
-under it, in case the address doesn't open.
+because some browsers, such as many on Android, don't find `.local` names. If
+a device's dashboard address doesn't open, type its `.local` name or its IP
+address in the address bar.
 
 A device on an older release shows in the list, but its dashboard has no list
 to go back with: open it from the address bar, or update it. A device that
