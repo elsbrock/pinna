@@ -44,8 +44,8 @@
   // a page: it follows time sideways, not new lines at the bottom.
   const fill = $derived(page.path === "/system/logs");
 
-  // The satellite switcher (ADR 0021), opened from the sidebar's device box or,
-  // on phones, the name in the app bar.
+  // The satellite switcher (ADR 0021): the sidebar's device box opens into it;
+  // on phones, the name in the app bar opens it.
   let switcher = $state<"side" | "bar" | null>(null);
   let sideButton = $state<HTMLButtonElement>();
   let barButton = $state<HTMLButtonElement>();
@@ -59,6 +59,16 @@
     document.title = s ? `${where}${displayName(s)} · Pinna` : "Pinna";
   });
 </script>
+
+<!-- What the device box shows, and the switcher's row for this satellite. -->
+{#snippet identity()}
+  {#if s}
+    <Device model={s.model} effect={ring} frame={device.ring} width={48} label="Ring: {ring.replace('-', ' ')}" />
+    <span class="pn-ident-name">{displayName(s)}</span>
+    <span class="pn-health" data-tone={line.tone} title={line.text}>{isStandalone(s) ? "Standalone" : "Home Assistant"}</span>
+    <Icon name="chevron-down" class="pn-icon pn-ident-chev" />
+  {/if}
+{/snippet}
 
 <div class="shell" class:fill>
   <aside class="side">
@@ -105,12 +115,7 @@
         aria-expanded={switcher === "side"}
         onclick={() => toggle("side")}
       >
-        <Device model={s.model} effect={ring} frame={device.ring} width={48} label="Ring: {ring.replace('-', ' ')}" />
-        <span class="pn-ident-name">{displayName(s)}</span>
-        <span class="pn-health" data-tone={line.tone} title={line.text}
-          >{isStandalone(s) ? "Standalone" : "Home Assistant"}</span
-        >
-        <Icon name="chevron-down" class="pn-icon pn-ident-chev" />
+        {@render identity()}
       </button>
     {:else}
       <span class="pn-skeleton ident-skeleton"></span>
@@ -269,7 +274,8 @@
 {#if switcher && (switcher === "side" ? sideButton : barButton)}
   <Satellites
     anchor={(switcher === "side" ? sideButton : barButton)!}
-    placement={switcher === "side" ? "up" : "down"}
+    placement={switcher === "side" ? "box" : "down"}
+    current={identity}
     overview={switcher === "bar"}
     onclose={() => (switcher = null)}
   />

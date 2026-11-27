@@ -875,18 +875,6 @@ export function satelliteLink(sat: SatelliteLike, here: { protocol: string; host
   return v4 ? link(`${v4}${port(sat)}`) : localLink(sat);
 }
 
-/** Ways around a dashboard address that doesn't open: the `.local` name and the first IPv4 address. */
-export function satelliteFallbacks(sat: SatelliteLike): SatLink[] {
-  const v4 = sat.ipv4[0];
-  return [localLink(sat), ...(v4 ? [link(`${v4}${port(sat)}`)] : [])];
-}
-
-/** What the satellite list says of an entry (ADR 0029): a member of this satellite's group is
- *  confirmed by the group's key; any other entry is only what the network announced. */
-export function satelliteMark(sat: Pick<Satellite, "groupMember">): string {
-  return sat.groupMember ? "In this satellite's group" : "Only announced on the network";
-}
-
 /** The drawing's model id for a satellite's `board` (see `identity::model_name`). */
 export function satelliteModel(board: string): string {
   if (board === "Echo (2nd Gen)") return "echo-2";

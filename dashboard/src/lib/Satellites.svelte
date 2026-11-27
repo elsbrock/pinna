@@ -1,27 +1,33 @@
-<!-- The satellite switcher (ADR 0021): this satellite, then the others on the
-     network, each a link to its own dashboard. pinnad looks for them in the
-     background; opening the list reads what it last found, without asking the
-     network. It floats over the page, placed from the button it opened from,
-     which gets the focus back on Escape and on a choice. -->
+<!-- The satellite switcher (ADR 0021): the other satellites on the network,
+     each by its drawing and name, a link to its own dashboard. pinnad looks
+     for them in the background; opening the list reads what it last found,
+     without asking the network. From the sidebar, the device box opens into
+     the list: it covers the box, with this satellite's row where the box was
+     and the others above it. From the app bar, it drops below the name, with
+     this satellite first. The button it opened from gets the focus back on
+     Escape and on a choice. -->
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, type Snippet } from "svelte";
 
   import type { Satellite } from "../gen/pinna/v1/device_pb.ts";
   import Device from "./Device.svelte";
   import { device, errorSentence } from "./device.svelte.ts";
   import Icon from "./Icon.svelte";
-  import { displayName, satelliteFallbacks, satelliteLink, satelliteMark, satelliteModel } from "./view.ts";
+  import { displayName, satelliteLink, satelliteModel } from "./view.ts";
 
   let {
     anchor,
     placement,
+    current,
     overview = false,
     onclose,
   }: {
     /** The button that opened it. */
     anchor: HTMLElement;
-    /** Above the button (the sidebar's, at the bottom) or below it (the app bar's). */
-    placement: "up" | "down";
+    /** Over the sidebar's device box, growing upward from it, or below the app bar's name. */
+    placement: "box" | "down";
+    /** This satellite's row in the box: what the device box shows. */
+    current?: Snippet;
     /** Offer a link to the overview: on phones the name that opens this was that link. */
     overview?: boolean;
     onclose: () => void;
@@ -44,27 +50,53 @@
 
   function position() {
     const r = anchor.getBoundingClientRect();
+    if (placement === "box") {
+      // The box's own place and width, from its bottom edge up.
+      place = `left:${r.left}px;width:${r.width}px;bottom:${innerHeight - r.bottom}px;max-height:${Math.max(160, r.bottom - 16)}px`;
+      return;
+    }
     const width = Math.min(340, innerWidth - 16);
     const left = Math.max(8, Math.min(r.left, innerWidth - width - 8));
-    place =
-      placement === "up"
-        ? `left:${left}px;bottom:${innerHeight - r.top + 8}px;max-height:${Math.max(160, r.top - 16)}px`
-        : `left:${left}px;top:${r.bottom + 8}px;max-height:${Math.max(160, innerHeight - r.bottom - 16)}px`;
+    place = `left:${left}px;top:${r.bottom + 8}px;max-height:${Math.max(160, innerHeight - r.bottom - 16)}px`;
   }
 
-  let current = true;
+  // Out of the device box, the list grows from the box's height to its own,
+  // and again whenever its height changes (the search's answer replaces the
+  // placeholders): its edges and shadow move as the box's do. While it
+  // grows, its rows stay at the bottom with this satellite's.
+  let growing = $state(false);
+  let shown = 0;
+  $effect(() => {
+    void found;
+    if (placement === "box" && pop) grow(pop);
+  });
+  function grow(el: HTMLElement) {
+    const running = el.getAnimations();
+    const from = running.length ? el.offsetHeight : shown || anchor.offsetHeight;
+    for (const a of running) a.cancel();
+    const to = el.offsetHeight;
+    shown = to;
+    if (from === to || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    growing = true;
+    el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 160, easing: "ease-out" }).finished.then(
+      () => (growing = false),
+      () => {},
+    );
+  }
+
+  let alive = true;
   let again: ReturnType<typeof setTimeout> | undefined;
   function look() {
     found = { state: "looking" };
     device
       .listSatellites()
       .then((r) => {
-        if (!current) return;
+        if (!alive) return;
         // pinnad has only just started: ask again until its first search is in.
         if (!r.searched) again = setTimeout(look, 1000);
         else found = { state: "done", list: r.satellites, onNetwork: r.onNetwork };
       })
-      .catch((e) => current && (found = { state: "failed", why: errorSentence(e) }));
+      .catch((e) => alive && (found = { state: "failed", why: errorSentence(e) }));
   }
 
   onMount(() => {
@@ -87,7 +119,7 @@
     addEventListener("resize", away);
     addEventListener("hashchange", away);
     return () => {
-      current = false;
+      alive = false;
       clearTimeout(again);
       removeEventListener("pointerdown", outside, true);
       removeEventListener("keydown", escape);
@@ -98,15 +130,15 @@
 
   // Focus moving out of it closes it; Tab past either end goes back to the
   // button, which follows the popover in the tab order. The arrow keys move
-  // between the links.
+  // between the rows.
   function leaving(e: FocusEvent) {
     const to = e.relatedTarget as Node | null;
     if (to && !pop?.contains(to) && !anchor.contains(to)) close(false);
   }
   function keys(e: KeyboardEvent) {
     if (!pop) return;
+    const stops = [...pop.querySelectorAll<HTMLElement>("a, button")];
     if (e.key === "Tab") {
-      const stops = [...pop.querySelectorAll<HTMLElement>("a, button")];
       const at = stops.indexOf(document.activeElement as HTMLElement);
       if (e.shiftKey ? at <= 0 : at === stops.length - 1) {
         e.preventDefault();
@@ -115,14 +147,12 @@
       return;
     }
     const moves = ["ArrowDown", "ArrowUp", "Home", "End"];
-    if (!moves.includes(e.key)) return;
-    const links = [...pop.querySelectorAll<HTMLElement>("a")];
-    if (!links.length) return;
+    if (!moves.includes(e.key) || !stops.length) return;
     e.preventDefault();
-    const at = links.indexOf(document.activeElement as HTMLElement);
+    const at = stops.indexOf(document.activeElement as HTMLElement);
     const next =
-      e.key === "Home" ? 0 : e.key === "End" ? links.length - 1 : (at + (e.key === "ArrowDown" ? 1 : -1) + links.length) % links.length;
-    links[next].focus();
+      e.key === "Home" ? 0 : e.key === "End" ? stops.length - 1 : (at + (e.key === "ArrowDown" ? 1 : -1) + stops.length) % stops.length;
+    stops[next].focus();
   }
 
   const here = { protocol: location.protocol, hostname: location.hostname };
@@ -131,6 +161,8 @@
 <div
   bind:this={pop}
   class="pn-pop"
+  class:pn-pop-box={placement === "box"}
+  class:is-growing={growing}
   role="dialog"
   aria-label="Satellites"
   tabindex="-1"
@@ -138,13 +170,11 @@
   onkeydown={keys}
   onfocusout={leaving}
 >
-  {#if s}
+  {#if s && placement === "down"}
     <div class="pn-sat" aria-current="true">
       <span class="pn-sat-pic" aria-hidden="true"><Device model={s.model} effect="idle" width={48} label="" /></span>
-      <span class="pn-sat-text">
-        <span class="pn-sat-name">{displayName(s)}</span>
-        <span class="pn-sat-here"><Icon name="check" />This satellite</span>
-      </span>
+      <span class="pn-sat-name">{displayName(s)}<span class="sr">, this satellite</span></span>
+      <Icon name="check" class="pn-icon pn-sat-check" />
     </div>
   {/if}
 
@@ -159,30 +189,16 @@
     <p class="pn-pop-note">No other satellites on this network.</p>
   {:else}
     {#each found.list as sat (sat.mac || sat.name)}
-      {@const to = satelliteLink(sat, here)}
-      <div>
-        <a class="pn-sat" href={to.href} onclick={() => close(true)}>
-          <span class="pn-sat-pic" aria-hidden="true"><Device model={satelliteModel(sat.board)} effect="idle" width={48} label="" /></span>
-          <span class="pn-sat-text">
-            <span class="pn-sat-name">{sat.friendlyName || sat.name}</span>
-            <span class="pn-sat-host">{to.host}</span>
-            {#if sat.groupMember}
-              <span class="pn-sat-here"><Icon name="check" />{satelliteMark(sat)}</span>
-            {:else}
-              <span class="announced">{satelliteMark(sat)}</span>
-            {/if}
-          </span>
-        </a>
-        {#if sat.url}
-          <p class="pn-sat-alt">
-            or
-            {#each satelliteFallbacks(sat) as alt, i (alt.href)}
-              {#if i}&nbsp;·&nbsp;{/if}<a href={alt.href} onclick={() => close(true)}>{alt.host}</a>
-            {/each}
-          </p>
-        {/if}
-      </div>
+      <a class="pn-sat" href={satelliteLink(sat, here).href} onclick={() => close(true)}>
+        <span class="pn-sat-pic" aria-hidden="true"><Device model={satelliteModel(sat.board)} effect="idle" width={48} label="" /></span>
+        <span class="pn-sat-name">{sat.friendlyName || sat.name}</span>
+      </a>
     {/each}
+  {/if}
+
+  {#if placement === "box" && current}
+    <hr class="pn-pop-sep" />
+    <button class="pn-ident" type="button" aria-expanded="true" onclick={() => close(true)}>{@render current()}</button>
   {/if}
 
   {#if overview}
@@ -195,10 +211,12 @@
 </div>
 
 <style>
-  /* An entry only the network announced: no key confirms it (ADR 0029). */
-  .announced {
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--ink-muted);
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>

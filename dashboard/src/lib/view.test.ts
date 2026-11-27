@@ -107,9 +107,7 @@ import {
   installSteps,
   ringEffect,
   routeOf,
-  satelliteFallbacks,
   satelliteLink,
-  satelliteMark,
   satelliteModel,
   since,
   spokenWakeWords,
@@ -755,7 +753,6 @@ test("opened by a .local name: the other's .local name", () => {
 test("the .local name is the host the SRV record names, which a name conflict may have changed", () => {
   const renamed = satellite({ name: "echo10", host: "echo8" });
   assert.equal(satelliteLink(renamed, at("pinna.local")).href, "http://echo8.local/");
-  assert.equal(satelliteFallbacks(renamed)[0].host, "echo8.local");
   // Older firmware sends no host: the instance name, as before.
   assert.equal(satelliteLink(satellite({ host: "" }), at("pinna.local")).href, "http://kitchen.local/");
 });
@@ -771,14 +768,6 @@ test("opened by an IPv6 literal: a global address before a unique-local one", ()
   assert.equal(satelliteLink(satellite(), at("[2001:db8::5]")).href, "http://[2001:db8::20]/");
   assert.equal(satelliteLink(satellite({ ipv6: ["fd00::20"], webPort: 81 }), at("[fd00::5]")).href, "http://[fd00::20]:81/");
   assert.equal(satelliteLink(satellite({ ipv6: [] }), at("[2001:db8::5]")).href, "http://kitchen.local/");
-});
-
-test("fallbacks: the .local name and the first IPv4 address", () => {
-  assert.deepEqual(satelliteFallbacks(satellite({ webPort: 8080 })), [
-    { href: "http://kitchen.local:8080/", host: "kitchen.local:8080" },
-    { href: "http://192.168.1.20:8080/", host: "192.168.1.20:8080" },
-  ]);
-  assert.equal(satelliteFallbacks(satellite({ ipv4: [] })).length, 1);
 });
 
 test("the drawing follows the board", () => {
@@ -1074,11 +1063,6 @@ test("a window says what it has left", () => {
   assert.equal(windowLeft(0.2), "1 s left");
   assert.equal(windowLeft(0), "");
   assert.equal(windowLeft(-3), "");
-});
-
-test("the satellite list says which entries the group's key confirms", () => {
-  assert.equal(satelliteMark({ groupMember: true }), "In this satellite's group");
-  assert.equal(satelliteMark({ groupMember: false }), "Only announced on the network");
 });
 
 test("a refused sign-in with a removed password says so by status 409", () => {
