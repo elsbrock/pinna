@@ -53,6 +53,10 @@ These parts are covered by tests that run without hardware:
   wake word interrupts a reply and stops a ringing timer alarm, and changes on
   the dashboard reach Home Assistant. A wake word uploaded on the dashboard is
   tested, offered to Home Assistant and wakes the device.
+- With debugging on, the [timeline](/docs/troubleshooting/#follow-a-request-on-the-timeline)
+  records a standalone request against simulated services: its phases, wake
+  word, stages and requests, without the text of the request, and the audio
+  levels in 100 ms buckets. No device has run it yet.
 - [Standalone mode](/docs/standalone/) runs a request against simulated
   services: a spoken or typed request goes through speech-to-text, the brain's
   tool loop or an agent, and text-to-speech that plays while it streams. The

@@ -277,6 +277,9 @@ In standalone mode, the log has one line per request with the time each
 service took; see **Replies are slow** under
 [Standalone mode doesn't answer](#standalone-mode-doesnt-answer).
 
+To see which request took the time, and whether it was waiting for the first
+byte or for the rest, [follow the request on the timeline](#follow-a-request-on-the-timeline).
+
 ## The ring flashes red three times
 
 The request didn't work. The log under **System > Logs** on the dashboard says
@@ -415,6 +418,66 @@ you install again from TWRP, while slot B holds it. On the other two:
    [Recover a device](/docs/recovery/).
 2. Install the root filesystem and the boot image again with
    `scripts/flash-gen2.sh root` and `scripts/flash-gen2.sh boot`.
+
+## Follow a request on the timeline
+
+When a reply is slow, a service fails, or the wake word goes unheard during a
+reply, the timeline shows what happened, in the order it happened. It records
+the satellite's phases and events, every request the satellite sends to a
+service, and, if you choose, the audio levels and the text of the requests.
+Debugging is off until you turn it on, and it turns itself off when its time
+runs out.
+
+The satellite keeps the timeline in memory for 10 minutes and doesn't store
+it. A restart, including the one after an update installs, ends debugging and
+loses what was kept. While debugging runs, every dashboard shows it, and the
+**Debugging** sensor in Home Assistant is on.
+
+What it records:
+
+- **Always**: the phases (Idle, Listening, Thinking, Speaking and Muted), wake
+  words and near misses with their scores, the end of speech, interruptions,
+  errors, Home Assistant's voice events, and in standalone mode the time
+  speech-to-text, the model, text-to-speech and each tool took. For each
+  request: the address without its query, the status, when the first byte
+  and the end arrived, and the size. Media and MCP requests show the host only,
+  because their addresses can carry tokens. Headers are never recorded.
+- **Audio levels**, with a dashboard password: every 100 ms, the microphone
+  level before and after the gain, the gain, each wake word's score, and the
+  speaker's level. They are numbers, never audio. They show when someone
+  speaks, so they stop after an hour.
+- **What was said and the replies**, with a dashboard password and a press of
+  **Action** on the satellite: the text of each request, such as the
+  transcript, the prompt and the reply. Keys are masked. It stops after an
+  hour.
+
+Turning the microphones off stops the audio levels and the text at once. The
+rest goes on.
+
+1. To record the audio levels or the text, set a
+   [dashboard password](/docs/dashboard/#set-change-and-remove-the-password),
+   if you haven't.
+2. On the dashboard, open **System > Timeline**.
+3. Under **How long**, choose 15 minutes, 1 hour or 8 hours. Turn on
+   **Audio levels** or **What was said and the replies** if you need them.
+4. Select **Start**. If you chose the text, the ring circles in blue for up to
+   60 seconds: press **Action** on the satellite while it does. Press it only
+   if you started debugging yourself.
+5. Make the problem happen. The page draws it as it happens: the phases, the
+   events and the stages at the top, the audio levels below them, and each
+   request as a bar from its start to its end. Hover over the chart to read
+   every value at that time. Select an event or a request to see its details.
+   **Requests** lists the requests as a table.
+6. Select **Download** to save what the page holds as a JSON file.
+7. Select **Stop**. It turns debugging off and clears what was kept, on the
+   satellite and in every open dashboard.
+
+The timeline doesn't record update checks, Sendspin or AirPlay. In Home
+Assistant mode, Home Assistant makes the requests itself, so the satellite's
+only request is the one that fetches the reply's audio.
+
+A file that holds the text holds what people said. Send it privately, not in a
+public issue.
 
 ## Record what the satellite hears
 
