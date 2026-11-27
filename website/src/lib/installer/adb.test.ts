@@ -83,7 +83,7 @@ test("a command without an answer breaks the connection", async () => {
 
 // ---- The Echo Dot (5th gen) in TWRP ----
 
-const VOLUMES = "ubi0_0 boot_a 12648448\nubi0_1 boot_b 12648448\nubi0_4 system_a 131088384\nubi0_6 misc 253952\nubi0_9 userdata 300000000\n";
+const VOLUMES = "ubi0_0 boot_a 13676544\nubi0_1 boot_b 13676544\nubi0_4 system_a 131088384\nubi0_6 misc 253952\nubi0_9 userdata 300000000\n";
 
 /** TWRP on a C2N6L4, as the install script found it; `over` changes one command's outcome. */
 function twrp(over: Record<string, { stdout?: string; stderr?: string; exit: number }> = {}) {
@@ -183,6 +183,14 @@ test("an image bigger than its volume is refused before anything is sent", async
   const { adb, report } = await checked(d);
   const img = { ...images(), root: new Uint8Array(131088385) };
   await assert.rejects(installTwrp(adb, report, img), (e: unknown) => e instanceof InstallError && /bigger than system_a/.test(e.message));
+  assert.equal(d.commands.length, 3, "only the check's commands");
+});
+
+test("a FIT over the 0xC1C000 bytes U-Boot reads is refused, though boot_a is larger", async () => {
+  const d = twrp();
+  const { adb, report } = await checked(d);
+  const img = { ...images(), boot: new Uint8Array(0xc1c000 + 1) };
+  await assert.rejects(installTwrp(adb, report, img), (e: unknown) => e instanceof InstallError && /bootloader reads/.test(e.message));
   assert.equal(d.commands.length, 3, "only the check's commands");
 });
 

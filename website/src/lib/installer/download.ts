@@ -47,7 +47,7 @@ export function filesFor(m: Manifest, model: ModelId): { boot: Artifact; bootctl
   const bootctl = forModel(m.bootctl, model);
   if (!bootctl?.url) {
     throw new DownloadError(
-      `This page can't install Pinna ${m.version} on the ${name}: its signed manifest doesn't name pinna-bootctl, the tool the page runs in TWRP. Install this release from a terminal instead.`,
+      `The page can't download Pinna ${m.version} for the ${name}: its signed manifest doesn't name pinna-bootctl, the tool the page runs in TWRP. Download the release's files from GitHub and choose them below.`,
     );
   }
   return { boot, bootctl };

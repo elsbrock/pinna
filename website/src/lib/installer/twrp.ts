@@ -10,6 +10,12 @@ import { sha256 } from "./release.ts";
 export const DEVICE_TYPE_ID = "A4ZXE0RM7LQ7A";
 /** The UBI volumes the install needs: it writes boot_a, system_a and the slot record in misc. */
 export const VOLUMES = ["boot_a", "system_a", "misc"] as const;
+/**
+ * The most each image may take, from `ECHO_DOT_5.slots` in pinna-board (as
+ * install-echo-dot-5.sh checks): U-Boot reads 0xC1C000 bytes of the
+ * 53-LEB boot volume, so a larger FIT fits boot_a but doesn't boot.
+ */
+export const SLOTS = { boot: 0xc1c000, root: 131_088_384 };
 /** Where the tool goes: TWRP's /tmp is RAM, so nothing on the device changes. */
 const TOOL = "/tmp/pinna-bootctl";
 /** Writing a volume and reading it back took about 20 s for the root on a C2N6L4; leave room. */
@@ -123,8 +129,10 @@ export function planTwrp(report: TwrpReport, images: TwrpImages): { boot: Volume
   const boot = volume(report, "boot_a");
   const system = volume(report, "system_a");
   const misc = volume(report, "misc");
-  if (images.boot.length > boot.bytes) throw new InstallError(`The boot image (${images.boot.length} bytes) is bigger than boot_a (${boot.bytes} bytes).`);
-  if (images.root.length > system.bytes) throw new InstallError(`The root image (${images.root.length} bytes) is bigger than system_a (${system.bytes} bytes).`);
+  const bootMax = Math.min(boot.bytes, SLOTS.boot);
+  const rootMax = Math.min(system.bytes, SLOTS.root);
+  if (images.boot.length > bootMax) throw new InstallError(`The boot image (${images.boot.length} bytes) is bigger than the ${bootMax} bytes of boot_a that the bootloader reads.`);
+  if (images.root.length > rootMax) throw new InstallError(`The root image (${images.root.length} bytes) is bigger than system_a (${rootMax} bytes).`);
   return { boot, system, misc };
 }
 
