@@ -462,8 +462,8 @@ In Home Assistant mode, Home Assistant makes the requests itself. The
 satellite's only request is the one that fetches the reply's audio, so the
 timeline shows Home Assistant's steps instead, and the text adds nothing.
 
-Turning the microphones off stops the audio levels and the text at once. The
-rest goes on.
+Turning the microphones off stops the audio levels and the text at once, and
+they don't start while the microphones are off. The rest goes on.
 
 ### Record a timeline
 
