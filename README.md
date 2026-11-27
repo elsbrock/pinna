@@ -28,10 +28,11 @@ Pinna fastboot. To install Pinna on those two, follow
 [release](https://github.com/elsbrock/pinna/releases) or building your own,
 backs the device up first, and every step says how to undo it.
 
-The Echo Dot (5th gen) is different. Pinna installs on it from TWRP. Its USB
-is on
-test pads under its foot, and its unlock is firebreak, which needs wires
-soldered to those pads. Pinna doesn't ship firebreak.
+The Echo Dot (5th gen) is different. Pinna installs on it from TWRP, with
+the browser installer at [getpinna.dev/install](https://getpinna.dev/install/)
+or with a script. Its USB is on test pads under its foot, and its unlock is
+firebreak, which needs wires soldered to those pads. Pinna doesn't ship
+firebreak.
 `website/src/content/docs/devices.md` names the unlock tools for each device,
 and `website/src/content/docs/flash.md` holds the install
 steps. What works, and the known limits,

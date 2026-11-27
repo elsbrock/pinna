@@ -71,7 +71,7 @@ sha256sum *.img > SHA256SUMS
 To install from the browser: a computer with Chrome, Edge, Brave or Opera.
 Firefox and Safari can't talk to USB devices. On Linux the browser needs a
 udev rule, and on Windows the WinUSB driver; the [installer](/install/) says
-how.
+how. The Echo Dot (5th gen) needs the same, with the rule for its TWRP.
 
 To install from a terminal, and to make the backup: a Linux computer with
 `fastboot`, `adb` and `sha256sum` (on Debian/Ubuntu, `android-tools` has the

@@ -99,7 +99,9 @@ To go back to a channel, remove the lines and restart `pinnad` again.
 Without `PINNA_MODELS`, the manifest serves the Echo Dot (2nd gen), the Echo
 (2nd gen) and the Echo Dot (5th gen). Every release folder carries the Echo
 Dot (5th gen)'s installer, its boot image and the tool the installer runs, so
-`just release` needs its kernel too (`just kernel-mt8519`). To build for the
+`just release` needs its kernel too (`just kernel-mt8519`). When the
+manifest serves the Echo Dot (5th gen), it also lists that tool, which the
+browser installer needs to install the Echo Dot (5th gen). To build for the
 Echo Dot (2nd gen) only:
 
 ```sh

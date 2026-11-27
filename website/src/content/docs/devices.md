@@ -55,7 +55,8 @@ the Echo (2nd gen).
 
 How it is installed: firebreak unlocks it, which needs wires soldered to those
 pads and a Fire OS version that firebreak supports, and Pinna is then written
-into slot A from TWRP. The steps are on
+into slot A from TWRP, with the [installer](/install/) in the browser or with
+a script. The steps are on
 [Install on the Echo Dot (5th gen)](/docs/flash/#install-on-the-echo-dot-5th-gen). Pinna doesn't
 ship firebreak.
 

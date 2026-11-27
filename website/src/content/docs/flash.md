@@ -8,7 +8,8 @@ How you install Pinna depends on the device:
 - **Echo (2nd gen) and Echo Dot (2nd gen):** from the browser or from a terminal
   over fastboot. See [Install from the browser](#install-from-the-browser) and
   [Install from a terminal](#install-from-a-terminal).
-- **Echo Dot (5th gen):** from TWRP over USB, with a script. See
+- **Echo Dot (5th gen):** from TWRP over USB, from the browser or with a
+  script. See
   [Install on the Echo Dot (5th gen)](#install-on-the-echo-dot-5th-gen).
 
 For the Echo (2nd gen) and the Echo Dot (2nd gen), you can install Pinna in
@@ -200,10 +201,17 @@ firmware doesn't boot properly.
 This section is for the Echo Dot (5th gen), model C2N6L4. It isn't for the
 Echo Dot with clock (5th gen) or the Echo Pop.
 
-You install Pinna on the Echo Dot (5th gen) from TWRP,
-which firebreak leaves on the device, with a script that runs on your
-computer and writes to the device over USB. Every step says what it writes,
-and [The way back](#the-way-back) comes before the first one.
+You install Pinna on the Echo Dot (5th gen) from TWRP, which firebreak
+leaves on the device, over USB. You can do it in two ways, and both write
+the same volumes:
+
+- **From the browser**, with the [installer](/install/), in Chrome, Edge,
+  Brave or Opera.
+- **From a terminal**, with `install-echo-dot-5.sh` and adb, on a Linux
+  computer.
+
+Every step says what it writes, and [The way back](#the-way-back) comes
+before the first one.
 
 ### Before you begin on the Echo Dot (5th gen)
 
@@ -215,11 +223,14 @@ and [The way back](#the-way-back) comes before the first one.
 - **A USB connection to the device.** The Echo Dot (5th gen) has no USB
   connector. Its USB is the test pads under its foot: solder D+, D− and
   ground to a USB cable, as firebreak's guide describes.
-- **A Linux computer** with `bash`, `adb`, `sha256sum`, `stat` and `awk`.
-  The script names any tool it can't find. To use adb without `sudo`,
-  install your distribution's Android udev rules, as described in
-  [What you need](/docs/requirements/#computer).
-- **The release files, in one folder:** `install-echo-dot-5.sh`,
+- **To install from the browser:** a computer with Chrome, Edge, Brave or
+  Opera. On Linux the browser needs a udev rule, and on Windows the WinUSB
+  driver; the installer says how.
+- **To install from a terminal:** a Linux computer with `bash`, `adb`,
+  `sha256sum`, `stat` and `awk`. The script names any tool it can't find. To
+  use adb without `sudo`, install your distribution's Android udev rules, as
+  described in [What you need](/docs/requirements/#computer). You also need
+  the release files, in one folder: `install-echo-dot-5.sh`,
   `pinna-boot-mt8519.itb`, `pinna-<version>.root.img`, `pinna-bootctl-armv7`
   and `SHA256SUMS`. Download them from a
   [release](https://github.com/elsbrock/pinna/releases), or build them as
@@ -229,7 +240,8 @@ and [The way back](#the-way-back) comes before the first one.
 
 ### What gets written on the Echo Dot (5th gen)
 
-The script writes three things on the device, and nothing else:
+The installer and the script write three things on the device, and nothing
+else:
 
 | On the device | What it gets |
 | --- | --- |
@@ -240,9 +252,11 @@ The script writes three things on the device, and nothing else:
 This replaces Fire OS in slot A. `boot_b` (TWRP), `system_b`, `userdata` and
 every other volume stay as they are. Pinna keeps its settings in `userdata`.
 
-Before it writes, the script checks the boot image, the root image and
-`pinna-bootctl-armv7` against `SHA256SUMS`. After writing, it reads each
-volume back and compares it again.
+Before the installer writes, it checks the boot image, the root image and
+`pinna-bootctl-armv7` against the release's signed manifest when it
+downloaded them, or against `SHA256SUMS` when you chose the files. The
+script checks them against `SHA256SUMS`. After writing, each volume is read
+back and compared again.
 
 ### The way back
 
@@ -256,7 +270,28 @@ The first update installs into slot B, so it replaces TWRP. After that, a
 failed update goes back to the previous version, and firebreak's restore is
 the way back to Fire OS.
 
-### Install from TWRP
+### Install from the browser on the Echo Dot (5th gen)
+
+1. If `adb` runs on your computer, stop it, on your computer: the browser
+   can't use the device while adb holds it.
+
+   ```sh
+   adb kill-server
+   ```
+
+2. Open the [installer](/install/) in Chrome, Edge, Brave or Opera, on a
+   computer, and choose **Echo Dot (5th gen)**.
+3. Follow its steps: get Pinna, start TWRP, connect, and install. In step 4,
+   the browser lists the device as **Cannoli-TWRP**. The installer checks
+   the device and asks you to confirm before it writes anything.
+4. When it says **Pinna is installed**, continue with
+   [Check the Echo Dot (5th gen)](#check-the-echo-dot-5th-gen).
+
+If TWRP refuses a step, the install stops before the slot record changes
+and TWRP keeps running: fix the cause, and install again before you restart
+the device. If the device went away, start TWRP again and connect again.
+
+### Install from a terminal on the Echo Dot (5th gen)
 
 1. Start TWRP: unplug the power, then hold **Volume Up** while you plug it
    in, and keep holding it for a few seconds. The device has no screen.

@@ -154,8 +154,9 @@ the kernel, run `just kernel` before `just bootimg`.
 
 ## Build for the Echo Dot (5th gen)
 
-The Echo Dot (5th gen) has its own kernel, and installs from a release folder
-with its own script. On your computer, in the repository:
+The Echo Dot (5th gen) has its own kernel. It installs from TWRP, with the
+browser installer or with its own script from a release folder. On your
+computer, in the repository:
 
 ```sh
 just kernel
@@ -171,8 +172,8 @@ on the device, and puts them into `build/release/` with their checksums:
 | --- | --- |
 | `pinna-<version>.root.img` | The root filesystem, the same for every model |
 | `pinna-boot-mt8519.itb` | The Echo Dot (5th gen)'s boot image (FIT) |
-| `pinna-bootctl-armv7` | The tool the installer runs in TWRP to write the device |
-| `install-echo-dot-5.sh` | The installer |
+| `pinna-bootctl-armv7` | The tool the installers run in TWRP to write the device. The signed manifest lists it, so the browser installer can check it |
+| `install-echo-dot-5.sh` | The installer for a terminal |
 | `SHA256SUMS` | The checksums of the files |
 
 The folder also holds the 2nd gen's boot image and installer, and the update
