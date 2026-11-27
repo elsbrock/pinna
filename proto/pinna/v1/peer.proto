@@ -68,8 +68,9 @@ message PeerSender {
   // yet, and the receiver calls back at the address the call came from.
   uint32 web_port = 1;
   // Its mode, here and not in the mDNS record, so a mode change doesn't
-  // restart systemd-resolved (ADR 0024). The group works in standalone mode
-  // only; a sender that leaves it out reads as Home Assistant mode.
+  // restart systemd-resolved (ADR 0024). A member in Home Assistant mode
+  // takes messages and calls, except timers, and sends none; a sender that
+  // leaves it out reads as Home Assistant mode.
   Mode mode = 2;
   // It has a dashboard password (ADR 0029). A satellite with a password
   // refuses Call and Deliver from a member without one; a sender that leaves

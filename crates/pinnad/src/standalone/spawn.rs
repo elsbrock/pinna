@@ -166,8 +166,8 @@ fn system_prompt(
 }
 
 /// The other members of the satellite group, for the context (ADR 0026):
-/// so the brain can name them to `send_message`, and say why one in Home
-/// Assistant mode is out of reach. Empty in no group.
+/// so the brain can name them to `send_message`, and say that one in Home
+/// Assistant mode takes messages and control, not timers. Empty in no group.
 pub fn group_context(group: Option<&Group>) -> Vec<GroupMember> {
     group.map_or_else(Vec::new, |group| {
         group

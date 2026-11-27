@@ -3,7 +3,7 @@
 //! did with it.
 //!
 //! It is offered only to a brain whose tools pinnad runs, and only while
-//! another member was last heard in standalone mode. Every member is called
+//! another member was heard, in either mode. Every member is called
 //! at once, at the addresses the search heard, inside the brain's tool
 //! limit. A message's text never reaches a log line.
 
@@ -19,16 +19,13 @@ use crate::settings::Mode;
 pub const NAME: &str = "send_message";
 
 /// Why the tool isn't offered, when a brain calls it anyway.
-pub const NO_ONE: &str = "No other satellite of this one's group is in standalone mode, so there is no one to send a \
-     message to.";
+pub const NO_ONE: &str = "No other satellite of this one's group has been heard from yet, so there is no one to send \
+     a message to.";
 
 /// Whether `send_message` is offered: this satellite is in a group with
-/// another member whose last signed call or answer named standalone mode.
+/// another member whose last signed call or answer named its mode.
 pub fn offered(group: &Group) -> bool {
-    group
-        .other_members()
-        .iter()
-        .any(|(_, mode)| *mode == Some(Mode::Standalone))
+    group.other_members().iter().any(|(_, mode)| mode.is_some())
 }
 
 /// Hand `text` to the member named `to`, or to every other member for
@@ -42,27 +39,23 @@ pub async fn send(group: &Group, to: &str, text: &str) -> Result<String, String>
     let targets = targets(group, &members, to)?;
     let seen = group.seen();
     let characters = text.chars().count();
-    let lines = join_all(targets.into_iter().map(|(member, mode)| {
+    let lines = join_all(targets.into_iter().map(|(member, _)| {
         let (seen, joined, text) = (&seen, &joined, &text);
         async move {
             let name = member.name.as_str();
-            let line = if mode == Some(Mode::HomeAssistant) {
-                format!("{name} is in Home Assistant mode, out of reach.")
-            } else {
-                // A member the search no longer lists (ADR 0021), or one it
-                // heard no address for, isn't called.
-                match seen
-                    .by_mac(&member.mac)
-                    .filter(|f| !f.ipv4.is_empty() || !f.ipv6.is_empty())
-                {
-                    None => format!("{name}: unreachable."),
-                    Some(found) => {
-                        let deadline = group.limits().call;
-                        let answer = group
-                            .deliver(&To::heard(found), joined, &member.mac, text, deadline)
-                            .await;
-                        answered(group, &member, answer)
-                    }
+            // A member the search no longer lists (ADR 0021), or one it
+            // heard no address for, isn't called.
+            let line = match seen
+                .by_mac(&member.mac)
+                .filter(|f| !f.ipv4.is_empty() || !f.ipv6.is_empty())
+            {
+                None => format!("{name}: unreachable."),
+                Some(found) => {
+                    let deadline = group.limits().call;
+                    let answer = group
+                        .deliver(&To::heard(found), joined, &member.mac, text, deadline)
+                        .await;
+                    answered(group, &member, answer)
                 }
             };
             tracing::info!("satellite group: a message, {characters} characters. {line}");

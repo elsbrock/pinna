@@ -646,7 +646,7 @@ message Settings {
   Mode mode = 17;
   // The satellite takes messages from the other members of its satellite
   // group (ADR 0026), Home Assistant's "Group messages" switch. On by
-  // default. It does nothing in Home Assistant mode or outside a group.
+  // default, in either mode. It does nothing outside a group.
   bool group_messages = 18;
   // The Sendspin player for Music Assistant on or off (ADR 0027). Off by
   // default.

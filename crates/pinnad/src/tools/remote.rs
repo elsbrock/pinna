@@ -3,8 +3,8 @@
 //! `satellite`, and the member runs the tool as its own `/mcp` would.
 //!
 //! The member is called at the addresses the search heard, and gives up
-//! inside the brain's tool limit. A member last heard in Home Assistant
-//! mode, or one the search no longer lists, isn't called.
+//! inside the brain's tool limit. A member the search no longer lists isn't
+//! called.
 
 use serde_json::Value;
 
@@ -12,7 +12,6 @@ use super::message;
 use crate::group::Group;
 use crate::group::client::{Failed, To};
 use crate::group::model::{ALL, Member, name_key};
-use crate::settings::Mode;
 
 /// Why the brain's call that names another member isn't made: this
 /// satellite left the group, or the group ended, after the run's tool list
@@ -22,8 +21,7 @@ pub(super) const NO_GROUP: &str = "This satellite is in no satellite group now."
 /// Where a tool runs.
 pub(super) enum Target {
     Here,
-    /// On another member, last heard in this mode.
-    Member(Member, Option<Mode>),
+    Member(Member),
 }
 
 /// The satellite `satellite` names for `tool`: this one when it is empty or
@@ -66,7 +64,7 @@ pub(super) fn target(
             Some(own_host),
         ));
     }
-    message::named(group, &members, wanted).map(|(member, mode)| Target::Member(member, mode))
+    message::named(group, &members, wanted).map(|(member, _)| Target::Member(member))
 }
 
 /// Why `tool`, which acts on another member only, isn't run here.
@@ -86,14 +84,10 @@ pub(super) fn not_here(group: &Group, tool: &str) -> String {
 pub(super) async fn call(
     group: &Group,
     member: &Member,
-    mode: Option<Mode>,
     tool: &str,
     args: Value,
 ) -> Result<String, String> {
     let name = &member.name;
-    if mode == Some(Mode::HomeAssistant) {
-        return Err(format!("{name} is in Home Assistant mode, out of reach."));
-    }
     let Some(joined) = group.service().group().joined else {
         return Err(NO_GROUP.into());
     };
@@ -175,14 +169,7 @@ mod tests {
             removed: false,
         };
 
-        let out = call(
-            &group,
-            &kitchen,
-            Some(Mode::Standalone),
-            "set_volume",
-            json!({"percent": 40}),
-        )
-        .await;
+        let out = call(&group, &kitchen, "set_volume", json!({"percent": 40})).await;
 
         assert_eq!(out, Err(NO_GROUP.into()));
     }

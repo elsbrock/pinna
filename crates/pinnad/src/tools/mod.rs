@@ -601,6 +601,15 @@ pub fn runs_for_group(name: &str) -> bool {
         .any(|t| t.name == name && t.remote != Remote::No)
 }
 
+/// Whether `name` is a timer tool. Home Assistant owns the timers of a
+/// satellite in Home Assistant mode, so such a member refuses these for the
+/// group (ADR 0026).
+pub fn is_timer_tool(name: &str) -> bool {
+    TOOLS
+        .iter()
+        .any(|t| t.name == name && matches!(t.op, Op::SetTimer | Op::ListTimers | Op::CancelTimer))
+}
+
 /// A device tool as the dashboard lists it beside its switch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolInfo {
@@ -799,7 +808,7 @@ impl DeviceTools {
     }
 
     /// Whether these are a brain's tools, and its satellite is in a group
-    /// with another member in standalone mode (ADR 0026): then the brain
+    /// with another member whose mode is known (ADR 0026): then the brain
     /// gets `send_message`, and acts on the other members.
     fn grouped(&self) -> bool {
         self.surface == Surface::Run && self.kit.group().is_some_and(|g| message::offered(g))
@@ -1043,7 +1052,7 @@ impl DeviceTools {
             t.name == name
                 && (t.reach.offers(self.surface)
                     // The run's tool list may have offered it for another
-                    // member: target() says why that one is out of reach.
+                    // member: target() says why that one can't be called.
                     || (matches!(t.remote, Remote::Only(_))
                         && self.surface == Surface::Run
                         && self.kit.group().is_some()))
@@ -1081,9 +1090,9 @@ impl DeviceTools {
                 Err(why) => Err(why),
             },
             // Checked here too, so a wrong argument costs no call.
-            Ok((args, Target::Member(member, mode))) => match Args::parse(tool, args.clone()) {
+            Ok((args, Target::Member(member))) => match Args::parse(tool, args.clone()) {
                 Ok(_) => match self.kit.group() {
-                    Some(group) => remote::call(group, &member, mode, tool.name, args).await,
+                    Some(group) => remote::call(group, &member, tool.name, args).await,
                     None => Err(remote::NO_GROUP.into()),
                 },
                 Err(why) => Err(why),

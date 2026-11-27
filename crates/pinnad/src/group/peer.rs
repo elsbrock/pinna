@@ -154,8 +154,10 @@ impl PeerApi {
             return refused(why);
         }
         let mode = self.group.status().mode;
-        if mode != Mode::Standalone {
-            return refused(format!("{name} is in Home Assistant mode, out of reach."));
+        if mode == Mode::HomeAssistant && tools::is_timer_tool(tool) {
+            return refused(format!(
+                "Timers on {name} are Home Assistant's: it is in Home Assistant mode."
+            ));
         }
         if !self.group.service().group().control {
             return refused(format!("Control from the group is off on {name}."));
@@ -201,9 +203,7 @@ impl PeerApi {
         }
         let refused = {
             let status = self.group.status();
-            if status.mode != Mode::Standalone {
-                Some(messages::in_home_assistant_mode(&name))
-            } else if !status.settings.group_messages() {
+            if !status.settings.group_messages() {
                 Some(messages::switched_off(&name))
             } else if !status.assist.slots.tts {
                 Some(messages::no_voice(&name))

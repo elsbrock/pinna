@@ -3,10 +3,10 @@
 //! later, when it is free again.
 //!
 //! Held messages stay in memory only: at most [`MAX_HELD`], each forgotten
-//! [`Times::keep`] after it arrived, and all of them when the satellite
-//! switches to Home Assistant mode or *Satellite group* goes off. They have
-//! no ring of their own, and Home Assistant hears nothing of them. A
-//! message's text never reaches a log line: only its sender and its length.
+//! [`Times::keep`] after it arrived, and all of them when *Satellite group*
+//! goes off. They have no ring of their own, and Home Assistant hears
+//! nothing of them. A message's text never reaches a log line: only its
+//! sender and its length.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -19,7 +19,6 @@ use tokio::sync::{mpsc, oneshot};
 use super::local::{SpeakReply, say};
 use super::{Brain, Input, Phase, PlaybackKind};
 use crate::metrics::StandaloneCounters;
-use crate::settings::Mode;
 
 /// Held messages kept at most. Another one drops the oldest of the others.
 pub(super) const MAX_HELD: usize = 5;
@@ -53,18 +52,6 @@ pub enum Taken {
     Held,
     /// It won't play; one sentence says why.
     Refused(String),
-}
-
-/// Why a satellite named `name` takes no messages: it is in Home Assistant
-/// mode. The group works in standalone mode only.
-pub fn in_home_assistant_mode(name: &str) -> String {
-    format!("{name} is in Home Assistant mode and takes no messages.")
-}
-
-/// Why a satellite named `name` takes no messages: a switch to Home
-/// Assistant mode waits for it to be idle.
-pub fn switching_to_home_assistant_mode(name: &str) -> String {
-    format!("{name} is switching to Home Assistant mode and takes no messages.")
 }
 
 /// Why a satellite named `name` takes no messages: its owner said so.
@@ -248,20 +235,13 @@ impl Brain {
     }
 
     /// Why this satellite can't take a message; `None` when it can. The
-    /// PeerService checks only the mode, Group messages and the
-    /// text-to-speech slot before it asks, from a snapshot that may be a
-    /// moment old: only the Brain knows of a switch waiting for the
-    /// satellite to be idle, and of the speaker.
+    /// PeerService checks only Group messages and the text-to-speech slot
+    /// before it asks, from a snapshot that may be a moment old: only the
+    /// Brain knows of the speaker.
     fn refuse_message(&self) -> Option<String> {
         let name = self.friendly_name();
         let live = self.local.live();
-        if self.mode() != Mode::Standalone {
-            Some(in_home_assistant_mode(&name))
-        } else if self.pending_mode == Some(Mode::HomeAssistant) {
-            // The switch drops every held message, so one taken now would
-            // never play.
-            Some(switching_to_home_assistant_mode(&name))
-        } else if !self.settings.group_messages() {
+        if !self.settings.group_messages() {
             Some(switched_off(&name))
         } else if !live.slots.tts || live.speech.is_none() {
             Some(no_voice(&name))
@@ -382,10 +362,7 @@ impl Brain {
     /// After every input and tick: forget what may not wait any more, then
     /// say what can be said.
     pub(super) fn tend_messages(&mut self, now: Instant) {
-        if self.mode() != Mode::Standalone {
-            self.messages
-                .forget_all("the satellite is in Home Assistant mode");
-        } else if !self.local.group_on() {
+        if !self.local.group_on() {
             self.messages.forget_all("Satellite group is off");
         }
         self.messages.expire(now);
@@ -429,7 +406,7 @@ mod tests {
     use super::*;
     use crate::group::Persisted;
     use crate::leds::LedState;
-    use crate::settings::Settings;
+    use crate::settings::{Mode, Settings};
     use crate::standalone::AssistLive;
     use crate::voice::{
         ApiCommand, ApiReply, Defaults, LocalOptions, NoopSpawner, Options, SettingsPatch, Shared,
@@ -1059,7 +1036,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn home_assistant_mode_drops_them_and_refuses_more() {
+    async fn home_assistant_mode_keeps_them_and_takes_more() {
         let mut d = Device::new();
         d.mute(true).await;
         d.deliver("Kitchen", "dinner is ready.").await;
@@ -1073,11 +1050,15 @@ mod tests {
             )
         })
         .await;
-        assert!(d.held().is_empty());
+        assert_eq!(d.brain.mode(), Mode::HomeAssistant);
+        assert_eq!(d.held(), ["Kitchen"]);
         assert_eq!(
-            d.deliver("Kitchen", "dinner is ready.").await,
-            Taken::Refused("Hall is in Home Assistant mode and takes no messages.".into())
+            d.deliver("Office", "call me.").await,
+            Taken::Held,
+            "Muted: held, not refused"
         );
+        d.mute(false).await;
+        assert_eq!(d.playing(), Some("Kitchen"));
     }
 
     #[tokio::test]
@@ -1091,18 +1072,16 @@ mod tests {
             .api(|r| ApiCommand::SwitchMode(Mode::HomeAssistant, r))
             .await;
         assert_eq!(snapshot.mode, Mode::Standalone, "it waits for Kitchen's");
-        // The switch would drop a new one before it plays.
-        assert_eq!(
-            d.deliver("Garden", "the gate is open.").await,
-            Taken::Refused(switching_to_home_assistant_mode(HALL))
-        );
-        assert_eq!(d.held(), ["Office"]);
+        // A new one waits with the others.
+        assert_eq!(d.deliver("Garden", "the gate is open.").await, Taken::Held);
+        assert_eq!(d.held(), ["Office", "Garden"]);
         d.says(Says::Wav(50));
         d.press(Button::Action).await;
         assert_eq!(d.playing(), None, "Office's waits for the switch");
         d.brain.tick().await;
         assert_eq!(d.brain.mode(), Mode::HomeAssistant);
-        assert!(d.held().is_empty());
+        assert_eq!(d.playing(), Some("Office"), "the switch keeps them");
+        assert_eq!(d.held(), ["Garden"]);
     }
 
     #[tokio::test]

@@ -1469,12 +1469,12 @@ async fn a_member_refuses_a_call_with_a_signed_reason_in_the_owners_order() {
     };
     let volume = r#"{"percent": 40}"#;
 
-    // Everything wrong at once: the mode comes first.
+    // Everything wrong at once: Home Assistant's timers come first.
     b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
     b.service.set_group_control(false).await.unwrap();
     assert_eq!(
-        refused("speak", r#"{"satellite": "Office"}"#).await,
-        "Kitchen is in Home Assistant mode, out of reach."
+        refused("set_timer", r#"{"seconds": 60}"#).await,
+        "Timers on Kitchen are Home Assistant's: it is in Home Assistant mode."
     );
     b.status.send_modify(|s| s.mode = Mode::Standalone);
     assert_eq!(
@@ -1864,6 +1864,79 @@ async fn deliver_answers_signed_with_what_the_brain_did() {
 }
 
 #[tokio::test]
+async fn a_member_in_home_assistant_mode_takes_a_message_from_the_group() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+
+    let played = b.deliver(&group, a, "dinner is ready.").await;
+    assert_eq!(outcome(&played), (Outcome::OUTCOME_PLAYED, ""));
+    assert_eq!(b.brain.took(), [("Hall".into(), "dinner is ready.".into())]);
+
+    // The same checks as in standalone mode.
+    b.status
+        .send_modify(|s| s.settings.group_messages = Some(false));
+    let refused = b.deliver(&group, a, "call me.").await;
+    assert_eq!(outcome(&refused).0, Outcome::OUTCOME_REFUSED);
+    assert_eq!(b.brain.took().len(), 1);
+}
+
+#[tokio::test]
+async fn a_member_in_home_assistant_mode_runs_a_control_call_for_the_group() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+
+    let volume = b
+        .called(&group, a, "set_volume", r#"{"percent": 40}"#)
+        .await;
+    assert_eq!(result(&volume), ("The volume is 40%.", false));
+    let stopped = b.called(&group, a, "cancel_request", "").await;
+    assert_eq!(result(&stopped), ("Stopped.", false));
+    assert_eq!(b.brain.commands(), ["SetVolume(40)", "CancelForGroup"]);
+
+    // Control from the group still applies.
+    b.service.set_group_control(false).await.unwrap();
+    let off = b
+        .called(&group, a, "set_volume", r#"{"percent": 10}"#)
+        .await;
+    assert_eq!(
+        result(&off),
+        ("Control from the group is off on Kitchen.", true)
+    );
+}
+
+#[tokio::test]
+async fn a_member_in_home_assistant_mode_refuses_the_timer_tools_from_the_group() {
+    let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
+    let (a, b) = (&s[0], &s[1]);
+    grouped(&[a, b]).await;
+    let group = a.joined().unwrap();
+    b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
+
+    for (tool, arguments) in [
+        ("set_timer", r#"{"seconds": 300}"#),
+        ("list_timers", "{}"),
+        ("cancel_timer", r#"{"timer": "Tea"}"#),
+    ] {
+        let answer = b.called(&group, a, tool, arguments).await;
+        assert_eq!(
+            result(&answer),
+            (
+                "Timers on Kitchen are Home Assistant's: it is in Home Assistant mode.",
+                true
+            ),
+            "{tool}"
+        );
+    }
+    assert!(b.brain.commands().is_empty());
+}
+
+#[tokio::test]
 async fn deliver_refuses_with_a_signed_reason_in_the_owners_order() {
     let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
     let (a, b) = (&s[0], &s[1]);
@@ -1876,17 +1949,11 @@ async fn deliver_refuses_with_a_signed_reason_in_the_owners_order() {
         reason.to_owned()
     };
 
-    // Everything wrong at once: the mode comes first.
+    // Everything wrong at once: Group messages comes first.
     b.status.send_modify(|s| {
-        s.mode = Mode::HomeAssistant;
         s.settings.group_messages = Some(false);
         s.assist.slots.tts = false;
     });
-    assert_eq!(
-        refused("").await,
-        "Kitchen is in Home Assistant mode and takes no messages."
-    );
-    b.status.send_modify(|s| s.mode = Mode::Standalone);
     assert_eq!(
         refused("").await,
         "Kitchen has Group messages switched off."
@@ -2201,7 +2268,7 @@ async fn neither_the_key_nor_a_message_leaves_in_a_view_an_answer_or_a_log_line(
 }
 
 #[tokio::test]
-async fn send_message_is_offered_only_with_another_member_in_standalone_mode() {
+async fn send_message_is_offered_once_another_members_mode_is_known() {
     let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
     let (a, b) = (&s[0], &s[1]);
     assert!(!offered(a).await, "in no group");
@@ -2217,7 +2284,7 @@ async fn send_message_is_offered_only_with_another_member_in_standalone_mode() {
         a.group.peer(&b.mac).unwrap().mode,
         Some(Mode::HomeAssistant)
     );
-    assert!(!offered(a).await);
+    assert!(offered(a).await, "a member in Home Assistant mode counts");
 
     b.status.send_modify(|s| s.mode = Mode::Standalone);
     a.exchange(None).await;
@@ -2274,13 +2341,14 @@ async fn send_message_to_all_says_what_each_member_did() {
             "Kitchen: played now.\n\
              Office: held until it is free.\n\
              Porch: refused: Porch has Group messages switched off.\n\
-             Attic is in Home Assistant mode, out of reach.\n\
+             Attic: played now.\n\
              Cellar: unreachable."
         )
     );
     assert_eq!(b.brain.took().len(), 1);
     assert_eq!(c.brain.took().len(), 1);
-    for sat in [d, e, f] {
+    assert_eq!(e.brain.took().len(), 1, "Attic is in Home Assistant mode");
+    for sat in [d, f] {
         assert!(sat.brain.took().is_empty(), "{}", sat.name);
     }
 }
@@ -2507,12 +2575,12 @@ async fn the_brain_names_another_member_only_in_a_group_and_mcp_stays_as_it_is()
     assert_eq!(mcp().await, alone);
     assert!(!alone.contains(r#""satellite""#), "{alone}");
 
-    // With no other member in standalone mode, the brain is as before.
+    // Members in Home Assistant mode count: the brain has the same tools.
     for sat in [b, c] {
         sat.status.send_modify(|s| s.mode = Mode::HomeAssistant);
     }
     a.exchange(None).await;
-    assert_eq!(specs(&tools_on(a, Surface::Run)).await, plain);
+    assert_eq!(specs(&tools_on(a, Surface::Run)).await, in_group);
     assert_eq!(mcp().await, alone);
 }
 
@@ -2650,7 +2718,7 @@ async fn no_satellite_or_this_ones_name_runs_the_tool_here() {
 }
 
 #[tokio::test]
-async fn a_run_whose_tools_named_members_still_takes_satellite_once_none_is_in_reach() {
+async fn a_run_whose_tools_named_members_still_takes_satellite_once_the_group_is_gone() {
     let s = Sat::switched_on(&["Hall", "Kitchen"]).await;
     let (a, b) = (&s[0], &s[1]);
     grouped(&[a, b]).await;
@@ -2667,20 +2735,6 @@ async fn a_run_whose_tools_named_members_still_takes_satellite_once_none_is_in_r
         ToolOutput::error("set_volume has no argument satellite.")
     );
 
-    // Kitchen switches to Home Assistant mode while the request runs.
-    b.status.send_modify(|s| s.mode = Mode::HomeAssistant);
-    a.exchange(None).await;
-
-    for (tool, args) in [
-        ("set_volume", json!({"percent": 30, "satellite": "Kitchen"})),
-        ("cancel_request", json!({"satellite": "Kitchen"})),
-    ] {
-        assert_eq!(
-            tools.call(tool, args).await,
-            ToolOutput::error("Kitchen is in Home Assistant mode, out of reach."),
-            "{tool}"
-        );
-    }
     // No name, or this satellite's, runs here, also once the group is gone.
     let id = a.joined().unwrap().id;
     for gone in [false, true] {
@@ -2732,7 +2786,6 @@ async fn the_brain_is_told_why_a_member_isnt_called() {
     let s = Sat::switched_on(&["Hall", "Kitchen", "Office", "Porch"]).await;
     let (a, b, c, d) = (&s[0], &s[1], &s[2], &s[3]);
     grouped(&[a, b, c, d]).await;
-    c.status.send_modify(|s| s.mode = Mode::HomeAssistant);
     a.exchange(None).await;
     // The search lists Porch no more.
     a.finds(&[b, c]);
@@ -2760,10 +2813,6 @@ async fn the_brain_is_told_why_a_member_isnt_called() {
     assert_eq!(
         refused(json!({"percent": "loud", "satellite": "Kitchen"})).await,
         "percent must be a whole number."
-    );
-    assert_eq!(
-        refused(json!({"percent": 40, "satellite": "Office"})).await,
-        "Office is in Home Assistant mode, out of reach."
     );
     assert_eq!(
         refused(json!({"percent": 40, "satellite": "Porch"})).await,

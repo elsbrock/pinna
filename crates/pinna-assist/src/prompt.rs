@@ -100,7 +100,10 @@ fn context_block(ctx: &Context) -> String {
             .map(|m| match m.mode {
                 Some(MemberMode::Standalone) => format!("{} (standalone mode)", m.name),
                 Some(MemberMode::HomeAssistant) => {
-                    format!("{} (Home Assistant mode, out of reach)", m.name)
+                    format!(
+                        "{} (Home Assistant mode: takes messages and control, not timers)",
+                        m.name
+                    )
                 }
                 None => m.name.clone(),
             })
@@ -188,7 +191,7 @@ mod tests {
         assert!(
             prompt.ends_with(
                 "Satellite: Kitchen Dot.\nOther satellites in its group: Kitchen (standalone \
-                 mode), Office, Porch (Home Assistant mode, out of reach)."
+                 mode), Office, Porch (Home Assistant mode: takes messages and control, not timers)."
             ),
             "{prompt}"
         );

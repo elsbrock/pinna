@@ -1227,7 +1227,7 @@ export type Settings = Message<"pinna.v1.Settings"> & {
   /**
    * The satellite takes messages from the other members of its satellite
    * group (ADR 0026), Home Assistant's "Group messages" switch. On by
-   * default. It does nothing in Home Assistant mode or outside a group.
+   * default, in either mode. It does nothing outside a group.
    *
    * @generated from field: bool group_messages = 18;
    */

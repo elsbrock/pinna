@@ -79,8 +79,9 @@ export type PeerSender = Message<"pinna.v1.PeerSender"> & {
 
   /**
    * Its mode, here and not in the mDNS record, so a mode change doesn't
-   * restart systemd-resolved (ADR 0024). The group works in standalone mode
-   * only; a sender that leaves it out reads as Home Assistant mode.
+   * restart systemd-resolved (ADR 0024). A member in Home Assistant mode
+   * takes messages and calls, except timers, and sends none; a sender that
+   * leaves it out reads as Home Assistant mode.
    *
    * @generated from field: pinna.v1.Mode mode = 2;
    */
