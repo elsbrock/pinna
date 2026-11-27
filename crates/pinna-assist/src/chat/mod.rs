@@ -10,7 +10,7 @@ use futures_core::{
     future::BoxFuture,
     stream::{BoxStream, Stream},
 };
-use futures_util::{StreamExt, stream};
+use futures_util::{FutureExt as _, StreamExt, stream};
 use pinna_http::{SseDecoder, SseEvent, reqwest};
 use pinna_mcp::{ToolCall, ToolSpec};
 use reqwest::Response;
@@ -202,6 +202,13 @@ where
                 match parser(event) {
                     Ok(deltas) => {
                         done = deltas.iter().any(|delta| matches!(delta, ChatDelta::End));
+                        if done {
+                            // The caller stops reading at the end, so the
+                            // body's own end isn't read. Take it if it is
+                            // already there, so the debugging timeline shows
+                            // the request as done, not stopped.
+                            let _ = events.next().now_or_never();
+                        }
                         pending.extend(deltas);
                     }
                     Err(error) => {
