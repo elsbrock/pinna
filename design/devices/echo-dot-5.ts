@@ -1,6 +1,6 @@
 // The Echo Dot (5th gen) in three-quarter view, as SVG markup: a sphere of
-// fabric cut flat at the top for the buttons and at the bottom, where it
-// stands. The ring is a band of frosted white plastic round the sphere's
+// fabric with its buttons in the fabric at the top, cut flat at the bottom,
+// where it stands. The ring is a band of frosted white plastic round the sphere's
 // lowest stretch, just above the bottom cut, as the other Echos have one
 // round their top: the 12 LEDs only show as diffused light inside it, and a
 // little of it spills onto the surface the satellite stands on. The LED
@@ -51,32 +51,51 @@ const band =
   `A${f(BOTTOM.r)} ${f(BOTTOM.ry)} 0 0 1 ${f(CX - BOTTOM.r)} ${f(BOTTOM.y)} ` +
   `A${RS} ${RS} 0 0 1 ${f(CX - BAND_TOP.r)} ${f(BAND_TOP.y)} Z`;
 
-// Fabric: the front halves of latitude circles as rows of dots, squeezed by
-// how far the sphere turns away from the viewer.
-const WEAVE = { row: 4.4, size: 2.2, step: 6 };
-const LATS = Math.floor(80 / WEAVE.step);
-const weave = Array.from({ length: 2 * LATS + 1 }, (_, k) => {
-  const lat = ((k - LATS) * WEAVE.step * Math.PI) / 180;
-  const r = RS * Math.cos(lat);
-  const cy = CY - RS * Math.sin(lat) * COS;
-  return `<path class="mesh" d="M${(CX - r).toFixed(2)} ${cy.toFixed(2)} A${r.toFixed(2)} ${(r * TILT).toFixed(2)} 0 0 0 ${(CX + r).toFixed(2)} ${cy.toFixed(2)}"/>`;
-}).join("");
+// Fabric: a fine plain weave over all of the sphere you see, on the diagonal.
+// In a tile `KNIT` units wide, each quarter holds one thread passing over,
+// across in two and along in the other two, over dark gaps; a thin highlight
+// rounds each. Towards the outline the weave fades into the shading, as
+// fabric that turns away does.
+const KNIT = 3;
+const Q = KNIT / 4;
+const threads =
+  `M${Q * 0.4} ${Q}H${Q * 1.6}M${Q * 3} ${Q * 0.4}V${Q * 1.6}` +
+  `M${Q} ${Q * 2.4}V${Q * 3.6}M${Q * 2.4} ${Q * 3}H${Q * 3.6}`;
 
-// The flat top, where the buttons are: an ellipse near the apex, drawn top-down
-// in a local 100x100 box (front = bottom) and squashed like the floor.
-const TOP = { r: 38, y: CY - RS * COS + 12 };
-const TOP_S = TOP.r / 49;
-const topTransform = `translate(${CX - 50 * TOP_S} ${TOP.y - 50 * TOP_S * TILT}) scale(${TOP_S} ${TOP_S * TILT})`;
-const polar = (r: number, deg: number) => {
-  const rad = (deg * Math.PI) / 180;
-  return { x: 50 + r * Math.sin(rad), y: 50 - r * Math.cos(rad) };
+// The buttons are in the fabric round the top: each a faint raised patch with
+// its symbol, laid on the sphere `BUTTON.from` degrees from the middle of the
+// group. Each is drawn in a local box (y towards the front) mapped onto the
+// sphere's tangent plane at its centre, so the ones further round lean away.
+// The group sits `BUTTON.forward` degrees in front of the apex: from 20
+// degrees above, a button behind the apex would be on the outline.
+const BUTTON = { from: 12, forward: 8, r: 9, scale: 0.78 };
+type Vec = [number, number, number];
+const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const along = (v: Vec, n: Vec): Vec => {
+  const d = dot(v, n);
+  const t: Vec = [v[0] - d * n[0], v[1] - d * n[1], v[2] - d * n[2]];
+  const l = Math.sqrt(dot(t, t));
+  return [t[0] / l, t[1] / l, t[2] / l];
 };
-// Clockwise from the back: action, volume down, microphone off, volume up.
+// x right, y up, z towards the viewer, onto the viewBox.
+const screen = (v: Vec) => [v[0], -v[1] * COS + v[2] * TILT];
+const onSphere = (deg: number) => {
+  const lat = ((90 - BUTTON.from) * Math.PI) / 180;
+  const lon = (deg * Math.PI) / 180;
+  const tip = (BUTTON.forward * Math.PI) / 180;
+  const [x, y, z] = [Math.cos(lat) * Math.sin(lon), Math.sin(lat), Math.cos(lat) * Math.cos(lon)];
+  const n: Vec = [x, y * Math.cos(tip) - z * Math.sin(tip), y * Math.sin(tip) + z * Math.cos(tip)];
+  const [a, b] = screen(along([1, 0, 0], n)).map((c) => c * BUTTON.scale);
+  const [c, d] = screen(along([0, 0, 1], n)).map((c) => c * BUTTON.scale);
+  const [e, g] = screen(n).map((c) => c * RS);
+  return `matrix(${[a, b, c, d, CX + e, CY + g].map(f).join(" ")})`;
+};
+// Round from the front: microphone off, volume down, action, volume up.
 const buttons = [
-  { at: polar(27, 0), glyph: "action" },
-  { at: polar(27, 90), glyph: "minus" },
-  { at: polar(27, 180), glyph: "mic-off" },
-  { at: polar(27, 270), glyph: "plus" },
+  { at: onSphere(0), glyph: "mic-off" },
+  { at: onSphere(90), glyph: "minus" },
+  { at: onSphere(180), glyph: "action" },
+  { at: onSphere(270), glyph: "plus" },
 ] as const;
 
 const GLYPHS: Record<(typeof buttons)[number]["glyph"], string> = {
@@ -141,27 +160,26 @@ export function svg(id: string, effect: Effect = "idle"): string {
     `<filter id="${id}-shadow" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>` +
     `<filter id="${id}-glow" x="-30%" y="-80%" width="160%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>` +
     `<filter id="${id}-diffuse" x="-10%" y="-40%" width="120%" height="180%"><feGaussianBlur stdDeviation="1.6"/></filter>` +
+    `<pattern id="${id}-knit" patternUnits="userSpaceOnUse" width="${KNIT}" height="${KNIT}" patternTransform="rotate(45 ${CX} ${CY})">` +
+    `<rect class="knit-gap" width="${KNIT}" height="${KNIT}"/>` +
+    `<path class="knit" d="${threads}"/><path class="knit-hi" d="${threads}"/></pattern>` +
+    `<radialGradient id="${id}-knit-fade" gradientUnits="userSpaceOnUse" cx="${CX}" cy="${CY}" r="${RS}">` +
+    `<stop offset="0.55" stop-color="#fff"/><stop offset="1" stop-color="#333"/></radialGradient>` +
+    `<mask id="${id}-knit-mask"><path d="${sphere}" fill="url(#${id}-knit-fade)"/></mask>` +
     `<clipPath id="${id}-ball-clip"><path d="${sphere}"/></clipPath>` +
     `<clipPath id="${id}-band"><path d="${band}"/></clipPath>` +
     `</defs>` +
     `<ellipse class="shadow" cx="${CX}" cy="${f(BOTTOM.y + 4)}" rx="${f(BOTTOM.r + 10)}" ry="${f(BOTTOM.ry + 4)}" filter="url(#${id}-shadow)"/>` +
     `<g filter="url(#${id}-glow)"><g transform="${floorTransform}">${led("led-glow", GLOW, "data-glow", 14)}</g></g>` +
     `<path class="body" d="${sphere}" fill="url(#${id}-ball)"/>` +
-    `<g clip-path="url(#${id}-ball-clip)" stroke-width="${WEAVE.size}" stroke-dasharray="0 ${WEAVE.row}">${weave}</g>` +
+    `<path d="${sphere}" fill="url(#${id}-knit)" mask="url(#${id}-knit-mask)"/>` +
     `<path d="${sphere}" fill="url(#${id}-sheen)"/>` +
     `<path class="band-side" d="${band}"/>` +
     `<g clip-path="url(#${id}-band)"><g filter="url(#${id}-diffuse)"><g transform="${bandTransform}">${led("led", 1, "data-led", LED_W)}</g></g></g>` +
     `<path d="${band}" fill="url(#${id}-band-shade)"/>` +
-    `<g transform="${topTransform}">` +
-    `<circle class="top" cx="50" cy="50" r="49"/>` +
-    `<circle class="rim" cx="50" cy="50" r="48.6" vector-effect="non-scaling-stroke"/>` +
-    `<circle class="hole" cx="50" cy="50" r="1.2"/>` +
     buttons
-      .map(
-        ({ at, glyph }) =>
-          `<g transform="translate(${at.x} ${at.y})"><circle class="button" r="9" vector-effect="non-scaling-stroke"/>${GLYPHS[glyph]}</g>`,
-      )
+      .map(({ at, glyph }) => `<g transform="${at}"><circle class="press" r="${BUTTON.r}"/>${GLYPHS[glyph]}</g>`)
       .join("") +
-    `</g></svg>`
+    `</svg>`
   );
 }
