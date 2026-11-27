@@ -67,6 +67,53 @@ pub fn left_from_last_boot() -> bool {
     }
 }
 
+/// Whether a start counts yet: the bridge ready, with the Wi-Fi up, for
+/// [`SETTLE`]. Once per start: the bridge repeats its report every 15 s, and
+/// each repeat used to start the wait again, so pinnad logged the start as
+/// counted every 31 s for as long as Bluetooth ran.
+#[derive(Debug, Default)]
+pub struct Settle {
+    since: Option<std::time::Instant>,
+    done: bool,
+}
+
+impl Settle {
+    /// Bluetooth started or was switched: the next start has to count again.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The bridge's report: ready (and without an error) or not.
+    pub fn report(&mut self, ready: bool, now: std::time::Instant) {
+        if self.done {
+            return;
+        }
+        if ready {
+            self.since.get_or_insert(now);
+        } else {
+            self.since = None;
+        }
+    }
+
+    /// True once, when the start has run for [`SETTLE`] with the Wi-Fi up.
+    /// The Wi-Fi going down starts the wait again with the next report.
+    pub fn tick(&mut self, wifi_up: bool, now: std::time::Instant) -> bool {
+        let Some(since) = self.since else {
+            return false;
+        };
+        if !wifi_up {
+            self.since = None;
+            return false;
+        }
+        if now.saturating_duration_since(since) < SETTLE {
+            return false;
+        }
+        self.since = None;
+        self.done = true;
+        true
+    }
+}
+
 /// A paired phone, as the bridge reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
@@ -325,6 +372,46 @@ mod tests {
         assert_eq!(r.pairing_until_ms, 42);
         assert!(r.pairing_until.is_some());
         assert_eq!(r.devices.len(), 1);
+    }
+
+    #[test]
+    fn a_start_counts_once_however_often_the_bridge_reports() {
+        let t0 = std::time::Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut s = Settle::default();
+        s.report(true, at(0));
+        assert!(!s.tick(true, at(29)));
+        assert!(
+            s.tick(true, at(30)),
+            "counts after SETTLE with the Wi-Fi up"
+        );
+        // The bridge repeats its report every 15 s.
+        for k in 1..20 {
+            s.report(true, at(30 + 15 * k));
+            assert!(
+                !s.tick(true, at(30 + 15 * k + 30)),
+                "counted again at report {k}"
+            );
+        }
+        // Switched off and on: the new start has to count.
+        s.reset();
+        s.report(true, at(400));
+        assert!(s.tick(true, at(430)));
+    }
+
+    #[test]
+    fn a_start_counts_only_with_the_wifi_up_and_the_bridge_ready() {
+        let t0 = std::time::Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut s = Settle::default();
+        s.report(true, at(0));
+        assert!(!s.tick(false, at(5)), "Wi-Fi down");
+        assert!(!s.tick(true, at(40)), "the wait starts again with a report");
+        s.report(true, at(45));
+        s.report(false, at(60));
+        assert!(!s.tick(true, at(80)), "the bridge stopped being ready");
+        s.report(true, at(90));
+        assert!(s.tick(true, at(120)));
     }
 
     #[test]

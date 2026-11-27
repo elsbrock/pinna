@@ -682,9 +682,9 @@ pub struct Brain {
     bt_pairing_until: Option<(Instant, std::time::SystemTime)>,
     /// Why Bluetooth didn't start at boot, if it was skipped.
     bt_skipped: Option<String>,
-    /// Since when the bridge has been ready with the Wi-Fi up, until the
-    /// start counts and the marker goes (`bluetooth::SETTLE`).
-    bt_ready_since: Option<Instant>,
+    /// Whether this start counts yet, after which the marker goes
+    /// (`bluetooth::SETTLE`).
+    bt_settle: crate::bluetooth::Settle,
     /// The Sendspin player (ADR 0027), started in `run`.
     sendspin: Option<crate::sendspin::Handle>,
     /// The player as it is: from the service once `run` starts it.
@@ -855,7 +855,7 @@ impl Brain {
             bt_bridge: Default::default(),
             bt_pairing_until: None,
             bt_skipped: None,
-            bt_ready_since: None,
+            bt_settle: Default::default(),
             sendspin: None,
             sendspin_report,
             sendspin_available,
@@ -2890,7 +2890,7 @@ impl Brain {
             self.settings.bluetooth = on;
             self.store.save(&self.settings);
             self.bt_skipped = None;
-            self.bt_ready_since = None;
+            self.bt_settle.reset();
             if !on {
                 self.bt_pairing_until = None;
                 self.bt_bridge = Default::default();
@@ -2955,11 +2955,8 @@ impl Brain {
             tracing::info!("bluetooth: a phone paired; closing the pairing window");
             self.bt_pairing_until = None;
         }
-        if bridge.ready && bridge.error.is_empty() {
-            self.bt_ready_since.get_or_insert_with(Instant::now);
-        } else {
-            self.bt_ready_since = None;
-        }
+        self.bt_settle
+            .report(bridge.ready && bridge.error.is_empty(), Instant::now());
         self.bt_bridge = bridge;
     }
 
@@ -3610,15 +3607,10 @@ impl Brain {
             tracing::info!("bluetooth: pairing window closed");
             self.bt_pairing_until = None;
         }
-        if let Some(since) = self.bt_ready_since {
-            if !crate::bluetooth::wifi_ok() {
-                self.bt_ready_since = None;
-            } else if now - since >= crate::bluetooth::SETTLE {
-                // The start counts: it runs, and the network with it.
-                self.bt_ready_since = None;
-                let _ = std::fs::remove_file(crate::bluetooth::MARKER);
-                tracing::info!("bluetooth: running with the Wi-Fi up");
-            }
+        if self.bt_settle.tick(crate::bluetooth::wifi_ok(), now) {
+            // The start counts: it runs, and the network with it.
+            let _ = std::fs::remove_file(crate::bluetooth::MARKER);
+            tracing::info!("bluetooth: running with the Wi-Fi up");
         }
         if self.local.run.is_none() {
             match self.phase {
