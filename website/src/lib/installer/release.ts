@@ -1,6 +1,7 @@
 // Recognise the release files the user picked (ADR 0016): by their SHA-256
 // against the release's SHA256SUMS, not by their names, because browsers
 // rename repeated downloads ("pinna-boot (1).img").
+import type { ModelId } from "./device.ts";
 
 /** The parts of a File this code uses; the tests pass Node's File. */
 export type PickedFile = { name: string; size: number; arrayBuffer(): Promise<ArrayBuffer>; text(): Promise<string> };
@@ -14,13 +15,27 @@ export type ReleaseImage = {
   bytes: Uint8Array;
 };
 
-export type Release = { version: string | null; boot: ReleaseImage; root: ReleaseImage };
+export type Release = {
+  version: string | null;
+  /** The model the files are for: the boot image, and the tool, differ by model. */
+  model: ModelId;
+  boot: ReleaseImage;
+  root: ReleaseImage;
+  /** pinna-bootctl for the device, which the Echo Dot (5th gen)'s install runs in TWRP. */
+  bootctl: ReleaseImage | null;
+};
 
 export type Match = { release: Release | null; problems: string[] };
 
 const SUMS_MAX = 64 * 1024;
-const BOOT_NAME = "pinna-boot.img";
 const ROOT_NAME = /^pinna-(.+)\.root\.img$/;
+
+/** The release's files, by their names in SHA256SUMS, that each model needs beside the root. */
+export const MODEL_FILES: Record<ModelId, { boot: string; bootctl: string | null }> = {
+  "echo-dot-2": { boot: "pinna-boot.img", bootctl: null },
+  "echo-2": { boot: "pinna-boot.img", bootctl: null },
+  "echo-dot-5": { boot: "pinna-boot-mt8519.itb", bootctl: "pinna-bootctl-armv7" },
+};
 
 /** SHA256SUMS as a map from hash to name, or null if the text isn't one. */
 export function parseSums(text: string): Map<string, string> | null {
@@ -40,10 +55,13 @@ export async function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 /**
- * Find SHA256SUMS among `files`, and the boot and root image it lists. Other
- * files of the release (manifest.json, flash-gen2.sh) are ignored.
+ * Find SHA256SUMS among `files`, and the files it lists that `model` needs:
+ * the root, the model's boot image, and for the Echo Dot (5th gen)
+ * pinna-bootctl. Other files of the release (manifest.json, flash-gen2.sh)
+ * are ignored.
  */
-export async function matchRelease(files: PickedFile[], onFile: (name: string) => void = () => {}): Promise<Match> {
+export async function matchRelease(files: PickedFile[], model: ModelId, onFile: (name: string) => void = () => {}): Promise<Match> {
+  const want = MODEL_FILES[model];
   const problems: string[] = [];
   const sumsFiles: { file: PickedFile; sums: Map<string, string> }[] = [];
   const others: PickedFile[] = [];
@@ -63,6 +81,7 @@ export async function matchRelease(files: PickedFile[], onFile: (name: string) =
 
   let boot: ReleaseImage | null = null;
   let root: ReleaseImage | null = null;
+  let bootctl: ReleaseImage | null = null;
   for (const file of others) {
     onFile(file.name);
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -73,13 +92,15 @@ export async function matchRelease(files: PickedFile[], onFile: (name: string) =
       continue;
     }
     const image = { name, picked: file.name, sha256: hash, bytes };
-    if (name === BOOT_NAME) boot = image;
+    if (name === want.boot) boot = image;
+    else if (name === want.bootctl) bootctl = image;
     else if (ROOT_NAME.test(name)) root = image;
   }
 
   const listed = [...sums.values()];
-  if (!boot) problems.push(`Add ${listed.find((n) => n === BOOT_NAME) ?? BOOT_NAME} from the same release.`);
+  if (!boot) problems.push(`Add ${want.boot} from the same release.`);
   if (!root) problems.push(`Add ${listed.find((n) => ROOT_NAME.test(n)) ?? "pinna-<version>.root.img"} from the same release.`);
-  if (!boot || !root || problems.length > 0) return { release: null, problems };
-  return { release: { version: ROOT_NAME.exec(root.name)?.[1] ?? null, boot, root }, problems: [] };
+  if (want.bootctl && !bootctl) problems.push(`Add ${want.bootctl} from the same release.`);
+  if (!boot || !root || (want.bootctl && !bootctl) || problems.length > 0) return { release: null, problems };
+  return { release: { version: ROOT_NAME.exec(root.name)?.[1] ?? null, model, boot, root, bootctl }, problems: [] };
 }

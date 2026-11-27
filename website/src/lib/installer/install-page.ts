@@ -1,13 +1,28 @@
-// /install/ (ADR 0016): check a device in fastboot, then install Pinna on it.
-import { assess, formatReport, identify, maskSerial, MODELS, PARTITIONS, type Assessment, type Bootloader, type DeviceReport, type ModelId } from "./device.ts";
+// /install/ (ADR 0016): check a device in fastboot, or an Echo Dot (5th gen)
+// in TWRP, then install Pinna on it.
+import { Adb, AdbError } from "./adb.ts";
+import {
+  assess,
+  formatReport,
+  identify,
+  maskSerial,
+  MODEL_NAMES,
+  PARTITIONS,
+  type Assessment,
+  type Bootloader,
+  type DeviceReport,
+  type FastbootModelId,
+  type ModelId,
+} from "./device.ts";
 import { Fastboot, FastbootError } from "./fastboot.ts";
+import { assessTwrp, CommandError, formatTwrpReport, identifyTwrp, installTwrp, type TwrpReport } from "./twrp.ts";
 import { install, InstallError, plan, type Progress } from "./install.ts";
 import { DownloadError, fetchManifest, fetchRelease, parseKey, type Channel } from "./download.ts";
 import { matchRelease, type Release } from "./release.ts";
 
 /** keys/release.pub, put in at build time (astro.config.mjs). */
 declare const __PINNA_RELEASE_KEY__: string;
-import { ConnectError, requestFastbootDevice, webUsb, WebUsbTransport, type UsbDevice } from "./webusb.ts";
+import { ConnectError, FASTBOOT_FILTERS, requestDevice, TWRP_FILTERS, webUsb, WebUsbTransport, type UsbDevice } from "./webusb.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -58,6 +73,17 @@ const NEXT: Record<Assessment["state"], string> = {
   stop: "Unplug the device; it starts as before. If the result looks wrong, open an issue with the report below.",
 };
 
+/** What the check found: a device in fastboot, or an Echo Dot (5th gen) in TWRP. */
+type Checked =
+  | { kind: "fastboot"; report: DeviceReport; assessment: Assessment; model: FastbootModelId }
+  | { kind: "twrp"; report: TwrpReport; assessment: Assessment; model: "echo-dot-5" };
+
+/** Where to start again after the device went away, by how the model connects. */
+const RESTART: Record<Checked["kind"], string> = {
+  fastboot: "start it in fastboot again (step 3)",
+  twrp: "start TWRP again (step 3)",
+};
+
 /** Open the help entry (a <details>) that the address's #fragment names. */
 function openHelp(): void {
   const target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
@@ -102,7 +128,7 @@ export function startInstallPage(): void {
   let busy = false;
   let release: Release | null = null;
   let device: UsbDevice | null = null;
-  let checked: { report: DeviceReport; assessment: Assessment; model: ModelId } | null = null;
+  let checked: Checked | null = null;
   // Where the last attempt stopped: marks that step as failed.
   let failedAt: "check" | "install" | null = null;
   // Whether `release` came from Download (and so from the chosen channel).
@@ -115,14 +141,16 @@ export function startInstallPage(): void {
   const chosenModel = (): ModelId | null => {
     // Not FormData: it leaves out the radios while they are disabled.
     const value = form.querySelector<HTMLInputElement>('input[name="model"]:checked')?.value;
-    return value === "echo-dot-2" || value === "echo-2" ? value : null;
+    return value === "echo-dot-2" || value === "echo-2" || value === "echo-dot-5" ? value : null;
   };
 
   const sync = () => {
     const model = chosenModel();
     for (const input of form.querySelectorAll("input")) input.disabled = busy;
     connect.disabled = busy || model === null;
-    download.disabled = busy;
+    // The files differ by model: choose it first.
+    download.disabled = busy || model === null;
+    files.disabled = busy || model === null;
     if (!busy && !checked && status.textContent === "Choose your device first." && model) status.textContent = "";
     const ready = checked?.assessment.state === "ready";
     confirm.hidden = !ready;
@@ -187,23 +215,33 @@ export function startInstallPage(): void {
     (reportBox as HTMLDetailsElement).open = open;
   };
 
-  const failureReport = (model: ModelId | null, stage: string, step: string, error: unknown, report: DeviceReport | null) =>
+  /** The check's report for the device the page read last, as text. */
+  const deviceText = (found: Checked) =>
+    found.kind === "twrp"
+      ? formatTwrpReport(found.report, found.assessment, browserName())
+      : formatReport(found.report, found.model, found.assessment, browserName());
+
+  const failureReport = (model: ModelId | null, stage: string, step: string, error: unknown, found: Checked | null) =>
     [
       "Pinna install page",
-      `model (chosen): ${model ? MODELS[model].name : "(none)"}`,
+      `model (chosen): ${model ? MODEL_NAMES[model] : "(none)"}`,
       `stopped while: ${stage}${step ? `: ${step}` : ""}`,
       `error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
-      ...(report && model ? ["", formatReport(report, model, assess(report, model), browserName())] : [`browser: ${browserName()}`]),
+      ...(error instanceof CommandError && error.output.trim() ? [`output: ${error.output.trim().split("\n").slice(-5).join(" / ")}`] : []),
+      ...(found ? ["", deviceText(found)] : [`browser: ${browserName()}`]),
     ].join("\n");
 
   /** Explain a failure, with a report to paste. */
-  const explain = (error: unknown, model: ModelId | null, stage: string, step: string, report: DeviceReport | null) => {
+  const explain = (error: unknown, model: ModelId | null, stage: string, step: string, found: Checked | null) => {
     failedAt = stage === "install" ? "install" : "check";
     $(`install-outcome-${failedAt}`).append(problem, reportBox);
     reportOpen(true);
     const os = platform();
-    const gone = error instanceof FastbootError && (error.kind === "timeout" || (error.kind === "transport" && /disconnect/i.test(error.message)));
-    if (error instanceof ConnectError && (os === "windows" && error.problem !== "not-fastboot")) {
+    const twrp = model === "echo-dot-5";
+    const gone =
+      ((error instanceof FastbootError || error instanceof AdbError) && error.kind === "timeout") ||
+      ((error instanceof FastbootError || error instanceof AdbError) && error.kind === "transport" && /disconnect/i.test(error.message));
+    if (error instanceof ConnectError && os === "windows" && error.problem !== "not-fastboot" && error.problem !== "not-adb") {
       showProblem("The browser can't use the device", "Windows may have no WinUSB driver for it, or another program uses it.", { href: "#windows", label: "Windows needs the WinUSB driver" });
     } else if (error instanceof ConnectError && error.problem === "permission") {
       showProblem(
@@ -213,43 +251,70 @@ export function startInstallPage(): void {
       );
     } else if (error instanceof ConnectError && error.problem === "busy") {
       showProblem("Another program uses the device", "Close it and connect again.", { href: "#busy", label: "Another program uses the device" });
+    } else if (error instanceof ConnectError && error.problem === "not-adb") {
+      showProblem("This isn't TWRP", "Start TWRP as described in step 3, and connect again.");
     } else if (error instanceof ConnectError) {
       showProblem("This isn't a device in fastboot", "Start the device in fastboot as described in step 3, and connect again.");
     } else if (gone) {
       showProblem(
         "The device doesn't answer, or went away",
         stage === "install"
-          ? `The page stopped${step ? ` at “${step}”` : ""} and sent nothing more. Unplug the device, start it in fastboot again (step 3), and connect again (step 4).`
+          ? `The page stopped${step ? ` at “${step}”` : ""} and sent nothing more. Unplug the device, ${RESTART[twrp ? "twrp" : "fastboot"]}, and connect again (step 4).`
           : "The page stopped and sent nothing more.",
         { href: "#no-reply", label: "The device doesn't answer, or goes away" },
       );
+    } else if (error instanceof AdbError && error.kind === "auth") {
+      showProblem(
+        "TWRP asks for an adb key",
+        "This page can't answer it. firebreak's TWRP for the Echo Dot (5th gen) doesn't ask for one, so this may be another build. Install from a terminal instead.",
+      );
+    } else if (error instanceof AdbError && error.kind === "unsupported") {
+      showProblem("TWRP's adb is too old for this page", `${sentence(error.message)} Install from a terminal instead.`);
     } else if (error instanceof FastbootError && error.kind === "fail" && stage === "install") {
       showProblem("The device refused a write", `${step ? `${step}: it` : "It"} answered ${JSON.stringify(error.message)}. Nothing after that step was written.`);
+    } else if (error instanceof CommandError) {
+      showProblem("The device refused a step", `${error.step}: ${error.message}`);
     } else if (error instanceof InstallError) {
       showProblem("Pinna can't be installed on this device", error.message);
     } else {
       showProblem("The page stopped", sentence(error instanceof Error ? error.message : String(error)));
     }
-    showReport(failureReport(model, stage, step, error, report), `Install page: ${stage} failed`);
+    showReport(failureReport(model, stage, step, error, found), `Install page: ${stage} failed`);
   };
 
-  const showResult = (report: DeviceReport, assessment: Assessment, model: ModelId) => {
+  const showResult = (found: Checked) => {
+    const { assessment, model } = found;
     result.dataset.tone = TONE[assessment.state];
     for (const icon of result.querySelectorAll<HTMLElement>("[data-icon]")) icon.hidden = icon.dataset.icon !== TONE[assessment.state];
     $("install-headline").textContent = assessment.headline;
     $("install-detail").textContent = assessment.detail;
-    $("install-next").textContent = NEXT[assessment.state];
-    const facts: [string, string][] = [
-      ["Model", MODELS[model].name],
-      ["Product", report.product],
-      ["Serial number", maskSerial(report.serial)],
-      ["Bootloader", bootloaderText(report.bootloader)],
-      ["LK build", report.lkBuild ?? "not reported"],
-      ...PARTITIONS.map((name): [string, string] => {
-        const size = report.partitions[name];
-        return [name, size === null ? "missing" : `${MiB(size)} MiB`];
-      }),
-    ];
+    $("install-next").textContent =
+      found.kind === "twrp" && assessment.state === "stop"
+        ? "To leave TWRP, unplug the power and plug it in again. If the result looks wrong, open an issue with the report below."
+        : NEXT[assessment.state];
+    const facts: [string, string][] =
+      found.kind === "twrp"
+        ? [
+            ["Model", MODEL_NAMES[model]],
+            ["Serial number", maskSerial(found.report.serial)],
+            ["TWRP", found.report.twrp ?? "not reported"],
+            ["Device type", found.report.deviceTypeId ?? "not reported"],
+            ...["boot_a", "system_a", "misc"].map((name): [string, string] => {
+              const v = found.report.volumes.find((x) => x.name === name);
+              return [name, v ? `${MiB(v.bytes)} MiB` : "missing"];
+            }),
+          ]
+        : [
+            ["Model", MODEL_NAMES[model]],
+            ["Product", found.report.product],
+            ["Serial number", maskSerial(found.report.serial)],
+            ["Bootloader", bootloaderText(found.report.bootloader)],
+            ["LK build", found.report.lkBuild ?? "not reported"],
+            ...PARTITIONS.map((name): [string, string] => {
+              const size = found.report.partitions[name];
+              return [name, size === null ? "missing" : `${MiB(size)} MiB`];
+            }),
+          ];
     $("install-facts").replaceChildren(
       ...facts.flatMap(([term, value]) => {
         const dt = document.createElement("dt");
@@ -264,8 +329,11 @@ export function startInstallPage(): void {
     result.hidden = false;
     $("install-outcome-check").append(reportBox);
     reportOpen(assessment.state !== "ready");
-    showReport(formatReport(report, model, assessment, browserName()), `Device check: ${report.product}, ${assessment.state}`);
-    $("install-agree-text").textContent = `I want to erase this ${MODELS[model].name} (${maskSerial(report.serial)}) and install Pinna on it.`;
+    showReport(deviceText(found), `Device check: ${found.kind === "twrp" ? "Echo Dot (5th gen)" : found.report.product}, ${assessment.state}`);
+    $("install-agree-text").textContent =
+      found.kind === "twrp"
+        ? `I want to replace Fire OS in slot A of this ${MODEL_NAMES[model]} (${maskSerial(found.report.serial)}) with Pinna.`
+        : `I want to erase this ${MODEL_NAMES[model]} (${maskSerial(found.report.serial)}) and install Pinna on it.`;
   };
 
   form.addEventListener("change", (event) => {
@@ -273,10 +341,17 @@ export function startInstallPage(): void {
     if (busy || event.target === agree) return;
     const name = (event.target as HTMLInputElement).name;
     if (name === "model") {
-      // Another model: what the page found no longer applies.
+      // Another model: what the page found no longer applies, nor files for another model.
       clearOutcome();
       device = null;
       status.textContent = "";
+      if (release && release.model !== chosenModel()) {
+        release = null;
+        downloaded = false;
+        files.value = "";
+        $("install-download-status").replaceChildren();
+        $("install-files-status").replaceChildren();
+      }
     } else if (name === "channel") {
       showLatest();
       if (downloaded) {
@@ -312,7 +387,8 @@ export function startInstallPage(): void {
 
   // The release service (ADR 0022): signature and files checked here.
   download.addEventListener("click", async () => {
-    if (busy) return;
+    const model = chosenModel();
+    if (busy || !model) return;
     const list = $("install-download-status");
     const channel = chosenChannel();
     release = null;
@@ -327,6 +403,7 @@ export function startInstallPage(): void {
     };
     try {
       const got = await fetchRelease(channel, parseKey(__PINNA_RELEASE_KEY__), {
+        model,
         progress: (text) => list.replaceChildren(line(text, "muted")),
       });
       release = got;
@@ -336,6 +413,7 @@ export function startInstallPage(): void {
         ...(got.summary ? [line(got.summary, "muted")] : []),
         line(`${got.root.name} (${MiB(got.root.bytes.length)} MiB), checked`, "ok"),
         line(`${got.boot.name} (${MiB(got.boot.bytes.length)} MiB), checked`, "ok"),
+        ...(got.bootctl ? [line(`${got.bootctl.name} (${MiB(got.bootctl.bytes.length)} MiB), checked`, "ok")] : []),
       );
     } catch (error) {
       const text = error instanceof DownloadError ? error.message : `The download failed: ${String(error)}. Try again, or download the files and choose them below.`;
@@ -351,7 +429,8 @@ export function startInstallPage(): void {
     release = null;
     $("install-download-status").replaceChildren();
     list.replaceChildren();
-    if (!files.files || files.files.length === 0) return sync();
+    const model = chosenModel();
+    if (!files.files || files.files.length === 0 || !model) return sync();
     busy = true;
     sync();
     const item = (text: string, tone: "ok" | "danger" | "muted") => {
@@ -361,7 +440,7 @@ export function startInstallPage(): void {
       return li;
     };
     try {
-      const match = await matchRelease([...files.files], (name) => list.replaceChildren(item(`Checking ${name}`, "muted")));
+      const match = await matchRelease([...files.files], model, (name) => list.replaceChildren(item(`Checking ${name}`, "muted")));
       release = match.release;
       downloaded = false;
       if (release) {
@@ -369,6 +448,7 @@ export function startInstallPage(): void {
           item(`Pinna ${release.version ?? ""}`.trim() + ", checked against SHA256SUMS", "ok"),
           item(`${release.root.name} (${MiB(release.root.bytes.length)} MiB)`, "ok"),
           item(`${release.boot.name} (${MiB(release.boot.bytes.length)} MiB)`, "ok"),
+          ...(release.bootctl ? [item(`${release.bootctl.name} (${MiB(release.bootctl.bytes.length)} MiB)`, "ok")] : []),
         );
       } else {
         list.replaceChildren(...match.problems.map((p) => item(p, "danger")));
@@ -392,20 +472,27 @@ export function startInstallPage(): void {
     let transport: WebUsbTransport | null = null;
     let step = "";
     try {
-      const picked = await requestFastbootDevice(usb);
+      const twrp = model === "echo-dot-5";
+      const picked = await requestDevice(usb, twrp ? TWRP_FILTERS : FASTBOOT_FILTERS);
       if (!picked) {
         status.textContent = "No device chosen. If it wasn't in the list, see “The device isn't in the list” below.";
         return;
       }
       device = picked;
-      transport = await WebUsbTransport.open(picked);
-      const report = await identify(new Fastboot(transport), (s) => {
+      const progress = (s: string) => {
         step = s;
         status.textContent = `${s}…`;
-      });
-      const assessment = assess(report, model);
-      checked = { report, assessment, model };
-      showResult(report, assessment, model);
+      };
+      if (model === "echo-dot-5") {
+        transport = await WebUsbTransport.open(picked, "adb");
+        const report = await identifyTwrp(new Adb(transport), picked.serialNumber ?? null, progress);
+        checked = { kind: "twrp", report, assessment: assessTwrp(report), model };
+      } else {
+        transport = await WebUsbTransport.open(picked);
+        const report = await identify(new Fastboot(transport), progress);
+        checked = { kind: "fastboot", report, assessment: assess(report, model), model };
+      }
+      showResult(checked);
       status.textContent = "Done. Nothing was written to the device.";
     } catch (error) {
       status.textContent = "";
@@ -419,8 +506,8 @@ export function startInstallPage(): void {
 
   start.addEventListener("click", async () => {
     if (busy || !checked || !release || !device || !agree.checked) return;
-    const { model, report: before } = checked;
-    const images = { boot: release.boot.bytes, root: release.root.bytes };
+    const before = checked;
+    const model = before.model;
     problem.hidden = true;
     failedAt = null;
     busy = true;
@@ -434,27 +521,41 @@ export function startInstallPage(): void {
 
     let transport: WebUsbTransport | null = null;
     let step = "Connecting";
-    let report: DeviceReport | null = null;
+    let found: Checked | null = null;
+    const onProgress = (p: Progress) => {
+      step = p.label;
+      bar.value = p.total ? p.sent / p.total : 0;
+      text.textContent =
+        p.phase === "restarting"
+          ? "Restarting the device…"
+          : `${p.label}: ${p.phase === "sending" ? `sending, ${MiB(p.sent)} of ${MiB(p.total)} MiB` : "the device writes it"}…`;
+    };
+    const changed = () => new InstallError("This isn't the device the page checked. Connect again in step 4.");
     try {
       text.textContent = "Connecting…";
-      transport = await WebUsbTransport.open(device);
-      const fb = new Fastboot(transport);
-      // Check again right before writing: the device may have changed since.
-      step = "Checking the device again";
-      text.textContent = `${step}…`;
-      report = await identify(fb);
-      if (report.serial !== before.serial || assess(report, model).state !== "ready") {
-        throw new InstallError("This isn't the device the page checked. Connect again in step 4.");
+      if (release.model !== model) throw new InstallError(`The files in step 2 are for the ${MODEL_NAMES[release.model]}. Get Pinna again for the ${MODEL_NAMES[model]}.`);
+      if (before.kind === "twrp") {
+        if (!release.bootctl) throw new InstallError("The files in step 2 lack pinna-bootctl, which the install runs in TWRP. Get Pinna again.");
+        transport = await WebUsbTransport.open(device, "adb");
+        const adb = new Adb(transport);
+        // Check again right before writing: the device may have changed since.
+        step = "Checking the device again";
+        text.textContent = `${step}…`;
+        const report = await identifyTwrp(adb, device.serialNumber ?? null);
+        found = { kind: "twrp", report, assessment: assessTwrp(report), model: before.model };
+        if (report.serial !== before.report.serial || found.assessment.state !== "ready") throw changed();
+        await installTwrp(adb, report, { boot: release.boot.bytes, root: release.root.bytes, bootctl: release.bootctl.bytes }, onProgress);
+      } else {
+        transport = await WebUsbTransport.open(device);
+        const fb = new Fastboot(transport);
+        // Check again right before writing: the device may have changed since.
+        step = "Checking the device again";
+        text.textContent = `${step}…`;
+        const report = await identify(fb);
+        found = { kind: "fastboot", report, assessment: assess(report, before.model), model: before.model };
+        if (report.serial !== before.report.serial || found.assessment.state !== "ready") throw changed();
+        await install(fb, plan(report, { boot: release.boot.bytes, root: release.root.bytes }), onProgress);
       }
-      const writes = plan(report, images);
-      await install(fb, writes, (p: Progress) => {
-        step = p.label;
-        bar.value = p.total ? p.sent / p.total : 0;
-        text.textContent =
-          p.phase === "restarting"
-            ? "Restarting the device…"
-            : `${p.label}: ${p.phase === "sending" ? `sending, ${MiB(p.sent)} of ${MiB(p.total)} MiB` : "the device writes it"}…`;
-      });
       bar.value = 1;
       text.textContent = "Done.";
       confirm.hidden = true;
@@ -466,14 +567,17 @@ export function startInstallPage(): void {
     } catch (error) {
       if (error instanceof FastbootError && error.kind === "fail") {
         text.textContent = "The install stopped. The device stays in fastboot: tick the box and install again, or start again from step 3.";
+      } else if (error instanceof CommandError) {
+        // The connection is fine; the device said no.
+        text.textContent = "The install stopped. TWRP still runs: tick the box and install again, or start again from step 3.";
       } else {
         // The device may still be in the middle of a command: anything sent
         // now could be taken for its data. Only a fresh start is safe.
-        text.textContent = "The install stopped. Unplug the device, start it in fastboot again (step 3), and connect again (step 4).";
+        text.textContent = `The install stopped. Unplug the device, ${RESTART[before.kind]}, and connect again (step 4).`;
         checked = null;
         device = null;
       }
-      explain(error, model, "install", step, report);
+      explain(error, model, "install", step, found);
     } finally {
       window.removeEventListener("beforeunload", warn);
       await transport?.close();

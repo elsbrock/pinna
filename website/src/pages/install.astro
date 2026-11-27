@@ -1,15 +1,21 @@
 ---
 // The browser installer (ADR 0016): a page of its own, as five steps, with
 // the help for when it doesn't work below them. The ids are what
-// src/lib/installer/install-page.ts drives.
+// src/lib/installer/install-page.ts drives. The 2nd gen models install over
+// fastboot, the Echo Dot (5th gen) from TWRP over adb: `data-for-kind` text
+// shows for one of the two.
 import BaseLayout from "../layouts/BaseLayout.astro";
 import DeviceDrawing from "../components/DeviceDrawing.astro";
 import Icon from "../components/Icon.astro";
 import Logo from "../components/Logo.astro";
 import { docHref, href, SITE } from "../lib/site";
 
-const UDEV_RULE =
-  'SUBSYSTEM=="usb", ATTR{idVendor}=="0bb4", ATTR{idProduct}=="0c01", TAG+="uaccess"';
+const UDEV_RULE = [
+  // Fastboot on the Echo Dot (2nd gen) and the Echo (2nd gen).
+  'SUBSYSTEM=="usb", ATTR{idVendor}=="0bb4", ATTR{idProduct}=="0c01", TAG+="uaccess"',
+  // TWRP's adb on the Echo Dot (5th gen).
+  'SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="d001", TAG+="uaccess"',
+].join("\n");
 
 const MODELS = [
   {
@@ -24,12 +30,18 @@ const MODELS = [
     hint: "Connects through the USB pads in its base.",
     width: 40,
   },
+  {
+    value: "echo-dot-5",
+    name: "Echo Dot (5th gen)",
+    hint: "Model C2N6L4, in TWRP. Connects through the test pads under its foot.",
+    width: 64,
+  },
 ] as const;
 ---
 
 <BaseLayout
   title="Install Pinna"
-  description="Install Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen) from Chrome, Edge, Brave or Opera, over USB, without a terminal."
+  description="Install Pinna on an Echo (2nd gen), an Echo Dot (2nd gen) or an Echo Dot (5th gen) from Chrome, Edge, Brave or Opera, over USB, without a terminal."
 >
   <header slot="header" class="border-line bg-surface/85 sticky top-0 z-30 border-b backdrop-blur">
     <div class="mx-auto flex h-14 max-w-5xl items-center gap-3 px-4 sm:px-6">
@@ -52,9 +64,9 @@ const MODELS = [
       Install Pinna
     </h1>
     <p class="text-ink-muted text-body-l mt-4 max-w-2xl">
-      This page installs Pinna on an Echo (2nd gen) or an Echo Dot (2nd gen)
-      over USB, without a terminal. It checks the device first, and asks you
-      before it writes anything.
+      This page installs Pinna on an Echo (2nd gen), an Echo Dot (2nd gen) or
+      an Echo Dot (5th gen) over USB, without a terminal. It checks the device
+      first, and asks you before it writes anything.
     </p>
 
     <div id="install-unsupported" class="pn-notice mt-8" data-tone="danger" hidden>
@@ -78,7 +90,10 @@ const MODELS = [
             <strong class="text-ink">A device that was unlocked before.</strong>
             It runs Pinna, or other firmware with adb. A device that still runs
             Amazon's software needs the bootloader unlock first: this page can
-            check it, but can't unlock it yet.
+            check it, but can't unlock it yet. An Echo Dot (5th gen) is
+            unlocked with firebreak, which leaves TWRP on it.
+            <a class="link" href={docHref("flash") + "#before-you-begin-on-the-echo-dot-5th-gen"}>Before you begin on the Echo Dot (5th gen)</a>
+            says what that takes.
           </span>
         </li>
         <li class="before-item">
@@ -107,7 +122,8 @@ const MODELS = [
             <strong class="text-ink">A USB connection.</strong> For the Echo Dot
             (2nd gen), a micro-USB cable that carries data, plugged straight
             into the computer, not into a hub. For the Echo (2nd gen), pogo pins
-            or a cable soldered to the USB pads on its base.
+            or a cable soldered to the USB pads on its base. For the Echo Dot
+            (5th gen), a cable soldered to the test pads under its foot.
           </span>
         </li>
       </ul>
@@ -141,20 +157,6 @@ const MODELS = [
                 ))
               }
             </fieldset>
-            <div class="pn-notice mt-4">
-              <Icon name="board" class="pn-notice-icon" />
-              <div class="pn-notice-body">
-                <p class="pn-notice-title">The Echo Dot (5th gen) isn't in this list</p>
-                <p>
-                  Pinna installs on it from TWRP, not from this page. It is
-                  unlocked with firebreak, which Pinna doesn't ship, and has
-                  its own steps:
-                  <a class="link" href={docHref("flash") + "#install-on-the-echo-dot-5th-gen"}>Install on the Echo Dot (5th gen)</a>.
-                  See <a class="link" href={docHref("devices") + "#echo-dot-5th-gen"}>Echo devices</a>
-                  for what works on it.
-                </p>
-              </div>
-            </div>
           </div>
         </li>
 
@@ -197,7 +199,10 @@ const MODELS = [
                 Use files you downloaded or built
               </summary>
               <p class="text-ink-muted mt-2 mb-2 text-sm">
-                Select <code>pinna-boot.img</code>, <code>pinna-&lt;version&gt;.root.img</code> and
+                Select
+                <span data-for-kind="fastboot"><code>pinna-boot.img</code>,</span>
+                <span data-for-kind="twrp"><code>pinna-boot-mt8519.itb</code>, <code>pinna-bootctl-armv7</code>,</span>
+                <code>pinna-&lt;version&gt;.root.img</code> and
                 <code>SHA256SUMS</code> together. The page checks each file against
                 <code>SHA256SUMS</code>; the device checks the root image's signature.
               </p>
@@ -213,7 +218,10 @@ const MODELS = [
             <Icon name="check" size={16} class="step-done" strokeWidth={2.25} />
             <Icon name="close" size={16} class="step-failed" strokeWidth={2.25} />
           </span>
-          <h2 class="pn-step-label">Start the device in fastboot</h2>
+          <h2 class="pn-step-label">
+            <span data-for-kind="fastboot">Start the device in fastboot</span>
+            <span data-for-kind="twrp">Start TWRP</span>
+          </h2>
           <div class="step-body">
             <ol class="numbered" data-for-model="any">
               <li>Unplug the device.</li>
@@ -242,10 +250,21 @@ const MODELS = [
               <li>While you hold it, plug in its power adapter.</li>
               <li>When the light ring changes, release the button.</li>
             </ol>
-            <p class="text-ink-muted mt-3 text-sm">
+            <ol class="numbered" data-for-model="echo-dot-5">
+              <li>Connect the cable on its test pads to the computer.</li>
+              <li>Unplug the power.</li>
+              <li>Hold <strong>Volume Up (+)</strong>.</li>
+              <li>While you hold it, plug in the power, and keep holding it for a few seconds.</li>
+            </ol>
+            <p class="text-ink-muted mt-3 text-sm" data-for-kind="fastboot">
               A device that still runs Amazon's software starts fastboot with
               <strong>Action</strong> instead of Volume Down. The page can check
               it, but not install on it.
+            </p>
+            <p class="text-ink-muted mt-3 text-sm" data-for-kind="twrp">
+              This starts TWRP from slot B, where firebreak's unlock put it.
+              The device has no screen, so nothing shows that TWRP runs: step 4
+              finds it.
             </p>
           </div>
         </li>
@@ -259,9 +278,10 @@ const MODELS = [
           <h2 class="pn-step-label">Connect</h2>
           <div class="step-body">
             <p>
-              The browser asks which device to use. Choose <strong>Android</strong>
-              (<code>0bb4:0c01</code>). The page then reads what the device is;
-              it writes nothing yet.
+              The browser asks which device to use. Choose
+              <span data-for-kind="fastboot"><strong>Android</strong> (<code>0bb4:0c01</code>).</span>
+              <span data-for-kind="twrp"><strong>Cannoli-TWRP</strong> (<code>18d1:d001</code>).</span>
+              The page then reads what the device is; it writes nothing yet.
             </p>
             <div class="mt-4 flex flex-wrap items-center gap-3">
               <button id="install-connect" type="button" class="pn-btn pn-btn-primary" disabled>
@@ -300,22 +320,51 @@ const MODELS = [
           <h2 class="pn-step-label">Install</h2>
           <div class="step-body">
             <section id="install-confirm" hidden>
-              <p>The page writes, in this order:</p>
-              <ul class="bulleted mt-2">
-                <li><code>system_a</code>: Pinna's root filesystem.</li>
-                <li><code>system_b</code>: its beginning is cleared.</li>
-                <li>
-                  <code>userdata</code>: erased. Settings, Wi-Fi networks, the
-                  pairing with Home Assistant and anything else stored on the
-                  device are gone.
-                </li>
-                <li><code>boot_a</code> and <code>boot_b</code>: Pinna's boot image.</li>
-              </ul>
-              <p class="mt-3">
-                Keep the device connected until the page says it's done, about a
-                minute. If the install stops halfway, the device stays in
-                fastboot and you can start again from step 3.
-              </p>
+              <div data-for-kind="fastboot">
+                <p>The page writes, in this order:</p>
+                <ul class="bulleted mt-2">
+                  <li><code>system_a</code>: Pinna's root filesystem.</li>
+                  <li><code>system_b</code>: its beginning is cleared.</li>
+                  <li>
+                    <code>userdata</code>: erased. Settings, Wi-Fi networks, the
+                    pairing with Home Assistant and anything else stored on the
+                    device are gone.
+                  </li>
+                  <li><code>boot_a</code> and <code>boot_b</code>: Pinna's boot image.</li>
+                </ul>
+                <p class="mt-3">
+                  Keep the device connected until the page says it's done, about a
+                  minute. If the install stops halfway, the device stays in
+                  fastboot and you can start again from step 3.
+                </p>
+              </div>
+              <div data-for-kind="twrp">
+                <p>
+                  The page copies <code>pinna-bootctl</code> into TWRP's memory,
+                  which changes nothing on the device. Then it writes, in this
+                  order:
+                </p>
+                <ul class="bulleted mt-2">
+                  <li><code>boot_a</code>: Pinna's boot image, in place of Fire OS's.</li>
+                  <li><code>system_a</code>: Pinna's root filesystem, in place of Fire OS.</li>
+                  <li>The slot record in <code>misc</code>: slot A starts next, on trial.</li>
+                </ul>
+                <p class="mt-3">
+                  TWRP in slot B, <code>userdata</code> and every other volume stay
+                  as they are. Before the first write, the page checks that slot B
+                  is marked good, so that a slot A that fails its starts falls back
+                  to TWRP. Holding <strong>Volume Up</strong> while you plug in the
+                  power starts TWRP too. To get Fire OS back, use firebreak's
+                  restore, as described in
+                  <a class="link" href={docHref("flash") + "#the-way-back"}>The way back</a>.
+                </p>
+                <p class="mt-3">
+                  Keep the device connected until the page says it's done, about a
+                  minute. If the install stops halfway, TWRP keeps running and the
+                  slot record is as it was: install again before you restart the
+                  device.
+                </p>
+              </div>
               <label class="confirm-box mt-4">
                 <input id="install-agree" type="checkbox" />
                 <span id="install-agree-text">I want to erase this device and install Pinna on it.</span>
@@ -339,10 +388,11 @@ const MODELS = [
               <div class="pn-notice-body">
                 <p class="pn-notice-title">Pinna is installed</p>
                 <p>
-                  The device restarts now. After about 20 seconds your computer
-                  sees a USB device named <strong>Pinna</strong>. Open its
-                  dashboard at <code>http://10.42.0.1</code>, and connect the
-                  device to Wi-Fi there.
+                  The device restarts now.
+                  <span data-for-kind="fastboot">After about 20 seconds your computer sees a USB device named <strong>Pinna</strong>.</span>
+                  <span data-for-kind="twrp">Within a minute your computer sees a USB device named <strong>Pinna (Echo Dot 5th gen)</strong>.</span>
+                  Open its dashboard at <code>http://10.42.0.1</code>, and connect
+                  the device to Wi-Fi there.
                 </p>
                 <p class="mt-3">
                   Without the cable, a release after 0.4.0-beta.3 also runs a
@@ -410,7 +460,10 @@ const MODELS = [
         <details id="not-listed">
           <summary>The device isn't in the list</summary>
           <ul class="bulleted">
-            <li>The device isn't in fastboot. Start it again as described in step 3.</li>
+            <li>
+              The device isn't in <span data-for-kind="fastboot">fastboot</span><span data-for-kind="twrp">TWRP</span>.
+              Start it again as described in step 3.
+            </li>
             <li>
               The cable only charges. Try another cable, and a USB port on the
               computer itself.
@@ -422,7 +475,7 @@ const MODELS = [
           <summary>The browser can't open the device</summary>
           <p>
             On Linux the browser runs as your user, and only root may open USB
-            devices that no rule names. Add this rule as
+            devices that no rule names. Add these rules as
             <code>/etc/udev/rules.d/60-pinna-fastboot.rules</code>:
           </p>
           <pre><code>{UDEV_RULE}</code></pre>
@@ -430,7 +483,7 @@ const MODELS = [
           <pre><code>sudo udevadm control --reload-rules && sudo udevadm trigger</code></pre>
           <p>
             On NixOS, put the rule in <code>services.udev.extraRules</code>
-            instead. Then start the device in fastboot again (step 3) and
+            instead. Then start the device again as described in step 3, and
             connect again.
           </p>
         </details>
@@ -448,8 +501,10 @@ const MODELS = [
           <summary>Windows needs the WinUSB driver</summary>
           <p>
             Install it with <a class="link" href="https://zadig.akeo.ie/">Zadig</a>
-            while the device is in fastboot: choose <strong>Options › List All Devices</strong>,
-            select <strong>Android</strong> (USB ID <code>0BB4 0C01</code>), choose
+            while the device is in fastboot, or in TWRP on the Echo Dot (5th gen):
+            choose <strong>Options › List All Devices</strong>, select
+            <strong>Android</strong> (USB ID <code>0BB4 0C01</code>) or
+            <strong>Cannoli-TWRP</strong> (<code>18D1 D001</code>), choose
             <strong>WinUSB</strong> and <strong>Install Driver</strong>. Then
             connect again.
           </p>
@@ -461,14 +516,15 @@ const MODELS = [
             The page stops after the first request that gets no reply, and sends
             nothing more. Some devices that were never unlocked reset when they
             get a request and come back in fastboot. Unplug the device, start it
-            in fastboot again, use another cable or USB port, and connect again.
+            again as described in step 3, use another cable or USB port, and
+            connect again.
             If it happens every time, open an issue with the report the page
             shows.
           </p>
         </details>
 
         <details id="leave-fastboot">
-          <summary>Leave fastboot without installing</summary>
+          <summary>Leave fastboot or TWRP without installing</summary>
           <p>Unplug the device and plug it in again. It starts as before.</p>
         </details>
       </div>
@@ -671,8 +727,18 @@ const MODELS = [
   }
   #install-form:not(:has(input[name="model"]:checked)) [data-for-model="any"],
   #install-form:has(input[value="echo-dot-2"]:checked) [data-for-model="echo-dot-2"],
-  #install-form:has(input[value="echo-2"]:checked) [data-for-model="echo-2"] {
+  #install-form:has(input[value="echo-2"]:checked) [data-for-model="echo-2"],
+  #install-form:has(input[value="echo-dot-5"]:checked) [data-for-model="echo-dot-5"] {
     display: block;
+  }
+  /* Fastboot text until the Echo Dot (5th gen) is chosen, then TWRP's. Each
+     element keeps its own display: no class may set one on it. */
+  [data-for-kind] {
+    display: none;
+  }
+  .install:not(:has(input[value="echo-dot-5"]:checked)) [data-for-kind="fastboot"],
+  .install:has(input[value="echo-dot-5"]:checked) [data-for-kind="twrp"] {
+    display: revert;
   }
 
   /* Step 5 */

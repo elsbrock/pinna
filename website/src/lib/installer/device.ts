@@ -2,11 +2,20 @@
 // (ADR 0016, stage 1: read-only).
 import { Fastboot, FastbootError } from "./fastboot.ts";
 
-export type ModelId = "echo-dot-2" | "echo-2";
+/** The models the page installs over fastboot. */
+export type FastbootModelId = "echo-dot-2" | "echo-2";
+/** Every model the page installs. The Echo Dot (5th gen) goes through TWRP (twrp.ts). */
+export type ModelId = FastbootModelId | "echo-dot-5";
 
-export const MODELS: Record<ModelId, { name: string; product: string }> = {
+export const MODELS: Record<FastbootModelId, { name: string; product: string }> = {
   "echo-dot-2": { name: "Echo Dot (2nd gen)", product: "BISCUIT" },
   "echo-2": { name: "Echo (2nd gen)", product: "RADAR" },
+};
+
+export const MODEL_NAMES: Record<ModelId, string> = {
+  "echo-dot-2": MODELS["echo-dot-2"].name,
+  "echo-2": MODELS["echo-2"].name,
+  "echo-dot-5": "Echo Dot (5th gen)",
 };
 
 /**
@@ -101,7 +110,7 @@ export type Assessment = {
   detail: string;
 };
 
-export function assess(report: DeviceReport, stated: ModelId): Assessment {
+export function assess(report: DeviceReport, stated: FastbootModelId): Assessment {
   const expected = MODELS[stated];
   const known = Object.values(MODELS).find((m) => m.product === report.product);
 
@@ -170,7 +179,7 @@ export function maskSerial(serial: string | null): string {
 const hex = (n: number | null) => (n === null ? "missing" : `0x${n.toString(16)}`);
 
 /** Plain text to paste into an issue. The serial number is masked. */
-export function formatReport(report: DeviceReport, stated: ModelId, assessment: Assessment, browser: string): string {
+export function formatReport(report: DeviceReport, stated: FastbootModelId, assessment: Assessment, browser: string): string {
   const bootloader =
     report.bootloader.kind === "kaeru"
       ? `Kaeru ${report.bootloader.version}`.trim()

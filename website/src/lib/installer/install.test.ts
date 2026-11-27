@@ -143,7 +143,7 @@ async function release(boot: Uint8Array, root: Uint8Array) {
 
 test("release files are recognised by their hash, whatever their names", async () => {
   const r = await release(pattern(100), pattern(300));
-  const { release: found, problems } = await matchRelease([r.manifest, r.root, r.boot, r.sums]);
+  const { release: found, problems } = await matchRelease([r.manifest, r.root, r.boot, r.sums], "echo-dot-2");
   assert.deepEqual(problems, []);
   assert.equal(found?.version, "0.3.0");
   assert.equal(found?.boot.name, "pinna-boot.img");
@@ -153,12 +153,36 @@ test("release files are recognised by their hash, whatever their names", async (
 
 test("missing or foreign release files are named", async () => {
   const r = await release(pattern(100), pattern(300));
-  assert.match((await matchRelease([r.boot, r.root])).problems[0], /SHA256SUMS/);
-  assert.match((await matchRelease([r.sums, r.boot])).problems[0], /pinna-0\.3\.0\.root\.img/);
+  assert.match((await matchRelease([r.boot, r.root], "echo-dot-2")).problems[0], /SHA256SUMS/);
+  assert.match((await matchRelease([r.sums, r.boot], "echo-dot-2")).problems[0], /pinna-0\.3\.0\.root\.img/);
   const other = new File([pattern(50) as Uint8Array<ArrayBuffer>], "pinna-boot.img");
-  const { release: none, problems } = await matchRelease([r.sums, other, r.root]);
+  const { release: none, problems } = await matchRelease([r.sums, other, r.root], "echo-dot-2");
   assert.equal(none, null);
   assert.match(problems[0], /pinna-boot\.img isn't in this SHA256SUMS/);
+});
+
+test("for the Echo Dot (5th gen), the FIT and pinna-bootctl come from the same SHA256SUMS", async () => {
+  const [fit, tool, root, boot] = [pattern(70), pattern(80), pattern(300), pattern(100)];
+  const sums = [
+    `${await sha256(root)}  pinna-0.3.0.root.img`,
+    `${await sha256(boot)}  pinna-boot.img`,
+    `${await sha256(fit)}  pinna-boot-mt8519.itb`,
+    `${await sha256(tool)}  pinna-bootctl-armv7`,
+  ].join("\n");
+  const file = (b: Uint8Array, name: string) => new File([b as Uint8Array<ArrayBuffer>], name);
+  const all = [file(new TextEncoder().encode(sums), "SHA256SUMS"), file(root, "r.img"), file(fit, "f.itb"), file(tool, "tool"), file(boot, "b.img")];
+  const { release: found, problems } = await matchRelease(all, "echo-dot-5");
+  assert.deepEqual(problems, []);
+  assert.equal(found?.model, "echo-dot-5");
+  assert.equal(found?.boot.name, "pinna-boot-mt8519.itb");
+  assert.equal(found?.bootctl?.name, "pinna-bootctl-armv7");
+  const withoutTool = await matchRelease(all.filter((f) => f.name !== "tool"), "echo-dot-5");
+  assert.equal(withoutTool.release, null);
+  assert.match(withoutTool.problems[0], /Add pinna-bootctl-armv7/);
+  // The 2nd gen models take the Android boot image, and no tool.
+  const dot2 = await matchRelease(all, "echo-dot-2");
+  assert.equal(dot2.release?.boot.name, "pinna-boot.img");
+  assert.equal(dot2.release?.bootctl, null);
 });
 
 const KAERU: Script = {

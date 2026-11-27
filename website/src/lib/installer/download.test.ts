@@ -111,6 +111,40 @@ test("the service's own sentence explains a missing release", async () => {
   await assert.rejects(fetchRelease("stable", b.key, { fetch: b.fetch, service: SERVICE }), /offered the beta 0\.5\.0-beta\.1 on stable/);
 });
 
+test("the Echo Dot (5th gen) gets its FIT and pinna-bootctl, checked against the manifest", async () => {
+  const fit = new Uint8Array(2 * 4096).fill(5);
+  const tool = new Uint8Array(4096).fill(6);
+  const s = await service({
+    manifest: {
+      requires: { boot_level: 1, models: ["echo-dot-2", "echo-2", "echo-dot-5"] },
+      boots: [{ models: ["echo-dot-5"], url: "pinna-boot-mt8519.itb", size: fit.length, sha256: await sha256(fit) }],
+      bootctl: [{ models: ["echo-dot-5"], url: "pinna-bootctl-armv7", size: tool.length, sha256: await sha256(tool) }],
+    },
+    files: { [`${BASE}/pinna-boot-mt8519.itb`]: fit, [`${BASE}/pinna-bootctl-armv7`]: tool },
+  });
+  const r = await fetchRelease("stable", s.key, { fetch: s.fetch, service: SERVICE, model: "echo-dot-5" });
+  assert.equal(r.model, "echo-dot-5");
+  assert.equal(r.boot.name, "pinna-boot-mt8519.itb");
+  assert.deepEqual(r.boot.bytes, fit);
+  assert.deepEqual(r.bootctl?.bytes, tool);
+  assert.ok(!s.asked.includes(`${BASE}/pinna-boot.img`), "not the 2nd gen boot image");
+  // The same release for an Echo Dot (2nd gen): the Android boot image, no tool.
+  const dot2 = await fetchRelease("stable", s.key, { fetch: s.fetch, service: SERVICE, model: "echo-dot-2" });
+  assert.equal(dot2.boot.name, "pinna-boot.img");
+  assert.equal(dot2.bootctl, null);
+});
+
+test("a release without pinna-bootctl, or not built for the model, is refused before any image", async () => {
+  const fit = new Uint8Array(4096).fill(5);
+  const s = await service({ manifest: { boots: [{ models: ["echo-dot-5"], url: "pinna-boot-mt8519.itb", size: fit.length, sha256: await sha256(fit) }] } });
+  await assert.rejects(fetchRelease("stable", s.key, { fetch: s.fetch, service: SERVICE, model: "echo-dot-5" }), /doesn't name pinna-bootctl/);
+  assert.equal(s.asked.length, 2, "no image was fetched");
+  const t = await service({ manifest: { requires: { boot_level: 1, models: ["echo-dot-2", "echo-2"] } } });
+  await assert.rejects(fetchRelease("stable", t.key, { fetch: t.fetch, service: SERVICE, model: "echo-dot-5" }), /isn't built for the Echo Dot \(5th gen\)/);
+  const u = await service();
+  await assert.rejects(fetchRelease("stable", u.key, { fetch: u.fetch, service: SERVICE, model: "echo-dot-5" }), /no boot image for the Echo Dot \(5th gen\)/);
+});
+
 test("keys and signatures", async () => {
   assert.equal(parseKey("11".repeat(32)).length, 32);
   assert.throws(() => parseKey("11"), DownloadError);

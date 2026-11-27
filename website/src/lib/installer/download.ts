@@ -1,8 +1,10 @@
 // Get a release from the release service (ADR 0022): the channel's
 // manifest, its signature checked with WebCrypto against the project key,
-// then the boot and root image, each checked against the manifest's size
-// and SHA-256 before the page uses it. Picking downloaded files
-// (release.ts) stays for builds of one's own.
+// then the boot and root image for the model, and the Echo Dot (5th gen)'s
+// pinna-bootctl (ADR 0016), each checked against the manifest's size and
+// SHA-256 before the page uses it. Picking downloaded files (release.ts)
+// stays for builds of one's own.
+import { MODEL_NAMES, type ModelId } from "./device.ts";
 import { sha256, type Release, type ReleaseImage } from "./release.ts";
 
 export const SERVICE = "https://updates.getpinna.dev";
@@ -10,7 +12,46 @@ export const SERVICE = "https://updates.getpinna.dev";
 export type Channel = "stable" | "beta";
 
 type Artifact = { url: string; size: number; sha256: string };
-type Manifest = { version: string; channel: string; summary?: string; root: Artifact; boot?: Artifact };
+type ForModels = Artifact & { models: string[] };
+type Manifest = {
+  version: string;
+  channel: string;
+  summary?: string;
+  requires?: { models?: string[] };
+  root: Artifact;
+  /** The Android boot image, for the models whose bootloader reads one. */
+  boot?: Artifact;
+  /** Boot images by model (ADR 0035): the Echo Dot (5th gen)'s FIT. */
+  boots?: ForModels[];
+  /** pinna-bootctl by model, for an install that runs it on the device (ADR 0016). */
+  bootctl?: ForModels[];
+};
+
+/** The models whose bootloader reads the manifest's Android `boot`. */
+const ANDROID_BOOT: readonly ModelId[] = ["echo-dot-2", "echo-2"];
+
+const forModel = (list: ForModels[] | undefined, model: ModelId) => list?.find((e) => Array.isArray(e.models) && e.models.includes(model));
+
+/**
+ * The files of `m` that `model` needs beside the root. Throws a
+ * DownloadError when the release isn't for the model or lacks one.
+ */
+export function filesFor(m: Manifest, model: ModelId): { boot: Artifact; bootctl: Artifact | null } {
+  const name = MODEL_NAMES[model];
+  if (m.requires?.models && !m.requires.models.includes(model)) {
+    throw new DownloadError(`Pinna ${m.version} isn't built for the ${name}. Choose the other channel.`);
+  }
+  const boot = forModel(m.boots, model) ?? (ANDROID_BOOT.includes(model) ? m.boot : undefined);
+  if (!boot?.url) throw new DownloadError(`Pinna ${m.version} has no boot image for the ${name}, so it doesn't run on it. Choose the other channel.`);
+  if (model !== "echo-dot-5") return { boot, bootctl: null };
+  const bootctl = forModel(m.bootctl, model);
+  if (!bootctl?.url) {
+    throw new DownloadError(
+      `This page can't install Pinna ${m.version} on the ${name}: its signed manifest doesn't name pinna-bootctl, the tool the page runs in TWRP. Install this release from a terminal instead.`,
+    );
+  }
+  return { boot, bootctl };
+}
 
 export class DownloadError extends Error {
   constructor(message: string) {
@@ -127,8 +168,8 @@ export async function fetchManifest(channel: Channel, key: Uint8Array, opts: Opt
   } catch {
     throw new DownloadError("The release's manifest is not valid JSON.");
   }
-  if (typeof m.version !== "string" || !m.root?.url || !m.boot?.url) {
-    throw new DownloadError("The release's manifest names no boot image or no root image.");
+  if (typeof m.version !== "string" || !m.root?.url) {
+    throw new DownloadError("The release's manifest names no root image.");
   }
   if (channel === "stable" && m.channel !== "stable") {
     throw new DownloadError(`The release service offered the beta ${m.version} on stable.`);
@@ -137,13 +178,16 @@ export async function fetchManifest(channel: Channel, key: Uint8Array, opts: Opt
 }
 
 /**
- * The newest release on `channel`, checked: the manifest's signature with
- * `key`, then each image against the manifest.
+ * The newest release on `channel` for `model`, checked: the manifest's
+ * signature with `key`, then each file against the manifest.
  */
-export async function fetchRelease(channel: Channel, key: Uint8Array, opts: Options = {}): Promise<Release & { summary: string }> {
+export async function fetchRelease(channel: Channel, key: Uint8Array, opts: Options & { model?: ModelId } = {}): Promise<Release & { summary: string }> {
   const f = opts.fetch ?? fetch;
+  const model = opts.model ?? "echo-dot-2";
   const { manifest: m, url } = await fetchManifest(channel, key, opts);
-  const boot = await image(f, url, m.boot!, "boot image", opts.progress);
+  const files = filesFor(m, model);
+  const boot = await image(f, url, files.boot, "boot image", opts.progress);
   const root = await image(f, url, m.root, "root image", opts.progress);
-  return { version: m.version, summary: m.summary ?? "", boot, root };
+  const bootctl = files.bootctl ? await image(f, url, files.bootctl, "pinna-bootctl", opts.progress) : null;
+  return { version: m.version, summary: m.summary ?? "", model, boot, root, bootctl };
 }
