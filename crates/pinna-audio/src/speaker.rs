@@ -36,7 +36,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin, Command};
@@ -44,6 +44,40 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 /// Frames per write (20 ms at 48 kHz).
 const CHUNK_FRAMES: usize = 960;
+
+/// Gets each written chunk's mean square (full scale is 1) and the time it is
+/// heard (ADR 0036).
+type OutputLevelSink = Arc<dyn Fn(Instant, f32) + Send + Sync>;
+
+static OUTPUT_LEVEL_SINK: OnceLock<OutputLevelSink> = OnceLock::new();
+static OUTPUT_LEVEL_ON: AtomicBool = AtomicBool::new(false);
+
+/// Install the process-wide sink for the speaker's output level. Only the
+/// first call counts. Nothing is computed until [`report_output_level`] turns
+/// it on.
+pub fn install_output_level(sink: Arc<dyn Fn(Instant, f32) + Send + Sync>) {
+    let _ = OUTPUT_LEVEL_SINK.set(sink);
+}
+
+/// Turn the output level on or off. While it is off the write loop pays one
+/// relaxed atomic load per chunk and computes nothing.
+pub fn report_output_level(on: bool) {
+    OUTPUT_LEVEL_ON.store(on, Ordering::Relaxed);
+}
+
+/// The mean square over all samples of an interleaved S16_LE chunk, full
+/// scale being 1.
+fn chunk_mean_square(bytes: &[u8]) -> f32 {
+    let samples = bytes.len() / 2;
+    if samples == 0 {
+        return 0.0;
+    }
+    let sum: f64 = bytes
+        .chunks_exact(2)
+        .map(|b| f64::from(i16::from_le_bytes([b[0], b[1]])).powi(2))
+        .sum();
+    (sum / samples as f64 / (32768.0 * 32768.0)) as f32
+}
 
 #[derive(Clone, Debug)]
 pub struct SpeakerConfig {
@@ -1401,6 +1435,11 @@ impl Actor {
             );
             let marks = self.feeder.next_chunk(CHUNK_FRAMES, gain, &mut chunk);
             let base = s.frames_written;
+            if OUTPUT_LEVEL_ON.load(Ordering::Relaxed)
+                && let Some(sink) = OUTPUT_LEVEL_SINK.get()
+            {
+                sink(s.time_of(base), chunk_mean_square(&chunk));
+            }
             if self.feeder.media.phase() == MediaPhase::Playing {
                 if gain <= 0.0 {
                     self.feeder.media_mono.fill(0.0); // volume 0: nothing sounds
@@ -1582,6 +1621,17 @@ impl Actor {
 mod tests {
     use super::*;
     use futures_util::{StreamExt, stream};
+
+    #[test]
+    fn chunk_mean_square_is_full_scale_one() {
+        let bytes =
+            |samples: &[i16]| -> Vec<u8> { samples.iter().flat_map(|s| s.to_le_bytes()).collect() };
+        assert_eq!(chunk_mean_square(&[]), 0.0);
+        assert_eq!(chunk_mean_square(&bytes(&[0, 0, 0, 0])), 0.0);
+        // Full scale in every sample is 1; half the samples silent, a half.
+        assert_eq!(chunk_mean_square(&bytes(&[i16::MIN, i16::MIN])), 1.0);
+        assert_eq!(chunk_mean_square(&bytes(&[i16::MIN, 0, i16::MIN, 0])), 0.5);
+    }
 
     /// The Echo output plays S16_LE stereo at [`OUT_RATE`] or twice it (the
     /// upsampler's), and its clock reads the board's playback PCM's status
