@@ -21,7 +21,8 @@ A `GET` of a channel counts when its `User-Agent` is
 channel and country to the Workers Analytics Engine dataset `pinna_checks`,
 bound as `CHECKS` in `wrangler.toml`. It stores no address. Cloudflare creates
 the dataset on the first write. A codename that isn't in the list in
-`src/index.ts` counts as `other`: add a new board's codename there.
+`src/index.ts` counts as `other`: add a new board's codename there, and its
+model name in `website/src/lib/statistics.ts`.
 
 ## Test and run locally
 
@@ -42,24 +43,35 @@ npx wrangler dev
 
 ## Deploy and withdraw releases
 
-From `services/updates/` on your computer, set the Worker secret and deploy:
+The Worker needs three secrets:
+
+- `GITHUB_TOKEN`: the fine-grained token with read access to repository
+  contents.
+- `CF_ACCOUNT_ID`: your Cloudflare account ID. `npx wrangler whoami` prints
+  it.
+- `CF_ANALYTICS_TOKEN`: an API token with the permission Account Analytics:
+  Read, created at <https://dash.cloudflare.com/profile/api-tokens>.
+  `/v1/statistics` reads the dataset through Cloudflare's SQL API with it.
+
+From `services/updates/` on your computer, set the secrets and deploy:
 
 ```sh
 npx wrangler secret put GITHUB_TOKEN
+npx wrangler secret put CF_ACCOUNT_ID
+npx wrangler secret put CF_ANALYTICS_TOKEN
 npx wrangler deploy
 ```
 
-`/v1/statistics` reads the dataset through Cloudflare's SQL API. Set two more
-secrets from `services/updates/` on your computer. `CF_ACCOUNT_ID` is your
-account ID. `CF_ANALYTICS_TOKEN` is an API token with the permission
-Account Analytics: Read.
+Without the two Cloudflare secrets, `/v1/statistics` answers `503`; counting
+and updates still work. Check the statistics on your computer:
 
 ```sh
-npx wrangler secret put CF_ACCOUNT_ID
-npx wrangler secret put CF_ANALYTICS_TOKEN
+curl -i https://updates.getpinna.dev/v1/statistics
 ```
 
-Without them, `/v1/statistics` answers `503`. Counting and updates still work.
+It answers `200` with 12 weeks. Until satellites on a release that counts
+have checked for a full week, every week is `0`, and getpinna.dev/statistics/
+says that no satellites are counted yet.
 
 To withdraw a release, add its tag (for example, `"v0.4.0"`) to the array in
 `withdrawn.json`. Deploy again. Both channels skip the release, and the Worker

@@ -22,3 +22,4 @@ binding = "CHECKS"
 dataset = "pinna_checks"
 # CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN are secrets, read by /v1/statistics:
 # npx wrangler secret put CF_ACCOUNT_ID
+# npx wrangler secret put CF_ANALYTICS_TOKEN
