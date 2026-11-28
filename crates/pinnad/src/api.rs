@@ -4174,6 +4174,13 @@ echo '{"ok":false,"kind":"no_answer","message":"m","status":null,"detail":""}'"#
         updater.set_counting(false);
         updater.scheduled_check(true).await.unwrap();
         assert_eq!(calls(), format!("{}{counted}{plain}", plain.repeat(2)));
+
+        // A developer's own update address never gets the codename.
+        updater.set_counting(true);
+        let own = "https://own.example/manifest.json";
+        updater.init_source(Source::Manifest(own.into()));
+        updater.scheduled_check(true).await.unwrap();
+        assert!(calls().ends_with(&format!("update --check -- {own}\n")));
     }
 
     #[tokio::test]

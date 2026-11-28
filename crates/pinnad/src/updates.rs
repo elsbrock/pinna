@@ -704,8 +704,12 @@ impl Updater {
     /// (ADR 0039): the check after a start isn't counted, so that restarts
     /// don't count a satellite twice.
     pub async fn scheduled_check(&self, daily: bool) -> Result<(), ConnectError> {
-        self.check_counted(daily && self.counting.load(std::sync::atomic::Ordering::Relaxed))
-            .await
+        // Only the release service counts: a developer's own update address
+        // (pinnad.toml) isn't told the hardware.
+        let count = daily
+            && matches!(self.source(), Source::Channel(_))
+            && self.counting.load(std::sync::atomic::Ordering::Relaxed);
+        self.check_counted(count).await
     }
 
     async fn check_counted(&self, count: bool) -> Result<(), ConnectError> {
