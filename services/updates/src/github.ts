@@ -1,7 +1,11 @@
 // GitHub release metadata and streamed downloads for the release service (ADR 0022).
-export type Env = { GITHUB_REPO: string; GITHUB_API?: string; GITHUB_TOKEN?: string };
+export type Checks = { writeDataPoint(point: { indexes: string[]; blobs: string[] }): void };
+export type Env = {
+  GITHUB_REPO: string; GITHUB_API?: string; GITHUB_TOKEN?: string;
+  CHECKS?: Checks; CF_ACCOUNT_ID?: string; CF_ANALYTICS_TOKEN?: string;
+};
 export type Deps = {
-  fetch: typeof fetch; now: () => number; withdrawn: string[];
+  fetch: typeof fetch; now: () => number; withdrawn: string[]; checks?: Checks;
   cache?: Pick<Cache, 'match' | 'put'>; waitUntil?: (promise: Promise<unknown>) => void;
 };
 export type Asset = { id: number; name: string; size: number };

@@ -1,7 +1,9 @@
-// The public channel and release file routes (ADR 0022).
+// The public channel and release file routes (ADR 0022), the count of update
+// checks and the statistics (ADR 0039).
 import withdrawn from "../withdrawn.json" with { type: "json" };
 import { download, GitHubError, releases, type Asset, type Deps, type Env, type Release } from './github.ts';
 import { compare, parse } from './semver.ts';
+import { statistics } from './statistics.ts';
 export { resetCache } from './github.ts';
 
 const methods = 'GET, HEAD, OPTIONS';
@@ -22,6 +24,27 @@ function newest(list: Release[], channel: string) {
     if (!best || compare(version, best.version) > 0) best = { tag: release.tag_name, version };
   }
   return best?.tag;
+}
+
+// A new board's codename gets added here; any other codename is counted as `other`.
+const codenames = ['biscuit', 'radar', 'cannoli'];
+const agent = /^pinna-update\/([0-9a-z.-]+) \(([a-z0-9-]+)\)$/;
+
+// Counts a satellite's daily check. A browser always sends an Origin header on
+// a cross-origin fetch, so a web page can't count its visitors. Writing never
+// changes or fails the answer.
+function count(request: Request, channel: string, all: Release[], deps: Deps) {
+  if (!deps.checks || request.method !== 'GET' || request.headers.has('Origin')) return;
+  const match = agent.exec(request.headers.get('User-Agent') ?? '');
+  if (!match || !all.some(r => !r.draft && r.tag_name === `v${match[1]}`)) return;
+  const codename = codenames.includes(match[2]) ? match[2] : 'other';
+  const country = (request as { cf?: { country?: unknown } }).cf?.country;
+  try {
+    deps.checks.writeDataPoint({ indexes: [codename], blobs: [codename, match[1], channel,
+      typeof country === 'string' && /^[A-Z]{2}$/.test(country) ? country : 'XX'] });
+  } catch (error) {
+    console.error('Counting an update check failed:', error instanceof Error ? error.message : error);
+  }
 }
 
 function contentType(name: string) {
@@ -56,6 +79,7 @@ export async function handle(request: Request, env: Env, deps: Deps = live) {
 
   const { pathname, origin } = new URL(request.url);
   if (pathname === '/') return text(200, "Pinna's release service. See https://getpinna.dev/docs/update/");
+  if (pathname === '/v1/statistics') return statistics(env, deps, origin, method);
   const channel = /^\/v1\/channels\/([^/]+)$/.exec(pathname)?.[1];
   const file = /^\/v1\/releases\/([^/]+)\/([^/]+)$/.exec(pathname);
   if (!channel && !file) return text(404, 'Not found.');
@@ -64,10 +88,12 @@ export async function handle(request: Request, env: Env, deps: Deps = live) {
   }
 
   try {
-    const list = (await releases(env, deps)).filter(r => eligible(r, deps.withdrawn));
+    const all = await releases(env, deps);
+    const list = all.filter(r => eligible(r, deps.withdrawn));
     if (channel) {
       const tag = newest(list, channel);
       if (!tag) return text(404, `No release on ${channel} yet.`);
+      count(request, channel, all, deps);
       return new Response(null, { status: 302, headers: {
         ...cors, Location: `${origin}/v1/releases/${tag}/manifest.json`, 'Cache-Control': 'public, max-age=60',
       } });
@@ -99,6 +125,6 @@ export async function handle(request: Request, env: Env, deps: Deps = live) {
 
 export default {
   fetch(request: Request, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }) {
-    return handle(request, env, { ...live, cache: caches.default, waitUntil: p => ctx.waitUntil(p) });
+    return handle(request, env, { ...live, checks: env.CHECKS, cache: caches.default, waitUntil: p => ctx.waitUntil(p) });
   },
 };

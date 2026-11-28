@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import fixture from './fixtures/releases.json' with { type: 'json' };
 import { handle, resetCache } from '../src/index.ts';
-import type { Deps } from '../src/github.ts';
+import type { Deps, Env } from '../src/github.ts';
 
 beforeEach(resetCache);
 
@@ -12,28 +12,33 @@ const storage = 'https://storage.example/object?signature=123';
 const stable = '/v1/channels/stable', beta = '/v1/channels/beta';
 const files = '/v1/releases/v0.1.1/';
 const allowed = 'GET, HEAD, OPTIONS';
+const sqlApi = 'https://api.cloudflare.com/client/v4/accounts/acct/analytics_engine/sql';
 
 function service(token?: string) {
   const calls: Request[] = [];
   const state = {
-    time: 0, list: structuredClone(fixture), withdrawn: [] as string[],
+    time: 0, list: structuredClone(fixture), withdrawn: [] as string[], points: [] as unknown[],
+    write: (point: unknown) => { state.points.push(point); }, sql: (): Response => Response.json({ data: [] }),
     cache: undefined as Deps['cache'], pending: [] as Promise<unknown>[],
     listResponse: (): Response => Response.json(state.list),
     assetResponse: (): Response => Response.redirect(storage),
     storageResponse: (): Response => new Response('file', { headers: { 'Content-Length': '4' } }),
   };
-  const env = { GITHUB_REPO: 'elsbrock/pinna', GITHUB_API: 'https://api.example', GITHUB_TOKEN: token };
+  const env: Env = { GITHUB_REPO: 'elsbrock/pinna', GITHUB_API: 'https://api.example', GITHUB_TOKEN: token };
   const mock: typeof fetch = async (input, init) => {
     const req = new Request(input, init);
     calls.push(req);
     if (req.url === `${env.GITHUB_API}/repos/${env.GITHUB_REPO}/releases?per_page=100`) return state.listResponse();
     if (req.url.startsWith(`${api}/assets/`)) return state.assetResponse();
     if (req.url === storage) return state.storageResponse();
+    if (req.url === sqlApi) return state.sql();
     throw new Error(`Unexpected URL: ${req.url}`);
   };
-  async function request(path: string, method = 'GET', headers = {}) {
-    const response = await handle(new Request(origin + path, { method, headers }), env,
-      { fetch: mock, now: () => state.time, withdrawn: state.withdrawn, cache: state.cache, waitUntil: p => state.pending.push(p) });
+  async function request(path: string, method = 'GET', headers = {}, cf: object = { country: 'DE' }) {
+    const req = new Request(origin + path, { method, headers });
+    Object.defineProperty(req, 'cf', { value: cf });
+    const response = await handle(req, env, { fetch: mock, now: () => state.time, withdrawn: state.withdrawn,
+      cache: state.cache, waitUntil: p => state.pending.push(p), checks: { writeDataPoint: p => state.write(p) } });
     assert.equal(response.headers.get('Access-Control-Allow-Origin'), '*');
     return response;
   }
@@ -235,4 +240,177 @@ test('preflight, help and routing errors need no release list', async () => {
   await error(post, 405, 'Method not allowed.');
   assert.equal(post.headers.get('Allow'), allowed);
   assert.equal(calls.length, 0);
+});
+
+const agent = (version: string, codename?: string) => ({ 'User-Agent': `pinna-update/${version}${codename ? ` (${codename})` : ''}` });
+
+function published() {
+  const s = service();
+  s.state.list.push({ ...s.state.list[0], tag_name: 'v0.7.1' });
+  return s;
+}
+
+test('a daily check that names the hardware is counted', async () => {
+  const { request, state } = published();
+  redirect(await request(stable, 'GET', agent('0.7.1', 'cannoli')), 'v0.7.1');
+  assert.deepEqual(state.points, [{ indexes: ['cannoli'], blobs: ['cannoli', '0.7.1', 'stable', 'DE'] }]);
+  redirect(await request(beta, 'GET', agent('0.7.1', 'radar'), { country: 'FR' }), 'v0.7.1');
+  assert.deepEqual(state.points[1], { indexes: ['radar'], blobs: ['radar', '0.7.1', 'beta', 'FR'] });
+});
+
+test('other requests are not counted', async () => {
+  const { request, state } = published();
+  const good = agent('0.7.1', 'cannoli');
+  await request(stable, 'HEAD', good);
+  await request(stable, 'GET', { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64)' });
+  await request(stable, 'GET', agent('0.7.1'));
+  await request(stable, 'GET', { 'User-Agent': 'pinna-update/0.7.1 (cannoli) extra' });
+  await request(stable, 'GET', { ...good, Origin: 'https://example.com' });
+  await request(stable, 'GET', agent('0.7.2-dev.202611281200.gabc1234', 'cannoli'));
+  await request(stable, 'GET', agent('0.7.2', 'cannoli'));
+  await request('/v1/channels/dev', 'GET', good);
+  await request(files + 'manifest.json', 'GET', good);
+  state.list.find(r => r.tag_name === 'v0.7.1')!.draft = true;
+  state.time += 300_000;
+  await request(stable, 'GET', good);
+  assert.deepEqual(state.points, []);
+});
+
+test('a withdrawn version is counted; unknown hardware is other; no country is XX', async () => {
+  const { request, state } = published();
+  state.withdrawn.push('v0.7.1');
+  redirect(await request(stable, 'GET', agent('0.7.1', 'cannoli'), {}), 'v0.1.1');
+  await request(stable, 'GET', agent('0.7.1', 'mystery'), { country: 'Germany' });
+  assert.deepEqual(state.points, [
+    { indexes: ['cannoli'], blobs: ['cannoli', '0.7.1', 'stable', 'XX'] },
+    { indexes: ['other'], blobs: ['other', '0.7.1', 'stable', 'XX'] },
+  ]);
+});
+
+test('a failing write still gives the redirect', async () => {
+  const { request, state } = published();
+  state.write = () => { throw new Error('quota'); };
+  redirect(await request(stable, 'GET', agent('0.7.1', 'cannoli')), 'v0.7.1');
+});
+
+const secrets = { CF_ACCOUNT_ID: 'acct', CF_ANALYTICS_TOKEN: 'secret-token' };
+const sampled = (day: string, codename: string, version: string, channel: string, country: string, n: number | string) =>
+  ({ day: `${day} 00:00:00`, codename, version, channel, country, n });
+const statistics = '/v1/statistics';
+const memory = () => {
+  const stored = new Map<string, { body: string; headers: Headers }>();
+  return { stored, cache: {
+    async match(key: Request) { const s = stored.get(new Request(key).url); return s && new Response(s.body, { headers: s.headers }); },
+    async put(key: Request, r: Response) { stored.set(new Request(key).url, { body: await r.text(), headers: r.headers }); },
+  } as Deps['cache'] };
+};
+
+function statsService(data: unknown[]) {
+  const s = service();
+  Object.assign(s.env, secrets);
+  s.state.time = Date.UTC(2026, 10, 28, 10);
+  s.state.sql = () => Response.json({ data });
+  return s;
+}
+
+test('statistics add the days into 12 completed ISO weeks', async () => {
+  const { request, calls } = statsService([
+    sampled('2026-11-23', 'biscuit', '0.7.1', 'stable', 'DE', 700),
+    sampled('2026-11-16', 'biscuit', '0.7.1', 'stable', 'DE', '30'),
+    sampled('2026-11-22', 'biscuit', '0.7.1', 'stable', 'DE', 40),
+    sampled('2026-11-09', 'biscuit', '0.7.1', 'stable', 'DE', 14),
+    sampled('2026-11-02', 'biscuit', '0.7.1', 'stable', 'DE', 3),
+    sampled('2026-09-01', 'biscuit', '0.7.1', 'stable', 'DE', 35),
+    sampled('2026-08-30', 'biscuit', '0.7.1', 'stable', 'DE', 700),
+  ]);
+  const r = await request(statistics);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('Content-Type'), 'application/json');
+  assert.equal(r.headers.get('Cache-Control'), 'public, max-age=3600');
+  const body = await r.json();
+  assert.deepEqual(Object.keys(body), ['generated', 'weeks', 'latest']);
+  assert.equal(body.generated, '2026-11-28T10:00:00.000Z');
+  assert.equal(body.weeks.length, 12);
+  assert.deepEqual(body.weeks[0], { week: '2026-W36', start: '2026-08-31', satellites: 5 });
+  assert.deepEqual(body.weeks[8], { week: '2026-W44', start: '2026-10-26', satellites: 0 });
+  assert.deepEqual(body.weeks[9], { week: '2026-W45', start: '2026-11-02', satellites: 0 });
+  assert.deepEqual(body.weeks[10], { week: '2026-W46', start: '2026-11-09', satellites: null });
+  assert.deepEqual(body.weeks[11], { week: '2026-W47', start: '2026-11-16', satellites: 10 });
+  assert.deepEqual(body.latest, { week: '2026-W47', codenames: [{ name: 'biscuit', satellites: 10 }],
+    versions: [{ name: '0.7.1', satellites: 10 }], channels: [{ name: 'stable', satellites: 10 }],
+    countries: [{ name: 'DE', satellites: 10 }] });
+  const sql = calls.find(c => c.url === sqlApi)!;
+  assert.equal(sql.method, 'POST');
+  assert.equal(sql.headers.get('Authorization'), 'Bearer secret-token');
+  assert.match(await sql.text(), /FROM pinna_checks/);
+});
+
+test('statistics number the weeks across a year boundary', async () => {
+  const { request, state } = statsService([]);
+  state.time = Date.UTC(2027, 0, 12);
+  const { weeks, latest } = await (await request(statistics)).json();
+  assert.deepEqual(weeks.slice(10).map((w: { week: string; start: string }) => [w.week, w.start]),
+    [['2026-W53', '2026-12-28'], ['2027-W01', '2027-01-04']]);
+  assert.equal(latest.week, '2027-W01');
+});
+
+test('statistics hide numbers under 5, merge small groups and sort', async () => {
+  const day = '2026-11-16';
+  const { request } = statsService([
+    sampled(day, 'radar', '0.7.0', 'stable', 'FR', 14),
+    sampled(day, 'cannoli', '0.7.1', 'beta', 'DE', 21),
+    sampled(day, 'biscuit', '0.7.1', 'stable', 'DE', 70),
+    sampled(day, 'other', '0.7.0', 'stable', 'XX', 70),
+  ]);
+  const { weeks, latest } = await (await request(statistics)).json();
+  assert.equal(weeks[11].satellites, 25);
+  assert.deepEqual(latest.codenames, [{ name: 'biscuit', satellites: 10 }, { name: null, satellites: 15 }]);
+  assert.deepEqual(latest.versions, [{ name: '0.7.1', satellites: 13 }, { name: '0.7.0', satellites: 12 }]);
+  assert.deepEqual(latest.channels, [{ name: 'stable', satellites: 22 }, { name: null, satellites: null }]);
+  assert.deepEqual(latest.countries, [{ name: 'DE', satellites: 13 }, { name: 'XX', satellites: 10 },
+    { name: null, satellites: null }]);
+});
+
+test('statistics show no breakdown when the latest week is under 5', async () => {
+  const small = await (await statsService([sampled('2026-11-16', 'biscuit', '0.7.1', 'stable', 'DE', 14)])
+    .request(statistics)).json();
+  assert.equal(small.weeks[11].satellites, null);
+  assert.deepEqual(small.latest, { week: '2026-W47', codenames: [], versions: [], channels: [], countries: [] });
+  const none = await (await statsService([]).request(statistics)).json();
+  assert.equal(none.weeks[11].satellites, 0);
+  assert.deepEqual(none.latest.codenames, []);
+});
+
+test('statistics are unavailable without secrets or when the SQL API fails, and failures are not cached', async () => {
+  const { request, state, env } = statsService([]);
+  const { stored, cache } = memory();
+  state.cache = cache;
+  const message = 'Statistics are unavailable. Try again later.';
+  delete env.CF_ANALYTICS_TOKEN;
+  await error(await request(statistics), 503, message);
+  env.CF_ANALYTICS_TOKEN = 'secret-token';
+  state.sql = () => new Response('nope', { status: 500 });
+  await error(await request(statistics), 503, message);
+  state.sql = () => new Response('<html>', { status: 200 });
+  await error(await request(statistics), 503, message);
+  state.sql = () => Response.json({ errors: [] });
+  await error(await request(statistics), 503, message);
+  await Promise.all(state.pending);
+  assert.equal(stored.size, 0);
+  state.sql = () => Response.json({ data: [] });
+  assert.equal((await request(statistics)).status, 200);
+});
+
+test('statistics come from the cache for an hour', async () => {
+  const { request, state, calls } = statsService([sampled('2026-11-16', 'biscuit', '0.7.1', 'stable', 'DE', 70)]);
+  const { stored, cache } = memory();
+  state.cache = cache;
+  const first = await (await request(statistics)).text();
+  await Promise.all(state.pending);
+  assert.equal(stored.get(`${origin}${statistics}`)!.headers.get('Cache-Control'), 'public, max-age=3600');
+  const hit = await request(statistics);
+  assert.equal(await hit.text(), first);
+  assert.equal(hit.headers.get('Cache-Control'), 'public, max-age=3600');
+  assert.equal((await request(statistics, 'HEAD')).body, null);
+  assert.equal(calls.filter(c => c.url === sqlApi).length, 1);
 });

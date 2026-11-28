@@ -14,3 +14,11 @@ enabled = true
 [vars]
 GITHUB_REPO = "elsbrock/pinna"
 # GITHUB_TOKEN is a secret: npx wrangler secret put GITHUB_TOKEN
+
+# One data point per counted update check (ADR 0039): codename, version,
+# channel and country. Cloudflare creates the dataset on the first write.
+[[analytics_engine_datasets]]
+binding = "CHECKS"
+dataset = "pinna_checks"
+# CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN are secrets, read by /v1/statistics:
+# npx wrangler secret put CF_ACCOUNT_ID
