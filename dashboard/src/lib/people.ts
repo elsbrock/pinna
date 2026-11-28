@@ -38,11 +38,21 @@ export function voiceLine(voice: number): string {
   }
 }
 
-/** The one line about whether recognition runs; null when there is nothing to add. */
-export function recognitionLine(r: Pick<Recognition, "state" | "reason"> | undefined): { text: string; error: boolean } | null {
+/** The one line about whether recognition runs; null when there is nothing to add. `listed`: people
+ *  are on the list, so NOT_NEEDED means none of them has a voiceprint it can use, for example after
+ *  the speaker model changed. */
+export function recognitionLine(
+  r: Pick<Recognition, "state" | "reason"> | undefined,
+  listed = false,
+): { text: string; error: boolean } | null {
   switch (r?.state) {
     case RECOGNITION.notNeeded:
-      return { text: "Nobody is enrolled, so the satellite doesn't recognize voices yet.", error: false };
+      return {
+        text: listed
+          ? "Nobody has a voiceprint the satellite can use, so it doesn't recognize voices yet. Enroll each person."
+          : "Nobody is enrolled, so the satellite doesn't recognize voices yet.",
+        error: false,
+      };
     case RECOGNITION.loading:
       return { text: "Loading the speaker model. Until it's ready, requests use Everyone else.", error: false };
     case RECOGNITION.ready:

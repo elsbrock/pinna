@@ -166,7 +166,13 @@
   <p role="status">Starting the enrollment…</p>
 {:else if stage === "listening"}
     <!-- Not a live region: it changes every second. The start and the end are announced. -->
-    <p class="pn-notice-title">Listening to {name}. {secondsWord(left)} left.</p>
+    <!-- After the listening, the satellite takes several seconds to make the voiceprint
+         (about 10 s on an Echo Dot (2nd gen), 2026-11-28) before it answers done or failed. -->
+    {#if left > 0}
+      <p class="pn-notice-title">Listening to {name}. {secondsWord(left)} left.</p>
+    {:else}
+      <p class="pn-notice-title" role="status">Making {name}'s voiceprint. This takes a few seconds.</p>
+    {/if}
     <div class="meter">
       <span id="enroll-level-label" class="pn-field-hint">Level</span>
       <span

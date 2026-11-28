@@ -20,7 +20,7 @@
   const view = $derived(people.view);
   const standalone = $derived(isStandalone(s));
   const list = $derived(view?.people ?? []);
-  const recognition = $derived(recognitionLine(view?.recognition));
+  const recognition = $derived(recognitionLine(view?.recognition, list.length > 0));
   const full = $derived(view?.limits ? addReason(list.length, view.limits.maxPeople) : null);
   const blocked = $derived(enrollBlocked(s, recorder.here));
 

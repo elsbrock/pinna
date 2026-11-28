@@ -38,6 +38,11 @@ test("each recognition state has its line, and a failure is an error with the sa
     text: "Nobody is enrolled, so the satellite doesn't recognize voices yet.",
     error: false,
   });
+  // People are listed, but none has a usable voiceprint: after a model change, say what to do.
+  assert.deepEqual(recognitionLine({ state: RECOGNITION.notNeeded, reason: "" }, true), {
+    text: "Nobody has a voiceprint the satellite can use, so it doesn't recognize voices yet. Enroll each person.",
+    error: false,
+  });
   assert.deepEqual(recognitionLine({ state: RECOGNITION.loading, reason: "" }), {
     text: "Loading the speaker model. Until it's ready, requests use Everyone else.",
     error: false,
