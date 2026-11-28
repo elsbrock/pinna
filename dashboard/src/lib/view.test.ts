@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type {
+  RecordingKind,
   Satellite,
   Security,
   Settings,
@@ -1125,7 +1126,13 @@ test("the Overview warns of a confirmation another browser started, for a signed
 });
 
 test("a recording another dashboard runs is named, never to the one that records", () => {
-  const recording = { $typeName: "pinna.v1.Recording", secondsLeft: 12, from: "192.168.1.30" } as const;
+  const recording = {
+    $typeName: "pinna.v1.Recording",
+    secondsLeft: 12,
+    from: "192.168.1.30",
+    // RecordingKind.AUDIO: the generated enum can't be imported here (see above).
+    kind: 0 as RecordingKind,
+  } as const;
   const signedIn = security({ passwordSet: true, signedIn: true });
   assert.deepEqual(recordingWarning(status({ recording }), signedIn, false), { from: "192.168.1.30", left: 12 });
   assert.equal(recordingWarning(status({ recording }), signedIn, true), null, "this dashboard records it");
@@ -1149,7 +1156,13 @@ test("a recording's files are named for the satellite, the kind and the local ti
 });
 
 test("a recording shows Listening on the ring, above a timer's arc and a notification", () => {
-  const recording = { $typeName: "pinna.v1.Recording", secondsLeft: 5, from: "192.168.1.30" } as const;
+  const recording = {
+    $typeName: "pinna.v1.Recording",
+    secondsLeft: 5,
+    from: "192.168.1.30",
+    // RecordingKind.AUDIO: the generated enum can't be imported here (see above).
+    kind: 0 as RecordingKind,
+  } as const;
   assert.equal(ringEffect(status({ recording }), "live"), "listening");
   const tea = { id: "1", name: "Tea", secondsLeft: 90, totalSeconds: 180, active: true } as Timer;
   assert.equal(ringEffect(status({ recording, notification: true, timers: [tea] }), "live"), "listening");

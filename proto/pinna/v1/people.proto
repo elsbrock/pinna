@@ -21,6 +21,15 @@ service PeopleService {
   rpc DeletePerson(DeletePersonRequest) returns (DeletePersonResponse);
   // Change the extra instructions of everyone who isn't a person on the list.
   rpc SetEveryoneElse(SetEveryoneElseRequest) returns (SetEveryoneElseResponse);
+  // Record a person's voice for 30 seconds and keep its voiceprint. The
+  // person stands at the satellite and has pressed Action for a confirmation
+  // with the purpose ENROLL; the grant it gave starts this call. The audio
+  // stays on the satellite and is kept only in memory. The call is refused
+  // with FAILED_PRECONDITION and a sentence while the microphones are muted,
+  // a calibration, a recording or another enrollment runs, or the satellite
+  // isn't idle, and with NOT_FOUND for a person who isn't on the list. The
+  // stream ends with `done` or `failed`; ending the call stores nothing.
+  rpc Enroll(EnrollRequest) returns (stream EnrollEvent);
 }
 
 // What a person's voiceprint is worth now.
@@ -136,4 +145,70 @@ message SetEveryoneElseRequest {
 
 message SetEveryoneElseResponse {
   EveryoneElse everyone_else = 1;
+}
+
+message EnrollRequest {
+  string id = 1;
+  // From a confirmation with the purpose ENROLL.
+  string grant = 2;
+}
+
+message EnrollEvent {
+  oneof event {
+    // First.
+    EnrollStarted started = 1;
+    // About every 200 ms while it listens.
+    EnrollProgress progress = 2;
+    // Last, when the voiceprint is saved.
+    EnrollDone done = 3;
+    // Last, when nothing was saved.
+    EnrollFailed failed = 4;
+  }
+}
+
+message EnrollStarted {
+  // How long the satellite listens.
+  uint32 seconds = 1;
+}
+
+message EnrollProgress {
+  // How much it has heard.
+  float seconds_heard = 1;
+  // How much of that is speech, which is what a voiceprint is made from.
+  float seconds_of_speech = 2;
+  // The level of the last 200 ms in dBFS.
+  float level_dbfs = 3;
+}
+
+message EnrollDone {
+  // The person as saved, as GetPeople shows them.
+  Person person = 1;
+  float seconds_of_speech = 2;
+  // The ids of the people whose voiceprints are close to this one: the
+  // satellite may mix them up.
+  repeated string close_to = 3;
+}
+
+enum EnrollFailure {
+  ENROLL_FAILURE_UNSPECIFIED = 0;
+  // Under 10 seconds of speech.
+  ENROLL_FAILURE_TOO_SHORT = 1;
+  ENROLL_FAILURE_TOO_QUIET = 2;
+  ENROLL_FAILURE_CLIPPED = 3;
+  // Part of the recording doesn't sound like the rest.
+  ENROLL_FAILURE_INCONSISTENT = 4;
+  // Muting, a press of Action, an announcement, an alarm, the person's
+  // removal or pinnad stopping ended it.
+  ENROLL_FAILURE_ENDED = 5;
+  // The speaker model is busy with other voiceprints. Try again.
+  ENROLL_FAILURE_BUSY = 6;
+  // The speaker model or the storage can't be used.
+  ENROLL_FAILURE_UNAVAILABLE = 7;
+}
+
+message EnrollFailed {
+  EnrollFailure reason = 1;
+  // One sentence for the owner: the cause and what to do. Nothing was saved,
+  // and an earlier voiceprint is kept.
+  string message = 2;
 }

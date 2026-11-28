@@ -3,20 +3,27 @@
 //! the same sign-in.
 //!
 //! The handlers only translate: [`People`] validates, stores and starts or
-//! drops the speaker model. No response carries a voiceprint.
+//! drops the speaker model, and [`Enroller`] records a voice. No response
+//! carries a voiceprint.
 
 use std::sync::Arc;
 
 use buffa::{EnumValue, Inline, MessageField};
-use connectrpc::{RequestContext, Response, Router, ServiceRequest, ServiceResult};
+use connectrpc::{
+    ConnectError, RequestContext, Response, Router, ServiceRequest, ServiceResult, ServiceStream,
+};
+use futures::StreamExt;
 use pinna_api::{
-    DeletePersonRequest, DeletePersonResponse, EveryoneElse as EveryoneElseView, GetPeopleRequest,
-    GetPeopleResponse, Limits, PeopleService, Person as PersonMessage, Recognition,
-    RecognitionState, SetEveryoneElseRequest, SetEveryoneElseResponse, SetPersonRequest,
-    SetPersonResponse, VoiceState,
+    DeletePersonRequest, DeletePersonResponse, EnrollDone, EnrollEvent, EnrollFailed,
+    EnrollFailure, EnrollProgress, EnrollRequest, EnrollStarted, EveryoneElse as EveryoneElseView,
+    GetPeopleRequest, GetPeopleResponse, Limits, PeopleService, Person as PersonMessage,
+    Recognition, RecognitionState, SetEveryoneElseRequest, SetEveryoneElseResponse,
+    SetPersonRequest, SetPersonResponse, VoiceState,
 };
 
+use crate::api::{caller, session_cookie};
 use crate::assistant_api::refused;
+use crate::people::enroll::{Enroller, Event, Failure};
 use crate::people::recognizer::State;
 use crate::people::voiceprints::Voice;
 use crate::people::{
@@ -25,11 +32,21 @@ use crate::people::{
 
 pub struct PeopleApi {
     people: Arc<People>,
+    enroller: Option<Arc<Enroller>>,
 }
 
 impl PeopleApi {
     pub fn new(people: Arc<People>) -> Self {
-        Self { people }
+        Self {
+            people,
+            enroller: None,
+        }
+    }
+
+    /// Answer `Enroll` with `enroller`.
+    pub fn with_enroller(mut self, enroller: Arc<Enroller>) -> Self {
+        self.enroller = Some(enroller);
+        self
     }
 }
 
@@ -76,6 +93,53 @@ fn recognition(state: State) -> Recognition {
     Recognition {
         state: EnumValue::Known(state),
         reason,
+        ..Default::default()
+    }
+}
+
+fn enroll_event(event: Event) -> EnrollEvent {
+    use pinna_api::enroll_event::Event as Message;
+    let event = match event {
+        Event::Started { seconds } => Message::Started(Box::new(EnrollStarted {
+            seconds,
+            ..Default::default()
+        })),
+        Event::Progress {
+            seconds_heard,
+            seconds_of_speech,
+            level_dbfs,
+        } => Message::Progress(Box::new(EnrollProgress {
+            seconds_heard,
+            seconds_of_speech,
+            level_dbfs,
+            ..Default::default()
+        })),
+        Event::Done {
+            person: saved,
+            seconds_of_speech,
+            close_to,
+        } => Message::Done(Box::new(EnrollDone {
+            person: MessageField::some(person(saved)),
+            seconds_of_speech,
+            close_to,
+            ..Default::default()
+        })),
+        Event::Failed { reason, sentence } => Message::Failed(Box::new(EnrollFailed {
+            reason: EnumValue::Known(match reason {
+                Failure::TooShort => EnrollFailure::ENROLL_FAILURE_TOO_SHORT,
+                Failure::TooQuiet => EnrollFailure::ENROLL_FAILURE_TOO_QUIET,
+                Failure::Clipped => EnrollFailure::ENROLL_FAILURE_CLIPPED,
+                Failure::Inconsistent => EnrollFailure::ENROLL_FAILURE_INCONSISTENT,
+                Failure::Ended => EnrollFailure::ENROLL_FAILURE_ENDED,
+                Failure::Busy => EnrollFailure::ENROLL_FAILURE_BUSY,
+                Failure::Unavailable => EnrollFailure::ENROLL_FAILURE_UNAVAILABLE,
+            }),
+            message: sentence,
+            ..Default::default()
+        })),
+    };
+    EnrollEvent {
+        event: Some(event),
         ..Default::default()
     }
 }
@@ -148,6 +212,30 @@ impl PeopleService for PeopleApi {
             everyone_else: everyone_else(saved),
             ..Default::default()
         })
+    }
+
+    async fn enroll(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, EnrollRequest>,
+    ) -> ServiceResult<ServiceStream<EnrollEvent>> {
+        let enroller = self
+            .enroller
+            .as_ref()
+            .ok_or_else(|| ConnectError::unavailable("This satellite can't enroll voices."))?;
+        let enrollment = enroller
+            .start(
+                caller(&ctx),
+                request.id,
+                request.grant,
+                session_cookie(&ctx),
+            )
+            .await?;
+        Response::ok(Box::pin(
+            enrollment
+                .into_stream()
+                .map(|event| Ok(enroll_event(event))),
+        ))
     }
 }
 
@@ -309,6 +397,28 @@ mod tests {
             .unwrap();
         assert!(!file.exists());
         assert!(rig.get().await.people.is_empty());
+    }
+
+    #[tokio::test]
+    async fn enrolling_is_refused_for_an_unknown_person_and_without_an_enroller() {
+        let rig = Rig::start().await;
+        // The refusal comes as the end of the stream.
+        let mut stream = rig
+            .client
+            .enroll(EnrollRequest {
+                id: "p1".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let Err(e) = stream.message().await else {
+            panic!("not refused");
+        };
+        assert_eq!(e.code, ErrorCode::Unavailable);
+        assert_eq!(
+            e.message.as_deref(),
+            Some("This satellite can't enroll voices.")
+        );
     }
 
     #[tokio::test]

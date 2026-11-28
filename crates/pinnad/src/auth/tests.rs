@@ -63,6 +63,16 @@ impl Rig {
         }
     }
 
+    /// An enroll grant that was good `age` ago.
+    pub fn enroll_grant_from(&self, grant: &str, age: Duration) {
+        let at = Instant::now() - age;
+        self.auth
+            .grants
+            .lock()
+            .unwrap()
+            .add(grant.into(), at, Purpose::Enroll, None);
+    }
+
     /// A password, set the way the first one is.
     pub async fn with_password(&mut self) {
         let grant = self.press().await;
@@ -915,5 +925,30 @@ async fn a_debugging_text_grant_needs_a_password_its_session_and_ten_seconds() {
         .auth
         .take_debugging_text_grant(&grant, Some("mine"))
         .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+}
+
+#[tokio::test]
+async fn an_enroll_confirmation_needs_no_password_and_its_grant_is_bound_to_a_session() {
+    let mut rig = rig();
+    // No password and no session: nothing to refuse.
+    let grant = rig.press_for(Purpose::Enroll, None).await;
+    rig.auth.take_enroll_grant(&grant, None).unwrap();
+
+    let grant = rig.press_for(Purpose::Enroll, Some("mine")).await;
+    let e = rig
+        .auth
+        .take_enroll_grant(&grant, Some("theirs"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    let e = rig.auth.take_enroll_grant(&grant, None).unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    rig.auth.take_enroll_grant(&grant, Some("mine")).unwrap();
+    let e = rig
+        .auth
+        .take_enroll_grant(&grant, Some("mine"))
+        .unwrap_err();
+    assert_eq!(code(e), ErrorCode::PermissionDenied);
+    let e = rig.auth.take_enroll_grant("", None).unwrap_err();
     assert_eq!(code(e), ErrorCode::PermissionDenied);
 }

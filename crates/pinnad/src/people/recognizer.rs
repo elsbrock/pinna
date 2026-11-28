@@ -5,14 +5,16 @@
 //! its own: loading takes about 9 s on the Echo Dot (2nd gen), and neither the
 //! tokio runtime nor the audio may wait for it. The same thread then answers
 //! [`Recognizer::identify`] until the model is dropped. Both run at a lower
-//! priority than the audio.
+//! priority than the audio. Enrollment holds the model for as long as it runs
+//! ([`Recognizer::hold`]), so the load overlaps the recording, and computes
+//! the voiceprint on the same thread.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use pinna_speaker::{Model, Voiceprint};
+use pinna_speaker::{EnrollError, Enrolled, Model, Voiceprint};
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 
@@ -35,9 +37,33 @@ pub enum State {
     Unavailable(String),
 }
 
-struct Job {
-    window: Vec<i16>,
-    reply: oneshot::Sender<Result<Voiceprint, String>>,
+enum Job {
+    Identify {
+        window: Vec<i16>,
+        reply: oneshot::Sender<Result<Voiceprint, String>>,
+    },
+    Enroll {
+        pcm: Vec<i16>,
+        reply: oneshot::Sender<Result<Computed, Unenrolled>>,
+    },
+}
+
+/// What an enrollment computed, and which model computed it.
+pub struct Computed {
+    pub enrolled: Enrolled,
+    /// The model's sha256 (lowercase hex), which the voiceprint file records.
+    pub model_sha: String,
+}
+
+/// Why an enrollment computed nothing.
+#[derive(Debug)]
+pub enum Unenrolled {
+    /// The model isn't loaded.
+    NotLoaded,
+    /// Voiceprint jobs already wait.
+    Busy,
+    /// A check failed, or the model failed to run.
+    Failed(EnrollError),
 }
 
 struct Shared {
@@ -46,6 +72,8 @@ struct Shared {
     sha: Option<String>,
     /// The models of the voiceprint files that can be read.
     wanted: Vec<String>,
+    /// Enrollments that run: each needs the model, whoever is enrolled.
+    holds: usize,
     /// Counts loads and drops, so a load that finishes late knows it was
     /// dropped meanwhile.
     generation: u64,
@@ -57,10 +85,34 @@ struct Shared {
 impl Shared {
     /// Before the model is hashed, any readable voiceprint may be usable.
     fn needed(&self) -> bool {
+        if self.holds > 0 {
+            return true;
+        }
         match &self.sha {
             Some(sha) => self.wanted.contains(sha),
             None => !self.wanted.is_empty(),
         }
+    }
+
+    /// Drop the model when nothing needs it.
+    fn drop_unneeded(&mut self) {
+        if !self.needed() && self.state != State::NotNeeded {
+            self.generation += 1;
+            self.jobs = None;
+            self.state = State::NotNeeded;
+        }
+    }
+}
+
+/// Keeps the model loaded while it lives, for an enrollment. Dropping the
+/// last hold drops the model unless a voiceprint still needs it.
+pub struct Hold(Arc<Mutex<Shared>>);
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        let mut shared = lock(&self.0);
+        shared.holds -= 1;
+        shared.drop_unneeded();
     }
 }
 
@@ -81,6 +133,7 @@ impl Recognizer {
                 state: State::NotNeeded,
                 sha: None,
                 wanted: Vec::new(),
+                holds: 0,
                 generation: 0,
                 jobs: None,
             })),
@@ -107,12 +160,32 @@ impl Recognizer {
             // A failure stays until the reason is gone, so a new enrollment
             // tries again without a restart.
             (true, State::Unavailable(_)) => {}
-            (false, _) => {
-                shared.generation += 1;
-                shared.jobs = None;
-                shared.state = State::NotNeeded;
-            }
+            (false, _) => shared.drop_unneeded(),
             (true, State::NotNeeded) => self.start_load(&mut shared),
+        }
+    }
+
+    /// Load the model now if it isn't, and keep it until the hold is
+    /// dropped.
+    pub fn hold(&self) -> Hold {
+        let mut shared = lock(&self.shared);
+        shared.holds += 1;
+        if shared.state == State::NotNeeded {
+            self.start_load(&mut shared);
+        }
+        Hold(self.shared.clone())
+    }
+
+    /// Wait until the model has loaded or failed, for at most `limit`, and
+    /// say where it stands. Blocks: call it off the runtime.
+    pub fn wait_loaded(&self, limit: std::time::Duration) -> State {
+        let end = Instant::now() + limit;
+        loop {
+            let state = self.state();
+            if state != State::Loading || Instant::now() >= end {
+                return state;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
 
@@ -140,16 +213,43 @@ impl Recognizer {
         let shared = lock(&self.shared);
         let refused = match &shared.jobs {
             None => Some((reply, "the speaker model isn't loaded")),
-            Some(jobs) => match jobs.try_send(Job { window, reply }) {
+            Some(jobs) => match jobs.try_send(Job::Identify { window, reply }) {
                 Ok(()) => None,
-                Err(TrySendError::Full(job)) => Some((job.reply, "busy")),
-                Err(TrySendError::Disconnected(job)) => {
-                    Some((job.reply, "the speaker model isn't loaded"))
+                Err(TrySendError::Full(Job::Identify { reply, .. })) => Some((reply, "busy")),
+                Err(TrySendError::Disconnected(Job::Identify { reply, .. })) => {
+                    Some((reply, "the speaker model isn't loaded"))
                 }
+                Err(_) => unreachable!("the job sent is an identify"),
             },
         };
         if let Some((reply, why)) = refused {
             let _ = reply.send(Err(why.into()));
+        }
+        answer
+    }
+
+    /// The voiceprint of a whole enrollment recording, checks included,
+    /// computed on the model's thread: 30 s of speech takes 15 to 20 windows
+    /// of about 764 ms on the Echo Dot (2nd gen). It answers at once when
+    /// the model isn't loaded or voiceprint jobs already wait.
+    pub fn enroll(&self, pcm: Vec<i16>) -> oneshot::Receiver<Result<Computed, Unenrolled>> {
+        let (reply, answer) = oneshot::channel();
+        let shared = lock(&self.shared);
+        let refused = match &shared.jobs {
+            None => Some((reply, Unenrolled::NotLoaded)),
+            Some(jobs) => match jobs.try_send(Job::Enroll { pcm, reply }) {
+                Ok(()) => None,
+                Err(TrySendError::Full(Job::Enroll { reply, .. })) => {
+                    Some((reply, Unenrolled::Busy))
+                }
+                Err(TrySendError::Disconnected(Job::Enroll { reply, .. })) => {
+                    Some((reply, Unenrolled::NotLoaded))
+                }
+                Err(_) => unreachable!("the job sent is an enroll"),
+            },
+        };
+        if let Some((reply, why)) = refused {
+            let _ = reply.send(Err(why));
         }
         answer
     }
@@ -228,9 +328,21 @@ fn run(path: &Path, shared: &Mutex<Shared>, generation: u64) {
     );
     timeline::stage(|| "speaker model: loaded".into(), started.elapsed(), 0);
     while let Ok(job) = queue.recv() {
-        let _ = job
-            .reply
-            .send(model.voiceprint(&job.window).map_err(|e| e.to_string()));
+        match job {
+            Job::Identify { window, reply } => {
+                let _ = reply.send(model.voiceprint(&window).map_err(|e| e.to_string()));
+            }
+            Job::Enroll { pcm, reply } => {
+                let _ = reply.send(
+                    pinna_speaker::enroll(&model, &pcm)
+                        .map(|enrolled| Computed {
+                            enrolled,
+                            model_sha: model.sha256().to_owned(),
+                        })
+                        .map_err(Unenrolled::Failed),
+                );
+            }
+        }
     }
 }
 
@@ -313,6 +425,52 @@ mod tests {
         assert_eq!(r.state(), State::NotNeeded);
         let err = r.identify(vec![0; 24_000]).await.unwrap().unwrap_err();
         assert_eq!(err, "the speaker model isn't loaded");
+    }
+
+    #[test]
+    fn a_hold_loads_the_model_and_drops_it_when_nobody_needs_it() {
+        let r = Recognizer::new("/nonexistent/speaker.onnx".into());
+        let hold = r.hold();
+        assert_eq!(r.state(), State::Loading);
+        let State::Unavailable(_) = wait_for(&r, |s| *s != State::Loading) else {
+            panic!("expected unavailable");
+        };
+        // Nobody is enrolled: letting go forgets the failure too.
+        drop(hold);
+        assert_eq!(r.state(), State::NotNeeded);
+    }
+
+    #[test]
+    fn a_hold_keeps_the_model_that_a_voiceprint_does_not_need() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(MODEL);
+        if !path.exists() {
+            eprintln!("SKIP: {} is missing; run `just models`", path.display());
+            return;
+        }
+        let r = Recognizer::new(path.clone());
+        let hold = r.hold();
+        wait_for(&r, |s| *s != State::Loading);
+        assert_eq!(r.state(), State::Ready);
+        // A list change that wants nothing doesn't drop it meanwhile.
+        r.set_wanted(vec![]);
+        assert_eq!(r.state(), State::Ready);
+        drop(hold);
+        assert_eq!(r.state(), State::NotNeeded);
+
+        // A voiceprint of the model outlives the hold.
+        let sha = sha256_of(&path).unwrap();
+        r.set_wanted(vec![sha]);
+        let hold = r.hold();
+        wait_for(&r, |s| *s != State::Loading);
+        drop(hold);
+        assert_eq!(r.state(), State::Ready);
+    }
+
+    #[tokio::test]
+    async fn an_enrollment_without_a_model_answers_at_once() {
+        let r = Recognizer::new("/nonexistent/speaker.onnx".into());
+        let err = r.enroll(vec![0; 16_000]).await.unwrap().err().unwrap();
+        assert!(matches!(err, Unenrolled::NotLoaded));
     }
 
     #[test]

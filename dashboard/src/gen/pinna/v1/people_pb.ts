@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file pinna/v1/people.proto.
  */
 export const file_pinna_v1_people: GenFile = /*@__PURE__*/
-  fileDesc("ChVwaW5uYS92MS9wZW9wbGUucHJvdG8SCHBpbm5hLnYxIjYKDEV2ZXJ5b25lRWxzZRIUCgxpbnN0cnVjdGlvbnMYASABKAkSEAoIcmV2aXNpb24YAiABKAQigQEKBlBlcnNvbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGluc3RydWN0aW9ucxgDIAEoCRIQCghyZXZpc2lvbhgEIAEoBBIjCgV2b2ljZRgFIAEoDjIULnBpbm5hLnYxLlZvaWNlU3RhdGUSEAoIY2xvc2VfdG8YBiADKAkiSAoLUmVjb2duaXRpb24SKQoFc3RhdGUYASABKA4yGi5waW5uYS52MS5SZWNvZ25pdGlvblN0YXRlEg4KBnJlYXNvbhgCIAEoCSJICgZMaW1pdHMSEgoKbWF4X3Blb3BsZRgBIAEoDRIYChBtYXhfaW5zdHJ1Y3Rpb25zGAIgASgNEhAKCG1heF9uYW1lGAMgASgNIhIKEEdldFBlb3BsZVJlcXVlc3QisgEKEUdldFBlb3BsZVJlc3BvbnNlEi0KDWV2ZXJ5b25lX2Vsc2UYASABKAsyFi5waW5uYS52MS5FdmVyeW9uZUVsc2USIAoGcGVvcGxlGAIgAygLMhAucGlubmEudjEuUGVyc29uEioKC3JlY29nbml0aW9uGAMgASgLMhUucGlubmEudjEuUmVjb2duaXRpb24SIAoGbGltaXRzGAQgASgLMhAucGlubmEudjEuTGltaXRzIlQKEFNldFBlcnNvblJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQSDAoEbmFtZRgDIAEoCRIUCgxpbnN0cnVjdGlvbnMYBCABKAkiNQoRU2V0UGVyc29uUmVzcG9uc2USIAoGcGVyc29uGAEgASgLMhAucGlubmEudjEuUGVyc29uIiEKE0RlbGV0ZVBlcnNvblJlcXVlc3QSCgoCaWQYASABKAkiFgoURGVsZXRlUGVyc29uUmVzcG9uc2UiQAoWU2V0RXZlcnlvbmVFbHNlUmVxdWVzdBIUCgxpbnN0cnVjdGlvbnMYASABKAkSEAoIcmV2aXNpb24YAiABKAQiSAoXU2V0RXZlcnlvbmVFbHNlUmVzcG9uc2USLQoNZXZlcnlvbmVfZWxzZRgBIAEoCzIWLnBpbm5hLnYxLkV2ZXJ5b25lRWxzZSqVAQoKVm9pY2VTdGF0ZRIbChdWT0lDRV9TVEFURV9VTlNQRUNJRklFRBAAEhQKEFZPSUNFX1NUQVRFX05PTkUQARIYChRWT0lDRV9TVEFURV9FTlJPTExFRBACEhsKF1ZPSUNFX1NUQVRFX09USEVSX01PREVMEAMSHQoZVk9JQ0VfU1RBVEVfT0xERVJfQ0FQVFVSRRAEKrYBChBSZWNvZ25pdGlvblN0YXRlEiEKHVJFQ09HTklUSU9OX1NUQVRFX1VOU1BFQ0lGSUVEEAASIAocUkVDT0dOSVRJT05fU1RBVEVfTk9UX05FRURFRBABEh0KGVJFQ09HTklUSU9OX1NUQVRFX0xPQURJTkcQAhIbChdSRUNPR05JVElPTl9TVEFURV9SRUFEWRADEiEKHVJFQ09HTklUSU9OX1NUQVRFX1VOQVZBSUxBQkxFEAQywgIKDVBlb3BsZVNlcnZpY2USRAoJR2V0UGVvcGxlEhoucGlubmEudjEuR2V0UGVvcGxlUmVxdWVzdBobLnBpbm5hLnYxLkdldFBlb3BsZVJlc3BvbnNlEkQKCVNldFBlcnNvbhIaLnBpbm5hLnYxLlNldFBlcnNvblJlcXVlc3QaGy5waW5uYS52MS5TZXRQZXJzb25SZXNwb25zZRJNCgxEZWxldGVQZXJzb24SHS5waW5uYS52MS5EZWxldGVQZXJzb25SZXF1ZXN0Gh4ucGlubmEudjEuRGVsZXRlUGVyc29uUmVzcG9uc2USVgoPU2V0RXZlcnlvbmVFbHNlEiAucGlubmEudjEuU2V0RXZlcnlvbmVFbHNlUmVxdWVzdBohLnBpbm5hLnYxLlNldEV2ZXJ5b25lRWxzZVJlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChVwaW5uYS92MS9wZW9wbGUucHJvdG8SCHBpbm5hLnYxIjYKDEV2ZXJ5b25lRWxzZRIUCgxpbnN0cnVjdGlvbnMYASABKAkSEAoIcmV2aXNpb24YAiABKAQigQEKBlBlcnNvbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDGluc3RydWN0aW9ucxgDIAEoCRIQCghyZXZpc2lvbhgEIAEoBBIjCgV2b2ljZRgFIAEoDjIULnBpbm5hLnYxLlZvaWNlU3RhdGUSEAoIY2xvc2VfdG8YBiADKAkiSAoLUmVjb2duaXRpb24SKQoFc3RhdGUYASABKA4yGi5waW5uYS52MS5SZWNvZ25pdGlvblN0YXRlEg4KBnJlYXNvbhgCIAEoCSJICgZMaW1pdHMSEgoKbWF4X3Blb3BsZRgBIAEoDRIYChBtYXhfaW5zdHJ1Y3Rpb25zGAIgASgNEhAKCG1heF9uYW1lGAMgASgNIhIKEEdldFBlb3BsZVJlcXVlc3QisgEKEUdldFBlb3BsZVJlc3BvbnNlEi0KDWV2ZXJ5b25lX2Vsc2UYASABKAsyFi5waW5uYS52MS5FdmVyeW9uZUVsc2USIAoGcGVvcGxlGAIgAygLMhAucGlubmEudjEuUGVyc29uEioKC3JlY29nbml0aW9uGAMgASgLMhUucGlubmEudjEuUmVjb2duaXRpb24SIAoGbGltaXRzGAQgASgLMhAucGlubmEudjEuTGltaXRzIlQKEFNldFBlcnNvblJlcXVlc3QSCgoCaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQSDAoEbmFtZRgDIAEoCRIUCgxpbnN0cnVjdGlvbnMYBCABKAkiNQoRU2V0UGVyc29uUmVzcG9uc2USIAoGcGVyc29uGAEgASgLMhAucGlubmEudjEuUGVyc29uIiEKE0RlbGV0ZVBlcnNvblJlcXVlc3QSCgoCaWQYASABKAkiFgoURGVsZXRlUGVyc29uUmVzcG9uc2UiQAoWU2V0RXZlcnlvbmVFbHNlUmVxdWVzdBIUCgxpbnN0cnVjdGlvbnMYASABKAkSEAoIcmV2aXNpb24YAiABKAQiSAoXU2V0RXZlcnlvbmVFbHNlUmVzcG9uc2USLQoNZXZlcnlvbmVfZWxzZRgBIAEoCzIWLnBpbm5hLnYxLkV2ZXJ5b25lRWxzZSIqCg1FbnJvbGxSZXF1ZXN0EgoKAmlkGAEgASgJEg0KBWdyYW50GAIgASgJIsABCgtFbnJvbGxFdmVudBIqCgdzdGFydGVkGAEgASgLMhcucGlubmEudjEuRW5yb2xsU3RhcnRlZEgAEiwKCHByb2dyZXNzGAIgASgLMhgucGlubmEudjEuRW5yb2xsUHJvZ3Jlc3NIABIkCgRkb25lGAMgASgLMhQucGlubmEudjEuRW5yb2xsRG9uZUgAEigKBmZhaWxlZBgEIAEoCzIWLnBpbm5hLnYxLkVucm9sbEZhaWxlZEgAQgcKBWV2ZW50IiAKDUVucm9sbFN0YXJ0ZWQSDwoHc2Vjb25kcxgBIAEoDSJWCg5FbnJvbGxQcm9ncmVzcxIVCg1zZWNvbmRzX2hlYXJkGAEgASgCEhkKEXNlY29uZHNfb2Zfc3BlZWNoGAIgASgCEhIKCmxldmVsX2RiZnMYAyABKAIiWwoKRW5yb2xsRG9uZRIgCgZwZXJzb24YASABKAsyEC5waW5uYS52MS5QZXJzb24SGQoRc2Vjb25kc19vZl9zcGVlY2gYAiABKAISEAoIY2xvc2VfdG8YAyADKAkiSAoMRW5yb2xsRmFpbGVkEicKBnJlYXNvbhgBIAEoDjIXLnBpbm5hLnYxLkVucm9sbEZhaWx1cmUSDwoHbWVzc2FnZRgCIAEoCSqVAQoKVm9pY2VTdGF0ZRIbChdWT0lDRV9TVEFURV9VTlNQRUNJRklFRBAAEhQKEFZPSUNFX1NUQVRFX05PTkUQARIYChRWT0lDRV9TVEFURV9FTlJPTExFRBACEhsKF1ZPSUNFX1NUQVRFX09USEVSX01PREVMEAMSHQoZVk9JQ0VfU1RBVEVfT0xERVJfQ0FQVFVSRRAEKrYBChBSZWNvZ25pdGlvblN0YXRlEiEKHVJFQ09HTklUSU9OX1NUQVRFX1VOU1BFQ0lGSUVEEAASIAocUkVDT0dOSVRJT05fU1RBVEVfTk9UX05FRURFRBABEh0KGVJFQ09HTklUSU9OX1NUQVRFX0xPQURJTkcQAhIbChdSRUNPR05JVElPTl9TVEFURV9SRUFEWRADEiEKHVJFQ09HTklUSU9OX1NUQVRFX1VOQVZBSUxBQkxFEAQq+wEKDUVucm9sbEZhaWx1cmUSHgoaRU5ST0xMX0ZBSUxVUkVfVU5TUEVDSUZJRUQQABIcChhFTlJPTExfRkFJTFVSRV9UT09fU0hPUlQQARIcChhFTlJPTExfRkFJTFVSRV9UT09fUVVJRVQQAhIaChZFTlJPTExfRkFJTFVSRV9DTElQUEVEEAMSHwobRU5ST0xMX0ZBSUxVUkVfSU5DT05TSVNURU5UEAQSGAoURU5ST0xMX0ZBSUxVUkVfRU5ERUQQBRIXChNFTlJPTExfRkFJTFVSRV9CVVNZEAYSHgoaRU5ST0xMX0ZBSUxVUkVfVU5BVkFJTEFCTEUQBzL+AgoNUGVvcGxlU2VydmljZRJECglHZXRQZW9wbGUSGi5waW5uYS52MS5HZXRQZW9wbGVSZXF1ZXN0GhsucGlubmEudjEuR2V0UGVvcGxlUmVzcG9uc2USRAoJU2V0UGVyc29uEhoucGlubmEudjEuU2V0UGVyc29uUmVxdWVzdBobLnBpbm5hLnYxLlNldFBlcnNvblJlc3BvbnNlEk0KDERlbGV0ZVBlcnNvbhIdLnBpbm5hLnYxLkRlbGV0ZVBlcnNvblJlcXVlc3QaHi5waW5uYS52MS5EZWxldGVQZXJzb25SZXNwb25zZRJWCg9TZXRFdmVyeW9uZUVsc2USIC5waW5uYS52MS5TZXRFdmVyeW9uZUVsc2VSZXF1ZXN0GiEucGlubmEudjEuU2V0RXZlcnlvbmVFbHNlUmVzcG9uc2USOgoGRW5yb2xsEhcucGlubmEudjEuRW5yb2xsUmVxdWVzdBoVLnBpbm5hLnYxLkVucm9sbEV2ZW50MAFiBnByb3RvMw");
 
 /**
  * The profile for everyone who isn't on the list.
@@ -335,6 +335,188 @@ export const SetEveryoneElseResponseSchema: GenMessage<SetEveryoneElseResponse> 
   messageDesc(file_pinna_v1_people, 11);
 
 /**
+ * @generated from message pinna.v1.EnrollRequest
+ */
+export type EnrollRequest = Message<"pinna.v1.EnrollRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * From a confirmation with the purpose ENROLL.
+   *
+   * @generated from field: string grant = 2;
+   */
+  grant: string;
+};
+
+/**
+ * Describes the message pinna.v1.EnrollRequest.
+ * Use `create(EnrollRequestSchema)` to create a new message.
+ */
+export const EnrollRequestSchema: GenMessage<EnrollRequest> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_people, 12);
+
+/**
+ * @generated from message pinna.v1.EnrollEvent
+ */
+export type EnrollEvent = Message<"pinna.v1.EnrollEvent"> & {
+  /**
+   * @generated from oneof pinna.v1.EnrollEvent.event
+   */
+  event: {
+    /**
+     * First.
+     *
+     * @generated from field: pinna.v1.EnrollStarted started = 1;
+     */
+    value: EnrollStarted;
+    case: "started";
+  } | {
+    /**
+     * About every 200 ms while it listens.
+     *
+     * @generated from field: pinna.v1.EnrollProgress progress = 2;
+     */
+    value: EnrollProgress;
+    case: "progress";
+  } | {
+    /**
+     * Last, when the voiceprint is saved.
+     *
+     * @generated from field: pinna.v1.EnrollDone done = 3;
+     */
+    value: EnrollDone;
+    case: "done";
+  } | {
+    /**
+     * Last, when nothing was saved.
+     *
+     * @generated from field: pinna.v1.EnrollFailed failed = 4;
+     */
+    value: EnrollFailed;
+    case: "failed";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message pinna.v1.EnrollEvent.
+ * Use `create(EnrollEventSchema)` to create a new message.
+ */
+export const EnrollEventSchema: GenMessage<EnrollEvent> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_people, 13);
+
+/**
+ * @generated from message pinna.v1.EnrollStarted
+ */
+export type EnrollStarted = Message<"pinna.v1.EnrollStarted"> & {
+  /**
+   * How long the satellite listens.
+   *
+   * @generated from field: uint32 seconds = 1;
+   */
+  seconds: number;
+};
+
+/**
+ * Describes the message pinna.v1.EnrollStarted.
+ * Use `create(EnrollStartedSchema)` to create a new message.
+ */
+export const EnrollStartedSchema: GenMessage<EnrollStarted> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_people, 14);
+
+/**
+ * @generated from message pinna.v1.EnrollProgress
+ */
+export type EnrollProgress = Message<"pinna.v1.EnrollProgress"> & {
+  /**
+   * How much it has heard.
+   *
+   * @generated from field: float seconds_heard = 1;
+   */
+  secondsHeard: number;
+
+  /**
+   * How much of that is speech, which is what a voiceprint is made from.
+   *
+   * @generated from field: float seconds_of_speech = 2;
+   */
+  secondsOfSpeech: number;
+
+  /**
+   * The level of the last 200 ms in dBFS.
+   *
+   * @generated from field: float level_dbfs = 3;
+   */
+  levelDbfs: number;
+};
+
+/**
+ * Describes the message pinna.v1.EnrollProgress.
+ * Use `create(EnrollProgressSchema)` to create a new message.
+ */
+export const EnrollProgressSchema: GenMessage<EnrollProgress> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_people, 15);
+
+/**
+ * @generated from message pinna.v1.EnrollDone
+ */
+export type EnrollDone = Message<"pinna.v1.EnrollDone"> & {
+  /**
+   * The person as saved, as GetPeople shows them.
+   *
+   * @generated from field: pinna.v1.Person person = 1;
+   */
+  person?: Person | undefined;
+
+  /**
+   * @generated from field: float seconds_of_speech = 2;
+   */
+  secondsOfSpeech: number;
+
+  /**
+   * The ids of the people whose voiceprints are close to this one: the
+   * satellite may mix them up.
+   *
+   * @generated from field: repeated string close_to = 3;
+   */
+  closeTo: string[];
+};
+
+/**
+ * Describes the message pinna.v1.EnrollDone.
+ * Use `create(EnrollDoneSchema)` to create a new message.
+ */
+export const EnrollDoneSchema: GenMessage<EnrollDone> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_people, 16);
+
+/**
+ * @generated from message pinna.v1.EnrollFailed
+ */
+export type EnrollFailed = Message<"pinna.v1.EnrollFailed"> & {
+  /**
+   * @generated from field: pinna.v1.EnrollFailure reason = 1;
+   */
+  reason: EnrollFailure;
+
+  /**
+   * One sentence for the owner: the cause and what to do. Nothing was saved,
+   * and an earlier voiceprint is kept.
+   *
+   * @generated from field: string message = 2;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message pinna.v1.EnrollFailed.
+ * Use `create(EnrollFailedSchema)` to create a new message.
+ */
+export const EnrollFailedSchema: GenMessage<EnrollFailed> = /*@__PURE__*/
+  messageDesc(file_pinna_v1_people, 17);
+
+/**
  * What a person's voiceprint is worth now.
  *
  * @generated from enum pinna.v1.VoiceState
@@ -431,6 +613,68 @@ export const RecognitionStateSchema: GenEnum<RecognitionState> = /*@__PURE__*/
   enumDesc(file_pinna_v1_people, 1);
 
 /**
+ * @generated from enum pinna.v1.EnrollFailure
+ */
+export enum EnrollFailure {
+  /**
+   * @generated from enum value: ENROLL_FAILURE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Under 10 seconds of speech.
+   *
+   * @generated from enum value: ENROLL_FAILURE_TOO_SHORT = 1;
+   */
+  TOO_SHORT = 1,
+
+  /**
+   * @generated from enum value: ENROLL_FAILURE_TOO_QUIET = 2;
+   */
+  TOO_QUIET = 2,
+
+  /**
+   * @generated from enum value: ENROLL_FAILURE_CLIPPED = 3;
+   */
+  CLIPPED = 3,
+
+  /**
+   * Part of the recording doesn't sound like the rest.
+   *
+   * @generated from enum value: ENROLL_FAILURE_INCONSISTENT = 4;
+   */
+  INCONSISTENT = 4,
+
+  /**
+   * Muting, a press of Action, an announcement, an alarm, the person's
+   * removal or pinnad stopping ended it.
+   *
+   * @generated from enum value: ENROLL_FAILURE_ENDED = 5;
+   */
+  ENDED = 5,
+
+  /**
+   * The speaker model is busy with other voiceprints. Try again.
+   *
+   * @generated from enum value: ENROLL_FAILURE_BUSY = 6;
+   */
+  BUSY = 6,
+
+  /**
+   * The speaker model or the storage can't be used.
+   *
+   * @generated from enum value: ENROLL_FAILURE_UNAVAILABLE = 7;
+   */
+  UNAVAILABLE = 7,
+}
+
+/**
+ * Describes the enum pinna.v1.EnrollFailure.
+ */
+export const EnrollFailureSchema: GenEnum<EnrollFailure> = /*@__PURE__*/
+  enumDesc(file_pinna_v1_people, 2);
+
+/**
  * The people the satellite recognizes by voice (ADR 0038): their names, the
  * extra instructions each one gets, and the state of their voiceprints. Served
  * with the dashboard, behind the same sign-in as AssistantService.
@@ -484,6 +728,23 @@ export const PeopleService: GenService<{
     methodKind: "unary";
     input: typeof SetEveryoneElseRequestSchema;
     output: typeof SetEveryoneElseResponseSchema;
+  },
+  /**
+   * Record a person's voice for 30 seconds and keep its voiceprint. The
+   * person stands at the satellite and has pressed Action for a confirmation
+   * with the purpose ENROLL; the grant it gave starts this call. The audio
+   * stays on the satellite and is kept only in memory. The call is refused
+   * with FAILED_PRECONDITION and a sentence while the microphones are muted,
+   * a calibration, a recording or another enrollment runs, or the satellite
+   * isn't idle, and with NOT_FOUND for a person who isn't on the list. The
+   * stream ends with `done` or `failed`; ending the call stores nothing.
+   *
+   * @generated from rpc pinna.v1.PeopleService.Enroll
+   */
+  enroll: {
+    methodKind: "server_streaming";
+    input: typeof EnrollRequestSchema;
+    output: typeof EnrollEventSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_pinna_v1_people, 0);

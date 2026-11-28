@@ -1227,7 +1227,7 @@ async fn main() -> Result<()> {
     let device_api = Arc::new(
         device_api
             .with_auth(auth.clone())
-            .with_recorder(recorder)
+            .with_recorder(recorder.clone())
             .with_timeline(timeline)
             .with_group(group.clone())
             .with_ring(shown_rx)
@@ -1290,10 +1290,15 @@ async fn main() -> Result<()> {
     );
     // The speaker model loads in the background when someone is enrolled
     // (ADR 0038).
-    let people_api = Arc::new(people_api::PeopleApi::new(people::People::open(
+    let people = people::People::open(
         &people::Paths::beside(&cli.settings),
         cfg.wake.speaker_model.clone(),
-    )));
+    );
+    let people_api = Arc::new(
+        people_api::PeopleApi::new(people.clone()).with_enroller(Arc::new(
+            people::enroll::Enroller::new(people, recorder, auth.clone()),
+        )),
+    );
     // The tools' HTTP clients, counters and updater, shared by every run and /mcp call.
     let tool_kit = tools::ToolKit::new(shared.counters.clone())
         .with_updater(updater.clone())

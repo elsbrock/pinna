@@ -9,6 +9,10 @@
 //! bounded queue of about 2 seconds, and a caller that falls behind ends the
 //! recording. The Brain is told while one runs, so the ring shows Listening
 //! and an update's restart waits; the phase doesn't change.
+//!
+//! Enrolling a voice is a recording that nobody receives (ADR 0038): the same
+//! taps and queue, without the debug captures, read by `people::enroll`, which
+//! keeps the frames in memory and computes a voiceprint from them.
 
 use std::net::IpAddr;
 use std::process::Stdio;
@@ -24,7 +28,7 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::sync::{mpsc, watch};
 use tokio::task::AbortHandle;
 
-use crate::voice::{Input, Snapshot};
+use crate::voice::{Input, RecordingKind, Snapshot};
 
 pub const SAMPLE_RATE: u32 = 16_000;
 pub const MAX_SECONDS: u32 = 30;
@@ -44,6 +48,9 @@ pub const BRAIN_GRACE: Duration = Duration::from_secs(5);
 const MUTED: &str = "The microphones are muted. Turn the microphones on first.";
 const CALIBRATING: &str = "Wake word calibration is running. Stop it first.";
 const RUNNING: &str = "A recording is running already. Wait for it to end, or stop it.";
+const ENROLLING: &str = "Someone is enrolling a voice. Wait for it to end.";
+const ENROLL_RUNNING: &str = "Another enrollment is running already. Wait for it to end.";
+const BUSY: &str = "The satellite is busy with a request, a reply, music, an announcement or an alarm. Wait until it is quiet.";
 const SECONDS: &str = "The length must be 1 to 30 seconds. Choose one in that range.";
 const NO_BRAIN: &str = "pinnad is shutting down";
 
@@ -57,7 +64,7 @@ pub fn check_seconds(seconds: u32) -> Result<(), ConnectError> {
 }
 
 /// One chunk of one source.
-type Item = (AudioSource, Vec<u8>);
+pub(crate) type Item = (AudioSource, Vec<u8>);
 
 /// Why a recording ended, and for a failure the sentence that says so.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +81,15 @@ struct Run {
 
 impl Run {
     fn end(&self, reason: RecordingEnd, detail: impl Into<String>) {
+        self.end_now(reason, detail);
+    }
+
+    fn finished(&self) -> bool {
+        self.finish.borrow().is_some()
+    }
+
+    /// `end`, and whether this call ended it.
+    fn end_now(&self, reason: RecordingEnd, detail: impl Into<String>) -> bool {
         self.finish.send_if_modified(|f| {
             if f.is_some() {
                 return false;
@@ -83,11 +99,7 @@ impl Run {
                 detail: detail.into(),
             });
             true
-        });
-    }
-
-    fn finished(&self) -> bool {
-        self.finish.borrow().is_some()
+        })
     }
 }
 
@@ -148,6 +160,13 @@ impl Tap {
         }
         let heard = std::mem::take(&mut taps.heard);
         offer(&taps.tx, &taps.run, AudioSource::AUDIO_SOURCE_HEARD, heard);
+    }
+
+    /// End the running recording from outside the stream, with a sentence for
+    /// the caller. True when this call ended it.
+    pub fn end(&self, reason: RecordingEnd, detail: &str) -> bool {
+        let slot = self.slot.lock().unwrap();
+        slot.as_ref().is_some_and(|t| t.run.end_now(reason, detail))
     }
 
     fn install(&self, tx: mpsc::Sender<Item>, run: Arc<Run>, debug: bool) {
@@ -302,6 +321,7 @@ async fn read_lanes(
 
 struct Current {
     id: u64,
+    kind: RecordingKind,
     run: Arc<Run>,
 }
 
@@ -335,18 +355,30 @@ impl Recorder {
 
     /// Why a recording can't start now, if it can't.
     pub fn refusal(&self) -> Option<ConnectError> {
-        let current = self.current.lock().unwrap();
-        self.refusal_with(&current)
+        self.refusal_for(RecordingKind::Audio)
     }
 
-    fn refusal_with(&self, current: &Option<Current>) -> Option<ConnectError> {
+    /// Why a recording of `kind` can't start now, if it can't. An enrollment
+    /// also waits for the satellite to be quiet.
+    pub fn refusal_for(&self, kind: RecordingKind) -> Option<ConnectError> {
+        let current = self.current.lock().unwrap();
+        self.refusal_with(&current, kind)
+    }
+
+    fn refusal_with(&self, current: &Option<Current>, kind: RecordingKind) -> Option<ConnectError> {
         let status = self.status.borrow();
         let sentence = if status.hw_muted || status.sw_muted {
             MUTED
         } else if status.calibration.is_some() {
             CALIBRATING
-        } else if current.is_some() {
-            RUNNING
+        } else if let Some(running) = current {
+            match (kind, running.kind) {
+                (RecordingKind::Audio, RecordingKind::Enrollment) => ENROLLING,
+                (RecordingKind::Enrollment, RecordingKind::Enrollment) => ENROLL_RUNNING,
+                _ => RUNNING,
+            }
+        } else if kind == RecordingKind::Enrollment && !status.quiet {
+            BUSY
         } else {
             return None;
         };
@@ -369,17 +401,29 @@ impl Recorder {
         from: IpAddr,
         seconds: u32,
     ) -> Result<Recording, ConnectError> {
+        self.start_kind(from, seconds, RecordingKind::Audio).await
+    }
+
+    /// Start a recording of `kind`. An enrollment takes the frames of HEARD
+    /// alone: no debug captures run for it.
+    pub async fn start_kind(
+        self: &Arc<Self>,
+        from: IpAddr,
+        seconds: u32,
+        kind: RecordingKind,
+    ) -> Result<Recording, ConnectError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (finish_tx, finish) = watch::channel(None);
         let run = Arc::new(Run { finish: finish_tx });
         {
             // Taken before anything else starts, so two callers can't both.
             let mut current = self.current.lock().unwrap();
-            if let Some(refusal) = self.refusal_with(&current) {
+            if let Some(refusal) = self.refusal_with(&current, kind) {
                 return Err(refusal);
             }
             *current = Some(Current {
                 id,
+                kind,
                 run: run.clone(),
             });
         }
@@ -392,9 +436,10 @@ impl Recorder {
             tasks: Vec::new(),
             logged: false,
         };
-        let sources = if self.debug.is_some() { 4 } else { 1 };
+        let debug = self.debug.as_ref().filter(|_| kind == RecordingKind::Audio);
+        let sources = if debug.is_some() { 4 } else { 1 };
         let (tx, rx) = mpsc::channel(QUEUE_SECONDS * 10 * sources);
-        if let Some(debug) = &self.debug {
+        if let Some(debug) = debug {
             let reader = debug.open(AudioSource::AUDIO_SOURCE_LANES).map_err(|e| {
                 ConnectError::unavailable(format!(
                     "Recording the microphone lanes didn't start: {e}. Try again."
@@ -411,17 +456,21 @@ impl Recorder {
         }
         self.shared
             .recording
-            .install(tx, run.clone(), self.debug.is_some());
+            .install(tx, run.clone(), debug.is_some());
         let until = Instant::now() + Duration::from_secs(seconds.into());
         self.inputs
             .try_send(Input::RecordingStarted {
                 id: guard.id,
                 until,
                 from,
+                kind,
             })
             .map_err(|_| ConnectError::unavailable(NO_BRAIN))?;
-        tracing::info!("recording: started for {seconds} s by {from}");
-        guard.logged = true;
+        // An enrollment logs under its own name, with the person's.
+        if kind == RecordingKind::Audio {
+            tracing::info!("recording: started for {seconds} s by {from}");
+            guard.logged = true;
+        }
         Ok(Recording {
             rx,
             finish,
@@ -429,8 +478,8 @@ impl Recorder {
             status: self.status.clone(),
             deadline: tokio::time::Instant::now() + Duration::from_secs(seconds.into()),
             seconds,
-            debug: self.debug.is_some(),
-            lanes: self.debug.as_ref().map_or(0, |d| d.lanes()),
+            debug: debug.is_some(),
+            lanes: debug.map_or(0, |d| d.lanes()),
             heard_bytes: 0,
             started_sent: false,
             done: false,
@@ -491,6 +540,12 @@ impl Drop for Guard {
     }
 }
 
+/// What a recording gives next.
+pub(crate) enum Step {
+    Chunk(Item),
+    Ended(Finish),
+}
+
 /// A running recording, as the stream of `RecordAudio` reads it.
 pub struct Recording {
     rx: mpsc::Receiver<Item>,
@@ -534,22 +589,31 @@ impl Recording {
                 },
             ))));
         }
-        loop {
-            let finished = self.finish.borrow().clone();
-            if let Some(finish) = finished {
-                // What is queued still goes out, unless the caller already
-                // fell behind.
-                if finish.reason != RecordingEnd::RECORDING_END_FELL_BEHIND
-                    && let Ok(item) = self.rx.try_recv()
-                {
-                    return Some(self.chunk(item));
-                }
+        match self.step().await {
+            Step::Chunk(item) => Some(self.chunk(item)),
+            Step::Ended(finish) => {
                 self.done = true;
-                return Some(message(Event::Ended(Box::new(pinna_api::RecordingEnded {
+                Some(message(Event::Ended(Box::new(pinna_api::RecordingEnded {
                     reason: finish.reason.into(),
                     message: self.sentence(&finish),
                     ..Default::default()
-                }))));
+                }))))
+            }
+        }
+    }
+
+    /// The next chunk, or how the recording ended. What is queued still goes
+    /// out first, unless the caller already fell behind.
+    pub(crate) async fn step(&mut self) -> Step {
+        loop {
+            let finished = self.finish.borrow().clone();
+            if let Some(finish) = finished {
+                if finish.reason != RecordingEnd::RECORDING_END_FELL_BEHIND
+                    && let Ok(item) = self.rx.try_recv()
+                {
+                    return Step::Chunk(item);
+                }
+                return Step::Ended(finish);
             }
             tokio::select! {
                 biased;
@@ -568,7 +632,7 @@ impl Recording {
                     self.run.end(RecordingEnd::RECORDING_END_TIME_UP, "");
                 }
                 item = self.rx.recv() => match item {
-                    Some(item) => return Some(self.chunk(item)),
+                    Some(item) => return Step::Chunk(item),
                     None => self.run.end(RecordingEnd::RECORDING_END_FAILED, NO_BRAIN),
                 },
             }

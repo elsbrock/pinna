@@ -76,7 +76,9 @@ use crate::leds::LightEffect;
 use crate::updates::UpdaterPaths;
 use crate::updates::auto::{InstallMode, Window, format_time, parse_time};
 use crate::updates::{Event, Origin, Source, UpdateChannel, Updater, stage_of};
-use crate::voice::{ApiCommand, ApiReply, Input, RingLightPatch, SettingsPatch, Snapshot};
+use crate::voice::{
+    ApiCommand, ApiReply, Input, RecordingKind, RingLightPatch, SettingsPatch, Snapshot,
+};
 use crate::wakewords::{Checker, MAX_MODEL_BYTES, Refusal};
 use crate::wifi::{Wifi, WifiPaths};
 use crate::{logs, network, satellites, wifi};
@@ -423,6 +425,13 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             MessageField::some(pinna_api::Recording {
                 seconds_left: r.until.saturating_duration_since(now).as_secs_f32().ceil() as u32,
                 from: r.from.to_string(),
+                kind: match r.kind {
+                    RecordingKind::Audio => pinna_api::RecordingKind::RECORDING_KIND_AUDIO,
+                    RecordingKind::Enrollment => {
+                        pinna_api::RecordingKind::RECORDING_KIND_ENROLLMENT
+                    }
+                }
+                .into(),
                 ..Default::default()
             })
         }),
@@ -1651,6 +1660,7 @@ impl DeviceService for DeviceApi {
             Some(pinna_api::ConfirmationPurpose::CONFIRMATION_PURPOSE_DEBUGGING_TEXT) => {
                 Purpose::DebuggingText
             }
+            Some(pinna_api::ConfirmationPurpose::CONFIRMATION_PURPOSE_ENROLL) => Purpose::Enroll,
             _ => Purpose::Password,
         };
         let (id, seconds) =
@@ -1874,7 +1884,7 @@ impl DeviceService for DeviceApi {
 }
 
 /// Where a call came from, for the failed-login record.
-fn caller(ctx: &RequestContext) -> IpAddr {
+pub(crate) fn caller(ctx: &RequestContext) -> IpAddr {
     ctx.peer_addr()
         .map_or(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), |a| {
             a.ip().to_canonical()
@@ -1890,7 +1900,7 @@ fn signed_in(ctx: &RequestContext) -> bool {
 
 /// The cookie value of the session the call carries, which a recording's
 /// grant is bound to (ADR 0030).
-fn session_cookie(ctx: &RequestContext) -> Option<&str> {
+pub(crate) fn session_cookie(ctx: &RequestContext) -> Option<&str> {
     ctx.extensions()
         .get::<Session>()
         .and_then(|s| s.cookie.as_deref())

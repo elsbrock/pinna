@@ -140,6 +140,7 @@ pub enum Input {
         until: Instant,
         /// The browser that records.
         from: std::net::IpAddr,
+        kind: RecordingKind,
     },
     RecordingEnded {
         id: u64,
@@ -167,6 +168,18 @@ pub struct RecordingSnapshot {
     pub id: u64,
     pub until: Instant,
     pub from: std::net::IpAddr,
+    pub kind: RecordingKind,
+}
+
+/// What a recording is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordingKind {
+    /// The dashboard streams the audio (ADR 0030).
+    Audio,
+    /// A voice is being enrolled: the audio stays in memory (ADR 0038). The
+    /// wake word is paused, and a press of Action, an announcement or an
+    /// alarm ends it.
+    Enrollment,
 }
 
 /// Answer to an API command: the state right after it was applied, or why it was refused.
@@ -469,6 +482,9 @@ pub struct Snapshot {
     pub recording: Option<RecordingSnapshot>,
     /// Debugging (ADR 0036).
     pub debugging: Option<DebuggingSnapshot>,
+    /// Nothing runs that a reconnect or an enrollment would cut off: see
+    /// `Brain::quiet`.
+    pub quiet: bool,
 }
 
 /// A running calibration, as the API shows it.
@@ -514,6 +530,7 @@ impl Default for Snapshot {
             held_messages: 0,
             recording: None,
             debugging: None,
+            quiet: true,
         }
     }
 }
@@ -1139,8 +1156,18 @@ impl Brain {
                 tracing::info!("waiting for a press of Action to confirm a change");
                 self.presence = Some(presence);
             }
-            Input::RecordingStarted { id, until, from } => {
-                self.recording = Some(RecordingSnapshot { id, until, from });
+            Input::RecordingStarted {
+                id,
+                until,
+                from,
+                kind,
+            } => {
+                self.recording = Some(RecordingSnapshot {
+                    id,
+                    until,
+                    from,
+                    kind,
+                });
             }
             Input::RecordingEnded { id } => {
                 if self.recording.is_some_and(|r| r.id == id) {
@@ -1415,6 +1442,7 @@ impl Brain {
             held_messages: self.messages.held() as u32,
             recording: self.recording,
             debugging: self.debugging,
+            quiet: self.quiet(),
             airplay: self.airplay_report.borrow().clone(),
             sendspin: self.sendspin_report.borrow().clone(),
             bluetooth: crate::bluetooth::report(
@@ -2550,7 +2578,13 @@ impl Brain {
             }
             // Acts on what the ring shows.
             ButtonEvent::Press(Button::Action) => {
-                if self.ringing.is_some() {
+                if self.enrolling() {
+                    tracing::info!("enrollment ended by Action");
+                    self.shared.recording.end(
+                        pinna_api::RecordingEnd::RECORDING_END_STOPPED,
+                        "Someone pressed Action.",
+                    );
+                } else if self.ringing.is_some() {
                     tracing::info!("timer alarm dismissed");
                     self.ringing = None;
                     self.stop_playback();
@@ -3471,11 +3505,44 @@ impl Brain {
         }
     }
 
+    /// What started that an enrollment must make way for, as a sentence.
+    fn interrupts_enrollment(&self) -> Option<&'static str> {
+        if self.ringing.is_some() {
+            Some("A timer alarm started.")
+        } else if matches!(
+            self.playback,
+            Some((
+                _,
+                PlaybackKind::MediaAnnounce | PlaybackKind::Speak | PlaybackKind::Message,
+                _
+            ))
+        ) {
+            Some("An announcement started.")
+        } else if self.phase == Phase::Speaking {
+            Some("An announcement or a reply started.")
+        } else if self.phase != Phase::Idle {
+            Some("A request started.")
+        } else {
+            None
+        }
+    }
+
+    /// A voice is being enrolled.
+    fn enrolling(&self) -> bool {
+        self.recording
+            .is_some_and(|r| r.kind == RecordingKind::Enrollment)
+    }
+
     /// The wake word is acted on in every phase but listening, where the
     /// microphone already goes to Home Assistant and the detector doesn't
     /// run. Outside idle it stops the request, reply or announcement, and
     /// starts a new request. Calibration counts wakes only while idle.
     fn wake_armed(&self) -> bool {
+        // Enrollment pauses the wake word: no detection may start a request,
+        // and nobody's voice but the one enrolling is wanted (ADR 0038).
+        if self.enrolling() {
+            return false;
+        }
         match self.phase {
             Phase::Idle => true,
             Phase::Listening(_) => false,
@@ -3868,6 +3935,17 @@ impl Brain {
 
     /// Recompute derived outputs (LED state, wake word gate) from the state.
     fn refresh(&mut self) {
+        // An alarm or an announcement that arrives plays, and ends the
+        // enrollment (ADR 0038).
+        if self.enrolling()
+            && let Some(why) = self.interrupts_enrollment()
+            && self
+                .shared
+                .recording
+                .end(pinna_api::RecordingEnd::RECORDING_END_STOPPED, why)
+        {
+            tracing::info!("enrollment ended: {why}");
+        }
         let phase = self.api_phase();
         if phase != std::mem::replace(&mut self.was_phase, phase) {
             crate::timeline::phase(phase);
@@ -3887,9 +3965,11 @@ impl Brain {
         } else if self.presence.is_some() {
             // Above Muted: someone who has to press Action needs to see it.
             match self.presence.as_ref().map(|p| p.purpose) {
-                Some(crate::auth::Purpose::Recording | crate::auth::Purpose::DebuggingText) => {
-                    Effect::ConfirmRecording
-                }
+                Some(
+                    crate::auth::Purpose::Recording
+                    | crate::auth::Purpose::DebuggingText
+                    | crate::auth::Purpose::Enroll,
+                ) => Effect::ConfirmRecording,
                 _ => Effect::Confirm,
             }
         } else if muted {

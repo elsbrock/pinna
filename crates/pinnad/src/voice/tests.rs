@@ -1085,6 +1085,7 @@ async fn a_recording_shows_listening_below_everything_and_leaves_the_phase_alone
             id: 1,
             until: Instant::now() + Duration::from_secs(30),
             from,
+            kind: RecordingKind::Audio,
         })
         .await;
     d.brain.refresh();
@@ -1115,6 +1116,133 @@ async fn a_recording_shows_listening_below_everything_and_leaves_the_phase_alone
     assert!(d.brain.snapshot().recording.is_none());
 }
 
+/// An enrollment running: its recording on the Brain's taps, and the Brain
+/// told. The recording is kept for the test to read how it ended.
+async fn enrolling(d: &mut Device) -> crate::recording::Recording {
+    let (tx, _inputs) = mpsc::channel(8);
+    let recorder = crate::recording::Recorder::new(
+        d.brain.shared.clone(),
+        tx,
+        watch::channel(Snapshot::default()).1,
+        None,
+    );
+    let from = "192.168.1.9".parse().unwrap();
+    let recording = recorder
+        .start_kind(from, 30, RecordingKind::Enrollment)
+        .await
+        .unwrap();
+    d.brain
+        .handle(Input::RecordingStarted {
+            id: 1,
+            until: Instant::now() + Duration::from_secs(30),
+            from,
+            kind: RecordingKind::Enrollment,
+        })
+        .await;
+    d.brain.refresh();
+    recording
+}
+
+async fn how_it_ended(mut recording: crate::recording::Recording) -> crate::recording::Finish {
+    match recording.step().await {
+        crate::recording::Step::Ended(finish) => finish,
+        crate::recording::Step::Chunk(_) => panic!("it still runs"),
+    }
+}
+
+#[tokio::test]
+async fn an_enrollment_shows_listening_and_pauses_the_wake_word() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    d.ha(HaCommand::VoiceSubscribed(true)).await;
+    let _recording = enrolling(&mut d).await;
+    assert_eq!(d.brain.leds.borrow().base, Effect::Listening);
+    assert_eq!(d.brain.snapshot().phase, pinna_api::Phase::PHASE_IDLE);
+    assert_eq!(
+        d.brain.snapshot().recording.map(|r| r.kind),
+        Some(RecordingKind::Enrollment)
+    );
+    // The detector is gated off, and a wake that comes anyway starts nothing.
+    assert!(!d.brain.shared.wake_enabled.load(Ordering::SeqCst));
+    d.wake().await;
+    assert_eq!(d.brain.phase, Phase::Idle);
+    // An audio recording leaves the wake word alone.
+    d.brain.handle(Input::RecordingEnded { id: 1 }).await;
+    d.brain.refresh();
+    d.wake().await;
+    assert!(matches!(d.brain.phase, Phase::Starting(_)));
+}
+
+#[tokio::test]
+async fn a_press_of_action_ends_an_enrollment_and_does_nothing_else() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    let recording = enrolling(&mut d).await;
+    d.brain
+        .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+        .await;
+    let finish = how_it_ended(recording).await;
+    assert_eq!(
+        finish.reason,
+        pinna_api::RecordingEnd::RECORDING_END_STOPPED
+    );
+    assert_eq!(finish.detail, "Someone pressed Action.");
+    assert_eq!(d.brain.phase, Phase::Idle);
+}
+
+#[tokio::test]
+async fn an_alarm_or_an_announcement_that_arrives_ends_an_enrollment_and_plays() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    let recording = enrolling(&mut d).await;
+    d.ha(HaCommand::Announce {
+        media_id: "http://ha.test/announce".into(),
+        text: String::new(),
+        preannounce_media_id: String::new(),
+        start_conversation: false,
+    })
+    .await;
+    d.brain.refresh();
+    let finish = how_it_ended(recording).await;
+    assert_eq!(
+        finish.reason,
+        pinna_api::RecordingEnd::RECORDING_END_STOPPED
+    );
+    assert!(finish.detail.contains("announcement"), "{}", finish.detail);
+    assert_eq!(d.brain.phase, Phase::Speaking, "it plays");
+
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    let recording = enrolling(&mut d).await;
+    d.ha(HaCommand::Timer {
+        event: TimerEventType::Finished,
+        id: "tea".into(),
+        name: "Tea".into(),
+        total_seconds: 10,
+        seconds_left: 0,
+        is_active: false,
+    })
+    .await;
+    d.brain.refresh();
+    let finish = how_it_ended(recording).await;
+    assert!(finish.detail.contains("alarm"), "{}", finish.detail);
+    assert!(d.brain.snapshot().alarm_ringing, "it rings");
+}
+
+#[tokio::test]
+async fn the_snapshot_says_when_the_satellite_is_quiet() {
+    let mut d = Device::new();
+    assert!(d.brain.snapshot().quiet);
+    d.ha(HaCommand::Announce {
+        media_id: "http://ha.test/announce".into(),
+        text: String::new(),
+        preannounce_media_id: String::new(),
+        start_conversation: false,
+    })
+    .await;
+    assert!(!d.brain.snapshot().quiet);
+}
+
 #[tokio::test]
 async fn a_recording_nobody_ended_is_forgotten_after_its_time_and_a_grace() {
     let mut d = Device::new();
@@ -1124,6 +1252,7 @@ async fn a_recording_nobody_ended_is_forgotten_after_its_time_and_a_grace() {
             id: 1,
             until: Instant::now() - crate::recording::BRAIN_GRACE - Duration::from_millis(1),
             from: "192.168.1.9".parse().unwrap(),
+            kind: RecordingKind::Audio,
         })
         .await;
     d.brain.tick().await;

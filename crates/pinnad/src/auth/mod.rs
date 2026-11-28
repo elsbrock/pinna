@@ -367,6 +367,7 @@ impl Auth {
                 Purpose::Password => ConfirmationPurpose::CONFIRMATION_PURPOSE_PASSWORD,
                 Purpose::Recording => ConfirmationPurpose::CONFIRMATION_PURPOSE_RECORDING,
                 Purpose::DebuggingText => ConfirmationPurpose::CONFIRMATION_PURPOSE_DEBUGGING_TEXT,
+                Purpose::Enroll => ConfirmationPurpose::CONFIRMATION_PURPOSE_ENROLL,
             }
             .into(),
             ..Default::default()
@@ -591,7 +592,9 @@ impl Auth {
         purpose: Purpose,
         session: Option<&str>,
     ) -> Result<(String, u32), ConnectError> {
-        if purpose != Purpose::Password {
+        // Enrolling needs neither: no audio leaves the satellite. The people
+        // RPCs have their own sign-in when a password is set.
+        if !matches!(purpose, Purpose::Password | Purpose::Enroll) {
             let (no_password, no_session) = match purpose {
                 Purpose::DebuggingText => (TEXT_NEEDS_PASSWORD, TEXT_NEEDS_SESSION),
                 _ => (RECORDING_NEEDS_PASSWORD, RECORDING_NEEDS_SESSION),
@@ -750,6 +753,26 @@ impl Auth {
         }
     }
 
+    /// Use the grant of an enrollment: from an ENROLL confirmation, at most
+    /// 10 seconds ago and, when `session` is the cookie of a signed-in
+    /// browser, that one's (ADR 0038).
+    pub fn take_enroll_grant(
+        &self,
+        grant: &str,
+        session: Option<&str>,
+    ) -> Result<(), ConnectError> {
+        let granted =
+            self.grants
+                .lock()
+                .unwrap()
+                .consume(grant, Purpose::Enroll, session, Instant::now());
+        if granted {
+            Ok(())
+        } else {
+            Err(ConnectError::permission_denied(BAD_RECORDING_GRANT))
+        }
+    }
+
     /// End the confirmation `id`, or with an empty `id` whichever one waits,
     /// which only a session may do: the id is the capability of the browser
     /// that started it. The ring stops, the watchers are told, and the next
@@ -796,4 +819,4 @@ impl Auth {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

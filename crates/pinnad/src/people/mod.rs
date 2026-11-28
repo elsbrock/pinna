@@ -5,8 +5,9 @@
 //! instructions each person gets, with a revision so two dashboard windows
 //! don't overwrite each other. Voiceprints are separate files
 //! ([`voiceprints`]). The speaker model loads in the background once someone
-//! has a usable one ([`recognizer`]).
+//! has a usable one ([`recognizer`]). Enrolling a voice is in [`enroll`].
 
+pub mod enroll;
 pub mod recognizer;
 pub mod voiceprints;
 
@@ -368,9 +369,13 @@ impl People {
         Ok(inner.value.everyone_else.clone())
     }
 
+    /// The speaker model's lifecycle and thread, for enrollment.
+    pub fn recognizer(&self) -> &Recognizer {
+        &self.recognizer
+    }
+
     /// Keep a person's voiceprint, made by the model with `model_sha`
     /// (lowercase hex). For enrollment.
-    #[allow(dead_code)] // Enrollment calls it, in the next step.
     pub fn save_voiceprint(
         &self,
         id: &str,

@@ -35,13 +35,17 @@ pub enum Purpose {
     /// What was said, in the debugging timeline (ADR 0036). Bound to a
     /// session like a recording.
     DebuggingText,
+    /// Enrolling a voice (ADR 0038): the person is at the satellite. Needs
+    /// no password, since no audio leaves it. Bound to a session when the
+    /// caller has one.
+    Enroll,
 }
 
 impl Purpose {
     fn grant_ttl(self) -> Duration {
         match self {
             Purpose::Password => GRANT_TTL,
-            Purpose::Recording | Purpose::DebuggingText => RECORDING_GRANT_TTL,
+            Purpose::Recording | Purpose::DebuggingText | Purpose::Enroll => RECORDING_GRANT_TTL,
         }
     }
 }
@@ -228,6 +232,23 @@ mod tests {
             Some("mine".into()),
         );
         assert!(!g.consume("late", Purpose::DebuggingText, Some("mine"), t + s(10)));
+    }
+
+    #[test]
+    fn an_enroll_grant_is_good_only_for_enrolling_and_lasts_ten_seconds() {
+        let t = Instant::now();
+        let mut g = Grants::default();
+        g.add("e".into(), t, Purpose::Enroll, Some("mine".into()));
+        assert!(!g.consume("e", Purpose::Recording, Some("mine"), t));
+        assert!(!g.consume("e", Purpose::Enroll, Some("theirs"), t));
+        assert!(!g.consume("e", Purpose::Enroll, None, t));
+        assert!(g.consume("e", Purpose::Enroll, Some("mine"), t + s(9)));
+        assert!(!g.consume("e", Purpose::Enroll, Some("mine"), t + s(9)));
+        // Without a password there is no session: the grant isn't bound.
+        g.add("open".into(), t, Purpose::Enroll, None);
+        assert!(g.consume("open", Purpose::Enroll, None, t + s(9)));
+        g.add("late".into(), t, Purpose::Enroll, None);
+        assert!(!g.consume("late", Purpose::Enroll, None, t + s(10)));
     }
 
     #[test]

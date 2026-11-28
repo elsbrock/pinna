@@ -410,6 +410,16 @@ message Recording {
   uint32 seconds_left = 1;
   // The address of the browser that records.
   string from = 2;
+  // What the audio is for.
+  RecordingKind kind = 3;
+}
+
+enum RecordingKind {
+  // A recording the dashboard streams (ADR 0030).
+  RECORDING_KIND_AUDIO = 0;
+  // A voice being enrolled (ADR 0038): the audio stays on the satellite and
+  // only a voiceprint is kept.
+  RECORDING_KIND_ENROLLMENT = 1;
 }
 
 // Whether standalone mode can run, and how its last request ended. Set up
@@ -1443,6 +1453,12 @@ enum ConfirmationPurpose {
   // it needs a password and a session, the grant is good for 10 seconds for
   // the session that asked, and the ring shows the recording pattern.
   CONFIRMATION_PURPOSE_DEBUGGING_TEXT = 2;
+  // Enrolling a voice (ADR 0038): a press of Action at the satellite, so the
+  // person enrolling is there. It needs no dashboard password: no audio
+  // leaves the satellite, only a voiceprint is stored on it. The grant is
+  // good for 10 seconds, for the session that asked whenever there is one,
+  // and the ring shows the recording pattern.
+  CONFIRMATION_PURPOSE_ENROLL = 3;
 }
 
 message StartConfirmationRequest {
