@@ -9,7 +9,7 @@ pub mod trace;
 
 #[cfg(feature = "blocking")]
 pub use client::blocking_client;
-pub use client::{ClientKind, client};
+pub use client::{ClientKind, client, update_user_agent};
 pub use error::{NetError, classify};
 pub use reqwest;
 pub use secret::Secret;

@@ -11,6 +11,15 @@ pub enum ClientKind {
     Mcp,
 }
 
+/// The update check's User-Agent. The release service counts a satellite
+/// when the daily check names its hardware (ADR 0039).
+pub fn update_user_agent(codename: Option<&str>) -> String {
+    match codename {
+        Some(codename) => format!("pinna-update/{} ({codename})", pinna_version::VERSION),
+        None => format!("pinna-update/{}", pinna_version::VERSION),
+    }
+}
+
 fn builder(kind: ClientKind, tls: rustls::ClientConfig) -> ClientBuilder {
     let b = Client::builder().tls_backend_preconfigured(tls);
     let secs = Duration::from_secs;
@@ -20,7 +29,7 @@ fn builder(kind: ClientKind, tls: rustls::ClientConfig) -> ClientBuilder {
             .connect_timeout(secs(10))
             .read_timeout(secs(20)),
         ClientKind::Update => b
-            .user_agent(format!("pinna-update/{}", pinna_version::VERSION))
+            .user_agent(update_user_agent(None))
             .connect_timeout(secs(30)),
         ClientKind::Provider { .. } | ClientKind::Mcp => {
             let b = b

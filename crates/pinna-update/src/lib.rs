@@ -190,6 +190,9 @@ pub struct Options {
     /// along, and its slots how large an image may be. `None` on hardware
     /// Pinna doesn't know (the VMs), which takes Android boot images.
     pub board: Option<&'static Board>,
+    /// Name the board's codename in the check's User-Agent (ADR 0039): only
+    /// pinnad's daily check asks for it.
+    pub count: bool,
     /// The `just push` overlay (ADR 0025).
     pub dev_overlay: PathBuf,
     /// Replaces a UBI volume; the kernel's ioctl unless a test says otherwise.
@@ -208,6 +211,7 @@ impl Default for Options {
             key: keys::release_key(),
             model: None,
             board: pinna_board::detect(),
+            count: false,
             dev_overlay: "/var/lib/extensions/pinna-dev".into(),
             volume_update: Arc::new(UbiIoctl),
         }
@@ -397,7 +401,9 @@ pub fn open(url: &Url) -> Result<Box<dyn Read>> {
 }
 
 /// A small file, at most `max` bytes, and its address after redirects.
-fn fetch_small(url: &Url, max: u64) -> Result<(Vec<u8>, Url), FetchError> {
+///
+/// `codename` is added to the User-Agent of http(s) requests.
+fn fetch_small(url: &Url, max: u64, codename: Option<&str>) -> Result<(Vec<u8>, Url), FetchError> {
     let host = || url.host_str().unwrap_or("the server").to_owned();
     let mut data = Vec::new();
     let final_url = match url.scheme() {
@@ -420,7 +426,17 @@ fn fetch_small(url: &Url, max: u64) -> Result<(Vec<u8>, Url), FetchError> {
                 detail: format!("{e:#}"),
             };
             let resp = client()
-                .and_then(|c| c.get(url.clone()).send())
+                .and_then(|c| {
+                    let mut req = c.get(url.clone());
+                    if let Some(codename) = codename {
+                        // Replaces the client's default User-Agent.
+                        req = req.header(
+                            reqwest::header::USER_AGENT,
+                            pinna_http::update_user_agent(Some(codename)),
+                        );
+                    }
+                    req.send()
+                })
                 .map_err(no_answer)?;
             let status = resp.status();
             let final_url = resp.url().clone();
@@ -481,9 +497,17 @@ pub struct Fetched {
 
 /// Fetch a manifest and its signature, check the signature against `key`,
 /// then parse and check the manifest.
-pub fn fetch_manifest(url: &Url, key: &VerifyingKey) -> Result<Fetched, FetchError> {
-    let (bytes, final_url) = fetch_small(url, MANIFEST_MAX)?;
-    let sig = match fetch_small(&signature_url(&final_url), SIGNATURE_LEN as u64 * 4) {
+pub fn fetch_manifest(
+    url: &Url,
+    key: &VerifyingKey,
+    codename: Option<&str>,
+) -> Result<Fetched, FetchError> {
+    let (bytes, final_url) = fetch_small(url, MANIFEST_MAX, codename)?;
+    let sig = match fetch_small(
+        &signature_url(&final_url),
+        SIGNATURE_LEN as u64 * 4,
+        codename,
+    ) {
         Ok((sig, _)) => sig,
         Err(FetchError::Status { status: 404, .. } | FetchError::Unreadable { .. }) => {
             return Err(FetchError::NoSignature);
@@ -834,7 +858,12 @@ pub fn check(opts: &Options, manifest: &str) -> Result<Checked, FetchError> {
         path: manifest.to_owned(),
         detail: format!("{e:#}"),
     })?;
-    let fetched = fetch_manifest(&url, &opts.key)?;
+    // A satellite without a board (the VMs) has no codename to send.
+    let codename = opts
+        .board
+        .filter(|_| opts.count)
+        .map(|board| board.codename);
+    let fetched = fetch_manifest(&url, &opts.key, codename)?;
     let blocked = match slot::booted_slot(&opts.run_dir) {
         Ok(Some(booted)) => {
             // A boot partition that can't be read: the install reads it again
@@ -882,7 +911,7 @@ pub fn install(
     let Fetched {
         manifest: m,
         url: manifest_url,
-    } = fetch_manifest(&resolve(None, manifest)?, &opts.key)?;
+    } = fetch_manifest(&resolve(None, manifest)?, &opts.key, None)?;
     if let Some(want) = &rules.expect_version {
         ensure!(
             &m.version == want,

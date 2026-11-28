@@ -75,6 +75,10 @@ struct UpdateArgs {
     /// one line of JSON and write nothing.
     #[arg(long, conflicts_with_all = ["reboot", "channel", "expect_version"])]
     check: bool,
+    /// With --check: name the board's codename in the request's User-Agent,
+    /// so that the release service counts this satellite (ADR 0039).
+    #[arg(long, requires = "check")]
+    count: bool,
     /// Boot attempts the new slot gets before rolling back.
     #[arg(long = "tries", default_value_t = pinna_bootctl::bcb::DEFAULT_ATTEMPTS,
           value_parser = clap::value_parser!(u8).range(1..=pinna_bootctl::bcb::MAX_ATTEMPTS as i64))]
@@ -96,6 +100,7 @@ fn update(args: UpdateArgs) -> Result<()> {
         attempts: args.attempts,
         run_dir: args.run_dir,
         model: model.map(str::to_owned),
+        count: args.count,
         ..Default::default()
     };
     if let Some(dir) = args.partdir {

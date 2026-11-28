@@ -77,6 +77,7 @@ fn env(booted: &str, record: Option<Record>) -> Env {
         key: key().verifying_key(),
         model: Some("echo-dot-2".into()),
         board: None,
+        count: false,
         dev_overlay: p("pinna-dev"),
         volume_update: Arc::new(UbiIoctl),
     };
@@ -370,6 +371,19 @@ fn serve(
     n: usize,
     redirects: &[(&str, &str)],
 ) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    let (base, h) = serve_agents(root, n, redirects);
+    (
+        base,
+        std::thread::spawn(move || h.join().unwrap().into_iter().map(|(p, _)| p).collect()),
+    )
+}
+
+/// `serve`, with the User-Agent each request carried.
+fn serve_agents(
+    root: PathBuf,
+    n: usize,
+    redirects: &[(&str, &str)],
+) -> (String, std::thread::JoinHandle<Vec<(String, String)>>) {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = format!("http://{}/", l.local_addr().unwrap());
     let redirects: Vec<(String, String)> = redirects
@@ -383,11 +397,17 @@ fn serve(
             let mut line = String::new();
             let mut r = BufReader::new(s.try_clone().unwrap());
             r.read_line(&mut line).unwrap();
+            let mut agent = String::new();
             loop {
                 let mut h = String::new();
                 r.read_line(&mut h).unwrap();
                 if h.trim().is_empty() {
                     break;
+                }
+                if let Some((name, value)) = h.split_once(':')
+                    && name.eq_ignore_ascii_case("user-agent")
+                {
+                    agent = value.trim().to_owned();
                 }
             }
             let path = line.split_whitespace().nth(1).unwrap().to_owned();
@@ -414,7 +434,7 @@ fn serve(
                 )
                 .unwrap();
             }
-            paths.push(path);
+            paths.push((path, agent));
         }
         paths
     });
@@ -478,6 +498,28 @@ fn a_channel_redirect_resolves_files_next_to_the_manifest() {
         ]
     );
     assert_eq!(&e.part("system_b")[..img.len()], &img[..]);
+}
+
+#[test]
+fn only_a_counted_check_names_the_board() {
+    let mut e = env("a", None);
+    e.opts.board = Some(&pinna_board::ECHO_DOT_5);
+    let img = sealed("2.0.0", 64, &key());
+    e.publish(&img, "2.0.0", None);
+    let plain = pinna_http::update_user_agent(None);
+    assert!(plain.starts_with("pinna-update/") && !plain.contains('('));
+    for (count, agent) in [(false, plain.clone()), (true, format!("{plain} (cannoli)"))] {
+        e.opts.count = count;
+        let (base, server) = serve_agents(e.path(""), 2, &[]);
+        check(&e.opts, &format!("{base}rel/manifest.json")).unwrap();
+        let agents: Vec<_> = server.join().unwrap().into_iter().map(|(_, a)| a).collect();
+        assert_eq!(agents, [agent.clone(), agent]);
+    }
+    // Without a board there is no codename to send.
+    e.opts.board = None;
+    let (base, server) = serve_agents(e.path(""), 2, &[]);
+    check(&e.opts, &format!("{base}rel/manifest.json")).unwrap();
+    assert!(server.join().unwrap().iter().all(|(_, a)| *a == plain));
 }
 
 #[test]
