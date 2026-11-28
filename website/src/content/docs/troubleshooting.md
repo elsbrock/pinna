@@ -104,9 +104,11 @@ while it has no saved Wi-Fi network, no join runs and no network is on trial.
 Releases up to 0.4.0-beta.3 don't have it.
 
 1. Wait two minutes after the ring fills and fades out at start-up.
-2. Look at the ring. If it flashes white and pauses, count the flashes: 5
-   means the Wi-Fi driver didn't start, and the device has no hotspot this
-   time. If it is green, see
+2. Look at the ring. A white arc at the front that slowly gets brighter and
+   dimmer means the hotspot runs: look for **Pinna setup** again on your
+   phone. If the ring flashes white and pauses, count the flashes: 5 means
+   the Wi-Fi driver didn't start, and the device has no hotspot this time.
+   If it is green, see
    [The device doesn't boot Pinna](#the-device-doesnt-boot-pinna).
 3. Restart the device: unplug its power adapter and plug it in again. The
    Wi-Fi chip powers up once per start.

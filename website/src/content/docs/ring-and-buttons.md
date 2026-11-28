@@ -43,6 +43,7 @@ this table wins:
 | An amber arc | A timer is running. The arc shows how much time is left |
 | Yellow, the whole ring slowly getting brighter and dimmer | A notification is waiting. See [Notifications](#notifications) |
 | Coloured lights that move with the music, the same on the left and the right: bass at the front, treble at the back | The media player is playing |
+| A white arc at the front, slowly getting brighter and dimmer | The device has no saved Wi-Fi network and runs its setup hotspot. Join **Pinna setup** from your phone; see [Over the setup hotspot](/docs/flash/#over-the-setup-hotspot) |
 | Off | The device is idle |
 
 Short signals appear on top of these states:

@@ -381,8 +381,10 @@ Set up Wi-Fi on the device's dashboard. You reach it in one of two ways:
 
 - **Over its setup hotspot**, from a phone or computer. While the device has
   no saved Wi-Fi network, it runs its own network, **Pinna setup** followed by
-  its hostname, for example `Pinna setup pinna-2a914e`. This needs no cable,
-  which helps on the Echo (2nd gen), whose USB is in its base.
+  its hostname, for example `Pinna setup pinna-2a914e`. While it runs, the
+  ring shows a white arc at the front that slowly gets brighter and dimmer.
+  This needs no cable, which helps on the Echo (2nd gen), whose USB is in its
+  base.
 - **Over the USB cable**, at `http://10.42.0.1/`.
 
 The setup hotspot is in the releases after 0.4.0-beta.3. It is tested in the
@@ -413,8 +415,9 @@ password that only you can learn is planned.
 6. Select **Join**. The page shows **Turning the setup hotspot off to try**
    followed by your network's name, and then loses the device.
 7. Wait about two minutes:
-   - If **Pinna setup** is back in your phone's Wi-Fi list, the join failed.
-     Join the hotspot again and open **Network**, which says why.
+   - If **Pinna setup** is back in your phone's Wi-Fi list, or the white arc
+     is back on the ring, the join failed. Join the hotspot again and open
+     **Network**, which says why.
    - Otherwise the device is on your network. Within 5 minutes, connect your
      phone to your network and open the address you noted. If it doesn't open,
      which is common on Android, find the MAC address in your router's list of
