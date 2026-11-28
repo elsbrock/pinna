@@ -37,6 +37,11 @@
         : "Home Assistant has a notification. Press the Action button to clear it.",
     },
     { effect: "pairing", word: "Pairing", what: "Bluetooth pairing is open: a phone nearby can pair now." },
+    {
+      effect: "setup",
+      word: "Setup",
+      what: "No Wi-Fi network is saved: join the satellite's setup hotspot to choose one.",
+    },
     { effect: "error", word: "Error", what: "A request failed: three flashes. Logs, under System, says why." },
   ]);
 </script>
