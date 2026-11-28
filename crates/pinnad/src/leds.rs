@@ -106,6 +106,9 @@ pub struct LedState {
     pub timer: Option<f32>,
     /// A notification is pending: shown while idle and no timer runs.
     pub notification: bool,
+    /// The setup hotspot runs (ADR 0028): shown while idle and nothing else
+    /// is, above the boot stages.
+    pub setup: bool,
     /// Overall ring brightness 0..=100 ("LED brightness" number).
     pub brightness: u8,
 }
@@ -119,6 +122,7 @@ impl Default for LedState {
             light_effect: LightEffect::Solid,
             timer: None,
             notification: false,
+            setup: false,
             brightness: 100,
         }
     }
@@ -172,8 +176,9 @@ fn unscaled_frame(
         }
         // A running timer was asked of this device just now: its arc shows
         // above a notification, which shows above the light, which shows above
-        // the music. The boot stages (ADR 0012) show only where the plain
-        // idle ring would, so everything the device is doing wins over them.
+        // the music, which shows above the setup hotspot's arc (ADR 0028).
+        // The boot stages (ADR 0012) show only where the plain idle ring
+        // would, so everything the device is doing wins over them.
         Effect::Idle | Effect::Boot => {
             if let Some(frac) = state.timer {
                 render(Effect::Timer(frac), t)
@@ -183,6 +188,8 @@ fn unscaled_frame(
                 [scale(rgb, state.light_effect.level(t)); RING_PIXELS]
             } else if let Some(bands) = music {
                 render(Effect::Equalizer(*bands), t)
+            } else if state.setup {
+                render(Effect::Setup, t)
             } else if let Some(frame) = boot {
                 frame
             } else {
@@ -692,5 +699,48 @@ mod tests {
         let mut notified = s.clone();
         notified.notification = true;
         assert_ne!(frame_for(&notified, None, now, now, None, Some(arc)), arc);
+    }
+
+    #[test]
+    fn setup_shows_where_the_idle_ring_would_above_the_boot_stages() {
+        let now = Instant::now();
+        let arc = [Rgb::new(0, 0x30, 0xff); RING_PIXELS];
+        let setup = render(Effect::Setup, Duration::ZERO);
+        let s = LedState {
+            base: Effect::Idle,
+            setup: true,
+            ..Default::default()
+        };
+        assert_eq!(frame_for(&s, None, now, now, None, None), setup);
+        assert_eq!(frame_for(&s, None, now, now, None, Some(arc)), setup);
+        // Everything the device is doing shows above it.
+        let mut timed = s.clone();
+        timed.timer = Some(0.5);
+        assert_eq!(
+            frame_for(&timed, None, now, now, None, None),
+            render(Effect::Timer(0.5), Duration::ZERO)
+        );
+        let mut notified = s.clone();
+        notified.notification = true;
+        assert_eq!(
+            frame_for(&notified, None, now, now, None, None),
+            render(Effect::Notification, Duration::ZERO)
+        );
+        let mut lit = s.clone();
+        lit.light = Some(Rgb::new(0, 200, 40));
+        assert_ne!(frame_for(&lit, None, now, now, None, None), setup);
+        let bands = [1.0; 12];
+        assert_eq!(
+            frame_for(&s, Some(&bands), now, now, None, None),
+            render(Effect::Equalizer(bands), Duration::ZERO)
+        );
+        let muted = LedState {
+            base: Effect::Muted,
+            ..s.clone()
+        };
+        assert_eq!(
+            frame_for(&muted, None, now, now, None, None),
+            render(Effect::Muted, Duration::ZERO)
+        );
     }
 }

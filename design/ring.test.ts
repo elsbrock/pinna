@@ -126,6 +126,18 @@ test("confirm-recording circles one head in the listening colour", () => {
   assert.deepEqual(ringFrame("confirm-recording", 3000), f);
 });
 
+test("setup breathes a still white arc at the front", () => {
+  const dim = ringFrame("setup", 0);
+  const bright = ringFrame("setup", 2000);
+  const arc = bright.flatMap((p, i) => (p.c === LED.setup && p.level === 1 ? [i] : []));
+  // Two pixels either side of the front centre (10 and 11).
+  assert.deepEqual(arc, [0, 9, 10, 11]);
+  for (const i of arc) assert.ok(dim[i].level > 0 && dim[i].level < 1, `pixel ${i} breathes`);
+  assert.equal(lit(dim), 4);
+  // It holds still: back where it started after one breath.
+  assert.deepEqual(ringFrame("setup", 4000), dim);
+});
+
 test("boot spins, then off", () => {
   assert.ok(lit(ringFrame("boot", 100)) > 0);
   assert.equal(lit(ringFrame("boot", 1300)), 0);

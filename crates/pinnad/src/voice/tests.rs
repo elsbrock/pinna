@@ -1213,3 +1213,22 @@ async fn nothing_reaches_the_timeline_while_debugging_is_off() {
     d.brain.refresh();
     assert!(timeline_kept(&t).is_empty());
 }
+
+#[tokio::test]
+async fn the_setup_hotspot_shows_on_the_ring_and_changes_nothing_else() {
+    let mut d = Device::new();
+    d.brain.boot_done = true;
+    d.brain.refresh();
+    assert!(!d.brain.leds.borrow().setup);
+
+    d.brain.handle(Input::Hotspot(true)).await;
+    d.brain.refresh();
+    assert!(d.brain.leds.borrow().setup);
+    assert_eq!(d.brain.leds.borrow().base, Effect::Idle);
+    assert_eq!(d.brain.phase, Phase::Idle);
+    d.expect(&[]);
+
+    d.brain.handle(Input::Hotspot(false)).await;
+    d.brain.refresh();
+    assert!(!d.brain.leds.borrow().setup);
+}

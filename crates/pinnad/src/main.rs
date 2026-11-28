@@ -1142,6 +1142,22 @@ async fn main() -> Result<()> {
     let hotspot_paths = hotspot::HotspotPaths::default();
     let has_hotspot = hotspot::available(&hotspot_paths);
     let (hotspot_tx, hotspot_rx) = watch::channel(hotspot::State::default());
+    // The ring shows the hotspot while it runs.
+    if has_hotspot {
+        let mut state = hotspot_rx.clone();
+        let tx = in_tx.clone();
+        tokio::spawn(async move {
+            let mut was = false;
+            while state.changed().await.is_ok() {
+                let on = state.borrow_and_update().name.is_some();
+                if on != std::mem::replace(&mut was, on)
+                    && tx.send(Input::Hotspot(on)).await.is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
 
     // The dashboard password and who may reach what (ADR 0029). Only the web
     // listener checks it; the loopback API below stays open.

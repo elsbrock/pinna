@@ -31,6 +31,13 @@ pub const CALIBRATION: Rgb = Rgb::new(120, 230, 170);
 pub const PAIRING: Rgb = Rgb::new(0, 90, 255);
 /// Presence confirmation (ADR 0029): white, no colour of any other state.
 pub const CONFIRM: Rgb = Rgb::new(255, 255, 255);
+/// The setup hotspot runs (ADR 0028): white too, but an arc that holds still
+/// where Confirm circles.
+pub const SETUP: Rgb = Rgb::new(255, 255, 255);
+/// The setup arc's pixels either side of the front centre.
+const SETUP_HALF_ARC: usize = 2;
+/// One breath of the setup arc, in seconds.
+const SETUP_BREATH_S: f32 = 4.0;
 
 /// How long the volume meter is held.
 pub const VOLUME_HOLD: Duration = Duration::from_millis(1500);
@@ -86,6 +93,9 @@ pub enum Effect {
     /// The same circling head for a recording (ADR 0030), in the Listening
     /// colour so it reads differently from a password confirmation.
     ConfirmRecording,
+    /// The setup hotspot runs (ADR 0028): a white arc at the front, slowly
+    /// getting brighter and dimmer.
+    Setup,
     Boot,
     /// Music: band levels 0.0..=1.0, bass first, one band per pixel.
     Equalizer([f32; RING_PIXELS]),
@@ -185,6 +195,15 @@ pub fn render(effect: Effect, t: Duration) -> Frame {
         Effect::Equalizer(bands) => equalizer(&bands),
         Effect::Confirm => spin(CONFIRM, t, 3.0, 4.0),
         Effect::ConfirmRecording => spin(LISTENING, t, 3.0, 4.0),
+        Effect::Setup => {
+            let c = SETUP.scaled(0.1 + 0.9 * wave(t, SETUP_BREATH_S));
+            let mut f = [Rgb::OFF; RING_PIXELS];
+            for k in 0..SETUP_HALF_ARC {
+                f[(FRONT_CENTRE[1] + k) % RING_PIXELS] = c;
+                f[(FRONT_CENTRE[0] + RING_PIXELS - k) % RING_PIXELS] = c;
+            }
+            f
+        }
         Effect::Pairing => {
             let a = spin(PAIRING, t, 2.4, 4.0);
             let b = spin(PAIRING, t + Duration::from_secs_f32(1.2), 2.4, 4.0);
@@ -319,6 +338,23 @@ mod tests {
         assert!(!Effect::ConfirmRecording.is_finished(Duration::from_secs(600)));
         assert_eq!(render(Effect::ConfirmRecording, ms(250))[1], LISTENING);
         assert_eq!(f, render(Effect::ConfirmRecording, ms(3000)));
+    }
+
+    #[test]
+    fn setup_breathes_a_still_white_arc_at_the_front() {
+        let dim = render(Effect::Setup, Duration::ZERO);
+        let bright = render(Effect::Setup, ms(2000));
+        let arc: Vec<usize> = (0..RING_PIXELS).filter(|&i| bright[i] == SETUP).collect();
+        // Two pixels either side of the front centre (10 and 11).
+        assert_eq!(arc, [0, 9, 10, 11], "{bright:?}");
+        for i in [0, 9, 10, 11] {
+            assert_ne!(dim[i], Rgb::OFF, "never fully dark");
+            assert_ne!(dim[i], SETUP, "it breathes");
+        }
+        assert_eq!(lit(&dim), 4);
+        // It holds still: back where it started after one breath.
+        assert_eq!(render(Effect::Setup, ms(4000)), dim);
+        assert!(!Effect::Setup.is_finished(Duration::from_secs(600)));
     }
 
     #[test]

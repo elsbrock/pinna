@@ -22,6 +22,7 @@ export const LED = {
   calibration: [120, 230, 170],
   pairing: [0, 90, 255],
   confirm: [255, 255, 255],
+  setup: [255, 255, 255],
 } as const satisfies Record<string, Rgb>;
 
 export type Effect =
@@ -43,7 +44,8 @@ export type Effect =
   | "equalizer"
   | "pairing"
   | "confirm"
-  | "confirm-recording";
+  | "confirm-recording"
+  | "setup";
 
 /** Music equalizer, bass to treble. */
 export const EQUALIZER: readonly Rgb[] = [
@@ -184,6 +186,17 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
     case "confirm-recording":
       // The same head in the Listening colour (ADR 0030).
       return spin(LED.listening, t, 3, 4);
+    case "setup": {
+      // The setup hotspot runs (ADR 0028): a still white arc at the front,
+      // two pixels either side of pixels 10 and 11, breathing every 4 s.
+      const f = dark();
+      const level = 0.1 + 0.9 * wave(t, 4);
+      for (let k = 0; k < 2; k++) {
+        f[(11 + k) % RING_PIXELS] = { c: LED.setup, level };
+        f[(10 - k + RING_PIXELS) % RING_PIXELS] = { c: LED.setup, level };
+      }
+      return f;
+    }
     default:
       return dark();
   }
@@ -222,4 +235,5 @@ export const STILL_MS: Partial<Record<Effect, number>> = {
   "timer-ringing": 250,
   notification: 1500,
   boot: 300,
+  setup: 2000,
 };

@@ -148,6 +148,9 @@ pub enum Input {
     /// The Brain shows it to Home Assistant and the dashboards, and changes
     /// nothing else.
     Debugging(Option<DebuggingSnapshot>),
+    /// The setup hotspot started or stopped (ADR 0028). The Brain shows it on
+    /// the ring and changes nothing else.
+    Hotspot(bool),
 }
 
 /// Debugging as it runs, as the API shows it.
@@ -720,6 +723,8 @@ pub struct Brain {
     recording: Option<RecordingSnapshot>,
     /// Debugging runs (ADR 0036), for the Home Assistant sensor and the API.
     debugging: Option<DebuggingSnapshot>,
+    /// The setup hotspot runs (ADR 0028), for the ring.
+    hotspot: bool,
     /// The microphones were muted at the last refresh, to see the edges.
     was_muted: bool,
     /// The phase the API showed at the last refresh, to see the changes.
@@ -886,6 +891,7 @@ impl Brain {
             presence: None,
             recording: None,
             debugging: None,
+            hotspot: false,
             was_muted: false,
             was_phase: pinna_api::Phase::PHASE_IDLE,
             confirm_held: false,
@@ -1144,6 +1150,7 @@ impl Brain {
                 self.debugging = debugging;
                 self.send_debugging().await;
             }
+            Input::Hotspot(on) => self.hotspot = on,
         }
         self.tend_messages(Instant::now());
     }
@@ -3914,17 +3921,20 @@ impl Brain {
             .reduce(f32::min);
         let (effect, brightness) = (self.light_effect, self.settings.led_brightness);
         let notification = self.settings.notification;
+        let setup = self.hotspot;
         self.leds.send_if_modified(|s| {
             let changed = s.base != base
                 || s.light != light
                 || s.timer != timer
                 || s.notification != notification
+                || s.setup != setup
                 || s.light_effect != effect
                 || s.brightness != brightness;
             s.base = base;
             s.light = light;
             s.timer = timer;
             s.notification = notification;
+            s.setup = setup;
             s.light_effect = effect;
             s.brightness = brightness;
             changed
