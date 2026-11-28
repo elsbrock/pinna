@@ -120,6 +120,7 @@ python3 tests/kernel/test-mt8519-afe-dram.py
 python3 tests/kernel/test-mt8519-mclk.py
 python3 tests/kernel/test-mt8519-etdm-params.py
 python3 tests/kernel/test-mt8519-bt-wait.py
+python3 tests/kernel/test-mt8519-one-stream.py
 ```
 
 They need `cc` and the patched source in `build/linux`. They compile the actual
