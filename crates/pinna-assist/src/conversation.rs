@@ -39,6 +39,13 @@ impl Conversation {
         }
     }
 
+    /// The last turn is older than the idle limit: the next request starts a
+    /// new conversation.
+    pub fn idle(&self, now: Instant) -> bool {
+        self.last_turn
+            .is_some_and(|last| now.saturating_duration_since(last) > Self::IDLE)
+    }
+
     /// Return the history for a new request, forgetting an idle conversation.
     pub fn history(&mut self, now: Instant) -> Vec<Turn> {
         self.forget_expired(now);
@@ -161,6 +168,16 @@ mod tests {
         conversation.push(turn("one", "first"), now);
         conversation.push(turn("two", "second"), now);
         assert!(conversation.history(now).is_empty());
+    }
+
+    #[test]
+    fn idle_after_more_than_five_minutes_without_a_turn() {
+        let start = Instant::now();
+        let mut conversation = Conversation::new(HistoryPolicy::Turns(10));
+        assert!(!conversation.idle(start + Duration::from_secs(900)));
+        conversation.push(turn("one", "first"), start);
+        assert!(!conversation.idle(start + Duration::from_secs(300)));
+        assert!(conversation.idle(start + Duration::from_secs(301)));
     }
 
     #[test]

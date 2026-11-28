@@ -192,6 +192,7 @@ fn render(v: AssistantView) -> Assistant {
         prompt: v.prompt,
         prompt_revision: v.prompt_revision,
         follow_ups: v.follow_ups,
+        keep_conversation_on_new_speaker: v.keep_conversation_on_new_speaker,
         ack: MessageField::some(Acknowledgment {
             enabled: v.ack.enabled,
             phrase: v.ack.phrase,
@@ -551,6 +552,7 @@ impl AssistantService for AssistantApi {
             prompt,
             prompt_revision: (!r.prompt_revision.is_empty()).then_some(r.prompt_revision),
             follow_ups: r.follow_ups,
+            keep_conversation_on_new_speaker: r.keep_conversation_on_new_speaker,
             ack: r.ack.into_option().map(|a| Ack {
                 enabled: a.enabled,
                 phrase: a.phrase,

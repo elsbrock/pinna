@@ -161,6 +161,19 @@ pub enum Input {
         epoch: u64,
         value: String,
     },
+    /// A spoken standalone run decided which profile it runs with, once
+    /// speech-to-text returned (ADR 0038). The run sends it before its later
+    /// events, so a reset comes before the run's turn is pushed.
+    Profile {
+        run: RunId,
+        /// The person the conversation belongs to from now on; `None` leaves
+        /// it as it is.
+        person: Option<String>,
+        /// Start a new conversation first.
+        reset: bool,
+        /// The new "Last speaker".
+        last_speaker: String,
+    },
 }
 
 /// Debugging as it runs, as the API shows it.
@@ -1188,6 +1201,14 @@ impl Brain {
                 self.send_debugging().await;
             }
             Input::Hotspot(on) => self.hotspot = on,
+            Input::Profile {
+                run,
+                person,
+                reset,
+                last_speaker,
+            } => {
+                self.run_profile(run, person, reset, last_speaker).await;
+            }
             Input::LastSpeaker { epoch, value } => {
                 if epoch == self.shared.speaker.epoch() {
                     self.send(DeviceEvent::TextSensorState {

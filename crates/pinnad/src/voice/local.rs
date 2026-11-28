@@ -72,6 +72,9 @@ pub(super) struct Local {
     pub(super) run: Option<LocalRun>,
     next_run: u64,
     conversation: Conversation,
+    /// The person the conversation belongs to (ADR 0038): the id of the last
+    /// confident speaker. Cleared with the conversation.
+    pub(super) conversation_speaker: Option<String>,
     /// The brain slot's generation the conversation belongs to.
     chat_gen: u64,
     /// The noise floor before the wake word; follow-ups reuse it so the
@@ -97,6 +100,7 @@ impl Local {
             run: None,
             next_run: 1,
             conversation: Conversation::new(history),
+            conversation_speaker: None,
             chat_gen,
             noise_seed: None,
             live,
@@ -134,6 +138,7 @@ impl Local {
     pub(super) fn forget_conversation(&mut self) {
         let live = self.live.borrow();
         self.conversation.reset(live.behaviour().history);
+        self.conversation_speaker = None;
         self.chat_gen = live.chat_gen;
     }
 
@@ -214,6 +219,7 @@ impl Brain {
             self.shared.counters.runs.inc();
             if self.local.chat_gen != live.chat_gen {
                 self.local.conversation.reset(live.behaviour().history);
+                self.local.conversation_speaker = None;
                 self.local.chat_gen = live.chat_gen;
             }
         }
@@ -236,7 +242,11 @@ impl Brain {
             }
         });
         let (reply, source) = reply_channel(REPLY_AHEAD);
+        if self.local.conversation.idle(now) {
+            self.local.conversation_speaker = None;
+        }
         let history = self.local.conversation.history(now);
+        let conversation_speaker = self.local.conversation_speaker.clone();
         let id = RunId(self.local.next_run);
         self.local.next_run += 1;
 
@@ -257,6 +267,7 @@ impl Brain {
             kind: kind.clone(),
             live,
             history,
+            conversation_speaker,
             mic,
             reply,
             device,
@@ -319,6 +330,33 @@ impl Brain {
         if let Some(speaker) = &self.speaker {
             speaker.stop();
         }
+    }
+
+    /// A spoken run decided its profile (ADR 0038): reset the conversation
+    /// for a new speaker, remember who it belongs to and show "Last speaker".
+    /// A run that is no longer the current one changes nothing.
+    pub(super) async fn run_profile(
+        &mut self,
+        run: RunId,
+        person: Option<String>,
+        reset: bool,
+        last_speaker: String,
+    ) {
+        if !self.local.run.as_ref().is_some_and(|r| r.id == run) {
+            tracing::debug!("dropped the profile of standalone run {}", run.0);
+            return;
+        }
+        if reset {
+            self.local.forget_conversation();
+        }
+        if let Some(person) = person {
+            self.local.conversation_speaker = Some(person);
+        }
+        self.send(pinna_esphome::DeviceEvent::TextSensorState {
+            object_id: "last_speaker".into(),
+            value: last_speaker,
+        })
+        .await;
     }
 
     /// An event from the run task. Events from a run that is no longer the
@@ -953,6 +991,9 @@ pub(crate) struct LocalStart {
     pub kind: RunKind,
     pub live: Arc<AssistLive>,
     pub history: Vec<Turn>,
+    /// The id of the person the conversation belongs to, if it has one
+    /// (ADR 0038).
+    pub conversation_speaker: Option<String>,
     pub mic: Option<MicInput>,
     pub reply: ReplySink,
     pub device: DeviceFacts,
@@ -2949,6 +2990,166 @@ mod tests {
 
         assert_eq!(device.events(), [voice_event("thinking")]);
         assert_eq!(device.shared.speaker.epoch(), epoch);
+    }
+
+    fn profile(run: RunId, person: Option<&str>, reset: bool, shown: &str) -> Input {
+        Input::Profile {
+            run,
+            person: person.map(str::to_owned),
+            reset,
+            last_speaker: shown.into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reset_before_the_turn_leaves_exactly_the_new_turn() {
+        let mut device = TestDevice::ready();
+        device
+            .brain
+            .local
+            .conversation
+            .push(turn("Old", "Older."), Instant::now());
+        device.brain.local.conversation_speaker = Some("p1".into());
+        let run = device.request().await;
+        assert_eq!(run.start.conversation_speaker.as_deref(), Some("p1"));
+        assert_eq!(run.start.history.len(), 1);
+
+        device
+            .brain
+            .handle(profile(run.start.run, Some("p2"), true, "Ben"))
+            .await;
+        assert_eq!(device.events(), [last_speaker("Ben")]);
+        assert_eq!(
+            device.brain.local.conversation_speaker.as_deref(),
+            Some("p2")
+        );
+        device.assist(run.start.run, RunEvent::SpeechEnded).await;
+        device
+            .assist(
+                run.start.run,
+                RunEvent::Done {
+                    turn: Some(turn("New", "Newer.")),
+                    spoke: false,
+                },
+            )
+            .await;
+
+        assert_eq!(
+            device.brain.local.conversation.history(Instant::now()),
+            [turn("New", "Newer.")]
+        );
+        assert_eq!(
+            device.brain.local.conversation_speaker.as_deref(),
+            Some("p2")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_profile_without_a_reset_keeps_the_turns_and_follows_the_speaker() {
+        let mut device = TestDevice::ready();
+        device
+            .brain
+            .local
+            .conversation
+            .push(turn("Old", "Older."), Instant::now());
+        let run = device.request().await;
+
+        device
+            .brain
+            .handle(profile(run.start.run, Some("p2"), false, "Ben"))
+            .await;
+        assert_eq!(
+            device.brain.local.conversation_speaker.as_deref(),
+            Some("p2")
+        );
+        assert_eq!(
+            device.brain.local.conversation.history(Instant::now()),
+            [turn("Old", "Older.")]
+        );
+
+        // Nobody confident: the speaker stays, and the sensor shows the profile.
+        device
+            .brain
+            .handle(profile(run.start.run, None, false, "Everyone else"))
+            .await;
+        assert_eq!(
+            device.brain.local.conversation_speaker.as_deref(),
+            Some("p2")
+        );
+        assert_eq!(
+            device.events(),
+            [last_speaker("Ben"), last_speaker("Everyone else")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_profile_from_a_stale_run_changes_nothing() {
+        let mut device = TestDevice::ready();
+        let first = device.request().await;
+        device.api(ApiCommand::StopConversation).await.unwrap();
+        let _second = device.request().await;
+        device
+            .brain
+            .local
+            .conversation
+            .push(turn("Old", "Older."), Instant::now());
+
+        device
+            .brain
+            .handle(profile(first.start.run, Some("p2"), true, "Ben"))
+            .await;
+
+        assert_eq!(device.brain.local.conversation_speaker, None);
+        assert_eq!(
+            device
+                .brain
+                .local
+                .conversation
+                .history(Instant::now())
+                .len(),
+            1
+        );
+        assert_eq!(device.events(), []);
+    }
+
+    #[tokio::test]
+    async fn the_conversations_speaker_goes_with_the_conversation() {
+        let mut device = TestDevice::ready();
+        device.brain.local.conversation_speaker = Some("p1".into());
+        device.brain.local.forget_conversation();
+        assert_eq!(device.brain.local.conversation_speaker, None);
+
+        // A conversation idle for longer than five minutes.
+        device.brain.local.conversation_speaker = Some("p1".into());
+        let long_ago = Instant::now()
+            .checked_sub(Duration::from_secs(301))
+            .expect("the clock has run for five minutes");
+        device
+            .brain
+            .local
+            .conversation
+            .push(turn("Old", "Older."), long_ago);
+        let run = device.request().await;
+        assert_eq!(run.start.conversation_speaker, None);
+        assert_eq!(device.brain.local.conversation_speaker, None);
+        assert!(run.start.history.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_new_brain_generation_clears_the_conversations_speaker() {
+        let mut device = TestDevice::ready();
+        device.brain.local.conversation_speaker = Some("p1".into());
+        let live = device.brain.local.live();
+        device.set_live(AssistLive {
+            chat_gen: live.chat_gen + 1,
+            ready: true,
+            slots: Slots::all(true),
+            ..AssistLive::empty()
+        });
+
+        let run = device.request().await;
+
+        assert_eq!(run.start.conversation_speaker, None);
     }
 
     #[tokio::test]

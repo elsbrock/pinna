@@ -31,6 +31,8 @@ struct Seen {
     guards: Vec<Guard>,
     failed: Option<String>,
     finished: bool,
+    /// Which profile the request ran with, and why (ADR 0038).
+    profile: Option<String>,
 }
 
 impl RunLog {
@@ -40,6 +42,11 @@ impl RunLog {
             metrics,
             seen: Mutex::default(),
         })
+    }
+
+    /// The profile a spoken request runs with: "Anna (recognized)".
+    pub fn profile(&self, profile: String) {
+        self.seen.lock().unwrap().profile = Some(profile);
     }
 
     /// The run returned: whatever it reported is how it ended.
@@ -55,6 +62,9 @@ impl RunLog {
                 "speech-to-text {s:.1} s ({:.1} s of audio)",
                 seen.audio
             ));
+        }
+        if let Some(profile) = &seen.profile {
+            parts.push(format!("profile: {profile}"));
         }
         if let Some(first) = seen.brain.first() {
             let rounds = match seen.brain.len() {

@@ -36,6 +36,9 @@ pub struct AssistConfig {
     pub prompt: Option<String>,
     /// Open a follow-up window after every reply.
     pub follow_ups: bool,
+    /// When someone else speaks within the conversation's window, keep the
+    /// conversation instead of starting a new one (ADR 0038).
+    pub keep_conversation_on_new_speaker: bool,
     pub ack: Ack,
     /// Per-tool switches; an absent name means on, except for a device tool
     /// that starts off (pinnad's `install_update`, ADR 0017).
@@ -66,6 +69,7 @@ impl Default for AssistConfig {
             place: None,
             prompt: None,
             follow_ups: true,
+            keep_conversation_on_new_speaker: false,
             ack: Ack::default(),
             tools: BTreeMap::new(),
             stations: Vec::new(),

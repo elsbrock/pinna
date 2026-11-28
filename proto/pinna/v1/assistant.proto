@@ -183,6 +183,9 @@ message Assistant {
   // Names the prompt as it is now (the owner's text or the voice rules). An
   // edit sends the one it started from (UpdateAssistantRequest).
   string prompt_revision = 20;
+  // When someone else speaks within a conversation's 5 minutes, keep the
+  // conversation. Off starts a new one for the new speaker (ADR 0038).
+  bool keep_conversation_on_new_speaker = 21;
 }
 
 // A provider's address and key, shared by the slots that use it.
@@ -446,6 +449,7 @@ message UpdateAssistantRequest {
   // edit started from. If the prompt changed since (another window), the
   // edit is refused with `aborted`. Empty doesn't check.
   string prompt_revision = 10;
+  optional bool keep_conversation_on_new_speaker = 11;
 }
 
 message StationList {

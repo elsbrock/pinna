@@ -10,12 +10,15 @@
 //! [`Speaker`] slot.
 
 pub mod enroll;
+pub mod profile;
 pub mod recognizer;
 mod speaker;
 pub mod tap;
 pub mod voiceprints;
 
-pub use self::speaker::Speaker;
+pub use self::speaker::{Decision, Speaker};
+#[cfg(test)]
+pub use self::speaker::{Outcome, Run};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -390,6 +393,22 @@ impl People {
         next.everyone_else.revision += 1;
         Self::save(&mut inner, next)?;
         Ok(inner.value.everyone_else.clone())
+    }
+
+    /// A person on the list now, for the profile a request runs with. Reads
+    /// no file.
+    pub fn person_now(&self, id: &str) -> Option<Person> {
+        self.inner()
+            .value
+            .people
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+    }
+
+    /// Everyone else's extra instructions now. Reads no file.
+    pub fn everyone_else_instructions(&self) -> String {
+        self.inner().value.everyone_else.instructions.clone()
     }
 
     /// The speaker model's lifecycle and thread, for enrollment.

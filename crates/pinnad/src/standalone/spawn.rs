@@ -18,13 +18,16 @@ use pinna_assist::error::{ProviderError, Reason, Slot};
 use pinna_assist::observe::Observer;
 use pinna_assist::presets::PresetId;
 use pinna_assist::prompt::{self, Context, GroupMember, MemberMode};
-use pinna_assist::run::{RunEvent, RunEvents, RunRequest};
+use pinna_assist::run::{Personal, Personalize, RunEvent, RunEvents, RunKind, RunRequest};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::AssistLive;
 use super::runlog::RunLog;
 use crate::group::Group;
+use crate::people::profile::{self, Heard as Recognition};
+use crate::people::recognizer::State as RecognizerState;
+use crate::people::{Decision, People, Speaker};
 use crate::settings::Mode;
 use crate::tools::{Caller, DeviceTools, Surface, ToolKit};
 use crate::voice::{DeviceFacts, Input, LocalStart, RunId, RunSpawner, Snapshot};
@@ -36,6 +39,9 @@ pub struct ProdSpawner {
     status: watch::Receiver<Snapshot>,
     observer: Arc<dyn Observer>,
     kit: ToolKit,
+    people: Arc<People>,
+    /// Who speaks in the current request, as recognition found out.
+    speaker: Arc<Speaker>,
 }
 
 impl ProdSpawner {
@@ -44,25 +50,26 @@ impl ProdSpawner {
         status: watch::Receiver<Snapshot>,
         observer: Arc<dyn Observer>,
         kit: ToolKit,
+        people: Arc<People>,
+        speaker: Arc<Speaker>,
     ) -> Self {
         Self {
             inputs,
             status,
             observer,
             kit,
+            people,
+            speaker,
         }
     }
 
-    fn request(
-        &self,
-        start: LocalStart,
-        observer: Arc<dyn Observer>,
-    ) -> Result<RunRequest, ProviderError> {
+    fn request(&self, start: LocalStart, log: Arc<RunLog>) -> Result<RunRequest, ProviderError> {
         let LocalStart {
             run,
             kind,
             live,
             history,
+            conversation_speaker,
             mic,
             reply,
             device,
@@ -85,15 +92,26 @@ impl ProdSpawner {
             Surface::Run,
             Caller::Run(run),
         );
+        let group = group_context(self.kit.group().map(|g| g.as_ref()));
+        // A typed question runs with the owner's settings, with no person and
+        // no extra instructions (ADR 0038).
+        let personalize = (!matches!(kind, RunKind::Typed(_))).then(|| {
+            Arc::new(Profiled {
+                run,
+                people: self.people.clone(),
+                speaker: self.speaker.clone(),
+                inputs: self.inputs.clone(),
+                log: log.clone(),
+                live: live.clone(),
+                device: device.clone(),
+                group: group.clone(),
+                conversation_speaker,
+            }) as Arc<dyn Personalize>
+        });
         Ok(RunRequest {
             kind,
             pipeline,
-            system: system_prompt(
-                &live,
-                &device,
-                group_context(self.kit.group().map(|g| g.as_ref())),
-                SystemTime::now(),
-            ),
+            system: system_prompt(&live, &device, group, SystemTime::now(), None, None),
             history,
             // Speech services take the primary subtag only (`en`, not
             // `en-US`); the prompt keeps the whole tag.
@@ -105,7 +123,8 @@ impl ProdSpawner {
             reply,
             tools: Arc::new(tools),
             ack: live.ack.clone(),
-            observer,
+            observer: log,
+            personalize,
         })
     }
 }
@@ -144,16 +163,21 @@ impl RunSpawner for ProdSpawner {
     }
 }
 
-/// The system prompt: the owner's text or the voice rules, then the context.
+/// The system prompt: the owner's text or the voice rules, the profile's
+/// extra instructions, then the context, which names the speaker when a
+/// person was recognized.
 fn system_prompt(
     live: &AssistLive,
     device: &DeviceFacts,
     group: Vec<GroupMember>,
     now: SystemTime,
+    extra: Option<&str>,
+    speaker: Option<String>,
 ) -> String {
     let (time, zone) = crate::clock::local_now(device.time_zone.as_deref(), now);
     prompt::system(
         live.prompt.as_deref(),
+        extra,
         &Context {
             time,
             zone,
@@ -161,8 +185,87 @@ fn system_prompt(
             language: live.language.clone(),
             satellite: device.name.clone(),
             group,
+            speaker,
         },
     )
+}
+
+/// The profile a spoken run takes once speech-to-text returned (ADR 0038):
+/// what recognition has by then, the conversation's speaker and the owner's
+/// setting decide.
+struct Profiled {
+    run: RunId,
+    people: Arc<People>,
+    speaker: Arc<Speaker>,
+    inputs: mpsc::Sender<Input>,
+    log: Arc<RunLog>,
+    live: Arc<AssistLive>,
+    device: DeviceFacts,
+    group: Vec<GroupMember>,
+    /// The id of the person the conversation belonged to when the run began.
+    conversation_speaker: Option<String>,
+}
+
+impl Personalize for Profiled {
+    fn after_transcript<'a>(&'a self, kind: &'a RunKind) -> BoxFuture<'a, Option<Personal>> {
+        Box::pin(async move {
+            // Takes what is there and marks the session decided, so a late
+            // outcome doesn't change "Last speaker" afterwards.
+            let settled = self.speaker.settle();
+            let heard = match &settled.decision {
+                Some(Decision::Person { id, .. }) => Recognition::Person(id),
+                // The tap records "no model" only when the session ends, so
+                // before that, nothing to wait for isn't "too late".
+                None if self.people.recognizer().state() != RecognizerState::Ready => {
+                    Recognition::Nobody("no model")
+                }
+                _ => Recognition::Nobody(settled.why),
+            };
+            let choice = profile::decide(
+                heard,
+                *kind == RunKind::FollowUp,
+                self.conversation_speaker.as_deref(),
+                self.live.keep_conversation_on_new_speaker,
+                |id| self.people.person_now(id),
+            );
+            let name = choice.person.as_ref().map_or("Everyone else", |p| &p.name);
+            let line = format!("{name} ({})", choice.reason);
+            crate::timeline::stage(
+                || format!("profile: {line}"),
+                std::time::Duration::ZERO,
+                self.run.0,
+            );
+            self.log.profile(line.clone());
+
+            let (extra, speaker) = match &choice.person {
+                Some(person) => (person.instructions.clone(), Some(person.name.clone())),
+                None => (self.people.everyone_else_instructions(), None),
+            };
+            let system = system_prompt(
+                &self.live,
+                &self.device,
+                self.group.clone(),
+                SystemTime::now(),
+                Some(&extra),
+                speaker,
+            );
+            // Queued before the run's next event, so a reset comes before the
+            // run's turn.
+            let _ = self
+                .inputs
+                .send(Input::Profile {
+                    run: self.run,
+                    person: choice.speaker,
+                    reset: choice.reset,
+                    last_speaker: name.to_owned(),
+                })
+                .await;
+            Some(Personal {
+                system,
+                history: choice.reset.then(Vec::new),
+            })
+        })
+    }
 }
 
 /// The other members of the satellite group, for the context (ADR 0026):
@@ -228,6 +331,7 @@ mod tests {
 
     use super::*;
     use crate::leds::LedState;
+    use crate::people::{Outcome, Paths, PersonEdit, Run};
     use crate::settings::{Mode, Settings};
     use crate::voice::{ApiCommand, ApiReply, Brain, Defaults, LocalOptions, Options, Shared};
 
@@ -369,13 +473,25 @@ mod tests {
         shared: Arc<Shared>,
         status: watch::Receiver<Snapshot>,
         events: mpsc::Receiver<DeviceEvent>,
+        people: Arc<People>,
+        /// The values "Last speaker" took, in order.
+        last_speaker: Vec<String>,
         _live: watch::Sender<Arc<AssistLive>>,
         _dir: tempfile::TempDir,
     }
 
     impl Satellite {
         async fn start(pipeline: Pipeline) -> Self {
+            Self::start_keeping(pipeline, false).await
+        }
+
+        /// `keep`: the owner keeps the conversation when someone else speaks.
+        async fn start_keeping(pipeline: Pipeline, keep: bool) -> Self {
             let dir = tempfile::tempdir().unwrap();
+            let people = People::open(
+                &Paths::beside(&dir.path().join("settings.toml")),
+                dir.path().join("no-model"),
+            );
             let (esp, events) = EsphomeHandle::detached(256);
             let (status_tx, mut status) = watch::channel(Snapshot::default());
             let (inputs, rx) = mpsc::channel(64);
@@ -391,6 +507,7 @@ mod tests {
                 label: pipeline.label.clone(),
                 // A reply ends the conversation.
                 follow_ups: false,
+                keep_conversation_on_new_speaker: keep,
                 pipeline: Some(Arc::new(pipeline)),
                 ..AssistLive::empty()
             }));
@@ -399,6 +516,8 @@ mod tests {
                 status.clone(),
                 Arc::new(shared.counters.standalone.clone()),
                 ToolKit::new(shared.counters.clone()),
+                people.clone(),
+                shared.speaker.clone(),
             );
             let brain = Brain::new_with_local(
                 esp,
@@ -450,6 +569,8 @@ mod tests {
                 shared,
                 status,
                 events,
+                people,
+                last_speaker: Vec::new(),
                 _live: live_tx,
                 _dir: dir,
             }
@@ -490,17 +611,23 @@ mod tests {
                     .await
                     .unwrap_or_else(|_| panic!("no {last:?} after {seen:?}"))
                     .expect("the Brain stopped");
-                if let DeviceEvent::Event {
-                    object_id,
-                    event_type,
-                } = event
-                    && object_id == "voice_assistant"
-                {
-                    let done = event_type == last;
-                    seen.push(event_type);
-                    if done {
-                        return seen;
+                match event {
+                    DeviceEvent::Event {
+                        object_id,
+                        event_type,
+                    } if object_id == "voice_assistant" => {
+                        let done = event_type == last;
+                        seen.push(event_type);
+                        if done {
+                            return seen;
+                        }
                     }
+                    DeviceEvent::TextSensorState { object_id, value }
+                        if object_id == "last_speaker" =>
+                    {
+                        self.last_speaker.push(value);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -680,5 +807,193 @@ mod tests {
             assert!(request.tools.is_empty(), "an agent runs its own tools");
             assert_eq!(request.max_tokens, RunLimits::AGENT.max_tokens);
         }
+    }
+
+    fn person(sat: &Satellite, name: &str, instructions: &str) -> String {
+        sat.people
+            .set_person(PersonEdit {
+                id: None,
+                revision: 0,
+                name: name.into(),
+                instructions: instructions.into(),
+            })
+            .unwrap()
+            .id
+    }
+
+    /// Recognition answered `outcome` for the request that just started.
+    fn recognized(sat: &Satellite, id: &str, name: &str) {
+        let slot = &sat.shared.speaker;
+        let epoch = slot.epoch();
+        assert!(slot.begin_run(epoch));
+        slot.finish_run(
+            epoch,
+            Run {
+                outcome: Outcome::Person {
+                    id: id.into(),
+                    name: name.into(),
+                    score: 0.8,
+                    margin: 0.3,
+                },
+                run: 1,
+                seconds: 1.5,
+                took: Duration::from_millis(700),
+            },
+        );
+    }
+
+    /// A spoken request, with `recognition` run after it starts.
+    async fn spoken(sat: &mut Satellite, recognition: impl FnOnce(&Satellite)) {
+        sat.api(ApiCommand::StartConversation).await.unwrap();
+        recognition(sat);
+        sat.say(speech()).await;
+        assert_eq!(
+            sat.voice_events_until("finished").await.last().unwrap(),
+            "finished"
+        );
+        sat.idle().await;
+    }
+
+    #[tokio::test]
+    async fn a_recognized_person_gets_their_instructions_and_name() {
+        let chat = FakeChat::answering("Hi.");
+        let mut sat = Satellite::start(pipeline(
+            Heard::Text("Hello?"),
+            chat.clone(),
+            PresetId::OpenAi,
+        ))
+        .await;
+        let anna = person(&sat, "Anna", "Call me Anna's friend.");
+        sat.people
+            .set_everyone_else("Be formal.".into(), 1)
+            .unwrap();
+
+        spoken(&mut sat, |sat| recognized(sat, &anna, "Anna")).await;
+
+        let asked = chat.asked();
+        let system = &asked[0].system;
+        let at = |needle: &str| {
+            system
+                .find(needle)
+                .unwrap_or_else(|| panic!("{needle}: {system}"))
+        };
+        assert!(at("Call me Anna's friend.") < at("Local time:"), "{system}");
+        assert!(
+            system.ends_with("Satellite: Test.\nThe speaker is Anna."),
+            "{system}"
+        );
+        assert!(!system.contains("Be formal."));
+        assert_eq!(sat.last_speaker.last().map(String::as_str), Some("Anna"));
+    }
+
+    #[tokio::test]
+    async fn nobody_recognized_gets_everyone_elses_instructions_and_no_name() {
+        let chat = FakeChat::answering("Hi.");
+        let mut sat = Satellite::start(pipeline(
+            Heard::Text("Hello?"),
+            chat.clone(),
+            PresetId::OpenAi,
+        ))
+        .await;
+        person(&sat, "Anna", "Call me Anna's friend.");
+        sat.people
+            .set_everyone_else("Be formal.".into(), 1)
+            .unwrap();
+
+        // Recognition has nothing when the transcript returns: too late.
+        spoken(&mut sat, |_| {}).await;
+
+        let system = chat.asked()[0].system.clone();
+        assert!(system.contains("Be formal."), "{system}");
+        assert!(!system.contains("Anna"), "{system}");
+        assert!(!system.contains("The speaker"), "{system}");
+        assert_eq!(
+            sat.last_speaker.last().map(String::as_str),
+            Some("Everyone else")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_late_outcome_leaves_last_speaker_as_the_request_used_it() {
+        let mut sat = Satellite::start(pipeline(
+            Heard::Text("Hello?"),
+            FakeChat::answering("Hi."),
+            PresetId::OpenAi,
+        ))
+        .await;
+        let anna = person(&sat, "Anna", "");
+
+        spoken(&mut sat, |_| {}).await;
+        let shown = sat.last_speaker.clone();
+        assert_eq!(shown.last().map(String::as_str), Some("Everyone else"));
+
+        // Anna is recognized after the request had its profile: the tap
+        // would have nothing to publish.
+        let slot = &sat.shared.speaker;
+        let epoch = slot.epoch();
+        assert!(slot.begin_run(epoch));
+        let late = Run {
+            outcome: Outcome::Person {
+                id: anna.clone(),
+                name: "Anna".into(),
+                score: 0.8,
+                margin: 0.3,
+            },
+            run: 1,
+            seconds: 1.5,
+            took: Duration::from_millis(700),
+        };
+        assert_eq!(slot.finish_run(epoch, late).publish, None);
+        assert_eq!(sat.last_speaker, shown);
+    }
+
+    #[tokio::test]
+    async fn a_new_speaker_starts_a_new_conversation_unless_the_owner_keeps_it() {
+        for keep in [false, true] {
+            let chat = FakeChat::answering("Hi.");
+            let mut sat = Satellite::start_keeping(
+                pipeline(Heard::Text("Hello?"), chat.clone(), PresetId::OpenAi),
+                keep,
+            )
+            .await;
+            let anna = person(&sat, "Anna", "");
+            let ben = person(&sat, "Ben", "");
+
+            spoken(&mut sat, |sat| recognized(sat, &anna, "Anna")).await;
+            spoken(&mut sat, |sat| recognized(sat, &ben, "Ben")).await;
+            // Ben goes on: the same speaker keeps the conversation.
+            spoken(&mut sat, |sat| recognized(sat, &ben, "Ben")).await;
+
+            let asked = chat.asked();
+            assert_eq!(asked[0].messages.len(), 1);
+            let expected = if keep { 3 } else { 1 };
+            assert_eq!(asked[1].messages.len(), expected, "keep: {keep}");
+            // The new turn is the only one after a reset; then it grows.
+            assert_eq!(asked[2].messages.len(), expected + 2, "keep: {keep}");
+            assert!(asked[1].system.ends_with("The speaker is Ben."));
+            assert_eq!(sat.last_speaker.last().map(String::as_str), Some("Ben"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_typed_question_keeps_the_owners_settings_and_last_speaker() {
+        let chat = FakeChat::answering("Hi.");
+        let mut sat = Satellite::start(pipeline(
+            Heard::Text("unused"),
+            chat.clone(),
+            PresetId::OpenAi,
+        ))
+        .await;
+        person(&sat, "Anna", "Call me Anna's friend.");
+        sat.people
+            .set_everyone_else("Be formal.".into(), 1)
+            .unwrap();
+
+        sat.ask("Typed?").await;
+
+        let system = chat.asked()[0].system.clone();
+        assert!(!system.contains("Be formal."), "{system}");
+        assert!(!system.contains("The speaker"), "{system}");
+        assert!(sat.last_speaker.is_empty());
     }
 }

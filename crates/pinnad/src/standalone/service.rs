@@ -250,6 +250,7 @@ pub struct AssistantPatch {
     /// check.
     pub prompt_revision: Option<String>,
     pub follow_ups: Option<bool>,
+    pub keep_conversation_on_new_speaker: Option<bool>,
     pub ack: Option<Ack>,
     /// The whole switch table; an absent name means on.
     pub tools: Option<BTreeMap<String, bool>>,
@@ -278,6 +279,7 @@ pub struct AssistantView {
     /// [`prompt_revision`] of `prompt`.
     pub prompt_revision: String,
     pub follow_ups: bool,
+    pub keep_conversation_on_new_speaker: bool,
     pub ack: Ack,
     /// The phrase the acknowledgment says in the current language.
     pub ack_spoken: String,
@@ -834,6 +836,9 @@ impl Service {
             if let Some(follow_ups) = p.follow_ups {
                 c.follow_ups = follow_ups;
             }
+            if let Some(keep) = p.keep_conversation_on_new_speaker {
+                c.keep_conversation_on_new_speaker = keep;
+            }
             if let Some(ack) = ack {
                 c.ack = ack;
             }
@@ -1290,6 +1295,7 @@ impl State {
             language: c.language.clone(),
             place: c.place.clone(),
             follow_ups: c.follow_ups,
+            keep_conversation_on_new_speaker: c.keep_conversation_on_new_speaker,
             ack,
             switches: c.tools.clone(),
             stations: Arc::new(c.stations.clone()),
@@ -1395,6 +1401,7 @@ fn view(c: &AssistConfig, secrets: &Secrets, ready: bool, agents: Vec<AgentSeen>
         prompt: c.prompt.clone(),
         prompt_revision: prompt_revision(c.prompt.as_deref()),
         follow_ups: c.follow_ups,
+        keep_conversation_on_new_speaker: c.keep_conversation_on_new_speaker,
         ack: c.ack.clone(),
         ack_spoken: ack::phrase(&c.ack, c.language.as_deref()),
         tools: c.tools.clone(),
@@ -2658,6 +2665,7 @@ mod tests {
                 prompt: Some(Some(String::new())),
                 prompt_revision: Some(prompt_revision(None)),
                 follow_ups: Some(false),
+                keep_conversation_on_new_speaker: Some(true),
                 ack: Some(Ack {
                     enabled: true,
                     phrase: " Moment. ".into(),
@@ -2675,10 +2683,12 @@ mod tests {
         assert_eq!(view.language.as_deref(), Some("de"));
         assert_eq!(view.prompt.as_deref(), Some(""));
         assert!(!view.follow_ups);
+        assert!(view.keep_conversation_on_new_speaker);
         assert_eq!(view.ack.phrase, "Moment.");
         let live = f.live();
         assert_eq!(live.language.as_deref(), Some("de"));
         assert!(!live.follow_ups);
+        assert!(live.keep_conversation_on_new_speaker);
         assert_eq!(live.switches.get("weather"), Some(&false));
         assert_eq!(f.saved().chat_override.first_text_s, Some(90));
 

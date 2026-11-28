@@ -1303,7 +1303,7 @@ async fn main() -> Result<()> {
     );
     let people_api = Arc::new(
         people_api::PeopleApi::new(people.clone()).with_enroller(Arc::new(
-            people::enroll::Enroller::new(people, recorder, auth.clone()),
+            people::enroll::Enroller::new(people.clone(), recorder, auth.clone()),
         )),
     );
     // The tools' HTTP clients, counters and updater, shared by every run and /mcp call.
@@ -1359,6 +1359,8 @@ async fn main() -> Result<()> {
         status_rx,
         Arc::new(shared.counters.standalone.clone()),
         tool_kit,
+        people.clone(),
+        shared.speaker.clone(),
     );
     let brain = Brain::new_with_local(
         esp,

@@ -40,6 +40,28 @@ pub trait RunEvents: Send + Sync {
     fn emit(&self, ev: RunEvent) -> BoxFuture<'_, ()>;
 }
 
+/// What a spoken run changes once it knows who spoke (ADR 0038).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Personal {
+    /// The system prompt for the reply.
+    pub system: String,
+    /// `None` keeps the request's history; `Some(vec![])` starts a new
+    /// conversation.
+    pub history: Option<Vec<Turn>>,
+}
+
+/// The hook after speech-to-text. Who speaks is known only then, while the
+/// system prompt and the history were fixed when the run started.
+pub trait Personalize: Send + Sync {
+    /// Called once, after speech-to-text returned a transcript that isn't
+    /// invented and before the reply, for spoken runs only. It must not wait:
+    /// recognition that isn't finished counts as not recognized.
+    ///
+    /// It returns a future so that a caller may queue what it decided before
+    /// the reply's events follow it.
+    fn after_transcript<'a>(&'a self, kind: &'a RunKind) -> BoxFuture<'a, Option<Personal>>;
+}
+
 pub struct RunRequest {
     pub kind: RunKind,
     pub pipeline: Arc<Pipeline>,
@@ -52,6 +74,8 @@ pub struct RunRequest {
     pub tools: Arc<dyn ToolSet>,
     pub ack: Option<PathBuf>,
     pub observer: Arc<dyn Observer>,
+    /// Takes who spoke into account for spoken runs; typed runs never call it.
+    pub personalize: Option<Arc<dyn Personalize>>,
 }
 
 /// Execute one request as a single future. Dropping it drops every in-flight
@@ -69,9 +93,12 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
         tools,
         ack,
         observer,
+        personalize,
     } = req;
-    let question = match kind {
-        RunKind::Typed(question) => question,
+    let mut system = system;
+    let mut history = history;
+    let question = match &kind {
+        RunKind::Typed(question) => question.clone(),
         RunKind::Request | RunKind::FollowUp => {
             let Some(mut mic) = mic else {
                 return fail(
@@ -123,6 +150,14 @@ pub async fn run(req: RunRequest, events: &dyn RunEvents) {
                 drop(sink);
                 events.emit(RunEvent::NoSpeech { invented: true }).await;
                 return;
+            }
+            if let Some(personalize) = &personalize
+                && let Some(personal) = personalize.after_transcript(&kind).await
+            {
+                system = personal.system;
+                if let Some(turns) = personal.history {
+                    history = turns;
+                }
             }
             transcript.trim().to_owned()
         }
@@ -187,7 +222,7 @@ mod tests {
 
     use super::{reply::test_util::*, *};
     use crate::{
-        chat::{Chat, ChatDelta},
+        chat::{Chat, ChatDelta, Message},
         limits::RunLimits,
         presets::{Behaviour, PresetId},
         reply::{AudioKind, ReplySource, reply_channel},
@@ -276,6 +311,7 @@ mod tests {
             tools: Arc::new(NoTools),
             ack: None,
             observer,
+            personalize: None,
         }
     }
 
@@ -472,6 +508,155 @@ mod tests {
                 ..
             } if user == "Typed question"
         ));
+    }
+
+    /// Answers every call with the same thing and counts the calls.
+    struct FixedPersonal {
+        personal: Option<Personal>,
+        calls: Mutex<Vec<RunKind>>,
+    }
+
+    impl FixedPersonal {
+        fn new(personal: Option<Personal>) -> Arc<Self> {
+            Arc::new(Self {
+                personal,
+                calls: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn calls(&self) -> Vec<RunKind> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl Personalize for FixedPersonal {
+        fn after_transcript<'a>(&'a self, kind: &'a RunKind) -> BoxFuture<'a, Option<Personal>> {
+            self.calls.lock().unwrap().push(kind.clone());
+            Box::pin(async move { self.personal.clone() })
+        }
+    }
+
+    fn turn(user: &str, assistant: &str) -> Turn {
+        Turn {
+            user: user.into(),
+            assistant: assistant.into(),
+        }
+    }
+
+    /// Run `kind` with `personalize` and the request's own history of one
+    /// turn; returns what the brain was asked.
+    async fn personalized(
+        kind: RunKind,
+        answer: &'static str,
+        personalize: Arc<FixedPersonal>,
+    ) -> Vec<reply::test_util::RecordedRequest> {
+        let spoken = !matches!(kind, RunKind::Typed(_));
+        let stt = Arc::new(FakeStt::new(answer));
+        let chat = Arc::new(ScriptedChat::new([vec![
+            ChatDelta::Text("Answer.".into()),
+            ChatDelta::End,
+        ]]));
+        let tts = Arc::new(ScriptedTts::default());
+        let (sink, mut source) = reply_channel(2);
+        let mut req = request(
+            kind,
+            spoken.then(speech),
+            pipeline(stt, chat.clone(), tts, RunLimits::MODEL),
+            sink,
+            Arc::new(TestObserver::default()),
+        );
+        req.history = vec![turn("Before", "Earlier.")];
+        req.personalize = Some(personalize);
+        let events = TestEvents::default();
+        tokio::join!(run(req, &events), receive(&mut source, 1));
+        chat.requests()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_hook_replaces_the_prompt_and_the_history() {
+        let personalize = FixedPersonal::new(Some(Personal {
+            system: "For Anna.".into(),
+            history: Some(Vec::new()),
+        }));
+        let requests = personalized(RunKind::Request, "Question", personalize.clone()).await;
+        assert_eq!(requests[0].system, "For Anna.");
+        assert_eq!(requests[0].messages.len(), 1, "{:?}", requests[0].messages);
+        assert_eq!(personalize.calls(), [RunKind::Request]);
+
+        let personalize = FixedPersonal::new(Some(Personal {
+            system: "For Ben.".into(),
+            history: Some(vec![turn("Mine", "Reply.")]),
+        }));
+        let requests = personalized(RunKind::FollowUp, "Question", personalize.clone()).await;
+        assert_eq!(requests[0].system, "For Ben.");
+        assert_eq!(requests[0].messages.len(), 3);
+        assert_eq!(personalize.calls(), [RunKind::FollowUp]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_history_in_the_hook_keeps_the_requests() {
+        let personalize = FixedPersonal::new(Some(Personal {
+            system: "For Anna.".into(),
+            history: None,
+        }));
+        let requests = personalized(RunKind::Request, "Question", personalize).await;
+        assert_eq!(requests[0].system, "For Anna.");
+        assert_eq!(requests[0].messages.len(), 3);
+        assert!(matches!(&requests[0].messages[0], Message::User(text) if text == "Before"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_answer_from_the_hook_keeps_the_requests_prompt() {
+        let personalize = FixedPersonal::new(None);
+        let requests = personalized(RunKind::Request, "Question", personalize.clone()).await;
+        assert_eq!(requests[0].system, "Be brief.");
+        assert_eq!(requests[0].messages.len(), 3);
+        assert_eq!(personalize.calls().len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_hook_never_hears_of_a_typed_run() {
+        let personalize = FixedPersonal::new(Some(Personal {
+            system: "For Anna.".into(),
+            history: Some(Vec::new()),
+        }));
+        let requests = personalized(
+            RunKind::Typed("Question".into()),
+            "unused",
+            personalize.clone(),
+        )
+        .await;
+        assert!(personalize.calls().is_empty());
+        assert_eq!(requests[0].system, "Be brief.");
+        assert_eq!(requests[0].messages.len(), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_hook_waits_for_a_transcript_that_is_not_invented() {
+        let personalize = FixedPersonal::new(Some(Personal {
+            system: "For Anna.".into(),
+            history: None,
+        }));
+        let chat = Arc::new(ScriptedChat::new([]));
+        for said in ["Thank you for watching.", "  "] {
+            let (sink, _source) = reply_channel(2);
+            let mut req = request(
+                RunKind::Request,
+                Some(speech()),
+                pipeline(
+                    Arc::new(FakeStt::new(said)),
+                    chat.clone(),
+                    Arc::new(ScriptedTts::default()),
+                    RunLimits::MODEL,
+                ),
+                sink,
+                Arc::new(TestObserver::default()),
+            );
+            req.personalize = Some(personalize.clone());
+            run(req, &TestEvents::default()).await;
+        }
+        assert!(personalize.calls().is_empty());
+        assert!(chat.requests().is_empty());
     }
 
     #[derive(Default)]

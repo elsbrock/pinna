@@ -2,9 +2,9 @@
 //! (ADR 0038).
 //!
 //! One slot, shared by the speaker tap, which fills it, and by whoever needs
-//! the answer: the Brain for "Last speaker" and, in a later step, the
-//! standalone run. A new session resets it, so nobody reads the previous
-//! request's outcome. Readers take what is there now; nothing waits.
+//! the answer: the Brain for "Last speaker" and the standalone run. A new
+//! session resets it, so nobody reads the previous request's outcome. Readers
+//! take what is there now; nothing waits.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -87,6 +87,17 @@ pub enum Decision {
     EveryoneElse,
 }
 
+/// What the standalone run took from the slot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settled {
+    pub epoch: u64,
+    /// `None`: recognition hadn't finished.
+    pub decision: Option<Decision>,
+    /// Without a person, why: "too late", "uncertain", "too short", "no
+    /// model" or "recognition failed".
+    pub why: &'static str,
+}
+
 /// What a change to the slot asks of its caller.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Update {
@@ -109,6 +120,9 @@ struct State {
     /// What "Last speaker" shows in this session: empty at its start.
     published: String,
     settled: bool,
+    /// A standalone run took the decision and published "Last speaker"
+    /// itself: later outcomes of this session leave the sensor alone.
+    decided: bool,
 }
 
 impl State {
@@ -127,6 +141,19 @@ impl State {
         }
     }
 
+    /// Why nobody was recognized, for the profile's reason.
+    fn why_nobody(&self) -> &'static str {
+        if self.decision().is_none() {
+            return "too late";
+        }
+        match self.runs.last().map(|r| &r.outcome) {
+            Some(Outcome::TooShort) => "too short",
+            Some(Outcome::NoModel) => "no model",
+            Some(Outcome::Failed(_)) => "recognition failed",
+            _ => "uncertain",
+        }
+    }
+
     fn update(&mut self) -> Update {
         let Some(decision) = self.decision() else {
             return Update::default();
@@ -135,8 +162,10 @@ impl State {
             Decision::Person { name, .. } => name.clone(),
             Decision::EveryoneElse => "Everyone else".into(),
         };
-        let publish = (value != self.published).then(|| value.clone());
-        self.published = value;
+        let publish = (!self.decided && value != self.published).then(|| value.clone());
+        if !self.decided {
+            self.published = value;
+        }
         let settled = (self.over && self.pending == 0 && !self.settled).then(|| {
             self.settled = true;
             match (&decision, self.runs.last()) {
@@ -187,9 +216,22 @@ impl Speaker {
     /// What the session decided so far: the newest confident person, else
     /// Everyone else once the session is over and every run has answered,
     /// else nothing yet.
-    #[allow(dead_code)] // The standalone run reads it, in a later step.
+    #[cfg(test)]
     pub fn decision(&self) -> Option<Decision> {
         self.state().decision()
+    }
+
+    /// The standalone run takes what recognition has now, without waiting,
+    /// and marks the session decided: it publishes "Last speaker" itself, so
+    /// outcomes that arrive later change nothing on the sensor.
+    pub fn settle(&self) -> Settled {
+        let mut state = self.state();
+        state.decided = true;
+        Settled {
+            epoch: state.epoch,
+            decision: state.decision(),
+            why: state.why_nobody(),
+        }
     }
 
     #[cfg(test)]
@@ -382,5 +424,66 @@ mod tests {
         assert_eq!(slot.decision(), Some(Decision::EveryoneElse));
         slot.reset();
         assert_eq!(slot.decision(), None);
+    }
+
+    #[test]
+    fn a_settled_session_publishes_no_more() {
+        let slot = Speaker::default();
+        let epoch = slot.reset();
+        assert!(slot.begin_run(epoch));
+        let settled = slot.settle();
+        assert_eq!(settled.epoch, epoch);
+        assert_eq!(settled.decision, None);
+        assert_eq!(settled.why, "too late");
+        // The late outcome changes nothing on the sensor, but the session's
+        // log line stays.
+        let update = slot.finish_run(epoch, person("Anna", 1));
+        assert_eq!(update.publish, None);
+        let update = slot.end(epoch);
+        assert_eq!(update.publish, None);
+        assert!(update.settled.is_some());
+        // A new session publishes again.
+        let next = slot.reset();
+        assert!(slot.begin_run(next));
+        assert_eq!(
+            slot.finish_run(next, person("Ben", 1)).publish.as_deref(),
+            Some("Ben")
+        );
+    }
+
+    #[test]
+    fn settle_takes_a_person_or_says_why_not() {
+        let slot = Speaker::default();
+        let epoch = slot.reset();
+        assert!(slot.begin_run(epoch));
+        slot.finish_run(epoch, person("Anna", 1));
+        assert_eq!(
+            slot.settle().decision,
+            Some(Decision::Person {
+                id: "id-Anna".into(),
+                name: "Anna".into()
+            })
+        );
+
+        let epoch = slot.reset();
+        assert!(slot.begin_run(epoch));
+        slot.finish_run(epoch, uncertain(1));
+        slot.end(epoch);
+        let settled = slot.settle();
+        assert_eq!(settled.decision, Some(Decision::EveryoneElse));
+        assert_eq!(settled.why, "uncertain");
+
+        let epoch = slot.reset();
+        slot.note(
+            epoch,
+            Run {
+                outcome: Outcome::NoModel,
+                run: 1,
+                seconds: 1.0,
+                took: Duration::ZERO,
+            },
+        );
+        slot.end(epoch);
+        assert_eq!(slot.settle().why, "no model");
     }
 }

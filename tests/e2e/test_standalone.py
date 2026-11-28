@@ -163,6 +163,11 @@ checked = 1
     secrets = settings_dir / "secrets.toml"
     secrets.write_text(f'[connections.custom-1]\nurl = "{base_url}"\nkey = "{KEY}"\n')
     secrets.chmod(0o600)
+    # Nobody is enrolled: every request runs as Everyone else, with its
+    # extra instructions.
+    (settings_dir / "people.toml").write_text(
+        '[everyone_else]\ninstructions = "Answer like a pirate."\nrevision = 2\n'
+    )
 
 
 async def no_voice_for_home_assistant(port: int):
@@ -235,6 +240,9 @@ def test_a_spoken_request_runs_on_the_owners_services(tmp_path):
         assert chats[0]["model"] == "gpt-test" and chats[0]["stream"] is True
         assert chats[0]["messages"][-1] == {"role": "user", "content": TRANSCRIPT}
         assert any(t["function"]["name"] == "set_timer" for t in chats[0]["tools"])
+        system = chats[0]["messages"][0]
+        assert system["role"] == "system" and "Answer like a pirate." in system["content"]
+        assert "The speaker is" not in system["content"]
         tool_result = chats[1]["messages"][-1]
         assert tool_result["role"] == "tool" and tool_result["tool_call_id"] == "call_1"
 
@@ -250,6 +258,7 @@ def test_a_spoken_request_runs_on_the_owners_services(tmp_path):
         log = (settings_file.parent / "pinnad.log").read_text()
         assert KEY not in log
         assert TRANSCRIPT not in log and ANSWER not in log
+        assert "profile: Everyone else (no model)" in log
     finally:
         provider.shutdown()
         runs.close()

@@ -374,6 +374,7 @@ pub(crate) mod test_util {
 
     #[derive(Clone, Debug)]
     pub(crate) struct RecordedRequest {
+        pub system: String,
         pub messages: Vec<Message>,
         pub tools: usize,
         pub calls_allowed: bool,
@@ -439,6 +440,7 @@ pub(crate) mod test_util {
             >,
         > {
             lock(&self.requests).push(RecordedRequest {
+                system: req.system.to_owned(),
                 messages: req.messages.to_vec(),
                 tools: req.tools.len(),
                 calls_allowed: req.calls_allowed,

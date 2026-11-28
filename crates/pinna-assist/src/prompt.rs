@@ -1,5 +1,7 @@
-//! The system prompt: the voice rules, the owner's text and the context block
-//! sent with every request (ADR 0017 §"The prompt is the owner's").
+//! The system prompt: the voice rules, the owner's text, the speaker's extra
+//! instructions and the context block sent with every request (ADR 0017
+//! §"The prompt is the owner's", ADR 0038 §"Standalone mode: prompt and typed
+//! questions").
 //!
 //! The prompt is spoken, so the rules keep replies short and plain. The context
 //! is appended whatever the owner wrote, and models and agents get the same
@@ -32,6 +34,9 @@ pub struct Context {
     /// The other members of the satellite's group (ADR 0026); empty in no
     /// group.
     pub group: Vec<GroupMember>,
+    /// The person recognized for this request (ADR 0038); `None` names
+    /// nobody.
+    pub speaker: Option<String>,
 }
 
 /// Another satellite of the group, as the brain hears of it.
@@ -54,13 +59,20 @@ pub enum MemberMode {
 
 /// The system prompt for one request. `owner` is the stored prompt:
 /// `None` gives [`VOICE_RULES`], an empty string gives the context only, and
-/// anything else comes first, with the context after it.
-pub fn system(owner: Option<&str>, ctx: &Context) -> String {
+/// anything else comes first. Then come the `extra` instructions of the
+/// speaker's profile, when not empty (ADR 0038), and the context.
+pub fn system(owner: Option<&str>, extra: Option<&str>, ctx: &Context) -> String {
     let mut out = String::new();
     match owner {
         None => out.push_str(VOICE_RULES),
         Some("") => {}
         Some(text) => out.push_str(text.trim()),
+    }
+    if let Some(extra) = extra.map(str::trim).filter(|extra| !extra.is_empty()) {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(extra);
     }
     let block = context_block(ctx);
     if !block.is_empty() {
@@ -94,6 +106,9 @@ fn context_block(ctx: &Context) -> String {
     }
     if !ctx.satellite.is_empty() {
         lines.push(format!("Satellite: {}.", ctx.satellite));
+    }
+    if let Some(speaker) = &ctx.speaker {
+        lines.push(format!("The speaker is {speaker}."));
     }
     if !ctx.group.is_empty() {
         let members: Vec<String> = ctx
@@ -130,12 +145,13 @@ mod tests {
             language: Some("de".into()),
             satellite: "Kitchen Dot".into(),
             group: Vec::new(),
+            speaker: None,
         }
     }
 
     #[test]
     fn default_prompt_uses_the_voice_rules() {
-        let prompt = system(None, &full());
+        let prompt = system(None, None, &full());
         assert!(prompt.starts_with(VOICE_RULES));
         assert!(prompt.contains("Local time: Tuesday 17 November 2026, 14:03 (Europe/Berlin)."));
         assert!(prompt.contains("Place: Munich."));
@@ -145,14 +161,14 @@ mod tests {
 
     #[test]
     fn empty_prompt_is_only_the_context() {
-        let prompt = system(Some(""), &full());
+        let prompt = system(Some(""), None, &full());
         assert!(!prompt.contains(VOICE_RULES));
         assert!(prompt.starts_with("Local time:"));
     }
 
     #[test]
     fn custom_prompt_comes_first() {
-        let prompt = system(Some("  Be brief.  "), &full());
+        let prompt = system(Some("  Be brief.  "), None, &full());
         assert!(prompt.starts_with("Be brief.\n\nLocal time:"));
         assert!(!prompt.contains(VOICE_RULES));
     }
@@ -166,8 +182,9 @@ mod tests {
             language: None,
             satellite: "Dot".into(),
             group: Vec::new(),
+            speaker: None,
         };
-        let prompt = system(None, &ctx);
+        let prompt = system(None, None, &ctx);
         assert!(prompt.contains("Local time: 14:03 (UTC)."));
         assert!(prompt.contains("Satellite: Dot."));
         assert!(!prompt.contains("Place:"));
@@ -189,7 +206,7 @@ mod tests {
             ],
             ..full()
         };
-        let prompt = system(None, &ctx);
+        let prompt = system(None, None, &ctx);
         assert!(
             prompt.ends_with(
                 "Satellite: Kitchen Dot.\nOther satellites in its group: Kitchen (standalone \
@@ -201,8 +218,8 @@ mod tests {
 
     #[test]
     fn empty_context_is_empty() {
-        assert_eq!(system(Some(""), &Context::default()), "");
-        assert_eq!(system(None, &Context::default()), VOICE_RULES);
+        assert_eq!(system(Some(""), None, &Context::default()), "");
+        assert_eq!(system(None, None, &Context::default()), VOICE_RULES);
     }
 
     #[test]
@@ -211,6 +228,43 @@ mod tests {
             time: "14:03".into(),
             ..Context::default()
         };
-        assert_eq!(system(Some(""), &ctx), "Local time: 14:03.");
+        assert_eq!(system(Some(""), None, &ctx), "Local time: 14:03.");
+    }
+
+    #[test]
+    fn extra_instructions_come_between_the_owner_and_the_context() {
+        let prompt = system(Some("Be brief."), Some("  Call me Anna.  "), &full());
+        assert!(
+            prompt.starts_with("Be brief.\n\nCall me Anna.\n\nLocal time:"),
+            "{prompt}"
+        );
+        let prompt = system(None, Some("Call me Anna."), &full());
+        assert!(prompt.starts_with(&format!("{VOICE_RULES}\n\nCall me Anna.\n\nLocal time:")));
+        assert_eq!(
+            system(Some(""), Some("Call me Anna."), &Context::default()),
+            "Call me Anna."
+        );
+    }
+
+    #[test]
+    fn empty_extra_instructions_change_nothing() {
+        assert_eq!(
+            system(None, Some(" \n"), &full()),
+            system(None, None, &full())
+        );
+    }
+
+    #[test]
+    fn a_recognized_speaker_is_named_in_the_context() {
+        let ctx = Context {
+            speaker: Some("Anna".into()),
+            ..full()
+        };
+        let prompt = system(None, None, &ctx);
+        assert!(
+            prompt.contains("Satellite: Kitchen Dot.\nThe speaker is Anna."),
+            "{prompt}"
+        );
+        assert!(!system(None, None, &full()).contains("The speaker"));
     }
 }
