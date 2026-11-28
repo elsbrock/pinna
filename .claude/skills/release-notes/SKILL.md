@@ -104,6 +104,10 @@ website, design system, docs, tests, ADRs, chores, CI.
   release, as it works now: leave out what a later beta replaced or removed,
   and fold a beta's fix to its own new feature into that feature.
 
+Write each paragraph and each list item on one line; don't wrap them.
+GitHub shows every line break in a release's text as a break, so a wrapped
+paragraph breaks mid-sentence on the release page.
+
 Leave out empty sections. The language rules are `AGENTS.md`, "Language":
 plain, short sentences, no hype, exclamation marks or emoji; the project's
 nouns (satellite, ring, Home Assistant); the phase words of the proto; the
