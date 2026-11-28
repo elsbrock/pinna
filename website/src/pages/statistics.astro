@@ -190,7 +190,7 @@ const BREAKDOWNS = [
   function drawChart(stats: Statistics) {
     const W = 720;
     const H = 260;
-    const left = 36;
+    const left = 48;
     const top = 28;
     const bottom = 28;
     const plotH = H - top - bottom;
@@ -232,7 +232,8 @@ const BREAKDOWNS = [
       chart.append(
         rect,
         svg("text", { x: mid, y: y(0) - height - 7, class: "chart-value", "text-anchor": "middle" }, value === null ? "<5" : String(value)),
-        svg("text", { x: mid, y: H - 8, class: "chart-axis", "text-anchor": "middle" }, week.week.slice(-3)),
+        // Every other week counted back from the last, so the last keeps its label on a phone.
+        svg("text", { x: mid, y: H - 8, class: (weeks.length - 1 - i) % 2 ? "chart-axis chart-week-alt" : "chart-axis", "text-anchor": "middle" }, week.week.slice(-3)),
       );
     });
 
@@ -368,6 +369,19 @@ const BREAKDOWNS = [
     fill: var(--ink);
     font-size: 15px;
     font-weight: 600;
+  }
+  /* The chart scales with its 720-unit viewBox: at phone width that is about
+     0.44, so the labels need larger units to stay near 11 px. */
+  @media (max-width: 639px) {
+    .stats .chart-axis {
+      font-size: 24px;
+    }
+    .stats .chart-value {
+      font-size: 26px;
+    }
+    .stats .chart-week-alt {
+      display: none;
+    }
   }
   .stats .chart-bar {
     fill: var(--chart-1);
