@@ -357,7 +357,8 @@ impl Enrollment {
             ),
             Event::Failed { reason, sentence } => (
                 reason.label().to_owned(),
-                format!("nothing saved, {}: {sentence}", reason.label()),
+                // The sentence names the cause ("Too quiet: …"); the label would repeat it.
+                format!("nothing saved: {sentence}"),
             ),
             _ => return,
         };
