@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Elsbrock <simon@iodev.org>
+Date: Sat, 28 Nov 2026 01:10:00 +0100
+Subject: [PATCH] wifi: mt76: mt7663: one spatial stream on the Echo Dot (5th
+ gen)
+
+The Echo Dot (5th gen)'s MT7663 has its antenna on WF1: WF0 reads -55
+to -110 dBm where WF1 reads -45 to -52. Patch 0228 enables both TX paths
+for its efuse, because with one path this firmware transmits on WF0 and
+the unit couldn't associate. mt76 then advertised and used two spatial
+streams (HT MCS 0-15, VHT NSS 2) and sent two-stream frames the second
+path can't carry.
+
+Register the bands with one stream, as Amazon's wifi.cfg sets (Nss 1),
+and ask the firmware for one TX stream in the channel command.
+antenna_mask holds one chain only while mt76 registers the bands; after
+that it is both chains again, so the received signal and the TX power
+per chain still count both, and chainmask keeps both paths for the
+firmware.
+
+Measured on a C2N6L4 against an Omada access point, 500 pings of 1400
+bytes per run (2026-11-28): retries per transmitted frame on 5 GHz
+0.86-1.23 with two streams (9 runs), 0.63-0.78 with one (3 runs); ping
+loss up to 2.4% before and at most 0.4% after; on 2.4 GHz 0.20-0.24 with
+one stream (3 runs). The reported signal stays the combined one (-56 dBm
+on 5 GHz, -51 dBm on 2.4 GHz).
+---
+ drivers/net/wireless/mediatek/mt76/mt7615/eeprom.c   | 8 ++++++++
+ drivers/net/wireless/mediatek/mt76/mt7615/mcu.c      | 3 ++-
+ drivers/net/wireless/mediatek/mt76/mt7615/mt7615.h   | 2 ++
+ drivers/net/wireless/mediatek/mt76/mt7615/usb_sdio.c | 8 ++++++++
+ 4 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/eeprom.c b/drivers/net/wireless/mediatek/mt76/mt7615/eeprom.c
+index f88cf9249..a4e1b6be2 100644
+--- a/drivers/net/wireless/mediatek/mt76/mt7615/eeprom.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7615/eeprom.c
+@@ -345,6 +345,14 @@ static void mt7663_eeprom_fixup(struct mt7615_dev *dev)
+ 		return;
+ 
+ 	put_unaligned_le16(0x7663, eep);
++	/*
++	 * One spatial stream, as Amazon's wifi.cfg sets (Nss 1): the antenna
++	 * is on WF1, and WF0 reads -55 to -110 dBm where WF1 reads -45 to -52.
++	 * Both TX paths stay enabled below, because with one this firmware
++	 * transmits on WF0. With two streams the unit sent two-stream frames
++	 * and retried about every frame (C2N6L4, 2026-11-28).
++	 */
++	dev->one_stream = true;
+ 	eep[MT7663_EE_HW_CONF1] &= ~MT_EE_HW_CONF1_TX_MASK;
+ 	eep[MT7663_EE_HW_CONF1] |= FIELD_PREP(MT_EE_HW_CONF1_TX_MASK, 2);
+ }
+diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
+index ac831422d..148dcc910 100644
+--- a/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7615/mcu.c
+@@ -2137,7 +2137,8 @@ int mt7615_mcu_set_chan_info(struct mt7615_phy *phy, int cmd)
+ 	} req = {
+ 		.control_chan = chandef->chan->hw_value,
+ 		.center_chan = ieee80211_frequency_to_channel(freq1),
+-		.tx_streams = hweight8(phy->mt76->antenna_mask),
++		.tx_streams = dev->one_stream ? 1 :
++			      hweight8(phy->mt76->antenna_mask),
+ 		.rx_streams_mask = phy->mt76->chainmask,
+ 		.center_chan2 = ieee80211_frequency_to_channel(freq2),
+ 	};
+diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/mt7615.h b/drivers/net/wireless/mediatek/mt76/mt7615/mt7615.h
+index aac748fee..c27fcb833 100644
+--- a/drivers/net/wireless/mediatek/mt76/mt7615/mt7615.h
++++ b/drivers/net/wireless/mediatek/mt76/mt7615/mt7615.h
+@@ -249,6 +249,8 @@ struct mt7615_dev {
+ 	u64 omac_mask;
+ 
+ 	u16 chainmask;
++	/* one spatial stream, on every path (Echo Dot (5th gen)) */
++	bool one_stream;
+ 
+ 	struct ieee80211_ops *ops;
+ 	const struct mt7615_mcu_ops *mcu_ops;
+diff --git a/drivers/net/wireless/mediatek/mt76/mt7615/usb_sdio.c b/drivers/net/wireless/mediatek/mt76/mt7615/usb_sdio.c
+index 01e79f376..5fcae7278 100644
+--- a/drivers/net/wireless/mediatek/mt76/mt7615/usb_sdio.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7615/usb_sdio.c
+@@ -327,8 +327,16 @@ int mt7663_usb_sdio_register_device(struct mt7615_dev *dev)
+ 			hw->max_tx_fragments = 1;
+ 	}
+ 
++	/*
++	 * mt76 builds each band's HT and VHT streams from antenna_mask while
++	 * it registers them: one stream for one_stream. Afterwards both chains
++	 * again, for the received signal and the TX power per chain.
++	 */
++	if (dev->one_stream)
++		dev->mphy.antenna_mask = BIT(0);
+ 	err = mt76_register_device(&dev->mt76, true, mt76_rates,
+ 				   ARRAY_SIZE(mt76_rates));
++	dev->mphy.antenna_mask = dev->chainmask;
+ 	if (err < 0)
+ 		return err;
+ 
