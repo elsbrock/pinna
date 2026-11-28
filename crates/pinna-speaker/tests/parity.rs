@@ -34,7 +34,7 @@ fn voiceprint_matches_sherpa_onnx() {
     println!("model sha256 {}", model.sha256());
     assert_eq!(
         model.sha256(),
-        "53cab20ba8f2eb2f6e2d89ecc18e88ef3222169b61b4419cbc13666744a4574b"
+        "1dc2529e7b1f2f38105a158e4105d350f1e9367cc8102c65b5a2312a90792d62"
     );
     let pcm = common::wakeword_wav("alexa-what-time.wav");
     let ours = model.voiceprint(&pcm[..WINDOW_SAMPLES]).unwrap();

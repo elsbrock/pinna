@@ -164,7 +164,7 @@ yourself.
 | --- | --- | --- |
 | `enabled` | `true` | Whether Pinna listens for the wake word |
 | `models` | `"/usr/share/pinna/models/openwakeword-0.5.1"` | The folder with the wake word models |
-| `speaker_model` | `"/usr/share/pinna/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"` | The model that tells people apart by voice. Pinna loads it only once someone is enrolled |
+| `speaker_model` | `"/usr/share/pinna/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-f16.onnx"` | The model that tells people apart by voice. Pinna loads it only once someone is enrolled |
 | `keyword` | `"alexa_v0.1.onnx"` | The model file of the first-boot wake word |
 | `id` | `"alexa_v0.1"` | The first-boot wake word's ID, as Home Assistant sees it |
 | `phrase` | `"Alexa"` | The first-boot wake word as Home Assistant shows it |

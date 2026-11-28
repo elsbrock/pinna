@@ -88,13 +88,15 @@ the root filesystem again from fastboot.
    | `secrets/device/pinnad.toml` | Developer settings for this device. Optional: owners set the device up on the dashboard | See [Developer settings](/docs/configure/) |
    | `secrets/device/esphome-key` | A fixed encryption key for the Home Assistant connection. Optional: Home Assistant sets a key itself | See [Developer settings](/docs/configure/#a-fixed-encryption-key) |
 
-2. Download the wake word models:
+2. Download the wake word and speaker models:
 
    ```sh
    just models
    ```
 
-   This puts the openWakeWord models into `blobs/models/`.
+   This puts the openWakeWord models and the speaker model into
+   `blobs/models/`. It needs [uv](https://docs.astral.sh/uv/), which converts
+   the speaker model's weights to float16.
 
 The build stops if the signing key is missing. For the other files, it
 prints a warning and continues. Read the warnings: without `authorized_keys`
@@ -110,6 +112,11 @@ the repository. Release images include them with a `NOTICE` next to them that
 names their sources and licenses. The openWakeWord models are licensed under
 CC BY-NC-SA 4.0, which doesn't allow commercial use. Okay Nabu comes from a
 repository under Apache-2.0; the model itself carries no licence of its own.
+
+The speaker model, which tells people apart by voice, is 3D-Speaker's CAM++
+(Apache-2.0), as sherpa-onnx exports it. `just models` downloads it and stores
+its weights as float16 (`scripts/speaker-f16.py`), which halves the file
+without changing what the model computes. Its `NOTICE` says so.
 
 ## Amazon's firmware
 

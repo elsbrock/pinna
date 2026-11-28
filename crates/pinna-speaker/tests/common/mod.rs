@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub fn model_path() -> Option<PathBuf> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+        "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-f16.onnx",
     );
     if path.exists() {
         Some(path)

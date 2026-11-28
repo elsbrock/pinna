@@ -249,7 +249,7 @@ You need:
   `just push-vm` can't log in.
 
 ```sh
-just models                 # once: the wake word models
+just models                 # once: the wake word and speaker models
 just kernel-x86 image-x86   # once, and again after changes to the image
 just dev-vm                 # keeps running; stop it with Ctrl-C
 just dev-ha                 # in a second terminal

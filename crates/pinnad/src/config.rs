@@ -184,7 +184,7 @@ impl Default for Wake {
         Self {
             enabled: true,
             models: "/usr/share/pinna/models/openwakeword-0.5.1".into(),
-            speaker_model: "/usr/share/pinna/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx".into(),
+            speaker_model: "/usr/share/pinna/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-f16.onnx".into(),
             keyword: "alexa_v0.1.onnx".into(),
             id: "alexa_v0.1".into(),
             phrase: "Alexa".into(),

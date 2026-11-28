@@ -13,7 +13,7 @@ use crate::voice::{CalibrationSnapshot, Input, Shared, Snapshot};
 const WHO: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 9));
 const SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const MODEL: &str =
-    "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx";
+    "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-f16.onnx";
 
 struct Rig {
     enroller: Enroller,

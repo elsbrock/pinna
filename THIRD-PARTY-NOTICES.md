@@ -92,3 +92,9 @@ SOFTWARE.
   from a pinned `rhasspy/pyopen-wakeword` (an Apache-2.0 repository; the
   model file carries no license of its own). The repository doesn't contain
   them; `just models` fetches them during the build.
+- Release images carry the speaker model
+  (`/usr/share/pinna/models/speaker/`) with a `NOTICE` next to it: 3D-Speaker's
+  CAM++ (`speech_campplus_sv_zh_en_16k-common_advanced`, Apache-2.0), as
+  sherpa-onnx exports it. Pinna stores its weights as float16
+  (`scripts/speaker-f16.py`); the model computes as before. The repository
+  doesn't contain it; `just models` fetches and converts it during the build.

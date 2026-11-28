@@ -6,7 +6,8 @@
 #   blobs/firmware/          MT8163 Wi-Fi/BT firmware (Amazon's, fetched by `just firmware`),
 #                            the Echo Dot (3rd gen)'s MT7668 Wi-Fi firmware in donut/ and
 #                            linux-firmware's MT7668 ROM patch and MT7663 firmware in mediatek/
-#   blobs/models/            openWakeWord models (CC BY-NC-SA, fetched by `just models`)
+#   blobs/models/            openWakeWord models (CC BY-NC-SA) and the speaker model (Apache-2.0),
+#                            fetched by `just models`
 #   build/wmt/               static WMT helpers (`just wmt`)
 #   target/<arm>/release/    pinnad, pinnactl, pinna-bootctl (`just rust-arm`)
 #   target/<gnu>/release/    libpinna_ladspa.so, glibc (`just ladspa`)
@@ -50,6 +51,9 @@ if [ "${PINNA_RELEASE:-}" = 1 ]; then
     fi
   done
   [ -d "$root/blobs/models" ] || { echo "assemble: PINNA_RELEASE=1 needs the wake word models (just models)" >&2; exit 1; }
+  # Without it, recognizing who speaks says the model is unavailable (ADR 0038).
+  [ -f "$root/blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-f16.onnx" ] ||
+    { echo "assemble: PINNA_RELEASE=1 needs the speaker model (just models)" >&2; exit 1; }
 fi
 
 # Firmware (device only)

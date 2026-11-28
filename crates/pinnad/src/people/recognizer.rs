@@ -351,8 +351,7 @@ mod tests {
 
     use super::*;
 
-    const MODEL: &str =
-        "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx";
+    const MODEL: &str = "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-f16.onnx";
 
     fn wait_for(r: &Recognizer, done: impl Fn(&State) -> bool) -> State {
         for _ in 0..600 {

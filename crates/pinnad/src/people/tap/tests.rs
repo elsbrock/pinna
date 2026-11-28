@@ -6,7 +6,7 @@ use crate::people::speaker::Decision;
 use crate::people::{Paths, PersonEdit};
 
 const MODEL: &str =
-    "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx";
+    "../../blobs/models/speaker/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-f16.onnx";
 
 /// `frames` frames of 10 ms, each speech or not, with the speech kept so far
 /// as the tap counts it. Returns the runs that started, with the frame.
