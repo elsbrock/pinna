@@ -430,22 +430,22 @@ pub fn registry(
         counters.mic_frames_dropped.clone(),
     );
     r.register(
-        "pinna_speaker_outcomes",
+        "pinna_recognition_outcomes",
         "Speaker recognition outcomes: person, uncertain, too_short, no_model or failed",
         counters.speaker_outcomes.clone(),
     );
     r.register(
-        "pinna_speaker_score",
+        "pinna_recognition_score",
         "The best match's cosine similarity in a speaker recognition run",
         counters.speaker_score.clone(),
     );
     r.register(
-        "pinna_speaker_margin",
+        "pinna_recognition_margin",
         "How far the best match led the second best in a speaker recognition run",
         counters.speaker_margin.clone(),
     );
     r.register(
-        "pinna_speaker_run_seconds",
+        "pinna_recognition_run_seconds",
         "Time a speaker recognition run took, from asking the model until the match",
         counters.speaker_run.clone(),
     );
@@ -1556,15 +1556,15 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         c.speaker("uncertain", Some(0.41), Some(0.05), None);
         c.speaker("too_short", None, None, None);
         let t = scrape(Snapshot::default(), &c, dir.path());
-        has(&t, "pinna_speaker_outcomes_total{outcome=\"person\"} 1");
-        has(&t, "pinna_speaker_outcomes_total{outcome=\"uncertain\"} 1");
-        has(&t, "pinna_speaker_outcomes_total{outcome=\"too_short\"} 1");
-        has(&t, "# TYPE pinna_speaker_score histogram");
-        has(&t, "pinna_speaker_score_bucket{le=\"0.5\"} 1");
-        has(&t, "pinna_speaker_score_bucket{le=\"0.9\"} 2");
-        has(&t, "pinna_speaker_margin_bucket{le=\"0.1\"} 1");
-        has(&t, "pinna_speaker_margin_bucket{le=\"0.4\"} 2");
-        has(&t, "pinna_speaker_run_seconds_count 1");
+        has(&t, "pinna_recognition_outcomes_total{outcome=\"person\"} 1");
+        has(&t, "pinna_recognition_outcomes_total{outcome=\"uncertain\"} 1");
+        has(&t, "pinna_recognition_outcomes_total{outcome=\"too_short\"} 1");
+        has(&t, "# TYPE pinna_recognition_score histogram");
+        has(&t, "pinna_recognition_score_bucket{le=\"0.5\"} 1");
+        has(&t, "pinna_recognition_score_bucket{le=\"0.9\"} 2");
+        has(&t, "pinna_recognition_margin_bucket{le=\"0.1\"} 1");
+        has(&t, "pinna_recognition_margin_bucket{le=\"0.4\"} 2");
+        has(&t, "pinna_recognition_run_seconds_count 1");
     }
 
     #[test]
