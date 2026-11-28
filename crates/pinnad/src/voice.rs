@@ -377,6 +377,7 @@ pub struct SettingsPatch {
     pub install_updates: Option<crate::updates::auto::InstallMode>,
     /// Already checked: a window has a start and an end that differ.
     pub install_window: Option<crate::updates::auto::Window>,
+    pub include_in_statistics: Option<bool>,
 }
 
 /// A wake or a near miss, for the dashboard's recent list.
@@ -1475,6 +1476,21 @@ impl Brain {
         .await;
     }
 
+    /// The *Include in the statistics* switch (ADR 0039): whether the daily
+    /// update check names the hardware.
+    async fn set_include_in_statistics(&mut self, on: bool) {
+        tracing::info!("include in the statistics: {on}");
+        self.settings.include_in_statistics = Some(on);
+        if let Some(u) = &self.opts.updates {
+            u.set_counting(on);
+        }
+        self.send(DeviceEvent::SwitchState {
+            object_id: "include_in_statistics".into(),
+            on,
+        })
+        .await;
+    }
+
     /// Rename (ADR 0007): the device info and the mDNS record at once; Home
     /// Assistant reads the name when it reconnects, once the satellite is idle.
     async fn set_friendly_name(&mut self, name: String) {
@@ -1852,6 +1868,11 @@ impl Brain {
                     on: self.settings.group_messages(),
                 })
                 .await;
+                self.send(DeviceEvent::SwitchState {
+                    object_id: "include_in_statistics".into(),
+                    on: self.settings.include_in_statistics(),
+                })
+                .await;
                 self.send_calibration_switch(self.calibration.is_some())
                     .await;
                 self.send_debugging().await;
@@ -1951,6 +1972,10 @@ impl Brain {
             }
             HaCommand::Switch { object_id, on } if object_id == "group_messages" => {
                 self.set_group_messages(on).await;
+                self.store.save(&self.settings);
+            }
+            HaCommand::Switch { object_id, on } if object_id == "include_in_statistics" => {
+                self.set_include_in_statistics(on).await;
                 self.store.save(&self.settings);
             }
             HaCommand::Switch { object_id, on } if object_id == "airplay" => {
@@ -2360,6 +2385,9 @@ impl Brain {
         }
         if let Some(window) = patch.install_window {
             self.set_install_window(window).await;
+        }
+        if let Some(on) = patch.include_in_statistics {
+            self.set_include_in_statistics(on).await;
         }
         // Applied, but a restart would undo it: say so (ADR 0007).
         self.store.try_save(&self.settings).map_err(|e| {

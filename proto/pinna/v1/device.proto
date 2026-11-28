@@ -660,6 +660,10 @@ message Settings {
   // `install_updates` is automatically.
   string install_window_start = 21;
   string install_window_end = 22;
+  // Once a day the update check also names the satellite's hardware, so that
+  // getpinna.dev counts satellites for its public statistics (ADR 0039).
+  // Home Assistant's "Include in the statistics" switch. On by default.
+  bool include_in_statistics = 23;
 }
 
 // Whether releases install by themselves (ADR 0022).
@@ -819,6 +823,8 @@ message UpdateSettingsRequest {
   // both fields together is what counts, so a swap works in one request.
   optional string install_window_start = 22;
   optional string install_window_end = 23;
+  // Off: the daily update check doesn't name the hardware.
+  optional bool include_in_statistics = 24;
 }
 
 // Only the fields that are set change.

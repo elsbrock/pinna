@@ -760,6 +760,7 @@ async fn main() -> Result<()> {
         window: initial.install_window(),
         zone: initial.time_zone.clone(),
     });
+    updater.set_counting(initial.include_in_statistics());
     // The dashboard's name wins over pinnad.toml's, which wins over the
     // model and MAC suffix (ADR 0007).
     let defaults = voice::Defaults {

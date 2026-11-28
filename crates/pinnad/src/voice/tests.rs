@@ -591,6 +591,47 @@ async fn group_messages_is_a_home_assistant_switch() {
     assert!(saved.contains("group_messages = false"), "{saved}");
 }
 
+/// Home Assistant's *Include in the statistics* switch (ADR 0039): on until
+/// switched off, and the dashboard's change reaches Home Assistant.
+#[tokio::test]
+async fn include_in_the_statistics_is_a_home_assistant_switch() {
+    let mut d = Device::new();
+    let state = |on| DeviceEvent::SwitchState {
+        object_id: "include_in_statistics".into(),
+        on,
+    };
+    d.ha(HaCommand::ClientConnected {
+        peer: "192.0.2.1:6053".into(),
+    })
+    .await;
+    let mut events = Vec::new();
+    while let Ok(event) = d.events.try_recv() {
+        events.push(event);
+    }
+    assert!(events.contains(&state(true)), "{events:?}");
+
+    d.ha(HaCommand::Switch {
+        object_id: "include_in_statistics".into(),
+        on: false,
+    })
+    .await;
+    d.expect(&[state(false)]);
+    assert!(!d.brain.settings.include_in_statistics());
+    let saved = std::fs::read_to_string(d._dir.path().join("settings.toml")).unwrap();
+    assert!(saved.contains("include_in_statistics = false"), "{saved}");
+
+    // From the dashboard.
+    d.brain
+        .update_settings(SettingsPatch {
+            include_in_statistics: Some(true),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    d.expect(&[state(true)]);
+    assert!(d.brain.settings.include_in_statistics());
+}
+
 /// Home Assistant's *Install updates* select and the window's two times
 /// (ADR 0022): they report the setting when Home Assistant connects, a change
 /// is saved and echoed, and a window without length is refused.

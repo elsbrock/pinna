@@ -138,6 +138,10 @@ pub struct Settings {
     pub install_window_start: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub install_window_end: Option<String>,
+    /// The daily update check names the hardware ("Include in the statistics"
+    /// switch, ADR 0039). `None`: on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_in_statistics: Option<bool>,
     /// Keys a newer pinnad wrote, kept as they are.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -169,6 +173,7 @@ impl Default for Settings {
             install_updates: None,
             install_window_start: None,
             install_window_end: None,
+            include_in_statistics: None,
             extra: toml::Table::new(),
         }
     }
@@ -187,6 +192,11 @@ impl Settings {
     /// owner switches it off.
     pub fn group_messages(&self) -> bool {
         self.group_messages.unwrap_or(true)
+    }
+
+    /// On until the owner switches it off.
+    pub fn include_in_statistics(&self) -> bool {
+        self.include_in_statistics.unwrap_or(true)
     }
 
     pub fn install_updates(&self) -> crate::updates::auto::InstallMode {
@@ -538,8 +548,10 @@ mod tests {
                 && !text.contains("url")
                 && !text.contains("group_messages")
                 && !text.contains("install_")
+                && !text.contains("include_in_statistics")
         );
         assert!(rolled_back.group_messages());
+        assert!(rolled_back.include_in_statistics());
         let named = Settings {
             friendly_name: Some("Küche".into()),
             hostname: Some("kueche".into()),
@@ -550,10 +562,12 @@ mod tests {
             install_updates: Some(crate::updates::auto::InstallMode::Automatically),
             install_window_start: Some("23:00".into()),
             install_window_end: Some("01:30".into()),
+            include_in_statistics: Some(false),
             ..Default::default()
         };
         store.try_save(&named).unwrap();
         assert!(!named.group_messages());
+        assert!(!named.include_in_statistics());
         let window = named.install_window();
         assert_eq!((window.start(), window.end()), (23 * 60, 90));
         assert!(

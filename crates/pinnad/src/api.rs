@@ -399,6 +399,7 @@ fn render(info: &Info, started: Instant, s: &Snapshot) -> Status {
             install_updates: proto_install_updates(s.settings.install_updates()).into(),
             install_window_start: format_time(s.settings.install_window().start()),
             install_window_end: format_time(s.settings.install_window().end()),
+            include_in_statistics: s.settings.include_in_statistics(),
             ..Default::default()
         }),
         api_encrypted: s.encrypted,
@@ -972,6 +973,7 @@ impl DeviceService for DeviceApi {
             group_messages: request.group_messages,
             install_updates,
             install_window,
+            include_in_statistics: request.include_in_statistics,
         };
         if patch.reply_follows_volume == Some(true) && patch.reply_volume.is_some() {
             return Err(ConnectError::invalid_argument(
@@ -2874,6 +2876,25 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(follows.reply_volume, None);
+    }
+
+    #[tokio::test]
+    async fn include_in_the_statistics_is_on_until_switched_off() {
+        let (c, _inputs) = start_device().await;
+        let settings = |s: Status| s.settings.into_option().unwrap();
+        assert!(settings(status(&c).await).include_in_statistics);
+
+        let off = c
+            .update_settings(pinna_api::UpdateSettingsRequest {
+                include_in_statistics: Some(false),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_view()
+            .to_owned_message();
+        assert!(!settings(off.status.into_option().unwrap()).include_in_statistics);
+        assert!(!settings(status(&c).await).include_in_statistics);
     }
 
     #[tokio::test]
