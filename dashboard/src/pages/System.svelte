@@ -11,7 +11,7 @@
   import Select from "../lib/Select.svelte";
   import { debuggingHint } from "../lib/timeline.ts";
   import { toasts } from "../lib/toast.svelte.ts";
-  import { displayName, DOCS, hasUsb, lastStart, recordHint, updateSummary, uptime } from "../lib/view.ts";
+  import { displayName, DOCS, hasUsb, lastStart, recordHint, recordingKind, updateSummary, uptime } from "../lib/view.ts";
 
   const s = $derived(device.status);
   const live = $derived(device.link === "live");
@@ -70,7 +70,7 @@
     void security.refresh();
   });
   const passwordSet = $derived(security.state?.passwordSet);
-  const record = $derived(recordHint(passwordSet, !!s?.recording));
+  const record = $derived(recordHint(passwordSet, recordingKind(s)));
 
   // GetUpdates once on mount and when the link comes back live; every 5 s while
   // an install runs, so the row turns from "Installing" without a reload. A

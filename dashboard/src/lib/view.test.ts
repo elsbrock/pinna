@@ -63,6 +63,7 @@ import {
   PURPOSE,
   recordHint,
   recordingFile,
+  recordingKind,
   recordingWarning,
   failuresText,
   gate,
@@ -1106,22 +1107,37 @@ test("the Overview warns of a confirmation another browser started, for a signed
     left: 41,
     recording: false,
     debugging: false,
+    enrolling: false,
   });
   assert.deepEqual(confirmationWarning(security({ ...waiting, confirmationPurpose: PURPOSE.recording }), false), {
     from: "192.168.1.23",
     left: 41,
     recording: true,
     debugging: false,
+    enrolling: false,
   });
   assert.deepEqual(confirmationWarning(security({ ...waiting, confirmationPurpose: PURPOSE.debuggingText }), false), {
     from: "192.168.1.23",
     left: 41,
     recording: false,
     debugging: true,
+    enrolling: false,
+  });
+  assert.deepEqual(confirmationWarning(security({ ...waiting, confirmationPurpose: PURPOSE.enroll }), false), {
+    from: "192.168.1.23",
+    left: 41,
+    recording: false,
+    debugging: false,
+    enrolling: true,
   });
   assert.equal(confirmationWarning(security(waiting), true), null, "this browser started it");
   assert.equal(confirmationWarning(security({ ...waiting, confirmationLeftS: 0 }), false), null);
   assert.equal(confirmationWarning(security({ ...waiting, signedIn: false }), false), null);
+  // Enrolling a voice needs no session, so it shows without one.
+  assert.equal(
+    confirmationWarning(security({ ...waiting, signedIn: false, confirmationPurpose: PURPOSE.enroll }), false)?.enrolling,
+    true,
+  );
   assert.equal(confirmationWarning(null, false), null);
 });
 
@@ -1134,18 +1150,46 @@ test("a recording another dashboard runs is named, never to the one that records
     kind: 0 as RecordingKind,
   } as const;
   const signedIn = security({ passwordSet: true, signedIn: true });
-  assert.deepEqual(recordingWarning(status({ recording }), signedIn, false), { from: "192.168.1.30", left: 12 });
+  assert.deepEqual(recordingWarning(status({ recording }), signedIn, false), { from: "192.168.1.30", left: 12, enrollment: false });
   assert.equal(recordingWarning(status({ recording }), signedIn, true), null, "this dashboard records it");
   assert.equal(recordingWarning(status({ recording }), security({ passwordSet: true }), false), null, "no session");
   assert.equal(recordingWarning(status(), signedIn, false), null, "none runs");
   assert.equal(recordingWarning(null, signedIn, false), null);
 });
 
+test("an enrollment another dashboard runs is named as one, with nothing to stop", () => {
+  const enrollment = {
+    $typeName: "pinna.v1.Recording",
+    secondsLeft: 20,
+    from: "192.168.1.30",
+    // RecordingKind.ENROLLMENT: the generated enum can't be imported here (see above).
+    kind: 1 as RecordingKind,
+  } as const;
+  const signedIn = security({ passwordSet: true, signedIn: true });
+  assert.deepEqual(recordingWarning(status({ recording: enrollment }), signedIn, false), {
+    from: "192.168.1.30",
+    left: 20,
+    enrollment: true,
+  });
+  assert.equal(recordingWarning(status({ recording: enrollment }), signedIn, true), null, "this dashboard enrolls");
+  assert.deepEqual(recordingWarning(status({ recording: enrollment }), security({ passwordSet: true }), false), {
+    from: "192.168.1.30",
+    left: 20,
+    enrollment: true,
+  }, "an enrollment shows without a session");
+  assert.equal(recordingWarning(status({ recording: enrollment }), null, false)?.enrollment, true);
+  assert.equal(recordingKind(status({ recording: enrollment })), "enrollment");
+  assert.equal(recordingKind(status({ recording: { ...enrollment, kind: 0 as RecordingKind } })), "audio");
+  assert.equal(recordingKind(status()), null);
+});
+
 test("the Record audio row says what a recording needs, or that one runs", () => {
-  assert.deepEqual(recordHint(false, false), { hint: "Needs a dashboard password", caution: true });
-  assert.deepEqual(recordHint(true, false), { hint: "Up to 30 seconds from the microphones", caution: false });
-  assert.deepEqual(recordHint(undefined, false), { hint: "Up to 30 seconds from the microphones", caution: false });
-  assert.deepEqual(recordHint(true, true), { hint: "Recording…", caution: false });
+  assert.deepEqual(recordHint(false, null), { hint: "Needs a dashboard password", caution: true });
+  assert.deepEqual(recordHint(true, null), { hint: "Up to 30 seconds from the microphones", caution: false });
+  assert.deepEqual(recordHint(undefined, null), { hint: "Up to 30 seconds from the microphones", caution: false });
+  assert.deepEqual(recordHint(true, "audio"), { hint: "Recording…", caution: false });
+  assert.deepEqual(recordHint(true, "enrollment"), { hint: "Enrolling a voice…", caution: false });
+  assert.deepEqual(recordHint(false, "enrollment"), { hint: "Enrolling a voice…", caution: false });
 });
 
 test("a recording's files are named for the satellite, the kind and the local time", () => {
@@ -1169,6 +1213,8 @@ test("a recording shows Listening on the ring, above a timer's arc and a notific
   assert.equal(ringEffect(status({ recording, muted: true }), "live"), "muted");
   assert.equal(ringEffect(status({ recording, alarmRinging: true }), "live"), "timer-ringing");
   assert.equal(ringEffect(status({ recording, phase: 3 }), "live"), "thinking");
+  // An enrollment shows Listening too.
+  assert.equal(ringEffect(status({ recording: { ...recording, kind: 1 as RecordingKind } }), "live"), "listening");
   assert.equal(ringEffect(status({ recording }), "offline"), "idle");
 });
 

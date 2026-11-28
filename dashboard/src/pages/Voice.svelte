@@ -1,5 +1,6 @@
 <script lang="ts">
   import { create } from "@bufbuild/protobuf";
+  import { onMount } from "svelte";
 
   import { WakeWordIdsSchema } from "../gen/pinna/v1/device_pb.ts";
   import { device } from "../lib/device.svelte.ts";
@@ -9,9 +10,12 @@
   import Select from "../lib/Select.svelte";
   import Slider from "../lib/Slider.svelte";
   import SwitchRow from "../lib/SwitchRow.svelte";
+  import { people } from "../lib/people.svelte.ts";
   import { micHint, wakeHint, wakeWordsHint } from "../lib/view.ts";
 
   const s = $derived(device.status);
+  // The People row shows how many people there are; it stays blank until they are read.
+  onMount(() => void people.load());
   const set = $derived(s?.settings);
   const live = $derived(device.link === "live");
 
@@ -75,6 +79,14 @@
         <span class="pn-row-hint">Add your own wake word, or remove one</span>
       </span>
       <span class="pn-row-value is-mono">{words.length}</span>
+      <Icon name="chevron-right" class="pn-icon pn-row-chev" />
+    </a>
+    <a class="pn-row" href="#/voice/people">
+      <span class="pn-row-text">
+        <span class="pn-row-label">People</span>
+        <span class="pn-row-hint">Recognize who speaks, and give each person their own instructions</span>
+      </span>
+      <span class="pn-row-value is-mono">{people.view ? people.view.people.length : ""}</span>
       <Icon name="chevron-right" class="pn-icon pn-row-chev" />
     </a>
     <a class="pn-row" href="#/voice/wake-word">

@@ -6,7 +6,8 @@ import type { Plugin } from "vite";
 
 import { AssistantService } from "../src/gen/pinna/v1/assistant_pb.ts";
 import { DeviceService } from "../src/gen/pinna/v1/device_pb.ts";
-import { assistantImpl, deviceImpl } from "./backend.ts";
+import { PeopleService } from "../src/gen/pinna/v1/people_pb.ts";
+import { assistantImpl, deviceImpl, peopleImpl } from "./backend.ts";
 
 export function mockBackend(): Plugin {
   return {
@@ -16,6 +17,7 @@ export function mockBackend(): Plugin {
         routes(router) {
           router.service(DeviceService, deviceImpl);
           router.service(AssistantService, assistantImpl);
+          router.service(PeopleService, peopleImpl);
         },
       });
       // Not `use(path, ...)`: it strips the prefix, and the adapter routes on the full path.

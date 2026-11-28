@@ -355,6 +355,15 @@
       toggle={(on) => assistant.update({ followUps: on })}
     />
     <SwitchRow
+      id="keep-conversation"
+      label="Continue the conversation when someone else speaks"
+      checked={view.keepConversationOnNewSpeaker}
+      disabled={!live}
+      busy={assistant.busy}
+      hint="When the satellite recognizes a different person within 5 minutes, they carry on the same conversation. Off, they start a new one. Needs people enrolled under People."
+      toggle={(on) => assistant.update({ keepConversationOnNewSpeaker: on })}
+    />
+    <SwitchRow
       id="ack"
       label="Acknowledgment"
       checked={!!view.ack?.enabled}

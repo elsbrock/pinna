@@ -64,7 +64,7 @@
     stopping = false;
     if (failed) toasts.show(failed, "danger");
   }
-  // A recording another dashboard runs (ADR 0030); the one that records says so on its own page.
+  // A recording, or an enrollment, another dashboard runs (ADR 0030, ADR 0038); the one that runs it says so on its own page.
   const recording = $derived(recordingWarning(s, security.state, recorder.here));
   const recordingLeft = $derived(recording ? secondsUntil(device.receivedAt + recording.left * 1000, device.now) : 0);
   let stoppingRecording = $state(false);
@@ -178,6 +178,9 @@
           {#if waiting.recording}
             A browser at {waiting.from} is waiting for a press of Action to record from the microphones, {waitingLeft}
             s left. Don't press it unless that was you.
+          {:else if waiting.enrolling}
+            A browser at {waiting.from} is waiting for a press of Action to enroll a voice, {waitingLeft} s left. Don't
+            press it unless someone is enrolling their voice.
           {:else if waiting.debugging}
             A browser at {waiting.from} is waiting for a press of Action to record what was said, {waitingLeft} s
             left. Don't press it unless that was you.
@@ -187,7 +190,9 @@
           {/if}
         </p>
         <div>
-          <button class="pn-btn" disabled={stopping || !live} onclick={stopIt}>Stop it</button>
+          {#if security.state?.signedIn}
+            <button class="pn-btn" disabled={stopping || !live} onclick={stopIt}>Stop it</button>
+          {/if}
         </div>
       </div>
     </div>
@@ -197,12 +202,18 @@
     <div class="pn-notice" data-tone="caution" role="status">
       <Icon name="alert" class="pn-icon pn-notice-icon" />
       <div class="pn-notice-body">
-        <p class="pn-notice-title">
-          A browser at {recording.from} is recording from the microphones: {recordingLeft} s left.
-        </p>
-        <div>
-          <button class="pn-btn" disabled={stoppingRecording || !live} onclick={stopRecording}>Stop it</button>
-        </div>
+        {#if recording.enrollment}
+          <p class="pn-notice-title">
+            A browser at {recording.from} is enrolling a voice: {recordingLeft} s left.
+          </p>
+        {:else}
+          <p class="pn-notice-title">
+            A browser at {recording.from} is recording from the microphones: {recordingLeft} s left.
+          </p>
+          <div>
+            <button class="pn-btn" disabled={stoppingRecording || !live} onclick={stopRecording}>Stop it</button>
+          </div>
+        {/if}
       </div>
     </div>
   {/if}

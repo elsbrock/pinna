@@ -54,6 +54,11 @@ export type Page = { path: Path; title: string; description: string; section: Se
 
 const SUBPAGES: Omit<Page, "section">[] = [
   {
+    path: "/voice/people",
+    title: "People",
+    description: "Who the satellite recognizes by voice, and the extra instructions each person gets.",
+  },
+  {
     path: "/voice/wake-word",
     title: "Wake word sensitivity",
     description: "How easily the satellite wakes, and its recent wakes and near misses.",

@@ -46,7 +46,7 @@ export function ringEffect(s: Status | null, link: Link, testStep = 0): Effect {
   const phase = PHASE_WORDS[s.phase];
   if (phase) return phase;
   if (pairingOpen(s)) return "pairing";
-  // A recording changes no phase (ADR 0030), but the ring says that the
+  // A recording or an enrollment changes no phase (ADR 0030, ADR 0038), but the ring says that the
   // microphones record: Listening covers a timer's arc and a notification.
   if (s.recording) return "listening";
   // The soonest running timer's arc shows above a waiting notification.
@@ -659,6 +659,7 @@ export function switchTarget(u: UpdatesLike): SlotLike | undefined {
 export const PATHS = [
   "/",
   "/voice",
+  "/voice/people",
   "/voice/wake-word",
   "/voice/wake-words",
   "/voice/media-sources",
@@ -1062,33 +1063,48 @@ export const PASSWORD_NOTICES: Record<PasswordNotice, string> = {
 };
 
 /** pinna.v1.ConfirmationPurpose values (generated as a TS enum, which `node --test` cannot load). */
-export const PURPOSE = { password: 0, recording: 1, debuggingText: 2 } as const;
+export const PURPOSE = { password: 0, recording: 1, debuggingText: 2, enroll: 3 } as const;
+
+/** pinna.v1.RecordingKind values: `Status.recording` is set for an enrollment too (ADR 0038). */
+export const RECORDING_KIND = { audio: 0, enrollment: 1 } as const;
+
+/** What the microphones are used for in a `Status.recording`; null when nothing runs. */
+export function recordingKind(s: Pick<Status, "recording"> | null | undefined): "audio" | "enrollment" | null {
+  if (!s?.recording) return null;
+  return s.recording.kind === RECORDING_KIND.enrollment ? "enrollment" : "audio";
+}
 
 /** The Overview's warning about a confirmation someone else started; null when none waits
  *  or this browser started it. `recording`: it is for a recording, not a password.
- *  `debugging`: it is for the debugging timeline's text. */
+ *  `debugging`: it is for the debugging timeline's text. `enrolling`: it is for enrolling a voice. */
 export function confirmationWarning(
   sec: Security | null,
   startedHere: boolean,
-): { from: string; left: number; recording: boolean; debugging: boolean } | null {
-  if (!sec?.signedIn || startedHere || sec.confirmationLeftS <= 0) return null;
+): { from: string; left: number; recording: boolean; debugging: boolean; enrolling: boolean } | null {
+  if (!sec || startedHere || sec.confirmationLeftS <= 0) return null;
+  // Enrolling a voice needs no session: whoever may read the state may see that it waits.
+  if (!sec.signedIn && sec.confirmationPurpose !== PURPOSE.enroll) return null;
   return {
     from: sec.confirmationWaitingFrom,
     left: sec.confirmationLeftS,
     recording: sec.confirmationPurpose === PURPOSE.recording,
     debugging: sec.confirmationPurpose === PURPOSE.debuggingText,
+    enrolling: sec.confirmationPurpose === PURPOSE.enroll,
   };
 }
 
-/** The Overview's line about a recording another browser runs (ADR 0030); null when none runs,
- *  this dashboard records it, or this browser has no session. */
+/** The Overview's line about a recording, or an enrollment, another browser runs (ADR 0030,
+ *  ADR 0038); null when none runs, this dashboard runs it, or this browser has no session. */
 export function recordingWarning(
   s: Pick<Status, "recording"> | null,
   sec: Pick<Security, "signedIn"> | null,
   recordingHere: boolean,
-): { from: string; left: number } | null {
-  if (!s?.recording || !sec?.signedIn || recordingHere) return null;
-  return { from: s.recording.from, left: s.recording.secondsLeft };
+): { from: string; left: number; enrollment: boolean } | null {
+  if (!s?.recording || recordingHere) return null;
+  // Status carries `recording.from` for anyone who reads it; an enrollment is no secret, a recording is for a session.
+  const enrollment = recordingKind(s) === "enrollment";
+  if (!enrollment && !sec?.signedIn) return null;
+  return { from: s.recording.from, left: s.recording.secondsLeft, enrollment };
 }
 
 /** A recording's file name, as `<satellite>-heard-2026-11-20-2144.wav`, in local time like the log's. */
@@ -1098,9 +1114,13 @@ export function recordingFile(name: string, kind: "heard" | "debug", d: Date): s
   return `${name || "pinna"}-${kind}-${stamp}.wav`;
 }
 
-/** The Record audio row's hint on System: what a recording needs, or that one runs. */
-export function recordHint(passwordSet: boolean | undefined, recording: boolean): { hint: string; caution: boolean } {
-  if (recording) return { hint: "Recording…", caution: false };
+/** The Record audio row's hint on System: what a recording needs, or that one runs (or an enrollment). */
+export function recordHint(
+  passwordSet: boolean | undefined,
+  running: "audio" | "enrollment" | null,
+): { hint: string; caution: boolean } {
+  if (running === "enrollment") return { hint: "Enrolling a voice…", caution: false };
+  if (running) return { hint: "Recording…", caution: false };
   if (passwordSet === false) return { hint: "Needs a dashboard password", caution: true };
   return { hint: "Up to 30 seconds from the microphones", caution: false };
 }

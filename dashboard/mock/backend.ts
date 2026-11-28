@@ -1,9 +1,10 @@
-// A made-up satellite for `npm run dev:mock`: DeviceService and AssistantService
+// A made-up satellite for `npm run dev:mock`: DeviceService, AssistantService and PeopleService
 // answered from memory, so the dashboard shows data with no satellite or
 // virtual Echo Dot. Reads and the settings a page changes work and push a new
 // Status; what needs real hardware answers that the mock doesn't do it. Every
 // method of both services is served, found from the generated service
-// descriptors, so a new RPC never breaks the mock.
+// descriptors, so a new RPC never breaks the mock. A confirmation is pressed
+// after two seconds, and an enrollment runs for twelve.
 import { create } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 import { Code, ConnectError, type HandlerContext, type ServiceImpl } from "@connectrpc/connect";
@@ -25,6 +26,7 @@ import {
 import {
   AirPlayState,
   BluetoothState,
+  ConfirmationState,
   DeviceService,
   InstallUpdates,
   JoinStage,
@@ -34,6 +36,7 @@ import {
   Phase,
   ReleaseAction,
   SendspinState,
+  RecordingKind,
   type Settings,
   type Status,
   StatusSchema,
@@ -41,6 +44,16 @@ import {
   type UpdateSettingsRequest,
   WifiSecurity,
 } from "../src/gen/pinna/v1/device_pb.ts";
+import {
+  type EveryoneElse,
+  type GetPeopleResponse,
+  LimitsSchema,
+  PeopleService,
+  type Person,
+  PersonSchema,
+  RecognitionState,
+  VoiceState,
+} from "../src/gen/pinna/v1/people_pb.ts";
 
 const MESSAGE_UNSUPPORTED = "The mock backend doesn't do this. Use the virtual Echo Dot (just dev-vm).";
 
@@ -62,9 +75,6 @@ const UNSUPPORTED = new Set([
   "startBluetoothPairing",
   "stopBluetoothPairing",
   "forgetBluetoothDevice",
-  "startConfirmation",
-  "watchConfirmation",
-  "cancelConfirmation",
   "setDashboardPassword",
   "removeDashboardPassword",
   "signOutEverywhere",
@@ -119,6 +129,8 @@ const state = {
   ringLight: { on: false, brightness: 60, rgb: 0x2f81f7, effect: "Solid", effects: ["Solid", "Pulse", "Flash"] },
   lastCheck: Date.now() - 20 * MINUTE,
   checking: false,
+  /** A voice is being enrolled: Status.recording says so. */
+  enrolling: false,
 };
 
 const listeners = new Set<() => void>();
@@ -176,6 +188,7 @@ function status(): Status {
       ttsReady: true,
       label: "openai: gpt-4o-mini",
     },
+    recording: state.enrolling ? { secondsLeft: 10, from: "192.168.1.30", kind: RecordingKind.ENROLLMENT } : undefined,
     heldMessages: 0,
     sendspin: { state: settings.sendspin ? SendspinState.READY : SendspinState.OFF, name: settings.sendspin ? "Kitchen" : "" },
   });
@@ -416,6 +429,16 @@ const device: Partial<ServiceImpl<typeof DeviceService>> = {
     changed();
     return {};
   },
+  // Nobody has to press Action: the press comes two seconds after the ask.
+  startConfirmation: () => ({ id: "mock", seconds: 60 }),
+  watchConfirmation: async function* (_req, ctx) {
+    for (let left = 58; left > 56; left--) {
+      await sleep(1000, ctx.signal);
+      if (ctx.signal.aborted) return;
+      yield { state: ConfirmationState.WAITING, secondsLeft: left };
+    }
+    yield { state: ConfirmationState.CONFIRMED, grant: "mock-grant" };
+  },
   getSecurity: () => ({ security: { passwordSet: false, leftOpen: true, offerPending: false, signedIn: false } }),
   leaveDashboardOpen: () => ({ security: { passwordSet: false, leftOpen: true } }),
 };
@@ -434,6 +457,7 @@ const assistantView: Assistant = create(AssistantSchema, {
   language: "English",
   place: { name: "Berlin", latitude: 52.52, longitude: 13.405, timeZone: "Europe/Berlin" },
   followUps: true,
+  keepConversationOnNewSpeaker: false,
   ack: { enabled: true, phrase: "One moment." },
   stations: [{ name: "Radio Eins", url: "https://radioeins.example/stream" }],
   presets: [
@@ -505,6 +529,8 @@ const assistant: Partial<ServiceImpl<typeof AssistantService>> = {
     if (req.prompt !== undefined) assistantView.prompt = req.prompt;
     if (req.defaultPrompt) assistantView.prompt = undefined;
     if (req.followUps !== undefined) assistantView.followUps = req.followUps;
+    if (req.keepConversationOnNewSpeaker !== undefined)
+      assistantView.keepConversationOnNewSpeaker = req.keepConversationOnNewSpeaker;
     if (req.ack) assistantView.ack = req.ack;
     if (req.tools) assistantView.tools = { ...assistantView.tools, ...req.tools.on };
     if (req.stations) assistantView.stations = req.stations.stations;
@@ -525,6 +551,117 @@ const assistant: Partial<ServiceImpl<typeof AssistantService>> = {
           ],
   }),
   getSatelliteGroup: () => ({ group }),
+};
+
+// People: Anna and Ben enrolled and close to each other, Carl not enrolled.
+const everyoneElse: EveryoneElse = {
+  $typeName: "pinna.v1.EveryoneElse",
+  instructions: "Don't read out long lists. Offer to send them to the phone instead.",
+  revision: 1n,
+};
+const person = (id: string, name: string, voice: VoiceState, closeTo: string[], instructions = ""): Person =>
+  create(PersonSchema, { id, name, instructions, revision: 1n, voice, closeTo });
+let everyone: Person[] = [
+  person("p1", "Anna", VoiceState.ENROLLED, ["p2"], "Anna uses she/her. Answer in German when she speaks German."),
+  person("p2", "Ben", VoiceState.OLDER_CAPTURE, ["p1"]),
+  person("p3", "Carl", VoiceState.NONE, []),
+];
+let nextPerson = 4;
+const limits = create(LimitsSchema, { maxPeople: 10, maxInstructions: 1000, maxName: 24 });
+
+function peopleView(): GetPeopleResponse {
+  const enrolled = everyone.some((p) => p.voice === VoiceState.ENROLLED || p.voice === VoiceState.OLDER_CAPTURE);
+  return {
+    $typeName: "pinna.v1.GetPeopleResponse",
+    everyoneElse,
+    people: everyone,
+    recognition: {
+      $typeName: "pinna.v1.Recognition",
+      state: enrolled ? RecognitionState.READY : RecognitionState.NOT_NEEDED,
+      reason: "",
+    },
+    limits,
+  };
+}
+
+function personById(id: string, revision?: bigint): Person {
+  const found = everyone.find((p) => p.id === id);
+  if (!found) throw new ConnectError("This person isn't on the list.", Code.NotFound);
+  if (revision !== undefined && revision !== found.revision) {
+    throw new ConnectError("Changed in another window.", Code.Aborted);
+  }
+  return found;
+}
+
+const people: Partial<ServiceImpl<typeof PeopleService>> = {
+  getPeople: peopleView,
+  setPerson: (req) => {
+    const name = req.name.trim();
+    if (!name) throw new ConnectError("Enter a name.", Code.InvalidArgument);
+    if (name.toLowerCase() === "everyone else" || everyone.some((p) => p.id !== req.id && p.name.toLowerCase() === name.toLowerCase())) {
+      throw new ConnectError(`There is already a person called ${name}. Names must differ.`, Code.InvalidArgument);
+    }
+    if (!req.id) {
+      const added = person(`p${nextPerson++}`, name, VoiceState.NONE, [], req.instructions);
+      everyone = [...everyone, added];
+      return { person: added };
+    }
+    const found = personById(req.id, req.revision);
+    const next = create(PersonSchema, { ...found, name, instructions: req.instructions, revision: found.revision + 1n });
+    everyone = everyone.map((p) => (p.id === found.id ? next : p));
+    return { person: next };
+  },
+  deletePerson: (req) => {
+    personById(req.id);
+    everyone = everyone
+      .filter((p) => p.id !== req.id)
+      .map((p) => create(PersonSchema, { ...p, closeTo: p.closeTo.filter((id) => id !== req.id) }));
+    return {};
+  },
+  setEveryoneElse: (req) => {
+    if (req.revision !== everyoneElse.revision) throw new ConnectError("Changed in another window.", Code.Aborted);
+    everyoneElse.instructions = req.instructions;
+    everyoneElse.revision += 1n;
+    return { everyoneElse };
+  },
+  // Twelve seconds instead of thirty, with a moving level.
+  enroll: async function* (req, ctx) {
+    personById(req.id);
+    const seconds = 12;
+    state.enrolling = true;
+    changed();
+    try {
+      yield { event: { case: "started", value: { $typeName: "pinna.v1.EnrollStarted", seconds } } };
+      for (let tick = 1; tick <= seconds * 5; tick++) {
+        await sleep(200, ctx.signal);
+        if (ctx.signal.aborted) return;
+        const heard = tick * 0.2;
+        yield {
+          event: {
+            case: "progress",
+            value: {
+              $typeName: "pinna.v1.EnrollProgress",
+              secondsHeard: heard,
+              secondsOfSpeech: heard * 0.9,
+              levelDbfs: -42 + 20 * Math.abs(Math.sin(tick / 3)),
+            },
+          },
+        };
+      }
+      const found = personById(req.id);
+      const saved = create(PersonSchema, { ...found, voice: VoiceState.ENROLLED, revision: found.revision + 1n });
+      everyone = everyone.map((p) => (p.id === found.id ? saved : p));
+      yield {
+        event: {
+          case: "done",
+          value: { $typeName: "pinna.v1.EnrollDone", person: saved, secondsOfSpeech: seconds * 0.9, closeTo: [] },
+        },
+      };
+    } finally {
+      state.enrolling = false;
+      changed();
+    }
+  },
 };
 
 /** Serve every method of `service`: the table's handler, else Unimplemented, else an empty answer. */
@@ -553,3 +690,4 @@ function implement<S extends GenService<GenServiceMethods>>(
 
 export const deviceImpl = implement(DeviceService, device);
 export const assistantImpl = implement(AssistantService, assistant);
+export const peopleImpl = implement(PeopleService, people);

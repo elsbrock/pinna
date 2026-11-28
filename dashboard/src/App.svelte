@@ -25,6 +25,7 @@
   import Network from "./pages/Network.svelte";
   import Overview from "./pages/Overview.svelte";
   import Password from "./pages/Password.svelte";
+  import People from "./pages/People.svelte";
   import RecordAudio from "./pages/RecordAudio.svelte";
   import System from "./pages/System.svelte";
   import Timeline from "./pages/Timeline.svelte";
@@ -242,6 +243,7 @@
       {:else}
         <WifiTrial />
         {#if page.path === "/voice"}<Voice />
+        {:else if page.path === "/voice/people"}<People />
         {:else if page.path === "/voice/wake-word"}<WakeWord />
         {:else if page.path === "/voice/wake-words"}<WakeWords />
         {:else if page.path === "/voice/media-sources"}<MediaSources />

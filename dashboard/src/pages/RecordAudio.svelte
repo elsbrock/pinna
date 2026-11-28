@@ -12,7 +12,7 @@
   import Icon from "../lib/Icon.svelte";
   import { recorder } from "../lib/recorder.svelte.ts";
   import { security } from "../lib/security.svelte.ts";
-  import { fileSize, recordingFile, secondsUntil, secondsWord } from "../lib/view.ts";
+  import { fileSize, recordingFile, recordingKind, secondsUntil, secondsWord } from "../lib/view.ts";
   import { wavDebug, wavMono16 } from "../lib/wav.ts";
 
   const SECONDS = 30;
@@ -34,6 +34,8 @@
 
   const passwordSet = $derived(security.state?.passwordSet);
   const live = $derived(device.link === "live");
+  // A voice being enrolled uses the microphones too (ADR 0038); it is no recording to start or stop here.
+  const enrolling = $derived(recordingKind(device.status) === "enrollment");
   const SOURCE_NAMES: Record<number, string> = {
     [AudioSource.HEARD]: "What the satellite hears",
     [AudioSource.LANES]: "Microphone lanes",
@@ -205,14 +207,18 @@
         <div class="pn-row-text">
           <span class="pn-row-label">Record from the microphones</span>
           <span class="pn-row-hint">
-            Up to {SECONDS} seconds. You press Action on the satellite to start. The ring shows Listening while it
-            records, and muting ends it.
+            {#if enrolling}
+              A browser at {device.status?.recording?.from} is enrolling a voice. You can record when it's done.
+            {:else}
+              Up to {SECONDS} seconds. You press Action on the satellite to start. The ring shows Listening while it
+              records, and muting ends it.
+            {/if}
           </span>
         </div>
         <button
           class="pn-btn pn-btn-primary"
           type="button"
-          disabled={!live || !security.state?.signedIn}
+          disabled={!live || !security.state?.signedIn || enrolling}
           onclick={() => {
             error = null;
             stage = "confirming";
