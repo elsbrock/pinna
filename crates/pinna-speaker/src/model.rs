@@ -35,9 +35,13 @@ impl Model {
             path: shown.clone(),
             cause: cause.to_string(),
         };
+        // Each copy of the 28 MB weights is dropped as soon as the next one exists: holding the
+        // file, two parses and the model at once took pinnad's memory from 45 MB to 162 MB
+        // while loading, near its 200 MB cap (Echo Dot (2nd gen), 2026-11-28).
         let proto = onnx()
             .proto_model_for_read(&mut std::io::Cursor::new(&bytes))
             .map_err(|e| load(&e))?;
+        drop(bytes);
         let meta = |key: &str| {
             proto
                 .metadata_props
@@ -54,9 +58,10 @@ impl Model {
         let cmn = meta("feature_normalize_type") == Some("global-mean");
         // One fixed length: a symbolic one made tract mis-slice CAM++'s pooling (seen 2026-11-24,
         // tract 0.22.5), and a single plan keeps memory bounded.
-        let plan = onnx()
-            .model_for_read(&mut std::io::Cursor::new(&bytes))
-            .and_then(|m| m.with_input_fact(0, f32::fact([1, FRAMES, BINS]).into()))
+        let model = onnx().model_for_proto_model(&proto).map_err(|e| load(&e))?;
+        drop(proto);
+        let plan = model
+            .with_input_fact(0, f32::fact([1, FRAMES, BINS]).into())
             .and_then(|m| m.into_optimized())
             .and_then(|m| m.into_runnable())
             .map_err(|e| load(&e))?;
