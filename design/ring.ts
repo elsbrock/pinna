@@ -187,8 +187,8 @@ export function ringFrame(effect: Effect, tMs: number, value?: number | readonly
       // The same head in the Listening colour (ADR 0030).
       return spin(LED.listening, t, 3, 4);
     case "setup": {
-      // The setup hotspot runs (ADR 0028): a still white arc at the front,
-      // two pixels either side of pixels 10 and 11, breathing every 4 s.
+      // The setup hotspot runs (ADR 0028): a still white arc of four pixels
+      // at the front (9, 10, 11 and 0), breathing every 4 s.
       const f = dark();
       const level = 0.1 + 0.9 * wave(t, 4);
       for (let k = 0; k < 2; k++) {

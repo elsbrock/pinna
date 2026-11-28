@@ -107,7 +107,7 @@ pub struct LedState {
     /// A notification is pending: shown while idle and no timer runs.
     pub notification: bool,
     /// The setup hotspot runs (ADR 0028): shown while idle and nothing else
-    /// is, above the boot stages.
+    /// is, below the boot stages.
     pub setup: bool,
     /// Overall ring brightness 0..=100 ("LED brightness" number).
     pub brightness: u8,
@@ -176,9 +176,11 @@ fn unscaled_frame(
         }
         // A running timer was asked of this device just now: its arc shows
         // above a notification, which shows above the light, which shows above
-        // the music, which shows above the setup hotspot's arc (ADR 0028).
-        // The boot stages (ADR 0012) show only where the plain idle ring
-        // would, so everything the device is doing wins over them.
+        // the music. The boot stages (ADR 0012) show only where the plain
+        // idle ring would, so everything the device is doing wins over them.
+        // The setup hotspot's arc (ADR 0028) shows once they have ended, so
+        // the start's fill and fade and a failed stage's flashes keep their
+        // meaning.
         Effect::Idle | Effect::Boot => {
             if let Some(frac) = state.timer {
                 render(Effect::Timer(frac), t)
@@ -188,10 +190,10 @@ fn unscaled_frame(
                 [scale(rgb, state.light_effect.level(t)); RING_PIXELS]
             } else if let Some(bands) = music {
                 render(Effect::Equalizer(*bands), t)
-            } else if state.setup {
-                render(Effect::Setup, t)
             } else if let Some(frame) = boot {
                 frame
+            } else if state.setup {
+                render(Effect::Setup, t)
             } else {
                 render(Effect::Idle, t)
             }
@@ -702,7 +704,7 @@ mod tests {
     }
 
     #[test]
-    fn setup_shows_where_the_idle_ring_would_above_the_boot_stages() {
+    fn setup_shows_where_the_idle_ring_would_after_the_boot_stages() {
         let now = Instant::now();
         let arc = [Rgb::new(0, 0x30, 0xff); RING_PIXELS];
         let setup = render(Effect::Setup, Duration::ZERO);
@@ -712,7 +714,8 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(frame_for(&s, None, now, now, None, None), setup);
-        assert_eq!(frame_for(&s, None, now, now, None, Some(arc)), setup);
+        // The start's arc, its fade and a failed stage's flashes come first.
+        assert_eq!(frame_for(&s, None, now, now, None, Some(arc)), arc);
         // Everything the device is doing shows above it.
         let mut timed = s.clone();
         timed.timer = Some(0.5);
