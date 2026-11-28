@@ -142,6 +142,14 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
             icon: "mdi:message-text-outline".into(),
             entity_category: EntityCategory::None,
         },
+        // Once a day the update check names the hardware, for the public
+        // statistics (ADR 0039); on by default.
+        SwitchConfig {
+            object_id: "include_in_statistics".into(),
+            name: "Include in the statistics".into(),
+            icon: "mdi:chart-bar".into(),
+            entity_category: EntityCategory::Config,
+        },
     ];
     cfg.numbers = vec![
         number("volume", "Volume", Some("%"), "mdi:volume-high"),

@@ -176,9 +176,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    # 1 light, 11 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
+    # 1 light, 12 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
     # 1 binary sensor, 1 media player, 3 selects, 2 times and 1 update.
-    assert len(by_key) == len(entities) == 1 + 11 + 4 + 1 + 8 + 1 + 1 + 1 + 3 + 2 + 1
+    assert len(by_key) == len(entities) == 1 + 12 + 4 + 1 + 8 + 1 + 1 + 1 + 3 + 2 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -462,6 +462,22 @@ async def test_group_messages_switch(client, demo):
     cmd = await demo.wait(demo.cmd("switch"), "switch command")
     assert cmd["object_id"] == "group_messages" and cmd["state"] is True
     await eventually(lambda: states[g.key].state is True, "echoed group messages switch")
+
+
+@pytest.mark.asyncio
+async def test_include_in_statistics_switch(client, demo):
+    switches = await infos(client, SwitchInfo)
+    i = switches["Include in the statistics"]
+    assert i.object_id == "include_in_statistics" and i.icon == "mdi:chart-bar"
+    assert int(i.entity_category) == 1  # config, like the other settings
+    assert i.key not in (MUTE_KEY, switches["Group messages"].key)
+    states = {}
+    client.subscribe_states(lambda s: states.__setitem__(s.key, s))
+    await eventually(lambda: i.key in states, "initial statistics switch state")
+    client.switch_command(i.key, True)
+    cmd = await demo.wait(demo.cmd("switch"), "switch command")
+    assert cmd["object_id"] == "include_in_statistics" and cmd["state"] is True
+    await eventually(lambda: states[i.key].state is True, "echoed statistics switch")
 
 
 @pytest.mark.asyncio
