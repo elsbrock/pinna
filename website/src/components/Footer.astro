@@ -1,7 +1,7 @@
 ---
 import Logo from "./Logo.astro";
 import ThemeToggle from "./ThemeToggle.astro";
-import { docHref, SITE } from "../lib/site";
+import { docHref, href, SITE } from "../lib/site";
 
 // Set by astro.config.mjs from git at build time.
 declare const __PINNA_SITE_VERSION__: { describe: string; commit: string };
@@ -21,6 +21,7 @@ const project = [
   { href: SITE.repo, title: "GitHub" },
   { href: SITE.runbook, title: "First-flash runbook" },
   { href: `${SITE.repo}/issues`, title: "Issues" },
+  { href: href("/statistics/"), title: "Statistics" },
 ];
 ---
 

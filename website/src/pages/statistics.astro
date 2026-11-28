@@ -1,0 +1,430 @@
+---
+// The public statistics: how many satellites the release service counted in
+// the last 12 weeks. The numbers come from the release service in the
+// browser (src/lib/statistics.ts); the page draws them as inline SVG and CSS
+// bars, with the design tokens, so it follows the theme.
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Icon from "../components/Icon.astro";
+import Logo from "../components/Logo.astro";
+import { docHref, href, SITE } from "../lib/site";
+
+const BREAKDOWNS = [
+  { id: "codenames", title: "Hardware" },
+  { id: "versions", title: "Version" },
+  { id: "channels", title: "Channel" },
+  { id: "countries", title: "Country" },
+] as const;
+---
+
+<BaseLayout
+  title="Statistics"
+  description="How many satellites run Pinna, by week, hardware, version, channel and country. The numbers come from the daily update check, and no group under 5 satellites is shown."
+>
+  <header slot="header" class="border-line bg-surface/85 sticky top-0 z-30 border-b backdrop-blur">
+    <div class="mx-auto flex h-14 max-w-5xl items-center gap-3 px-4 sm:px-6">
+      <a href={href("/")} class="flex items-center gap-2.5" aria-label="Pinna home">
+        <Logo size={24} />
+        <span class="text-ink-muted text-sm">/ statistics</span>
+      </a>
+      <div class="ml-auto flex items-center gap-2">
+        <a class="pn-btn px-2.5" href={SITE.repo} aria-label="Pinna on GitHub">
+          <Icon name="github" size={16} />
+        </a>
+        <a class="pn-btn" href={docHref("")}>Docs</a>
+      </div>
+    </div>
+  </header>
+
+  <div id="stats" class="stats mx-auto max-w-3xl px-4 pt-10 pb-6 sm:px-6 sm:pt-14" data-state="loading">
+    <p class="eyebrow">Statistics</p>
+    <h1 class="font-display text-ink text-display-l sm:text-display-xl mt-2 text-balance">
+      Satellites running Pinna
+    </h1>
+    <p class="text-ink-muted text-body-l mt-4 max-w-2xl">
+      How many satellites the release service counted, from their daily check
+      for updates. The numbers are weekly averages. A group of fewer than 5
+      satellites isn't shown.
+    </p>
+
+    <div data-show="loading" class="card mt-8 p-5 sm:p-6" role="status">
+      <p class="text-ink-muted text-sm">Loading the statistics.</p>
+      <div class="skeleton mt-4" aria-hidden="true"></div>
+    </div>
+
+    <div data-show="unavailable" class="pn-notice mt-8" data-tone="caution" hidden>
+      <Icon name="shield" class="pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">The statistics are unavailable right now. Try again later.</p>
+      </div>
+    </div>
+
+    <div data-show="empty" class="pn-notice mt-8" hidden>
+      <Icon name="shield" class="pn-notice-icon" />
+      <div class="pn-notice-body">
+        <p class="pn-notice-title">
+          No satellites counted yet. Satellites are counted from the first
+          release that adds Include in the statistics.
+        </p>
+      </div>
+    </div>
+
+    <div data-show="data" hidden>
+      <section class="card mt-8 p-5 sm:p-6" aria-labelledby="stats-headline-label">
+        <p id="stats-headline-label" class="text-ink-muted text-sm">Satellites last week</p>
+        <p id="stats-headline" class="font-display text-ink text-display-xl mt-1"></p>
+        <p id="stats-range" class="text-ink-muted mt-1 text-sm"></p>
+      </section>
+
+      <section class="card mt-6 p-5 sm:p-6" aria-labelledby="stats-weeks-title">
+        <h2 id="stats-weeks-title" class="text-ink text-lg font-semibold">The last 12 weeks</h2>
+        <p class="text-ink-muted mt-1 text-sm">
+          The average number of satellites a day, for each week. A dashed bar
+          is a week with fewer than 5.
+        </p>
+        <div id="stats-chart" class="mt-4"></div>
+      </section>
+
+      <div class="mt-6 grid gap-6 sm:grid-cols-2">
+        {
+          BREAKDOWNS.map((item) => (
+            <section class="card p-5 sm:p-6" aria-labelledby={`stats-${item.id}-title`}>
+              <h2 id={`stats-${item.id}-title`} class="text-ink text-lg font-semibold">
+                {item.title}
+              </h2>
+              <p class="text-ink-muted mt-1 text-sm">Last week.</p>
+              <ul id={`stats-${item.id}`} class="bars mt-4"></ul>
+            </section>
+          ))
+        }
+      </div>
+    </div>
+
+    <section class="mt-14" aria-labelledby="counted-title">
+      <h2 id="counted-title" class="font-display text-ink text-display-m">What is counted</h2>
+      <ul class="bulleted text-ink mt-4 space-y-2">
+        <li>
+          Once a day, when it checks for updates, a satellite names its
+          hardware by codename, such as <code>cannoli</code>, its Pinna version
+          and its update channel.
+        </li>
+        <li>
+          The release service counts that check, with the country Cloudflare
+          derives from the address.
+        </li>
+        <li>
+          No address, identifier or name is kept. The counts are kept for three
+          months.
+        </li>
+        <li>
+          The numbers are weekly averages. Any group under 5 satellites is
+          merged into Other.
+        </li>
+      </ul>
+
+      <h3 class="text-ink mt-8 text-lg font-semibold">Limits</h3>
+      <ul class="bulleted text-ink mt-3 space-y-2">
+        <li>Satellites on earlier releases aren't counted.</li>
+        <li>
+          A satellite that's off at its daily check minute isn't counted that
+          day.
+        </li>
+        <li>An outage of the release service shows as a dip.</li>
+        <li>Anyone could send fake checks.</li>
+      </ul>
+
+      <h3 class="text-ink mt-8 text-lg font-semibold">Stay out of the statistics</h3>
+      <p class="text-ink mt-3">
+        On the dashboard's Updates page, turn off
+        <strong>Include in the statistics</strong>. It's also a switch in Home
+        Assistant. Or set <strong>Updates</strong> to <strong>Off</strong>, and
+        the satellite doesn't contact the release service at all.
+        <a class="link" href={docHref("update")}>Update Pinna</a> has the details.
+      </p>
+    </section>
+  </div>
+</BaseLayout>
+
+<script>
+  import {
+    STATISTICS_URL,
+    channelLabel,
+    countLabel,
+    countryLabel,
+    hardwareLabel,
+    isEmpty,
+    parseStatistics,
+    weekRange,
+    type Row,
+    type Statistics,
+  } from "../lib/statistics";
+
+  const root = document.getElementById("stats") as HTMLElement;
+  const NS = "http://www.w3.org/2000/svg";
+
+  // One of "loading", "unavailable", "empty" or "data".
+  function show(state: string) {
+    root.dataset.state = state;
+    for (const el of root.querySelectorAll<HTMLElement>("[data-show]")) {
+      el.hidden = el.dataset.show !== state;
+    }
+  }
+
+  function text(id: string, value: string) {
+    (document.getElementById(id) as HTMLElement).textContent = value;
+  }
+
+  function svg(name: string, attrs: Record<string, string | number>, content?: string) {
+    const el = document.createElementNS(NS, name);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value));
+    if (content !== undefined) el.textContent = content;
+    return el;
+  }
+
+  // The first number on a nice scale at or above `max`.
+  function niceMax(max: number) {
+    const step = 10 ** Math.floor(Math.log10(Math.max(max, 1)));
+    for (const m of [1, 2, 5, 10]) if (m * step >= max) return m * step;
+    return 10 * step;
+  }
+
+  function drawChart(stats: Statistics) {
+    const W = 720;
+    const H = 260;
+    const left = 36;
+    const top = 28;
+    const bottom = 28;
+    const plotH = H - top - bottom;
+    const weeks = stats.weeks;
+    const max = niceMax(Math.max(5, ...weeks.map((w) => w.satellites ?? 0)));
+    const y = (v: number) => top + plotH - (v / max) * plotH;
+    const slot = (W - left) / weeks.length;
+    const barW = slot * 0.62;
+
+    const chart = svg("svg", {
+      viewBox: `0 0 ${W} ${H}`,
+      class: "chart",
+      role: "img",
+      "aria-label": `Satellites a day, for each of the last ${weeks.length} weeks`,
+    });
+    for (const v of [0, max / 2, max]) {
+      chart.append(
+        svg("line", { x1: left, x2: W, y1: y(v), y2: y(v), class: "chart-grid" }),
+        svg("text", { x: left - 6, y: y(v) + 5, class: "chart-axis", "text-anchor": "end" }, String(Math.round(v))),
+      );
+    }
+    weeks.forEach((week, i) => {
+      const x = left + i * slot + (slot - barW) / 2;
+      const mid = x + barW / 2;
+      const last = i === weeks.length - 1;
+      const value = week.satellites;
+      // A week under 5 has no number: a dashed bar as tall as 5 marks it.
+      const bar = value === null ? 5 : value;
+      const height = Math.max(y(0) - y(bar), value === 0 ? 0 : 2);
+      const rect = svg("rect", {
+        x,
+        y: y(0) - height,
+        width: barW,
+        height,
+        rx: 3,
+        class: value === null ? "chart-bar chart-bar-few" : last ? "chart-bar chart-bar-last" : "chart-bar",
+      });
+      rect.append(svg("title", {}, `${week.week}, from ${week.start}: ${countLabel(value)}`));
+      chart.append(
+        rect,
+        svg("text", { x: mid, y: y(0) - height - 7, class: "chart-value", "text-anchor": "middle" }, value === null ? "<5" : String(value)),
+        svg("text", { x: mid, y: H - 8, class: "chart-axis", "text-anchor": "middle" }, week.week.slice(-3)),
+      );
+    });
+
+    // The same numbers as a table, for screen readers.
+    const table = document.createElement("table");
+    table.className = "sr-only";
+    table.innerHTML = "<thead><tr><th>Week</th><th>Starts</th><th>Satellites a day</th></tr></thead>";
+    const body = document.createElement("tbody");
+    for (const week of weeks) {
+      const tr = document.createElement("tr");
+      for (const cell of [week.week, week.start, countLabel(week.satellites)]) {
+        const td = document.createElement("td");
+        td.textContent = cell;
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+    table.append(body);
+    (document.getElementById("stats-chart") as HTMLElement).replaceChildren(chart, table);
+  }
+
+  function drawRows(id: string, rows: Row[], label: (name: string) => string, code = false) {
+    const list = document.getElementById(id) as HTMLElement;
+    if (rows.length === 0) {
+      const li = document.createElement("li");
+      li.className = "text-ink-muted text-sm";
+      li.textContent = "Fewer than 5 satellites last week.";
+      list.replaceChildren(li);
+      return;
+    }
+    const max = Math.max(1, ...rows.map((row) => row.satellites ?? 0));
+    list.replaceChildren(
+      ...rows.map((row) => {
+        const li = document.createElement("li");
+        const name = document.createElement("span");
+        name.className = "bar-name";
+        name.textContent = row.name === null ? "Other" : label(row.name);
+        if (code && row.name !== null && label(row.name) !== row.name) {
+          const codename = document.createElement("span");
+          codename.className = "bar-code";
+          codename.textContent = row.name;
+          name.append(" ", codename);
+        }
+        const value = document.createElement("span");
+        value.className = "bar-value";
+        value.textContent = countLabel(row.satellites);
+        const track = document.createElement("span");
+        track.className = "bar-track";
+        track.setAttribute("aria-hidden", "true");
+        const fill = document.createElement("span");
+        // Fewer than 5 draws as a short bar, as wide as 5 would be.
+        fill.style.width = `${(Math.max(row.satellites ?? 5, 0) / Math.max(max, 5)) * 100}%`;
+        if (row.satellites === null) fill.className = "bar-few";
+        track.append(fill);
+        li.append(name, value, track);
+        return li;
+      }),
+    );
+  }
+
+  function render(stats: Statistics) {
+    if (isEmpty(stats)) {
+      show("empty");
+      return;
+    }
+    const last = stats.weeks[stats.weeks.length - 1];
+    text("stats-headline", last.satellites === null ? "Fewer than 5" : `${last.satellites} satellites`);
+    text("stats-range", `${last.week}, ${weekRange(last.start)}`);
+    drawChart(stats);
+    drawRows("stats-codenames", stats.latest.codenames, hardwareLabel, true);
+    drawRows("stats-versions", stats.latest.versions, (name) => name);
+    drawRows("stats-channels", stats.latest.channels, channelLabel);
+    drawRows("stats-countries", stats.latest.countries, countryLabel);
+    show("data");
+  }
+
+  async function load() {
+    try {
+      const response = await fetch(STATISTICS_URL, { headers: { accept: "application/json" } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const stats = parseStatistics(await response.json());
+      if (!stats) throw new Error("malformed answer");
+      render(stats);
+    } catch {
+      show("unavailable");
+    }
+  }
+
+  void load();
+</script>
+
+<style is:global>
+  .stats [hidden] {
+    display: none !important;
+  }
+  .stats .bulleted {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+  .stats .skeleton {
+    height: 160px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(90deg, var(--surface-sunken), var(--line), var(--surface-sunken));
+    background-size: 200% 100%;
+    animation: stats-pulse 1.6s linear infinite;
+  }
+  @keyframes stats-pulse {
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stats .skeleton {
+      animation: none;
+    }
+  }
+
+  .stats .chart {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .stats .chart-grid {
+    stroke: var(--chart-grid);
+    stroke-width: 1;
+  }
+  .stats .chart-axis {
+    fill: var(--ink-muted);
+    font-size: 14px;
+  }
+  .stats .chart-value {
+    fill: var(--ink);
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .stats .chart-bar {
+    fill: var(--chart-1);
+    fill-opacity: 0.6;
+  }
+  .stats .chart-bar-last {
+    fill-opacity: 1;
+  }
+  .stats .chart-bar-few {
+    fill: none;
+    stroke: var(--ink-muted);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+
+  .stats .bars {
+    display: grid;
+    gap: 14px;
+  }
+  .stats .bars li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    font-size: 0.9375rem;
+  }
+  .stats .bar-name {
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+  .stats .bar-code {
+    color: var(--ink-muted);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.8125rem;
+  }
+  .stats .bar-value {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .stats .bar-track {
+    grid-column: 1 / -1;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--surface-sunken);
+    overflow: hidden;
+  }
+  .stats .bar-track > span {
+    display: block;
+    height: 100%;
+    border-radius: var(--radius-full);
+    background: var(--chart-1);
+  }
+  .stats .bar-track > .bar-few {
+    background: repeating-linear-gradient(
+      90deg,
+      var(--ink-muted) 0 4px,
+      transparent 4px 7px
+    );
+  }
+</style>
