@@ -3,7 +3,10 @@
 use crate::Voiceprint;
 
 /// Provisional: the owner's recordings set these (ADR 0038). The spike's same-person scores were
-/// about 0.88 and other-person scores about 0.28.
+/// about 0.88 and other-person scores about 0.28, on long windows. Spoken commands on an Echo Dot
+/// (2nd gen) score lower: 1.1 to 1.5 s of speech gave 0.49 to 0.68 against the speaker's own
+/// voiceprint, and at most 0.34 against another person's (two people, about 20 requests,
+/// 2026-11-28). At 0.5, a third of a person's commands fell back to Everyone else.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Thresholds {
     /// The least cosine the best match needs.
@@ -15,7 +18,7 @@ pub struct Thresholds {
 impl Default for Thresholds {
     fn default() -> Self {
         Self {
-            threshold: 0.5,
+            threshold: 0.4,
             margin: 0.1,
         }
     }
