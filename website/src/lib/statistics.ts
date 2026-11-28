@@ -99,6 +99,13 @@ export function countryLabel(code: string): string {
   }
 }
 
+/** "Nov 16" for the week that starts on `start` (a Monday, UTC): the chart's labels. */
+export function weekStart(start: string): string {
+  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }).format(
+    new Date(`${start}T00:00:00Z`),
+  );
+}
+
 /** "16 Nov to 22 Nov 2026" for the week that starts on `start` (a Monday, UTC). */
 export function weekRange(start: string): string {
   const first = new Date(`${start}T00:00:00Z`);

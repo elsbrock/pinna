@@ -42,8 +42,8 @@ const BREAKDOWNS = [
     </h1>
     <p class="text-ink-muted text-body-l mt-4 max-w-2xl">
       How many satellites the release service counted, from their daily check
-      for updates. The numbers are weekly averages. A group of fewer than 5
-      satellites isn't shown.
+      for updates. The numbers are weekly averages, and no number under 5 is
+      shown.
     </p>
 
     <div data-show="loading" class="card mt-8 p-5 sm:p-6" role="status">
@@ -51,15 +51,15 @@ const BREAKDOWNS = [
       <div class="skeleton mt-4" aria-hidden="true"></div>
     </div>
 
-    <div data-show="unavailable" class="pn-notice mt-8" data-tone="caution" hidden>
-      <Icon name="shield" class="pn-notice-icon" />
+    <div data-show="unavailable" class="pn-notice mt-8" data-tone="caution" role="status" hidden>
+      <Icon name="broadcast" class="pn-notice-icon" />
       <div class="pn-notice-body">
         <p class="pn-notice-title">The statistics are unavailable right now. Try again later.</p>
       </div>
     </div>
 
-    <div data-show="empty" class="pn-notice mt-8" hidden>
-      <Icon name="shield" class="pn-notice-icon" />
+    <div data-show="empty" class="pn-notice mt-8" role="status" hidden>
+      <Icon name="ring" class="pn-notice-icon" />
       <div class="pn-notice-body">
         <p class="pn-notice-title">
           No satellites counted yet. Satellites are counted from the first
@@ -71,7 +71,7 @@ const BREAKDOWNS = [
     <div data-show="data" hidden>
       <section class="card mt-8 p-5 sm:p-6" aria-labelledby="stats-headline-label">
         <p id="stats-headline-label" class="text-ink-muted text-sm">Satellites last week</p>
-        <p id="stats-headline" class="font-display text-ink text-display-xl mt-1"></p>
+        <p id="stats-headline" class="font-display text-ink text-display-l sm:text-display-xl mt-1"></p>
         <p id="stats-range" class="text-ink-muted mt-1 text-sm"></p>
       </section>
 
@@ -84,7 +84,11 @@ const BREAKDOWNS = [
         <div id="stats-chart" class="mt-4"></div>
       </section>
 
-      <div class="mt-6 grid gap-6 sm:grid-cols-2">
+      <p id="stats-breakdowns-none" class="text-ink-muted mt-6 text-sm" hidden>
+        Last week had fewer than 5 satellites, so it isn't broken down by
+        hardware, version, channel or country.
+      </p>
+      <div id="stats-breakdowns" class="mt-6 grid gap-6 sm:grid-cols-2">
         {
           BREAKDOWNS.map((item) => (
             <section class="card p-5 sm:p-6" aria-labelledby={`stats-${item.id}-title`}>
@@ -104,16 +108,18 @@ const BREAKDOWNS = [
       <ul class="bulleted text-ink mt-4 space-y-2">
         <li>
           Once a day, when it checks for updates, a satellite names its
-          hardware by codename, such as <code>cannoli</code>, its Pinna version
-          and its update channel.
+          hardware by codename (<code>biscuit</code> for the Echo Dot (2nd
+          gen), <code>radar</code> for the Echo (2nd gen), <code>cannoli</code>
+          for the Echo Dot (5th gen)), its Pinna version and its update channel.
         </li>
         <li>
           The release service counts that check, with the country Cloudflare
           derives from the address.
         </li>
         <li>
-          No address, identifier or name is kept. The counts are kept for three
-          months.
+          The counts hold no address, identifier or name, and are kept for
+          three months. The release service's logs keep each request, with its
+          address, for a few days.
         </li>
         <li>
           The numbers are weekly averages. Any group under 5 satellites is
@@ -134,11 +140,12 @@ const BREAKDOWNS = [
 
       <h3 class="text-ink mt-8 text-lg font-semibold">Stay out of the statistics</h3>
       <p class="text-ink mt-3">
-        On the dashboard's Updates page, turn off
+        On the dashboard's <strong>System &gt; Updates</strong> page, turn off
         <strong>Include in the statistics</strong>. It's also a switch in Home
         Assistant. Or set <strong>Updates</strong> to <strong>Off</strong>, and
         the satellite doesn't contact the release service at all.
-        <a class="link" href={docHref("update")}>Update Pinna</a> has the details.
+        <a class="link" href={`${docHref("update")}#include-in-the-statistics`}>Include in the statistics</a>
+        has the details.
       </p>
     </section>
   </div>
@@ -154,6 +161,7 @@ const BREAKDOWNS = [
     isEmpty,
     parseStatistics,
     weekRange,
+    weekStart,
     type Row,
     type Statistics,
   } from "../lib/statistics";
@@ -195,7 +203,7 @@ const BREAKDOWNS = [
     const bottom = 28;
     const plotH = H - top - bottom;
     const weeks = stats.weeks;
-    const max = niceMax(Math.max(5, ...weeks.map((w) => w.satellites ?? 0)));
+    const max = niceMax(Math.max(10, ...weeks.map((w) => w.satellites ?? 0)));
     const y = (v: number) => top + plotH - (v / max) * plotH;
     const slot = (W - left) / weeks.length;
     const barW = slot * 0.62;
@@ -206,7 +214,8 @@ const BREAKDOWNS = [
       role: "img",
       "aria-label": `Satellites a day, for each of the last ${weeks.length} weeks`,
     });
-    for (const v of [0, max / 2, max]) {
+    // A half that isn't a whole number (2.5 of 5) would read as 3.
+    for (const v of [0, max / 2, max].filter(Number.isInteger)) {
       chart.append(
         svg("line", { x1: left, x2: W, y1: y(v), y2: y(v), class: "chart-grid" }),
         svg("text", { x: left - 6, y: y(v) + 5, class: "chart-axis", "text-anchor": "end" }, String(Math.round(v))),
@@ -233,7 +242,7 @@ const BREAKDOWNS = [
         rect,
         svg("text", { x: mid, y: y(0) - height - 7, class: "chart-value", "text-anchor": "middle" }, value === null ? "<5" : String(value)),
         // Every other week counted back from the last, so the last keeps its label on a phone.
-        svg("text", { x: mid, y: H - 8, class: (weeks.length - 1 - i) % 2 ? "chart-axis chart-week-alt" : "chart-axis", "text-anchor": "middle" }, week.week.slice(-3)),
+        svg("text", { x: mid, y: H - 8, class: (weeks.length - 1 - i) % 2 ? "chart-axis chart-week-alt" : "chart-axis", "text-anchor": "middle" }, weekStart(week.start)),
       );
     });
 
@@ -301,18 +310,27 @@ const BREAKDOWNS = [
     }
     const last = stats.weeks[stats.weeks.length - 1];
     text("stats-headline", last.satellites === null ? "Fewer than 5" : `${last.satellites} satellites`);
-    text("stats-range", `${last.week}, ${weekRange(last.start)}`);
+    text("stats-range", weekRange(last.start));
     drawChart(stats);
-    drawRows("stats-codenames", stats.latest.codenames, hardwareLabel, true);
-    drawRows("stats-versions", stats.latest.versions, (name) => name);
-    drawRows("stats-channels", stats.latest.channels, channelLabel);
-    drawRows("stats-countries", stats.latest.countries, countryLabel);
+    const { codenames, versions, channels, countries } = stats.latest;
+    // Under 5 the Worker sends no breakdown: one sentence instead of four empty cards.
+    const none = [codenames, versions, channels, countries].every((rows) => rows.length === 0);
+    (document.getElementById("stats-breakdowns") as HTMLElement).hidden = none;
+    (document.getElementById("stats-breakdowns-none") as HTMLElement).hidden = !none;
+    drawRows("stats-codenames", codenames, hardwareLabel, true);
+    drawRows("stats-versions", versions, (name) => name);
+    drawRows("stats-channels", channels, channelLabel);
+    drawRows("stats-countries", countries, countryLabel);
     show("data");
   }
 
   async function load() {
     try {
-      const response = await fetch(STATISTICS_URL, { headers: { accept: "application/json" } });
+      // A service that never answers shows as unavailable, not as loading for good.
+      const response = await fetch(STATISTICS_URL, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const stats = parseStatistics(await response.json());
       if (!stats) throw new Error("malformed answer");
