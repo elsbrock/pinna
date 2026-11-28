@@ -4128,6 +4128,33 @@ mod tests {
         rig
     }
 
+    /// Only the daily check names the hardware (ADR 0039), and only while
+    /// "Include in the statistics" is on.
+    #[tokio::test]
+    async fn only_the_daily_check_is_counted() {
+        let rig = Rig::new(
+            "counted",
+            r#"echo "$*" >> "$(dirname "$0")/calls"
+echo '{"ok":false,"kind":"no_answer","message":"m","status":null,"detail":""}'"#,
+        );
+        let updater = rig.updater();
+        updater.init_source(Source::Channel(UpdateChannel::Stable));
+        let calls = || std::fs::read_to_string(rig.dir.join("calls")).unwrap();
+        let url = "https://updates.getpinna.dev/v1/channels/stable";
+        let plain = format!("update --check -- {url}\n");
+        let counted = format!("update --check --count -- {url}\n");
+
+        updater.check().await.unwrap();
+        updater.scheduled_check(false).await.unwrap();
+        assert_eq!(calls(), plain.repeat(2));
+        updater.scheduled_check(true).await.unwrap();
+        assert_eq!(calls(), format!("{}{counted}", plain.repeat(2)));
+
+        updater.set_counting(false);
+        updater.scheduled_check(true).await.unwrap();
+        assert_eq!(calls(), format!("{}{counted}{plain}", plain.repeat(2)));
+    }
+
     #[tokio::test]
     async fn a_check_finds_a_release_and_install_takes_exactly_it() {
         let rig = release_rig("release", "2.0.0");

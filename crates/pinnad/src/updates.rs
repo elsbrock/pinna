@@ -17,6 +17,7 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -317,6 +318,9 @@ pub struct Updater {
     auto: Arc<Mutex<Auto>>,
     /// The automatic installer plans again when this is notified.
     auto_wake: Arc<Notify>,
+    /// "Include in the statistics" (ADR 0039): whether the daily check names
+    /// the hardware.
+    counting: AtomicBool,
 }
 
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
@@ -358,7 +362,14 @@ impl Updater {
             changed: Arc::new(watch::channel(0).0),
             auto: Arc::default(),
             auto_wake: Arc::default(),
+            counting: AtomicBool::new(true),
         }
+    }
+
+    /// The setting at start, and its changes.
+    pub fn set_counting(&self, on: bool) {
+        self.counting
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Changes to what GetUpdates shows: checks, installs, slot switches.
@@ -686,6 +697,18 @@ impl Updater {
     /// Check the channel now; answers when the check has finished. A failed
     /// check is no error here: GetUpdates shows its cause.
     pub async fn check(&self) -> Result<(), ConnectError> {
+        self.check_counted(false).await
+    }
+
+    /// A check of the schedule. Only the daily one can name the hardware
+    /// (ADR 0039): the check after a start isn't counted, so that restarts
+    /// don't count a satellite twice.
+    pub async fn scheduled_check(&self, daily: bool) -> Result<(), ConnectError> {
+        self.check_counted(daily && self.counting.load(std::sync::atomic::Ordering::Relaxed))
+            .await
+    }
+
+    async fn check_counted(&self, count: bool) -> Result<(), ConnectError> {
         let _one = self.check_lock.lock().await;
         let Some(url) = self.source().url() else {
             return Err(ConnectError::failed_precondition(
@@ -708,7 +731,7 @@ impl Updater {
         lock_checks(&self.checks).checking = true;
         bump(&self.changed);
         tracing::info!("update check: {url}");
-        let result = run_check(&self.paths.pinnactl, &url).await;
+        let result = run_check(&self.paths.pinnactl, &url, count).await;
         self.finish_check(result);
         Ok(())
     }
@@ -763,9 +786,10 @@ impl Updater {
         }
         let minute = daily_minute(&self.paths.check_minute);
         let mut scheduled = false;
+        let mut daily = false;
         loop {
             if self.source().url().is_some()
-                && let Err(e) = self.check().await
+                && let Err(e) = self.scheduled_check(daily).await
             {
                 tracing::info!("update check: {}", e.message.unwrap_or_default());
             }
@@ -784,6 +808,7 @@ impl Updater {
             lock_checks(&self.checks).next_ms = next * 1000;
             bump(&self.changed);
             tokio::time::sleep(Duration::from_secs(next.saturating_sub(now))).await;
+            daily = true;
         }
     }
 
@@ -1085,12 +1110,18 @@ enum CheckOutcome {
     NoRelease,
 }
 
-/// `pinnactl update --check -- <url>` and its one line of JSON.
-async fn run_check(pinnactl: &std::path::Path, url: &str) -> Result<CheckOutcome, String> {
+/// `pinnactl update --check [--count] -- <url>` and its one line of JSON.
+async fn run_check(
+    pinnactl: &std::path::Path,
+    url: &str,
+    count: bool,
+) -> Result<CheckOutcome, String> {
     let out = tokio::time::timeout(
         CHECK_TIMEOUT,
         Command::new(pinnactl)
-            .args(["update", "--check", "--", url])
+            .args(["update", "--check"])
+            .args(count.then_some("--count"))
+            .args(["--", url])
             .stdin(Stdio::null())
             .kill_on_drop(true)
             .output(),
