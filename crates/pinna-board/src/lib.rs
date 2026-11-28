@@ -86,6 +86,9 @@ impl Model {
 #[derive(Debug, PartialEq)]
 pub struct Board {
     pub model: Model,
+    /// Amazon's codename for the hardware (`biscuit`). One product can come
+    /// as two boards, so it isn't the model id.
+    pub codename: &'static str,
     /// The bootloader's idme `device_type_id`.
     pub device_type_id: &'static str,
     pub bootloader: Bootloader,
@@ -736,6 +739,7 @@ const MT8163_RING: Ring = Ring {
 
 pub static ECHO_DOT_2: Board = Board {
     model: Model::EchoDot2,
+    codename: "biscuit",
     device_type_id: "A3S5BH2HU6VAYF",
     bootloader: Bootloader::Kaeru {
         fastboot_product: "BISCUIT",
@@ -755,6 +759,7 @@ pub static ECHO_DOT_2: Board = Board {
 /// (`mt8163-radar-puffin.dtb`); only its speaker differs.
 pub static ECHO_2: Board = Board {
     model: Model::Echo2,
+    codename: "radar",
     device_type_id: "A7WXQPH584YP",
     bootloader: Bootloader::Kaeru {
         fastboot_product: "RADAR",
@@ -795,6 +800,7 @@ pub static ECHO_2: Board = Board {
 ///   leads the microphones by 0.5 ms with the same polarity.
 pub static ECHO_DOT_5: Board = Board {
     model: Model::EchoDot5,
+    codename: "cannoli",
     // Read from the owner's C2N6L4 (LK's idme record in the device tree,
     // Pinna 6.12 RAM boot, 2026-11-24).
     device_type_id: "A4ZXE0RM7LQ7A",
@@ -1008,6 +1014,13 @@ mod tests {
             assert_eq!(u32::from(b.mics.speech_mask) >> b.mics.count, 0, "{m:?}");
             assert_eq!(b.mics.speech_mask & !b.mics.all(), 0, "{m:?}");
         }
+    }
+
+    #[test]
+    fn codenames_name_the_hardware() {
+        assert_eq!(ECHO_DOT_2.codename, "biscuit");
+        assert_eq!(ECHO_2.codename, "radar");
+        assert_eq!(ECHO_DOT_5.codename, "cannoli");
     }
 
     #[test]
