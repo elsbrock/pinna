@@ -207,7 +207,6 @@ impl Recognizer {
     /// The voiceprint of a 1.5 s window, computed on the model's thread. It
     /// answers at once with an error when the model isn't loaded or two
     /// windows already wait.
-    #[allow(dead_code)] // Recognition of requests calls it, in a later step.
     pub fn identify(&self, window: Vec<i16>) -> oneshot::Receiver<Result<Voiceprint, String>> {
         let (reply, answer) = oneshot::channel();
         let shared = lock(&self.shared);

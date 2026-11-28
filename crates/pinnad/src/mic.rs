@@ -1,4 +1,5 @@
-//! Microphone routing for Home Assistant and standalone runs (ADR 0017).
+//! Microphone routing for Home Assistant and standalone runs (ADR 0017). The
+//! frames of each request also go to the speaker tap (ADR 0038).
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -7,6 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bytes::Bytes;
 use pinna_vad::{Endpoint, EndpointConfig, Endpointer};
 use tokio::sync::mpsc;
+
+use crate::people::tap::Tap;
 
 pub const MIC_QUEUE: usize = 64;
 const PREROLL_FRAMES: usize = 10;
@@ -100,9 +103,16 @@ pub struct MicRouter {
     /// Its decision is logged, never sent to Home Assistant.
     shadow: Option<Endpointer>,
     shadow_report: ShadowReport,
+    /// Recognizes who speaks in each request, in both modes (ADR 0038).
+    speaker: Option<Tap>,
 }
 
 impl MicRouter {
+    pub fn with_speaker_tap(mut self, tap: Tap) -> Self {
+        self.speaker = Some(tap);
+        self
+    }
+
     pub fn route(
         &mut self,
         frame: Bytes,
@@ -121,27 +131,43 @@ impl MicRouter {
             ..Routed::default()
         };
 
+        if let Some(tap) = &mut self.speaker
+            && ((self.was_streaming && !streaming) || (self.was_local && !local))
+        {
+            tap.end();
+        }
+
         // Home Assistant keeps priority if a stale local route overlaps its stream.
         if streaming {
             if !self.was_streaming {
+                if let Some(tap) = &mut self.speaker {
+                    tap.start();
+                }
                 self.shadow = Some(Endpointer::new(EndpointConfig::REQUEST, noise_seed));
                 self.shadow_report = ShadowReport::default();
                 tap.reset_shadow();
                 let preroll: Vec<_> = self.preroll.drain(..).collect();
                 for frame in preroll {
                     self.feed_shadow(&frame, tap);
+                    self.feed_speaker(&frame);
                     routed.home_assistant.push(frame);
                 }
             }
             self.feed_shadow(&frame, tap);
+            self.feed_speaker(&frame);
             routed.home_assistant.push(frame);
         } else if local {
             if new_local {
+                if let Some(tap) = &mut self.speaker {
+                    tap.start();
+                }
                 let preroll: Vec<_> = self.preroll.drain(..).collect();
                 for frame in preroll {
+                    self.feed_speaker(&frame);
                     self.send_local(frame);
                 }
             }
+            self.feed_speaker(&frame);
             self.send_local(frame);
         } else {
             if self.preroll.len() == PREROLL_FRAMES {
@@ -171,6 +197,12 @@ impl MicRouter {
         if state.is_terminal() && report.end.is_none() {
             report.end = Some((state, report.streamed_ms));
             *tap.shadow_end.lock().unwrap() = report.end;
+        }
+    }
+
+    fn feed_speaker(&mut self, frame: &Bytes) {
+        if let Some(tap) = &mut self.speaker {
+            tap.frame(frame);
         }
     }
 

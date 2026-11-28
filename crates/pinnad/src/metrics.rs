@@ -42,6 +42,13 @@ const STAGE_BUCKETS: [f64; 12] = [
     0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 20.0, 30.0, 60.0, 120.0,
 ];
 
+/// A speaker score or margin: cosine similarity, 0.0 to 1.0 in steps of 0.1.
+const SPEAKER_BUCKETS: [f64; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+/// Seconds a speaker recognition run took: 0.76 s on the Echo Dot (2nd gen),
+/// more while the model's thread is busy.
+const SPEAKER_RUN_BUCKETS: [f64; 10] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 13.0];
+
 /// The standalone slots in `AssistStatus::slots` order.
 const SLOTS: [Slot; 3] = [Slot::Stt, Slot::Chat, Slot::Tts];
 
@@ -67,6 +74,11 @@ const ERROR_CODES: [&str; 8] = [
     "tts-not-supported",
     "pipeline-not-found",
 ];
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct SpeakerOutcome {
+    outcome: &'static str,
+}
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct Failure {
@@ -113,6 +125,10 @@ pub struct Counters {
     pub standalone: StandaloneCounters,
     tool_calls: Family<ToolUse, Counter>,
     mic_frames_dropped: Counter,
+    speaker_outcomes: Family<SpeakerOutcome, Counter>,
+    speaker_score: Histogram,
+    speaker_margin: Histogram,
+    speaker_run: Histogram,
 }
 
 /// Who asked for a tool call.
@@ -153,6 +169,30 @@ impl Counters {
             .inc();
     }
 
+    /// A recognition outcome (ADR 0038), without names. `score` and `margin`
+    /// are the best match's, when there was one; `took` is how long a run
+    /// that asked the model took.
+    pub fn speaker(
+        &self,
+        outcome: &'static str,
+        score: Option<f32>,
+        margin: Option<f32>,
+        took: Option<std::time::Duration>,
+    ) {
+        self.speaker_outcomes
+            .get_or_create(&SpeakerOutcome { outcome })
+            .inc();
+        if let Some(score) = score {
+            self.speaker_score.observe(f64::from(score));
+        }
+        if let Some(margin) = margin {
+            self.speaker_margin.observe(f64::from(margin));
+        }
+        if let Some(took) = took {
+            self.speaker_run.observe(took.as_secs_f64());
+        }
+    }
+
     /// The capture loop's running total of microphone frames a standalone
     /// request did not take in time. There is one capture loop, so the
     /// counter itself holds the total already counted.
@@ -175,6 +215,10 @@ impl Default for Counters {
             standalone: StandaloneCounters::default(),
             tool_calls: Family::default(),
             mic_frames_dropped: Counter::default(),
+            speaker_outcomes: Family::default(),
+            speaker_score: Histogram::new(SPEAKER_BUCKETS),
+            speaker_margin: Histogram::new(SPEAKER_BUCKETS),
+            speaker_run: Histogram::new(SPEAKER_RUN_BUCKETS),
         }
     }
 }
@@ -384,6 +428,26 @@ pub fn registry(
         "pinna_mic_frames_dropped",
         "Microphone frames a standalone request did not take in time",
         counters.mic_frames_dropped.clone(),
+    );
+    r.register(
+        "pinna_speaker_outcomes",
+        "Speaker recognition outcomes: person, uncertain, too_short, no_model or failed",
+        counters.speaker_outcomes.clone(),
+    );
+    r.register(
+        "pinna_speaker_score",
+        "The best match's cosine similarity in a speaker recognition run",
+        counters.speaker_score.clone(),
+    );
+    r.register(
+        "pinna_speaker_margin",
+        "How far the best match led the second best in a speaker recognition run",
+        counters.speaker_margin.clone(),
+    );
+    r.register(
+        "pinna_speaker_run_seconds",
+        "Time a speaker recognition run took, from asking the model until the match",
+        counters.speaker_run.clone(),
     );
     r.register_collector(Box::new(Status {
         info,
@@ -1477,6 +1541,30 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         // pinnad's own process.
         assert!(t.contains("\nprocess_resident_memory_bytes "), "{t}");
         assert!(t.contains("\nprocess_open_fds "), "{t}");
+    }
+
+    #[test]
+    fn counts_speaker_outcomes_without_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = Counters::default();
+        c.speaker(
+            "person",
+            Some(0.82),
+            Some(0.31),
+            Some(std::time::Duration::from_millis(800)),
+        );
+        c.speaker("uncertain", Some(0.41), Some(0.05), None);
+        c.speaker("too_short", None, None, None);
+        let t = scrape(Snapshot::default(), &c, dir.path());
+        has(&t, "pinna_speaker_outcomes_total{outcome=\"person\"} 1");
+        has(&t, "pinna_speaker_outcomes_total{outcome=\"uncertain\"} 1");
+        has(&t, "pinna_speaker_outcomes_total{outcome=\"too_short\"} 1");
+        has(&t, "# TYPE pinna_speaker_score histogram");
+        has(&t, "pinna_speaker_score_bucket{le=\"0.5\"} 1");
+        has(&t, "pinna_speaker_score_bucket{le=\"0.9\"} 2");
+        has(&t, "pinna_speaker_margin_bucket{le=\"0.1\"} 1");
+        has(&t, "pinna_speaker_margin_bucket{le=\"0.4\"} 2");
+        has(&t, "pinna_speaker_run_seconds_count 1");
     }
 
     #[test]

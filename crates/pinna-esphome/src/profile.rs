@@ -212,11 +212,20 @@ pub fn echo_dot_entities(cfg: &mut DeviceConfig) {
         // (not when Home Assistant turns the switch off).
         event("notification", "Notification", None, &["cleared"]),
     ];
-    cfg.text_sensors = vec![TextSensorConfig {
-        object_id: "last_wake_word".into(),
-        name: "Last wake word".into(),
-        icon: "mdi:account-voice".into(),
-    }];
+    cfg.text_sensors = vec![
+        TextSensorConfig {
+            object_id: "last_wake_word".into(),
+            name: "Last wake word".into(),
+            icon: "mdi:account-voice".into(),
+        },
+        // Who spoke in the current request: empty until recognition knows
+        // (ADR 0038).
+        TextSensorConfig {
+            object_id: "last_speaker".into(),
+            name: "Last speaker".into(),
+            icon: "mdi:account".into(),
+        },
+    ];
     // On while debugging runs on the satellite (ADR 0036). Home Assistant can
     // only read it: there is deliberately no switch.
     cfg.binary_sensors = vec![BinarySensorConfig {

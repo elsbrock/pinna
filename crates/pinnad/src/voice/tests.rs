@@ -89,6 +89,7 @@ impl Device {
         self.expect(&[
             last_wake(),
             voice_event("wake_word"),
+            last_speaker(""),
             start(&self.brain.conversation_id, Some("Alexa")),
         ]);
         self.ha(HaCommand::VoiceStarted {
@@ -131,12 +132,61 @@ fn last_wake() -> DeviceEvent {
         value: "Alexa".into(),
     }
 }
+fn last_speaker(value: &str) -> DeviceEvent {
+    DeviceEvent::TextSensorState {
+        object_id: "last_speaker".into(),
+        value: value.into(),
+    }
+}
 fn start(id: &str, phrase: Option<&str>) -> DeviceEvent {
     DeviceEvent::VoiceStart {
         conversation_id: id.into(),
         wake_word_phrase: phrase.map(str::to_owned),
         use_vad: true,
     }
+}
+
+#[tokio::test]
+async fn last_speaker_is_empty_at_each_request_and_follows_recognition() {
+    let mut d = Device::new();
+    // The wake word's request cleared it (`listen` expects the event).
+    d.listen().await;
+    let epoch = d.brain.shared.speaker.epoch();
+    let said = |value: &str, epoch| Input::LastSpeaker {
+        epoch,
+        value: value.into(),
+    };
+
+    d.brain.handle(said("Anna", epoch)).await;
+    d.expect(&[last_speaker("Anna")]);
+    // An answer for an older request is dropped.
+    d.brain.handle(said("Ben", epoch - 1)).await;
+    d.expect(&[]);
+
+    // Action starts the next request, which empties it again.
+    let token = d.reply().await;
+    d.voice(VoiceEventType::RunEnd, &[]).await;
+    d.brain
+        .handle(Input::PlaybackDone { token, ok: true })
+        .await;
+    d.expect(&[
+        DeviceEvent::AnnounceFinished { success: true },
+        voice_event("finished"),
+    ]);
+    d.brain
+        .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+        .await;
+    d.expect(&[
+        event("action", "press"),
+        last_speaker(""),
+        start(&d.brain.conversation_id, None),
+    ]);
+    let next = d.brain.shared.speaker.epoch();
+    assert_ne!(next, epoch);
+
+    // Nobody was confident: the session ends as Everyone else.
+    d.brain.handle(said("Everyone else", next)).await;
+    d.expect(&[last_speaker("Everyone else")]);
 }
 
 #[tokio::test]
@@ -178,7 +228,11 @@ async fn continuing_run_uses_the_conversation_id_from_home_assistant() {
     )
     .await;
     d.voice(VoiceEventType::RunEnd, &[]).await;
-    d.expect(&[voice_event("finished"), start("conversation", None)]);
+    d.expect(&[
+        voice_event("finished"),
+        last_speaker(""),
+        start("conversation", None),
+    ]);
 }
 
 #[tokio::test]
@@ -193,6 +247,7 @@ async fn wake_interrupts_the_reply_before_starting_again() {
         DeviceEvent::VoiceStop,
         last_wake(),
         voice_event("wake_word"),
+        last_speaker(""),
         start(&d.brain.conversation_id, Some("Alexa")),
     ]);
 }

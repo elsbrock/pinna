@@ -396,6 +396,7 @@ fn feed_detector(
 )]
 async fn capture_loop(
     (capture, mut gain): (CaptureConfig, CaptureGain),
+    people: Arc<people::People>,
     mut detector: Option<pinna_wakeword::Detector>,
     speaker: Option<Arc<Speaker>>,
     mut keywords: mpsc::UnboundedReceiver<KeywordSet>,
@@ -433,7 +434,12 @@ async fn capture_loop(
             }
         }
     });
-    let mut router = MicRouter::default();
+    let mut router = MicRouter::default().with_speaker_tap(people::tap::Tap::new(
+        people,
+        shared.speaker.clone(),
+        inputs.clone(),
+        shared.counters.clone(),
+    ));
     // Peak detector score of the current utterance, for near-miss logging.
     let mut peak = 0.0f32;
     // The peak reached the threshold (and something else rejected it).
@@ -974,6 +980,12 @@ async fn main() -> Result<()> {
     // the stage helper keeps drawing the boot stages (ADR 0012).
 
     let shared = Arc::new(Shared::default());
+    // The speaker model loads in the background when someone is enrolled
+    // (ADR 0038).
+    let people = people::People::open(
+        &people::Paths::beside(&cli.settings),
+        cfg.wake.speaker_model.clone(),
+    );
     let (in_tx, in_rx) = mpsc::channel::<Input>(64);
     // The debugging timeline (ADR 0036): off until the dashboard turns it on.
     let timeline = timeline::init(in_tx.clone());
@@ -1043,6 +1055,7 @@ async fn main() -> Result<()> {
         }
         tokio::spawn(capture_loop(
             (capture, gain),
+            people.clone(),
             detector,
             speaker.clone(),
             rx,
@@ -1287,12 +1300,6 @@ async fn main() -> Result<()> {
         assistant_api::AssistantApi::new(assistant.clone(), in_tx.clone())
             .with_satellites(satellites_rx, dc_mac)
             .with_group(group.clone()),
-    );
-    // The speaker model loads in the background when someone is enrolled
-    // (ADR 0038).
-    let people = people::People::open(
-        &people::Paths::beside(&cli.settings),
-        cfg.wake.speaker_model.clone(),
     );
     let people_api = Arc::new(
         people_api::PeopleApi::new(people.clone()).with_enroller(Arc::new(

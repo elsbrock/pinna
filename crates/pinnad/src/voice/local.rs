@@ -223,6 +223,9 @@ impl Brain {
                 energy => Some(energy),
             };
         }
+        if !typed {
+            self.clear_speaker().await;
+        }
         let mic = (!typed).then(|| {
             let (tx, frames) = mpsc::channel(MIC_QUEUE);
             self.shared.mic.open(tx);
@@ -1268,6 +1271,20 @@ mod tests {
         }
     }
 
+    fn event_press(entity: &str) -> DeviceEvent {
+        DeviceEvent::Event {
+            object_id: entity.into(),
+            event_type: "press".into(),
+        }
+    }
+
+    fn last_speaker(value: &str) -> DeviceEvent {
+        DeviceEvent::TextSensorState {
+            object_id: "last_speaker".into(),
+            value: value.into(),
+        }
+    }
+
     fn stopped() -> DeviceEvent {
         voice_event("stopped")
     }
@@ -2288,6 +2305,7 @@ mod tests {
             [
                 voice_event("replying"),
                 voice_event("finished"),
+                last_speaker(""),
                 voice_event("listening"),
             ]
         );
@@ -2876,6 +2894,61 @@ mod tests {
         assert_eq!(run.start.kind, RunKind::Typed("What time is it?".into()));
         assert!(run.start.mic.is_none());
         assert_eq!(device.shared.counters.runs.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn action_clears_last_speaker_and_recognition_names_who_spoke() {
+        let mut device = TestDevice::ready();
+        device
+            .brain
+            .handle(Input::Button(ButtonEvent::Press(Button::Action)))
+            .await;
+        assert_eq!(
+            device.events(),
+            [
+                event_press("action"),
+                last_speaker(""),
+                voice_event("listening")
+            ]
+        );
+
+        let epoch = device.shared.speaker.epoch();
+        device
+            .brain
+            .handle(Input::LastSpeaker {
+                epoch,
+                value: "Anna".into(),
+            })
+            .await;
+        assert_eq!(device.events(), [last_speaker("Anna")]);
+        // An answer for an older request is dropped.
+        device
+            .brain
+            .handle(Input::LastSpeaker {
+                epoch: epoch - 1,
+                value: "Ben".into(),
+            })
+            .await;
+        assert_eq!(device.events(), []);
+    }
+
+    #[tokio::test]
+    async fn a_typed_question_leaves_last_speaker_alone() {
+        let mut device = TestDevice::ready();
+        let epoch = device.shared.speaker.reset();
+        device
+            .brain
+            .handle(Input::LastSpeaker {
+                epoch,
+                value: "Anna".into(),
+            })
+            .await;
+        assert_eq!(device.events(), [last_speaker("Anna")]);
+
+        ask(&mut device, "What time is it?").await.unwrap();
+
+        assert_eq!(device.events(), [voice_event("thinking")]);
+        assert_eq!(device.shared.speaker.epoch(), epoch);
     }
 
     #[tokio::test]

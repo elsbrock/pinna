@@ -75,6 +75,8 @@ pub struct Shared {
     pub counters: crate::metrics::Counters,
     /// Copies of the frames for a recording, while one runs (ADR 0030).
     pub recording: crate::recording::Tap,
+    /// Who speaks in the current request, as recognition found out (ADR 0038).
+    pub speaker: Arc<crate::people::Speaker>,
 }
 
 /// Someone must press Action (ADR 0029): the dashboard asked for presence at
@@ -152,6 +154,13 @@ pub enum Input {
     /// The setup hotspot started or stopped (ADR 0028). The Brain shows it on
     /// the ring and changes nothing else.
     Hotspot(bool),
+    /// Recognition named who speaks (ADR 0038): the new "Last speaker". The
+    /// epoch is the speaker slot's session; the Brain drops it when a newer
+    /// request has started.
+    LastSpeaker {
+        epoch: u64,
+        value: String,
+    },
 }
 
 /// Debugging as it runs, as the API shows it.
@@ -1179,6 +1188,15 @@ impl Brain {
                 self.send_debugging().await;
             }
             Input::Hotspot(on) => self.hotspot = on,
+            Input::LastSpeaker { epoch, value } => {
+                if epoch == self.shared.speaker.epoch() {
+                    self.send(DeviceEvent::TextSensorState {
+                        object_id: "last_speaker".into(),
+                        value,
+                    })
+                    .await;
+                }
+            }
         }
         self.tend_messages(Instant::now());
     }
@@ -3435,6 +3453,7 @@ impl Brain {
             self.error_feedback("Home Assistant isn't subscribed to the voice assistant.");
             return;
         }
+        self.clear_speaker().await;
         self.shared.counters.runs.inc();
         if self.conversation_id.is_empty() || !self.continue_conversation {
             self.conversation_id = format!("{:016x}", fastrand::u64(..));
@@ -3460,6 +3479,18 @@ impl Brain {
         if self.wake_sound() {
             self.play_pcm(tone::wake_chime(), PlaybackKind::Cue);
         }
+    }
+
+    /// A spoken request starts: "Last speaker" is empty until recognition
+    /// names someone, and an older request's answer no longer counts
+    /// (ADR 0038). Typed questions don't call it.
+    pub(super) async fn clear_speaker(&mut self) {
+        self.shared.speaker.reset();
+        self.send(DeviceEvent::TextSensorState {
+            object_id: "last_speaker".into(),
+            value: String::new(),
+        })
+        .await;
     }
 
     fn stop_streaming(&self) {

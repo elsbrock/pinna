@@ -176,9 +176,9 @@ async def test_entities(client):
     assert not services
     by_key = {e.key: e for e in entities}
     assert LIGHT_KEY in by_key and MUTE_KEY in by_key
-    # 1 light, 12 switches, 4 numbers, 1 button, 8 events, 1 text sensor,
+    # 1 light, 12 switches, 4 numbers, 1 button, 8 events, 2 text sensors,
     # 1 binary sensor, 1 media player, 3 selects, 2 times and 1 update.
-    assert len(by_key) == len(entities) == 1 + 12 + 4 + 1 + 8 + 1 + 1 + 1 + 3 + 2 + 1
+    assert len(by_key) == len(entities) == 1 + 12 + 4 + 1 + 8 + 2 + 1 + 1 + 3 + 2 + 1
     light, sw = by_key[LIGHT_KEY], by_key[MUTE_KEY]
     assert isinstance(light, LightInfo) and light.name == "LED ring"
     assert light.object_id == "led_ring"
@@ -247,13 +247,20 @@ async def test_button_event_and_text_sensor(client, demo):
     events = await infos(client, EventInfo)
     texts = await infos(client, TextSensorInfo)
     t = texts["Last wake word"]
-    assert (set(texts), t.object_id, t.icon) == ({"Last wake word"}, "last_wake_word", "mdi:account-voice")
+    assert (set(texts), t.object_id, t.icon) == (
+        {"Last wake word", "Last speaker"},
+        "last_wake_word",
+        "mdi:account-voice",
+    )
+    s = texts["Last speaker"]
+    assert (s.object_id, s.icon) == ("last_speaker", "mdi:account")
+    s_key = s.key
 
     states = []
     client.subscribe_states(states.append)
-    await eventually(lambda: any(isinstance(s, TextSensorState) for s in states), "initial text state")
-    initial = [s for s in states if isinstance(s, TextSensorState)][0]
-    assert initial.key == t.key and initial.missing_state is True
+    await eventually(lambda: sum(isinstance(s, TextSensorState) for s in states) == 2, "initial text states")
+    initial = [s for s in states if isinstance(s, TextSensorState)]
+    assert {s.key for s in initial} == {t.key, s_key} and all(s.missing_state for s in initial)
 
     client.button_command(b.key)
     assert (await demo.wait(demo.cmd("button"), "button command"))["object_id"] == "cancel_request"
@@ -313,7 +320,9 @@ async def test_text_sensor_update(client, demo):
     await eventually(
         lambda: any(isinstance(s, TextSensorState) and s.state == "Okay Nabu" for s in got), "text state"
     )
-    assert all(s.key == t.key for s in got if isinstance(s, TextSensorState))
+    # "Last speaker" has its own key and reports no state of its own here.
+    named = [s for s in got if isinstance(s, TextSensorState) and not s.missing_state]
+    assert [(s.key, s.state) for s in named] == [(t.key, "Okay Nabu")]
 
 
 @pytest.mark.asyncio

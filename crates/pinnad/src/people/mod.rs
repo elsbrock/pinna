@@ -6,10 +6,16 @@
 //! don't overwrite each other. Voiceprints are separate files
 //! ([`voiceprints`]). The speaker model loads in the background once someone
 //! has a usable one ([`recognizer`]). Enrolling a voice is in [`enroll`].
+//! Who speaks in each request is recognized by the [`tap`] and kept in the
+//! [`Speaker`] slot.
 
 pub mod enroll;
 pub mod recognizer;
+mod speaker;
+pub mod tap;
 pub mod voiceprints;
+
+pub use self::speaker::Speaker;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -245,6 +251,23 @@ impl People {
             people,
             recognition: self.recognizer.state(),
         }
+    }
+
+    /// The voiceprints matching uses, as (id, name, voiceprint): those made by
+    /// the installed model. Reads the files; call it off the capture loop.
+    pub fn usable_voiceprints(&self) -> Vec<(String, String, Voiceprint)> {
+        let people = self.inner().value.people.clone();
+        let installed = self.recognizer.sha();
+        self.read_all(&people)
+            .into_iter()
+            .zip(people)
+            .filter_map(|((_, stored), person)| {
+                let stored = stored?;
+                voiceprints::classify(&stored, installed.as_deref())
+                    .used()
+                    .then_some((person.id, person.name, stored.voiceprint))
+            })
+            .collect()
     }
 
     /// The view of one person, after a save.
