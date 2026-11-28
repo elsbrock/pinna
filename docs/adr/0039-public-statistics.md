@@ -1,10 +1,12 @@
 # ADR 0039: Public statistics from the daily update check
 
-Status: proposed (2026-11-28). Builds on ADR 0022 (the release service and the
-daily update check), ADR 0007 (settings from the dashboard) and ADR 0032
-(board descriptions). Takes up the question that ADR 0023 left when it was
-withdrawn on 2026-11-19: the owner now wants satellites counted. Points
-marked *default* are not confirmed by the owner yet.
+Status: proposed (2026-11-28), accepted (2026-11-28), built (2026-11-28),
+with the tests that run without hardware; not deployed, not run on a device.
+Builds on ADR 0022 (the release service and the daily update check), ADR 0007
+(settings from the dashboard) and ADR 0032 (board descriptions), and amends
+ADR 0022: a check no longer carries only its request for the channel. Takes up
+the question that ADR 0023 left when it was withdrawn on 2026-11-19: the owner
+now wants satellites counted.
 
 ## Context
 
@@ -49,6 +51,9 @@ marked *default* are not confirmed by the owner yet.
   changed setting and Home Assistant's check keep `pinna-update/<version>`.
   pinnad runs the daily check as `pinnactl update --check --count`;
   `--count` adds the codename of the detected board.
+- Only the release service is told the hardware: while a developer's own
+  update address (pinnad.toml's `[update] manifest`) replaces the channel,
+  the daily check carries no codename.
 - Each board description gets a `codename`: `biscuit`, `radar`, `cannoli`. A
   satellite without a board (the virtual Echo Dot) sends none.
 - Nothing else is added: no identifier, no serial number, no names, nothing
@@ -57,7 +62,8 @@ marked *default* are not confirmed by the owner yet.
 ### The switch
 
 - **Include in the statistics** is a setting like the others (ADR 0007): a
-  field of `Status` and `UpdateSettingsRequest`, a switch on the dashboard's
+  field of `Settings` (`Status.settings`) and `UpdateSettingsRequest`, a
+  switch on the dashboard's
   Updates page, and a `switch` entity in Home Assistant (category config). It
   is on by default.
 - Off, the daily check carries no codename and isn't counted. With Updates
@@ -89,16 +95,19 @@ marked *default* are not confirmed by the owner yet.
 
 - `GET /v1/statistics` answers with JSON for the last 12 completed ISO
   weeks (UTC). The Worker reads them from Analytics Engine's SQL API with a
-  read-only API token (Account Analytics: Read, a Worker secret, beside
-  `GITHUB_TOKEN`), counting with `_sample_interval`, and keeps the answer for
+  read-only API token (Account Analytics: Read) and the account ID, two
+  Worker secrets beside `GITHUB_TOKEN` (`CF_ANALYTICS_TOKEN`,
+  `CF_ACCOUNT_ID`), counting with `_sample_interval`, and keeps the answer for
   an hour in the data centre's cache:
   - each week's satellites: the week's checks divided by 7, the average
     number of satellites a day, rounded;
   - for the last completed week, satellites by codename, by version, by
     channel and by country, each on its own, never combined.
-- A number under 5 doesn't leave the Worker. The groups under 5 are merged
-  into one "Other" row, without their names; if that row is under 5 too, it
-  reads "fewer than 5". A week under 5 reads "fewer than 5" as a whole.
+- A number from 1 to 4 doesn't leave the Worker; 0 does, so the page can
+  tell a week without satellites. The groups under 5, and in the hardware
+  list the codename `other`, are merged into one "Other" row, without their
+  names; if that row is under 5 too, it reads "fewer than 5". A week under 5
+  reads "fewer than 5" as a whole, and its breakdowns are empty.
 - `getpinna.dev/statistics/` shows these numbers, says what is counted and
   what isn't, and states the limits below. The page reads the JSON in the
   browser; without it the page says that the statistics are unavailable.

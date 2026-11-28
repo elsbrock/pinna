@@ -7,7 +7,8 @@ version), ADR 0015 (where satellites find releases; prereleases; the version
 scheme) and ADR 0016 (the installer downloads the release itself). Built:
 the channels, the release service, the scheduled check, installing a
 release, and automatic installs (2026-11-20), which no satellite has run
-yet.
+yet. Amended by ADR 0039 (2026-11-28): the daily check names the hardware
+for the public statistics.
 
 ## Context
 
@@ -67,6 +68,7 @@ yet.
   | --- | --- |
   | `GET /v1/channels/<channel>` | A redirect to the manifest of the newest release on `stable` or `beta` |
   | `GET /v1/releases/<tag>/<file>` | A file of that release, streamed from GitHub or the data centre's cache: `manifest.json`, `manifest.json.sig`, the images, `SHA256SUMS` |
+  | `GET /v1/statistics` | The weekly counts of satellites for the public statistics (ADR 0039) |
 
   Every answer carries `Access-Control-Allow-Origin: *`. File URLs in a
   manifest are relative, so they resolve next to the manifest.
@@ -160,7 +162,8 @@ yet.
   on the dashboard, Home Assistant's check (`UPDATE_COMMAND_CHECK`), or the
   satellite itself in standalone mode (ADR 0017).
 - A check fetches the channel's manifest and its signature, nothing else.
-  pinnad runs it as `pinnactl update --check`, as it runs installs through
+  pinnad runs it as `pinnactl update --check` (the daily check with
+  `--count`, ADR 0039), as it runs installs through
   pinnactl: the signature code is the updater's, and pinnad has no HTTP
   client of its own. A
   newer release with a valid signature shows as available on the dashboard and
@@ -176,9 +179,11 @@ yet.
   release copied to the LAN, through the manifest URL on the dashboard.
 - Nothing else waits for the release service: the voice path, the health
   check and rescue mode never contact it.
-- A check carries nothing but its request for the channel. Counting
-  satellites through the check was proposed in ADR 0023 and withdrawn
-  (2026-11-19).
+- Every check carries the Pinna version in its User-Agent
+  (`pinna-update/<version>`). The daily check also names the satellite's
+  hardware, for the public statistics, unless the owner turns that off
+  (ADR 0039, amending this record on 2026-11-28; ADR 0023, an earlier
+  proposal, was withdrawn on 2026-11-19).
 
 ### Installing
 
@@ -377,9 +382,10 @@ installed a release this way yet.
 
 - Satellites contact a service of the project by default, once a day and
   after each start. The service learns what any web server learns: the
-  address a request comes from, when, and the channel it asks for. The
-  Worker's logs keep these for a few days at Cloudflare (`observability` in
-  `wrangler.toml`), and the goals page says so.
+  address a request comes from, when, and the channel it asks for; and the
+  Pinna version, and once a day the hardware's codename, which it counts
+  (ADR 0039). The Worker's logs keep requests for a few days at Cloudflare
+  (`observability` in `wrangler.toml`), and the goals page says so.
 - Owners see a new release on the dashboard and in Home Assistant and install
   it with one button. Nothing installs without them, unless they set
   Install updates to automatically.
