@@ -71,6 +71,7 @@
       </p>
       <p>Anyone the satellite doesn't recognize gets Everyone else, so set limits there.</p>
       <p>Voiceprints stay on this satellite. Each person enrolls on each satellite.</p>
+      <p>In standalone mode, the brain's service gets a person's name and extra instructions, in the prompt.</p>
       <p>If you use Home Assistant, it keeps a history of who spoke, as Last speaker.</p>
     </div>
   </div>
