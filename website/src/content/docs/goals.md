@@ -98,14 +98,16 @@ Pinna's images carry it. It isn't under Pinna's license.
   learns, the address a request comes from and when, and what the request
   names: the channel (`stable` or `beta`) and the Pinna version the device
   runs. Once a day the request also names the hardware by its codename, such
-  as `cannoli`, and the service counts it for the public
-  [statistics](/statistics/), without the address. Turn off **Include in the
-  statistics** on the dashboard and the request doesn't name the hardware and
-  isn't counted. The service's logs keep requests for a few days, at
-  Cloudflare, which runs it. Set **Updates** to **Off** on the dashboard and
-  the device contacts no service of the project. The services you connect in
-  standalone mode are yours. If you want to reach your devices from outside
-  your home, set that up in Home Assistant or on your own network.
+  as `biscuit`, and the service counts it for the public
+  [statistics](/statistics/), with the country but without the address. See
+  [Include in the statistics](/docs/update/#include-in-the-statistics). Turn
+  off **Include in the statistics** on the dashboard and the request doesn't
+  name the hardware and isn't counted. The service's logs keep requests for a
+  few days, at Cloudflare, which runs it. Set **Updates** to **Off** on the
+  dashboard and the device contacts no service of the project. The services
+  you connect in standalone mode are yours. If you want to reach your devices
+  from outside your home, set that up in Home Assistant or on your own
+  network.
 - **A general-purpose Linux distribution.** Pinna is built to be a voice
   assistant, not a base for other uses of the device.
 

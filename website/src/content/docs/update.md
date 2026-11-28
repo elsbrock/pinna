@@ -78,10 +78,13 @@ need attention. The numbers are public, at
 [getpinna.dev/statistics](/statistics/).
 
 With **Include in the statistics** on, the satellite's daily check names its
-hardware by codename, such as `cannoli`, next to the Pinna version and the
-channel that every check carries. The release service counts that check with
-the country Cloudflare derives from the address, and keeps neither the address
-nor an identifier. The setting is on by default.
+hardware by codename, next to the Pinna version and the channel that every
+check carries: `biscuit` for the Echo Dot (2nd gen), `radar` for the Echo
+(2nd gen), `cannoli` for the Echo Dot (5th gen). The check's User-Agent then
+reads, for example, `pinna-update/0.7.1 (biscuit)`. The release service counts
+that check with the country Cloudflare derives from the address. The count
+holds neither the address nor an identifier; the service's logs keep each
+request, with its address, for a few days. The setting is on by default.
 
 To turn it off, open the dashboard's **System > Updates** page and turn off
 **Include in the statistics**. Home Assistant has the same switch. The daily
