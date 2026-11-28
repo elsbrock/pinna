@@ -7,7 +7,7 @@ Echo Dot (5th gen), hostapd runs on `ap0` and a join from the Network page
 gets an address once `ap0` is removed (2026-11-27); a phone on its hotspot
 isn't measured. On the MT8163 the kernel side is compiled only. The rest is
 tested on the virtual Echo Dot with simulated radios. Amended 2026-11-28: the
-ring shows the hotspot.
+ring shows the hotspot; unit tests only, no device run.
 
 ## Context
 
@@ -117,14 +117,17 @@ ring shows the hotspot.
   is idle, and only a phone's list of networks shows that it waits for one.
   - It shows where the dark idle ring would. A timer's arc, a notification,
     the light and music show above it, and so do the phases, the muted
-    microphones, Bluetooth pairing and a confirmation (ADR 0029). It shows
-    above the boot stages' frame (ADR 0012), like everything else the
-    satellite does.
+    microphones, Bluetooth pairing and a confirmation (ADR 0029). The boot
+    stages' frame (ADR 0012) shows above it too: the hotspot is up a few
+    seconds after pinnad starts, and the start's arc, its fill and fade, and
+    a failed stage's flashes keep their meaning. Once the start has faded,
+    the arc shows.
   - It holds still, so it reads differently from the white light that
     circles for a confirmation and from the boot stages' white flashes.
     Orange stays out: it is the stock firmware's setup look.
   - It ends when the hotspot stops, also while a join from it runs, and
-    comes back with the hotspot.
+    comes back with the hotspot. When hostapd stops by itself, pinnad
+    notices within 30 seconds, and the arc ends then.
 - Home Assistant plays no part (ADR 0017).
 
 ## Consequences
@@ -136,7 +139,8 @@ ring shows the hotspot.
 - An unconfigured satellite announces itself to everyone in range, with a
   password anyone can look up.
 - Someone next to an unconfigured satellite sees on its ring that it waits
-  to be set up.
+  to be set up, while its hotspot runs. A satellite whose hotspot didn't
+  start keeps a dark ring.
 - The image gains hostapd. pinnad gains a small DNS responder.
 - Wi-Fi Direct changes station code on every Echo. The device test covers a
   configured satellite too, not only the hotspot. If its Wi-Fi regresses,
