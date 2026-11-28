@@ -47,7 +47,7 @@ are in `website/src/content/docs/devices.md`. See ADR 0035 in `docs/adr/`.
 | `kernel/` | Debian 6.12 source pin, board-support patches for the MT8163 (Echo (2nd gen), Echo Dot (2nd gen)) and the MT8519 (Echo Dot (5th gen)), config fragments and build (packaged as a Debian `.deb`) |
 | `mkosi/` | Debian trixie image definition |
 | `docs/` | Decision records and runbooks |
-| `services/updates/` | The release service behind `updates.getpinna.dev` (Cloudflare Worker): update channels and release downloads, ADR 0022 |
+| `services/updates/` | The release service behind `updates.getpinna.dev` (Cloudflare Worker): update channels, release downloads and the public statistics, ADR 0022 |
 | `releases/` | Release notes, one file per release, drafted by the `release-notes` skill |
 | `website/` | Project site (Astro + Tailwind): landing page and docs, published on GitHub Pages |
 | `dashboard/` | The dashboard (Svelte, connect-es) that `pinnad` serves on port 80; built into the image by `just web` |

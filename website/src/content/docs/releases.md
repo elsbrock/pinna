@@ -227,6 +227,15 @@ For the private repository, put a read-only GitHub token into
 `services/updates/.dev.vars` as `GITHUB_TOKEN=…`. Its README says how to
 deploy it and how to withdraw a release.
 
+The service also counts the daily update check for the public
+[statistics](/statistics/). `GET /v1/statistics` answers with the weekly
+counts of the last 12 completed weeks. The Worker writes each counted check to
+the Workers Analytics Engine dataset `pinna_checks`, and reads the counts back
+through Cloudflare's SQL API. The reading needs two Worker secrets besides
+`GITHUB_TOKEN`: `CF_ACCOUNT_ID`, the Cloudflare account, and
+`CF_ANALYTICS_TOKEN`, an API token with the permission Account Analytics:
+Read.
+
 ## Publish a release
 
 1. Draft the release notes with the `release-notes` skill, for example

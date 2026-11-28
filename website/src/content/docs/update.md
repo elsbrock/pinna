@@ -59,14 +59,34 @@ the newest release on its channel: once after it starts, as soon as its clock
 is set, then once a day at a time it picked at random, when you change the
 setting, when you select **Check now**, and when you ask the satellite in
 standalone mode. It fetches the release's manifest
-and its signature, nothing else, and checks the signature. Its request carries
-no identifier. Nothing is downloaded or installed until you install it, or
+and its signature, nothing else, and checks the signature. Every check carries
+the Pinna version the satellite runs. Only the daily check also carries the
+satellite's hardware, by codename, unless you turned off
+[Include in the statistics](#include-in-the-statistics). No check carries an
+identifier. Nothing is downloaded or installed until you install it, or
 until your install window, if you chose
 [automatic installs](#install-updates-automatically).
 
 A newer release then shows on the dashboard's **System > Updates** page and in Home
 Assistant. The satellite never goes back to an older version on its own, and a
 satellite on **Stable** never installs a beta.
+
+## Include in the statistics
+
+Pinna counts how many satellites run it, to see which hardware and releases
+need attention. The numbers are public, at
+[getpinna.dev/statistics](/statistics/).
+
+With **Include in the statistics** on, the satellite's daily check names its
+hardware by codename, such as `cannoli`, next to the Pinna version and the
+channel that every check carries. The release service counts that check with
+the country Cloudflare derives from the address, and keeps neither the address
+nor an identifier. The setting is on by default.
+
+To turn it off, open the dashboard's **System > Updates** page and turn off
+**Include in the statistics**. Home Assistant has the same switch. The daily
+check then doesn't name the hardware and isn't counted. With **Updates** set
+to **Off**, the satellite doesn't contact the release service at all.
 
 ## Before you begin
 
