@@ -404,9 +404,9 @@ a.pn-device:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* ---------- Identity (the satellite at the top of the nav) ---------- */
 /* Lighter than the sidebar in dark, so the dark device holds its shape; about surface-sunken in light. */
-.pn-ident { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 12px; padding: 12px; border-radius: var(--radius-md); background: color-mix(in oklab, var(--surface-raised) 88%, var(--ink)); }
+.pn-ident { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 8px; padding: 12px 8px; border-radius: var(--radius-md); background: color-mix(in oklab, var(--surface-raised) 88%, var(--ink)); }
 .pn-ident > .pn-ring, .pn-ident > .pn-drawing { grid-row: span 2; }
-.pn-ident-name { font-weight: 700; overflow-wrap: break-word; min-width: 0; }
+.pn-ident-name { font-weight: 700; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pn-ident .pn-health { font-size: 13px; line-height: 18px; }
 /* As a button: it opens the satellite switcher. */
 /* The drawing's column is the satellite list's (pn-sat), so the names line up when it opens. */
@@ -426,12 +426,12 @@ button.pn-ident > .pn-ident-name, button.pn-ident > .pn-health { grid-column: 2;
 .pn-pop-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
 .pn-pop-note .pn-icon { flex: none; margin-top: 2px; color: var(--danger); }
 .pn-pop-sep { margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
-.pn-sat { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 0 12px; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border-radius: var(--radius-sm); color: inherit; text-decoration: none; }
+.pn-sat { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 0 8px; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border-radius: var(--radius-sm); color: inherit; text-decoration: none; }
 a.pn-sat { cursor: pointer; transition: background-color .12s; }
 a.pn-sat:hover { background: var(--surface-sunken); }
 a.pn-sat:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus); }
 .pn-sat-pic { display: grid; place-items: center; }
-.pn-sat-name { font-weight: 650; overflow-wrap: anywhere; }
+.pn-sat-name { font-weight: 650; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* The current satellite, in a list that starts with it. */
 .pn-sat-check { width: 16px; height: 16px; color: var(--signal); stroke-width: 2; }
 .pn-sat-here { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; line-height: 18px; font-weight: 650; color: var(--signal); }
@@ -440,11 +440,11 @@ a.pn-sat:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus)
    edge to edge, and the identity itself at the bottom, where it was. The page
    grows its height from the box's; meanwhile the rows stay at the bottom. */
 .pn-pop-box { gap: 0; padding: 0; border: 0; background: color-mix(in oklab, var(--surface-raised) 88%, var(--ink)); }
-.pn-pop-box .pn-sat { padding: 8px 12px; border-radius: 0; }
+.pn-pop-box .pn-sat { padding: 8px; border-radius: 0; }
 .pn-pop-box a.pn-sat:hover, .pn-pop-box > button.pn-ident:hover { background: var(--line); }
 .pn-pop-box .pn-pop-sep { margin: 0; }
 .pn-pop-box .pn-pop-note { padding: 10px 12px; }
-.pn-pop-box > .pn-skeleton { flex: none; margin: 4px 12px; }
+.pn-pop-box > .pn-skeleton { flex: none; margin: 4px 8px; }
 .pn-pop-box > button.pn-ident { flex: none; border-radius: 0; background: none; }
 .pn-pop-box > button.pn-ident:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
 .pn-pop-box .pn-ident-chev { transform: none; }

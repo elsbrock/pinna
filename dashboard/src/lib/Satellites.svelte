@@ -173,7 +173,7 @@
   {#if s && placement === "down"}
     <div class="pn-sat" aria-current="true">
       <span class="pn-sat-pic" aria-hidden="true"><Device model={s.model} effect="idle" width={48} label="" /></span>
-      <span class="pn-sat-name">{displayName(s)}<span class="sr">, this satellite</span></span>
+      <span class="pn-sat-name" title={displayName(s)}>{displayName(s)}<span class="sr">, this satellite</span></span>
       <Icon name="check" class="pn-icon pn-sat-check" />
     </div>
   {/if}
@@ -191,7 +191,7 @@
     {#each found.list as sat (sat.mac || sat.name)}
       <a class="pn-sat" href={satelliteLink(sat, here).href} onclick={() => close(true)}>
         <span class="pn-sat-pic" aria-hidden="true"><Device model={satelliteModel(sat.board)} effect="idle" width={48} label="" /></span>
-        <span class="pn-sat-name">{sat.friendlyName || sat.name}</span>
+        <span class="pn-sat-name" title={sat.friendlyName || sat.name}>{sat.friendlyName || sat.name}</span>
       </a>
     {/each}
   {/if}

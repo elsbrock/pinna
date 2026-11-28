@@ -64,7 +64,7 @@
 {#snippet identity()}
   {#if s}
     <Device model={s.model} effect={ring} frame={device.ring} width={48} label="Ring: {ring.replace('-', ' ')}" />
-    <span class="pn-ident-name">{displayName(s)}</span>
+    <span class="pn-ident-name" title={displayName(s)}>{displayName(s)}</span>
     <span class="pn-health" data-tone={line.tone} title={line.text}>{isStandalone(s) ? "Standalone" : "Home Assistant"}</span>
     <Icon name="chevron-down" class="pn-icon pn-ident-chev" />
   {/if}
