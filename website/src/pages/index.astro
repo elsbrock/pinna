@@ -6,9 +6,8 @@ import RingDemo from "../components/RingDemo.astro";
 import RequestPath from "../components/RequestPath.astro";
 import Switchboard from "../components/Switchboard.astro";
 import GroupsPlan from "../components/GroupsPlan.astro";
-import WakeMeter from "../components/WakeMeter.astro";
+import SpeakerDemo from "../components/SpeakerDemo.astro";
 import MusicDuck from "../components/MusicDuck.astro";
-import UpdateSlots from "../components/UpdateSlots.astro";
 import GenerationTimeline from "../components/GenerationTimeline.astro";
 import { docHref, href, SITE } from "../lib/site";
 
@@ -109,6 +108,48 @@ const goals = [
     </div>
   </section>
 
+  <!-- People -->
+  <section id="people" class="scroll-mt-20">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
+      <div class="grid items-center gap-10 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16">
+        <div>
+          <p class="eyebrow">People</p>
+          <h2 class="section-title">It knows who's speaking</h2>
+          <p class="text-ink-muted text-body-l mt-4">
+            Each person enrolls their voice once, at the satellite: press Action and speak for 30 seconds. In
+            standalone mode, each request then runs with that person's own instructions, and the brain is told their
+            name. Home Assistant gets the name too, for your automations.
+          </p>
+          <p class="mt-6 text-sm">
+            <a class="link inline-flex items-center gap-1.5" href={docHref("people")}>
+              Recognize who speaks
+              <Icon name="arrow" size={14} />
+            </a>
+          </p>
+        </div>
+        <SpeakerDemo />
+      </div>
+      <div class="facts mt-12" style="--facts: 4">
+        <div class="fact">
+          <span class="fact-title">Enroll in 30 seconds</span>
+          <span class="fact-say">Read a text or talk freely. Up to 10 people.</span>
+        </div>
+        <div class="fact">
+          <span class="fact-title">Stays on the satellite</span>
+          <span class="fact-say">Recognition runs on it. Voiceprints never leave it, and no audio is kept.</span>
+        </div>
+        <div class="fact">
+          <span class="fact-title">Last speaker in Home Assistant</span>
+          <span class="fact-say">The person's name, or Everyone else, for your automations.</span>
+        </div>
+        <div class="fact">
+          <span class="fact-title">A convenience, not a lock</span>
+          <span class="fact-say">A similar voice can pass as someone else, so put limits on Everyone else.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Features -->
   <div id="features" class="scroll-mt-20">
     <!-- Satellite groups -->
@@ -128,39 +169,19 @@ const goals = [
 
     <!-- Wake words -->
     <section id="wake-words" class="scroll-mt-20">
-      <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16 lg:py-20">
-        <div>
-          <p class="eyebrow">Wake words</p>
-          <h2 class="section-title">A wake word you can tune</h2>
-          <p class="text-ink-muted text-body-l mt-4">
-            The satellite keeps its recent wakes and near misses with their
-            scores, so you can see what a sensitivity catches and what it
-            ignores. Try the slider.
-          </p>
-          <div class="facts mt-8" style="--facts: 1">
-            <div class="fact">
-              <span class="fact-title">Five built in, or your own</span>
-              <span class="fact-say">
-                Alexa, Hey Jarvis, Hey Mycroft, Hey Rhasspy and Okay Nabu, up to two at once. Or upload an openWakeWord
-                model for a phrase of your own.
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact-title">Calibrate where you stand</span>
-              <span class="fact-say">
-                Say the wake word, then press + if it missed you or − if something else woke it. The ring shows the
-                setting.
-              </span>
-            </div>
-          </div>
-          <p class="mt-6 text-sm">
-            <a class="link inline-flex items-center gap-1.5" href={docHref("wake-words")}>
-              Wake words
-              <Icon name="arrow" size={14} />
-            </a>
-          </p>
-        </div>
-        <WakeMeter />
+      <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:py-14">
+        <p class="eyebrow">Wake words</p>
+        <h2 class="section-title">A wake word you can tune</h2>
+        <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
+          Choose from five built-in wake words, or upload your own. The satellite keeps its recent wakes and near
+          misses, and you can calibrate it where you stand.
+        </p>
+        <p class="mt-6 text-sm">
+          <a class="link inline-flex items-center gap-1.5" href={docHref("wake-words")}>
+            Wake words
+            <Icon name="arrow" size={14} />
+          </a>
+        </p>
       </div>
     </section>
 
@@ -205,44 +226,6 @@ const goals = [
         </div>
         <div class="flex lg:order-1">
           <MusicDuck />
-        </div>
-      </div>
-    </section>
-
-    <!-- Updates -->
-    <section id="updates" class="scroll-mt-20">
-      <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-        <p class="eyebrow">Updates</p>
-        <h2 class="section-title">Updates that roll back by themselves</h2>
-        <p class="text-ink-muted text-body-l mt-4 max-w-3xl">
-          The satellite has two copies of its system. An update goes into the
-          one it isn't running, and if that one doesn't start, the satellite
-          goes back to the other by itself, kernel included.
-        </p>
-        <div class="mt-10">
-          <UpdateSlots />
-        </div>
-        <div class="facts mt-10" style="--facts: 3">
-          <div class="fact">
-            <span class="fact-title">Signed releases</span>
-            <span class="fact-say">
-              It checks the Stable or Beta channel once a day, unless you turn updates off, and installs only releases whose signature checks
-              out.
-            </span>
-          </div>
-          <div class="fact">
-            <span class="fact-title">When you want</span>
-            <span class="fact-say">
-              Install from the dashboard or Home Assistant, or let it install by itself in a window you choose.
-            </span>
-          </div>
-          <div class="fact">
-            <span class="fact-title">Always a way back</span>
-            <span class="fact-say">
-              Every supported Echo can go back to its original firmware, and
-              the docs say how.
-            </span>
-          </div>
         </div>
       </div>
     </section>
@@ -342,6 +325,12 @@ const goals = [
               <Icon name="arrow" size={16} />
             </a>
           </div>
+          <p class="text-ink-muted text-body mt-4">
+            Updates go into a second copy of the system, and the satellite goes back to the first by itself if the new
+            one doesn't start. Releases are signed, and every supported Echo can go back to its original firmware.
+            <a class="link" href={docHref("update")}>Updates</a> and
+            <a class="link" href={docHref("recovery")}>Recovery</a> have the steps.
+          </p>
           <p class="mt-4 flex flex-col gap-2 text-sm">
             <a class="link inline-flex items-center gap-1.5" href={docHref("requirements")}>
               Read the full guide, including what you need first

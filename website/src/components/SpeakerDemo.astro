@@ -1,0 +1,233 @@
+---
+// The landing page's "who speaks": the same request from three voices. The
+// satellite recognizes each speaker, runs the request with that person's own
+// extra instructions (or Everyone else's, for a voice it doesn't know), and
+// Home Assistant's Last speaker shows the name. Pick a speaker to see each
+// step. Without JavaScript it shows the first speaker.
+const request = "What should I cook tonight?";
+
+const speakers = [
+  {
+    key: "maya",
+    label: "Maya",
+    profile: "Maya",
+    instructions: "Vegetarian. Keep it under 30 minutes.",
+    reply: "How about a chickpea curry? It takes 25 minutes.",
+    last: "Maya",
+  },
+  {
+    key: "jonas",
+    label: "Jonas",
+    profile: "Jonas",
+    instructions: "Answer in German.",
+    reply: "Wie wäre es mit Spaghetti mit Tomatensoße?",
+    last: "Jonas",
+  },
+  {
+    key: "guest",
+    label: "A guest",
+    profile: "Everyone else",
+    instructions: "No shopping, no changes to settings.",
+    reply: "You could make a pasta with a simple tomato sauce.",
+    last: "Everyone else",
+  },
+];
+---
+
+<div class="speakers" data-speakers>
+  <div class="pn-segmented" role="group" aria-label="Who speaks" data-switch hidden>
+    {
+      speakers.map((s, i) => (
+        <button type="button" data-set={s.key} aria-pressed={i === 0 ? "true" : "false"}>
+          {s.label}
+        </button>
+      ))
+    }
+  </div>
+
+  <div class="stage">
+    <p class="say you">
+      <span class="who">{speakers[0].label} says</span>
+      <span>“{request}”</span>
+    </p>
+
+    {
+      speakers.map((s, i) => (
+        <div class="case" data-case={s.key} hidden={i !== 0}>
+          <dl class="steps">
+            <div class="step">
+              <dt>The satellite recognizes</dt>
+              <dd>{s.profile === "Everyone else" ? "No one it knows" : s.profile}</dd>
+            </div>
+            <div class="step">
+              <dt>Profile it uses</dt>
+              <dd>{s.profile}</dd>
+            </div>
+            <div class="step">
+              <dt>Extra instructions</dt>
+              <dd>{s.instructions}</dd>
+            </div>
+          </dl>
+          <p class="say reply">
+            <span class="who">Standalone mode</span>
+            <span>{s.reply}</span>
+          </p>
+          <p class="last">
+            <span class="last-label">Home Assistant, Last speaker</span>
+            <span class="last-value">{s.last}</span>
+          </p>
+        </div>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .speakers {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .stage {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .case {
+    display: grid;
+    gap: 14px;
+  }
+
+  .case[hidden],
+  [hidden] {
+    display: none;
+  }
+
+  .say {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 8px 14px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  .say.reply {
+    border-color: color-mix(in oklab, var(--speaking) 40%, var(--line));
+    background: var(--speaking-soft);
+  }
+
+  .who {
+    color: var(--ink-muted);
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .steps {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+  }
+
+  .step {
+    display: grid;
+    gap: 2px;
+    padding-left: 12px;
+    border-left: 3px solid var(--thinking);
+  }
+
+  dt {
+    color: var(--ink-muted);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 600;
+  }
+
+  .last {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 16px;
+    margin: 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  .last-label {
+    color: var(--ink-muted);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .last-value {
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+    background: var(--signal-soft);
+    color: var(--signal);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 700;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .case[data-fresh] {
+      animation: arrive 200ms ease both;
+    }
+
+    @keyframes arrive {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+    }
+  }
+</style>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-speakers]")) {
+    const toggle = root.querySelector<HTMLElement>("[data-switch]");
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-set]")];
+    const cases = [...root.querySelectorAll<HTMLElement>("[data-case]")];
+    const you = root.querySelector<HTMLElement>(".stage > .say.you");
+    const prefix = you?.querySelector<HTMLElement>(".who");
+    if (!toggle || !you || !prefix) continue;
+
+    toggle.hidden = false;
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        prefix.textContent = `${button.textContent?.trim()} says`;
+        for (const b of buttons) b.setAttribute("aria-pressed", String(b === button));
+        for (const c of cases) {
+          const on = c.dataset.case === button.dataset.set;
+          c.hidden = !on;
+          if (on) {
+            c.removeAttribute("data-fresh");
+            void c.offsetWidth;
+            c.setAttribute("data-fresh", "");
+          }
+        }
+      });
+    }
+  }
+</script>
