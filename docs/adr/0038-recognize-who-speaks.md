@@ -1,7 +1,10 @@
 # ADR 0038: Recognizing who speaks, on the satellite
 
-Status: proposed (2026-11-27). The model choice holds only if the owner's
-recordings pass the test under "Open before building". Amends ADR 0017
+Status: proposed (2026-11-27), accepted (2026-11-27), built for release 1
+(2026-11-28), and tried on the owner's Echo Dot (2nd gen) with two people.
+The model choice holds only if the owner's recordings pass the test under
+"Open before building", which is still open; until then the thresholds are
+provisional. Amends ADR 0017
 (standalone mode: the prompt, the tools, the conversation, typed questions) and
 ADR 0036 (the debugging timeline). Touches ADR 0007 (an entity), ADR 0013 (wake
 words, later), ADR 0029 and ADR 0030 (a confirmation at the device for
@@ -98,12 +101,15 @@ parity test.
 
 ### Off until someone enrolls
 
-- Recognition is opt-in. With nobody enrolled, pinnad doesn't load the model,
-  and requests run as before.
-- Once a first person enrolls, pinnad loads the model in the background,
-  including at each start. That takes about 9 s on the Echo Dot (2nd gen).
-  Until the model is ready, requests run as "Everyone else".
-- When the last person is removed, pinnad unloads the model.
+- Recognition is opt-in. With nobody enrolled, pinnad doesn't load the model.
+  In standalone mode, spoken requests get Everyone else's extra instructions;
+  nothing else changes.
+- pinnad loads the model in the background when an enrollment starts, so the
+  load overlaps the recording, and keeps it loaded, including at each start,
+  while someone has a voiceprint from the installed model. Loading takes
+  about 13 s on the Echo Dot (2nd gen) (2026-11-28). Until the model is
+  ready, requests run as "Everyone else".
+- When nobody has a usable voiceprint any more, pinnad unloads the model.
 
 ### People, and Everyone else
 
@@ -133,7 +139,8 @@ parity test.
   A limit set only on a person is then lost. So people widen what Everyone
   else may do; they don't narrow it.
   - The People page says this.
-  - It warns when a person's settings are narrower than Everyone else's.
+  - From release 2, it warns when a person's tools are narrower than
+    Everyone else's.
 - **Data stays open for later.** A person record can gain wake word ids, to
   bind a wake word to a person or to a mode (ADR 0013). That isn't built now.
 
@@ -149,7 +156,8 @@ parity test.
   - **Second run:** if the first had less than 1.5 s of speech and the person
     goes on speaking, one more run uses 1.5 s.
   - Speech shorter than 1.5 s is repeated to fill it.
-  - The request takes the newest result that finished in time.
+  - The request takes the newest confident match that finished in time. A
+    later uncertain run doesn't override it.
   - A pause gives the run the endpointer's 800 ms silence wait, plus the time
     speech-to-text takes, before anyone needs the result.
   - One input length means one prepared plan, which keeps memory bounded.
@@ -162,6 +170,11 @@ parity test.
     by a margin. Otherwise the result is uncertain.
   - The recordings set both values. The goal is at most 1% of requests taken
     for the wrong person.
+  - Until then, the threshold is 0.4 and the margin 0.1. On the Echo Dot (2nd
+    gen), two people and about 20 commands of 1.1 to 1.5 s of speech scored
+    0.49 to 0.68 against the speaker's own voiceprint and at most 0.34
+    against the other's (2026-11-28). At 0.5, a third of the commands fell
+    back to Everyone else.
 - **In Home Assistant mode,** the same recognition runs on the audio that
   streams to Home Assistant. It only sets "Last speaker".
 
@@ -189,8 +202,9 @@ parity test.
   2. the extra instructions of the person or of Everyone else;
   3. the context.
 
-  When a person was recognized, the context names them ("The speaker is
-  Anna."). For Everyone else, it names nobody.
+  When the profile is a person's, recognized or carried over on a follow-up,
+  the context names them ("The speaker is Anna."). For Everyone else, it
+  names nobody.
 - **Typed questions run with the owner's settings**: the owner's prompt and
   switches, with no person and no extra instructions. Anyone who can type on
   the dashboard can already change every setting there, so limiting them
@@ -199,9 +213,11 @@ parity test.
   owner's switch is on, and the current profile's tool choice allows it.
   pinnad checks this twice: when it builds the tool list, and again when the
   model calls a tool.
-- **Agent bridges (Hermes, OpenClaw) don't get the person.** How they handle
-  users is likely to change, so pinnad passes nobody to them for now. The
-  extra instructions still apply wherever pinnad builds the prompt.
+- **Agent bridges (Hermes, OpenClaw) get the person only through the
+  prompt** pinnad builds: the extra instructions and the speaker's name. How
+  they handle users is likely to change, so pinnad keeps one user per
+  satellite for them. An agent that keeps its own session (OpenClaw) keeps it
+  across a speaker change.
 
 ### Notes kept by voice: release 3, decided separately
 
@@ -222,8 +238,11 @@ parity test.
     request from Home Assistant.
   - **The person's name** once recognition is confident.
   - **`Everyone else`** once it isn't, including too late or too short.
+  - In standalone mode, it shows the profile the request ran with, once the
+    request has it: a speaker carried over on a follow-up shows their name,
+    and a later result doesn't change it.
 
-  Every request therefore changes it twice. An automation that waits for a
+  Every request clears it first. An automation that waits for a
   name sees repeats by the same person, and nothing reads the previous
   speaker by mistake.
 - **It's usually set before Home Assistant has the text,** so a sentence
@@ -240,7 +259,7 @@ parity test.
 
 ### Enrollment
 
-- **On the dashboard, People > a person > Enroll voice.** The person stands at
+- **On the dashboard, Voice & sound > People > a person > Enroll voice.** The person stands at
   the satellite. The owner starts enrollment on the dashboard, and the person
   presses Action.
   - The press uses ADR 0029's confirmation with a new purpose, `ENROLL`. It
@@ -272,7 +291,8 @@ parity test.
   - windows that agree with each other.
 
   A failed check says why and what to do: "Too quiet. Stand closer, within 1
-  m." Muting, **Cancel**, leaving the page or a broken stream store nothing.
+  m." Muting, a press of Action, **Cancel**, leaving the page or a broken
+  stream end it and store nothing.
 - **Enrolling again** replaces the voiceprint only once the new one passes the
   checks. A failed attempt keeps the old one.
 - **A close pair gets a warning.** If a new voiceprint is close to another
@@ -317,13 +337,15 @@ Under "Phases and events", which need nothing beyond the dashboard:
   - when it started and ended;
   - the seconds of speech it used;
   - the outcome: the person's name, uncertain, too short, no model, or
-    finished after speech-to-text returned;
+    failed;
   - the best score and the margin to the second-best;
-  - which run the request used.
+  - run 1 or 2.
 
   pinnad's log line for the request carries the same outcome and name.
 - **Which profile the request ran with**, and why: recognized, carried over
-  from the follow-up, or Everyone else.
+  on a follow-up, person removed, or why nobody was recognized: too late
+  (recognition hadn't finished when speech-to-text returned), uncertain, too
+  short, no model, recognition failed.
 - **Enrollment**, as a span, with its outcome or the failed check.
 - **The model loading**, as a span, and a failure to load.
 
@@ -334,8 +356,11 @@ numbers.
 
 - **CAM++ advanced**, shipped in the image under `/usr/share/pinna/models/`
   with its sha256, through `scripts/fetch-models.sh`.
-  - Its weights are stored at 16 bits, about 14 MB, if the voiceprints stay
-    at cosine 0.999 or better against 32-bit. Computation stays 32-bit.
+  - Its weights are stored as float16, with casts back to float32
+    (`scripts/speaker-f16.py`, run by `scripts/fetch-models.sh`): 14.6 MB
+    instead of 28 MB. The voiceprints match the float32 model at cosine
+    0.999995 on the wake word test recordings, at the same speed
+    (2026-11-28). Computation stays 32-bit.
   - Every owner carries it, including those who never enroll anyone. That
     keeps enrollment working offline.
   - THIRD-PARTY-NOTICES credits it (Apache 2.0).
@@ -354,13 +379,14 @@ numbers.
 
 ### On the dashboard
 
-- **A People page, for both modes:**
+- **A People page under Voice & sound, for both modes:**
   - the list, with Everyone else;
   - adding, renaming and removing a person;
   - enrolling;
   - each profile's extra instructions;
   - from release 2, each profile's tools;
-  - the close-pair and narrower-than-Everyone-else warnings.
+  - the close-pair warning, and from release 2 the narrower-than-Everyone-else
+    warning.
 - The page says plainly:
   - "Voice recognition is a convenience, not a lock: a recording or a similar
     voice can pass as someone else."
@@ -368,22 +394,26 @@ numbers.
   - Voiceprints stay on this satellite, and each person enrolls on each
     satellite.
   - Home Assistant keeps a history of who spoke.
-- **The conversation setting** (new conversation or keep it) is on the
-  standalone Conversation page.
-- **Metrics:** without names, so the threshold can be tuned. Per outcome, how
-  often it happened (a person, uncertain, too short, too late), the score and
-  the margin, and how long recognition took.
+- **The conversation setting** is a switch on the standalone Conversation
+  page, "Continue the conversation when someone else speaks", off by default
+  (a new speaker starts a new conversation).
+- **Metrics** (`pinna_recognition_*`), without names, so the threshold can be
+  tuned: each run's outcome (person, uncertain, too short, no model, failed),
+  the score and the margin, how long a run took, and for each standalone
+  request why it got its profile, too late included.
 
 ## Consequences
 
-- **Memory:** once someone is enrolled, pinnad uses about 55–70 MB more,
-  around 130 MB in total under its 200 MB limit. With nobody enrolled, nothing
-  changes.
+- **Memory:** on the Echo Dot (2nd gen), pinnad is about 45–50 MB without the
+  model and about 72–85 MB with it loaded. Loading peaks at about 116 MB,
+  under its 200 MB limit (2026-11-28). The first build parsed the model twice
+  and peaked at 162 MB, 188 MB with an enrollment at the same time. With
+  nobody enrolled, nothing changes.
 - **CPU:** about 0.76 s of one core per run on the Echo Dot (2nd gen); two runs
   at most per request, overlapping speech and speech-to-text.
-- **Image:** about 16 MB for every owner: 14 MB for the model and 2 MB for
-  tract 0.23. The Echo Dot (5th gen) has 31.7 MB free, so about 15 MB would
-  remain.
+- **Image:** 16 MB for every owner: the model and tract 0.23. The armhf root
+  grew from 99.4 MB to 115.4 MB (115,363,840 bytes, 2026-11-28), so the Echo
+  Dot (5th gen)'s 131.1 MB slot keeps 15.7 MB free.
 - **New in release 1:**
   - `pinna-speaker`, people RPCs, the People page and the enrollment flow;
   - the `ENROLL` confirmation purpose;
@@ -393,8 +423,9 @@ numbers.
 - **Tests:**
   - unit tests for the front end against reference features, and for matching
     and the conversation rule;
-  - `just e2e` with a recognized and an unrecognized speaker, a short
-    follow-up, and a speaker change within the window;
+  - pinnad's spawner and Brain tests for a recognized speaker, a short
+    follow-up and a speaker change within the window, and `just e2e` with
+    nobody enrolled (Everyone else's instructions reach the brain);
   - `just esphome-conformance` for the entity;
   - `just web-check` for the dashboard;
   - parity of the front end and model on armv7;
@@ -428,7 +459,6 @@ numbers.
   "Last speaker" only.
 - **Other models:** the Echo (2nd gen) and the Echo Dot (5th gen) need their
   own takes before the feature is called supported there.
-- **Whether 16-bit weights keep the voiceprints.**
 - **Timing on the Echo Dot (5th gen)** and, once it boots, the Echo Dot (3rd
   gen).
 
