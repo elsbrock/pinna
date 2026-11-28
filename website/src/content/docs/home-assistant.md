@@ -114,6 +114,12 @@ While Home Assistant is connected, it chooses the wake words, on the device
 page under **Configuration**. See
 [Choose the wake words](/docs/wake-words/#in-home-assistant).
 
+## See who spoke
+
+Once you [enroll people](/docs/people/) on the dashboard, the **Last speaker**
+sensor shows who spoke each request. Home Assistant can't tell its
+conversation agent who spoke; the sensor is all it gets.
+
 ## Change the key later
 
 Home Assistant can replace the key over the encrypted connection. Pinna stores

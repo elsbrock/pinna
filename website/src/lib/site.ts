@@ -54,6 +54,7 @@ export const DOCS_NAV: DocGroup[] = [
     items: [
       { slug: "ring-and-buttons", title: "Light ring and buttons" },
       { slug: "wake-words", title: "Wake words" },
+      { slug: "people", title: "Recognize who speaks" },
       { slug: "music", title: "Play music" },
       { slug: "airplay", title: "Play music with AirPlay" },
       { slug: "bluetooth", title: "Play music over Bluetooth" },

@@ -131,9 +131,18 @@ Select **Assistant**, then **Conversation**.
   local time, the place, the language and its name, and in a satellite group
   the other satellites' names, with those in Home Assistant mode named as
   taking messages and control but not timers.
+  The satellite adds extra instructions from
+  [**Voice & sound > People**](/docs/people/) after your prompt: those of the
+  person it recognized, or those of **Everyone else**. For a recognized
+  person, the context also says "The speaker is" and their name. Typed
+  questions get neither.
 - **Follow-ups**: on at first. After each reply, the satellite listens for 4
   seconds more, without the wake word, so you can answer. If you say nothing,
   it stops listening.
+- **Continue the conversation when someone else speaks**: off at first. When
+  the satellite [recognizes](/docs/people/#how-a-conversation-follows-the-speaker)
+  a different person within a conversation's 5 minutes, it starts a new
+  conversation for them. On, they carry on the same one.
 - **Acknowledgment**: on at first. A short phrase, "One moment." in your
   language, that the satellite says when an agent hasn't answered after 3
   seconds, so you know it heard you.
@@ -331,6 +340,8 @@ for what the messages mean.
 
 - Make an AI agent the brain, or let agents use the satellite over MCP:
   [Use an AI agent](/docs/ai-agents/).
+- Give each person in the household their own instructions:
+  [Recognize who speaks](/docs/people/).
 - With more than one satellite, put them in a
   [satellite group](/docs/satellite-groups/).
 - Learn what the [light ring and the buttons](/docs/ring-and-buttons/) show

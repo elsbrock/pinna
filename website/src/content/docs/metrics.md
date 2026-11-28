@@ -142,6 +142,20 @@ increase(pinna_standalone_tokens_total[1d])
 sum by (slot, reason) (increase(pinna_standalone_errors_total[1d]))
 ```
 
+### Recognizing who speaks
+
+These metrics describe [recognizing who speaks](/docs/people/). They carry no
+name of a person. Each spoken request counts at least once, in either mode,
+and a request can have up to two recognition runs. With nobody enrolled, every
+request counts as `no_model`.
+
+| Metric | What it is |
+| --- | --- |
+| `pinna_recognition_outcomes_total{outcome}` | Recognition runs by `outcome`: `person` (the satellite was sure), `uncertain` (nobody matched closely enough), `too_short` (under half a second of speech), `no_model` (nobody has a usable voiceprint, or the speaker model isn't loaded) or `failed` (the model was busy or failed) |
+| `pinna_recognition_score` | Histogram of the best match's cosine similarity in a run, in buckets of 0.1 from 0.1 to 1.0 |
+| `pinna_recognition_margin` | Histogram of how far the best match led the second best, in the same buckets |
+| `pinna_recognition_run_seconds` | Histogram of the time a run took, from asking the speaker model until the match, in buckets from 0.25 to 13 seconds. Runs that didn't ask the model aren't in it |
+
 ### Sendspin
 
 These metrics describe the [Sendspin player](/docs/sendspin/), and show

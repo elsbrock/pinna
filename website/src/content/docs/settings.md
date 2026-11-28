@@ -146,6 +146,7 @@ The device forgets:
   stays
 - the dashboard password, its sessions, and the tokens for the metrics and
   agents
+- the people it recognizes by voice, and their voiceprints
 - SSH keys added on the device, and its SSH host key.
 
 It then restarts as it was installed. Its log stays, and so does the version

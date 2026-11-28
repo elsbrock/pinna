@@ -57,6 +57,11 @@ These parts are covered by tests that run without hardware:
   records a standalone request against simulated services: its phases, wake
   word, stages and requests, without the text of the request, and the audio
   levels in 100 ms buckets. No device has run it yet.
+- [Recognizing who speaks](/docs/people/) passes tests without a device: the
+  people list, enrolling a voice with a press of **Action**, the **Last
+  speaker** entity, and, in standalone mode, the prompt for a recognized and
+  an unrecognized speaker, a typed question and a change of speaker within a
+  conversation. Those tests use simulated recognition results.
 - [Standalone mode](/docs/standalone/) runs a request against simulated
   services: a spoken or typed request goes through speech-to-text, the brain's
   tool loop or an agent, and text-to-speech that plays while it streams. The
@@ -133,6 +138,11 @@ On the devices:
   has been tried on an Echo Dot (2nd gen) with OpenRouter and ElevenLabs, not
   yet with each hosted service.
   - MCP servers that sign in through a browser (OAuth) can't be used.
+- **The thresholds for recognizing who speaks aren't tuned yet.**
+  The values that decide when the satellite is sure are provisional. How often
+  it takes one person for another, or fails to recognize someone, isn't
+  measured on recordings from several people at home, and no device has run it
+  yet. See [Recognize who speaks](/docs/people/).
 - **Sendspin is experimental.** Its specification is still a draft. Music
   Assistant connects without pairing, so anyone on your network can play to
   the satellite. How closely the satellite keeps step with other speakers
@@ -148,6 +158,9 @@ On the devices:
 - **More for standalone mode**: several satellites that share one
   conversation. In a satellite group,
   one answer when several hear the wake word.
+- **Tools for each person, and voice notes**: a person's own choice of the
+  tools the brain may use, and notes that a person keeps by voice. For now, a
+  person has extra instructions only.
 - **A setup hotspot password that only the owner can learn**, instead of one
   that every device shares.
 - **64-bit ARM**: the MT8163, the processor of the Echo (2nd gen) and the Echo

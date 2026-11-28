@@ -111,8 +111,8 @@ mode; see [AssistantService](#assistantservice).
   `pinnactl` and the boot health check use this address. It serves
   `DeviceService` only.
 - On port 80, with the dashboard, for your network (`[web]` in the
-  [developer settings](/docs/configure/#web)). It serves `DeviceService` and
-  `AssistantService`, and `PeerService`, which the other satellites of a
+  [developer settings](/docs/configure/#web)). It serves `DeviceService`,
+  `AssistantService`, `PeopleService`, and `PeerService`, which the other satellites of a
   [satellite group](#satellite-group) call. Without a
   [dashboard password](/docs/dashboard/#who-can-use-the-dashboard), it has no
   authentication. With one, every call needs a session, which `POST
@@ -172,7 +172,7 @@ mode; see [AssistantService](#assistantservice).
 | `SetDashboardPassword` | `new_password` (8 to 128 characters), and `current_password` or `grant` | Sets or changes the dashboard password, and ends every session. Needs no session: it checks its own credentials. With a password set it needs `current_password` or a `grant`; without one, a `grant` from a confirmation. A wrong current password counts as a failed sign-in |
 | `RemoveDashboardPassword` | `current_password` or `grant` | Removes the password, and ends every session. Needs a session and the current password or a grant |
 | `LeaveDashboardOpen` | Empty | Records that the owner chose **Leave it open**, so the dashboard stops offering a password. Returns `failed_precondition` when a password is set |
-| `StartConfirmation` | `purpose` (optional) | Asks for someone at the satellite: for 60 seconds the ring shows the confirm pattern, and the next press of **Action** confirms. With `purpose` `CONFIRMATION_PURPOSE_RECORDING` or `CONFIRMATION_PURPOSE_DEBUGGING_TEXT`, the ring circles in the Listening colour instead, the call needs a dashboard password and a session, and the grant is good for 10 seconds, for that session only. Returns the `id` to pass to `WatchConfirmation` and the `seconds` it waits. Records the address of the caller. Without a `purpose`, it needs no session. Returns `resource_exhausted` while another confirmation waits or one ended in the last 60 seconds (10 seconds after a cancel), and says how long to wait |
+| `StartConfirmation` | `purpose` (optional) | Asks for someone at the satellite: for 60 seconds the ring shows the confirm pattern, and the next press of **Action** confirms. With `purpose` `CONFIRMATION_PURPOSE_RECORDING` or `CONFIRMATION_PURPOSE_DEBUGGING_TEXT`, the ring circles in the Listening colour instead, the call needs a dashboard password and a session, and the grant is good for 10 seconds, for that session only. With `CONFIRMATION_PURPOSE_ENROLL`, for [`PeopleService.Enroll`](#peopleservice), the ring circles in the Listening colour too, but the call needs no password and no session, and the grant is good for 10 seconds, for the session that asked when it has one. Returns the `id` to pass to `WatchConfirmation` and the `seconds` it waits. Records the address of the caller. Without a `purpose`, it needs no session. Returns `resource_exhausted` while another confirmation waits or one ended in the last 60 seconds (10 seconds after a cancel), and says how long to wait |
 | `WatchConfirmation` | `id` | Streams the confirmation: `CONFIRMATION_STATE_WAITING` with `seconds_left`, then `_CONFIRMED` with a one-time `grant` that is valid for 5 minutes, `_EXPIRED`, or `_CANCELED` after `CancelConfirmation`. Needs no session |
 | `CancelConfirmation` | `id` (optional) | Ends a confirmation: the ring stops at once, its watchers see `CONFIRMATION_STATE_CANCELED`, and the next confirmation can start 10 seconds later. With the `id` of the confirmation, it needs no session: the `id` is the proof. With an empty `id`, it ends whichever confirmation waits, and needs a session; without one it returns `unauthenticated`. An unknown `id` returns `not_found`. Ending a confirmation that isn't waiting is not an error |
 | `CreateToken` | `kind`: `TOKEN_KIND_METRICS` or `TOKEN_KIND_AGENT` | Creates the token for `/metrics` or for `/mcp`. Returns the `token`, once, and the `Security` state. A new token replaces the old one, which stops working at once. Only the SHA-256 of a token is kept |
@@ -353,6 +353,39 @@ them. A member that the others' lists mark removed forgets the group. When
 every other member has answered two searches in a row outside the group and
 refused its `GetGroup`, it leaves the group too. A call from another satellite
 doesn't keep a new Wi-Fi network on trial: only opening the dashboard does.
+
+## PeopleService
+
+`pinna.v1.PeopleService`, defined in
+[`proto/pinna/v1/people.proto`](https://github.com/elsbrock/pinna/blob/main/proto/pinna/v1/people.proto),
+manages the people that the satellite
+[recognizes by voice](/docs/people/): their names, their extra instructions
+and the state of their voiceprints. The dashboard's **Voice & sound > People**
+page uses it. `pinnad` serves it on port 80 with the dashboard, behind the same
+sign-in as `AssistantService`, in either mode. No response carries a
+voiceprint.
+
+A refused change changes nothing. Its message is one sentence for the owner,
+with one of these codes:
+
+- `invalid_argument`: the request is wrong in itself, for example an empty
+  name, a name used by another person or by Everyone else, a name over 40
+  characters or instructions over 1,000.
+- `aborted`: the request names a `revision` that changed meanwhile, or a
+  person who was removed meanwhile. Read the list again with `GetPeople`, then retry.
+- `failed_precondition`: the satellite refuses now, for example an enrollment
+  while the microphones are off or the satellite isn't idle.
+- `not_found`: the person isn't on the list.
+- `permission_denied`: the `grant` of `Enroll` has expired, was already used or belongs to another session.
+- `unavailable`: the speaker model can't be loaded, or the satellite can't enroll voices.
+
+| Method | Request | What it does |
+| --- | --- | --- |
+| `GetPeople` | Empty | Returns `everyone_else` (its `instructions` and `revision`), the `people` (each with `id`, `name`, `instructions`, `revision`, `voice` and `close_to`), `recognition` and `limits`. `voice` is `VOICE_STATE_NONE` (not enrolled), `_ENROLLED`, `_OTHER_MODEL` (the voiceprint is from another speaker model and is ignored) or `_OLDER_CAPTURE` (it is still used; enrolling again is suggested). `close_to` lists the ids of the people whose voiceprints are close to this one's, so the satellite may mix them up. `recognition` has a `state`: `RECOGNITION_STATE_NOT_NEEDED` (nobody has a usable voiceprint, so the model isn't loaded), `_LOADING`, `_READY` or `_UNAVAILABLE`, with a `reason` sentence. `limits` has `max_people` (10), `max_name` (40) and `max_instructions` (1,000) |
+| `SetPerson` | `id` (empty adds a person), `revision` (ignored when adding), `name`, `instructions` | Adds a person or changes a person's name and extra instructions, and returns the `person` as saved. The name must be unique among the people, ignoring case, and not "Everyone else". Past `max_people`, adding returns `invalid_argument` |
+| `DeletePerson` | `id` | Removes a person and their voiceprint. An `id` that isn't on the list succeeds and changes nothing. A request that is running keeps the profile it started with |
+| `SetEveryoneElse` | `instructions`, `revision` | Changes the extra instructions of everyone who isn't on the list, and returns `everyone_else` |
+| `Enroll` | `id`, `grant` | Records the person's voice for 30 seconds and keeps its voiceprint. A server stream: `started` (with `seconds`), then `progress` about every 200 ms (`seconds_heard`, `seconds_of_speech`, `level_dbfs`), then `done` (the `person` as saved, `seconds_of_speech` and `close_to`) or `failed` (`reason` and a `message` sentence; nothing was saved, and an earlier voiceprint is kept). `grant` comes from a `StartConfirmation` with `CONFIRMATION_PURPOSE_ENROLL`, which a press of **Action** confirmed. The `reason` is `ENROLL_FAILURE_TOO_SHORT` (under 10 seconds of speech), `_TOO_QUIET`, `_CLIPPED`, `_INCONSISTENT`, `_ENDED` (muting, a press of **Action**, an announcement, an alarm, the person's removal or `pinnad` stopping), `_BUSY` or `_UNAVAILABLE`. The audio stays in memory on the satellite. Ending the call stores nothing, and so does `StopRecording` from another browser, which ends a running enrollment. Returns `failed_precondition` while the microphones are off, a calibration, a recording or another enrollment runs, or the satellite isn't idle, `not_found` for a person who isn't on the list, `permission_denied` for a bad or used `grant`, and `unavailable` while the speaker model can't be loaded |
 
 ## MCP server
 

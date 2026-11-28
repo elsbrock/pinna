@@ -374,6 +374,36 @@ A check or a request that fails gives one of these sentences:
 
 For the setup, see [Set up standalone mode](/docs/standalone/).
 
+## The satellite doesn't recognize me
+
+Open **Voice & sound > People**. The page says whether recognition runs:
+
+| Message | What to do |
+| --- | --- |
+| `Nobody is enrolled, so the satellite doesn't recognize voices yet.` | Add a person and [enroll their voice](/docs/people/#add-a-person-and-enroll-their-voice) |
+| `Nobody has a voiceprint the satellite can use, so it doesn't recognize voices yet. Enroll each person.` | People are listed, but each says **Enroll again: the speaker model changed**. Select **Change** next to each, then **Enroll again** |
+| `Loading the speaker model. Until it's ready, requests use Everyone else.` | Wait a few seconds. The satellite loads the model after each start |
+| The model couldn't be loaded | The page gives the reason. Requests use **Everyone else** meanwhile. Restart the satellite, and open an issue if it comes back; see [Report a problem](#report-a-problem) |
+| `Voice recognition is on.` | Recognition runs. See below |
+
+If recognition runs and the satellite still takes you for **Everyone else**:
+
+- Speak a longer sentence. A request with under half a second of speech is
+  too short to recognize.
+- Stand closer, and turn off music or a TV.
+- Next to your name, **Enrolled with older settings** or **Enroll again: the
+  speaker model changed** says to enroll again. Select **Change** next to your
+  name, then **Enroll again**.
+- A warning that your voice **May be mixed up with** someone else's says to
+  enroll both again, closer to the satellite.
+- With [debugging on](#follow-a-request-on-the-timeline), the timeline shows
+  each recognition run as a stage with its score and the seconds of speech it
+  used.
+
+If an enrollment fails, the page says why: `Too short`, `Too quiet`,
+`Clipped` or `Inconsistent`. See
+[If the enrollment fails](/docs/people/#if-the-enrollment-fails) for what to do.
+
 ## The device opens fastboot on its own
 
 On an Echo (2nd gen) or an Echo Dot (2nd gen), Pinna's health check failed, so
@@ -450,7 +480,10 @@ was kept.
   Every request the satellite sends to a service, with its address without the
   query, its status, when the answer started and ended, and its size. Media and
   MCP requests show the host only, because their addresses can carry tokens.
-  Headers are never recorded.
+  Headers are never recorded. With
+  [people enrolled](/docs/people/), it also records each recognition run and
+  the profile each request used, and each enrollment. These name the people
+  who spoke or enrolled.
 - **Audio levels**, with a dashboard password: every 100 ms, the microphone
   level before and after the gain, the gain, each wake word's score, and the
   speaker's level. They are numbers, never audio, but they show when someone
@@ -597,7 +630,8 @@ to your Wi-Fi first.
    `[Wi-Fi network]`, and so does the part of the MAC address in the
    satellite's default name (`pinna-[MAC]`). The log can still hold other
    details: a name you gave the satellite, the names of paired phones and
-   timers, and host names and web addresses.
+   timers, the names of the people the satellite recognizes and which of them
+   spoke when, and host names and web addresses.
 
 The copied log holds at most 50,000 characters. A longer log is cut to its
 newest lines, and the title of the collapsed section says so, such as **Log,

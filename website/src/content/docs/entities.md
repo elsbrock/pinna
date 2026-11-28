@@ -47,6 +47,7 @@ survive a restart.
 | Entity | Object ID | Type | Value |
 | --- | --- | --- | --- |
 | Last wake word | `last_wake_word` | Text sensor | The wake word heard most recently, for example `Hey Jarvis`. With two words active, it names the one that fired |
+| Last speaker | `last_speaker` | Text sensor | Who spoke in the current request: empty when each spoken request starts, then the person's name, or `Everyone else` when the satellite isn't sure or nobody is enrolled. In standalone mode, it shows the profile the request used. A question typed on the dashboard doesn't change it. See [Recognize who speaks](/docs/people/) |
 | Debugging | `debugging` | Binary sensor | On while debugging runs on the satellite. You can only read it: debugging starts on the dashboard, under **System > Timeline**, and ends there, with **Stop it** on **Overview**, or when its time runs out |
 
 ## Events
