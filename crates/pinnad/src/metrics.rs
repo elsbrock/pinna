@@ -81,6 +81,11 @@ struct SpeakerOutcome {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct ProfileReason {
+    reason: &'static str,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct Failure {
     slot: &'static str,
     reason: &'static str,
@@ -129,6 +134,7 @@ pub struct Counters {
     speaker_score: Histogram,
     speaker_margin: Histogram,
     speaker_run: Histogram,
+    profiles: Family<ProfileReason, Counter>,
 }
 
 /// Who asked for a tool call.
@@ -193,6 +199,13 @@ impl Counters {
         }
     }
 
+    /// The profile a spoken standalone request ran with, by why (ADR 0038):
+    /// `too_late` counts requests whose recognition hadn't finished when
+    /// speech-to-text returned. No names.
+    pub fn profile(&self, reason: &'static str) {
+        self.profiles.get_or_create(&ProfileReason { reason }).inc();
+    }
+
     /// The capture loop's running total of microphone frames a standalone
     /// request did not take in time. There is one capture loop, so the
     /// counter itself holds the total already counted.
@@ -219,6 +232,7 @@ impl Default for Counters {
             speaker_score: Histogram::new(SPEAKER_BUCKETS),
             speaker_margin: Histogram::new(SPEAKER_BUCKETS),
             speaker_run: Histogram::new(SPEAKER_RUN_BUCKETS),
+            profiles: Family::default(),
         }
     }
 }
@@ -448,6 +462,12 @@ pub fn registry(
         "pinna_recognition_run_seconds",
         "Time a speaker recognition run took, from asking the model until the match",
         counters.speaker_run.clone(),
+    );
+    r.register(
+        "pinna_recognition_profiles",
+        "Spoken standalone requests by why they ran with their profile: recognized, carried_over, \
+         person_removed, too_late, uncertain, too_short, no_model or recognition_failed",
+        counters.profiles.clone(),
     );
     r.register_collector(Box::new(Status {
         info,
@@ -1557,14 +1577,32 @@ Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
         c.speaker("too_short", None, None, None);
         let t = scrape(Snapshot::default(), &c, dir.path());
         has(&t, "pinna_recognition_outcomes_total{outcome=\"person\"} 1");
-        has(&t, "pinna_recognition_outcomes_total{outcome=\"uncertain\"} 1");
-        has(&t, "pinna_recognition_outcomes_total{outcome=\"too_short\"} 1");
+        has(
+            &t,
+            "pinna_recognition_outcomes_total{outcome=\"uncertain\"} 1",
+        );
+        has(
+            &t,
+            "pinna_recognition_outcomes_total{outcome=\"too_short\"} 1",
+        );
         has(&t, "# TYPE pinna_recognition_score histogram");
         has(&t, "pinna_recognition_score_bucket{le=\"0.5\"} 1");
         has(&t, "pinna_recognition_score_bucket{le=\"0.9\"} 2");
         has(&t, "pinna_recognition_margin_bucket{le=\"0.1\"} 1");
         has(&t, "pinna_recognition_margin_bucket{le=\"0.4\"} 2");
         has(&t, "pinna_recognition_run_seconds_count 1");
+        c.profile("too_late");
+        c.profile("recognized");
+        c.profile("too_late");
+        let t = scrape(Snapshot::default(), &c, dir.path());
+        has(
+            &t,
+            "pinna_recognition_profiles_total{reason=\"too_late\"} 2",
+        );
+        has(
+            &t,
+            "pinna_recognition_profiles_total{reason=\"recognized\"} 1",
+        );
     }
 
     #[test]

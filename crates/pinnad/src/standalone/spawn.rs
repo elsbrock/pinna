@@ -102,6 +102,7 @@ impl ProdSpawner {
                 speaker: self.speaker.clone(),
                 inputs: self.inputs.clone(),
                 log: log.clone(),
+                counters: self.kit.counters().clone(),
                 live: live.clone(),
                 device: device.clone(),
                 group: group.clone(),
@@ -199,6 +200,7 @@ struct Profiled {
     speaker: Arc<Speaker>,
     inputs: mpsc::Sender<Input>,
     log: Arc<RunLog>,
+    counters: crate::metrics::Counters,
     live: Arc<AssistLive>,
     device: DeviceFacts,
     group: Vec<GroupMember>,
@@ -236,6 +238,7 @@ impl Personalize for Profiled {
                 self.run.0,
             );
             self.log.profile(line.clone());
+            self.counters.profile(reason_label(choice.reason));
 
             let (extra, speaker) = match &choice.person {
                 Some(person) => (person.instructions.clone(), Some(person.name.clone())),
@@ -265,6 +268,20 @@ impl Personalize for Profiled {
                 history: choice.reset.then(Vec::new),
             })
         })
+    }
+}
+
+/// A profile's reason as a metric label: no spaces, and short.
+fn reason_label(reason: &'static str) -> &'static str {
+    match reason {
+        "recognized" => "recognized",
+        "carried over on a follow-up" => "carried_over",
+        "person removed" => "person_removed",
+        "too late" => "too_late",
+        "too short" => "too_short",
+        "no model" => "no_model",
+        "recognition failed" => "recognition_failed",
+        _ => "uncertain",
     }
 }
 

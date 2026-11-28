@@ -155,6 +155,7 @@ request counts as `no_model`.
 | `pinna_recognition_score` | Histogram of the best match's cosine similarity in a run, in buckets of 0.1 from 0.1 to 1.0 |
 | `pinna_recognition_margin` | Histogram of how far the best match led the second best, in the same buckets |
 | `pinna_recognition_run_seconds` | Histogram of the time a run took, from asking the speaker model until the match, in buckets from 0.25 to 13 seconds. Runs that didn't ask the model aren't in it |
+| `pinna_recognition_profiles_total{reason}` | Spoken requests in standalone mode by why they ran with their profile: `recognized`, `carried_over` (a follow-up kept the conversation's speaker), `person_removed`, `too_late` (recognition hadn't finished when speech-to-text returned), `uncertain`, `too_short`, `no_model` or `recognition_failed` |
 
 ### Sendspin
 

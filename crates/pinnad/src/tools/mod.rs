@@ -745,6 +745,11 @@ impl ToolKit {
         }
     }
 
+    /// The counters the tools count in, for the standalone run's other records.
+    pub fn counters(&self) -> &Counters {
+        &self.counters
+    }
+
     /// The updater the update tools check and install with.
     pub fn with_updater(mut self, updater: Arc<Updater>) -> Self {
         self.updater = Some(updater);
