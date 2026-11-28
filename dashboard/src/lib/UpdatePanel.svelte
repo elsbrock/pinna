@@ -448,9 +448,9 @@
         id="include-in-statistics"
         label="Include in the statistics"
         checked={device.status?.settings?.includeInStatistics ?? true}
-        disabled={!live || off}
+        disabled={!live}
         busy={device.busy}
-        hint="Once a day the update check also names the satellite's hardware, such as cannoli, so that getpinna.dev counts satellites for its public statistics. It sends no identifier, and no address is kept.{off ? ' Updates is off, so nothing is sent.' : ''}"
+        hint="Once a day the update check also names this satellite's hardware, so that getpinna.dev/statistics counts satellites by hardware, version, channel and country. The counts hold no address or identifier.{off ? ' With Updates off, nothing is sent.' : ''}"
         toggle={setStatistics}
       />
     {/if}
