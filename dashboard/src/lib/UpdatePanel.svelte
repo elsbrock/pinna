@@ -13,6 +13,7 @@
   import Group from "./Group.svelte";
   import Icon from "./Icon.svelte";
   import Select from "./Select.svelte";
+  import SwitchRow from "./SwitchRow.svelte";
   import { toasts } from "./toast.svelte.ts";
   import { windows } from "./windows.svelte.ts";
   import {
@@ -175,6 +176,14 @@
     const failed = await device.saveSettings(
       { installUpdates: INSTALL[name] },
       name === "automatically" ? "Updates install automatically" : "Updates install when you ask",
+    );
+    if (failed) toasts.show(failed, "danger");
+  }
+
+  async function setStatistics(on: boolean) {
+    const failed = await device.saveSettings(
+      { includeInStatistics: on },
+      on ? "Included in the statistics" : "Left out of the statistics",
     );
     if (failed) toasts.show(failed, "danger");
   }
@@ -435,6 +444,15 @@
           </div>
         {/if}
       {/if}
+      <SwitchRow
+        id="include-in-statistics"
+        label="Include in the statistics"
+        checked={device.status?.settings?.includeInStatistics ?? true}
+        disabled={!live || off}
+        busy={device.busy}
+        hint="Once a day the update check also names the satellite's hardware, such as cannoli, so that getpinna.dev counts satellites for its public statistics. It sends no identifier, and no address is kept.{off ? ' Updates is off, so nothing is sent.' : ''}"
+        toggle={setStatistics}
+      />
     {/if}
     <div class="pn-row">
       <div class="pn-row-text">

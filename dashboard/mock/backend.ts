@@ -107,6 +107,7 @@ const settings: Settings = {
   installUpdates: InstallUpdates.MANUALLY,
   installWindowStart: "03:00",
   installWindowEnd: "05:00",
+  includeInStatistics: true,
 };
 
 const state = {

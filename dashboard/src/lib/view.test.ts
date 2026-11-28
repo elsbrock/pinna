@@ -51,6 +51,7 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
   installUpdates: 1,
   installWindowStart: "03:00",
   installWindowEnd: "05:00",
+  includeInStatistics: true,
   ...over,
 });
 import {
