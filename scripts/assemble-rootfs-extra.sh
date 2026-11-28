@@ -126,7 +126,9 @@ fi
 # Wake word models
 if [ -d "$root/blobs/models" ]; then
   install -d "$out/usr/share/pinna"
-  cp -r "$root/blobs/models" "$out/usr/share/pinna/models"
+  # -L: a worktree's models are often a symlink to the main checkout's, and
+  # the image needs the files, not a link to this computer.
+  cp -rL "$root/blobs/models" "$out/usr/share/pinna/models"
 else
   warn "no wake word models (just models)"
 fi
